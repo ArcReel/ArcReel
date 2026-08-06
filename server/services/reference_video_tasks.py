@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 async def _persist_effective_duration(task_id: str, duration_seconds: int) -> None:
     """把取档后实际申请的秒数写回 task payload，供 resume 路径读取（见调用点注释）。
 
-    非致命路径：持久化失败只降级 resume 元数据精度，不影响本次已在进行的生成，
+    非致命路径：持久化失败只降级 resume 元数据精度，不影响已在进行的生成，
     故只记日志、不上抛阻断 executor 主流程。
     """
     try:
@@ -66,7 +66,7 @@ async def _persist_effective_duration(task_id: str, duration_seconds: int) -> No
 async def _persist_execution_identity(
     task_id: str, execution_model: ProviderModel, capability: VideoCapability
 ) -> None:
-    """把执行期实际解析出的身份写回 ``task.provider_id`` 列与 payload 钉住键（见调用点注释）。
+    """把执行期实际解析出的身份写回 ``task.provider_id`` 列与 payload 锁定键（见调用点注释）。
 
     fail-fast：写回失败上抛、任务在向 provider 提交前失败。吞掉异常继续提交会留下
     「身份停留在入队投影、job_id 却已持久化」的任务——重启恢复拿错 backend
@@ -675,10 +675,10 @@ async def execute_reference_video_task(
     # 时长，即回退路径本身的行为），不影响当前生成结果，不 fail-fast。
     if task_id is not None:
         await _persist_effective_duration(task_id, effective_duration)
-        # task.provider_id 列与 payload 钉住键都是入队时按 unit 声明近似的投影，执行按
+        # task.provider_id 列与 payload 锁定键都是入队时按 unit 声明近似的投影，执行按
         # 解析后实际参考图分桶后两者可能与实际分裂（ad 声明了参考但资产全缺图：投影
-        # r2v、执行降级 i2v）。resume 解析里钉住键优先于列注入——提交前把实际执行身份
-        # 写回列与钉住键，否则重启后会按陈旧身份去轮实际 backend 的 provider_job_id，
+        # r2v、执行降级 i2v）。resume 解析里锁定键优先于列注入——提交前把实际执行身份
+        # 写回列与锁定键，否则重启后会按陈旧身份去轮实际 backend 的 provider_job_id，
         # 已提交任务的恢复丢失。
         await _persist_execution_identity(task_id, video.provider_model, execution_capability)
 

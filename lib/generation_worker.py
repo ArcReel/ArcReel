@@ -370,7 +370,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     按 i2i 槽精确解析。视频定桶经 ``video_bucket_for_queued_task`` 与入队派生共用：
     参考生视频按 unit **声明**的参考集近似分流（无引用退化镜头 → i2v），投影只服务 claim
     过滤与限流路由；执行侧按解析后的**实际**参考图精确定桶，ad 声明了参考但资产缺图时
-    两者允许分裂（执行前经 ``persist_execution_identity`` 把实际身份写回投影列与钉住键）。
+    两者允许分裂（执行前经 ``persist_execution_identity`` 把实际身份写回投影列与锁定键）。
     解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
@@ -764,7 +764,7 @@ class GenerationWorker:
     async def _process_resume_task(self, task: dict[str, Any]) -> None:
         """重启自愈入口：直接调 backend.resume_video，绕过 normal executor 流水线。
 
-        身份锁定：视频任务的 provider 与 model 由入队时钉进 payload 能力桶键的执行身份负责
+        身份锁定：视频任务的 provider 与 model 由入队时锁进 payload 能力桶键的执行身份负责
         （``lib.generation_queue``），``ConfigResolver`` 据此按提交时的身份而非当前项目配置解析
         backend——否则任务提交后到重启前若项目 provider 配置切换，会拿旧 ``provider_job_id``
         去新 provider 轮询，导致可恢复任务被误判失败。
@@ -787,7 +787,7 @@ class GenerationWorker:
             return
 
         # 非视频媒体：锁定持久化 provider 到 payload（resolver 优先级：payload > project > 默认）。
-        # 视频任务的身份走入队钉住的能力桶键，不在此注入——注入只覆盖 provider、盖不住 model。
+        # 视频任务的身份走入队锁定的能力桶键，不在此注入——注入只覆盖 provider、盖不住 model。
         persisted_provider_id = task.get("provider_id")
         is_video = task.get("media_type") == "video" or task_type in ("video", "reference_video")
         if persisted_provider_id and not is_video:
@@ -889,7 +889,7 @@ class GenerationWorker:
         - video running，可 resume backend (ark/gemini/openai/newapi)：
           - 无 provider_job_id → [restart_lost]
           - 有 job_id → 收集到 `resumable_by_provider` 桶，后台 dispatcher 受
-            video 容量约束分批 dispatch（fix #647 第 1 项）
+            video 容量约束分批 dispatch
 
         启动期 fast path（本函数）**只做终结类处理**，立刻返回；可 resume 的视频孤儿
         派发给后台 dispatcher 处理，避免 N 个 Sora orphan × 每个 5min poll 把启动期

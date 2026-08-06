@@ -1152,7 +1152,7 @@ def test_resolve_max_duration_tracks_narrowed_set(tmp_path):
 
     # rv 模式是 max_duration 真正当 unit 总时长上限用的分支：上限一旦退回 caps["max_duration"]
     # （Veo 全集 8、海螺全集 10），step1 会按全集上限拆 unit、step2 的枚举再判非法。
-    # 两侧都钉死具体值，同时钉住「上限 == max(枚举集合)」这条不变量。
+    # 两侧都钉死具体值，同时锁定「上限 == max(枚举集合)」这条不变量。
     for sg_case, caps_case, expected in ((sg, caps, 8), (hailuo, hailuo_caps, 6)):
         durations = sg_case._resolve_supported_durations(caps_case, gen_mode="reference_video")
         assert durations == [expected]

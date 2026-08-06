@@ -401,7 +401,7 @@ class TestItemDurationCoercion:
 
     校验失败降级保存的原始 dict 会把 None/bool/负数/字符串/缺失等脏值带到读路径，
     历史上三份兜底表 + 三套守卫互异（StatusCalculator 缺 None 守卫致 sum() TypeError、
-    项目列表 API 5xx）。此处穷举脏值矩阵 × 四骨架，钉住单点化后的统一口径。
+    项目列表 API 5xx）。此处穷举脏值矩阵 × 四骨架，锁定单点化后的统一口径。
     """
 
     @pytest.mark.unit

@@ -98,7 +98,7 @@ def test_module_imports_first_in_fresh_process(module_name: str) -> None:
 
     ``lib.config`` 与 ``lib.custom_provider`` 互相引用（后者装配 backend、backend 又读前者的
     URL 工具），一旦某条边退回模块级导入就会成环——而环只在特定模块打头时才炸，同进程的
-    冒烟遍历因 ``sys.modules`` 已被前序用例填热而看不见。全新子进程是唯一能钉住"任意顺序
+    冒烟遍历因 ``sys.modules`` 已被前序用例填热而看不见。全新子进程是唯一能锁定"任意顺序
     均可独立导入"的手段。
     """
     try:

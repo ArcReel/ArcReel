@@ -755,7 +755,7 @@ class TestAdStatusCalculation:
     @pytest.mark.unit
     def test_duck_typing_precedence_segments_over_scenes_over_shots(self):
         """缺 content_mode 的老脚本同时残留多种键时，鸭子类型优先级固定为
-        segments > scenes > shots（依赖 _LEGACY_DUCK_TYPE_KINDS 顺序，本测试钉住该顺序）。"""
+        segments > scenes > shots（依赖 _LEGACY_DUCK_TYPE_KINDS 顺序，本测试锁定该顺序）。"""
         kind, _ = StatusCalculator._select_kind_and_items(
             {"segments": [{}], "scenes": [{}], "shots": [{}]}, "storyboard"
         )

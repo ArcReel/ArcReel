@@ -77,7 +77,7 @@ class TestVideoGenerateAudio:
 
     @pytest.mark.unit
     async def test_default_is_true_when_db_empty(self, tmp_path):
-        """DB 无值时应返回 True（PR7 §11 决策：与 Seedance/Grok 默认开启一致）。"""
+        """DB 无值时应返回 True（与 Seedance/Grok 默认开启一致）。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         result = await resolver._resolve_video_generate_audio(fake_svc, project_name=None)
@@ -1162,7 +1162,7 @@ class TestResolveImageBackend:
 
     @pytest.mark.unit
     async def test_payload_capability_slot_is_not_a_payload_layer_key(self):
-        """图片任务不钉住执行身份：``image_provider_<cap>`` 只是项目层键，payload 里同名键不参与解析。"""
+        """图片任务不锁定执行身份：``image_provider_<cap>`` 只是项目层键，payload 里同名键不参与解析。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"image_provider_t2i": "ark/proj-t2i"}
@@ -1375,7 +1375,7 @@ class TestLayeredBackendSkeleton:
 
 
 class TestResolveVideoBackend:
-    """resolve_video_backend：payload 钉住键 > project > 全局默认。"""
+    """resolve_video_backend：payload 锁定键 > project > 全局默认。"""
 
     @pytest.mark.unit
     async def test_project_video_backend_when_no_payload(self):
@@ -1450,7 +1450,7 @@ class TestResolveVideoBackend:
 
     @pytest.mark.unit
     async def test_payload_without_pinned_bucket_key_falls_through_to_project(self):
-        """payload 层只认钉住的能力桶键：非桶键的 provider 字段不参与解析，一律回退配置层。"""
+        """payload 层只认锁定的能力桶键：非桶键的 provider 字段不参与解析，一律回退配置层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "ark/doubao-seedance-2-0-260128"}
@@ -2015,7 +2015,7 @@ class TestResolveRawSupportedDurations:
 
 
 class TestPayloadPinnedVideoModel:
-    """入队钉进 payload 能力桶键的执行身份：优先级最高，且不承诺桶的调用方（resume）也读得到。"""
+    """入队锁进 payload 能力桶键的执行身份：优先级最高，且不承诺桶的调用方（resume）也读得到。"""
 
     @pytest.mark.unit
     async def test_pinned_bucket_key_wins_over_project(self):
@@ -2028,9 +2028,9 @@ class TestPayloadPinnedVideoModel:
 
     @pytest.mark.unit
     async def test_pinned_bucket_key_skips_capability_gate(self):
-        """钉住身份只过身份可用性、不过能力闸：已入队任务按 payload 照常执行，不回头补校验。
+        """锁定身份只过身份可用性、不过能力闸：已入队任务按 payload 照常执行，不回头补校验。
 
-        钉的是 i2v-only 的 viduq3-pro 而按 r2v 解析——过能力闸就会报错。
+        锁的是 i2v-only 的 viduq3-pro 而按 r2v 解析——过能力闸就会报错。
         """
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
@@ -2050,7 +2050,7 @@ class TestPayloadPinnedVideoModel:
 
     @pytest.mark.unit
     async def test_pin_of_other_bucket_ignored_when_capability_given(self):
-        """capability 明确时只认该桶的键，另一个桶的钉不越桶生效。"""
+        """capability 明确时只认该桶的键，另一个桶的锁不越桶生效。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
@@ -2060,7 +2060,7 @@ class TestPayloadPinnedVideoModel:
 
     @pytest.mark.unit
     async def test_pin_of_unavailable_provider_raises_instead_of_falling_back(self):
-        """钉住的供应商已下线：报错，不回退配置层。
+        """锁定的供应商已下线：报错，不回退配置层。
 
         回退等于换供应商执行，续跑更会拿另一个 backend 去轮原供应商的 provider_job_id。
         """
@@ -2074,7 +2074,7 @@ class TestPayloadPinnedVideoModel:
 
     @pytest.mark.unit
     async def test_pin_of_deleted_builtin_model_raises(self):
-        """钉住的内置 model 被注册表升级删除：报错，不带着悬空身份继续执行。"""
+        """锁定的内置 model 被注册表升级删除：报错，不带着悬空身份继续执行。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
@@ -2085,7 +2085,7 @@ class TestPayloadPinnedVideoModel:
 
     @pytest.mark.unit
     async def test_pin_of_non_video_builtin_model_raises(self):
-        """钉住的内置 model 不是视频模型：同样报错，不静默改用配置层的视频模型。"""
+        """锁定的内置 model 不是视频模型：同样报错，不静默改用配置层的视频模型。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
@@ -2095,7 +2095,7 @@ class TestPayloadPinnedVideoModel:
 
     @pytest.mark.unit
     async def test_malformed_pin_falls_through_to_config(self):
-        """非复合形态（缺 model）的桶键按未钉住处理，回退配置层。"""
+        """非复合形态（缺 model）的桶键按未锁定处理，回退配置层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
@@ -2104,7 +2104,7 @@ class TestPayloadPinnedVideoModel:
 
     @pytest.mark.integration
     async def test_custom_provider_pin_survives_resume_resolution(self):
-        """自定义供应商的视频任务中断续跑：沿用入队钉住的 model，不回落项目配置换模型。"""
+        """自定义供应商的视频任务中断续跑：沿用入队锁定的 model，不回落项目配置换模型。"""
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 
         factory, engine = await _make_session()
@@ -2143,7 +2143,7 @@ class TestPayloadPinnedVideoModel:
 
     @pytest.mark.integration
     async def test_disabled_pinned_custom_model_raises_instead_of_switching(self):
-        """钉住的自定义 model 入队后被禁用：报错，不收敛到该供应商的默认 model。
+        """锁定的自定义 model 入队后被禁用：报错，不收敛到该供应商的默认 model。
 
         换 model 执行等于静默换模型，续跑更会拿另一个 backend 去轮原 model 的 provider_job_id。
         """
