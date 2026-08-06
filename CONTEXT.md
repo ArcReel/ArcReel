@@ -237,7 +237,7 @@ _Avoid_: 拿归一后的名字直接下标存量桶——会对同一个视觉�
 _Avoid_: 把它与项目当「引用耦合」——入库 / 应用到项目都物理复制图片，改一边不影响另一边；以为改名/删除库内资产会传导到已用项目；把 product 放进来——多图列表型资产不兼容库的单图列模型，spec 以 `in_global_library=False` 豁免。
 
 **产品资产（product）**：
-第 4 个 ASSET_SPECS 条目（bucket `products`、sheet 字段 `product_sheet`、子目录 `products/`），承载广告/短片项目的带货主体。持有列表字段 `reference_images`（用户上传多张原图，保存时保留原件不压缩，是「成片产品忠实于真品」的**保真验收锚点**）与 `selling_points`（卖点列表，agent 可起草、用户可改），及自由文本 `brand`。product sheet 是可选的标准化多角度派生参考（生成时原图全量注入），须经人工确认才进下游（agent 工作流软门禁，不设状态机）。下游注入二元：镜头 `products_in_shot` 非空即产品镜头——产品参考全量注入、排在所有其它参考之前并附高保真还原指令（有 sheet 时「sheet 多角度 + 原图压阵」，无 sheet 时原图直注）；氛围镜头零产品图。产品一致性由分镜图单层承载，图生视频路径不再二次注入产品参考（见 `docs/adr/0034`）。
+第 4 个 ASSET_SPECS 条目（bucket `products`、sheet 字段 `product_sheet`、子目录 `products/`），承载广告/短片项目的带货主体。持有列表字段 `reference_images`（用户上传多张原图，保存时保留原件不压缩，是「成片产品忠实于真品」的**保真验收锚点**）与 `selling_points`（卖点列表，agent 可起草、用户可改），及自由文本 `brand`。product sheet 是可选的标准化多角度派生参考（生成时原图全量注入），与其他设计图遵循相同的产物时效规则，不设置独立人工审核状态。下游注入二元：镜头 `products_in_shot` 非空即产品镜头——产品参考全量注入、排在所有其它参考之前并附高保真还原指令（有 sheet 时「sheet 多角度 + 原图压阵」，无 sheet 时原图直注）；氛围镜头零产品图。产品一致性由分镜图单层承载，图生视频路径不再二次注入产品参考（见 `docs/adr/0034`）。
 _Avoid_: 把 `reference_images` 交给 agent 改写——系统级字段不在 agent 白名单，更新走专用上传 API；把原图与 sheet 的锚点地位颠倒——原图必有且永远是验收基准，sheet 只是净化派生；对原图套用 2MB/q85 保存压缩——那是其它资产上传的归一化策略，对锚点过狠；发明「弱注入」中间档——给图又求别太像机制上自相矛盾，画风统一由项目级 style 承载。
 
 **风格模版（style template）**：
@@ -367,12 +367,24 @@ _Avoid_: 用内容比对判断 draft 与已提交内容的重复——对应关�
 _Avoid_: 把 subagent 消息平铺进主时间线；只收进度事件不收内部消息——展开子时间线的前提是内部消息在日志里。
 
 **agent 运行 profile（agent runtime profile）**：
-智能体专属的运行态配置树（`agent_runtime_profile/`：系统 prompt 变体 + 业务 Skill/Subagent），与开发者本地 `.claude/` **物理分离**，运行时按 manifest 物化进各项目目录。
+智能体专属的运行态配置树（`agent_runtime_profile/`：系统 prompt、按内容模式投影的参考资料与业务 Skill/Subagent），与开发者本地 `.claude/` **物理分离**，运行时按 manifest 物化进各项目目录。它规定 Agent 如何执行服务端给出的动作，不拥有项目工作流事实。
 _Avoid_: 用「.claude」「CLAUDE.md」笼统指代——开发态 `.claude/` 与 agent profile 是两套；也不要称为 agent config（与 Anthropic 凭证的 agent_config 路由重名）。
 
 **profile 物化（materialization）**：
-把 agent profile 按 manifest + sha256 复制进每个项目目录的过程，只同步声明过且校验通过的文件，并按项目 content_mode 选 `CLAUDE.{narration,drama,ad}.md` 变体落盘为单一 `CLAUDE.md`。
-_Avoid_: 用「同步 / 复制 / deploy」泛指——物化特指 manifest 驱动 + 变体投影 + sha256 三态的受控写入；变体源文件名（`CLAUDE.narration.md`）≠ 项目端逻辑文件名（`CLAUDE.md`）。
+把 agent profile 按 manifest + sha256 复制进每个项目目录的过程，只同步声明过且校验通过的文件，并按项目 content_mode 把模式变体投影为项目端的逻辑文件名。
+_Avoid_: 用「同步 / 复制 / deploy」泛指——物化特指 manifest 驱动 + 变体投影 + sha256 三态的受控写入；把源文件布局误当项目端布局。
+
+**工作流事实（workflow facts）**：
+项目当前阶段、目标集、审核门、阻塞项、派生产物状态与唯一下一动作的权威判断。工作流事实由服务端从项目真相源统一计算；Agent、REST 与 UI 都消费同一判断。
+_Avoid_: 由 Agent 根据文件是否存在重建流程状态；让 REST、MCP 与 UI 各自维护状态机。
+
+**产物时效（artifact currency）**：
+派生产物相对于当前正式内容的有效性，取值为 current（内容 provenance 匹配）、stale（直接内容依赖已变化）、missing（正式产物不存在）或 blocked（结构或路径使状态无法安全判定）。stale 是“现有产物与当前内容有差异”的提示，产物仍然可用，不等于未生成，也不授权自动重生；项目可以带着 stale 产物完成。执行模型、分辨率、声音参数与 prompt builder 版本不属于内容 provenance，旁白音频也不做内容 stale 判定。文件存在只排除 missing，不代表 current；任务执行结果是另一项事实，重生失败不改变仍与当前内容匹配的旧产物。
+_Avoid_: 用任务成功状态代替产物时效；把 stale 当 missing 或待执行动作；把生成配置变化解释为内容 stale；把旧文件删除作为表达 stale 的方式。
+
+**资产清单完成（asset inventory completion）**：
+对一个明确源文范围完成角色、场景与道具分析的持久事实，绑定该范围的源文 revision。三个资产集合都为空仍可以是完成结果；只有覆盖全部原始源文的当前记录才能解锁完整工作流。
+_Avoid_: 用任一资产集合非空推断分析完成；把指定文件的局部分析冒充全局完成。
 
 **agent 沙箱（agent sandbox）**：
 Agent 工具调用外围的内核级隔离层（macOS Seatbelt / Linux bwrap），约束**沙箱内所有子进程**（Bash 及其派生进程）的文件读写与网络；SDK 内置 Read/Write/Edit/Glob/Grep 运行在主进程、不经过沙箱，由应用层 PreToolUse hook 拦截（见 `docs/adr/0025`、`docs/adr/0026`）。

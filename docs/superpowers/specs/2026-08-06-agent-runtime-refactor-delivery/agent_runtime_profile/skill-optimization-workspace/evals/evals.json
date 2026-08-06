@@ -1,0 +1,215 @@
+{
+  "skill_name": "agent-runtime-skills-v2",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "项目已经在 Web 端创建好了，我有一部武侠小说想做成短视频，帮我开始",
+      "expected_output": "触发 manga-workflow，先调用 get_workflow_status；不询问项目名，不自行创建目录。",
+      "target_skills": [
+        "manga-workflow"
+      ],
+      "assertions": [
+        {
+          "name": "calls_authoritative_status",
+          "text": "调用 mcp__arcreel__get_workflow_status",
+          "type": "behavior"
+        },
+        {
+          "name": "does_not_ask_project_name",
+          "text": "不询问项目名称或创建项目目录",
+          "type": "constraint"
+        },
+        {
+          "name": "reads_mode_contract",
+          "text": "按当前物化的 workflow-mode.md 解释状态",
+          "type": "behavior"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "继续上次的项目，角色应该分析完了",
+      "expected_output": "触发 manga-workflow，以服务端 status 为准，不根据用户记忆或 Glob 猜阶段。",
+      "target_skills": [
+        "manga-workflow"
+      ],
+      "assertions": [
+        {
+          "name": "status_not_guess",
+          "text": "先调用 get_workflow_status，再执行 next_action",
+          "type": "behavior"
+        },
+        {
+          "name": "verifies_transition",
+          "text": "动作后再次调用 status 验证 state 或 revision 变化",
+          "type": "behavior"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "第2集 E2S03 和 E2S07 的画面不满意，重新生成这两张分镜",
+      "expected_output": "触发 generate-storyboard，调用 generate_storyboards 并传 segment_ids，仅处理两个 ID。",
+      "target_skills": [
+        "generate-storyboard"
+      ],
+      "assertions": [
+        {
+          "name": "uses_mcp_ids",
+          "text": "mcp__arcreel__generate_storyboards 的 segment_ids 为 E2S03、E2S07",
+          "type": "behavior"
+        },
+        {
+          "name": "no_obsolete_cli",
+          "text": "不使用 --scene-ids 或 Python 生成脚本",
+          "type": "constraint"
+        },
+        {
+          "name": "verifies_current",
+          "text": "生成后逐 ID 验证 current",
+          "type": "behavior"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "这集视频生成到一半断了，帮我接着来",
+      "expected_output": "触发 generate-video，调用 MCP 视频工具并传 resume=true；不重新生成 current 项。",
+      "target_skills": [
+        "generate-video"
+      ],
+      "assertions": [
+        {
+          "name": "resume_arg",
+          "text": "MCP 参数包含 resume: true",
+          "type": "behavior"
+        },
+        {
+          "name": "skips_current",
+          "text": "默认只处理 missing 与 stale 视频",
+          "type": "constraint"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "把 drama 成片加背景音乐，音量设成 0.2",
+      "expected_output": "触发 compose-video；说明 CLI 没有 --music-volume，不能伪造参数，建议 Web 端调节。",
+      "target_skills": [
+        "compose-video"
+      ],
+      "assertions": [
+        {
+          "name": "no_fake_flag",
+          "text": "不使用不存在的 --music-volume 0.2",
+          "type": "constraint"
+        },
+        {
+          "name": "states_limit",
+          "text": "说明脚本默认 0.3，精确音量走 Web 端",
+          "type": "behavior"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "参考生视频拆分失败了，提示 step1_reference_units.invalid.json",
+      "expected_output": "读取隔离草稿与 violations，修复后 validate_and_promote；不重新调用付费拆分。",
+      "target_skills": [
+        "manga-workflow"
+      ],
+      "assertions": [
+        {
+          "name": "repairs_same_draft",
+          "text": "使用 validate_and_promote_reference_draft 修复同一草稿",
+          "type": "behavior"
+        },
+        {
+          "name": "no_paid_reroll",
+          "text": "不重复调用 split_reference_video_units 抽取新结果",
+          "type": "constraint"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "小说里确实没有需要登记的道具，资产分析完成即可",
+      "expected_output": "analyze-assets 允许 props 为空，并调用 complete_asset_inventory 标记当前 source revision 已分析。",
+      "target_skills": [
+        "manga-workflow"
+      ],
+      "assertions": [
+        {
+          "name": "empty_bucket_valid",
+          "text": "空 props bucket 不导致重复分析",
+          "type": "behavior"
+        },
+        {
+          "name": "writes_inventory_marker",
+          "text": "调用 complete_asset_inventory",
+          "type": "behavior"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "这个项目已经开启宫格，给第1集重新生成 E1S01 到 E1S04",
+      "expected_output": "触发 generate-grid，而不是 generate-storyboard；使用 generate_grid 的 scene_ids。",
+      "target_skills": [
+        "generate-grid"
+      ],
+      "assertions": [
+        {
+          "name": "grid_route",
+          "text": "调用 mcp__arcreel__generate_grid",
+          "type": "behavior"
+        },
+        {
+          "name": "selected_ids",
+          "text": "scene_ids 包含 E1S01 至 E1S04",
+          "type": "behavior"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "产品 sheet 刚刚重新生成了，直接开始出视频吧",
+      "expected_output": "workflow status 返回 PRODUCT_REVIEW 时要求用户审核当前 revision；旧 revision 的确认不复用。",
+      "target_skills": [
+        "manga-workflow"
+      ],
+      "assertions": [
+        {
+          "name": "current_revision_gate",
+          "text": "确认当前 product sheet revision 后才继续",
+          "type": "behavior"
+        },
+        {
+          "name": "no_silent_bypass",
+          "text": "不因以前确认过而跳过新 sheet 审核",
+          "type": "constraint"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "我把 E1S03 的 image_prompt 改了，但图和视频文件都还在，项目算完成了吗？",
+      "expected_output": "根据 provenance 将该分镜和依赖视频判为 stale，而不是仅凭文件存在判完成。",
+      "target_skills": [
+        "manga-workflow"
+      ],
+      "assertions": [
+        {
+          "name": "stale_propagation",
+          "text": "storyboard 与 video 状态为 stale",
+          "type": "behavior"
+        },
+        {
+          "name": "existence_not_completion",
+          "text": "不以非空路径或文件存在作为完成条件",
+          "type": "constraint"
+        }
+      ]
+    }
+  ]
+}

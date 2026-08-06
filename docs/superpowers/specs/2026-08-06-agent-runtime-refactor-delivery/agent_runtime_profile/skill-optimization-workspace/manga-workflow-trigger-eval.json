@@ -1,0 +1,54 @@
+[
+  {
+    "query": "我有一部都市悬疑小说，项目已经创建好了，从头开始帮我做成短视频",
+    "should_trigger": true
+  },
+  {
+    "query": "继续，看看当前项目下一步该做什么",
+    "should_trigger": true
+  },
+  {
+    "query": "帮我检查这个项目现在做到哪一步了",
+    "should_trigger": true
+  },
+  {
+    "query": "把后面流程自动跑完，遇到需要我确认的再停",
+    "should_trigger": true
+  },
+  {
+    "query": "重新规划第 4 集之后的分集",
+    "should_trigger": true
+  },
+  {
+    "query": "广告项目素材已经上传，继续做带货短片",
+    "should_trigger": true
+  },
+  {
+    "query": "第3集 E3S02 和 E3S05 的分镜脸不对，只重生这两张",
+    "should_trigger": false
+  },
+  {
+    "query": "视频生成中断了，续传第2集",
+    "should_trigger": false
+  },
+  {
+    "query": "给缺失角色补设计图",
+    "should_trigger": false
+  },
+  {
+    "query": "把 E1S03 的旁白重新配一次",
+    "should_trigger": false
+  },
+  {
+    "query": "把 drama 视频片段拼成一集并加 BGM",
+    "should_trigger": false
+  },
+  {
+    "query": "generation_mode 字段是什么意思",
+    "should_trigger": false
+  },
+  {
+    "query": "帮我修改 server/agent_runtime/service.py",
+    "should_trigger": false
+  }
+]

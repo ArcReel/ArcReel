@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0058
 ---
 
 # 产品一致性双层锚点：用户原图为验收锚点，标准化产品 sheet 为可选派生参考
