@@ -137,7 +137,7 @@ http://localhost:1241
 
 ### 2.3 使用 PostgreSQL 生产部署
 
-长期运行、多人使用或正式服务建议使用 PostgreSQL：
+长期运行、并发访问或正式服务建议使用 PostgreSQL。PostgreSQL 改善并发、备份与运维能力，但不提供用户隔离；请勿让互不信任的用户共享同一 ArcReel 实例：
 
 以下命令从 ArcReel 仓库根目录执行：
 

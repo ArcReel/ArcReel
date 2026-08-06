@@ -388,6 +388,14 @@ _Avoid_: 把开场白生产塞进组件——缓冲回放与扫描快照无一�
 
 ### 认证与凭证
 
+**会话 JWT（session JWT）**：
+交互式登录签发的完整管理员凭证，可访问 ArcReel 的全部管理能力，包括 API Key 管理。泄漏即视为完整管理员身份失陷。
+_Avoid_: 与下载 token 混为一谈；把所有 bearer token 都叫 API Key。
+
+**API Key**：
+面向自动化访问的广泛权限凭证，可访问绝大多数业务与配置能力，但无权管理 API Key。它不是低权限或可安全公开的 token，泄漏仍属于高影响安全事件。
+_Avoid_: 与会话 JWT 完全等同；scoped token（当前没有 scope）；把“不能管理 API Key”误读为普通有限权限凭证。
+
 **下载 token（download token）**：
 项目导出专用的短时效（约 5 分钟）、绑定项目名的一次性 JWT（`purpose=download`），作为导出端点的 query param 唯一认证方式——端点自校验、不读 Authorization header，让浏览器原生下载的 URL 里不出现长效凭证。
 _Avoid_: 与长效会话 JWT、API Key 混为一谈；把登录 JWT 放进下载 URL。
