@@ -68,7 +68,7 @@ async def _derive_execution_model_for_enqueue(
 ) -> tuple[ProviderModel, VideoCapability | None] | None:
     """入队时按 project + payload 派生本次任务的执行身份，视频任务连同定桶结果一并返回。
 
-    ``provider_id`` 落 task 行供 claim SQL 池过滤使用；视频任务的完整身份另钉进 payload
+    ``provider_id`` 落 task 行供 claim SQL 池过滤使用；视频任务的完整身份另锁进 payload
     （见 ``_pin_video_execution_model``）。与 worker ``_extract_provider`` 同套解析逻辑，
     但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
     兜底分支，由 worker claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
@@ -117,7 +117,7 @@ def _pin_video_execution_model(
     capability: VideoCapability | None,
     execution_model: ProviderModel,
 ) -> dict[str, Any] | None:
-    """把入队解析出的执行身份钉进视频任务 payload 的能力桶键，返回新 payload（不改调用方的 dict）。
+    """把入队解析出的执行身份锁进视频任务 payload 的能力桶键，返回新 payload（不改调用方的 dict）。
 
     锁定的是「本次任务真正会执行的 model」，执行与中断续跑据此走同一身份：task 行只存
     provider_id，锁不住 model（``docs/adr/0054``「不静默换模型」）。桶键与复合值形态和解析侧
@@ -197,8 +197,8 @@ class GenerationQueue:
     ) -> dict[str, Any]:
         # caller 没传 provider_id → 入队时主动派生一次，让 claim 走 SQL 池过滤快路径；
         # 派生失败留 NULL，走 IS NULL 兜底，由 worker claim 后 _extract_provider 二次校验。
-        # 派生成功时视频任务同时把执行 model 钉进 payload，中断续跑据此沿用同一 model。
-        # 锁定只发生在这条派生分支上：显式传 provider_id 的调用没有配套的 model 可钉，
+        # 派生成功时视频任务同时把执行 model 锁进 payload，中断续跑据此沿用同一 model。
+        # 锁定只发生在这条派生分支上：显式传 provider_id 的调用没有配套的 model 可锁，
         # 需要锁定视频执行 model 的入队点走派生路径。
         if provider_id is None:
             derived = await _derive_execution_model_for_enqueue(

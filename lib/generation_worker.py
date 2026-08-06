@@ -764,7 +764,7 @@ class GenerationWorker:
     async def _process_resume_task(self, task: dict[str, Any]) -> None:
         """重启自愈入口：直接调 backend.resume_video，绕过 normal executor 流水线。
 
-        身份锁定：视频任务的 provider 与 model 由入队时钉进 payload 能力桶键的执行身份负责
+        身份锁定：视频任务的 provider 与 model 由入队时锁进 payload 能力桶键的执行身份负责
         （``lib.generation_queue``），``ConfigResolver`` 据此按提交时的身份而非当前项目配置解析
         backend——否则任务提交后到重启前若项目 provider 配置切换，会拿旧 ``provider_job_id``
         去新 provider 轮询，导致可恢复任务被误判失败。

@@ -2015,7 +2015,7 @@ class TestResolveRawSupportedDurations:
 
 
 class TestPayloadPinnedVideoModel:
-    """入队钉进 payload 能力桶键的执行身份：优先级最高，且不承诺桶的调用方（resume）也读得到。"""
+    """入队锁进 payload 能力桶键的执行身份：优先级最高，且不承诺桶的调用方（resume）也读得到。"""
 
     @pytest.mark.unit
     async def test_pinned_bucket_key_wins_over_project(self):
@@ -2030,7 +2030,7 @@ class TestPayloadPinnedVideoModel:
     async def test_pinned_bucket_key_skips_capability_gate(self):
         """锁定身份只过身份可用性、不过能力闸：已入队任务按 payload 照常执行，不回头补校验。
 
-        钉的是 i2v-only 的 viduq3-pro 而按 r2v 解析——过能力闸就会报错。
+        锁的是 i2v-only 的 viduq3-pro 而按 r2v 解析——过能力闸就会报错。
         """
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
@@ -2050,7 +2050,7 @@ class TestPayloadPinnedVideoModel:
 
     @pytest.mark.unit
     async def test_pin_of_other_bucket_ignored_when_capability_given(self):
-        """capability 明确时只认该桶的键，另一个桶的钉不越桶生效。"""
+        """capability 明确时只认该桶的键，另一个桶的锁不越桶生效。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}

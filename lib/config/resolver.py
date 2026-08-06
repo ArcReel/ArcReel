@@ -763,7 +763,7 @@ class ConfigResolver:
     ) -> ProviderModel:
         """解析视频任务应使用的 ProviderModel。
 
-        payload 恒为最高优先级：入队时钉进能力桶键 ``video_provider_<cap>`` 的执行身份优先。
+        payload 恒为最高优先级：入队时锁进能力桶键 ``video_provider_<cap>`` 的执行身份优先。
         其后按 ``capability`` 分两条路径（``docs/adr/0054``）：
 
         - ``capability`` 给定（``"i2v"`` / ``"r2v"``）：走四级骨架 项目桶（``video_provider_<cap>``）

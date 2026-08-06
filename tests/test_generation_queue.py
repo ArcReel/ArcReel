@@ -453,7 +453,7 @@ def stub_enqueue_resolution(monkeypatch):
 
 
 class TestPinExecutionModelOnEnqueue:
-    """入队把解析出的执行 model 钉进视频任务 payload 的能力桶键。"""
+    """入队把解析出的执行 model 锁进视频任务 payload 的能力桶键。"""
 
     async def test_video_task_pins_bucket_key(self, queue, stub_enqueue_resolution):
         enqueued = await queue.enqueue_task(
@@ -508,7 +508,7 @@ class TestPinExecutionModelOnEnqueue:
         assert task["provider_id"] == "ark"
 
     async def test_non_video_task_pins_nothing(self, queue, stub_enqueue_resolution):
-        """图片任务的 capability 执行时才定，入队不钉——只落 provider_id。"""
+        """图片任务的 capability 执行时才定，入队不锁——只落 provider_id。"""
         enqueued = await queue.enqueue_task(
             project_name="demo",
             task_type="storyboard",
@@ -522,7 +522,7 @@ class TestPinExecutionModelOnEnqueue:
         assert task["provider_id"] == "custom-7"
 
     async def test_unresolvable_model_leaves_payload_untouched(self, queue, stub_enqueue_resolution):
-        """解析补不出 model → 不钉半截身份，payload 与 provider_id 均按原有兜底。"""
+        """解析补不出 model → 不锁半截身份，payload 与 provider_id 均按原有兜底。"""
         from lib.config.resolver import ProviderModel
 
         stub_enqueue_resolution["resolved"] = ProviderModel("", "")
@@ -539,7 +539,7 @@ class TestPinExecutionModelOnEnqueue:
         assert task["provider_id"] is None
 
     async def test_provider_without_model_pins_nothing(self, queue, stub_enqueue_resolution):
-        """解析出 provider 但补不出 model → 只落 provider_id，不钉半截桶键。"""
+        """解析出 provider 但补不出 model → 只落 provider_id，不锁半截桶键。"""
         from lib.config.resolver import ProviderModel
 
         stub_enqueue_resolution["resolved"] = ProviderModel("custom-7", "")
@@ -556,7 +556,7 @@ class TestPinExecutionModelOnEnqueue:
         assert task["provider_id"] == "custom-7"
 
     async def test_caller_payload_not_mutated(self, queue, stub_enqueue_resolution):
-        """钉入走新 dict：调用方常复用同一份 payload 批量入队。"""
+        """锁入走新 dict：调用方常复用同一份 payload 批量入队。"""
         payload = {"prompt": "p"}
         await queue.enqueue_task(
             project_name="demo",
