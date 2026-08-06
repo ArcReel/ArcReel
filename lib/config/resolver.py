@@ -270,7 +270,7 @@ def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoCapabi
 def _payload_video_pinned_pair(
     payload: dict, capability: VideoCapability | None
 ) -> tuple[VideoCapability, tuple[str, str]] | None:
-    """读 payload 里入队时钉住的视频执行身份（桶键 ``video_provider_<cap>``），连同命中的桶一并返回。
+    """读 payload 里入队时锁定的视频执行身份（桶键 ``video_provider_<cap>``），连同命中的桶一并返回。
 
     值是 ``ProviderModel.pair_key`` 形态的复合值，写入方是 ``lib.generation_queue``。入队只为任务
     所属的那一个桶写键，故 ``capability`` 未声明（resume 等不承诺桶的调用方）时按固定桶序扫两个
@@ -771,7 +771,7 @@ class ConfigResolver:
           （``default_video_backend``）> 自动推断，空桶回退默认层。解析结果过能力闸：模型缺该桶
           所需能力、或配置引用已不可用（模型被删 / 能力被改 / 供应商被删）时抛
           ``VideoBucketCapabilityError``，不静默换模型。payload 命中时跳过能力闸——已入队任务
-          按 payload 照常执行，不回头补校验；但入队钉住的身份仍过身份可用性校验，悬空同样抛该异常。
+          按 payload 照常执行，不回头补校验；但入队锁定的身份仍过身份可用性校验，悬空同样抛该异常。
         - ``capability`` 为 None：同一骨架去掉桶层，项目默认（``video_backend``）> 全局默认
           （``default_video_backend``）> 自动推断，无能力闸；自定义 provider 的 model 不存在、
           已禁用或 endpoint 的 media_type 不是 video 时，收敛到该 provider 默认启用的 video
@@ -1097,7 +1097,7 @@ class ConfigResolver:
         """payload 优先解析图片 ProviderModel，无 payload 时走四级骨架。
 
         payload 层保留 ``payload>project>global`` 的规范骨架，接受 ``image_provider`` /
-        ``image_model`` 键——按该格式序列化的任务据此解析。图片任务不钉住执行身份（任务周期
+        ``image_model`` 键——按该格式序列化的任务据此解析。图片任务不锁定执行身份（任务周期
         短，排队期间配置漂移的窗口小），故 payload 层无能力桶键。payload provider 须是已知
         provider（见
         ``_trusted_payload_provider``），否则不予信任、回退骨架（``_resolve_layered_backend``，
@@ -1124,9 +1124,9 @@ class ConfigResolver:
     ) -> ProviderModel:
         """payload 优先解析视频 ProviderModel；无 payload 时按 ``capability`` 走桶骨架或不定桶骨架。
 
-        payload 层只认入队时钉住的能力桶键（``video_provider_<cap>`` 复合值，见
+        payload 层只认入队时锁定的能力桶键（``video_provider_<cap>`` 复合值，见
         ``_payload_video_pinned_pair``）：原样返回、不过能力闸，只过身份可用性
-        （``_ensure_video_identity_resolvable``），悬空即报错。钉住形态不丢弃不可信 provider——
+        （``_ensure_video_identity_resolvable``），悬空即报错。锁定形态不丢弃不可信 provider——
         供应商已下线时回退等于换供应商执行。各层语义见 ``resolve_video_backend`` docstring。
         """
         if payload:
@@ -1244,7 +1244,7 @@ class ConfigResolver:
         内置 provider 的 registry 身份已是有效身份；自定义 provider 需与 loader 共用同一规则：
         model 不存在、禁用或 endpoint 已改成其它 media_type 时，回退到默认启用 video model。
 
-        入队钉住的身份不走这条收敛（见 ``_resolve_video_provider_model``）：换 model 执行等于
+        入队锁定的身份不走这条收敛（见 ``_resolve_video_provider_model``）：换 model 执行等于
         静默换模型。
         """
         if not is_custom_provider(selected.provider_id):

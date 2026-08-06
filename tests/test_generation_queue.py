@@ -481,7 +481,7 @@ class TestPinExecutionModelOnEnqueue:
         assert task["payload"]["video_provider_r2v"] == "custom-7/pinned-video-model"
 
     async def test_persist_execution_identity_rewrites_pinned_bucket_key(self, queue, stub_enqueue_resolution):
-        """入队钉住与执行定桶分裂时，写回把陈旧桶键换成实际执行身份——resume 解析里钉住键
+        """入队锁定与执行定桶分裂时，写回把陈旧桶键换成实际执行身份——resume 解析里锁定键
         优先于 provider_id 列注入，只刷新列锁不住轮询 backend。"""
         from lib.config.resolver import ProviderModel
 

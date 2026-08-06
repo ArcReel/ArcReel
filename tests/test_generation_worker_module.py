@@ -123,7 +123,7 @@ class TestExtractProvider:
 
     @pytest.mark.unit
     async def test_video_payload_pinned_bucket_provider(self):
-        """payload 携带入队钉住的桶键 → 投影直接取到（payload 层短路，无需 DB）。"""
+        """payload 携带入队锁定的桶键 → 投影直接取到（payload 层短路，无需 DB）。"""
         task = {"payload": {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"}, "task_type": "video"}
         assert await _extract_provider(task) == "ark"
 
@@ -242,7 +242,7 @@ class TestExtractProvider:
 
     @pytest.mark.unit
     async def test_payload_provider_takes_precedence_over_project(self, monkeypatch):
-        """payload 钉住的 provider 优先于项目级。"""
+        """payload 锁定的 provider 优先于项目级。"""
         _patch_pm(monkeypatch, {"video_backend": "grok/grok-imagine-video"})
         task = {
             "payload": {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"},
@@ -1346,7 +1346,7 @@ class TestGenerationWorker:
                 "provider_job_id": "stale-job",
                 "media_type": "video",
                 "task_type": "video",
-                # payload 钉住桶键写 ark，模拟"项目已切换" → _extract_provider 会解析成 ark
+                # payload 锁定桶键写 ark，模拟"项目已切换" → _extract_provider 会解析成 ark
                 "payload": {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"},
                 "project_name": "demo",
             }
@@ -1588,7 +1588,7 @@ class TestGenerationWorker:
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_resume_task_keeps_pinned_video_identity(self, monkeypatch):
-        """视频任务的续跑身份由入队钉住的桶键决定，persisted provider_id 不注入 payload。
+        """视频任务的续跑身份由入队锁定的桶键决定，persisted provider_id 不注入 payload。
 
         注入只覆盖 provider、盖不住 model，两者分裂即静默换模型续跑。
         """
@@ -1616,7 +1616,7 @@ class TestGenerationWorker:
         }
         await worker._process_resume_task(task)
         assert captured_task is not None
-        # 钉住键原样交给 resume，persisted provider_id 不写进 payload
+        # 锁定键原样交给 resume，persisted provider_id 不写进 payload
         assert captured_task["payload"] == {"video_provider_i2v": "gemini-aistudio/veo-3.1-fast-generate-preview"}
         assert captured_job_id == "openai-job"
         assert queue.succeeded == [("resume-locked", {"ok": True})]

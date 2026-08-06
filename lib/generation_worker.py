@@ -370,7 +370,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     按 i2i 槽精确解析。视频定桶经 ``video_bucket_for_queued_task`` 与入队派生共用：
     参考生视频按 unit **声明**的参考集近似分流（无引用退化镜头 → i2v），投影只服务 claim
     过滤与限流路由；执行侧按解析后的**实际**参考图精确定桶，ad 声明了参考但资产缺图时
-    两者允许分裂（执行前经 ``persist_execution_identity`` 把实际身份写回投影列与钉住键）。
+    两者允许分裂（执行前经 ``persist_execution_identity`` 把实际身份写回投影列与锁定键）。
     解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
@@ -787,7 +787,7 @@ class GenerationWorker:
             return
 
         # 非视频媒体：锁定持久化 provider 到 payload（resolver 优先级：payload > project > 默认）。
-        # 视频任务的身份走入队钉住的能力桶键，不在此注入——注入只覆盖 provider、盖不住 model。
+        # 视频任务的身份走入队锁定的能力桶键，不在此注入——注入只覆盖 provider、盖不住 model。
         persisted_provider_id = task.get("provider_id")
         is_video = task.get("media_type") == "video" or task_type in ("video", "reference_video")
         if persisted_provider_id and not is_video:

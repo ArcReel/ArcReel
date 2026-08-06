@@ -119,10 +119,10 @@ def _pin_video_execution_model(
 ) -> dict[str, Any] | None:
     """把入队解析出的执行身份钉进视频任务 payload 的能力桶键，返回新 payload（不改调用方的 dict）。
 
-    钉住的是「本次任务真正会执行的 model」，执行与中断续跑据此走同一身份：task 行只存
+    锁定的是「本次任务真正会执行的 model」，执行与中断续跑据此走同一身份：task 行只存
     provider_id，锁不住 model（``docs/adr/0054``「不静默换模型」）。桶键与复合值形态和解析侧
     payload 层同源（``lib.config.resolver``），此处是该组键的唯一写入方。``capability`` 取
-    入队派生的定桶结果（参考路线内逐镜头分流后的桶），钉住键因此与解析用的桶一致——resolver
+    入队派生的定桶结果（参考路线内逐镜头分流后的桶），锁定键因此与解析用的桶一致——resolver
     的 payload 层只认「任务所属那一个桶」的键。
 
     非视频任务与不定桶的任务（``capability`` 为 None）、以及解析不出 model 时原样返回。
@@ -198,8 +198,8 @@ class GenerationQueue:
         # caller 没传 provider_id → 入队时主动派生一次，让 claim 走 SQL 池过滤快路径；
         # 派生失败留 NULL，走 IS NULL 兜底，由 worker claim 后 _extract_provider 二次校验。
         # 派生成功时视频任务同时把执行 model 钉进 payload，中断续跑据此沿用同一 model。
-        # 钉住只发生在这条派生分支上：显式传 provider_id 的调用没有配套的 model 可钉，
-        # 需要钉住视频执行 model 的入队点走派生路径。
+        # 锁定只发生在这条派生分支上：显式传 provider_id 的调用没有配套的 model 可钉，
+        # 需要锁定视频执行 model 的入队点走派生路径。
         if provider_id is None:
             derived = await _derive_execution_model_for_enqueue(
                 project_name=project_name,
@@ -279,12 +279,12 @@ class GenerationQueue:
     async def persist_execution_identity(
         self, task_id: str, *, execution_model: ProviderModel, capability: VideoCapability
     ) -> None:
-        """执行前把实际执行身份写回投影列与 payload 钉住键。
+        """执行前把实际执行身份写回投影列与 payload 锁定键。
 
-        入队按 unit 声明近似定桶钉住身份（``_pin_video_execution_model``），执行按解析后的
-        实际参考图定桶，二者分裂时（ad 声明了参考但资产全缺图：钉住 r2v、执行 i2v）陈旧
+        入队按 unit 声明近似定桶锁定身份（``_pin_video_execution_model``），执行按解析后的
+        实际参考图定桶，二者分裂时（ad 声明了参考但资产全缺图：锁定 r2v、执行 i2v）陈旧
         桶键在 resume 解析里优先于 ``provider_id`` 列注入，只刷新列锁不住轮询 backend——
-        故连同钉住键一起改写：清掉其它桶的键、把实际执行身份写进实际桶的键。非分裂场景
+        故连同锁定键一起改写：清掉其它桶的键、把实际执行身份写进实际桶的键。非分裂场景
         等值改写，幂等。
         """
         from typing import get_args

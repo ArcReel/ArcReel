@@ -2051,9 +2051,9 @@ async def test_execute_reference_video_task_persists_execution_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """执行期解析出的身份（registry provider + model + 实际桶）须写回投影列与 payload 钉住键：
-    入队投影与钉住按 unit 声明近似，退化镜头降级 i2v 后与实际可能分裂，resume 解析里
-    钉住键优先于列注入，写回须覆盖两处。"""
+    """执行期解析出的身份（registry provider + model + 实际桶）须写回投影列与 payload 锁定键：
+    入队投影与锁定按 unit 声明近似，退化镜头降级 i2v 后与实际可能分裂，resume 解析里
+    锁定键优先于列注入，写回须覆盖两处。"""
     proj_dir = _write_project(tmp_path)
 
     from lib.config.resolver import ProviderModel
