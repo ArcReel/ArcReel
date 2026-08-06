@@ -581,7 +581,7 @@ def test_precheck_unit_unconstrained_when_context_has_no_durations():
 
 @pytest.mark.unit
 def test_apply_provider_constraints_narrows_by_call_conditions():
-    """执行层取档前按本次调用条件收窄：带图 5 秒取 8（而非执行期必被拒的 6），无图仍取 6。"""
+    """执行层取档前按调用条件收窄：带图 5 秒取 8（而非执行期必被拒的 6），无图仍取 6。"""
     ref = Path(tempfile.gettempdir()) / "ref0.png"
     _, with_images, _ = _apply_provider_constraints(
         provider="gemini",
@@ -1938,7 +1938,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     monkeypatch: pytest.MonkeyPatch,
 ):
     """取档偏移剧本编排（adjustment != exact）时，effective_duration 写回 task payload，
-    供 resume 路径（``server.services.resume_executor``）读到与本次实际申请一致的秒数。
+    供 resume 路径（``server.services.resume_executor``）读到与实际申请一致的秒数。
     """
     proj_dir = _write_project(tmp_path)
     script_path = proj_dir / "scripts" / "episode_1.json"

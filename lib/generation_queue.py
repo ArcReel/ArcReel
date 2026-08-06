@@ -66,7 +66,7 @@ async def _derive_execution_model_for_enqueue(
     media_type: str,
     resource_id: str | None,
 ) -> tuple[ProviderModel, VideoCapability | None] | None:
-    """入队时按 project + payload 派生本次任务的执行身份，视频任务连同定桶结果一并返回。
+    """入队时按 project + payload 派生该任务的执行身份，视频任务连同定桶结果一并返回。
 
     ``provider_id`` 落 task 行供 claim SQL 池过滤使用；视频任务的完整身份另锁进 payload
     （见 ``_pin_video_execution_model``）。与 worker ``_extract_provider`` 同套解析逻辑，
@@ -165,7 +165,7 @@ class GenerationQueue:
 
     @asynccontextmanager
     async def _task_repo(self) -> AsyncIterator[TaskRepository]:
-        """打开一条 TaskRepository 会话，退出时把本次落地的任务终态发上项目事件总线。
+        """打开一条 TaskRepository 会话，退出时把落地的任务终态发上项目事件总线。
 
         发布放在会话退出之后而非 repo 内部：repo 内直接发会让前端读到尚未提交的状态。
         body 抛异常时会话不提交、发布也不发生——没有终态落库就没有终态可通告。

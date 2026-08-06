@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 async def _persist_effective_duration(task_id: str, duration_seconds: int) -> None:
     """把取档后实际申请的秒数写回 task payload，供 resume 路径读取（见调用点注释）。
 
-    非致命路径：持久化失败只降级 resume 元数据精度，不影响本次已在进行的生成，
+    非致命路径：持久化失败只降级 resume 元数据精度，不影响已在进行的生成，
     故只记日志、不上抛阻断 executor 主流程。
     """
     try:
