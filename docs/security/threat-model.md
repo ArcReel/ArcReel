@@ -98,7 +98,7 @@ ArcReel should preserve the following properties.
 7. **Controlled outbound access:** Provider-controlled and operator-configured destinations must not silently provide access to loopback, cloud metadata, private networks, or other sensitive services unless the operator has explicitly enabled and accepted that behavior.
 8. **Bounded untrusted processing:** Archives, uploads, provider responses, model output, and media parsing must have explicit limits for bytes, entries, memory, disk, CPU, concurrency, and execution time.
 9. **Secret minimization:** Secrets must not be returned unmasked, written to public project files, inherited by unnecessary subprocesses, exposed to the agent, or included in routine logs.
-10. **Bearer-token impact:** A stolen JWT is treated as complete administrator compromise. A stolen API key is treated as a high-impact compromise of most business and configuration APIs, excluding API-key management.
+10. **Bearer-token impact:** A stolen JWT is treated as complete administrator compromise. This currently includes a download JWT during its five-minute validity because the general JWT authentication path accepts it as an administrator bearer credential. A stolen API key is treated as a high-impact compromise of most business and configuration APIs, excluding API-key management.
 11. **Authentication-disabled isolation:** `AUTH_ENABLED=false` is safe only when network reachability is independently constrained to a trusted local environment.
 
 ## 6. Threat actors and capabilities
@@ -179,7 +179,7 @@ A compromised Python package, Node package, container image, SDK, ffmpeg build, 
 - Fail-closed handling for a blank `AUTH_ENABLED` value.
 - Generated administrative passwords when none is configured.
 - Seven-day HS256 JWTs.
-- Five-minute project-bound download tokens.
+- Five-minute project-bound download tokens. Export routes enforce their purpose and project binding, but general JWT authentication currently accepts them as administrator bearer credentials during their validity.
 - Random `arc-` API keys stored as SHA-256 hashes.
 - API-key expiration checks and bounded cache behavior.
 
@@ -263,6 +263,7 @@ Application request logging records URL paths rather than complete query strings
 
 - Automated login attempts may be sent without built-in rate limiting.
 - A stolen JWT provides full administrative access; a stolen API key provides broad access except to API-key management.
+- A leaked download token can be replayed and used as a general administrator bearer credential during its five-minute validity.
 - Seven-day JWT lifetime increases the useful period of a stolen token.
 - Event-stream routes may accept a full JWT or API key in a query parameter.
 - `AUTH_ENABLED=false` causes authentication dependencies to return an anonymous administrator identity.
