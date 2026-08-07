@@ -30,7 +30,7 @@ interface GridMatchRecord {
 }
 
 /**
- * 后端会把超过 layout.cell_count(最多 9)的 group 拆成多个 chunk,
+ * 后端会把超过 layout.cell_count 的 group 拆成多个 chunk,
  * 每条 grid 记录的 scene_ids 是 group 的子集。匹配时按子集判断,
  * 再按 created_at 降序贪心覆盖:只保留贡献新 scene_id 的 grid,
  * 过滤掉被新生成覆盖的旧 chunk(用户调整 segment_break 后未重新生成时,
