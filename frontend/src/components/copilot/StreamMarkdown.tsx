@@ -29,6 +29,13 @@ async function loadStreamdownComponent(): Promise<ComponentType<Record<string, u
   return streamdownPromise;
 }
 
+function sanitizeMarkdown(content: string): string {
+  return content
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\]\(\s*<?(?:javascript|data):/gi, "](#");
+}
+
 interface StreamMarkdownProps {
   content: string;
 }
@@ -50,6 +57,8 @@ export function StreamMarkdown({ content }: StreamMarkdownProps) {
     };
   }, []);
 
+  const safeContent = sanitizeMarkdown(String(content || ""));
+
   if (!StreamdownComponent) {
     return <div className="whitespace-pre-wrap break-words">{content || ""}</div>;
   }
@@ -59,7 +68,7 @@ export function StreamMarkdown({ content }: StreamMarkdownProps) {
       className="markdown-body text-sm leading-6"
       parseIncompleteMarkdown={true}
     >
-      {String(content || "")}
+      {safeContent}
     </StreamdownComponent>
   );
 }
