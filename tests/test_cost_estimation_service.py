@@ -473,6 +473,86 @@ class TestCostEstimationService:
         # But should have the cost under "image"
         assert result["project_totals"]["actual"]["image"]["USD"] == pytest.approx(0.101, abs=1e-4)
 
+    @pytest.mark.unit
+    async def test_grid_duplicate_ids_each_claim_own_share(self, db_factory):
+        """一张宫格覆盖两个共用同一 ID 的条目（ADR 0053 明确接受的受支持状态）：
+
+        两条目应各拿自己那一份均摊份额，而不是把宫格实付重复计入合计。"""
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        grid_id = "grid_dup"
+        await _seed_call(
+            db_factory,
+            "proj-dup",
+            "image",
+            "historical-model",
+            segment_id=grid_id,
+            cost_amount=1.0,
+            currency="USD",
+        )
+
+        overrides = [
+            {"grid_id": grid_id, "grid_cell_index": 0},
+            {"grid_id": grid_id, "grid_cell_index": 1},
+        ]
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, ["E1S001", "E1S001"], [6, 6], generated_assets_overrides=overrides)}
+
+        result = await service.compute(project_data, scripts, project_name="proj-dup")
+
+        segments = result["episodes"][0]["segments"]
+        assert len(segments) == 2
+        for seg in segments:
+            assert seg["segment_id"] == "E1S001"
+            assert seg["actual"]["image"]["USD"] == pytest.approx(0.5)
+
+        ep_total_image = result["episodes"][0]["totals"]["actual"].get("image", {})
+        assert ep_total_image.get("USD", 0) == pytest.approx(1.0)
+        assert result["project_totals"]["actual"]["image"]["USD"] == pytest.approx(1.0)
+
+    @pytest.mark.unit
+    async def test_grid_actual_split_remainder_sums_exactly(self, db_factory):
+        """除不尽的宫格实付（USD 0.101 均摊 9 份）分摊后，各份之和须与冻结实付分文不差——
+
+        复用 ``_split_cost_across`` 的余数补偿语义，而非各份独立 round。"""
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        grid_id = "grid_remainder"
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 10)]  # 9 scenes
+
+        await _seed_call(
+            db_factory,
+            "proj-rem",
+            "image",
+            "historical-model",
+            segment_id=grid_id,
+            cost_amount=0.101,
+            currency="USD",
+        )
+
+        overrides = [{"grid_id": grid_id, "grid_cell_index": i} for i in range(9)]
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 9, generated_assets_overrides=overrides)}
+
+        result = await service.compute(project_data, scripts, project_name="proj-rem")
+
+        per_scene_costs = [seg["actual"]["image"]["USD"] for seg in result["episodes"][0]["segments"]]
+        assert sum(per_scene_costs) == pytest.approx(0.101, abs=1e-9)
+
     @pytest.mark.integration
     async def test_claimed_key_keeps_unconsumed_cost_types_as_unassigned(self, db_factory):
         """认领粒度到 (记账 key, 类型)：宫格 key 上只消费 image，同 key 的 video 仍须计入未归属。"""
