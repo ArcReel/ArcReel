@@ -174,8 +174,8 @@ def _extract_task_id(body: dict) -> str:
 def _extract_duration_seconds(final: dict, fallback: int) -> int:
     """从轮询终态取实际成片时长（顶层 ``seconds``），缺失或不可解析回落请求时长。
 
-    不读 ``usage.duration_seconds``——该字段是任务处理耗时（实测与成片时长无关，如处理
-    184 秒生成一条 8 秒成片），不是成片时长，读它会错记计费与元数据。
+    不读 ``usage.duration_seconds``——该字段是任务处理耗时，与成片时长无关，读它会错记
+    计费与元数据。
     """
     parsed = _coerce_duration(final.get("seconds"))
     if parsed is not None:
