@@ -62,6 +62,45 @@ def test_detects_and_sanitizes_video_workflow() -> None:
     assert config["workflow"]["90"]["inputs"]["filename_prefix"] == "arcreel/output"
 
 
+def test_detects_alternate_first_frame_field_names() -> None:
+    workflow = _workflow()
+    workflow["10"]["inputs"] = {
+        "prompt": "old prompt",
+        "init_image": ["20", 0],
+        "aspect_ratio": "9:16",
+    }
+
+    config = detect_comfyui_endpoint_config(workflow, object_info=_object_info())
+
+    assert config["bindings"]["start_image"] == {"node_id": "20", "field": "image", "mode": "loader"}
+    assert config["workflow"]["20"]["inputs"]["image"] == ""
+
+
+def test_detects_generic_image_field_as_first_frame_fallback() -> None:
+    workflow = _workflow()
+    workflow["10"]["inputs"] = {
+        "prompt": "old prompt",
+        "image": ["20", 0],
+    }
+
+    # 空 object_info：无 schema 可注入，尾帧探测不得把泛化 image loader 误认成尾帧。
+    config = detect_comfyui_endpoint_config(workflow, object_info={})
+
+    assert config["bindings"]["start_image"] == {"node_id": "20", "field": "image", "mode": "loader"}
+    assert "end_image" not in config["bindings"]
+
+
+def test_tail_frame_probe_skips_loader_already_bound_as_first_frame() -> None:
+    # 首尾帧字段误接同一个 LoadImage 时，尾帧探测不得复用首帧已占用的 loader。
+    workflow = _workflow()
+    workflow["10"]["inputs"]["last_frame"] = ["20", 0]
+
+    config = detect_comfyui_endpoint_config(workflow, object_info=_object_info())
+
+    assert config["bindings"]["start_image"]["node_id"] == "20"
+    assert "end_image" not in config["bindings"]
+
+
 def test_profile_identity_ignores_previous_output_prefix() -> None:
     first = detect_comfyui_endpoint_config(_workflow("old/a"), object_info=_object_info())
     second = detect_comfyui_endpoint_config(_workflow("old/b"), object_info=_object_info())

@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from lib.comfyui_workflow import bind_scalar_inputs, detect_comfyui_endpoint_config
-from lib.video_backends.base import VideoGenerationRequest
+from lib.video_backends.base import VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.comfyui import ComfyUIVideoBackend
 
 pytestmark = pytest.mark.unit
@@ -58,6 +58,103 @@ def _reference_config() -> dict:
         }
     }
     return detect_comfyui_endpoint_config(workflow, object_info=object_info)
+
+
+def _text_to_video_config() -> dict:
+    workflow = {
+        "10": {"class_type": "TextToVideoNode", "inputs": {"prompt": "old"}},
+        "90": {"class_type": "SaveVideo", "inputs": {"filename_prefix": "test", "video": ["10", 0]}},
+    }
+    return detect_comfyui_endpoint_config(workflow)
+
+
+async def test_start_image_without_first_frame_binding_raises_capability_error(tmp_path: Path) -> None:
+    backend = ComfyUIVideoBackend(
+        base_url="http://comfy.local:8188",
+        model="comfy-t2v",
+        endpoint_config=_text_to_video_config(),
+    )
+    source = tmp_path / "frame.png"
+    source.write_bytes(b"png")
+
+    with pytest.raises(VideoCapabilityError) as excinfo:
+        await backend.generate(
+            VideoGenerationRequest(
+                prompt="move forward",
+                output_path=tmp_path / "out.mp4",
+                start_image=source,
+                project_name="proj",
+            )
+        )
+
+    assert excinfo.value.code == "video_comfyui_no_first_frame"
+    assert excinfo.value.params == {"model": "comfy-t2v"}
+
+
+async def test_end_image_without_last_frame_binding_raises_capability_error(tmp_path: Path) -> None:
+    backend = ComfyUIVideoBackend(
+        base_url="http://comfy.local:8188",
+        model="comfy-i2v",
+        endpoint_config=_config(),
+    )
+    source = tmp_path / "frame.png"
+    source.write_bytes(b"png")
+
+    with pytest.raises(VideoCapabilityError) as excinfo:
+        await backend.generate(
+            VideoGenerationRequest(
+                prompt="move forward",
+                output_path=tmp_path / "out.mp4",
+                end_image=source,
+                project_name="proj",
+            )
+        )
+
+    assert excinfo.value.code == "video_comfyui_no_last_frame"
+
+
+async def test_reference_images_without_binding_raise_capability_error(tmp_path: Path) -> None:
+    backend = ComfyUIVideoBackend(
+        base_url="http://comfy.local:8188",
+        model="comfy-i2v",
+        endpoint_config=_config(),
+    )
+    source = tmp_path / "ref.png"
+    source.write_bytes(b"png")
+
+    with pytest.raises(VideoCapabilityError) as excinfo:
+        await backend.generate(
+            VideoGenerationRequest(
+                prompt="move forward",
+                output_path=tmp_path / "out.mp4",
+                reference_images=[source],
+                project_name="proj",
+            )
+        )
+
+    assert excinfo.value.code == "video_reference_images_unsupported"
+
+
+async def test_reference_images_exceeding_binding_limit_raise_capability_error(tmp_path: Path) -> None:
+    backend = ComfyUIVideoBackend(
+        base_url="http://comfy.local:8188",
+        model="comfy-r2v",
+        endpoint_config=_reference_config(),
+    )
+    references = [tmp_path / f"ref_{index}.png" for index in range(10)]
+
+    with pytest.raises(VideoCapabilityError) as excinfo:
+        await backend.generate(
+            VideoGenerationRequest(
+                prompt="move forward",
+                output_path=tmp_path / "out.mp4",
+                reference_images=references,
+                project_name="proj",
+            )
+        )
+
+    assert excinfo.value.code == "video_reference_images_exceeded"
+    assert excinfo.value.params == {"model": "comfy-r2v", "limit": 9, "count": 10}
 
 
 async def test_generate_uploads_submits_polls_and_downloads(monkeypatch, tmp_path: Path) -> None:

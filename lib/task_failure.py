@@ -33,6 +33,8 @@ CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
         "image_reference_images_unreadable",
         "ref_payload_floor_exceeded",
         "video_capability_missing_t2v",
+        "video_comfyui_no_first_frame",
+        "video_comfyui_no_last_frame",
         "video_duration_invalid",
         "video_duration_not_supported",
         "video_end_image_requires_start_image",

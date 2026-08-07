@@ -179,13 +179,18 @@ def _scan_tree(tree: ast.Module, rel: str) -> tuple[dict[str, str], list[tuple[s
 
 
 def _scan_raised_codes() -> tuple[dict[str, str], list[tuple[str, str]]]:
-    """扫描 lib/ + server/ 里全部 capability-error 构造点。"""
+    """扫描 lib/ + server/ 里全部 capability-error 构造点。
+
+    路径统一 posix 分隔符：``_ALLOWED_DYNAMIC_SCOPES`` 按 posix 路径登记，Windows 上
+    ``relative_to`` 产出反斜杠会让合法豁免 scope 匹配不上，动态构造点被误报为漂移。
+    """
     codes: dict[str, str] = {}
     dynamic_sites: list[tuple[str, str]] = []
     for root in _SCANNED_ROOTS:
         for path in sorted((_REPO_ROOT / root).rglob("*.py")):
             tree = ast.parse(path.read_text(encoding="utf-8"))
-            found, dynamic = _scan_tree(tree, str(path.relative_to(_REPO_ROOT)))
+            rel = path.relative_to(_REPO_ROOT).as_posix()
+            found, dynamic = _scan_tree(tree, rel)
             for code, where in found.items():
                 codes.setdefault(code, where)
             dynamic_sites.extend(dynamic)

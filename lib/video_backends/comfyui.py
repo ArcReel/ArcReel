@@ -27,6 +27,7 @@ from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapabilities,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
     poll_with_retry,
@@ -129,25 +130,27 @@ class ComfyUIVideoBackend(ProviderJobIdPersistenceMixin):
         if request.start_image is not None:
             binding = bindings.get("start_image")
             if not isinstance(binding, dict):
-                raise ValueError(f"ComfyUI workflow {self._model} does not expose a first-frame input")
+                raise VideoCapabilityError("video_comfyui_no_first_frame", model=self._model)
             uploaded = await self._upload_image(client, Path(request.start_image), request, "start")
             bind_uploaded_image(workflow, binding, uploaded, loader_id="arcreel_start_image")
         if request.end_image is not None:
             binding = bindings.get("end_image")
             if not isinstance(binding, dict):
-                raise ValueError(f"ComfyUI workflow {self._model} does not expose a last-frame input")
+                raise VideoCapabilityError("video_comfyui_no_last_frame", model=self._model)
             uploaded = await self._upload_image(client, Path(request.end_image), request, "end")
             bind_uploaded_image(workflow, binding, uploaded, loader_id="arcreel_end_image")
         references = [Path(path) for path in request.reference_images or [] if path]
         reference_binding = bindings.get("reference_images")
         if references and not isinstance(reference_binding, dict):
-            raise ValueError(f"ComfyUI workflow {self._model} does not expose reference image slots")
+            raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
         if isinstance(reference_binding, dict):
             max_items = int(reference_binding.get("max_items", 0))
             if len(references) > max_items:
-                raise ValueError(
-                    f"ComfyUI workflow {self._model} accepts at most {max_items} reference images, "
-                    f"got {len(references)}"
+                raise VideoCapabilityError(
+                    "video_reference_images_exceeded",
+                    model=self._model,
+                    limit=max_items,
+                    count=len(references),
                 )
             uploaded_references = []
             for index, path in enumerate(references, start=1):

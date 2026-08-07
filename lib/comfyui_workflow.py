@@ -18,6 +18,13 @@ _PROMPT_FIELDS = ("prompt", "text", "positive_prompt")
 _SEED_FIELDS = ("noise_seed", "seed")
 _DURATION_FIELDS = ("duration_seconds", "duration", "seconds")
 _FRAME_FIELDS = ("length", "num_frames", "frames", "frame_count")
+# First/last-frame image inputs are named inconsistently across ComfyUI video nodes
+# (Wan I2V, HunyuanVideo I2V, LTX I2V, custom wrappers).  Probe a prioritized list on the
+# prompt/video node rather than a single literal name; a match still requires the field to be
+# wired to an image-loader node (or injectable per object_info), so generic names like "image"
+# are probed last and only bind when they genuinely carry an image.
+_START_IMAGE_FIELDS = ("first_frame", "start_image", "start_frame", "init_image", "first_image", "image")
+_END_IMAGE_FIELDS = ("last_frame", "end_image", "end_frame", "last_image")
 _VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".mov", ".mkv", ".avi"})
 _REFERENCE_IMAGE_TOKEN_RE = re.compile(r"@图片(?P<index>\d+)")
 
@@ -303,6 +310,30 @@ def _image_binding(
     return None
 
 
+def _frame_image_binding(
+    workflow: Mapping[str, object],
+    object_info: Mapping[str, object],
+    target_node_id: str,
+    fields: tuple[str, ...],
+    *,
+    allow_inject: bool,
+    exclude: Mapping[str, object] | None = None,
+) -> dict[str, str] | None:
+    """Probe ``fields`` in priority order for a usable frame-image binding on the video node.
+
+    ``exclude`` prevents the tail-frame probe from re-binding the exact loader/field already
+    claimed by the first-frame probe (possible once both lists share generic names).
+    """
+    for field in fields:
+        binding = _image_binding(workflow, object_info, target_node_id, field, allow_inject=allow_inject)
+        if binding is None:
+            continue
+        if exclude is not None and binding["node_id"] == exclude.get("node_id") and binding["field"] == exclude.get("field"):
+            continue
+        return binding
+    return None
+
+
 def detect_comfyui_endpoint_config(
     workflow_value: object,
     *,
@@ -355,9 +386,11 @@ def detect_comfyui_endpoint_config(
         if options:
             aspect["options"] = options
         bindings["aspect_ratio"] = aspect
-    if start := _image_binding(workflow, object_info, prompt_node_id, "first_frame", allow_inject=False):
+    if start := _frame_image_binding(workflow, object_info, prompt_node_id, _START_IMAGE_FIELDS, allow_inject=False):
         bindings["start_image"] = start
-        if end := _image_binding(workflow, object_info, prompt_node_id, "last_frame"):
+        if end := _frame_image_binding(
+            workflow, object_info, prompt_node_id, _END_IMAGE_FIELDS, allow_inject=True, exclude=start
+        ):
             bindings["end_image"] = end
     if reference_images := _autogrow_reference_image_binding(workflow, object_info, prompt_node_id):
         bindings["reference_images"] = reference_images

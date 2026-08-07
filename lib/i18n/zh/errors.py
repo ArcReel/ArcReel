@@ -262,6 +262,8 @@ MESSAGES = {
     "video_capability_missing_i2v": "{provider}/{model} 不支持图生视频；请在设置中为「图生视频」单独指定支持该用途的模型，或更换默认视频模型",
     "video_capability_missing_r2v": "{provider}/{model} 不支持参考生视频；请在设置中为「参考生视频」单独指定支持该用途的模型，或更换默认视频模型",
     "video_capability_reference_unavailable": "配置的视频模型 {provider}/{model} 已不可用（模型被删除、能力已变更或供应商被移除）；请在设置中重新选择视频模型",
+    "video_comfyui_no_first_frame": "ComfyUI 工作流 {model} 没有首帧输入；请在设置中重新导入图生视频工作流，或为「图生视频」指定支持首帧的模型",
+    "video_comfyui_no_last_frame": "ComfyUI 工作流 {model} 没有尾帧输入；请移除该镜头的尾帧，或重新导入支持尾帧的工作流",
     "video_resolution_duration_unsupported": "模型 {model} 在 {resolution} 分辨率下不支持 {duration}s（仅支持 {supported}）；请调整分辨率或时长",
     "video_reference_images_duration_unsupported": "模型 {model} 使用参考图时不支持 {duration}s（仅支持 {supported}）；请把时长改为 {supported}，或移除参考图",
     "video_reference_images_required": "模型 {model} 需要至少一张参考图；请提供参考图",

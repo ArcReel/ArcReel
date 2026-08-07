@@ -297,6 +297,8 @@ MESSAGES = {
     "video_capability_missing_i2v": "{provider}/{model} does not support image-to-video generation; assign a model that supports it for image-to-video in Settings, or change the default video model",
     "video_capability_missing_r2v": "{provider}/{model} does not support reference-to-video generation; assign a model that supports it for reference-to-video in Settings, or change the default video model",
     "video_capability_reference_unavailable": "The configured video model {provider}/{model} is no longer available (model deleted, capabilities changed, or provider removed); re-select a video model in Settings",
+    "video_comfyui_no_first_frame": "ComfyUI workflow {model} does not expose a first-frame input; re-import an image-to-video workflow in Settings, or assign a first-frame-capable model for image-to-video",
+    "video_comfyui_no_last_frame": "ComfyUI workflow {model} does not expose a last-frame input; remove the shot's last frame or re-import a workflow that supports it",
     "video_resolution_duration_unsupported": "Model {model} does not support {duration}s at {resolution} resolution (only {supported}); adjust the resolution or duration",
     "video_reference_images_duration_unsupported": "Model {model} does not support {duration}s with reference images (only {supported}); change the duration to {supported} or remove the reference images",
     "video_reference_images_required": "Model {model} requires at least one reference image; please provide reference images",

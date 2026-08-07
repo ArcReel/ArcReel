@@ -299,6 +299,8 @@ MESSAGES = {
     "video_capability_missing_i2v": "{provider}/{model} không hỗ trợ tạo video từ ảnh; hãy chỉ định mô hình hỗ trợ tính năng này cho mục tạo video từ ảnh trong Cài đặt, hoặc đổi mô hình video mặc định",
     "video_capability_missing_r2v": "{provider}/{model} không hỗ trợ tạo video theo tham chiếu; hãy chỉ định mô hình hỗ trợ tính năng này cho mục tạo video theo tham chiếu trong Cài đặt, hoặc đổi mô hình video mặc định",
     "video_capability_reference_unavailable": "Mô hình video đã cấu hình {provider}/{model} không còn khả dụng (mô hình bị xóa, năng lực đã thay đổi hoặc nhà cung cấp bị gỡ bỏ); hãy chọn lại mô hình video trong Cài đặt",
+    "video_comfyui_no_first_frame": "Luồng ComfyUI {model} không có đầu vào khung hình đầu; hãy nhập lại luồng image-to-video trong Cài đặt, hoặc chỉ định mô hình hỗ trợ khung hình đầu cho mục tạo video từ ảnh",
+    "video_comfyui_no_last_frame": "Luồng ComfyUI {model} không có đầu vào khung hình cuối; hãy bỏ khung hình cuối của cảnh quay này hoặc nhập lại luồng có hỗ trợ",
     "video_resolution_duration_unsupported": "Mô hình {model} không hỗ trợ {duration}s ở độ phân giải {resolution} (chỉ {supported}); hãy điều chỉnh độ phân giải hoặc thời lượng",
     "video_reference_images_duration_unsupported": "Mô hình {model} không hỗ trợ {duration}s khi dùng ảnh tham chiếu (chỉ {supported}); hãy đổi thời lượng sang {supported} hoặc bỏ ảnh tham chiếu",
     "video_reference_images_required": "Mô hình {model} cần ít nhất một ảnh tham chiếu; hãy cung cấp ảnh tham chiếu",
