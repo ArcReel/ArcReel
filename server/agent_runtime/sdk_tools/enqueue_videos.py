@@ -97,7 +97,8 @@ async def _pending_duration_confirmations(
     """收集本批将入队的 unit 中，申请时长与剧本编排不一致的清单。
 
     项目视频能力（档位 + 分辨率）按能力桶至多各解析一次（:func:`resolve_project_duration_context`；
-    unit 按声明的参考集分桶——无参考图退化镜头按 i2v 桶模型取档，与执行侧同口径），批内
+    unit 按参考集分桶，ad 从水合后的成员镜头现算——无参考图退化镜头按 i2v 桶模型取档，
+    与执行侧同口径），批内
     逐 unit 取档改用纯函数 :func:`precheck_unit`——避免整批 N 个 unit 各自触发一轮
     DB 往返。解析推迟到第一个真正需要取档的 unit：整批都已完成或都被跳过时不触发任何 IO。
 
@@ -120,7 +121,7 @@ async def _pending_duration_confirmations(
             ad_shots = ad_shots_for(unit) if ad_shots_for else None
         except ValueError:
             continue
-        bucket = reference_unit_video_bucket(unit)
+        bucket = reference_unit_video_bucket(unit, ad_shots=ad_shots)
         if bucket not in ctxs:
             ctxs[bucket] = await resolve_project_duration_context(project, capability=bucket)
         try:

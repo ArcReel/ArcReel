@@ -586,7 +586,7 @@ class CostEstimationService:
         切到 reference_video，这笔旧支出与新 unit 的分摊额都要计入。图片/音频实付同样按
         shot_id 原样回填（不受 unit 分摊影响）：切换模式前产生的镜头图/配音费用仍需展示。
 
-        取档与计价按 unit 声明的参考集分桶（``reference_unit_video_bucket``）：有参考图
+        取档与计价按成员镜头现算的参考集分桶（``reference_unit_video_bucket``）：有参考图
         → r2v 桶模型，无参考图退化 unit → i2v 桶模型，与执行侧定桶同口径。
 
         分组优先读剧本已持久化的 ``reference_units``（与执行时同一份索引，见
@@ -629,7 +629,7 @@ class CostEstimationService:
             if not ad_shots:
                 continue
 
-            bucket = reference_unit_video_bucket(unit)
+            bucket = reference_unit_video_bucket(unit, ad_shots=ad_shots)
             # 不需要 narration/drama 路径的逐 unit 脏时长容错：ad 的 unit 时长经
             # ad_script_total_duration 求和，该函数对脏数据按 0 计、不抛（全脏回退
             # FALLBACK_UNIT_DURATION），precheck_unit 在 ad 分支没有 unit 级脏数据

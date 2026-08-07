@@ -448,9 +448,14 @@ async def precheck_unit_duration(
         unit = _find_unit(script, unit_id, _t)
         ad_shots = None
 
-    # ctx 按 unit 定桶解析（无参考图退化镜头 → i2v），与执行期实际取档的模型同桶
+    # ctx 按 unit 定桶解析（无参考图退化镜头 → i2v），与执行期实际取档的模型同桶：
+    # ad 的参考集从水合后的成员镜头现算，不读可能落后于镜头的索引缓存
     slot = precheck_unit(
-        await resolve_project_duration_context(project, capability=reference_unit_video_bucket(unit)), unit, ad_shots
+        await resolve_project_duration_context(
+            project, capability=reference_unit_video_bucket(unit, ad_shots=ad_shots)
+        ),
+        unit,
+        ad_shots,
     )
     return {
         "needs_confirmation": slot.needs_confirmation,
@@ -522,6 +527,7 @@ async def generate_unit(
         guard_prompt = render_ad_unit_prompt(unit_shots, style=style if isinstance(style, str) else None)
     else:
         unit = _find_unit(script, unit_id, _t)  # raises 404 if missing
+        unit_shots = None
         guard_prompt = assemble_shots_text(unit.get("shots") or [])
 
     # 经统一守卫点构造：空提示词的结构校验在此当场拒绝（400），与 SDK 入队路径一致，
@@ -538,9 +544,10 @@ async def generate_unit(
         raise HTTPException(status_code=400, detail=_t(exc.code, **exc.params)) from exc
 
     # 参考生视频按镜头是否携带参考图分流定桶（docs/adr/0054）：有参考图 → r2v，无参考图
-    # 退化镜头降级 → i2v。预检按 unit 声明的 references 近似（执行层按解析后的实际图独立
-    # 判定），解析闸让能力缺失 / 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
-    await require_video_bucket_capability(project, reference_unit_video_bucket(unit))
+    # 退化镜头降级 → i2v。ad 按水合后的成员镜头现算参考集（与执行侧同源），其余按 unit
+    # 声明的 references 近似（执行层按解析后的实际图独立判定）；解析闸让能力缺失 / 悬空
+    # 引用在提交入口即返回修复指引，而非任务面板里的异步失败。
+    await require_video_bucket_capability(project, reference_unit_video_bucket(unit, ad_shots=unit_shots))
 
     queue = get_generation_queue()
     result = await queue.enqueue_task(

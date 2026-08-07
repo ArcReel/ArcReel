@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from lib.reference_video.ad_units import ad_unit_references
+
 if TYPE_CHECKING:
     # 仅类型导入：lib.project_manager 经 lib.reference_video 包初始化间接加载本模块，而
     # lib.config.resolver 又反向 import lib.project_manager，运行时导入会成环。
@@ -26,8 +28,19 @@ def reference_video_bucket(*, with_references: bool) -> VideoCapability:
     return "r2v" if with_references else "i2v"
 
 
-def reference_unit_video_bucket(unit: dict | None) -> VideoCapability:
-    """按 unit 声明的 references 定桶（读侧近似判据，见 :func:`reference_video_bucket`）。"""
+def reference_unit_video_bucket(unit: dict | None, *, ad_shots: list[dict] | None = None) -> VideoCapability:
+    """unit 的能力桶（读侧近似判据，见 :func:`reference_video_bucket`）。
+
+    ad 路径传入水合后的成员镜头（``ad_shots``），参考集从镜头现算——与执行侧、来源签名
+    同源。索引里持久化的 ``references`` 只是展示缓存，镜头参考字段被编辑后未重新派生时
+    它会落后于镜头，读侧照它定桶会让预检与执行分叉：给空缓存的 unit 补上参考后，一个
+    合法的纯 r2v 配置会因「缺 i2v 能力」被拒；反过来删光参考后，预检与入队按 r2v 定桶
+    并锁定供应商，执行期却按 i2v 生成，时长确认弹窗也会报出另一个桶的档位。
+
+    narration/drama 的 unit 内容自包含（参考集就在 unit 上，无成员镜头可查），不传该参数。
+    """
+    if ad_shots is not None:
+        return reference_video_bucket(with_references=bool(ad_unit_references(ad_shots)))
     return reference_video_bucket(with_references=bool((unit or {}).get("references")))
 
 
