@@ -189,6 +189,32 @@ class TestScriptGenerator:
         assert "姜月茴" in prompt
 
     @pytest.mark.unit
+    async def test_build_prompt_appends_user_instructions(self, tmp_path):
+        """instructions 以中性「用户意见」分节追加到 prompt 末尾；未传时无该分节。"""
+        project_path = tmp_path / "demo"
+        _write_json(
+            project_path / "project.json",
+            {
+                "title": "项目",
+                "content_mode": "narration",
+                "overview": {"synopsis": "概述"},
+                "characters": {"姜月茴": {}},
+                "style": "古风",
+                "style_description": "cinematic",
+            },
+        )
+        _write_step1_json(project_path, 1, [_step1_seg("E1S01", "第一段原文，逐字保留。", duration=4)])
+
+        generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
+
+        plain = await generator.build_prompt(1)
+        assert "# 用户意见" not in plain
+
+        prompt = await generator.build_prompt(1, instructions="多给人物面部特写")
+        assert prompt.endswith("# 用户意见\n多给人物面部特写")
+
+    @pytest.mark.unit
     async def test_narration_step2_build_prompt_uses_project_source_language(self, tmp_path):
         """narration step2（视觉层）prompt 的输出语言须取项目 source_language（与 drama 同口径），非中文项目不得回落中文。"""
         project_path = tmp_path / "demo"
@@ -655,6 +681,24 @@ class TestScriptGenerator:
         assert "utterances" not in props
         assert "source_text" not in props
         assert "duration_seconds" not in props
+
+    @pytest.mark.unit
+    async def test_generate_drama_step2_appends_user_instructions(self, tmp_path):
+        """generate 路径的 instructions 同样以中性「用户意见」分节追加到发给模型的 prompt 末尾。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            characters={"姜月茴": {}},
+        )
+        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
+
+        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
+        await generator.generate(1, instructions="打斗场面多给全景")
+
+        assert fake.backend.last_request.prompt.endswith("# 用户意见\n打斗场面多给全景")
 
     @pytest.mark.unit
     async def test_generate_sets_script_max_output_tokens(self, tmp_path):

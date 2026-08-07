@@ -2273,7 +2273,7 @@ async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatc
         def __init__(self, _path):
             pass
 
-        async def build_prompt(self, _episode):
+        async def build_prompt(self, _episode, *, instructions=None):
             return "fake prompt"
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
@@ -2821,7 +2821,7 @@ async def test_plan_episodes_rejects_overlong_instructions(fake_ctx: ToolContext
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(PlanResult(episodes=[], cursor=None)))
-    out = await _call(mod.plan_episodes_tool(fake_ctx), {"instructions": "章" * (mod._MAX_INSTRUCTIONS_LEN + 1)})
+    out = await _call(mod.plan_episodes_tool(fake_ctx), {"instructions": "章" * (mod.MAX_INSTRUCTIONS_LEN + 1)})
 
     assert out.get("is_error") is True
     assert "过长" in out["content"][0]["text"]
@@ -2841,7 +2841,7 @@ async def test_plan_episodes_accepts_boundary_length_instructions(fake_ctx: Tool
         cursor=None,
     )
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result, captured))
-    text = "章" * mod._MAX_INSTRUCTIONS_LEN
+    text = "章" * mod.MAX_INSTRUCTIONS_LEN
     out = await _call(mod.plan_episodes_tool(fake_ctx), {"instructions": text})
 
     assert out.get("is_error") is not True
@@ -5067,6 +5067,134 @@ async def test_split_narration_segments_dry_run(fake_ctx: ToolContext, monkeypat
     assert "E1S" in prompt_text
     assert "张三" in prompt_text
     assert "4" in prompt_text
+    # 未传 instructions 时无用户意见分节
+    assert "# 用户意见" not in prompt_text
+
+
+@pytest.mark.unit
+async def test_split_narration_segments_injects_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+    """instructions 原样进 prompt 末尾的中性「用户意见」分节，不附加强度措辞。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _rv_source(fake_ctx)
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+
+    tool_obj = split_narration_segments_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "单个片段出场人物尽量不超过两人"})
+    assert out.get("is_error") is not True, out
+    prompt_text = out["content"][0]["text"]
+    assert "# 用户意见" in prompt_text
+    assert "单个片段出场人物尽量不超过两人" in prompt_text
+    assert "必须全部落实" not in prompt_text
+
+
+@pytest.mark.unit
+async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+    """instructions 超长 / 非字符串按参数错误拒绝；空白 strip 后视同未传（校验为四个生成工具共享）。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _rv_source(fake_ctx)
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    tool_obj = split_narration_segments_tool(fake_ctx)
+
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "长" * 4001})
+    assert out.get("is_error") is True
+    assert "4000" in out["content"][0]["text"]
+
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": 42})
+    assert out.get("is_error") is True
+
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "   \n  "})
+    assert out.get("is_error") is not True, out
+    assert "# 用户意见" not in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    src = project_path / "source"
+    src.mkdir(parents=True)
+    (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
+
+    async def fake_caps(_p, _episode=None):
+        return 4, [4, 6, 8]
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    tool_obj = normalize_drama_script_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "打斗场面多拆几个短镜头"})
+    assert out.get("is_error") is not True, out
+    prompt_text = out["content"][0]["text"]
+    assert "# 用户意见" in prompt_text
+    assert "打斗场面多拆几个短镜头" in prompt_text
+
+
+@pytest.mark.unit
+async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _rv_source(fake_ctx)
+    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher())
+
+    tool_obj = split_reference_video_units_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "单 unit 出场人物尽量不超过两人"})
+    assert out.get("is_error") is not True, out
+    prompt_text = out["content"][0]["text"]
+    assert "# 用户意见" in prompt_text
+    assert "单 unit 出场人物尽量不超过两人" in prompt_text
+
+
+@pytest.mark.unit
+async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+    """handler 把 instructions 原样转交 ScriptGenerator（dry_run 与生成路径同口径）。"""
+    from lib import script_review
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    drafts = project_path / "drafts" / "episode_1"
+    drafts.mkdir(parents=True)
+    step1 = drafts / "step1_segments.json"
+    step1.write_text("step1", encoding="utf-8")
+    fingerprint = script_review.content_fingerprint(step1)
+    (project_path / "project.json").write_text(
+        json.dumps(
+            {
+                "content_mode": "narration",
+                "episodes": [{"episode": 1, "step1_review": {"fingerprint": fingerprint, "confirmed_at": "t"}}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured: dict[str, Any] = {}
+
+    class _FakeGenerator:
+        def __init__(self, _path):
+            pass
+
+        @classmethod
+        async def create(cls, _path):
+            return cls(_path)
+
+        async def build_prompt(self, _episode, *, instructions=None):
+            captured["build_prompt"] = instructions
+            return "fake prompt"
+
+        async def generate(self, *, episode, instructions=None):
+            captured["generate"] = instructions
+            return project_path / "scripts" / "episode_1.json"
+
+    monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
+    tool_obj = generate_episode_script_tool(fake_ctx)
+
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "偏好特写镜头"})
+    assert out.get("is_error") is not True, out
+    assert captured["build_prompt"] == "偏好特写镜头"
+
+    out = await _call(tool_obj, {"episode": 1, "instructions": "偏好特写镜头"})
+    assert out.get("is_error") is not True, out
+    assert captured["generate"] == "偏好特写镜头"
 
 
 @pytest.mark.unit

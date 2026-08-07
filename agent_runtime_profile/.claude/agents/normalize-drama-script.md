@@ -68,7 +68,7 @@ mcp__arcreel__get_video_capabilities({})
 通过 MCP 工具调用（项目名由 session 绑定，不需要传）：
 
 ```text
-mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.txt"})
+mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.txt", "instructions": "<附加说明原文，可选，无则省略>"})
 ```
 
 > dry_run=true 时仅返回 prompt 不调用模型，便于审查。工具按 response_schema 约束直接产出结构化内容 JSON。

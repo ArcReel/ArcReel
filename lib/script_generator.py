@@ -37,6 +37,7 @@ from lib.project_manager import ProjectManager
 from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
+    append_user_instructions,
     build_drama_prompt,
     build_narration_prompt,
     render_drama_content_for_step2,
@@ -200,6 +201,8 @@ class ScriptGenerator:
         self,
         episode: int,
         output_filename: str | None = None,
+        *,
+        instructions: str | None = None,
     ) -> Path:
         """
         异步生成剧集剧本
@@ -208,6 +211,8 @@ class ScriptGenerator:
             episode: 剧集编号
             output_filename: 输出文件名，默认 episode_{episode}.json。剧本一律经写盘统一入口写入
                 项目 scripts/ 目录，故此参数只决定文件名、不接受目录。
+            instructions: 用户对本次生成的意见原文；非空时以中性「用户意见」分节追加到
+                prompt 末尾（遵循强度由正文表达），所有 content_mode / 生成路线同口径。
 
         Returns:
             生成的 JSON 文件路径
@@ -234,6 +239,7 @@ class ScriptGenerator:
         # ad 一键生成不走 step1 中间文件，创作输入是 brief + 产品信息 + target_duration。
         if self.content_mode == "ad":
             prompt, schema = await self._compose_ad(episode, gen_mode)
+            prompt = append_user_instructions(prompt, instructions)
             return await self._generate_and_save(prompt, schema, episode, output_filename)
 
         # drama（storyboard / grid）走两段式（见 ADR 0041）：step1 内容已是结构化 JSON，
@@ -241,7 +247,9 @@ class ScriptGenerator:
         # 透传 utterances / source_text 等非视觉字段。reference_video 路径不入此分支（用 video_units）；
         # content_mode 非 narration（drama 或脏值）走 step2 drama 形状。
         if gen_mode != "reference_video" and self.content_mode != "narration":
-            return await self._generate_drama_step2(episode, output_filename, gen_mode=gen_mode)
+            return await self._generate_drama_step2(
+                episode, output_filename, gen_mode=gen_mode, instructions=instructions
+            )
 
         caps = await self._fetch_video_capabilities()
 
@@ -315,6 +323,8 @@ class ScriptGenerator:
         # 这里只传未取档的原始确认值：取档按哪套档位算取决于「这个 unit 最终是否带参考图」，
         # 而 references 由 LLM 在 step2 输出时决定、可能与 step1 机械派生的不同。取档统一放在
         # _add_metadata，按落地后的最终 references 逐 unit 重算。
+        prompt = append_user_instructions(prompt, instructions)
+
         reference_unit_durations = None
         if step1_units is not None:
             self._assert_reference_step1_ready(step1_units, caps=caps, gen_mode=gen_mode)
@@ -334,7 +344,14 @@ class ScriptGenerator:
             caps=caps if step1_units is not None else None,
         )
 
-    async def _generate_drama_step2(self, episode: int, output_filename: str | None, *, gen_mode: str | None) -> Path:
+    async def _generate_drama_step2(
+        self,
+        episode: int,
+        output_filename: str | None,
+        *,
+        gen_mode: str | None,
+        instructions: str | None = None,
+    ) -> Path:
         """drama 两段式 step2：读 step1 结构化内容 → LLM 仅出视觉层 → 按 scene_id 合并 → 落盘。
 
         非视觉字段（utterances / source_text / characters_in_scene / 时长 / 边界）一律取自 step1 内容、
@@ -350,7 +367,7 @@ class ScriptGenerator:
         logger.info("正在生成第 %d 集剧本（drama step2 视觉层）...", episode)
         result = await self.generator.generate(
             TextGenerationRequest(
-                prompt=self._build_drama_step2_prompt(content_scenes, episode),
+                prompt=append_user_instructions(self._build_drama_step2_prompt(content_scenes, episode), instructions),
                 response_schema=DramaVisualScript,
                 max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             ),
@@ -577,20 +594,21 @@ class ScriptGenerator:
             target_language=self.project_json.get("source_language") or "中文",
         )
 
-    async def build_prompt(self, episode: int) -> str:
+    async def build_prompt(self, episode: int, *, instructions: str | None = None) -> str:
         """
         构建 Prompt（用于 dry-run 模式）
 
         与 `generate()` 同样先 await `_fetch_video_capabilities()` 解析 caps；
         这样当 `project.json` 不显式声明 `video_backend`（用户依赖全局/系统默认时）也能
         正确派生 supported_durations。caps 失败仍 fallback 到 project.json 自身的 sync 链。
+        ``instructions`` 的注入口径与 `generate()` 一致（中性「用户意见」分节追加末尾）。
         """
         gen_mode = self.generation_mode
 
         # 见 generate() 同位置说明：ad 先于 generation_mode 分派，且不读 step1。
         if self.content_mode == "ad":
             prompt, _schema = await self._compose_ad(episode, gen_mode)
-            return prompt
+            return append_user_instructions(prompt, instructions)
 
         # drama（storyboard / grid）dry-run 走 step2 视觉层 prompt：读 step1 结构化内容并渲染
         # （见 generate() 的两段式说明）。reference_video / narration 不入此分支。
@@ -598,7 +616,7 @@ class ScriptGenerator:
             content = self._load_drama_step1_content(episode)
             raw_scenes = content.get("scenes")
             content_scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
-            return self._build_drama_step2_prompt(content_scenes, episode)
+            return append_user_instructions(self._build_drama_step2_prompt(content_scenes, episode), instructions)
 
         caps = await self._fetch_video_capabilities()
         characters = self.project_json.get("characters")
@@ -612,7 +630,7 @@ class ScriptGenerator:
             # unit 时长按全集校验（见 generate() 同位置说明）；step2 不产出时长，prompt 里
             # 不再需要档位与上限，只需参考图上限。
             step1_units = self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
-            return build_reference_video_prompt(
+            prompt = build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
                 style_description=self.project_json.get("style_description", ""),
@@ -625,9 +643,10 @@ class ScriptGenerator:
                 episode=episode,
                 target_language=self.project_json.get("source_language") or "中文",
             )
+            return append_user_instructions(prompt, instructions)
         # narration 两段式：step1 透传内容层（novel_text 等），step2 仅产视觉层。
         # drama / ad 已在前面早返回，reference 走上面分支，故此处必为 narration。
-        return build_narration_prompt(
+        prompt = build_narration_prompt(
             project_overview=self.project_json.get("overview", {}),
             style=self.project_json.get("style", ""),
             style_description=self.project_json.get("style_description", ""),
@@ -641,6 +660,7 @@ class ScriptGenerator:
             episode=episode,
             target_language=self.project_json.get("source_language") or "中文",
         )
+        return append_user_instructions(prompt, instructions)
 
     async def _fetch_video_capabilities(self) -> dict | None:
         """从 ConfigResolver 解析视频模型能力；失败时返 None，由 _resolve_* fallback 到 project.json 直读。

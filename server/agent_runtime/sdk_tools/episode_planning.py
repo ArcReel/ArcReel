@@ -24,11 +24,12 @@ from lib.episode_reset import (
     ResetConfirmationRequired,
     reset_episode_planning,
 )
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
-
-# instructions 以「必须全部落实」的最高优先级注入规划 prompt，超长文本会失控 token 用量
-# 并稀释规划器对原文的处理，超限按参数错误提前拒绝。上限对偏好文本足够宽松，仅挡病态输入。
-_MAX_INSTRUCTIONS_LEN = 4000
+from server.agent_runtime.sdk_tools._context import (
+    MAX_INSTRUCTIONS_LEN,
+    ToolContext,
+    read_instructions_arg,
+    tool_error,
+)
 
 
 def _require_positive_int(args: dict[str, Any], key: str) -> int:
@@ -94,9 +95,9 @@ def plan_episodes_tool(ctx: ToolContext):
         "写账本、派生 source/episode_N.txt 并清理残留派生文件。返回账本摘要（每集标题+钩子+体量）。"
         "窗口字数与每批集数上限为内部默认，project.json 顶层 planning_window_chars / "
         "planning_max_episodes 可覆盖，每集目标体量沿用 episode_target_units。"
-        "用户表达分集偏好（如按章节对齐切分、指定某处收尾）时经 instructions 传入原文；规划器会"
-        "以「必须全部落实」的强度对齐该偏好、优先于默认剧情弧完整性，并附带已规划集数、未规划余量、"
-        "本窗口体量供换算切分节奏。规划按窗口分多批（长篇会多次调用本工具），instructions 不持久化，"
+        "用户表达分集意见（如按章节对齐切分、指定某处收尾）时经 instructions 传入原文；意见原样注入"
+        "规划 prompt 的「用户意见」分节（遵循强度由正文表达，需要强约束时在正文写明），并附带已规划"
+        "集数、未规划余量、本窗口体量供换算切分节奏。规划按窗口分多批（长篇会多次调用本工具），instructions 不持久化，"
         "规划全部完成前每一批调用都要重复带上同一偏好。末批即全部源文规划完毕、或再次调用已无新内容"
         "时，返回会额外附全局体量核对材料（累计集数、体量最小几集、体量中位数、目标体量）："
         "若用户给过总集数、按章节对齐等结构性偏好，须对照核对、有偏差明确告知用户；常规批次只报"
@@ -109,25 +110,21 @@ def plan_episodes_tool(ctx: ToolContext):
                 "instructions": {
                     "type": "string",
                     "description": (
-                        "用户分集偏好原文（可选，如「按章节对齐切分」）；每批调用都要重复带上，"
-                        f"缺省/空白视同未传，最长 {_MAX_INSTRUCTIONS_LEN} 字符"
+                        "用户分集意见原文（可选，如「按章节对齐切分」）；原样注入规划 prompt 的"
+                        "「用户意见」分节，遵循强度由正文表达。每批调用都要重复带上，"
+                        f"缺省/空白视同未传，最长 {MAX_INSTRUCTIONS_LEN} 字符"
                     ),
                 }
             },
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        raw_instructions = args.get("instructions")
-        if raw_instructions is not None and not isinstance(raw_instructions, str):
-            text = f"❌ 参数错误：instructions 必须是字符串，收到 {type(raw_instructions).__name__}"
-            return {"content": [{"type": "text", "text": text}], "is_error": True}
-        if isinstance(raw_instructions, str) and len(raw_instructions) > _MAX_INSTRUCTIONS_LEN:
-            text = f"❌ 参数错误：instructions 过长（{len(raw_instructions)} 字符，上限 {_MAX_INSTRUCTIONS_LEN}），请精简后重试"
-            return {"content": [{"type": "text", "text": text}], "is_error": True}
-        instructions = raw_instructions.strip() if isinstance(raw_instructions, str) else ""
+        instructions, param_err = read_instructions_arg(args)
+        if param_err is not None:
+            return param_err
         try:
             planner = await EpisodePlanner.create(ctx.project_path)
-            result = await planner.plan(instructions=instructions or None)
+            result = await planner.plan(instructions=instructions)
             if not result.episodes and result.source_exhausted:
                 lines = ["源文已全部规划完毕，没有可规划的新内容。"]
                 if result.ledger_stats is not None:

@@ -42,6 +42,7 @@ from lib.episode_ledger import (
 from lib.episode_paths import episode_script_relpath
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager, resolve_source_kind
+from lib.prompt_builders_script import USER_INSTRUCTIONS_HEADER
 from lib.text_backends.base import (
     DEFAULT_MAX_OUTPUT_TOKENS,
     StructuredOutputExhaustedError,
@@ -415,9 +416,9 @@ class EpisodePlanner:
         当前源文件已无剩余有效内容时按文件名序自动推进到下一个源文件；
         ``source_exhausted=True`` 表示全部源文件都已规划完毕。
 
-        ``instructions`` 是可选的用户分集偏好（如按章节对齐切分），strip 后为空视同未传；
-        非空则以「必须全部落实」的强度注入规划 prompt，优先于默认剧情弧完整性。规划按窗口
-        分多批、指令不持久化，调用方须在每批 plan 调用都重复带上。
+        ``instructions`` 是可选的用户分集意见（如按章节对齐切分），strip 后为空视同未传；
+        非空则原样注入规划 prompt 的中性「用户意见」分节，遵循强度由意见正文自行表达。规划按窗口
+        分多批、意见不持久化，调用方须在每批 plan 调用都重复带上。
 
         新提交的集号若在磁盘上已有下游产物（剧本/step1/媒体，见
         :func:`lib.episode_ledger.has_downstream_products`），说明该集实际已被消费过
@@ -985,9 +986,9 @@ def _build_planning_prompt(
 ) -> str:
     """规划 prompt。仅面向文本模型，不做 i18n。
 
-    ``instructions`` 非空时以「必须全部落实」的强度注入一个用户意见分节；为空则不注入，
-    prompt 与无指令时逐字一致。``progress`` 非 None 时注入「全局进度」分节（调用方只在
-    instructions 非空时传入）。
+    ``instructions`` 非空时注入一个中性的「用户意见」分节（遵循强度由意见正文自行表达，
+    模板不加强度限定词）；为空则不注入，prompt 与无意见时逐字一致。``progress`` 非 None 时
+    注入「全局进度」分节（调用方只在 instructions 非空时传入）。
     """
     overview = project.get("overview") or {}
     unit_name = reading_unit_noun(_language_of(project))
@@ -1021,7 +1022,7 @@ def _build_planning_prompt(
             lines.append(f"- 第 {entry.get('episode')} 集《{title}》 钩子：{hook}")
 
     if instructions:
-        lines += ["", "# 用户规划意见（必须全部落实）", instructions]
+        lines += ["", USER_INSTRUCTIONS_HEADER, instructions]
     if progress is not None:
         lines += [
             "",

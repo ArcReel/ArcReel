@@ -60,7 +60,7 @@ mcp__arcreel__get_video_capabilities({})
 **Step 1**: 调用工具生成结构化拆分（项目名由 session 绑定，不需要传）：
 
 ```text
-mcp__arcreel__split_narration_segments({"episode": N, "source": "source/episode_N.txt"})
+mcp__arcreel__split_narration_segments({"episode": N, "source": "source/episode_N.txt", "instructions": "<附加说明原文，可选，无则省略>"})
 ```
 
 > dry_run=true 时仅返回 prompt 不调用模型，便于审查。工具按 response_schema 约束直接产出结构化片段 JSON，并在写盘前校验 segment_id 唯一与片段时长取自 `supported_durations`。

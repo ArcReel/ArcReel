@@ -61,7 +61,7 @@ mcp__arcreel__get_video_capabilities({})
 **Step 1**: 调用工具生成结构化拆分（项目名由 session 绑定，不需要传）：
 
 ```text
-mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episode_N.txt"})
+mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episode_N.txt", "instructions": "<附加说明原文，可选，无则省略>"})
 ```
 
 > dry_run=true 时仅返回 prompt 不调用模型，便于审查。模型只产出「时长 + 原文锚 + 书写层正文」，`unit_id` / `shots` / `references` 由工具从正文派生；写盘前校验正文语法、资产名引用完整性、原文锚是否为源文逐字子串与台词量是否念得完。任一违约时**正式文件不写**，产出连同逐条违约报告落到 `drafts/episode_{N}/step1_reference_units.invalid.json`——不要重跑工具重抽，按情况 C 修复后晋升。

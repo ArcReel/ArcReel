@@ -41,6 +41,32 @@ def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> d
     return {"content": [{"type": "text", "text": text}], "is_error": True}
 
 
+# instructions 超长会失控 token 用量并稀释模型对原文的处理，超限按参数错误提前拒绝。
+# 上限对意见文本足够宽松，仅挡病态输入。
+MAX_INSTRUCTIONS_LEN = 4000
+
+
+def _param_error(msg: str) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": f"❌ 参数错误：{msg}"}], "is_error": True}
+
+
+def read_instructions_arg(args: dict[str, Any]) -> tuple[str | None, dict[str, Any] | None]:
+    """取可选 ``instructions`` 入参（分集生成工具共享）：空白 strip 后视同未传。
+
+    返回 ``(instructions, error)``：入参非法（非字符串 / 超长）时 ``error`` 是现成的
+    参数错误响应，调用方直接 return。
+    """
+    raw = args.get("instructions")
+    if raw is None:
+        return None, None
+    if not isinstance(raw, str):
+        return None, _param_error(f"instructions 必须是字符串，收到 {type(raw).__name__}")
+    if len(raw) > MAX_INSTRUCTIONS_LEN:
+        return None, _param_error(f"instructions 过长（{len(raw)} 字符，上限 {MAX_INSTRUCTIONS_LEN}），请精简后重试")
+    text = raw.strip()
+    return (text or None), None
+
+
 async def resolve_video_caps(project: dict[str, Any], *, capability: VideoCapability | None = None) -> dict[str, Any]:
     """Resolve the full video capability dict for an MCP tool call.
 
