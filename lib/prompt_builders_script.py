@@ -13,6 +13,17 @@ from lib.prompt_rules.episode_pacing import render_pacing_section
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
 
+# 用户意见（instructions）注入分节的统一标题：五个分集生成入口（plan / step1 三工具 / step2）
+# 共用，措辞保持中性——遵循强度由意见正文自行表达，注入模板不添加任何强度限定词。
+USER_INSTRUCTIONS_HEADER = "# 用户意见"
+
+
+def append_user_instructions(prompt: str, instructions: str | None) -> str:
+    """把用户意见以中性分节追加到 prompt 末尾；空 / None 时原样返回。"""
+    if not instructions:
+        return prompt
+    return f"{prompt}\n\n{USER_INSTRUCTIONS_HEADER}\n{instructions}"
+
 
 def _format_names(items: dict) -> str:
     if not items:

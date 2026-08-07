@@ -1060,7 +1060,7 @@ class TestPlan:
 
     @pytest.mark.unit
     async def test_plan_forwards_instructions_into_prompt(self, tmp_path: Path):
-        """首批规划带 instructions 时，原文进「用户规划意见（必须全部落实）」分节。"""
+        """首批规划带 instructions 时，原文进中性的「用户意见」分节，不自带强度措辞。"""
         project_dir = _write_project(tmp_path)
         fake = _FakeTextGenerator(
             [_plan_response([{"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
@@ -1069,8 +1069,10 @@ class TestPlan:
         await EpisodePlanner(project_dir, generator=fake).plan(instructions="严格按章节切分，一章一集")
 
         prompt = fake.requests[0].prompt
-        assert "# 用户规划意见（必须全部落实）" in prompt
+        assert "# 用户意见" in prompt
         assert "严格按章节切分，一章一集" in prompt
+        # 遵循强度由意见正文自行表达，注入模板不添加任何强度限定词
+        assert "必须全部落实" not in prompt
 
     @pytest.mark.unit
     async def test_plan_without_instructions_omits_section(self, tmp_path: Path):
@@ -1083,7 +1085,7 @@ class TestPlan:
         await EpisodePlanner(project_dir, generator=fake).plan()
 
         prompt = fake.requests[0].prompt
-        assert "用户规划意见" not in prompt
+        assert "# 用户意见" not in prompt
         assert "必须全部落实" not in prompt
 
     @pytest.mark.unit
