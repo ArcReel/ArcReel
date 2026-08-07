@@ -20,7 +20,7 @@
 #              carries no cross-round state: it materializes THIS poll's fetch and is fully
 #              rebuilt by re-running poll.sh. query.sh is its only intended reader.
 #   index    — last fully-printed index plus its printed_at, at <snapshot>.index.json;
-#              backs the no_change comparison and `query.sh index`.
+#              backs the no_change comparison, the round_estimate ratchet, and `query.sh index`.
 #
 # INDEX SCHEMA (stdout)
 # {
@@ -29,8 +29,11 @@
 #   "head": "<sha>",                                    # current PR head commit SHA
 #   "last_push_at": "<ISO8601>",                        # head commit committedDate — see PITFALL 1
 #   "round_estimate": <int>,                            # fix-round count: commits with committedDate > pr_created_at,
-#                                                       # clustered by >5min gaps (rebase refreshes all dates =>
-#                                                       # underestimates; heuristic only)
+#                                                       # clustered by >5min gaps; ratcheted against the last printed
+#                                                       # index so it never decreases within a PR — a rebase refreshes
+#                                                       # all dates, collapsing the clustering, and would otherwise
+#                                                       # silently reset the convergence guardrail. The snapshot keeps
+#                                                       # the raw computed value (heuristic only)
 #   "snapshot_file": "<path>",                          # full snapshot staged for query.sh
 #   "base_oid": "<sha>" | null,                         # last commit at/before PR creation — SINCE_SHA for the
 #                                                       # first fix batch (null when every commit postdates creation)
@@ -39,9 +42,10 @@
 #     "walkthrough": {                                  # CR's first comment (auto-edited each review)
 #       "id":                    <int>,                 # REST issue comment id — stable across rewrites
 #       "created_at", "updated_at",
-#       "reviewed_current_head": <bool>,                # updated_at > last_push_at
+#       "reviewed_current_head": <bool>,                # updated_at > last_push_at AND not rate-limited
 #       "is_ok":                 <bool>,                # CR explicit pass marker
 #       "is_paused":             <bool>,                # CR paused for this PR
+#       "is_rate_limited":       <bool>,                # walkthrough body IS CR's rate-limit banner — not a review
 #       "is_in_progress":        <bool>,                # CR still processing — don't declare PASS yet
 #       "actionable_count":      "<n>" | null           # parsed from "Actionable comments posted: N"
 #     },
@@ -93,7 +97,11 @@
 #
 # FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name)
 #   is_new                 new this round: created_at/submittedAt > last_push_at (see PITFALL 2)
-#   reviewed_current_head  walkthrough.updated_at > last_push_at (CR rewrites its first comment each review)
+#   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false. CR rewrites its
+#                          first comment each review — but a rate-limit banner rewrite also advances updated_at
+#                          without reviewing anything, so it must not read as "reviewed"
+#   is_rate_limited        walkthrough body carries CR's dedicated rate-limit banner marker (same match as
+#                          quota_alerts) — the current walkthrough is a rate-limit notice, not a review
 #   is_ack                 reviewer acknowledgment of a fix or inline reply (never actionable): body carries a
 #                          <review_comment_addressed>/<review_comment_withdrawn> marker or starts with "### Summary"
 #   cr_markers             CodeRabbit tag tokens found in the first 300 chars of a body (literal match):
@@ -405,17 +413,24 @@ jq -n \
   def codex_comment_has_pass_marker:
     (. // "") | test("^\\s*Codex Review:\\s*Didn(\\x27|\\x{2019})t find any major issues\\."; "i");
 
+  def cr_rate_limited_body:
+    # CodeRabbit wraps its rate-limit banner in a dedicated HTML marker. One match backs both
+    # quota_alerts and walkthrough.is_rate_limited so the two judgments cannot drift apart.
+    (. // "") | test("<!--\\s*This is an auto-generated comment:\\s*rate limited by coderabbit\\.ai\\s*-->");
+
   def cr_walkthrough_rest:
     [$sub_a[] | select(.user.login == "coderabbitai[bot]")]
     | sort_by(.created_at)
     | first
     | if . == null then null else
         (.body // "") as $wb
+        | ($wb | cr_rate_limited_body) as $rate_limited
         | {
           id,
           created_at,
           updated_at,
-          reviewed_current_head: (.updated_at > $last_push),
+          reviewed_current_head: ((.updated_at > $last_push) and ($rate_limited | not)),
+          is_rate_limited: $rate_limited,
           is_ok:          ($wb | test("No actionable comments were generated in the recent review")),
           is_paused:      ($wb | test("(review[s]?\\s+paused|paused\\s+by\\s+coderabbit|automatic reviews are paused|paused\\s+for\\s+this\\s+PR)"; "i")),
           is_in_progress: ($wb | test("(review in progress by coderabbit|currently processing new changes)"; "i")),
@@ -488,7 +503,7 @@ jq -n \
      | select(.user.login | test("(chatgpt-codex-connector|gemini-code-assist|coderabbitai)\\[bot\\]$"))
      | (.body // "") as $qb
      | select(
-         ($qb | test("<!--\\s*This is an auto-generated comment:\\s*rate limited by coderabbit\\.ai\\s*-->"))
+         ($qb | cr_rate_limited_body)
          or ($qb[0:500] | test("you(\\x27ve|\\x{2019}ve|\\s+have)\\s+reached your[^\\n]*?limit"; "i"))
          or ($qb[0:500] | test("(usage|rate|api|daily|monthly)\\s+limit[^\\n]*?(exceeded|reached|hit|reset)"; "i"))
          or ($qb[0:500] | test("quota[^\\n]*?(exceeded|exhausted|reached|reset|limit hit)"; "i"))
@@ -684,12 +699,28 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
     }
   ' "$SNAPSHOT_FILE" > "$WORKDIR/index.json"
 
+# ---- Round-estimate ratchet ----
+# The date-gap clustering resets after a rebase: every committedDate refreshes, all fix
+# commits collapse into one cluster, and the >=3-round convergence guardrail would quietly
+# loosen. Within one PR the fix-round count never genuinely decreases, so carry forward the
+# max of (computed, last printed). The snapshot keeps the raw computed value.
+INDEX_FILE="${SNAPSHOT_FILE%.json}.index.json"
+PREV_ROUND=0
+if [[ -f "$INDEX_FILE" ]]; then
+  # The fallback still covers a present-but-unparsable index; absence is the first-poll norm.
+  PREV_ROUND=$(jq -r '.index.round_estimate // 0' "$INDEX_FILE" 2>/dev/null) || PREV_ROUND=0
+fi
+if [[ "$PREV_ROUND" =~ ^[0-9]+$ ]] && (( PREV_ROUND > 0 )); then
+  jq --argjson prev "$PREV_ROUND" '.round_estimate = ([.round_estimate, $prev] | max)' \
+    "$WORKDIR/index.json" > "$WORKDIR/index_ratchet.json"
+  mv "$WORKDIR/index_ratchet.json" "$WORKDIR/index.json"
+fi
+
 # ---- Pass 3: no-change collapse + semi-compact print ----
 # Waiting rounds dominate the loop; re-printing an identical index every poll is pure
 # context waste. Compare the derived index (key-order normalized) against the last fully
 # printed one and collapse to a single no_change line on match. printed_at sticks to the
 # last full print, so unchanged_since reports how long the state has been flat.
-INDEX_FILE="${SNAPSHOT_FILE%.json}.index.json"
 NEW_NORM=$(jq -cS . "$WORKDIR/index.json")
 PREV_NORM=""
 if [[ -f "$INDEX_FILE" ]]; then

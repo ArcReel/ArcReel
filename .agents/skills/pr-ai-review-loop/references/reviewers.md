@@ -26,7 +26,7 @@
 
 **触发**:`coderabbit.walkthrough.is_paused == true`,且 `updated_at` 之后未发送过 `@coderabbitai resume`(从 `own_trigger_comments` 筛,最新一条 `createdAt` 早于 walkthrough 的 `updated_at`;为空视为未发送)→ 发送 `@coderabbitai resume`。其余场景 CodeRabbit 自动跟新 push,无需手动触发。
 
-**已审当前 HEAD**:`walkthrough.reviewed_current_head == true`。
+**已审当前 HEAD**:`walkthrough.reviewed_current_head == true`。CodeRabbit 限流时会把 walkthrough 改写成限流横幅,这次改写不算审查——poll 已按 `is_rate_limited` 排除,该场景下字段恒为 false。
 
 **actionable**:`walkthrough.is_ok == true` 或 `actionable_count == "0"` 时无 actionable;否则看 `inline_new_by_user["coderabbitai[bot]"]` 各行的 `cr_markers`:含 `potential_issue` / `major` / `refactor` / `verification` 任一即 actionable;仅含 nit 级 token(`nitpick` / `trivial` / `low_value` / `minor`)不算。
 
@@ -39,7 +39,7 @@
 
 **outside diff range 意见**:CodeRabbit 对 diff 之外代码的建议内嵌在 review body(`coderabbit.reviews` 一行,source `coderabbit_review`)里,没有独立 inline comment id。索引只给出这条 review 的存在与 `is_new`、不含正文,`unacked coderabbitai[bot]` 兜底只扫 `inline_*_by_user`,同样看不见它——只靠 inline 口径会漏。发现靠 `query.sh <PR> history`(按 400 字 head 扫出该 review),全文用 `query.sh <PR> details <该 review 的 id>` 取;因无 inline 锚点,回复只能走 PR 顶层评论,不能回 inline。
 
-**配额**:本仓库使用 CodeRabbit 免费开源方案,配额/限流受阻时等待自恢复并手动 `@coderabbitai review` 重试一次;仍失败则本 PR 停用该家,记入退出汇报。全程不询问用户,也不提议付费扩容。
+**配额**:本仓库使用 CodeRabbit 免费开源方案,限流以 `walkthrough.is_rate_limited == true` 或 `quota_alerts` 判读;受阻时等待自恢复并手动 `@coderabbitai review` 重试一次;仍失败则本 PR 停用该家,记入退出汇报。全程不询问用户,也不提议付费扩容。
 
 ## Gemini Code Assist
 

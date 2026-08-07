@@ -57,6 +57,8 @@ bash .agents/skills/pr-ai-review-loop/scripts/query.sh <PR_NUMBER> <子命令>
 
 **fix-up 顺延**:仅在决定是否重触发 Gemini 前,对最近的 push 批次跑 `classify_commits.sh`(SINCE_SHA 取上一批次末 commit 的 `oid`;批次边界从索引 `commits_since_pr_created` 的间隔看,首批次以 `base_oid` 为界),按 reviewers.md「通用约定」判定是否沿用 Gemini 结论。
 
+脚本在 stderr 报 `WARNING: SINCE_SHA ... is not on PR`(典型成因 rebase 改写了全部 SHA)时锚点已失效,拿到的是全量提交而非最近一批,不得按该输出判形状——rebase 同时刷新了 `committedDate`,批次边界也无从重建。此时保守处置:不顺延,按 reviewers.md 的触发规则重审 Gemini,并把锚点重设为索引 `commits_since_pr_created` 末条 `oid` 供下轮使用。「收敛兜底」#2 用本脚本取证时同样适用该告警的处置。
+
 执行完触发动作后,按「轮询节奏」表选择延迟,调用 `ScheduleWakeup`。
 
 ### 步骤 3:收集评论并实施修复

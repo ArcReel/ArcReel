@@ -7,6 +7,10 @@
 # If SINCE_SHA omitted, returns all commits on the PR. With SINCE_SHA, returns commits AFTER that SHA
 # (use to inspect just the latest push: pass the previous round's head).
 #
+# A SINCE_SHA that is not on the PR's commit list (typical cause: a rebase rewrote every SHA)
+# returns ALL commits and warns on stderr — re-anchor on the current commit list instead of
+# trusting the stale SHA.
+#
 # OUTPUT: JSON array, one object per commit:
 # [
 #   {
@@ -57,6 +61,9 @@ COMMITS_JSON=$(gh pr view "$PR" --json commits 2>/dev/null) || {
 
 # Filter to commits after SINCE_SHA if provided.
 if [[ -n "$SINCE_SHA" ]]; then
+  if [[ $(echo "$COMMITS_JSON" | jq --arg since "$SINCE_SHA" '.commits | map(.oid) | index($since)') == "null" ]]; then
+    echo "WARNING: SINCE_SHA $SINCE_SHA is not on PR $PR (branch rebased?). Returning ALL commits — re-anchor on the current commit list." >&2
+  fi
   FILTERED=$(echo "$COMMITS_JSON" | jq --arg since "$SINCE_SHA" '
     .commits as $all
     | ($all | map(.oid) | index($since)) as $idx
