@@ -46,7 +46,7 @@ def _completed(task_id: str = "task-1", url: str = "https://cdn.agnes/out.mp4", 
         "task_id": task_id,
         "status": "completed",
         "size": "720x1280",
-        "remixed_from_video_id": url,
+        "url": url,
     }
     body.update(extra)
     return body
@@ -132,14 +132,12 @@ class TestDurationCoercion:
 
         assert _coerce_duration(value) == expected
 
-    def test_extract_duration_falls_back_when_usage_zero(self):
+    def test_extract_duration_uses_media_seconds_not_processing_time(self):
         from lib.video_backends.agnes import _extract_duration_seconds
 
-        # usage.duration_seconds=0 不应落到结果对象，回落请求时长
-        assert _extract_duration_seconds({"usage": {"duration_seconds": 0}}, fallback=5) == 5
-        # 优先 usage，其次顶层 seconds，再回落
-        assert _extract_duration_seconds({"usage": {"duration_seconds": "9.6"}}, fallback=5) == 10
+        assert _extract_duration_seconds({"seconds": "8.0", "usage": {"duration_seconds": 184}}, fallback=5) == 8
         assert _extract_duration_seconds({"seconds": "7"}, fallback=5) == 7
+        assert _extract_duration_seconds({"usage": {"duration_seconds": 184}}, fallback=5) == 5
         assert _extract_duration_seconds({}, fallback=5) == 5
 
 
@@ -200,9 +198,89 @@ class TestTextToVideo:
         # submit 用长超时覆盖上游长阻塞
         assert post_call.kwargs["timeout"] == 300.0
 
-        # 下载从 remixed_from_video_id 成片 URL，不带 auth
+        # 完成态直接带 URL 时无需二次查询，下载不带 auth
         fake_download.assert_called_once()
         assert fake_download.call_args.args[0] == "https://cdn.agnes/out.mp4"
+
+    async def test_completed_video_id_resolves_url_from_agnesapi(self, tmp_path: Path):
+        """当前 Agnes 响应：remixed 字段为空，须用 video_id 查询成片 URL。"""
+        create_resp = _make_response(200, {"task_id": "task-current", "status": "queued"})
+        poll_resp = _make_response(
+            200,
+            {
+                "id": "task-current",
+                "status": "completed",
+                "video_id": "video_encoded-result-id",
+                "remixed_from_video_id": None,
+                "seconds": "5",
+            },
+        )
+        result_resp = _make_response(
+            200,
+            {
+                "id": "video-result",
+                "status": "completed",
+                "url": "https://cdn.agnes/current.mp4",
+                "remixed_from_video_id": None,
+            },
+        )
+        client = _mock_client(
+            post=AsyncMock(return_value=create_resp),
+            get=AsyncMock(side_effect=[poll_resp, result_resp]),
+        )
+        fake_download = AsyncMock(side_effect=_fake_download_factory(b"current-video"))
+
+        with (
+            patch("httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.agnes._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.agnes.download_video", fake_download),
+        ):
+            from lib.video_backends.agnes import AgnesVideoBackend
+
+            backend = AgnesVideoBackend(api_key="k", base_url="https://api.agnes-ai.cn/v1")
+            result = await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "current.mp4", aspect_ratio="9:16", duration_seconds=5
+                )
+            )
+
+        result_call = client.get.call_args_list[1]
+        assert result_call.args[0] == "https://api.agnes-ai.cn/agnesapi"
+        assert result_call.kwargs["params"] == {"video_id": "video_encoded-result-id"}
+        assert result_call.kwargs["headers"]["Authorization"] == "Bearer k"
+        assert result.video_uri == "https://cdn.agnes/current.mp4"
+        assert (tmp_path / "current.mp4").read_bytes() == b"current-video"
+        fake_download.assert_awaited_once_with("https://cdn.agnes/current.mp4", tmp_path / "current.mp4")
+
+    async def test_legacy_remixed_url_remains_supported(self, tmp_path: Path):
+        create_resp = _make_response(200, {"task_id": "task-legacy", "status": "queued"})
+        poll_resp = _make_response(
+            200,
+            {
+                "id": "task-legacy",
+                "status": "completed",
+                "remixed_from_video_id": "https://cdn.agnes/legacy.mp4",
+            },
+        )
+        client = _mock_client(post=AsyncMock(return_value=create_resp), get=AsyncMock(return_value=poll_resp))
+        fake_download = AsyncMock(side_effect=_fake_download_factory())
+
+        with (
+            patch("httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.agnes._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.agnes.download_video", fake_download),
+        ):
+            from lib.video_backends.agnes import AgnesVideoBackend
+
+            backend = AgnesVideoBackend(api_key="k", base_url="https://x/v1")
+            result = await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "legacy.mp4", aspect_ratio="9:16", duration_seconds=5
+                )
+            )
+
+        assert client.get.call_count == 1
+        assert result.video_uri == "https://cdn.agnes/legacy.mp4"
 
     async def test_polls_through_in_progress(self, tmp_path: Path):
         create_resp = _make_response(200, {"task_id": "t3", "status": "queued"})
@@ -568,7 +646,44 @@ class TestFailureAndTimeout:
             from lib.video_backends.agnes import AgnesVideoBackend
 
             backend = AgnesVideoBackend(api_key="k", base_url="https://x/v1")
-            with pytest.raises(RuntimeError, match="remixed_from_video_id"):
+            with pytest.raises(RuntimeError, match="video_id"):
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
+                    )
+                )
+        fake_download.assert_not_called()
+
+    async def test_result_lookup_without_url_raises(self, tmp_path: Path):
+        create_resp = _make_response(200, {"task_id": "t-no-result", "status": "queued"})
+        poll_resp = _make_response(
+            200,
+            {
+                "task_id": "t-no-result",
+                "status": "completed",
+                "video_id": "video-result-id",
+                "remixed_from_video_id": None,
+            },
+        )
+        result_resp = _make_response(
+            200,
+            {"status": "completed", "remixed_from_video_id": "video-source-id"},
+        )
+        client = _mock_client(
+            post=AsyncMock(return_value=create_resp),
+            get=AsyncMock(side_effect=[poll_resp, result_resp]),
+        )
+        fake_download = AsyncMock()
+
+        with (
+            patch("httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.agnes._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.agnes.download_video", fake_download),
+        ):
+            from lib.video_backends.agnes import AgnesVideoBackend
+
+            backend = AgnesVideoBackend(api_key="k", base_url="https://x/v1")
+            with pytest.raises(RuntimeError, match="成片查询缺少 URL"):
                 await backend.generate(
                     VideoGenerationRequest(
                         prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
