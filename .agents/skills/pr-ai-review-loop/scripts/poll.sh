@@ -705,7 +705,11 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
 # loosen. Within one PR the fix-round count never genuinely decreases, so carry forward the
 # max of (computed, last printed). The snapshot keeps the raw computed value.
 INDEX_FILE="${SNAPSHOT_FILE%.json}.index.json"
-PREV_ROUND=$(jq -r '.index.round_estimate // 0' "$INDEX_FILE" 2>/dev/null) || PREV_ROUND=0
+PREV_ROUND=0
+if [[ -f "$INDEX_FILE" ]]; then
+  # The fallback still covers a present-but-unparsable index; absence is the first-poll norm.
+  PREV_ROUND=$(jq -r '.index.round_estimate // 0' "$INDEX_FILE" 2>/dev/null) || PREV_ROUND=0
+fi
 if [[ "$PREV_ROUND" =~ ^[0-9]+$ ]] && (( PREV_ROUND > 0 )); then
   jq --argjson prev "$PREV_ROUND" '.round_estimate = ([.round_estimate, $prev] | max)' \
     "$WORKDIR/index.json" > "$WORKDIR/index_ratchet.json"
