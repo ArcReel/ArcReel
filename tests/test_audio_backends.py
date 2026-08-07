@@ -32,6 +32,18 @@ class TestRegistry:
         backend = create_backend(PROVIDER_DASHSCOPE, api_key="sk")
         assert isinstance(backend, DashScopeAudioBackend)
 
+    def test_minimax_auto_registered(self):
+        from lib.providers import PROVIDER_MINIMAX
+
+        assert PROVIDER_MINIMAX in get_registered_backends()
+
+    def test_create_minimax(self):
+        from lib.audio_backends.minimax import MiniMaxAudioBackend
+        from lib.providers import PROVIDER_MINIMAX
+
+        backend = create_backend(PROVIDER_MINIMAX, api_key="sk")
+        assert isinstance(backend, MiniMaxAudioBackend)
+
     def test_unknown_backend_raises(self):
         with pytest.raises(ValueError, match="Unknown audio backend"):
             create_backend("nope")
