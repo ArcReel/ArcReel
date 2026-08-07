@@ -72,6 +72,44 @@ class TextOutputTruncatedError(NonRetryableError):
         )
 
 
+class StructuredOutputExhaustedError(NonRetryableError):
+    """结构化输出降级链已走完，模型仍未产出满足 schema 的内容。
+
+    各后端把「结构化输出能力不足」的终局失败统一收敛到本异常：Instructor 档内校验重试
+    耗尽、Gemini prompt 注入降级耗尽，都抛它而非各自的内部异常（``InstructorRetryException``、
+    裸 ``ValueError``），调用方据此给用户一句可行动的解释，而不是把 SDK 内部异常原文透出去。
+
+    继承 NonRetryableError 的理由同 :class:`TextOutputTruncatedError`：消息里嵌的失败原因
+    含模型侧动态文本，可能偶然命中 with_retry_async 的瞬态错误字符串模式。语义上也确实
+    不该重试——降级链本身已经把该试的档位与档内重试都试过了。
+    """
+
+    def __init__(self, *, provider: str, model: str, reason: str):
+        self.provider = provider
+        self.model = model
+        self.reason = reason
+        super().__init__(f"{provider}/{model} 的结构化输出能力不足：{reason}。请更换文本模型或供应商后重试。")
+
+
+# 诊断日志里模型原始输出的截断长度：够看清结构性问题（是散文还是 JSON、顶层是对象还是数组、
+# 哪个字段缺了），又不至于把整份生成内容写进日志。
+RAW_OUTPUT_LOG_LIMIT = 500
+
+
+def truncate_for_log(text: str | None, limit: int = RAW_OUTPUT_LOG_LIMIT) -> str:
+    """把模型原始输出压到可入日志的长度。
+
+    结构化输出降级与解析拒绝由「模型实际输出了什么」决定，只记摘要（字段路径、错误类型）
+    事后无法复盘，故这里刻意保留原文片段。与 :func:`summarize_validation_error` 的取舍不同：
+    后者是每次校验失败都会走的高频路径，本函数只用在 warning 级的降级 / 拒绝分支。
+    """
+    if not text:
+        return "<空>"
+    if len(text) > limit:
+        return f"{text[:limit]}…（截断，共 {len(text)} 字符）"
+    return text
+
+
 # 文本输出上限：非约束安全阀，仅防模型退化性 runaway，不是功能预算——分集规划、剧本生成、
 # drama step1 规范化三处的正常输出体量由各自 schema/内容天然约束，永远不会触碰这个高位值；
 # 只有病态超大批量，或用户配置了输出能力偏低的模型时才会命中。三处共用同一常量，调整只改
@@ -179,6 +217,18 @@ class TextGenerationResult:
     model: str
     input_tokens: int | None = None
     output_tokens: int | None = None
+
+
+def merge_billed_tokens(kept: int | None, discarded: int | None) -> int | None:
+    """把降级路径上被丢弃的那次调用的 token 并入保留结果的计量。
+
+    降级前的调用只要拿到过 HTTP 200 就已被计费，不并账会系统性漏记用量与成本。
+    仅在至少一侧有计量时相加；两侧皆 None（未追踪）保持 None，不塌成字面 0 token——
+    「未追踪」与「零消耗」在成本口径上不是一回事。
+    """
+    if kept is None and discarded is None:
+        return None
+    return (kept or 0) + (discarded or 0)
 
 
 def resolve_schema(schema: dict | type[BaseModel]) -> dict:

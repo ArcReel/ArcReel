@@ -18,11 +18,13 @@ from lib.episode_ledger import discover_sources as _real_discover_sources
 from lib.episode_planner import (
     EpisodePlanner,
     EpisodePlanningError,
+    NarrationPlanDraft,
     PlanningConflictError,
+    _DraftRejected,
     _find_all_overlapping,
 )
 from lib.episode_reset import EpisodeResetResult, reset_episode_planning
-from lib.text_backends.base import TextGenerationResult
+from lib.text_backends.base import StructuredOutputExhaustedError, TextGenerationResult
 from lib.text_metrics import count_reading_units
 
 # 源文：三段剧情，句子互不重复，锚点可唯一定位
@@ -105,6 +107,41 @@ class TestFindAllOverlapping:
         # 空 needle 防御边界：直接返回 []，不进入逐位滑动（调用方 anchor 受 min_length=2 约束）
         assert _find_all_overlapping("abcabc", "") == []
         assert _find_all_overlapping("", "") == []
+
+
+class TestParseDraft:
+    """解析层的拒绝行为：两类失败都要变成可回传给模型的 _DraftRejected，且日志留下原始输出。"""
+
+    @pytest.mark.unit
+    def test_rejects_malformed_json_with_unescaped_quote(self, caplog):
+        """字符串里带未转义引号 → 非法 JSON，拒绝并记录原始输出。"""
+        raw = '{"episodes": [{"title": "他说"你好"", "hook": "h", "end_anchor": "锚点"}]}'
+
+        with caplog.at_level("WARNING", logger="lib.episode_planner"):
+            with pytest.raises(_DraftRejected) as exc_info:
+                EpisodePlanner._parse_draft(raw, NarrationPlanDraft)
+
+        assert "不是合法 JSON" in exc_info.value.reasons[0]
+        assert any(raw[:20] in record.getMessage() for record in caplog.records)
+
+    @pytest.mark.unit
+    def test_rejects_bare_episode_dict_at_top_level(self, caplog):
+        """顶层是裸 episode 对象（缺 episodes wrapper）→ 结构错误，拒绝而不机械补 wrapper。"""
+        raw = json.dumps({"title": "山村少年", "hook": "h", "end_anchor": ANCHOR_EP1}, ensure_ascii=False)
+
+        with caplog.at_level("WARNING", logger="lib.episode_planner"):
+            with pytest.raises(_DraftRejected) as exc_info:
+                EpisodePlanner._parse_draft(raw, NarrationPlanDraft)
+
+        assert "不符合 schema" in exc_info.value.reasons[0]
+        assert "episodes" in exc_info.value.reasons[0]
+        assert any(ANCHOR_EP1 in record.getMessage() for record in caplog.records)
+
+    @pytest.mark.unit
+    def test_accepts_wrapped_episodes(self):
+        raw = _plan_response([{"title": "山村少年", "hook": "h", "end_anchor": ANCHOR_EP1}])
+        draft = EpisodePlanner._parse_draft(raw, NarrationPlanDraft)
+        assert [ep.end_anchor for ep in draft.episodes] == [ANCHOR_EP1]  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class TestPlan:
@@ -615,6 +652,32 @@ class TestPlan:
 
         assert (project_dir / "project.json").read_text(encoding="utf-8") == before
         assert not list((project_dir / "source").glob("episode_*.txt"))
+
+    @pytest.mark.unit
+    async def test_plan_converts_structured_output_exhausted_to_planning_error(self, tmp_path: Path):
+        """后端结构化输出降级链耗尽：转为 EpisodePlanningError，话术指向供应商能力不足，且不在本层重试。"""
+        project_dir = _write_project(tmp_path)
+
+        class _ExhaustedGenerator(_FakeTextGenerator):
+            def __init__(self):
+                super().__init__([])
+                self.calls = 0
+
+            async def generate(self, request, project_name=None):
+                self.calls += 1
+                raise StructuredOutputExhaustedError(
+                    provider="custom-relay",
+                    model="claude-sonnet-4-6",
+                    reason="降级链各档重试耗尽后模型输出仍不合规",
+                )
+
+        fake = _ExhaustedGenerator()
+        with pytest.raises(EpisodePlanningError, match="结构化输出能力不足") as exc_info:
+            await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert fake.calls == 1
+        assert isinstance(exc_info.value.__cause__, StructuredOutputExhaustedError)
+        assert "InstructorRetryException" not in str(exc_info.value)
 
     @pytest.mark.integration
     async def test_plan_raises_planning_conflict_when_ledger_advances_during_call(self, tmp_path: Path):
