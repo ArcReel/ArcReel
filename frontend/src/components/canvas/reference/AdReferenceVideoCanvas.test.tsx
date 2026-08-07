@@ -150,6 +150,20 @@ describe("AdReferenceVideoCanvas", () => {
     );
     await waitFor(() => expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledTimes(1));
 
+    // 缺省 ↔ 空数组是同一语义，不该被当成参考集变化
+    const emptied = SHOTS.map((s) => ({ ...s, scenes: [], props: [] }));
+    rerender(
+      <AdReferenceVideoCanvas
+        projectName="demo"
+        episode={1}
+        episodeTitle="广告片"
+        shots={emptied}
+        hasScript
+        scriptFile="episode_1.json"
+      />,
+    );
+    await waitFor(() => expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledTimes(1));
+
     const refEdited = SHOTS.map((s, i) => (i === 0 ? { ...s, products_in_shot: ["按摩仪"] } : s));
     rerender(
       <AdReferenceVideoCanvas

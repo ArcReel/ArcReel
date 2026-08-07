@@ -131,10 +131,18 @@ export function AdReferenceVideoCanvas({
   // （lib/reference_video/ad_units.py 的 ad_unit_source_signature）。镜头参考被编辑后必须
   // 重拉分组，角标才反映最新判定；只按任务完成自增的 unitsRevision 会让它停在上一次拉取
   // 的结果，直到有任务完成、重新派生或画布重挂。正文与时长不进该坐标系，改文案不触发重拉。
+  // 四个参考字段可选，归一到空数组再序列化：缺省与空数组是同一个语义（该镜头无此类参考），
+  // 直接序列化会得到 null 与 [] 两种字符串，字段在两种形态间来回就会白白重拉一次。
   const unitsStaleKey = useMemo(
     () =>
       JSON.stringify(
-        shots.map((s) => [s.shot_id, s.products_in_shot, s.characters_in_shot, s.scenes, s.props]),
+        shots.map((s) => [
+          s.shot_id,
+          s.products_in_shot ?? [],
+          s.characters_in_shot ?? [],
+          s.scenes ?? [],
+          s.props ?? [],
+        ]),
       ),
     [shots],
   );
