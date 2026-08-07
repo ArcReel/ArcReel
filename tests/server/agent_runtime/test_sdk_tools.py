@@ -3154,17 +3154,21 @@ async def test_generate_video_episode_ad_reference_derives_and_enqueues(
 async def test_generate_video_episode_ad_reference_keeps_stale_unit_and_reports(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """成员/参考集偏离产物的 unit 保留成片指针并按现有产物跳过，stale 清单透出到工具输出。"""
+    """成片偏离当前编排的 unit 保留成片指针并按现有产物跳过，stale 清单透出到工具输出。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     pm = ad_reference_ctx.pm
-    # 旧索引：E1U1 仅含 E1S1 且已完成；当前 shots 派生出的 E1U1 含 E1S1+E1S2 → 打 stale 位
+    # 产物签名来自旧编排（仅 E1S1）；当前 shots 派生出的 E1U1 含 E1S1+E1S2 → 读时判 stale
     pm.script_payload["reference_units"] = [  # type: ignore[attr-defined]
         {
             "unit_id": "E1U1",
             "shot_ids": ["E1S1"],
             "references": [{"type": "product", "name": "保温杯"}],
-            "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
+            "generated_assets": {
+                "video_clip": "reference_videos/E1U1.mp4",
+                "status": "completed",
+                "source_signature": "signature-of-old-orchestration",
+            },
         }
     ]
     existing = ad_reference_ctx.project_path / "reference_videos" / "E1U1.mp4"
@@ -3187,7 +3191,8 @@ async def test_generate_video_episode_ad_reference_keeps_stale_unit_and_reports(
     assert enqueued == []
     script = pm.script_payload  # type: ignore[attr-defined]
     assert script["reference_units"][0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
-    assert script["reference_units"][0]["stale"] is True
+    # stale 是读时派生属性，剧本条目不落盘
+    assert "stale" not in script["reference_units"][0]
     text = out["content"][0]["text"]
     assert "stale" in text
     assert "E1U1" in text

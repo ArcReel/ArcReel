@@ -14,6 +14,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.reference_video.ad_units import ad_unit_source_signature
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -146,8 +147,10 @@ class TestDeriveUnits:
     def test_rederive_after_shot_change_keeps_assets_and_reports_stale(self, ad_client: TestClient):
         ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
         script = _read_script(ad_client)
-        script["reference_units"][0]["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
-        # 新增镜头改变 E1U1 的成员集合：产物指针保留，条目携带 stale 位
+        unit = script["reference_units"][0]
+        unit["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
+        unit["generated_assets"]["source_signature"] = ad_unit_source_signature(script, unit)
+        # 新增镜头改变 E1U1 的成员集合：产物指针保留，响应按签名比较读时报 stale
         script["shots"].append(_shot("E1S3", 4))
         path: Path = ad_client.proj_dir / "scripts" / "episode_1.json"  # type: ignore[attr-defined]
         path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
@@ -157,8 +160,41 @@ class TestDeriveUnits:
         units = resp.json()["units"]
         assert units[0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
         assert units[0]["stale"] is True
-        # 持久化与响应同口径，list 端点透传即可让前端拿到 stale
-        assert _read_script(ad_client)["reference_units"][0]["stale"] is True
+        # stale 只注入响应副本，剧本条目不落盘
+        assert "stale" not in _read_script(ad_client)["reference_units"][0]
+
+    @pytest.mark.unit
+    def test_list_reports_stale_after_script_edit_without_rederive(self, ad_client: TestClient):
+        # 剧本保存后立即读取（未重新派生）即反映最新偏离状态；无签名的存量产物不误报
+        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
+        script = _read_script(ad_client)
+        unit = script["reference_units"][0]
+        unit["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
+        unit["generated_assets"]["source_signature"] = ad_unit_source_signature(script, unit)
+        script["shots"][0]["characters_in_shot"] = ["新角色"]
+        path: Path = ad_client.proj_dir / "scripts" / "episode_1.json"  # type: ignore[attr-defined]
+        path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+        units = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units").json()["units"]
+        assert units[0]["stale"] is True
+
+        # 回改到产物生成时的编排：签名重新一致，stale 自动回清
+        script["shots"][0]["characters_in_shot"] = []
+        path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+        units = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units").json()["units"]
+        assert "stale" not in units[0]
+
+    @pytest.mark.unit
+    def test_list_does_not_flag_legacy_product_without_signature(self, ad_client: TestClient):
+        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
+        script = _read_script(ad_client)
+        script["reference_units"][0]["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
+        script["shots"][0]["characters_in_shot"] = ["新角色"]
+        path: Path = ad_client.proj_dir / "scripts" / "episode_1.json"  # type: ignore[attr-defined]
+        path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+        units = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units").json()["units"]
+        assert "stale" not in units[0]
 
     @pytest.mark.unit
     def test_derive_rejected_for_non_ad_project(self, ad_client: TestClient):

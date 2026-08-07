@@ -25,6 +25,7 @@ from lib.project_change_hints import project_change_source
 from lib.project_manager import EpisodeScriptReboundError, get_project_manager, is_reference_video_project
 from lib.reference_video import assemble_shots_text, parse_prompt
 from lib.reference_video.ad_units import (
+    annotate_ad_unit_staleness,
     render_ad_unit_prompt,
     resolve_ad_unit_shots,
     sync_ad_reference_units,
@@ -234,9 +235,10 @@ def _build_unit_dict(
 async def list_units(project_name: str, episode: int, _t: Translator) -> dict[str, Any]:
     project, script, _sf = _load_episode_script(project_name, episode, _t)
     # ad 的 unit 是 shots 的派生索引（reference_units），未派生时为空列表；
-    # 前端用 shot_ids 对照本地剧本水合展示，索引不复制镜头内容
+    # 前端用 shot_ids 对照本地剧本水合展示，索引不复制镜头内容。
+    # stale 为读时派生注入（签名比较），剧本保存后无需重新派生即反映最新偏离状态
     if project.get("content_mode") == "ad":
-        return {"units": script.get("reference_units") or []}
+        return {"units": annotate_ad_unit_staleness(script, script.get("reference_units") or [])}
     return {"units": script.get("video_units") or []}
 
 
@@ -249,8 +251,8 @@ async def derive_units(
     """（重新）派生 ad 项目的 video_unit 分组索引并持久化（仅 ad 开放）。
 
     分组器是纯函数：shots 与供应商时长上限不变则分组可复现；generated_assets
-    按 unit_id 沿用、从不清空，成员/参考集偏离产物的 unit 携带 stale 位
-    （见 ``merge_ad_reference_units``）。
+    按 unit_id 沿用、从不清空。响应中的 stale 为读时派生注入（签名比较，见
+    ``is_ad_unit_stale``），不落盘。
     """
     project, _script, _sf = _load_episode_script(project_name, episode, _t)
     _require_ad_project(project, True, _t)
@@ -259,7 +261,7 @@ async def derive_units(
 
     with _locked_episode_script(project_name, _episode_script_resolver(episode, _t, require_ad=True), _t) as script:
         units = sync_ad_reference_units(script, episode=episode, max_unit_duration=max_unit_duration)
-    return {"units": units}
+    return {"units": annotate_ad_unit_staleness(script, units)}
 
 
 def _normalized_refs(references: list[Any]) -> list[dict]:
@@ -446,9 +448,14 @@ async def precheck_unit_duration(
         unit = _find_unit(script, unit_id, _t)
         ad_shots = None
 
-    # ctx 按 unit 定桶解析（无参考图退化镜头 → i2v），与执行期实际取档的模型同桶
+    # ctx 按 unit 定桶解析（无参考图退化镜头 → i2v），与执行期实际取档的模型同桶：
+    # ad 的参考集从水合后的成员镜头现算，不读可能落后于镜头的索引缓存
     slot = precheck_unit(
-        await resolve_project_duration_context(project, capability=reference_unit_video_bucket(unit)), unit, ad_shots
+        await resolve_project_duration_context(
+            project, capability=reference_unit_video_bucket(unit, ad_shots=ad_shots)
+        ),
+        unit,
+        ad_shots,
     )
     return {
         "needs_confirmation": slot.needs_confirmation,
@@ -520,6 +527,7 @@ async def generate_unit(
         guard_prompt = render_ad_unit_prompt(unit_shots, style=style if isinstance(style, str) else None)
     else:
         unit = _find_unit(script, unit_id, _t)  # raises 404 if missing
+        unit_shots = None
         guard_prompt = assemble_shots_text(unit.get("shots") or [])
 
     # 经统一守卫点构造：空提示词的结构校验在此当场拒绝（400），与 SDK 入队路径一致，
@@ -536,9 +544,10 @@ async def generate_unit(
         raise HTTPException(status_code=400, detail=_t(exc.code, **exc.params)) from exc
 
     # 参考生视频按镜头是否携带参考图分流定桶（docs/adr/0054）：有参考图 → r2v，无参考图
-    # 退化镜头降级 → i2v。预检按 unit 声明的 references 近似（执行层按解析后的实际图独立
-    # 判定），解析闸让能力缺失 / 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
-    await require_video_bucket_capability(project, reference_unit_video_bucket(unit))
+    # 退化镜头降级 → i2v。ad 按水合后的成员镜头现算参考集（与执行侧同源），其余按 unit
+    # 声明的 references 近似（执行层按解析后的实际图独立判定）；解析闸让能力缺失 / 悬空
+    # 引用在提交入口即返回修复指引，而非任务面板里的异步失败。
+    await require_video_bucket_capability(project, reference_unit_video_bucket(unit, ad_shots=unit_shots))
 
     queue = get_generation_queue()
     result = await queue.enqueue_task(

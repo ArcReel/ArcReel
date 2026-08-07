@@ -130,6 +130,54 @@ describe("AdReferenceVideoCanvas", () => {
     });
   });
 
+  it("镜头参考集变化后重拉分组，正文变化不重拉", async () => {
+    // stale 是后端读时按镜头 ID 序列 + 参考集派生的，两者变了才需要重拉刷新角标；
+    // 正文/时长不进该坐标系，改文案重拉只是白白打接口。
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    const { rerender } = renderCanvas();
+    await waitFor(() => expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledTimes(1));
+
+    const textEdited = SHOTS.map((s) => ({ ...s, voiceover_text: `改了 ${s.shot_id}` }));
+    rerender(
+      <AdReferenceVideoCanvas
+        projectName="demo"
+        episode={1}
+        episodeTitle="广告片"
+        shots={textEdited}
+        hasScript
+        scriptFile="episode_1.json"
+      />,
+    );
+    await waitFor(() => expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledTimes(1));
+
+    // 缺省 ↔ 空数组是同一语义，不该被当成参考集变化
+    const emptied = SHOTS.map((s) => ({ ...s, scenes: [], props: [] }));
+    rerender(
+      <AdReferenceVideoCanvas
+        projectName="demo"
+        episode={1}
+        episodeTitle="广告片"
+        shots={emptied}
+        hasScript
+        scriptFile="episode_1.json"
+      />,
+    );
+    await waitFor(() => expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledTimes(1));
+
+    const refEdited = SHOTS.map((s, i) => (i === 0 ? { ...s, products_in_shot: ["按摩仪"] } : s));
+    rerender(
+      <AdReferenceVideoCanvas
+        projectName="demo"
+        episode={1}
+        episodeTitle="广告片"
+        shots={refEdited}
+        hasScript
+        scriptFile="episode_1.json"
+      />,
+    );
+    await waitFor(() => expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledTimes(2));
+  });
+
   it("剧本未生成时不拉取分组并给出指引", async () => {
     renderCanvas({ shots: [], hasScript: false });
 

@@ -191,6 +191,10 @@ class GeneratedAssets(BaseModel):
     # `voice_updated_at` 比较，判定该片段是否生成于当前参考音频设置之前。
     # 缺省视为早于任何设置，落在「生成于设置之前」语义内。对 LLM 隐藏。
     video_generated_at: SkipJsonSchema[str | None] = Field(default=None, description="视频生成完成时间（ISO8601 UTC）")
+    # ad 参考单元产物的来源签名（编排 + 参考集，见 lib.reference_video.ad_units.ad_unit_source_signature）：
+    # finalize 写回，读取侧与当前剧本现算的签名比较派生 stale。缺省视为非 stale（签名机制
+    # 引入前的存量产物 / 版本还原到无签名档的版本），随下一次生成补齐。对 LLM 隐藏。
+    source_signature: SkipJsonSchema[str | None] = Field(default=None, description="产物来源签名（sha256）")
 
 
 def get_generated_assets(item: dict) -> dict:
@@ -729,8 +733,9 @@ class AdReferenceUnit(BaseModel):
     shot_ids: list[str] = Field(min_length=1, max_length=4, description="成员镜头 ID（连续、1-4 个）")
     references: list[AdUnitReference] = Field(default_factory=list, description="继承的参考集，产品在前")
     generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
-    # 运行时状态、对 LLM 隐藏：成员/参考集偏离产物生成时的编排（剧本编辑不作废产物，
-    # 只降级为此标记），由派生分组器写入、生成 finalize 清除。
+    # 读时派生属性、对 LLM 隐藏：成片是否偏离当前剧本编排由读取侧比较产物来源签名
+    # 得出（lib.reference_video.ad_units.is_ad_unit_stale）并注入 API 响应副本，不落盘；
+    # 字段保留是为了容忍历史剧本残留的 stale 键（extra="forbid" 下不至拒读），读取侧忽略其值。
     stale: SkipJsonSchema[bool] = Field(default=False, description="成片已偏离当前剧本编排，建议重新生成")
 
 

@@ -525,6 +525,39 @@ def test_precheck_unit_is_pure_and_matches_slot_semantics(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("ad_shots", "expected_seconds"),
+    [
+        # 索引缓存声明有参考、成员镜头已被清空 → 按不带图的全集取档（8 秒是档位成员，原样通过）
+        ([{"shot_id": "E1S01", "duration_seconds": 8}], 8),
+        # 索引缓存为空、成员镜头带产品参考 → 按带图收窄后的档位取档（720p 带图仅 8 秒）
+        ([{"shot_id": "E1S01", "duration_seconds": 8, "products_in_shot": ["口红"]}], 8),
+    ],
+)
+def test_precheck_unit_ad_tiers_follow_member_shots_not_index_cache(ad_shots, expected_seconds):
+    """ad 取档的「是否带参考图」以成员镜头为准，与同一调用点的定桶同源。
+
+    否则缓存与镜头相反时会出现「按 r2v 模型解析能力、按 i2v 档位取档」，弹出错误的时长
+    确认、并让费用估算与执行期时长对不上。
+    """
+    ctx = ProjectDurationContext(
+        supported_durations=(4, 6, 8),
+        resolution="720p",
+        provider_id="gemini-aistudio",
+        model_name="veo-3.1-generate-preview",
+    )
+    has_shot_refs = bool(ad_shots[0].get("products_in_shot"))
+    # 缓存一律与镜头相反：判据若误读缓存，收窄结果会与断言不符
+    unit = {"shot_ids": ["E1S01"], "references": [] if has_shot_refs else [{"type": "character", "name": "张三"}]}
+    slot = precheck_unit(ctx, unit, ad_shots)
+    assert slot.seconds == expected_seconds
+    # 不带图时 5 秒会被上调到 6（全集），带图时只剩 8 秒——用一个非档位成员的申请值区分两条路径
+    short_unit = {**unit, "shot_ids": ["E1S01"]}
+    short_shots = [{**ad_shots[0], "duration_seconds": 5}]
+    assert precheck_unit(ctx, short_unit, short_shots).seconds == (8 if has_shot_refs else 6)
+
+
+@pytest.mark.unit
 def test_default_unit_duration_narrows_by_references_like_precheck_unit():
     """新建 unit 若已带 references，默认时长要按参考图约束收窄——否则会给出一个立刻被
     precheck_unit 打回、要求用户确认的默认值——两处判据须保持一致。"""
@@ -793,9 +826,8 @@ async def test_execute_reference_video_task_ad_bucket_follows_resolved_not_decla
 ):
     """ad 声明了参考但资产全缺图 → 软跳过后实际参考为空，按 i2v 定桶。
 
-    与清空声明的用例互补：这里 ``unit["references"]`` 非空，只有按**解析结果**定桶才会
-    得到 i2v——若实现回退成按声明判定（``bool(unit["references"])``），该 unit 会被送进
-    拒空参考的 r2v 桶模型，正是分流要消除的失败。
+    与清空声明的用例互补：这里镜头声明了参考，只有按**解析结果**定桶才会得到 i2v——
+    若实现回退成按声明判定，该 unit 会被送进拒空参考的 r2v 桶模型，正是分流要消除的失败。
     """
     proj_dir = _write_project(tmp_path)
 
@@ -813,6 +845,7 @@ async def test_execute_reference_video_task_ad_bucket_follows_resolved_not_decla
         {
             "shot_id": "S1",
             "duration_seconds": 3,
+            "scenes": ["酒馆"],
             "image_prompt": {"scene": "产品置于木桌上"},
             "video_prompt": {"action": "镜头缓推"},
         }
@@ -2161,24 +2194,59 @@ def test_apply_unit_video_assets_stamps_video_generated_at():
 
 
 @pytest.mark.unit
-def test_apply_unit_video_assets_clears_stale_marker():
-    """生成成功写回产物即清除 ad unit 的 stale 位：产物指针改变即口径基准更新。"""
+def test_apply_unit_video_assets_writes_source_signature_for_ad_units():
+    """写回 ad unit 产物时缺省按剧本现算来源签名，并剥除历史剧本残留的 stale 键。"""
+    from lib.reference_video.ad_units import ad_unit_source_signature
     from server.services.reference_video_tasks import apply_unit_video_assets
 
     script = {
+        "shots": [{"shot_id": "E1S1", "products_in_shot": ["按摩仪"]}],
         "reference_units": [
             {
                 "unit_id": "E1U1",
                 "shot_ids": ["E1S1"],
-                "references": [],
+                "references": [{"type": "product", "name": "按摩仪"}],
                 "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
                 "stale": True,
             }
-        ]
+        ],
     }
-    apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
-    assert "stale" not in script["reference_units"][0]
-    assert script["reference_units"][0]["generated_assets"]["status"] == "completed"
+    written = apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
+    unit = script["reference_units"][0]
+    assert "stale" not in unit
+    assert unit["generated_assets"]["status"] == "completed"
+    assert written == ad_unit_source_signature(script, unit)
+    assert unit["generated_assets"]["source_signature"] == written
+
+
+@pytest.mark.unit
+def test_apply_unit_video_assets_explicit_signature_and_clear():
+    """签名显式传入即原样落盘（生成 finalize 的执行期快照）；传 None 清除（版本还原无档案）。"""
+    from server.services.reference_video_tasks import apply_unit_video_assets
+
+    script = {
+        "shots": [{"shot_id": "E1S1"}],
+        "reference_units": [{"unit_id": "E1U1", "shot_ids": ["E1S1"], "references": [], "generated_assets": {}}],
+    }
+    written = apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None, source_signature="abc123")
+    ga = script["reference_units"][0]["generated_assets"]
+    assert written == "abc123"
+    assert ga["source_signature"] == "abc123"
+
+    cleared = apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None, source_signature=None)
+    assert cleared is None
+    assert "source_signature" not in ga
+
+
+@pytest.mark.unit
+def test_apply_unit_video_assets_video_units_carry_no_signature():
+    """narration/drama 的 video_units 条目不承载来源签名。"""
+    from server.services.reference_video_tasks import apply_unit_video_assets
+
+    script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {}}]}
+    written = apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
+    assert written is None
+    assert "source_signature" not in script["video_units"][0]["generated_assets"]
 
 
 @pytest.mark.unit

@@ -33,8 +33,10 @@ class _FakePM:
 
 
 class _FakeVM:
-    def __init__(self, project_path=None):
+    def __init__(self, project_path=None, version_metadata=None):
         self.project_path = project_path
+        # 版本档案里的补充元数据（如 source_signature），缺省无档案
+        self.version_metadata = version_metadata or {}
 
     def get_versions(self, resource_type, resource_id):
         if resource_type == "bad":
@@ -46,6 +48,9 @@ class _FakeVM:
 
     def get_version_created_at(self, resource_type, resource_id, version):
         return "2026-01-01T00:00:00+00:00"
+
+    def get_version_metadata(self, resource_type, resource_id, version, key) -> str | None:
+        return self.version_metadata.get(key)
 
     def restore_version(self, resource_type, resource_id, version, current_file):
         if version == 404:
@@ -211,6 +216,53 @@ class TestVersionsRouter:
         assert "video_uri" not in ga
         assert "video_thumbnail" not in ga
         assert ga["status"] == "completed"
+
+    def test_ad_reference_video_restore_writes_archived_source_signature(self, tmp_path, monkeypatch):
+        """还原 ad 参考单元时把该版本档案里的来源签名写回，读时 stale 按旧产物基准判定。"""
+        from lib.project_manager import ProjectManager
+
+        real_pm = ProjectManager(tmp_path)
+        real_pm.create_project("demo")
+        real_pm.create_project_metadata("demo", "Demo", "Anime", "ad")
+        real_pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "title": "E1",
+                "content_mode": "ad",
+                "shots": [],
+                "reference_units": [
+                    {
+                        "unit_id": "E1U1",
+                        "shot_ids": ["E1S1"],
+                        "references": [],
+                        "generated_assets": {
+                            "video_clip": "reference_videos/E1U1.mp4",
+                            "status": "completed",
+                            "source_signature": "signature-of-current-product",
+                        },
+                    }
+                ],
+            },
+            "episode_1.json",
+            validate=False,
+        )
+
+        signed_vm = _FakeVM(version_metadata={"source_signature": "signature-of-restored-version"})
+        monkeypatch.setattr(versions, "get_project_manager", lambda: real_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: signed_vm)
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        with TestClient(app) as client:
+            resp = client.post("/api/v1/projects/demo/versions/reference_videos/E1U1/restore/1")
+            assert resp.status_code == 200
+
+        script = real_pm.load_script("demo", "episode_1.json")
+        ga = script["reference_units"][0]["generated_assets"]
+        assert ga["source_signature"] == "signature-of-restored-version"
 
     def test_video_restore_clears_stale_uri_and_thumbnail_metadata(self, tmp_path, monkeypatch):
         """videos 还原同步剧本元数据：还原的是历史本地文件，过期 provider URI 与已删缩略图须清空。"""

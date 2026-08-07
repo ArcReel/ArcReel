@@ -10,6 +10,7 @@ import shutil
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.resource_paths import RESOURCE_TYPES as _RESOURCE_TYPES
@@ -303,6 +304,45 @@ class VersionManager:
             "prompt": restored_prompt,
         }
 
+    def update_version_metadata(self, resource_type: str, resource_id: str, version: int, **metadata) -> bool:
+        """为既有版本记录补写元数据键（覆盖同名键）。
+
+        供生成 finalize 在版本入库后回填只有 finalize 阶段才确定的元数据（如参考
+        单元产物的来源签名）。目标记录不存在时返回 False 不抛错：档案补写是
+        best-effort，缺失只降级为将来还原时拿不到该元数据。
+
+        Args:
+            resource_type: 资源类型
+            resource_id: 资源 ID
+            version: 版本号
+            **metadata: 要写入的元数据键值
+
+        Returns:
+            是否找到记录并写入
+        """
+        if resource_type not in self.RESOURCE_TYPES:
+            raise ValueError(f"不支持的资源类型: {resource_type}")
+
+        with self._lock:
+            data = self._load_versions()
+            resource_data = data.get(resource_type, {}).get(resource_id)
+            if not resource_data:
+                return False
+            for record in resource_data.get("versions", []):
+                if record.get("version") == version:
+                    record.update(metadata)
+                    self._save_versions(data)
+                    return True
+            return False
+
+    def get_version_metadata(self, resource_type: str, resource_id: str, version: int, key: str) -> Any | None:
+        """读取指定版本记录上的元数据键，记录或键不存在时返回 None。"""
+        info = self.get_versions(resource_type, resource_id)
+        for v in info["versions"]:
+            if v["version"] == version:
+                return v.get(key)
+        return None
+
     def get_version_file_url(self, resource_type: str, resource_id: str, version: int) -> str | None:
         """
         获取指定版本的文件 URL
@@ -354,11 +394,8 @@ class VersionManager:
         Returns:
             ISO8601 时间戳，不存在时返回 None
         """
-        info = self.get_versions(resource_type, resource_id)
-        for v in info["versions"]:
-            if v["version"] == version:
-                return v.get("created_at")
-        return None
+        value = self.get_version_metadata(resource_type, resource_id, version, "created_at")
+        return value if isinstance(value, str) else None
 
     def has_versions(self, resource_type: str, resource_id: str) -> bool:
         """

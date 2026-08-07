@@ -127,6 +127,26 @@ export function AdReferenceVideoCanvas({
   // 的数据，落定前必须把这次加载作废，否则派生前读出的旧分组会盖掉刚派生出的新分组。
   const loadControllerRef = useRef<AbortController | null>(null);
 
+  // 后端的 stale 角标是读时按 shots 现算的派生属性，与成员镜头 ID 序列 + 参考集同坐标系
+  // （lib/reference_video/ad_units.py 的 ad_unit_source_signature）。镜头参考被编辑后必须
+  // 重拉分组，角标才反映最新判定；只按任务完成自增的 unitsRevision 会让它停在上一次拉取
+  // 的结果，直到有任务完成、重新派生或画布重挂。正文与时长不进该坐标系，改文案不触发重拉。
+  // 四个参考字段可选，归一到空数组再序列化：缺省与空数组是同一个语义（该镜头无此类参考），
+  // 直接序列化会得到 null 与 [] 两种字符串，字段在两种形态间来回就会白白重拉一次。
+  const unitsStaleKey = useMemo(
+    () =>
+      JSON.stringify(
+        shots.map((s) => [
+          s.shot_id,
+          s.products_in_shot ?? [],
+          s.characters_in_shot ?? [],
+          s.scenes ?? [],
+          s.props ?? [],
+        ]),
+      ),
+    [shots],
+  );
+
   useEffect(() => {
     // 剧本未生成时后端无分组可返回；hasScript 转 true 后本 effect 随依赖重跑补上首次拉取。
     if (!hasScript) return;
@@ -146,7 +166,7 @@ export function AdReferenceVideoCanvas({
         if (!controller.signal.aborted) setError(errMsg(err));
       });
     return () => controller.abort();
-  }, [projectName, episode, hasScript, unitsRevision, setUnits]);
+  }, [projectName, episode, hasScript, unitsRevision, unitsStaleKey, setUnits]);
 
   const shotById = useMemo(() => new Map(shots.map((s) => [s.shot_id, s])), [shots]);
 
