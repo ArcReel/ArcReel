@@ -102,6 +102,13 @@ export const useCostStore = create<CostState>((set, get) => ({
     // B 之后才落地（如某个慢请求的 .then 回调），清掉/顶替计时器会连带取消 B 刚排的、
     // 真正需要跑的那次刷新——响应落地时的过期检查只能丢弃 A 自己的结果，救不回被它
     // 顶掉的 B。
+    //
+    // 这一支丢弃后不补拉，靠的是「切到新项目后必有一次以 currentProjectName 为
+    // 依赖的调用」：AssetSidebar 无条件挂在工作台布局里，其刷新 effect 的依赖就是
+    // currentProjectName，项目名落地的那一帧必然补发一次。各画布的 effect 依赖的是
+    // 路由参数 projectName，会先于路由层写入 currentProjectName 触发（React 子组件
+    // effect 先于父组件），那一次调用注定被这里丢掉。新增费用刷新入口时保持这条链：
+    // 要么依赖 currentProjectName，要么确保有后续 effect 重跑。
     if (isStaleProject(projectName)) return;
     if (_debounceTimer) clearTimeout(_debounceTimer);
     _debounceTimer = setTimeout(() => {

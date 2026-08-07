@@ -60,7 +60,7 @@ export function OverviewCanvas({
 
   useEffect(() => {
     // 演示项目的费用请求交给费用 store 自身的 isDemoProject 分支跳过并失效：
-    // 那条分支会取消已排队的防抖计时器、递增 _fetchId 使在途真实请求作废、清空费用状态——
+    // 那条分支会取消已排队的防抖计时器、abort 在途的真实项目请求、清空费用状态——
     // 这里若改成对 readOnly 直接 return，反而会绕过这套失效机制，让切入只读态前
     // 真实项目已排队的防抖任务照常在之后触发，把真实费用写回全局 store。
     if (!projectName) return;

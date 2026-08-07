@@ -88,4 +88,34 @@ describe("cost-store", () => {
     expect(fetchCostSpy).toHaveBeenCalledTimes(1);
     expect(fetchCostSpy).toHaveBeenCalledWith("project-b");
   });
+
+  it("aborts the in-flight request when a newer fetchCost supersedes it", async () => {
+    useProjectsStore.setState({ currentProjectName: "project-a" });
+    const signals: (AbortSignal | undefined)[] = [];
+    let releaseFirst: (data: CostEstimateResponse) => void = () => {};
+    vi.spyOn(API, "getCostEstimate")
+      .mockImplementationOnce((_name, options) => {
+        signals.push(options?.signal);
+        return new Promise<CostEstimateResponse>((resolve) => {
+          releaseFirst = resolve;
+        });
+      })
+      .mockImplementationOnce((_name, options) => {
+        signals.push(options?.signal);
+        return Promise.resolve(buildResponse("second"));
+      });
+
+    const first = useCostStore.getState().fetchCost("project-a");
+    const second = useCostStore.getState().fetchCost("project-a");
+    await second;
+
+    // 同一项目内被更晚的调用顶替：signal 要真的 abort（网络请求随之取消），
+    // 且被顶替的那次即便响应晚到也不回写 store。
+    expect(signals[0]?.aborted).toBe(true);
+    releaseFirst(buildResponse("first"));
+    await first;
+
+    expect(useCostStore.getState().costData?.project_name).toBe("second");
+    expect(useCostStore.getState().loading).toBe(false);
+  });
 });
