@@ -1,5 +1,105 @@
 # Changelog
 
+## [0.25.0](https://github.com/ArcReel/ArcReel/compare/v0.24.0...v0.25.0) (2026-08-07)
+
+
+### ✨ 新功能
+
+* **assets:** 全局资产库带声音入库，画布提示存量片段的声音差异 ([#1525](https://github.com/ArcReel/ArcReel/issues/1525)) ([fd1c4fa](https://github.com/ArcReel/ArcReel/commit/fd1c4fa5d417c9e711d83fa8506f45625a5bdff6))
+* **character:** 用 TTS 生成角色参考音频样本 ([#1524](https://github.com/ArcReel/ArcReel/issues/1524)) ([e6a65c2](https://github.com/ArcReel/ArcReel/commit/e6a65c2930ffe466220d13345f0b00e8d78bb6d2))
+* **character:** 角色参考音频资产与角色卡「声音」分组 ([#1516](https://github.com/ArcReel/ArcReel/issues/1516)) ([eec7fd6](https://github.com/ArcReel/ArcReel/commit/eec7fd6fe71c1fe62f081c7478bed76adbc71810))
+* **projects:** 创建项目时在两张卡片中二选一生成方式,宫格改为可随时切换的分镜开关 ([#1600](https://github.com/ArcReel/ArcReel/issues/1600)) ([337a28d](https://github.com/ArcReel/ArcReel/commit/337a28db2c56d3e9cd5d1bc25145c66c66f93f2b))
+* **projects:** 生成路线创建时必填二选一，宫格降为可切换的分镜开关，存量项目自动迁移 ([#1597](https://github.com/ArcReel/ArcReel/issues/1597)) ([17bc98a](https://github.com/ArcReel/ArcReel/commit/17bc98a412f515f72ebc11d112cfc53e4e5c6deb))
+* **reference-video:** 剧集参考路径改为按单元设定时长 ([#1518](https://github.com/ArcReel/ArcReel/issues/1518)) ([7724774](https://github.com/ArcReel/ArcReel/commit/7724774df7ca55aedb33e2dbb50a268e3821942f))
+* **reference-video:** 剧集参考路径的拆分与展开产出改为文稿格式，结构由系统派生 ([#1534](https://github.com/ArcReel/ArcReel/issues/1534)) ([3471820](https://github.com/ArcReel/ArcReel/commit/3471820f89d61983e27417faa7047566a9674ec6))
+* **reference-video:** 剧集台词按角色参考音频生成，跨片段音色可锁定 ([#1532](https://github.com/ArcReel/ArcReel/issues/1532)) ([2d96eb4](https://github.com/ArcReel/ArcReel/commit/2d96eb4965c662c8eac5644d21529ca882c53be8))
+* **reference-video:** 参考路径产出不合规范时保留草稿，智能体修复后直接晋升 ([#1540](https://github.com/ArcReel/ArcReel/issues/1540)) ([651a566](https://github.com/ArcReel/ArcReel/commit/651a5661f99543b79c0e49d448d5f997977b53f8))
+* **reference-video:** 参考路径拆分结果按集预览，违约定位到出问题的那一行 ([#1546](https://github.com/ArcReel/ArcReel/issues/1546)) ([ae3b06c](https://github.com/ArcReel/ArcReel/commit/ae3b06c88b8200fd5ccaad6c15a04248586b97a8))
+* **reference-video:** 广告参考视频与剧集共用同一套画面提示词渲染 ([#1537](https://github.com/ArcReel/ArcReel/issues/1537)) ([fc21722](https://github.com/ArcReel/ArcReel/commit/fc217220dfe9a58ac0445552fd8ab15d725c00c7))
+* **reference-video:** 拆分按单元有无参考图分别给可选时长，无引用单元不再被收窄 ([#1538](https://github.com/ArcReel/ArcReel/issues/1538)) ([afa4faf](https://github.com/ArcReel/ArcReel/commit/afa4faf8137c96898663dc4a17803dd80b04c1dc))
+* **reference-video:** 文稿里标注谁在说话，编辑器解析预览即时显示系统读到的台词 ([#1531](https://github.com/ArcReel/ArcReel/issues/1531)) ([1b49714](https://github.com/ArcReel/ArcReel/commit/1b49714cd935d8ebe9e037cb1c5e852314954617))
+* **settings:** 按用途筛选可选模型的候选接口，配不出执行必败的组合 ([#1536](https://github.com/ArcReel/ArcReel/issues/1536)) ([3108047](https://github.com/ArcReel/ArcReel/commit/31080473aeebd112eac91cf15a7809378a3c52db))
+* **settings:** 文生图/图生图未单独配置时回退默认图片模型，存量重复配置自动收敛 ([#1543](https://github.com/ArcReel/ArcReel/issues/1543)) ([0d3ddf0](https://github.com/ArcReel/ArcReel/commit/0d3ddf03a8aadff57d4cec0135fc38734b9e8c75))
+* **settings:** 模型设置统一为默认模型 + 按用途细分，未指定处显示实际生效模型 ([#1547](https://github.com/ArcReel/ArcReel/issues/1547)) ([a4529d4](https://github.com/ArcReel/ArcReel/commit/a4529d478b541b8b86ebef1bac09bc67691c9dbe))
+* **settings:** 自定义模型能力编辑时提示该模型正被哪些全局配置引用 ([#1544](https://github.com/ArcReel/ArcReel/issues/1544)) ([16b22cb](https://github.com/ArcReel/ArcReel/commit/16b22cb756727f63580a23e3825c296dad6ebf41))
+* **video:** 剧集视频按角色声音描述生成，跨片段音色更稳 ([#1526](https://github.com/ArcReel/ArcReel/issues/1526)) ([94c29af](https://github.com/ArcReel/ArcReel/commit/94c29af30b1bc2f74281f0cd52e596e562b397c6))
+* **video:** 视频模型按用途（图生/参考生）分桶配置，缺能力或引用失效时生成入口报错并指引修复 ([#1539](https://github.com/ArcReel/ArcReel/issues/1539)) ([a4b4688](https://github.com/ArcReel/ArcReel/commit/a4b4688777c6ef4133fb8f9742bc84599d0d957b))
+* **video:** 选择视频模型时直接看到声音一致性档位与模型规格 ([#1522](https://github.com/ArcReel/ArcReel/issues/1522)) ([7600b28](https://github.com/ArcReel/ArcReel/commit/7600b28daff92d521bc5fd0ca7901d9e1b4bf226))
+* **剧本:** 分集拆分与剧本生成支持逐次携带用户意见，遵循强度由正文表达 ([#1699](https://github.com/ArcReel/ArcReel/issues/1699)) ([a925313](https://github.com/ArcReel/ArcReel/commit/a925313f76b54b7511a2033e7a9888f53cf7e523))
+* **参考视频:** 广告成片可在对话里点名单元重做，不必逐个到界面上操作 ([#1682](https://github.com/ArcReel/ArcReel/issues/1682)) ([0bc751a](https://github.com/ArcReel/ArcReel/commit/0bc751ad1571aecf9dead4dd050d64bb6b5d5ac6))
+* **宫格:** 宫格档位改为方形阶梯，密集档位限 4K 分辨率 ([#1691](https://github.com/ArcReel/ArcReel/issues/1691)) ([7211da7](https://github.com/ArcReel/ArcReel/commit/7211da7a5469d57a53616251b0d688061715cb93))
+
+
+### 🐛 Bug 修复
+
+* **agent-runtime-profile:** 智能体文案与边界对齐二值生成路线 ([#1605](https://github.com/ArcReel/ArcReel/issues/1605)) ([f899ebe](https://github.com/ArcReel/ArcReel/commit/f899ebeb063bc549c647e10be96f9158bb481a99))
+* **Agnes 视频:** 修复成片下载失败与成片时长误记 ([#1685](https://github.com/ArcReel/ArcReel/issues/1685)) ([bbd41b6](https://github.com/ArcReel/ArcReel/commit/bbd41b6f4fe9b8070fde6e5616d716e64d92b43f))
+* **auth:** 供应商配置与凭证接口补上登录校验，未登录不再可读写 ([#1542](https://github.com/ArcReel/ArcReel/issues/1542)) ([2a7428d](https://github.com/ArcReel/ArcReel/commit/2a7428d705df90ee61d81133c3b612fc74ff3ead))
+* **cost-estimation:** 修正宫格实付在重复条目编号下被重复计入合计 ([#1684](https://github.com/ArcReel/ArcReel/issues/1684)) ([f1fb200](https://github.com/ArcReel/ArcReel/commit/f1fb20014d1e0aaf0d6ff9c99416e246529c5d19))
+* **cost-store:** 切换项目后迟到的费用估算不再覆盖当前项目显示 ([#1687](https://github.com/ArcReel/ArcReel/issues/1687)) ([1732958](https://github.com/ArcReel/ArcReel/commit/173295822c292e6bf7ea5b32ecd94c587fae3bb1))
+* **files:** 上传接口按资产名规则校验 name，拒绝越界路径写入 ([#1586](https://github.com/ArcReel/ArcReel/issues/1586)) ([753080f](https://github.com/ArcReel/ArcReel/commit/753080f47ebc050809d2f6e10b1dcc1980e232bc))
+* **i18n:** 中文模板文案与英文 key 集合漂移在构建时即报错 ([#1637](https://github.com/ArcReel/ArcReel/issues/1637)) ([5a7524b](https://github.com/ArcReel/ArcReel/commit/5a7524b7c1f135af5d167760db8c60125d097de0))
+* **reference-video:** 关闭音频的剧集不再上传参考音频,台词照常下发 ([#1598](https://github.com/ArcReel/ArcReel/issues/1598)) ([ceda08d](https://github.com/ArcReel/ArcReel/commit/ceda08d642f76d23fc0bc0b56027d7badd9c4cdd))
+* **reference-video:** 参考音频总时长超出模型上限时在付费前拦截 ([#1557](https://github.com/ArcReel/ArcReel/issues/1557)) ([2c3fb66](https://github.com/ArcReel/ArcReel/commit/2c3fb6624a6de73840eb64bad49ecd8bcacc0923))
+* **reference-video:** 参考音频未设置与不可用的提示语义区分 ([#1553](https://github.com/ArcReel/ArcReel/issues/1553)) ([a63abd4](https://github.com/ArcReel/ArcReel/commit/a63abd4ee84525534001b14b0849c00a3a011b23))
+* **reference-video:** 审阅门时长档位解析覆盖自定义供应商，清理死回退分支 ([#1558](https://github.com/ArcReel/ArcReel/issues/1558)) ([09cf9a1](https://github.com/ArcReel/ArcReel/commit/09cf9a14df77eb9497a0d247de90d52ad154fc38))
+* **reference-video:** 广告参考图跨编码形式不再漏挂或重复占位 ([#1609](https://github.com/ArcReel/ArcReel/issues/1609)) ([3773dbd](https://github.com/ArcReel/ArcReel/commit/3773dbd719d2268183b8382702c7a7fd418d98de))
+* **reference-video:** 智能体修改参考视频拆分改走带锁通道，写盘与网页端保存串行化 ([#1556](https://github.com/ArcReel/ArcReel/issues/1556)) ([12a917b](https://github.com/ArcReel/ArcReel/commit/12a917b989a4960fc138e794dd6560cf3515b141))
+* **reference-video:** 视频能力按剧集生效模式解析，被单集覆盖的那一集不再丢参考音频 ([#1555](https://github.com/ArcReel/ArcReel/issues/1555)) ([0f4bc0d](https://github.com/ArcReel/ArcReel/commit/0f4bc0da275b7885e2604ec103364ed696046ec7))
+* **reference-video:** 组合字符资产名跨编码形式统一比对，不再误判未登记或漏绑参考图与音色 ([#1595](https://github.com/ArcReel/ArcReel/issues/1595)) ([cbf4375](https://github.com/ArcReel/ArcReel/commit/cbf4375cae5aea564dad5ccc5be211a2cf91f95a))
+* **reference-video:** 编辑正文后调整引用标签，仅作说话人的角色不再残留参考图 ([#1554](https://github.com/ArcReel/ArcReel/issues/1554)) ([b9e3b2c](https://github.com/ArcReel/ArcReel/commit/b9e3b2c4b97422bde9363c8d9f0fef77d3f092e3))
+* **reference-video:** 网页与智能体同时编辑参考单元时不再互相覆盖，冲突改为提示合并 ([#1606](https://github.com/ArcReel/ArcReel/issues/1606)) ([6416289](https://github.com/ArcReel/ArcReel/commit/6416289e23f5f55dd1102c601a3de759f167f126))
+* **skills:** 审查循环防 CodeRabbit 限流假阳性与 rebase 轮次重置 ([#1688](https://github.com/ArcReel/ArcReel/issues/1688)) ([20340a4](https://github.com/ArcReel/ArcReel/commit/20340a4857b6022d79ab49864b5dbea8297352bb))
+* **video:** 修正 vidu2.0 的时长与分辨率联动约束，消除无效组合 ([#1610](https://github.com/ArcReel/ArcReel/issues/1610)) ([e7a643d](https://github.com/ArcReel/ArcReel/commit/e7a643dfc4034002c0ea471fb966bfc70192cb6c))
+* **video:** 修正可灵有声档位分类、Vidu 参考生视频时长档位与超长提示词静默截断 ([#1587](https://github.com/ArcReel/ArcReel/issues/1587)) ([73a13c4](https://github.com/ArcReel/ArcReel/commit/73a13c4881201145455e0d42c4d674b808b8c859))
+* **video:** 视频能力声明收敛为单一真相，参考音频随请求直传 ([#1517](https://github.com/ArcReel/ArcReel/issues/1517)) ([832dc75](https://github.com/ArcReel/ArcReel/commit/832dc757a3fa7f6e8465a92b761a92397730a666))
+* **video:** 能力查询与费用估算改按项目生成模式取真正会执行的视频模型 ([#1545](https://github.com/ArcReel/ArcReel/issues/1545)) ([c0f265c](https://github.com/ArcReel/ArcReel/commit/c0f265c3c4cd207f6b3d423ec606d3aec32d2bf5))
+* **分镜生视频:** 关闭本集音频后不再向模型描述角色声音特征 ([#1636](https://github.com/ArcReel/ArcReel/issues/1636)) ([5a65ffe](https://github.com/ArcReel/ArcReel/commit/5a65ffe30e2cc36d0131b20f7f8ed00fa14018e1))
+* **参考生视频:** 关闭本集音频后不再向模型描述角色声音特征 ([#1631](https://github.com/ArcReel/ArcReel/issues/1631)) ([ffa96fa](https://github.com/ArcReel/ArcReel/commit/ffa96faafc29b3cc10aa70b46590997c40a8d18d))
+* **参考直出:** 剧本改动不再清空广告单元已生成的视频，改为提示需重新生成 ([#1657](https://github.com/ArcReel/ArcReel/issues/1657)) ([d9487f2](https://github.com/ArcReel/ArcReel/commit/d9487f2d85d310ca53c8d36e4cfaa1f4c47cc696))
+* **参考视频:** 广告成片的过期角标改剧本后立即刷新，版本还原后自动回清 ([#1679](https://github.com/ArcReel/ArcReel/issues/1679)) ([17b6775](https://github.com/ArcReel/ArcReel/commit/17b67752a1c541195bc6b3ffd192157b454dac84))
+* **参考视频:** 点名重做撞上同一 unit 的在途任务时拒绝并说明，不再静默沿用 ([#1690](https://github.com/ArcReel/ArcReel/issues/1690)) ([bb40e83](https://github.com/ArcReel/ArcReel/commit/bb40e83045664f1b837284d046677c62dad1d269))
+* **归档导入导出:** 英文/越南语用户不再收到中文诊断提示 ([#1634](https://github.com/ArcReel/ArcReel/issues/1634)) ([43cfcbe](https://github.com/ArcReel/ArcReel/commit/43cfcbef1186d45bc4a5b1c96fd61bfe793eaccc))
+* **生成:** 中转站供应商结构化输出改走三档降级，失败时给出可读提示 ([#1686](https://github.com/ArcReel/ArcReel/issues/1686)) ([c3f8900](https://github.com/ArcReel/ArcReel/commit/c3f890076df1f3b7c76f65ce6af558c60c71027a))
+* **生成:** 参考生视频的无参考图镜头改用图生视频模型生成 ([#1629](https://github.com/ArcReel/ArcReel/issues/1629)) ([709dcf9](https://github.com/ArcReel/ArcReel/commit/709dcf95ad0f58c45d7dab2f11b7700be87e995f))
+* **生成:** 参考生视频项目的逐条视频生成给出正确指引 ([#1614](https://github.com/ArcReel/ArcReel/issues/1614)) ([b0a2ce5](https://github.com/ArcReel/ArcReel/commit/b0a2ce5b18232db11ca3c585b9df824caab22f54))
+* **生成:** 自定义模型换接口后不再接续轮询旧生成任务 ([#1655](https://github.com/ArcReel/ArcReel/issues/1655)) ([d9ea477](https://github.com/ArcReel/ArcReel/commit/d9ea477b49b010e9ddd001ffac4360d76ff3f77a))
+* **视频生成:** 中断续跑沿用入队时选定的模型，不再换模型继续 ([#1633](https://github.com/ArcReel/ArcReel/issues/1633)) ([af75c71](https://github.com/ArcReel/ArcReel/commit/af75c714b0214152e69f405bc720162c6682016b))
+* **设置:** 模型候选接口失败时给出可感知的错误态与重试入口 ([#1628](https://github.com/ArcReel/ArcReel/issues/1628)) ([472532c](https://github.com/ArcReel/ArcReel/commit/472532cd653064621ca421b2545f3baf119cd3a0))
+* **设置:** 精简模型列表加载失败的提示文案 ([c02bdbc](https://github.com/ArcReel/ArcReel/commit/c02bdbc5d6893efb6691d2ad52beed0664b01d32))
+* **资产:** 资产名读写统一按 NFC 归一，同一名字不再产生重复资产与配音映射错位 ([#1625](https://github.com/ArcReel/ArcReel/issues/1625)) ([25b14ab](https://github.com/ArcReel/ArcReel/commit/25b14abd634c7818a24a309ce7cbbe9a102cf1ad))
+* **配置解析:** 项目里只填供应商名时不再静默换用其他供应商 ([#1626](https://github.com/ArcReel/ArcReel/issues/1626)) ([4eab9ec](https://github.com/ArcReel/ArcReel/commit/4eab9ec4984999a686c32eef5919fa9d87676248))
+
+
+### ♻️ 重构
+
+* **config:** 图片模型解析收敛到通用「默认 + 能力桶」四级骨架 ([#1535](https://github.com/ArcReel/ArcReel/issues/1535)) ([9ef7561](https://github.com/ArcReel/ArcReel/commit/9ef7561cafc59eb9516822c4f7fdd0a89ef86bd8))
+* **供应商能力:** 视频模型的图生/参考生/文生能力收敛到单一声明处 ([#1630](https://github.com/ArcReel/ArcReel/issues/1630)) ([a7e78bd](https://github.com/ArcReel/ArcReel/commit/a7e78bdb1e0853869c818142acba6f245115fe54))
+* **剧本审核:** 两条审核路线共用同一套草稿状态机 ([#1623](https://github.com/ArcReel/ArcReel/issues/1623)) ([3d5f5e6](https://github.com/ArcReel/ArcReel/commit/3d5f5e6e11c2d594faf782ea640ace247da75a7b)), closes [#1617](https://github.com/ArcReel/ArcReel/issues/1617)
+* **参考视频:** 声音档收为渲染入口必填，杜绝无声项目被按有声渲染 ([#1656](https://github.com/ArcReel/ArcReel/issues/1656)) ([e6f6cfa](https://github.com/ArcReel/ArcReel/commit/e6f6cfaab936ac0c0dd447caee30ff2b4ba0487e))
+* **参考视频:** 提及解析统一输出规范形，含 BOM 的名称前后端判定一致 ([#1654](https://github.com/ArcReel/ArcReel/issues/1654)) ([630a81e](https://github.com/ArcReel/ArcReel/commit/630a81e441973681291474e7718af00bcbe499ef))
+* **生成:** 视频身份解析统一走入队钉住的执行身份 ([#1658](https://github.com/ArcReel/ArcReel/issues/1658)) ([7920f8f](https://github.com/ArcReel/ArcReel/commit/7920f8f7a7b0bc6674059c2b5d66aa0517dbf414))
+* **生成路线:** 能力查询、费用估算与声音一致性按项目生成路线一次定轴 ([#1601](https://github.com/ArcReel/ArcReel/issues/1601)) ([2e81e32](https://github.com/ArcReel/ArcReel/commit/2e81e32d966054e2434f0c40a3143d91cdbcbc3f))
+* **配置:** registry 能力 token 收敛为封闭词汇表，删除零消费声明 ([#1652](https://github.com/ArcReel/ArcReel/issues/1652)) ([5aa00cc](https://github.com/ArcReel/ArcReel/commit/5aa00ccbde8d7e48fe8c14368979ce292576e73f))
+
+
+### 📚 文档
+
+* **CONTEXT:** 逐条生成端点词条与路线锁定后的行为对齐 ([#1639](https://github.com/ArcReel/ArcReel/issues/1639)) ([6d8c417](https://github.com/ArcReel/ArcReel/commit/6d8c417e8481ec3784f44300667a8541ce47b7da))
+* **cost:** 记录费用归属以记账 key 为强证据的决策 ([#1502](https://github.com/ArcReel/ArcReel/issues/1502)) ([440a67c](https://github.com/ArcReel/ArcReel/commit/440a67c861de8cbbbc2d9849ab472ba59ddc58c3))
+* **security:** 建立正式安全基线 ([#1668](https://github.com/ArcReel/ArcReel/issues/1668)) ([f9c2d22](https://github.com/ArcReel/ArcReel/commit/f9c2d228915f3122674ab94e9282775e53b08278))
+* **skills:** 补记 CI 重跑不含上游修复;afk 清尾立项改为直接建 issue ([#1665](https://github.com/ArcReel/ArcReel/issues/1665)) ([8ce4ec3](https://github.com/ArcReel/ArcReel/commit/8ce4ec343386b253b739fddbfa36d71196b2cffb))
+* **上传:** 说明镜头上传与通用上传表的边界及判据 ([#1632](https://github.com/ArcReel/ArcReel/issues/1632)) ([56bc0ad](https://github.com/ArcReel/ArcReel/commit/56bc0ad09ae6f4ffc3c965a293bc98356814f932))
+* 优化产品首页与使用文档 ([6883b9f](https://github.com/ArcReel/ArcReel/commit/6883b9fd4cfc546c68c3f84c5c4f0c81edab677e))
+* 供应商能力文档收敛为真相源指针，新增执行期判据同源 ADR，审查循环补误报终态出口 ([#1622](https://github.com/ArcReel/ArcReel/issues/1622)) ([0f92a2b](https://github.com/ArcReel/ArcReel/commit/0f92a2bb3513a76615396c0e0e7f983bfc5e51d1))
+* 前端异步纪律与审查循环补批次复盘约定,测试替身收敛入 fakes 模块 ([#1648](https://github.com/ArcReel/ArcReel/issues/1648)) ([b679c29](https://github.com/ArcReel/ArcReel/commit/b679c293b92b50acd2e738c1a747b380e8aa6c22))
+* 执行身份与锁定入词汇表，统一「钉住」→「锁定」用词 ([#1664](https://github.com/ArcReel/ArcReel/issues/1664)) ([8fdf53a](https://github.com/ArcReel/ArcReel/commit/8fdf53a2108f0841505a88a943ff08dd03d3a301))
+* **智能体:** 修正宫格分镜图技能文档的产物路径与切割产物说明 ([#1698](https://github.com/ArcReel/ArcReel/issues/1698)) ([a19cd9d](https://github.com/ArcReel/ArcReel/commit/a19cd9dc95e3aab224e1246fae207a64b39e1b49))
+* 添加安装配置与故障排查 FAQ ([#1659](https://github.com/ArcReel/ArcReel/issues/1659)) ([d76082e](https://github.com/ArcReel/ArcReel/commit/d76082e11dd3e1ada50a2746187ef3c5e5ceda13))
+* 清理生成路线口径残留注释 ([#1613](https://github.com/ArcReel/ArcReel/issues/1613)) ([0dee5fb](https://github.com/ArcReel/ArcReel/commit/0dee5fb51feddf2c46a050d3d21bee9db53e20d3))
+* **生成路线:** 路线锁定的决策依据与业界调研入档，能力与骨架文档按项目路线归口 ([#1604](https://github.com/ArcReel/ArcReel/issues/1604)) ([a16e5a3](https://github.com/ArcReel/ArcReel/commit/a16e5a35d9af88f2cd2e1978744e1de34494f595))
+* 能力真相源与执行模型口径入档,审查与 AFK 流程 skill 修订 ([#1582](https://github.com/ArcReel/ArcReel/issues/1582)) ([88eadb3](https://github.com/ArcReel/ArcReel/commit/88eadb38993dca6305303e3f1161e0f1932553d0))
+
 ## [0.24.0](https://github.com/ArcReel/ArcReel/compare/v0.23.0...v0.24.0) (2026-07-29)
 
 
