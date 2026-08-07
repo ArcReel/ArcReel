@@ -19,12 +19,10 @@ else
   BOLD=""; DIM=""; RESET=""; BLUE=""; GREEN=""; YELLOW=""; RED=""
 fi
 
-# Author sets these two at the top of the stages section.
+# Author sets this at the top of the stages section.
 TOTAL_STAGES=0
-TOTAL_MINUTES=0
 
 _STAGE_INDEX=0
-_MINUTES_ELAPSED=0
 ENV_FILE="${ENV_FILE:-.env}"
 WRITTEN_ENV=()    # KEYs written to ENV_FILE this run
 WRITTEN_SECRET=() # secret NAMEs set this run
@@ -37,28 +35,24 @@ _clear() {
   if command -v tput >/dev/null 2>&1; then tput clear; else printf '\033[2J\033[3J\033[H'; fi
 }
 
-# banner "Title" — opening frame: what this wizard does and how long it takes.
+# banner "Title" — opening frame: what this wizard does.
 banner() {
   _clear
   printf '\n%s%s  %s%s\n' "$BOLD" "$BLUE" "$1" "$RESET"
-  printf '%s  %s stages · about %s minutes%s\n\n' \
-    "$DIM" "$TOTAL_STAGES" "$TOTAL_MINUTES" "$RESET"
+  printf '%s  %s stages%s\n\n' "$DIM" "$TOTAL_STAGES" "$RESET"
   printf '%s  You drive the browser; this wizard tells you exactly what to do and\n' "$DIM"
   printf '  captures the values you copy back. Stop any time with Ctrl-C and re-run\n'
   printf '  later — it remembers values already saved.%s\n' "$RESET"
   pause "Ready to start?"
 }
 
-# stage "Name" <minutes> — clear the screen, then announce a stage and show
-# progress + time remaining. Clearing keeps only the current step on screen.
+# stage "Name" — clear the screen, then announce a stage and show progress.
+# Clearing keeps only the current step on screen.
 stage() {
   _clear
   _STAGE_INDEX=$((_STAGE_INDEX + 1))
-  local remaining=$((TOTAL_MINUTES - _MINUTES_ELAPSED))
-  (( remaining < 0 )) && remaining=0
-  _MINUTES_ELAPSED=$((_MINUTES_ELAPSED + ${2:-0}))
-  printf '\n%s%s▸ Stage %s/%s · %s%s  %s(~%s min left)%s\n' \
-    "$BOLD" "$BLUE" "$_STAGE_INDEX" "$TOTAL_STAGES" "$1" "$RESET" "$DIM" "$remaining" "$RESET"
+  printf '\n%s%s▸ Stage %s/%s · %s%s\n' \
+    "$BOLD" "$BLUE" "$_STAGE_INDEX" "$TOTAL_STAGES" "$1" "$RESET"
 }
 
 # say "..." — a plain instruction line.
@@ -187,16 +181,15 @@ finish() {
 
 # ──────────────────────────────────────────────────────────────────────────
 # STAGES — author this section. One stage() per step the human takes.
-# Replace the example below. Set the two totals to match the stages you write.
+# Replace the example below. Set TOTAL_STAGES to match the stages you write.
 # ──────────────────────────────────────────────────────────────────────────
 
 TOTAL_STAGES=1
-TOTAL_MINUTES=5
 
 banner "Stripe setup"
 
 # ── Example stage: replace with your real steps ───────────────────────────
-stage "Stripe — API keys" 5
+stage "Stripe — API keys"
 say "We'll grab your Stripe test keys and store them for local dev + CI."
 open_url "https://dashboard.stripe.com/test/apikeys"
 step "On the API keys page, copy the Publishable key (starts pk_test_)."
