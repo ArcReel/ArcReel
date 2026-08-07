@@ -224,6 +224,12 @@ jobs:
           tags: arcreel-ci:verify
           cache-from: type=gha
 
+      - name: Allow unprivileged user namespaces on runner host
+        # Ubuntu 24.04 默认 kernel.apparmor_restrict_unprivileged_userns=1 全局
+        # 禁用非特权 userns，容器内 bwrap 起不来且 apparmor:unconfined 绕不过，
+        # 只能在宿主（runner VM）侧放开
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Smoke test container health
         run: |
           # 沙箱运行参数与官方 Compose 一致（docs/deployment.md）：容器内 bwrap
