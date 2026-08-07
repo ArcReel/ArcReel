@@ -30,7 +30,7 @@ from lib.prompt_utils import (
 )
 from lib.reference_video import assemble_shots_text
 from lib.reference_video.ad_units import (
-    is_ad_unit_stale,
+    ad_stale_unit_ids,
     render_ad_unit_prompt,
     resolve_ad_unit_shots,
     sync_ad_reference_units,
@@ -639,7 +639,7 @@ async def _run_ad_reference_episode(
     log.append(f"已派生 {len(units)} 个 video_unit（连续镜头分组，索引已写入剧本）")
     # stale 清单透出给调用方：这些 unit 的成片仍有效并按现有产物复用，不自动重生成；
     # 是否重生成由用户/智能体决定（重生成 finalize 落新签名后自然回归非 stale）。
-    stale_ids = [str(u.get("unit_id")) for u in units if is_ad_unit_stale(script, u)]
+    stale_ids = ad_stale_unit_ids(script, units)
     if stale_ids:
         log.append(f"⚠️  以下 unit 的剧本已变更但保留既有成片（stale），如需更新请重新生成：{', '.join(stale_ids)}")
 

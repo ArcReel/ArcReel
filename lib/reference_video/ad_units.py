@@ -170,7 +170,11 @@ def ad_unit_source_signature(script: dict, unit: dict) -> str:
     成员镜头缺失（索引悬空）时按现存成员计算：与生成时全员在场的签名必然不同，
     读时自然判为偏离。
     """
-    by_id = ad_shots_by_id(script)
+    return _source_signature(ad_shots_by_id(script), unit)
+
+
+def _source_signature(by_id: dict[str, dict], unit: dict) -> str:
+    """按已建好的镜头索引算签名——批量判定共用一份索引，不逐 unit 重建。"""
     # shot_ids 整体非 list（Agent 裸写的脏索引）与元素非字符串同口径降级为空成员集，
     # 而不是让读时派生在 GET /units、导出预检这些只读路径上抛 TypeError。
     shot_ids = unit.get("shot_ids")
@@ -191,13 +195,18 @@ def is_ad_unit_stale(script: dict, unit: dict) -> bool:
     无成片谈不上产物过期；无签名的存量产物视为非 stale（签名机制引入前生成，
     无从比较），随下一次生成补齐签名。
     """
+    return _is_stale(ad_shots_by_id(script), unit)
+
+
+def _is_stale(by_id: dict[str, dict], unit: dict) -> bool:
+    """按已建好的镜头索引判 stale，语义同 ``is_ad_unit_stale``。"""
     assets = get_generated_assets(unit)
     if not assets.get("video_clip"):
         return False
     recorded = assets.get("source_signature")
     if not isinstance(recorded, str) or not recorded:
         return False
-    return recorded != ad_unit_source_signature(script, unit)
+    return recorded != _source_signature(by_id, unit)
 
 
 def annotate_ad_unit_staleness(script: dict, units: object) -> list:
@@ -206,19 +215,35 @@ def annotate_ad_unit_staleness(script: dict, units: object) -> list:
     剧本中的条目不承载 stale——历史剧本残留的 stale 键在此剥除，偏离的 unit
     仅在返回副本上携带 ``stale: True``（与旧口径一致：非 stale 不带该键）。
     脏条目（非 dict）原样透传，交由消费方的既有降级分支处理。
+
+    镜头索引在进入循环前建一次并贯穿全部 unit：逐 unit 走
+    ``is_ad_unit_stale`` 会按 unit 数重复扫描 shots。
     """
     if not isinstance(units, list):
         return []
+    by_id = ad_shots_by_id(script)
     annotated: list = []
     for unit in units:
         if not isinstance(unit, dict):
             annotated.append(unit)
             continue
         entry = {k: v for k, v in unit.items() if k != "stale"}
-        if is_ad_unit_stale(script, unit):
+        if _is_stale(by_id, unit):
             entry["stale"] = True
         annotated.append(entry)
     return annotated
+
+
+def ad_stale_unit_ids(script: dict, units: object) -> list[str]:
+    """偏离当前编排的 unit_id 清单，判定与 ``annotate_ad_unit_staleness`` 同源。
+
+    只要 id 清单的调用方走这里，就与注入路径共用同一份镜头索引，也不必为读一个
+    布尔位构造整份对外副本。
+    """
+    if not isinstance(units, list):
+        return []
+    by_id = ad_shots_by_id(script)
+    return [str(u.get("unit_id")) for u in units if isinstance(u, dict) and _is_stale(by_id, u)]
 
 
 def sync_ad_reference_units(

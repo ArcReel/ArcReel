@@ -7,6 +7,7 @@
 import pytest
 
 from lib.reference_video.ad_units import (
+    ad_stale_unit_ids,
     ad_unit_source_signature,
     annotate_ad_unit_staleness,
     derive_ad_reference_units,
@@ -378,6 +379,18 @@ class TestReadTimeStaleness:
 
         assert annotate_ad_unit_staleness(script, ["oops", None]) == ["oops", None]
         assert annotate_ad_unit_staleness(script, "not-a-list") == []
+
+    def test_stale_unit_ids_lists_only_diverged_units(self):
+        """id 清单与注入路径同一判定，脏条目跳过。"""
+        script = {"episode": 1, "shots": [_shot(f"E1S{n}") for n in range(1, 6)]}
+        sync_ad_reference_units(script, episode=1)
+        _mark_generated(script, 0)
+        _mark_generated(script, 1)
+        script["shots"][0]["products_in_shot"] = ["按摩仪"]  # 只偏离第一个 unit（E1S1-E1S4）
+
+        assert ad_stale_unit_ids(script, script["reference_units"]) == ["E1U1"]
+        assert ad_stale_unit_ids(script, [*script["reference_units"], "oops"]) == ["E1U1"]
+        assert ad_stale_unit_ids(script, "not-a-list") == []
 
     def test_non_list_shot_ids_degrades_to_empty_members(self):
         """裸写的脏索引（shot_ids 非 list）按空成员集签名，只读路径不抛 TypeError。"""
