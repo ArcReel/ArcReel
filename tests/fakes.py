@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from instructor.core import InstructorRetryException
+
 if TYPE_CHECKING:
     from lib.reference_video.voice_settings import VoiceRenderSettings
 
@@ -220,3 +222,23 @@ def fake_reference_caps_fetcher(
         )
 
     return _fetch
+
+
+def instructor_api_call_exhausted(cause: Exception) -> InstructorRetryException:
+    """构造「API 调用失败」形态的 Instructor 异常，供结构化输出降级链的判据测试使用。
+
+    Instructor 的档内重试只把解析 / 校验类异常记进 ``failed_attempts``；API 调用本身抛的异常
+    （参数被拒、瞬态 5xx、连接错误）会中断重试循环、被包成 ``InstructorRetryException``，原异常
+    只挂在 ``__cause__`` 上、``failed_attempts`` 为空。降级链的判据要认的正是这个形态，拿裸 API
+    异常做桩会测出生产里不存在的路径。形态本身由
+    ``TestInstructorExceptionShape::test_api_call_failure_arrives_wrapped`` 对真实 Instructor 钉住。
+    """
+    exc = InstructorRetryException(
+        str(cause),
+        last_completion=None,
+        n_attempts=1,
+        total_usage=0,
+        failed_attempts=[],
+    )
+    exc.__cause__ = cause
+    return exc

@@ -1,13 +1,14 @@
 """Instructor 降级支持 — 原生 json_schema 通道不可用时的结构化输出降级链。
 
 链路为 TOOLS → MD_JSON：前者用 function calling 在 wire 层传 schema，后者把 schema 注入
-prompt。只有 wire 层失败才继续降档，校验类失败即判终局（见 :func:`_is_tools_wire_failure`）。
+prompt。只有 wire 层失败才继续降档，校验类失败即判终局（见 :func:`_classify_mode_failure`）。
 OpenAI 兼容与 Ark 两个 backend 共用本模块，故降级链的调整在此一处生效。
 """
 
 from __future__ import annotations
 
 import logging
+from enum import Enum
 
 import instructor
 from instructor import Mode
@@ -40,6 +41,14 @@ _TOOLS_UNSUPPORTED_KEYWORDS = (
     "function_call",
     "functions",
 )
+
+
+def _mode_chain_steps() -> list[tuple[Mode, Mode | None]]:
+    """降级链的 (当前档, 下一档) 序列；下一档为 None 表示已是末档、无处可退。"""
+    return [
+        (mode, _STRUCTURED_MODE_CHAIN[index + 1] if index + 1 < len(_STRUCTURED_MODE_CHAIN) else None)
+        for index, mode in enumerate(_STRUCTURED_MODE_CHAIN)
+    ]
 
 
 def _output_tokens_from_incomplete(exc: IncompleteOutputException) -> int | None:
@@ -76,38 +85,79 @@ def _raw_output_from_exception(exc: BaseException) -> str:
     return "<无响应>"
 
 
+def _api_call_failure(exc: InstructorRetryException) -> BaseException | None:
+    """取这一档折在 API 调用上的原始异常；折在模型输出上则返回 None。
+
+    Instructor 的档内重试只把解析 / 校验类异常记进 ``failed_attempts``；API 调用本身抛的
+    异常会中断重试循环、被包进 ``InstructorRetryException``，原异常只挂在 ``__cause__`` 上。
+    因此 ``failed_attempts`` 为空即表示这一档根本没走到解析——判据必须穿过这层包装取原异常，
+    否则「上游拒收 tools 参数」永远认不出来。
+    """
+    if exc.failed_attempts:
+        return None
+    return exc.__cause__
+
+
 def _failure_reason(exc: BaseException) -> str:
     """把某一档的失败压成一句可读原因，供 StructuredOutputExhaustedError 携带。"""
+    if not isinstance(exc, InstructorRetryException):
+        return f"降级链失败（{type(exc).__name__}: {exc}）"
+    api_failure = _api_call_failure(exc)
+    if api_failure is not None:
+        return f"降级链各档传递 schema 的方式均被上游拒收（{api_failure}）"
+    last = exc.failed_attempts[-1].exception if exc.failed_attempts else None
+    detail = type(last).__name__ if last is not None else "未知原因"
+    return f"降级链各档重试耗尽后模型输出仍不合规（{exc.n_attempts} 次尝试，最后一次 {detail}）"
+
+
+def _propagated_cause(exc: Exception) -> Exception:
+    """冒泡时该抛的异常：API 调用失败抛原异常本身，其余抛原样。"""
     if isinstance(exc, InstructorRetryException):
-        attempts = getattr(exc, "failed_attempts", None) or []
-        last = attempts[-1].exception if attempts else None
-        detail = type(last).__name__ if last is not None else type(exc).__name__
-        return f"降级链各档重试耗尽后模型输出仍不合规（{exc.n_attempts} 次尝试，最后一次 {detail}）"
-    return f"降级链失败（{type(exc).__name__}: {exc}）"
+        api_failure = _api_call_failure(exc)
+        if isinstance(api_failure, Exception):
+            return api_failure
+    return exc
 
 
-def _is_tools_wire_failure(exc: BaseException) -> bool:
-    """判断 TOOLS 档的失败是否属于 wire 层不兼容——只有这一类才继续降档到 MD_JSON。
+class _ModeFailure(Enum):
+    """某一档失败后的处置。"""
 
-    两种 wire 层形态：上游直接拒收 tools 参数（API 异常，Instructor 的档内重试只覆盖解析类
-    异常，故这类异常原样冒泡），或上游收下了却不回 tool call（Instructor 解析器抛
-    ``ResponseParsingError``，属可重试解析错误，档内重试耗尽后包在
-    ``InstructorRetryException`` 里）。
+    DOWNGRADE = "downgrade"
+    """wire 层不兼容，换下一档还有机会。"""
 
-    校验类失败（上游确实回了 tool call，只是参数结构反复不合规）不算 wire 层：换成约束更弱的
-    MD_JSON 只会更差，直接判终局。其余异常（瞬态 5xx、连接错误等）也不算，原样冒泡交给调用方
-    的 @with_retry_async 处理，不被降档吞掉。
+    TERMINAL = "terminal"
+    """模型输出反复不合规，换约束更弱的档只会更差。"""
+
+    PROPAGATE = "propagate"
+    """与结构化输出能力无关，交调用方判定。"""
+
+
+def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
+    """判定某一档的失败该降档、判终局，还是原样冒泡。
+
+    只有 wire 层不兼容才降档，两种形态：上游拒收 tools 参数（API 调用异常），或收下了却不回
+    tool call（解析器抛 ``ResponseParsingError``，属档内可重试解析错误）。
+
+    上游确实回了 tool call、只是参数结构反复不合规，属校验类失败，判终局。
+
+    其余一律冒泡：瞬态 5xx 与连接错误交调用方的 ``@with_retry_async`` 判定，不被降级链吞成
+    不可重试的终局异常；``TextOutputTruncatedError`` 是可操作硬错误，重发同一份必然再截断的
+    请求没有意义（见 docs/adr/0044），它自身已是 NonRetryableError，原样传给调用方即可。
     """
-    if isinstance(exc, InstructorRetryException):
-        return any(
-            isinstance(attempt.exception, ResponseParsingError)
-            for attempt in getattr(exc, "failed_attempts", None) or []
-        )
-    if isinstance(exc, TextOutputTruncatedError):
-        return False
-    if isinstance(exc, BadRequestError):
-        return True
-    return any(kw in str(exc) for kw in _TOOLS_UNSUPPORTED_KEYWORDS)
+    if not isinstance(exc, InstructorRetryException):
+        return _ModeFailure.PROPAGATE
+    api_failure = _api_call_failure(exc)
+    if api_failure is None:
+        if any(isinstance(attempt.exception, ResponseParsingError) for attempt in exc.failed_attempts or []):
+            return _ModeFailure.DOWNGRADE
+        return _ModeFailure.TERMINAL
+    if isinstance(api_failure, BadRequestError):
+        # 走到降级链说明 native 档已经跟上游握过手，模型名 / 鉴权类 400 早在那里就炸了；
+        # 此处的 400 压倒性地是参数不被接受，值得花一次 MD_JSON 调用去试。
+        return _ModeFailure.DOWNGRADE
+    if any(kw in str(api_failure) for kw in _TOOLS_UNSUPPORTED_KEYWORDS):
+        return _ModeFailure.DOWNGRADE
+    return _ModeFailure.PROPAGATE
 
 
 def generate_structured_via_instructor(
@@ -236,10 +286,12 @@ def _handle_mode_failure(
 
     正常返回即「调用方应继续下一档」。
     """
-    if isinstance(exc, TextOutputTruncatedError):
-        # 截断是可操作硬错误，重发同一份必然再截断的请求没有意义（docs/adr/0044）。
-        raise exc
-    if next_mode is not None and _is_tools_wire_failure(exc):
+    failure = _classify_mode_failure(exc)
+    if failure is _ModeFailure.PROPAGATE:
+        # 冒泡时剥掉 Instructor 的包装：调用方的 @with_retry_async 先按异常类型判瞬态
+        # （ConnectionError / TimeoutError），包着一层就只剩消息文本匹配，漏判连接类错误。
+        raise _propagated_cause(exc)
+    if failure is _ModeFailure.DOWNGRADE and next_mode is not None:
         logger.warning(
             "Instructor %s 档 wire 层不兼容（%s），降档到 %s 档；模型原始输出：%s",
             mode.value,
@@ -248,12 +300,9 @@ def _handle_mode_failure(
             _raw_output_from_exception(exc),
         )
         return
-    if not isinstance(exc, InstructorRetryException):
-        # 既非 wire 层不兼容也非档内重试耗尽（瞬态 5xx、连接错误、client 类型错误等），
-        # 原样冒泡交给调用方的 @with_retry_async 判定，不误收敛成不可重试的终局异常。
-        raise exc
+    # 校验类耗尽，或末档仍是 wire 层不兼容——降级链已无更弱的档可退。
     logger.warning(
-        "Instructor %s 档重试耗尽，判定为结构化输出能力不足；模型原始输出：%s",
+        "Instructor %s 档失败且降级链已走完，判定为结构化输出能力不足；模型原始输出：%s",
         mode.value,
         _raw_output_from_exception(exc),
     )
@@ -281,8 +330,7 @@ def instructor_fallback_sync(
         json_text: str | None = None
         input_tokens: int | None = None
         output_tokens: int | None = None
-        for index, mode in enumerate(_STRUCTURED_MODE_CHAIN):
-            next_mode = _STRUCTURED_MODE_CHAIN[index + 1] if index + 1 < len(_STRUCTURED_MODE_CHAIN) else None
+        for mode, next_mode in _mode_chain_steps():
             try:
                 json_text, input_tokens, output_tokens = generate_structured_via_instructor(
                     client=client,
@@ -355,14 +403,11 @@ async def instructor_fallback_async(
     供 OpenAI 等原生异步 SDK 后端使用。
     不做瞬态重试，瞬态错误由调用方的重试循环统一处理；档内的结构化校验重试由 Instructor 自带。
     """
-    from lib.text_backends.base import TextGenerationResult
-
     if isinstance(response_schema, type):
         json_text: str | None = None
         input_tokens: int | None = None
         output_tokens: int | None = None
-        for index, mode in enumerate(_STRUCTURED_MODE_CHAIN):
-            next_mode = _STRUCTURED_MODE_CHAIN[index + 1] if index + 1 < len(_STRUCTURED_MODE_CHAIN) else None
+        for mode, next_mode in _mode_chain_steps():
             try:
                 json_text, input_tokens, output_tokens = await generate_structured_via_instructor_async(
                     client=client,

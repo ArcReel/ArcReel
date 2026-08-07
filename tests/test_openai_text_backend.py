@@ -17,6 +17,7 @@ from lib.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
 )
+from tests.fakes import instructor_api_call_exhausted
 
 pytestmark = pytest.mark.unit
 
@@ -458,8 +459,9 @@ class TestInstructorFallback:
         instructor_completion.usage = None
 
         tools_patched = AsyncMock()
+        # 上游拒收 tools 参数时，Instructor 会把这次 API 调用异常包起来后才交给降级链。
         tools_patched.chat.completions.create_with_completion = AsyncMock(
-            side_effect=_make_bad_request_error("tools is not supported")
+            side_effect=instructor_api_call_exhausted(_make_bad_request_error("tools is not supported"))
         )
         md_json_patched = AsyncMock()
         md_json_patched.chat.completions.create_with_completion = AsyncMock(
