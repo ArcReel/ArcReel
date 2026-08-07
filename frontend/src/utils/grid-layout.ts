@@ -1,10 +1,26 @@
 export interface GridLayout {
-  gridSize: "grid_4" | "grid_6" | "grid_9" | null;
+  gridSize: "grid_4" | "grid_9" | "grid_16" | "grid_25" | null;
   rows: number;
   cols: number;
   cellCount: number;
   batchCount: number;
 }
+
+/**
+ * 档位阶梯，与后端 lib/grid/layout.py 的 _GRID_LADDER 逐项对应:
+ * 全部为 N×N 平方切分,单格比例恒等于整图比例(即项目视频比例)。
+ * 4×4 / 5×5 只在图像分辨率档为 4K 时可用,由调用方传 allowLargeGrid 门控
+ * (取值来自后端 /grid-capability,前端不自行推导分辨率档)。
+ */
+const GRID_LADDER = [
+  { cellCount: 4, gridSize: "grid_4", side: 2 },
+  { cellCount: 9, gridSize: "grid_9", side: 3 },
+  { cellCount: 16, gridSize: "grid_16", side: 4 },
+  { cellCount: 25, gridSize: "grid_25", side: 5 },
+] as const;
+
+const GATED_MAX_CELL_COUNT = 9;
+const MAX_CELL_COUNT = 25;
 
 interface GridMatchRecord {
   id: string;
@@ -67,34 +83,13 @@ export function groupBySegmentBreak<S extends { segment_break?: boolean }>(
   return groups;
 }
 
-export function computeGridSize(count: number, aspectRatio: string = "9:16"): GridLayout {
+export function computeGridSize(count: number, allowLargeGrid: boolean = false): GridLayout {
   if (count < 1) return { gridSize: null, rows: 0, cols: 0, cellCount: 0, batchCount: 0 };
-  const [w, h] = aspectRatio.split(":").map(Number);
-  const isHorizontal = w > h;
-  const effective = Math.min(count, 9);
-
-  let gridSize: "grid_4" | "grid_6" | "grid_9";
-  let cellCount: number;
-  let rows: number;
-  let cols: number;
-
-  if (effective <= 4) {
-    gridSize = "grid_4";
-    cellCount = 4;
-    rows = 2;
-    cols = 2;
-  } else if (effective <= 6) {
-    gridSize = "grid_6";
-    cellCount = 6;
-    rows = isHorizontal ? 3 : 2;
-    cols = isHorizontal ? 2 : 3;
-  } else {
-    gridSize = "grid_9";
-    cellCount = 9;
-    rows = 3;
-    cols = 3;
-  }
+  const cap = allowLargeGrid ? MAX_CELL_COUNT : GATED_MAX_CELL_COUNT;
+  const effective = Math.min(count, cap);
+  const { cellCount, gridSize, side } =
+    GRID_LADDER.find((cfg) => effective <= cfg.cellCount) ?? GRID_LADDER[GRID_LADDER.length - 1];
 
   const batchCount = count > cellCount ? Math.ceil(count / cellCount) : 1;
-  return { gridSize, rows, cols, cellCount, batchCount };
+  return { gridSize, rows: side, cols: side, cellCount, batchCount };
 }

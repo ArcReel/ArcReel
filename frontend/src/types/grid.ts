@@ -20,6 +20,15 @@ export interface FrameCell {
   image_path: string | null;
 }
 
+/**
+ * 宫格档位能力。grid_size 存的是历史记录写入时的档位字符串（含已停用的 grid_6），
+ * 故 GridGeneration.grid_size 保持宽松的 string 类型。
+ */
+export interface GridCapability {
+  large_grid_allowed: boolean;
+  max_cell_count: number;
+}
+
 export interface GridGeneration {
   id: string;
   episode: number;

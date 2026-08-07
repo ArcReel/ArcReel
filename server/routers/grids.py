@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.generation_queue import get_generation_queue
-from lib.grid.layout import calculate_grid_layout
+from lib.grid.layout import calculate_grid_layout, grid_aspect_ratio_for, max_cell_count
 from lib.grid.models import GridGeneration
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
@@ -23,6 +23,7 @@ from lib.json_io import domain_error_on_value_error
 from lib.project_manager import get_project_manager, grid_storyboard_enabled
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.auth import CurrentUser
+from server.services.grid_resolution import resolve_large_grid_allowed
 
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
 
@@ -114,6 +115,9 @@ async def generate_grid(
     raw_style = project.get("style")
     style = raw_style if raw_style is not None else ""
 
+    # 4×4 / 5×5 只在图像分辨率档为 4K 时放行；判定与费用估算、前端预览同源
+    allow_large_grid = await resolve_large_grid_allowed(project)
+
     groups = group_scenes_by_segment_break(items, id_field)
 
     # 若指定了 scene_ids，只保留包含这些 scene 的分组
@@ -133,7 +137,7 @@ async def generate_grid(
     for group in groups:
         all_scene_ids = [item[id_field] for item in group]
         n = len(all_scene_ids)
-        layout = calculate_grid_layout(n, aspect_ratio)
+        layout = calculate_grid_layout(n, aspect_ratio, allow_large_grid=allow_large_grid)
         if layout is None:
             continue
 
@@ -150,7 +154,7 @@ async def generate_grid(
             ):
                 gm.delete(old_grid.id)
 
-        # 将大分组拆分为多个宫格批次（余下不足4个的场景也用 grid_4 + 占位符）
+        # 将大分组拆分为多个宫格批次（余下不足一档的场景用小一档 + 占位符）
         chunks: list[list] = []
         if n > layout.cell_count:
             for i in range(0, n, layout.cell_count):
@@ -161,7 +165,7 @@ async def generate_grid(
 
         for chunk in chunks:
             chunk_ids = [item[id_field] for item in chunk]
-            chunk_layout = calculate_grid_layout(len(chunk_ids), aspect_ratio)
+            chunk_layout = calculate_grid_layout(len(chunk_ids), aspect_ratio, allow_large_grid=allow_large_grid)
             if chunk_layout is None:
                 continue
 
@@ -220,6 +224,30 @@ async def generate_grid(
         task_ids=task_ids,
         deduped=bool(task_ids) and all(deduped_flags),
         message=_t("grid_task_submitted", count=len(grid_ids)),
+    )
+
+
+# ==================== 宫格档位能力 ====================
+
+
+class GridCapabilityResponse(BaseModel):
+    large_grid_allowed: bool
+    max_cell_count: int
+
+
+@router.get("/grid-capability", response_model=GridCapabilityResponse)
+async def get_grid_capability(project_name: str):
+    """当前项目的宫格档位上限。
+
+    前端批次预览据此镜像后端阶梯——预览与入队若各自判定 4K 门控，批次数会漂移。
+    路径不挂在 ``/grids/`` 下，避免与 ``/grids/{grid_id}`` 抢匹配。
+    """
+    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
+        project = get_project_manager().load_project(project_name)
+    allowed = await resolve_large_grid_allowed(project)
+    return GridCapabilityResponse(
+        large_grid_allowed=allowed,
+        max_cell_count=max_cell_count(allow_large_grid=allowed),
     )
 
 
@@ -290,8 +318,9 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
 
     raw_aspect_ratio = project.get("aspect_ratio")
     aspect_ratio = raw_aspect_ratio if raw_aspect_ratio is not None else "9:16"
-    layout = calculate_grid_layout(len(grid.scene_ids), aspect_ratio)
-    grid_aspect_ratio = layout.grid_aspect_ratio if layout else aspect_ratio
+    # 重生成沿用记录自身的 rows/cols（含存量非方形记录），整图比例按该几何反推，
+    # 与记录里已冻结的 prompt 描述的画布保持一致，不重走档位阶梯
+    grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, aspect_ratio)
 
     queue = get_generation_queue()
     task = await queue.enqueue_task(

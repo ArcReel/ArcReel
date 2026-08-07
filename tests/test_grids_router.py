@@ -22,13 +22,13 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 pytestmark = pytest.mark.unit
 
 
-def _narration_script():
-    """四个无 segment_break 的分段，凑成单组 grid_4（cell_count=4）。"""
+def _narration_script(count: int = 4):
+    """``count`` 个无 segment_break 的分段，凑成单组（默认 4 个，即 grid_4 恰好填满）。"""
     return {
         "content_mode": "narration",
         "segments": [
             {
-                "segment_id": f"E1S0{i}",
+                "segment_id": f"E1S{i:02d}",
                 "episode": 1,
                 "segment_break": False,
                 "duration_seconds": 4,
@@ -49,7 +49,7 @@ def _narration_script():
                 "transition_to_next": "cut",
                 "generated_assets": {"storyboard_image": None, "video_clip": None, "status": "pending"},
             }
-            for i in range(1, 5)
+            for i in range(1, count + 1)
         ],
     }
 
@@ -408,6 +408,105 @@ def test_generate_grid_success_message_localized_en(monkeypatch, tmp_path):
         assert resp.status_code == 200
         body = resp.json()
         assert body["message"] == "Submitted 1 grid generation tasks"
+
+
+class _FakePMScenes(_FakePMGenerate):
+    """``_FakePMGenerate`` 的变体：剧本分段数可指定，用于跨档位的阶梯断言。"""
+
+    def __init__(self, project_path, scene_count: int):
+        super().__init__(project_path)
+        self._scene_count = scene_count
+
+    def load_script(self, name, script_file):
+        return _narration_script(self._scene_count)
+
+
+def _generate_with_gate(monkeypatch, tmp_path, *, scene_count: int, allow_large_grid: bool):
+    """跑一次 generate_grid，返回入队 payload 列表。4K 门控结果直接注入。"""
+
+    async def _gate(_project):
+        return allow_large_grid
+
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMScenes(tmp_path, scene_count),
+        get_generation_queue=lambda: fake_queue,
+        resolve_large_grid_allowed=_gate,
+    )
+    with client:
+        resp = client.post(
+            "/api/v1/projects/demo/generate/grid/1",
+            json={"script_file": "episode_1.json"},
+        )
+        assert resp.status_code == 200
+    return [call["payload"] for call in fake_queue.calls]
+
+
+@pytest.mark.parametrize(
+    ("scene_count", "grid_size", "side"),
+    [(10, "grid_16", 4), (16, "grid_16", 4), (17, "grid_25", 5), (25, "grid_25", 5)],
+)
+def test_generate_grid_uses_large_grid_when_4k(monkeypatch, tmp_path, scene_count, grid_size, side):
+    payloads = _generate_with_gate(monkeypatch, tmp_path, scene_count=scene_count, allow_large_grid=True)
+    assert len(payloads) == 1
+    assert payloads[0]["grid_size"] == grid_size
+    assert (payloads[0]["rows"], payloads[0]["cols"]) == (side, side)
+    # 方形档整图比例即项目视频比例
+    assert payloads[0]["grid_aspect_ratio"] == payloads[0]["video_aspect_ratio"] == "9:16"
+
+
+def test_generate_grid_above_25_chunks_at_25(monkeypatch, tmp_path):
+    payloads = _generate_with_gate(monkeypatch, tmp_path, scene_count=30, allow_large_grid=True)
+    assert [len(p["scene_ids"]) for p in payloads] == [25, 5]
+    assert [p["grid_size"] for p in payloads] == ["grid_25", "grid_9"]
+
+
+@pytest.mark.parametrize("scene_count", [10, 17, 30])
+def test_generate_grid_caps_at_9_without_4k(monkeypatch, tmp_path, scene_count):
+    payloads = _generate_with_gate(monkeypatch, tmp_path, scene_count=scene_count, allow_large_grid=False)
+    # 门控生效时切块封顶 9：不足一整块的余数落回更小的档位，但不会出现 4×4 / 5×5
+    assert all(p["grid_size"] in {"grid_4", "grid_9"} for p in payloads)
+    assert all(p["rows"] * p["cols"] <= 9 for p in payloads)
+    assert sum(len(p["scene_ids"]) for p in payloads) == scene_count
+
+
+@pytest.mark.parametrize("scene_count", [5, 6])
+def test_generate_grid_5_and_6_scenes_use_grid_9(monkeypatch, tmp_path, scene_count):
+    # grid_6 已删除：5~6 场景落 grid_9，不足的格由占位格补齐
+    payloads = _generate_with_gate(monkeypatch, tmp_path, scene_count=scene_count, allow_large_grid=False)
+    assert len(payloads) == 1
+    assert payloads[0]["grid_size"] == "grid_9"
+    assert (payloads[0]["rows"], payloads[0]["cols"]) == (3, 3)
+
+
+def test_grid_capability_reports_gate(monkeypatch, tmp_path):
+    async def _gate(_project):
+        return True
+
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMGenerate(tmp_path),
+        resolve_large_grid_allowed=_gate,
+    )
+    with client:
+        resp = client.get("/api/v1/projects/demo/grid-capability")
+        assert resp.status_code == 200
+        assert resp.json() == {"large_grid_allowed": True, "max_cell_count": 25}
+
+
+def test_grid_capability_gated_max_cell_count(monkeypatch, tmp_path):
+    async def _gate(_project):
+        return False
+
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMGenerate(tmp_path),
+        resolve_large_grid_allowed=_gate,
+    )
+    with client:
+        resp = client.get("/api/v1/projects/demo/grid-capability")
+        assert resp.json() == {"large_grid_allowed": False, "max_cell_count": 9}
 
 
 class _FakePMPath:

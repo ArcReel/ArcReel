@@ -1036,6 +1036,37 @@ async def test_generate_grid_list_only(fake_ctx: ToolContext) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("allow_large_grid", "expected", "forbidden"),
+    [(True, "grid_16 (4×4)", "grid_9"), (False, "grid_9 (3×3)", "grid_16")],
+)
+async def test_generate_grid_list_only_respects_4k_gate(
+    fake_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+    allow_large_grid: bool,
+    expected: str,
+    forbidden: str,
+) -> None:
+    # 非 4K 时 4×4 / 5×5 不出现在面向 agent 的分组预览里
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": f"E1S{i:02d}", "image_prompt": "p", "segment_break": False} for i in range(1, 13)
+    ]
+
+    async def _gate(_project: dict) -> bool:
+        return allow_large_grid
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    tool_obj = generate_grid_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "list_only": True})
+    assert out.get("is_error") is not True
+    text = out["content"][0]["text"]
+    assert expected in text
+    assert forbidden not in text
+
+
+@pytest.mark.unit
 async def test_generate_grid_wrong_mode(fake_ctx: ToolContext) -> None:
     # 项目未开启 grid_storyboard → error
     tool_obj = generate_grid_tool(fake_ctx)

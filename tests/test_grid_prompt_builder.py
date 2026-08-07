@@ -165,13 +165,33 @@ class TestBuildGridPrompt:
         )
         assert "16:9" in prompt
 
-    def test_grid_6_panel_aspect_ratio(self):
+    def test_non_square_layout_panel_aspect_ratio(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 7)]
         prompt = build_grid_prompt(
             scenes=scenes, id_field="scene_id", rows=3, cols=2, style="realistic", grid_aspect_ratio="4:3"
         )
         assert "4:3" in prompt
         assert _compute_panel_aspect("4:3", 3, 2) in prompt
+
+    @pytest.mark.parametrize(("side", "n_scenes"), [(4, 14), (5, 25)])
+    def test_large_square_layout_describes_every_cell(self, side: int, n_scenes: int):
+        scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, n_scenes + 1)]
+        prompt = build_grid_prompt(
+            scenes=scenes,
+            id_field="scene_id",
+            rows=side,
+            cols=side,
+            style="realistic",
+            grid_aspect_ratio="16:9",
+        )
+        total = side * side
+        assert f"{side}×{side} 宫格布局" in prompt
+        assert f"恰好 {side} 行 {side} 列，共 {total} 个画格" in prompt
+        # 方形切分下单格比例等于整图比例
+        assert "每个画格比例：16:9" in prompt
+        for idx in range(total):
+            assert f"格{idx}（row{idx // side + 1} col{idx % side + 1}）" in prompt
+        assert prompt.count("空占位") == total - n_scenes
 
     def test_anti_structural_constraints(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]

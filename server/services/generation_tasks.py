@@ -1444,6 +1444,7 @@ async def execute_grid_task(
     """
     from PIL import Image
 
+    from lib.grid.layout import GRID_FALLBACK_RESOLUTION
     from lib.grid.splitter import split_grid_image
     from lib.grid_manager import GridManager
 
@@ -1495,7 +1496,9 @@ async def execute_grid_task(
         grid.provider = ctx.image.provider_model.provider_id
         grid.model = ctx.image.backend_model
         grid_manager.save(grid)
-        image_size = ctx.image.resolution or "2K"  # 宫格图保底高分辨率
+        # 保底档与档位门控（``large_grid_allowed``）取同一常量，避免门控按 2K 判定、
+        # 渲染却按别的档位下发
+        image_size = ctx.image.resolution or GRID_FALLBACK_RESOLUTION
 
         image_path, version = await generator.generate_image_async(
             prompt=prompt_text,
