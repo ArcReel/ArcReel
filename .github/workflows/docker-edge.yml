@@ -92,6 +92,7 @@ jobs:
           format: sarif
           output: trivy-amd64.sarif
           severity: CRITICAL,HIGH
+          limit-severities-for-sarif: true
           ignore-unfixed: true
           exit-code: "0"
 
@@ -106,6 +107,7 @@ jobs:
           format: sarif
           output: trivy-arm64.sarif
           severity: CRITICAL,HIGH
+          limit-severities-for-sarif: true
           ignore-unfixed: true
           exit-code: "0"
 
