@@ -140,12 +140,16 @@ class TestDurationCoercion:
         from lib.video_backends.agnes import _extract_duration_seconds
 
         # 顶层 seconds 是成片时长真相源；usage.duration_seconds 是任务处理耗时，不得读取
-        assert _extract_duration_seconds({"seconds": "8.0", "usage": {"duration_seconds": 184}}, fallback=5) == 8
-        assert _extract_duration_seconds({"seconds": "7"}, fallback=5) == 7
+        assert _extract_duration_seconds({"seconds": "8.0", "usage": {"duration_seconds": 184}}, None, fallback=5) == 8
+        assert _extract_duration_seconds({"seconds": "7"}, None, fallback=5) == 7
         # seconds 缺失（含非正值/不可解析）一律回落请求时长，不看 usage
-        assert _extract_duration_seconds({"usage": {"duration_seconds": 184}}, fallback=5) == 5
-        assert _extract_duration_seconds({"seconds": "0"}, fallback=5) == 5
-        assert _extract_duration_seconds({}, fallback=5) == 5
+        assert _extract_duration_seconds({"usage": {"duration_seconds": 184}}, None, fallback=5) == 5
+        assert _extract_duration_seconds({"seconds": "0"}, None, fallback=5) == 5
+        assert _extract_duration_seconds({}, None, fallback=5) == 5
+        # 终态无 seconds 时改读 video_id 二次查询响应的 seconds
+        assert _extract_duration_seconds({}, {"seconds": "8.0"}, fallback=5) == 8
+        # 终态与查询响应均无 seconds 才回落请求时长
+        assert _extract_duration_seconds({}, {}, fallback=5) == 5
 
 
 class TestTextToVideo:
@@ -768,6 +772,8 @@ class TestFailureAndTimeout:
 
         assert result.video_uri == "https://platform-outputs.agnes-ai.com/videos/meta.mp4"
         assert result.video_path.read_bytes() == b"meta-bytes"
+        # 终态响应无 seconds，时长须从二次查询响应解析，而非回落请求时长
+        assert result.duration_seconds == 8
 
     async def test_video_id_query_without_url_raises_descriptive_error(self, tmp_path: Path):
         create_resp = _make_response(200, {"task_id": "t-bad-query", "status": "queued"})

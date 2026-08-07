@@ -104,7 +104,8 @@ _FAILED_STATUSES = ("failed", "error", "cancelled", "canceled")
 _SAFE_LOG_KEYS = ("model", "height", "width", "num_frames", "frame_rate", "seed")
 
 # 完成态响应中可能承载成片 URL 的直接字段，按优先级探测。remixed_from_video_id 语义是
-# remix 来源视频 ID（非 URL 形态时不当下载地址），列在此处仅兼容旧网关曾直接回填 URL 的行为。
+# remix 来源视频 ID（非 URL 形态时不当下载地址），列在此处仅为兼容部分网关把成片 URL
+# 直接回填在该字段的行为，值形态为 URL 时才采用。
 _DIRECT_URL_FIELDS = ("url", "video_url", "remixed_from_video_id")
 
 
@@ -187,8 +188,9 @@ def _extract_task_id(body: dict) -> str:
     raise RuntimeError(f"Agnes 视频提交返回体缺少 task_id（字段: {sorted(body)}）")
 
 
-def _extract_duration_seconds(final: dict, fallback: int) -> int:
-    """从轮询终态取实际成片时长（顶层 ``seconds``），缺失或不可解析回落请求时长。
+def _extract_duration_seconds(final: dict, queried: dict | None, fallback: int) -> int:
+    """从轮询终态取实际成片时长（顶层 ``seconds``），缺失时改读 video_id 二次查询响应的
+    ``seconds``（完成态只带 video_id 时才有此响应），两处均缺失或不可解析才回落请求时长。
 
     不读 ``usage.duration_seconds``——该字段是任务处理耗时，与成片时长无关，读它会错记
     计费与元数据。
@@ -196,6 +198,10 @@ def _extract_duration_seconds(final: dict, fallback: int) -> int:
     parsed = _coerce_duration(final.get("seconds"))
     if parsed is not None:
         return parsed
+    if queried is not None:
+        parsed = _coerce_duration(queried.get("seconds"))
+        if parsed is not None:
+            return parsed
     return fallback
 
 
@@ -443,22 +449,25 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         resp.raise_for_status()
         return resp.json()
 
-    async def _resolve_video_url(self, client: httpx.AsyncClient, final: dict) -> str:
+    async def _resolve_video_url(self, client: httpx.AsyncClient, final: dict) -> tuple[str, dict | None]:
         """成片 URL 两级来源：完成态直接字段命中即用；否则用 video_id 二次查询取 URL。
+
+        命中二次查询时一并返回该查询响应体（未查询则 None），供调用方从中补解析成片时长——
+        终态响应可能不带 ``seconds``，只有二次查询响应才带。
 
         两级来源均不可用时报错信息只列字段名，不回显响应体（可能含签名 URL 等敏感字段，
         与 _safe_body_for_log 同口径）。
         """
         video_url = _first_url_field(final)
         if video_url is not None:
-            return video_url
+            return video_url, None
 
         video_id = final.get("video_id")
         if isinstance(video_id, str) and video_id:
             queried = await self._query_video(client, video_id)
             video_url = _first_url_field(queried)
             if video_url is not None:
-                return video_url
+                return video_url, queried
             raise RuntimeError(f"Agnes 任务完成但 video_id 查询响应缺少成片 URL（字段: {sorted(queried)}）")
 
         raise RuntimeError(f"Agnes 任务完成但缺少成片 URL 与 video_id（字段: {sorted(final)}）")
@@ -498,7 +507,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             ),
         )
 
-        video_url = await self._resolve_video_url(client, final)
+        video_url, queried = await self._resolve_video_url(client, final)
 
         await self._download_with_retry(video_url, request.output_path)
         logger.info("Agnes 视频下载完成: %s", request.output_path)
@@ -507,7 +516,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             video_path=request.output_path,
             provider=PROVIDER_AGNES,
             model=self._model,
-            duration_seconds=_extract_duration_seconds(final, request.duration_seconds),
+            duration_seconds=_extract_duration_seconds(final, queried, request.duration_seconds),
             video_uri=video_url,
             task_id=task_id,
             seed=request.seed,
