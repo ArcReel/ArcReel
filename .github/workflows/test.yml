@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+    inputs:
+      full:
+        description: 忽略路径裁剪，全量运行所有 job
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,54 +25,39 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      code: ${{ steps.gate.outputs.code }}
+      backend: ${{ steps.domains.outputs.backend }}
+      frontend: ${{ steps.domains.outputs.frontend }}
+      docker: ${{ steps.domains.outputs.docker }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4.0.2
-        id: filter
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          filters: |
-            code:
-              - '**'
-              - '!**/*.md'
-              - '!docs/**'
-              - '!LICENSE'
-              - '!.github/ISSUE_TEMPLATE/**'
-              - '!.github/pull_request_template.md'
-      - id: gate
-        # Release PR(release-please-- 前缀)只改版本相关产物：pyproject / 前端 package.json 的 version、
-        # release-please manifest、CHANGELOG，并由 release-please workflow 推回 uv.lock 同步 commit，
-        # 不含源码逻辑改动。为加快版本 PR 合并，强制 code=false 让 backend/postgres/frontend 直接 skip。
-        # 取舍：lockfile / 版本字段层面的回归不在 PR 阶段拦截，合入 main 后由 push 触发的 CI 兜底。
-        # 其余分支沿用 paths-filter 结果。head_ref 经 env 传入，避免分支名作为表达式注入到 run 脚本。
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-          FILTER_CODE: ${{ steps.filter.outputs.code }}
-        run: |
-          if [[ "$HEAD_REF" == release-please--* ]]; then
-            echo "code=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "code=$FILTER_CODE" >> "$GITHUB_OUTPUT"
-          fi
+          persist-credentials: false
+      - uses: ./.github/actions/domain-filter
+        id: domains
+        with:
+          # 发布 PR 变更的版本文件不覆盖 docker 域，须显式全量以兑现「发布 commit 跑全量 CI」
+          full: ${{ inputs.full == true || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')) }}
 
-  backend-tests:
+  backend-static:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg mediainfo bubblewrap socat
+      - name: Lockfile consistency
+        run: uv lock --check
 
       - name: Install dependencies
         run: uv sync
@@ -80,11 +71,35 @@ jobs:
       - name: Import layering (import-linter)
         run: uv run lint-imports
 
+  backend-tests:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg mediainfo bubblewrap socat
+
+      - name: Install dependencies
+        run: uv sync
+
       - name: Run tests with coverage
         run: uv run python -m pytest -m "not e2e" --cov=lib --cov=server --cov-report=term-missing --cov-report=xml --cov-fail-under=80
 
       - name: Upload backend coverage
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.xml
@@ -94,8 +109,10 @@ jobs:
   postgres-compat:
     # SQLite/PostgreSQL 方言兼容性闸门：alembic 三步闭环（upgrade/downgrade/idempotent）
     # + 所有 DB-touching 测试（marker 驱动）跑在 PG16 上。
+    # 绑定 backend 域而非独立的 database 域：方言差异可由任何 SQLAlchemy 查询改动引入，
+    # 不限于 alembic/ 目录。
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -115,13 +132,15 @@ jobs:
     env:
       DATABASE_URL: postgresql+asyncpg://arcreel:arcreel@localhost:5432/arcreel_test
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
@@ -143,7 +162,7 @@ jobs:
             --cov=lib --cov=server --cov-report=xml:coverage-pg.xml
 
       - name: Upload PG coverage
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage-pg.xml
@@ -152,17 +171,19 @@ jobs:
 
   frontend-tests:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 10
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: "pnpm"
@@ -185,16 +206,142 @@ jobs:
         run: pnpm test:coverage
 
       - name: Upload frontend coverage
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: frontend/coverage/lcov.info
           flags: frontend
           fail_ci_if_error: false
 
+  docker-verify:
+    # PR 阶段的镜像装配验证：只构建 amd64、不登录、不推送。
+    # 应用正确性由 backend/frontend 测试保证，这里只验证镜像能构建、容器能起、
+    # /health 可达；Trivy 仅上报不阻断（发布级阻断在 docker-release.yml）。
+    # runner 固定 24.04：下方 sysctl 键与语义按该版本假设，-latest 漂移会在
+    # 健康检查前把 job 打红
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build amd64 image (no push)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: arcreel-ci:verify
+          cache-from: type=gha
+
+      - name: Allow unprivileged user namespaces on runner host
+        # Ubuntu 24.04 默认 kernel.apparmor_restrict_unprivileged_userns=1 全局
+        # 禁用非特权 userns，容器内 bwrap 起不来且 apparmor:unconfined 绕不过，
+        # 只能在宿主（runner VM）侧放开
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Smoke test container health
+        run: |
+          # 沙箱运行参数与官方 Compose 一致（docs/deployment.md）：容器内 bwrap
+          # 需要这些权限，缺失时 server 按沙箱红线启动硬失败
+          docker run -d --name arcreel-ci \
+            --security-opt seccomp=unconfined \
+            --security-opt apparmor=unconfined \
+            --cap-add NET_ADMIN \
+            -e AUTH_USERNAME=ci \
+            -e AUTH_PASSWORD=ci-password \
+            -e AUTH_TOKEN_SECRET=ci-token-secret \
+            -p 1241:1241 arcreel-ci:verify
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:1241/health >/dev/null 2>&1; then
+              echo "health check passed"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "container failed to become healthy"
+          docker logs arcreel-ci
+          exit 1
+
+      - name: Trivy vulnerability scan (report only)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
+        with:
+          image-ref: arcreel-ci:verify
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+  release-integrity:
+    # 发布 PR（release-please--* 分支）的完整性校验；其余情形 skip（聚合口径视为通过）。
+    # 发布 PR 同时跑全量 CI：它是即将被打 tag 发布的 commit，不因分支名前缀跳过测试。
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Lockfile consistency
+        run: uv lock --check
+
+      - name: Version consistency (pyproject / package.json / manifest)
+        run: |
+          python3 - <<'EOF'
+          import json
+          import sys
+          import tomllib
+
+          with open("pyproject.toml", "rb") as f:
+              py = tomllib.load(f)["project"]["version"]
+          with open("frontend/package.json", encoding="utf-8") as f:
+              fe = json.load(f)["version"]
+          with open(".release-please-manifest.json", encoding="utf-8") as f:
+              mf = json.load(f)["."]
+          print(f"pyproject={py} package.json={fe} manifest={mf}")
+          sys.exit(0 if py == fe == mf else 1)
+          EOF
+
+      - name: Changed files whitelist
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          allow='^(CHANGELOG\.md|pyproject\.toml|uv\.lock|frontend/package\.json|\.release-please-manifest\.json)$'
+          bad=$(echo "$changed" | grep -vE "$allow" || true)
+          if [ -n "$bad" ]; then
+            echo "发布 PR 含版本产物白名单外的文件，请检查 release-please 配置："
+            echo "$bad"
+            exit 1
+          fi
+          echo "发布 PR 变更文件均在白名单内"
+
   ci-required:
     if: always()
-    needs: [changes, backend-tests, postgres-compat, frontend-tests]
+    needs:
+      [
+        changes,
+        backend-static,
+        backend-tests,
+        postgres-compat,
+        frontend-tests,
+        docker-verify,
+        release-integrity,
+      ]
     runs-on: ubuntu-latest
     steps:
       - name: Verify required jobs
@@ -203,4 +350,4 @@ jobs:
             echo "One or more required jobs failed"
             exit 1
           fi
-          echo "All required jobs passed or were skipped (docs-only change)"
+          echo "All required jobs passed or were skipped (domain not affected)"
