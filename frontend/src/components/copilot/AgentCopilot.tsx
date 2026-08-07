@@ -20,6 +20,8 @@ import { AgentFailureCard } from "./chat/AgentFailureCard";
 import { composeAllTurns } from "./chat/utils";
 import { uid } from "@/utils/id";
 import { formatShortDateTime } from "@/utils/date-format";
+// PROTOTYPE (#1692) — 抛弃式，仅存于原型分支
+import { MSG_EDIT_PROTO_ENABLED, MsgEditProtoList, MsgEditProtoSwitcher } from "./prototype/MessageRewritePrototype";
 
 const MAX_IMAGES = 5;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
@@ -472,7 +474,7 @@ export function AgentCopilot() {
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 min-w-0 space-y-3 overflow-y-auto overflow-x-hidden px-3 py-3">
-        {allTurns.length === 0 && !messagesLoading && !startupFailure && (
+        {allTurns.length === 0 && !messagesLoading && !startupFailure && !MSG_EDIT_PROTO_ENABLED && (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <div
               className="mb-3 grid h-12 w-12 place-items-center rounded-2xl"
@@ -502,9 +504,13 @@ export function AgentCopilot() {
             </p>
           </div>
         )}
-        {allTurns.map((turn, i) => (
-          <ChatMessage key={turn.uuid || `turn-${i}`} message={turn} streaming={turn === draftTurn} />
-        ))}
+        {MSG_EDIT_PROTO_ENABLED ? (
+          <MsgEditProtoList allTurns={allTurns} draftTurn={draftTurn} />
+        ) : (
+          allTurns.map((turn, i) => (
+            <ChatMessage key={turn.uuid || `turn-${i}`} message={turn} streaming={turn === draftTurn} />
+          ))
+        )}
         {startupFailure && (
           <AgentFailureCard failure={startupFailure} onRetry={handleSend} />
         )}
@@ -719,6 +725,8 @@ export function AgentCopilot() {
           onClose={() => setLightboxSrc(null)}
         />
       )}
+
+      {MSG_EDIT_PROTO_ENABLED && <MsgEditProtoSwitcher />}
     </div>
   );
 }
