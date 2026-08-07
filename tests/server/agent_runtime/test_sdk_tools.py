@@ -3105,7 +3105,11 @@ def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> 
     async def _fake_max_duration(_project: dict[str, Any], _episode: int | None = None) -> int | None:
         return 15
 
+    async def _fake_no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
+        return []
+
     monkeypatch.setattr(mod, "resolve_max_unit_duration", _fake_max_duration)
+    monkeypatch.setattr(mod, "get_active_tasks_for_resources", _fake_no_active_tasks)
     return fake_ctx
 
 
@@ -3375,6 +3379,62 @@ async def test_generate_video_scene_ad_regenerates_named_unit(
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in enqueued] == ["E1U1"]
     assert "转整集生成" not in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_generate_video_selected_ad_rejects_unit_with_active_task(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """点名撞上同一 unit 的在途任务：拒绝入队并说明在途状态，不新建任务、不静默沿用。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
+
+    async def _fake_active(**_kwargs: Any) -> list[dict[str, Any]]:
+        return [{"task_id": "t-inflight", "resource_id": "E1U1", "status": "running"}]
+
+    monkeypatch.setattr(mod, "get_active_tasks_for_resources", _fake_active)
+
+    called = False
+
+    async def fail_if_called(*args: Any, **kwargs: Any):
+        nonlocal called
+        called = True
+        raise AssertionError("不应在拒绝路径上入队任何任务")
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fail_if_called)
+
+    tool_obj = generate_video_selected_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
+
+    assert out["is_error"] is True
+    text = out["content"][0]["text"]
+    assert "E1U1" in text
+    assert "running" in text
+    assert not called
+
+
+@pytest.mark.unit
+async def test_generate_video_scene_ad_rejects_unit_with_active_task(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """单 unit 入口同样拒绝：撞上在途任务不静默沿用。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
+
+    async def _fake_active(**_kwargs: Any) -> list[dict[str, Any]]:
+        return [{"task_id": "t-inflight", "resource_id": "E1U1", "status": "queued"}]
+
+    monkeypatch.setattr(mod, "get_active_tasks_for_resources", _fake_active)
+
+    tool_obj = generate_video_scene_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1U1"})
+
+    assert out["is_error"] is True
+    assert "E1U1" in out["content"][0]["text"]
 
 
 @pytest.mark.unit

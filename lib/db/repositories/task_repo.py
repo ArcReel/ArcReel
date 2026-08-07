@@ -202,6 +202,37 @@ class TaskRepository(BaseRepository):
             "existing_task_id": None,
         }
 
+    async def get_active_tasks_for_resources(
+        self,
+        *,
+        project_name: str,
+        task_type: str,
+        resource_ids: list[str],
+        script_file: str | None = None,
+        resource_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """查询命中 ``idx_tasks_dedupe_active`` 去重键、当前处于活动态的任务。
+
+        match 条件与 :meth:`enqueue` 的 ``IntegrityError`` 分支同口径（``script_file`` /
+        ``resource_type`` 以空串归一），供调用方在真正入队前探测冲突并拒绝，而不是让
+        ``enqueue`` 的原子去重悄悄回退到既有任务。
+        """
+        if not resource_ids:
+            return []
+        sf = script_file or ""
+        rt = resource_type or ""
+        result = await self.session.execute(
+            select(Task).where(
+                Task.project_name == project_name,
+                Task.task_type == task_type,
+                Task.resource_id.in_(resource_ids),
+                func.coalesce(Task.script_file, "") == sf,
+                func.coalesce(Task.resource_type, "") == rt,
+                Task.status.in_(ACTIVE_TASK_STATUSES),
+            )
+        )
+        return [_task_to_dict(t) for t in result.scalars().all()]
+
     # NOTE: In multi-user mode, override this method to add user_id filtering
     async def claim_next(
         self,

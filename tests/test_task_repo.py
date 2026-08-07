@@ -108,6 +108,64 @@ class TestTaskRepository:
         assert character_edit_again["task_id"] == character_edit["task_id"]
 
     @pytest.mark.unit
+    async def test_get_active_tasks_for_resources_matches_dedupe_key(self, db_session):
+        repo = TaskRepository(db_session)
+
+        finished = await repo.enqueue(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U2",
+            payload={"prompt": "unit2"},
+            script_file="ep1.json",
+        )
+        running = await repo.claim_next("video")
+        assert running is not None and running["task_id"] == finished["task_id"]
+        await repo.mark_succeeded(finished["task_id"], {"file": "unit2.mp4"})
+
+        active = await repo.enqueue(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={"prompt": "unit1"},
+            script_file="ep1.json",
+        )
+        # 不同 script_file 命中同一 resource_id 但不应算作冲突。
+        await repo.enqueue(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U3",
+            payload={"prompt": "other-episode"},
+            script_file="ep2.json",
+        )
+
+        found = await repo.get_active_tasks_for_resources(
+            project_name="demo",
+            task_type="reference_video",
+            resource_ids=["E1U1", "E1U2", "E1U3"],
+            script_file="ep1.json",
+        )
+
+        assert [t["resource_id"] for t in found] == ["E1U1"]
+        assert found[0]["task_id"] == active["task_id"]
+        assert found[0]["status"] == "queued"
+
+    @pytest.mark.unit
+    async def test_get_active_tasks_for_resources_empty_ids_short_circuits(self, db_session):
+        repo = TaskRepository(db_session)
+
+        found = await repo.get_active_tasks_for_resources(
+            project_name="demo",
+            task_type="reference_video",
+            resource_ids=[],
+            script_file="ep1.json",
+        )
+
+        assert found == []
+
+    @pytest.mark.unit
     async def test_dependency_cascade_failure(self, db_session):
         repo = TaskRepository(db_session)
 
