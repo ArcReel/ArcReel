@@ -19,20 +19,22 @@ outputs:
     description: 前端域（frontend/）是否变更
     value: ${{ steps.gate.outputs.frontend }}
   docker:
-    description: 镜像装配域（Dockerfile/.dockerignore）是否变更
+    description: 镜像装配域（Dockerfile/.dockerignore 及不属于代码域的 COPY 源）是否变更
     value: ${{ steps.gate.outputs.docker }}
 
 runs:
   using: composite
   steps:
-    - uses: dorny/paths-filter@v4.0.2
+    - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
       if: inputs.full != 'true'
       id: filter
       with:
         filters: |
+          # .github/** 覆盖 workflows/actions/codeql 配置等全部 CI 基础设施；
+          # .gitignore 影响 ruff 的文件发现（respect-gitignore 对已跟踪文件同样生效）
           workflow:
-            - '.github/workflows/**'
-            - '.github/actions/**'
+            - '.github/**'
+            - '.gitignore'
           backend:
             - 'server/**'
             - 'lib/**'
@@ -45,9 +47,13 @@ runs:
             - 'uv.lock'
           frontend:
             - 'frontend/**'
+          # public/README 是 Dockerfile 的 COPY 源且不属于 backend/frontend 域，
+          # 单独变更时需经 docker-verify 验证镜像装配
           docker:
             - 'Dockerfile'
             - '.dockerignore'
+            - 'public/**'
+            - 'README.md'
 
     - id: gate
       shell: bash

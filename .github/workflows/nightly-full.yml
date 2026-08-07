@@ -8,6 +8,11 @@ on:
     - cron: "0 20 * * *" # 北京时间 04:00
   workflow_dispatch:
 
+# report job 读改 issue 无法并发幂等，串行整个工作流
+concurrency:
+  group: nightly-full-ci
+  cancel-in-progress: false
+
 permissions:
   contents: read
 

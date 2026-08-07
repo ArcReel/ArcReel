@@ -13,7 +13,7 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/create-github-app-token@v3
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
         with:
           client-id: ${{ secrets.RELEASE_PLEASE_APP_CLIENT_ID }}
@@ -22,7 +22,7 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
-      - uses: googleapis/release-please-action@v5
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -34,7 +34,7 @@ jobs:
       # 同步 commit 推回该分支，保持 lock 与 source version 一致。
       - name: Checkout release PR branch
         if: ${{ steps.release.outputs.pr }}
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ fromJson(steps.release.outputs.pr).headBranchName }}
           fetch-depth: 0
@@ -42,7 +42,7 @@ jobs:
 
       - name: Set up uv
         if: ${{ steps.release.outputs.pr }}
-        uses: astral-sh/setup-uv@v9.0.0
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
 
