@@ -1,0 +1,69 @@
+name: domain-filter
+description: >-
+  按变更域裁剪 CI：输出 backend / frontend / docker 三个域是否被本次变更命中。
+  workflow 域（CI 配置本身）变更时保守全量触发；full 输入为 true 时跳过路径
+  过滤，所有域视为已变更（供 nightly 全量与 schedule 事件使用——paths-filter
+  不支持 schedule 事件的变更比对）。
+
+inputs:
+  full:
+    description: 为 true 时跳过路径过滤，所有域视为已变更
+    required: false
+    default: "false"
+
+outputs:
+  backend:
+    description: 后端域（server/lib/tests/alembic/依赖文件/agent_runtime_profile）是否变更
+    value: ${{ steps.gate.outputs.backend }}
+  frontend:
+    description: 前端域（frontend/）是否变更
+    value: ${{ steps.gate.outputs.frontend }}
+  docker:
+    description: 镜像装配域（Dockerfile/.dockerignore）是否变更
+    value: ${{ steps.gate.outputs.docker }}
+
+runs:
+  using: composite
+  steps:
+    - uses: dorny/paths-filter@v4.0.2
+      if: inputs.full != 'true'
+      id: filter
+      with:
+        filters: |
+          workflow:
+            - '.github/workflows/**'
+            - '.github/actions/**'
+          backend:
+            - 'server/**'
+            - 'lib/**'
+            - 'tests/**'
+            - 'alembic/**'
+            - 'alembic.ini'
+            - 'scripts/**'
+            - 'agent_runtime_profile/**'
+            - 'pyproject.toml'
+            - 'uv.lock'
+          frontend:
+            - 'frontend/**'
+          docker:
+            - 'Dockerfile'
+            - '.dockerignore'
+
+    - id: gate
+      shell: bash
+      env:
+        FULL: ${{ inputs.full }}
+        F_WORKFLOW: ${{ steps.filter.outputs.workflow }}
+        F_BACKEND: ${{ steps.filter.outputs.backend }}
+        F_FRONTEND: ${{ steps.filter.outputs.frontend }}
+        F_DOCKER: ${{ steps.filter.outputs.docker }}
+      run: |
+        if [[ "$FULL" == "true" || "$F_WORKFLOW" == "true" ]]; then
+          echo "backend=true" >> "$GITHUB_OUTPUT"
+          echo "frontend=true" >> "$GITHUB_OUTPUT"
+          echo "docker=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "backend=${F_BACKEND:-false}" >> "$GITHUB_OUTPUT"
+          echo "frontend=${F_FRONTEND:-false}" >> "$GITHUB_OUTPUT"
+          echo "docker=${F_DOCKER:-false}" >> "$GITHUB_OUTPUT"
+        fi

@@ -18,39 +18,30 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      code: ${{ steps.gate.outputs.code }}
+      languages: ${{ steps.languages.outputs.languages }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4.0.2
-        id: filter
+      - uses: ./.github/actions/domain-filter
+        id: domains
         with:
-          filters: |
-            code:
-              - '**'
-              - '!**/*.md'
-              - '!docs/**'
-              - '!LICENSE'
-              - '!.github/ISSUE_TEMPLATE/**'
-              - '!.github/pull_request_template.md'
-      - id: gate
-        # Release PR(release-please-- 前缀)只改版本相关产物：pyproject / 前端 package.json 的 version、
-        # release-please manifest、CHANGELOG，不含源码逻辑改动。为加快版本 PR 合并，强制 code=false
-        # 让 analyze 的两个语言 build 直接 skip。schedule 定时全量扫描与普通 PR/push 不受影响。
-        # 其余分支沿用 paths-filter 结果。head_ref 经 env 传入，避免分支名作为表达式注入到 run 脚本。
+          # schedule 事件无变更比对基准，直接全量扫描
+          full: ${{ github.event_name == 'schedule' }}
+      - id: languages
+        # 按域裁剪分析语言：纯前端变更不跑 python 分析，反之亦然
         env:
-          HEAD_REF: ${{ github.head_ref }}
-          FILTER_CODE: ${{ steps.filter.outputs.code }}
+          BACKEND: ${{ steps.domains.outputs.backend }}
+          FRONTEND: ${{ steps.domains.outputs.frontend }}
         run: |
-          if [[ "$HEAD_REF" == release-please--* ]]; then
-            echo "code=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "code=$FILTER_CODE" >> "$GITHUB_OUTPUT"
-          fi
+          langs=()
+          [[ "$BACKEND" == "true" ]] && langs+=('"python"')
+          [[ "$FRONTEND" == "true" ]] && langs+=('"javascript-typescript"')
+          joined=$(IFS=,; echo "${langs[*]}")
+          echo "languages=[$joined]" >> "$GITHUB_OUTPUT"
 
   analyze:
     name: Analyze (${{ matrix.language }})
     needs: changes
-    if: needs.changes.outputs.code == 'true' || github.event_name == 'schedule'
+    if: needs.changes.outputs.languages != '[]'
     runs-on: ubuntu-latest
     permissions:
       security-events: write
@@ -61,11 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - language: javascript-typescript
-            build-mode: none
-          - language: python
-            build-mode: none
+        language: ${{ fromJSON(needs.changes.outputs.languages) }}
 
     steps:
       - name: Checkout repository
@@ -75,7 +62,7 @@ jobs:
         uses: github/codeql-action/init@v4.37.3
         with:
           languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
+          build-mode: none
           config-file: .github/codeql/codeql-config.yml
 
       - name: Perform CodeQL Analysis
@@ -94,4 +81,4 @@ jobs:
             echo "CodeQL job failed"
             exit 1
           fi
-          echo "CodeQL passed or skipped (docs-only / changes job ok)"
+          echo "CodeQL passed or skipped (affected domains only)"

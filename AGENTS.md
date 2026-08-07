@@ -20,7 +20,7 @@ uv run uvicorn server.app:app --reload --reload-dir server --reload-dir lib --po
 uv run python -m pytest                              # 测试（-v 单文件 / -k 关键字 / --cov 覆盖率）
 uv run ruff check . && uv run ruff format .          # lint + format
 uv run basedpyright                                  # 类型检查（CI 强制 0 error）
-uv run lint-imports                                  # import 分层契约（CI backend-tests 必过）
+uv run lint-imports                                  # import 分层契约（CI backend-static 必过）
 uv sync                                              # 安装依赖
 uv run alembic upgrade head                          # 数据库迁移
 uv run alembic revision --autogenerate -m "desc"     # 生成迁移
@@ -138,7 +138,7 @@ API Key、后端选择、模型配置等通过 WebUI 配置页（`/settings`）�
 
 - **ruff**：line-length 120，提交前对修改的 Python 文件执行 `uv run ruff check <files> && uv run ruff format <files>`
 - **basedpyright**：standard 模式 + `reportMissingTypeStubs = false`，CI 强制 0 error，pre-push hook 跑全量扫描；本地可随时执行 `uv run basedpyright` 校验。tests/ 内 `reportOptional*` 和 `unknown*` 系列降级为 warning，避免大量使用 mock 的测试产生噪声；第三方 untyped 库（ffmpeg-python、pyJianYingDraft、volcenginesdkarkruntime、xai_sdk.chat、docx2txt/mammoth/ebooklib）通过行级 `# pyright: ignore[...]` 处理
-- **import-linter**：`uv run lint-imports` 校验 `lib.config < lib.*_backends < lib.custom_provider` 分层契约，CI backend-tests 必过步骤；新增 ignore 条目前先确认该依赖边无法就地清零（约定见 pyproject.toml）
+- **import-linter**：`uv run lint-imports` 校验 `lib.config < lib.*_backends < lib.custom_provider` 分层契约，CI backend-static 必过步骤；新增 ignore 条目前先确认该依赖边无法就地清零（约定见 pyproject.toml）
 - **pytest**：`asyncio_mode = "auto"`，CI 覆盖率 ≥80%，共用 fixtures 在 `tests/conftest.py`。测试替身优先复用/扩展 `tests/fakes.py`，新建 fake 入该模块；触碰含文件内私有 fake 的测试文件时顺带迁移
 - **依赖管理**：前后端新增/升级依赖一律用 `uv add` / `pnpm add`（不手写版本号到 pyproject.toml / package.json）；新增依赖后同步 `.github/dependabot.yml` 的 patterns 归入对应分组
 - **注释**：代码与测试注释只描述当下行为与约束，不写 issue/PR/Spec 编号，也不用时间性措辞（「最近」「本次」「实测」）——这些信息写在 commit message / PR 描述；修改文件时顺带清除已有的此类引用。`docs/` 下专门文档之间互引 spec 不受此限

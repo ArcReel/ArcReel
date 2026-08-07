@@ -1,0 +1,95 @@
+name: Docker Edge
+
+# main 合入后构建开发镜像：推送不可变 sha-* 标签 + 可变 main 标签
+# （有部署环境跟踪 main 标签）。正式发布走 docker-release.yml。
+
+on:
+  push:
+    branches: [main]
+    # 影响镜像内容的路径：Dockerfile COPY 清单 + 依赖文件
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "lib/**"
+      - "server/**"
+      - "alembic/**"
+      - "alembic.ini"
+      - "scripts/**"
+      - "agent_runtime_profile/**"
+      - "public/**"
+      - "frontend/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "README.md"
+  workflow_dispatch:
+
+concurrency:
+  group: docker-edge
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compute lowercase image name
+        run: echo "IMAGE_NAME_LC=${REPO,,}" >> "$GITHUB_ENV"
+        env:
+          REPO: ${{ github.repository }}
+
+      - uses: docker/setup-qemu-action@v4
+
+      - uses: docker/setup-buildx-action@v4.2.0
+
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-
+
+      - name: Build & push multi-arch image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy vulnerability scan (report only)
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
+        with:
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Upload Trivy SARIF
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4.37.3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image
