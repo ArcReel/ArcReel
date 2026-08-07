@@ -476,7 +476,12 @@ class TestInstructorExceptionShape:
         assert exc_info.value.__cause__ is rejection
 
     def test_parse_failure_types_match_instructors_retryable_set(self):
-        """判据靠「终止原因是否属解析 / 校验类」区分模型问题与 API 问题，集合须与 Instructor 一致。"""
+        """判据靠「终止原因是否属解析 / 校验类」区分模型问题与 API 问题，集合须与 Instructor 一致。
+
+        `_RETRYABLE_PARSE_ERRORS` 是私有符号、不属公开契约，而 pyproject 允许 instructor>=1.14.5，
+        升级后它可能改名或搬家。此处导入失败即是该情况：到 instructor 的重试循环里重新找出这批
+        「会被记进 failed_attempts 并触发 reask」的异常类型，同步更新 `_PARSE_FAILURE_TYPES`。
+        """
         from instructor.v2.core.retry import _RETRYABLE_PARSE_ERRORS
 
         assert set(_PARSE_FAILURE_TYPES) == set(_RETRYABLE_PARSE_ERRORS)
