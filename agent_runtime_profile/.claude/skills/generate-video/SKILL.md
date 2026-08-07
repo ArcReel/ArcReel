@@ -68,7 +68,8 @@ ad 参考直出项目下，`scene_id` / `scene_ids` 传的是 video_unit 的 `un
 | 重新生成单个 unit | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1U2"})` |
 | 重新生成多个 unit | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1U2", "E1U3"]})` |
 
-一次调用完成入队、等待与结果回报。要点：
+一次调用完成入队、等待与结果回报（申请时长与剧本编排不一致时同样先走下方的时长确认，
+确认后的那次调用才入队）。要点：
 
 - **点名即强制**：已有成片一律覆盖重做，unit 是否 stale 都可以重来一次——用户对满意度不够的 unit 说「再生成一版」照此处理
 - **不重新派生分组**：分组索引原样沿用，只对点名的 unit 重做。镜头有增删导致索引悬空时工具会报错要求先重新派生（重新派生走整集生成工具）

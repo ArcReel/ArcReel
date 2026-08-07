@@ -944,7 +944,10 @@ def generate_video_scene_tool(ctx: ToolContext):
 
             route = _resolve_reference_route(ctx, script)
             if route == "episode":
-                log.append(f"⚠️  reference_video 模式暂不支持单 unit 精确选择；scene_id={scene_id} 被忽略，转整集生成。")
+                log.append(
+                    f"⚠️  narration / drama 的 reference_video 项目暂不支持单 unit 精确选择；"
+                    f"scene_id={scene_id} 被忽略，转整集生成。"
+                )
                 return await _run_reference_episode(
                     ctx=ctx,
                     script=script,
@@ -1139,7 +1142,8 @@ def generate_video_selected_tool(ctx: ToolContext):
             route = _resolve_reference_route(ctx, script)
             if route == "episode":
                 log.append(
-                    f"⚠️  reference_video 模式暂不支持多 unit 精确选择；scene_ids={','.join(scene_ids)} 被忽略，转整集生成。"
+                    f"⚠️  narration / drama 的 reference_video 项目暂不支持多 unit 精确选择；"
+                    f"scene_ids={','.join(scene_ids)} 被忽略，转整集生成。"
                 )
                 return await _run_reference_episode(
                     ctx=ctx,
