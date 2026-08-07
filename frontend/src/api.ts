@@ -2210,8 +2210,13 @@ class API {
    * 获取项目费用估算。
    * @param projectName - 项目名称
    */
-  static async getCostEstimate(projectName: string): Promise<CostEstimateResponse> {
-    return this.request(`/projects/${encodeURIComponent(projectName)}/cost-estimate`);
+  static async getCostEstimate(
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<CostEstimateResponse> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/cost-estimate`, {
+      signal: options.signal,
+    });
   }
 
   // ==================== Grid 图生视频 API ====================
