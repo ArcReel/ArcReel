@@ -227,11 +227,11 @@ def fake_reference_caps_fetcher(
 def instructor_api_call_exhausted(cause: Exception) -> InstructorRetryException:
     """构造「API 调用失败」形态的 Instructor 异常，供结构化输出降级链的判据测试使用。
 
-    Instructor 的档内重试只把解析 / 校验类异常记进 ``failed_attempts``；API 调用本身抛的异常
-    （参数被拒、瞬态 5xx、连接错误）会中断重试循环、被包成 ``InstructorRetryException``，原异常
-    只挂在 ``__cause__`` 上、``failed_attempts`` 为空。降级链的判据要认的正是这个形态，拿裸 API
-    异常做桩会测出生产里不存在的路径。形态本身由
-    ``TestInstructorExceptionShape::test_api_call_failure_arrives_wrapped`` 对真实 Instructor 钉住。
+    API 调用本身抛的异常（参数被拒、瞬态 5xx、连接错误）会中断档内重试循环、被包成
+    ``InstructorRetryException``，原异常只挂在 ``__cause__`` 上。降级链的判据要认的正是这个
+    形态，拿裸 API 异常做桩会测出生产里不存在的路径。此处 ``failed_attempts`` 为空表示这一档
+    一次都没走到解析；先解析失败若干次再折在 API 上的混合形态由测试模块自行构造。形态本身由
+    ``TestInstructorExceptionShape`` 对真实 Instructor 钉住。
     """
     exc = InstructorRetryException(
         str(cause),

@@ -13,6 +13,7 @@ from pydantic import BaseModel, ValidationError
 
 from lib.text_backends.base import StructuredOutputExhaustedError, TextOutputTruncatedError
 from lib.text_backends.instructor_support import (
+    _PARSE_FAILURE_TYPES,
     generate_structured_via_instructor,
     generate_structured_via_instructor_async,
     instructor_fallback_async,
@@ -28,9 +29,11 @@ class SampleModel(BaseModel):
     age: int
 
 
-def _completion(content: str) -> SimpleNamespace:
-    """构造一个只带文本内容的 completion，供诊断日志断言取原始输出。"""
-    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content, tool_calls=None))])
+def _completion(content: str, *, tool_calls=None) -> SimpleNamespace:
+    """构造一个 completion，供诊断日志断言取原始输出、供判据看有无 tool call。"""
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content, tool_calls=tool_calls, function_call=None))]
+    )
 
 
 def _retry_exhausted(
@@ -39,20 +42,30 @@ def _retry_exhausted(
     content: str = "",
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
+    earlier_attempts: list[Exception] | None = None,
 ) -> InstructorRetryException:
-    """构造 Instructor 档内重试耗尽异常，failed_attempts 决定失败属 wire 层还是校验类。
+    """构造 Instructor 档内重试耗尽异常，终止原因 inner 挂在 __cause__ 上（与真实形态一致）。
 
     prompt_tokens / completion_tokens 模拟档内那些拿到 HTTP 200、已被计费的尝试。
+    earlier_attempts 模拟终止前已累积的解析 / 校验失败——Instructor 不清空 failed_attempts，
+    所以它非空并不代表这一档是折在模型输出上。
     """
     from instructor.core.exceptions import FailedAttempt
 
-    return InstructorRetryException(
+    recorded = [*(earlier_attempts or []), inner]
+    exc = InstructorRetryException(
         "retries exhausted",
         last_completion=_completion(content),
         n_attempts=3,
         total_usage=SimpleNamespace(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens),  # type: ignore[arg-type]
-        failed_attempts=[FailedAttempt(attempt_number=1, exception=inner)],
+        failed_attempts=[
+            FailedAttempt(attempt_number=i, exception=e)
+            for i, e in enumerate(recorded, 1)
+            if isinstance(e, _PARSE_FAILURE_TYPES)
+        ],
     )
+    exc.__cause__ = inner
+    return exc
 
 
 def _validation_error() -> ValidationError:
@@ -64,7 +77,22 @@ def _validation_error() -> ValidationError:
 
 
 def _no_tool_call_error() -> ResponseParsingError:
-    return ResponseParsingError("No tool calls or function call found in response", mode="TOOLS")
+    """上游没回 tool call：wire 层不兼容。"""
+    return ResponseParsingError(
+        "No tool calls or function call found in response",
+        mode="TOOLS",
+        raw_response=_completion(""),
+    )
+
+
+def _tool_call_args_invalid_error() -> ResponseParsingError:
+    """上游回了 tool call 但 arguments 不可用：属校验类，不是 wire 层不兼容。"""
+    tool_call = SimpleNamespace(function=SimpleNamespace(arguments=None))
+    return ResponseParsingError(
+        "Tool call arguments missing in response",
+        mode="TOOLS",
+        raw_response=_completion("", tool_calls=[tool_call]),
+    )
 
 
 def _bad_request(message: str) -> BadRequestError:
@@ -422,10 +450,10 @@ class TestInstructorFallbackSync:
 class TestInstructorExceptionShape:
     """钉住降级链判据所依赖的 Instructor 异常形态。
 
-    判据要区分「API 调用被拒」与「模型输出不合规」，靠的是 Instructor 把前者包进
-    ``InstructorRetryException`` 且 ``failed_attempts`` 为空、原异常挂 ``__cause__``。这个形态
-    是 Instructor 的实现细节，升级依赖时可能变——本用例对真实 Instructor 校验它，形态一变即红，
-    避免降级链在无人察觉的情况下退化成「任何失败都判终局」。
+    判据要区分「API 调用被拒」与「模型输出不合规」，靠的是 Instructor 把终止原因挂在
+    ``__cause__`` 上、并按类型区分解析 / 校验类与其余异常。这些都是 Instructor 的实现细节，
+    升级依赖时可能变——本组用例对真实 Instructor 校验它们，形态一变即红，避免降级链在无人
+    察觉的情况下退化成「任何失败都判终局」或「瞬态错误也降档」。
     """
 
     def test_api_call_failure_arrives_wrapped(self):
@@ -446,6 +474,41 @@ class TestInstructorExceptionShape:
 
         assert exc_info.value.failed_attempts == []
         assert exc_info.value.__cause__ is rejection
+
+    def test_parse_failure_types_match_instructors_retryable_set(self):
+        """判据靠「终止原因是否属解析 / 校验类」区分模型问题与 API 问题，集合须与 Instructor 一致。"""
+        from instructor.v2.core.retry import _RETRYABLE_PARSE_ERRORS
+
+        assert set(_PARSE_FAILURE_TYPES) == set(_RETRYABLE_PARSE_ERRORS)
+
+    def test_failed_attempts_survive_a_later_api_failure(self):
+        """解析失败一次后再撞上 API 层错误：failed_attempts 保留旧记录，终止原因只在 __cause__。
+
+        判据若拿 failed_attempts 是否为空当「折在模型输出上」的代理，这条路径会被误判。
+        """
+        from openai import OpenAI
+        from openai.types.chat import ChatCompletionMessage
+
+        bad_json = ChatCompletionMessage(role="assistant", content="不是 JSON")
+        completion = SimpleNamespace(
+            choices=[SimpleNamespace(message=bad_json, finish_reason="stop")],
+            usage=None,
+        )
+        outage = ConnectionError("connection reset by peer")
+        client = OpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1")
+        client.chat.completions.create = MagicMock(side_effect=[completion, outage])  # type: ignore[method-assign]
+        patched = instructor.from_openai(client, mode=Mode.MD_JSON)
+
+        with pytest.raises(InstructorRetryException) as exc_info:
+            patched.chat.completions.create_with_completion(
+                model="test-model",
+                messages=[{"role": "user", "content": "test"}],
+                response_model=SampleModel,
+                max_retries=2,
+            )
+
+        assert exc_info.value.failed_attempts != []
+        assert exc_info.value.__cause__ is outage
 
     def test_parse_failure_is_recorded_in_failed_attempts(self):
         """对照组：模型输出不合规时失败记进 failed_attempts，而非挂在 __cause__ 上。"""
@@ -600,6 +663,33 @@ class TestStructuredModeChainSync:
 
         # 消息文本不含任何瞬态状态码模式，只有异常类型能证明它可重试。
         assert _should_retry(exc_info.value, BASE_RETRYABLE_ERRORS)
+
+    def test_invalid_tool_call_arguments_are_terminal(self):
+        """上游回了 tool call 但 arguments 不可用：属校验类，不降到约束更弱的 MD_JSON。"""
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[_retry_exhausted(_tool_call_args_invalid_error())],
+        ) as mock_gen:
+            with pytest.raises(StructuredOutputExhaustedError):
+                self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS]
+
+    def test_api_failure_after_earlier_parse_failure_propagates(self):
+        """先解析失败一次、再撞上瞬态错误：终止原因是后者，原样冒泡而非当成模型输出不合规。"""
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[
+                _retry_exhausted(
+                    ConnectionError("connection reset by peer"),
+                    earlier_attempts=[_no_tool_call_error()],
+                )
+            ],
+        ) as mock_gen:
+            with pytest.raises(ConnectionError):
+                self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS]
 
     def test_non_tools_bad_request_propagates(self):
         """与 tools 无关的 400（如上下文超限）原样冒泡：无 STRUCTURED_OUTPUT 能力位的模型

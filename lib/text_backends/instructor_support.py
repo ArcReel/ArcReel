@@ -9,11 +9,17 @@ from __future__ import annotations
 
 import logging
 from enum import Enum
+from json import JSONDecodeError
 
 import instructor
 from instructor import Mode
-from instructor.core import IncompleteOutputException, InstructorRetryException, ResponseParsingError
-from pydantic import BaseModel
+from instructor.core import (
+    AsyncValidationError,
+    IncompleteOutputException,
+    InstructorRetryException,
+    ResponseParsingError,
+)
+from pydantic import BaseModel, ValidationError
 
 from lib.text_backends.base import (
     StructuredOutputExhaustedError,
@@ -41,6 +47,16 @@ _TOOLS_UNSUPPORTED_KEYWORDS = (
     "tool_choice",
     "function_call",
     "functions",
+)
+
+# 终止一档的解析 / 校验类异常，与 Instructor v2 重试循环的 _RETRYABLE_PARSE_ERRORS 同集合。
+# 判据靠「终止原因是否属这一类」区分模型输出问题与 API 调用问题，集合漂移会让区分失准，
+# 故由 TestInstructorExceptionShape 对真实 Instructor 钉住。
+_PARSE_FAILURE_TYPES: tuple[type[BaseException], ...] = (
+    ValidationError,
+    JSONDecodeError,
+    AsyncValidationError,
+    ResponseParsingError,
 )
 
 
@@ -87,16 +103,39 @@ def _raw_output_from_exception(exc: BaseException) -> str:
 
 
 def _api_call_failure(exc: InstructorRetryException) -> BaseException | None:
-    """取这一档折在 API 调用上的原始异常；折在模型输出上则返回 None。
+    """取终止这一档的原始异常；若终止在模型输出的解析 / 校验上则返回 None。
 
-    Instructor 的档内重试只把解析 / 校验类异常记进 ``failed_attempts``；API 调用本身抛的
-    异常会中断重试循环、被包进 ``InstructorRetryException``，原异常只挂在 ``__cause__`` 上。
-    因此 ``failed_attempts`` 为空即表示这一档根本没走到解析——判据必须穿过这层包装取原异常，
-    否则「上游拒收 tools 参数」永远认不出来。
+    Instructor 把终止原因挂在 ``__cause__`` 上（``raise ... from last_exception``），判据必须
+    穿过这层包装才认得出「上游拒收 tools 参数」。
+
+    只能看 ``__cause__``，不能拿 ``failed_attempts`` 是否为空当代理：解析 / 校验类失败会逐次
+    累积进 ``failed_attempts`` 且不清空，因此「先解析失败一次、再撞上代理 503」这条路径下
+    ``failed_attempts`` 非空而终止原因是 503。按前者判会把瞬态错误当成模型输出不合规，吞掉
+    调用方的重试。
     """
-    if exc.failed_attempts:
+    cause = exc.__cause__
+    if cause is None or isinstance(cause, _PARSE_FAILURE_TYPES):
         return None
-    return exc.__cause__
+    return cause
+
+
+def _tool_call_absent(exc: BaseException | None) -> bool:
+    """响应里根本没有 tool call（wire 层不兼容），而非给了 tool call 但参数不可用。
+
+    TOOLS 档下 ``ResponseParsingError`` 有三种成因：没有 tool call、tool call 的 arguments
+    缺失、arguments 不可 JSON 序列化。只有第一种说明上游这条通道不产 tool call、值得换档；
+    后两种上游确实回了 tool call，只是内容不合规，属校验类失败——换约束更弱的档只会更差。
+    按响应结构判而非按错误文案判，免得 Instructor 改文案就失效。
+    """
+    if not isinstance(exc, ResponseParsingError):
+        return False
+    choices = getattr(getattr(exc, "raw_response", None), "choices", None) or []
+    if not choices:
+        return True
+    message = getattr(choices[0], "message", None)
+    if getattr(message, "tool_calls", None):
+        return False
+    return getattr(message, "function_call", None) is None
 
 
 def _failure_reason(exc: BaseException) -> str:
@@ -150,8 +189,7 @@ def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
     """判定某一档的失败该降档、判终局，还是原样冒泡。
 
     只有 wire 层不兼容才降档，两种形态：上游拒收 tools 参数（API 调用异常，须由错误文本指名
-    tools / functions 才算数），或收下了却不回 tool call（解析器抛 ``ResponseParsingError``，
-    属档内可重试解析错误）。
+    tools / functions 才算数），或收下了却不回 tool call（见 :func:`_tool_call_absent`）。
 
     API 调用异常一律走关键字判据，400 也不例外：无 ``STRUCTURED_OUTPUT`` 能力位的 Ark 模型
     不经原生档直接进本链，此处的 400 同样可能是模型名无效、上下文超限或策略拒绝。把这些无差别
@@ -168,7 +206,7 @@ def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
         return _ModeFailure.PROPAGATE
     api_failure = _api_call_failure(exc)
     if api_failure is None:
-        if any(isinstance(attempt.exception, ResponseParsingError) for attempt in exc.failed_attempts or []):
+        if _tool_call_absent(exc.__cause__):
             return _ModeFailure.DOWNGRADE
         return _ModeFailure.TERMINAL
     if any(kw in str(api_failure).lower() for kw in _TOOLS_UNSUPPORTED_KEYWORDS):
