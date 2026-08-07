@@ -26,8 +26,8 @@ jobs:
       - uses: ./.github/actions/domain-filter
         id: domains
         with:
-          # schedule 事件无变更比对基准，直接全量扫描
-          full: ${{ github.event_name == 'schedule' }}
+          # schedule 事件无变更比对基准，直接全量扫描；发布 PR 与 test.yml 同口径全量
+          full: ${{ github.event_name == 'schedule' || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')) }}
       - id: languages
         # 按域裁剪分析语言：纯前端变更不跑 python 分析，反之亦然
         env:

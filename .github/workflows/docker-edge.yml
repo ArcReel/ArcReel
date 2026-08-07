@@ -69,6 +69,7 @@ jobs:
             type=sha,prefix=sha-
 
       - name: Build & push multi-arch image
+        id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -77,17 +78,17 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=max,ignore-error=true
 
-      # 逐平台扫描：镜像引用指向多架构 manifest，不指定平台时只会解析
-      # amd64 变体，arm64 独有漏洞不可见
+      # 逐平台扫描本次构建的 digest（分支标签可变，digest 才与推送内容严格一致）；
+      # 不指定平台时多架构 manifest 只会解析 amd64 变体，arm64 独有漏洞不可见
       - name: Trivy vulnerability scan amd64 (report only)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
           TRIVY_PLATFORM: linux/amd64
         with:
-          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}@${{ steps.build.outputs.digest }}
           format: sarif
           output: trivy-amd64.sarif
           severity: CRITICAL,HIGH
@@ -100,7 +101,8 @@ jobs:
           TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
           TRIVY_PLATFORM: linux/arm64
         with:
-          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          skip-setup-trivy: true
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}@${{ steps.build.outputs.digest }}
           format: sarif
           output: trivy-arm64.sarif
           severity: CRITICAL,HIGH
