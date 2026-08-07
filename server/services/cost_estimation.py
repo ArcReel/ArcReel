@@ -385,18 +385,17 @@ class CostEstimationService:
                         grid_cost_per_segment[seg.get(id_key, "")] = (per_scene_cost, grid_image_unit_cost[1])
 
             # --- Grid actual cost apportionment ---
-            # Map grid_id → [raw_segments 下标]（按位置而非条目 ID 组织）：ADR 0053 接受
-            # 一张宫格覆盖的多个条目共用同一 ID，若按 ID 建表，同 ID 条目的下标会合并进同一
-            # 键，均摊分母被抵消，分发阶段又按 ID 命中同一份额、每个同 ID 条目各挂一次全额。
-            # 按位置索引保证分发阶段每个条目（含同 ID 条目）恰好消费一次自己的份额。
+            # 均摊份额以条目在 raw_segments 中的位置为身份，而非条目 ID：ADR 0053 接受一张
+            # 宫格覆盖的多个条目共用同一 ID，位置唯一而 ID 不唯一，只有按位置组织才能让每个
+            # 条目（含同 ID 条目）恰好消费一次自己的份额。
             grid_to_indices: dict[str, list[int]] = {}
             for idx, seg in enumerate(raw_segments):
                 gid = get_generated_assets(seg).get("grid_id")
                 if gid and seg.get(id_key, ""):
                     grid_to_indices.setdefault(gid, []).append(idx)
 
-            # Compute per-position share of each grid's actual cost，复用
-            # ``_split_cost_across`` 的余数补偿语义，使各份之和与冻结实付分文不差。
+            # 逐宫格算出每个位置的份额；``_split_cost_across`` 的余数补偿保证各份之和与冻结
+            # 实付分文不差。
             grid_actual_per_index: dict[int, CostBreakdown] = {}
             for gid, indices in grid_to_indices.items():
                 grid_cost = _claim_actual(actual_by_segment, claimed_actual, gid, ("image",)).get("image", {})

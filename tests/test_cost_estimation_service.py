@@ -518,10 +518,48 @@ class TestCostEstimationService:
         assert result["project_totals"]["actual"]["image"]["USD"] == pytest.approx(1.0)
 
     @pytest.mark.unit
-    async def test_grid_actual_split_remainder_sums_exactly(self, db_factory):
-        """除不尽的宫格实付（USD 0.101 均摊 9 份）分摊后，各份之和须与冻结实付分文不差——
+    async def test_grid_duplicate_ids_across_multiple_grids(self, db_factory):
+        """同一 ID 既在一张宫格内出现 3 次、又跨到另一张宫格：每个条目只拿所属宫格的那一份。"""
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
 
-        复用 ``_split_cost_across`` 的余数补偿语义，而非各份独立 round。"""
+        for grid_id, amount in (("grid_a", 0.9), ("grid_b", 1.0)):
+            await _seed_call(
+                db_factory,
+                "proj-multi",
+                "image",
+                "historical-model",
+                segment_id=grid_id,
+                cost_amount=amount,
+                currency="USD",
+            )
+
+        overrides = [
+            {"grid_id": "grid_a", "grid_cell_index": 0},
+            {"grid_id": "grid_a", "grid_cell_index": 1},
+            {"grid_id": "grid_a", "grid_cell_index": 2},
+            {"grid_id": "grid_b", "grid_cell_index": 0},
+            {"grid_id": "grid_b", "grid_cell_index": 1},
+        ]
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        seg_ids = ["E1S001", "E1S001", "E1S001", "E1S001", "E1S002"]
+        scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 5, generated_assets_overrides=overrides)}
+
+        result = await service.compute(project_data, scripts, project_name="proj-multi")
+
+        per_scene_costs = [seg["actual"]["image"]["USD"] for seg in result["episodes"][0]["segments"]]
+        assert per_scene_costs == pytest.approx([0.3, 0.3, 0.3, 0.5, 0.5])
+        assert result["project_totals"]["actual"]["image"]["USD"] == pytest.approx(1.9)
+
+    @pytest.mark.unit
+    async def test_grid_actual_split_remainder_sums_exactly(self, db_factory):
+        """除不尽的宫格实付（USD 0.101 均摊 9 份）分摊后，各份之和须与冻结实付分文不差。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
