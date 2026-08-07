@@ -31,9 +31,11 @@ runs:
       with:
         filters: |
           # .github/** 覆盖 workflows/actions/codeql 配置等全部 CI 基础设施；
-          # .gitignore 影响 ruff 的文件发现（respect-gitignore 对已跟踪文件同样生效）
+          # .codecov.yml 决定覆盖率状态与 flag 行为；.gitignore 影响 ruff 的
+          # 文件发现（respect-gitignore 对已跟踪文件同样生效）
           workflow:
             - '.github/**'
+            - '.codecov.yml'
             - '.gitignore'
           backend:
             - 'server/**'
@@ -47,8 +49,8 @@ runs:
             - 'uv.lock'
           frontend:
             - 'frontend/**'
-          # public/README 是 Dockerfile 的 COPY 源且不属于 backend/frontend 域，
-          # 单独变更时需经 docker-verify 验证镜像装配
+          # public/ 目录与根目录 README.md 是 Dockerfile 的 COPY 源且不属于
+          # backend/frontend 域，单独变更时需经 docker-verify 验证镜像装配
           docker:
             - 'Dockerfile'
             - '.dockerignore'
