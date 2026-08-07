@@ -3438,6 +3438,35 @@ async def test_generate_video_scene_ad_rejects_unit_with_active_task(
 
 
 @pytest.mark.unit
+async def test_generate_video_selected_ad_reports_structure_before_active_task(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """结构不合法的 unit 同时有在途任务时报结构问题，不报「请等待」——等完也依然生成不了。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S404"])]  # type: ignore[attr-defined]
+
+    probed = False
+
+    async def _fake_active(**_kwargs: Any) -> list[dict[str, Any]]:
+        nonlocal probed
+        probed = True
+        return [{"task_id": "t-inflight", "resource_id": "E1U1", "status": "running"}]
+
+    monkeypatch.setattr(mod, "get_active_tasks_for_resources", _fake_active)
+
+    tool_obj = generate_video_selected_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
+
+    assert out["is_error"] is True
+    text = out["content"][0]["text"]
+    assert "无法生成" in text
+    assert "请等待" not in text
+    assert not probed
+
+
+@pytest.mark.unit
 async def test_generate_video_selected_ad_forces_non_stale_unit(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -800,10 +800,12 @@ async def _run_ad_reference_units(
     episode = ProjectManager.resolve_episode_from_script(script, script_filename)
 
     selected = _select_ad_units(script, unit_ids, log)
-    await _assert_no_active_tasks(ctx, script_filename, selected)
     style = project.get("style")
     style_str = style if isinstance(style, str) else None
+    # 结构校验先于在途任务探测：结构不合法的 unit 等在途任务跑完也依然生成不了，
+    # 先报「请等待」会把一个死结说成暂时性阻塞。顺带省掉一次注定要失败的库查询。
     _assert_ad_units_generatable(script, selected, script_filename, style_str)
+    await _assert_no_active_tasks(ctx, script_filename, selected)
     log.append(f"重新生成 {len(selected)} 个 unit（已有成片一律覆盖）：{', '.join(u['unit_id'] for u in selected)}")
 
     result = await _generate_reference_units(
