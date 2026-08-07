@@ -103,10 +103,13 @@ _FAILED_STATUSES = ("failed", "error", "cancelled", "canceled")
 # 进日志的安全标量白名单；image / extra_body 内的 base64 一律不入日志。
 _SAFE_LOG_KEYS = ("model", "height", "width", "num_frames", "frame_rate", "seed")
 
-# 完成态响应中可能承载成片 URL 的直接字段，按优先级探测。remixed_from_video_id 语义是
-# remix 来源视频 ID（非 URL 形态时不当下载地址），列在此处仅为兼容部分网关把成片 URL
-# 直接回填在该字段的行为，值形态为 URL 时才采用。
-_DIRECT_URL_FIELDS = ("url", "video_url", "remixed_from_video_id")
+# 完成态响应中可能承载成片 URL 的权威字段，按优先级探测（顶层与 metadata 同权，顶层优先）。
+_PRIMARY_URL_FIELDS = ("url", "video_url")
+
+# remix 来源视频 ID 字段。语义不是 URL（非 URL 形态时不当下载地址），列在此处仅为兼容部分
+# 网关把成片 URL 直接回填在该字段的行为；优先级低于 _PRIMARY_URL_FIELDS——顶层与 metadata
+# 的权威字段任一命中都优先于本字段，避免它抢在真正的成片 URL 前面被当下载地址。
+_COMPAT_URL_FIELD = "remixed_from_video_id"
 
 
 def _looks_like_url(value: str) -> bool:
@@ -120,21 +123,27 @@ def _looks_like_url(value: str) -> bool:
 
 
 def _first_url_field(body: dict) -> str | None:
-    """按 _DIRECT_URL_FIELDS 顺序探测响应体中形态为 URL 的字段，无命中返回 None。
+    """探测响应体中形态为 URL 的成片地址，按 _PRIMARY_URL_FIELDS 优先、_COMPAT_URL_FIELD
+    兜底的顺序；每一级顶层与 ``metadata``（网关成片查询把下载地址放在 metadata.url）同权、
+    顶层优先，无命中返回 None。
 
-    顶层无命中时下探 ``metadata``——网关成片查询把下载地址放在 ``metadata.url``。
+    _COMPAT_URL_FIELD 兜底级必须整体排在 _PRIMARY_URL_FIELDS 之后：否则顶层的兼容字段会
+    抢在 metadata 里的权威 URL 字段前面命中，误把兼容字段值当下载地址。
     """
-    for key in _DIRECT_URL_FIELDS:
-        value = body.get(key)
+    metadata = body.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+
+    for key in _PRIMARY_URL_FIELDS:
+        for source in (body, metadata):
+            value = source.get(key)
+            if isinstance(value, str) and _looks_like_url(value):
+                return value
+
+    for source in (body, metadata):
+        value = source.get(_COMPAT_URL_FIELD)
         if isinstance(value, str) and _looks_like_url(value):
             return value
 
-    metadata = body.get("metadata")
-    if isinstance(metadata, dict):
-        for key in _DIRECT_URL_FIELDS:
-            value = metadata.get(key)
-            if isinstance(value, str) and _looks_like_url(value):
-                return value
     return None
 
 

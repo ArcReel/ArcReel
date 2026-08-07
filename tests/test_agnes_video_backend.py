@@ -734,6 +734,42 @@ class TestFailureAndTimeout:
 
         assert result.video_uri == "https://cdn.agnes/from-query.mp4"
 
+    async def test_metadata_url_takes_priority_over_url_shaped_remixed_from_video_id(self, tmp_path: Path):
+        """顶层 remixed_from_video_id 是 URL 形态、metadata.url 也存在时，metadata.url
+        才是权威成片地址，remixed_from_video_id 只是兼容兜底，不得抢先命中。"""
+        create_resp = _make_response(200, {"task_id": "t-meta-priority", "status": "queued"})
+        poll_resp = _make_response(
+            200,
+            {
+                "task_id": "t-meta-priority",
+                "status": "completed",
+                "remixed_from_video_id": "https://cdn.agnes/legacy-compat.mp4",
+                "metadata": {"url": "https://cdn.agnes/authoritative.mp4"},
+            },
+        )
+        client = _mock_client(
+            post=AsyncMock(return_value=create_resp),
+            get=AsyncMock(return_value=poll_resp),
+        )
+        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
+
+        with (
+            patch("httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.agnes._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.agnes.download_video", fake_download),
+        ):
+            from lib.video_backends.agnes import AgnesVideoBackend
+
+            backend = AgnesVideoBackend(api_key="k", base_url="https://x/v1")
+            result = await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
+                )
+            )
+
+        assert result.video_uri == "https://cdn.agnes/authoritative.mp4"
+        assert client.get.call_count == 1  # 顶层/metadata 已命中权威字段，未发起二次查询
+
     async def test_video_id_query_url_under_metadata_is_used(self, tmp_path: Path):
         """成片查询把下载地址放在 metadata.url：顶层无直接 URL 字段时下探 metadata 取到。"""
         create_resp = _make_response(200, {"task_id": "t-meta", "status": "queued"})
