@@ -154,6 +154,56 @@ class TestTaskRepository:
         assert found[0]["status"] == "queued"
 
     @pytest.mark.unit
+    async def test_get_active_tasks_for_resources_covers_every_active_status(self, db_session):
+        """queued / running / cancelling 三个活动态都算冲突，终态不算。
+
+        探测的状态维度直接取自 ``ACTIVE_TASK_STATUSES``，与 ``idx_tasks_dedupe_active``
+        同口径；少一个状态就会让该状态下的 unit 被判为"空闲"而放行重复入队。
+        """
+
+        async def _enqueue(resource_id: str):
+            return await repo.enqueue(
+                project_name="demo",
+                task_type="reference_video",
+                media_type="video",
+                resource_id=resource_id,
+                payload={"prompt": resource_id},
+                script_file="ep1.json",
+            )
+
+        repo = TaskRepository(db_session)
+
+        # 逐个入队并立刻推进到目标状态：claim_next 取的是队首，前一个离开 queued 后
+        # 下一次 claim 才会落到新入队的那个。
+        done = await _enqueue("E1U0")
+        await repo.claim_next("video")
+        await repo.mark_succeeded(done["task_id"], {"file": "unit0.mp4"})
+
+        cancelling = await _enqueue("E1U3")
+        await repo.claim_next("video")
+        await repo.cancel_task(cancelling["task_id"])
+        assert (await repo.get(cancelling["task_id"]))["status"] == "cancelling"
+
+        running = await _enqueue("E1U2")
+        await repo.claim_next("video")
+        assert (await repo.get(running["task_id"]))["status"] == "running"
+
+        await _enqueue("E1U1")
+
+        found = await repo.get_active_tasks_for_resources(
+            project_name="demo",
+            task_type="reference_video",
+            resource_ids=["E1U0", "E1U1", "E1U2", "E1U3"],
+            script_file="ep1.json",
+        )
+
+        assert {t["resource_id"]: t["status"] for t in found} == {
+            "E1U1": "queued",
+            "E1U2": "running",
+            "E1U3": "cancelling",
+        }
+
+    @pytest.mark.unit
     async def test_get_active_tasks_for_resources_empty_ids_short_circuits(self, db_session):
         repo = TaskRepository(db_session)
 
