@@ -19,6 +19,7 @@ from lib.generation_queue_client import (
     TaskSpec,
     batch_enqueue_and_wait,
     enqueue_and_wait,
+    get_active_tasks_for_resources,
 )
 from lib.project_manager import ProjectManager, is_reference_video_project
 from lib.prompt_utils import (
@@ -757,6 +758,28 @@ def _report_residual_staleness(ctx: ToolContext, script_filename: str, unit_ids:
         log.append(f"⚠️  以下 unit 重新生成后仍偏离当前编排（stale），可能是生成期间剧本又被改动：{', '.join(residual)}")
 
 
+async def _assert_no_active_tasks(ctx: ToolContext, script_filename: str, units: list[dict[str, Any]]) -> None:
+    """点名重做前探测同 unit 是否已有在途任务：命中即拒绝，不新建任务也不静默沿用在途任务。
+
+    点名即强制（见 ``_run_ad_reference_units`` docstring），但强制不等于抢占——在途任务
+    没有可抢占的中间产物，直接入队只会被 ``enqueue`` 的去重悄悄折回既有任务，智能体读到
+    一次"已提交"却并未真的重做。整批拒绝而非部分入队，避免一部分 unit 已建任务、一部分
+    被拒的不一致状态。只作用于点名路径；常规批量生成（``_run_ad_reference_episode``）
+    仍走 ``GenerationQueue.enqueue_task`` 的既有入队去重。
+    """
+    unit_ids = [str(u["unit_id"]) for u in units]
+    active = await get_active_tasks_for_resources(
+        project_name=ctx.project_name,
+        task_type="reference_video",
+        resource_ids=unit_ids,
+        script_file=script_filename,
+    )
+    if not active:
+        return
+    details = "、".join(f"{t['resource_id']}（状态：{t['status']}）" for t in active)
+    raise ValueError(f"以下 unit 已有在途任务，请等待其完成后再重做：{details}")
+
+
 async def _run_ad_reference_units(
     *,
     ctx: ToolContext,
@@ -779,7 +802,10 @@ async def _run_ad_reference_units(
     selected = _select_ad_units(script, unit_ids, log)
     style = project.get("style")
     style_str = style if isinstance(style, str) else None
+    # 结构校验先于在途任务探测：结构不合法的 unit 等在途任务跑完也依然生成不了，
+    # 先报「请等待」会把一个死结说成暂时性阻塞。顺带省掉一次注定要失败的库查询。
     _assert_ad_units_generatable(script, selected, script_filename, style_str)
+    await _assert_no_active_tasks(ctx, script_filename, selected)
     log.append(f"重新生成 {len(selected)} 个 unit（已有成片一律覆盖）：{', '.join(u['unit_id'] for u in selected)}")
 
     result = await _generate_reference_units(

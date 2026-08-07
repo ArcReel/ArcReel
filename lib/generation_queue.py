@@ -251,6 +251,24 @@ class GenerationQueue:
             logger.debug("任务去重 task_id=%s", result["task_id"])
         return result
 
+    async def get_active_tasks_for_resources(
+        self,
+        *,
+        project_name: str,
+        task_type: str,
+        resource_ids: list[str],
+        script_file: str | None = None,
+        resource_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        async with self._task_repo() as repo:
+            return await repo.get_active_tasks_for_resources(
+                project_name=project_name,
+                task_type=task_type,
+                resource_ids=resource_ids,
+                script_file=script_file,
+                resource_type=resource_type,
+            )
+
     async def claim_next_task(
         self,
         media_type: str,

@@ -108,6 +108,127 @@ class TestTaskRepository:
         assert character_edit_again["task_id"] == character_edit["task_id"]
 
     @pytest.mark.unit
+    async def test_get_active_tasks_for_resources_matches_dedupe_key(self, db_session):
+        repo = TaskRepository(db_session)
+
+        finished = await repo.enqueue(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U2",
+            payload={"prompt": "unit2"},
+            script_file="ep1.json",
+        )
+        claimed = await repo.claim_next("video")
+        assert claimed is not None and claimed["task_id"] == finished["task_id"]
+        await repo.mark_succeeded(finished["task_id"], {"file": "unit2.mp4"})
+
+        active = await repo.enqueue(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={"prompt": "unit1"},
+            script_file="ep1.json",
+        )
+        # 去重键的每个维度各放一个同名 resource_id 的活动干扰任务：任一维度从查询条件里
+        # 漏掉，它对应的干扰任务就会混进结果，把别的项目/任务类型的在途状态错算成本次冲突。
+        decoys = [
+            {"project_name": "other-demo"},
+            {"task_type": "video"},
+            {"resource_type": "unit"},
+            {"script_file": "ep2.json"},
+            {"resource_id": "E1U9"},
+        ]
+        for override in decoys:
+            enqueued = await repo.enqueue(
+                **{
+                    "project_name": "demo",
+                    "task_type": "reference_video",
+                    "media_type": "video",
+                    "resource_id": "E1U1",
+                    "payload": {"prompt": "decoy"},
+                    "script_file": "ep1.json",
+                    **override,
+                }
+            )
+            assert not enqueued["deduped"], f"干扰任务被去重，无法验证维度 {override}"
+
+        found = await repo.get_active_tasks_for_resources(
+            project_name="demo",
+            task_type="reference_video",
+            resource_ids=["E1U1", "E1U2"],
+            script_file="ep1.json",
+        )
+
+        assert [t["resource_id"] for t in found] == ["E1U1"]
+        assert found[0]["task_id"] == active["task_id"]
+        assert found[0]["status"] == "queued"
+
+    @pytest.mark.unit
+    async def test_get_active_tasks_for_resources_covers_every_active_status(self, db_session):
+        """queued / running / cancelling 三个活动态都算冲突，终态不算。
+
+        探测的状态维度直接取自 ``ACTIVE_TASK_STATUSES``，与 ``idx_tasks_dedupe_active``
+        同口径；少一个状态就会让该状态下的 unit 被判为"空闲"而放行重复入队。
+        """
+
+        async def _enqueue(resource_id: str):
+            return await repo.enqueue(
+                project_name="demo",
+                task_type="reference_video",
+                media_type="video",
+                resource_id=resource_id,
+                payload={"prompt": resource_id},
+                script_file="ep1.json",
+            )
+
+        repo = TaskRepository(db_session)
+
+        # 逐个入队并立刻推进到目标状态：claim_next 取的是队首，前一个离开 queued 后
+        # 下一次 claim 才会落到新入队的那个。
+        done = await _enqueue("E1U0")
+        await repo.claim_next("video")
+        await repo.mark_succeeded(done["task_id"], {"file": "unit0.mp4"})
+
+        cancelling = await _enqueue("E1U3")
+        await repo.claim_next("video")
+        await repo.cancel_task(cancelling["task_id"])
+        assert (await repo.get(cancelling["task_id"]))["status"] == "cancelling"
+
+        running = await _enqueue("E1U2")
+        await repo.claim_next("video")
+        assert (await repo.get(running["task_id"]))["status"] == "running"
+
+        await _enqueue("E1U1")
+
+        found = await repo.get_active_tasks_for_resources(
+            project_name="demo",
+            task_type="reference_video",
+            resource_ids=["E1U0", "E1U1", "E1U2", "E1U3"],
+            script_file="ep1.json",
+        )
+
+        assert {t["resource_id"]: t["status"] for t in found} == {
+            "E1U1": "queued",
+            "E1U2": "running",
+            "E1U3": "cancelling",
+        }
+
+    @pytest.mark.unit
+    async def test_get_active_tasks_for_resources_empty_ids_short_circuits(self, db_session):
+        repo = TaskRepository(db_session)
+
+        found = await repo.get_active_tasks_for_resources(
+            project_name="demo",
+            task_type="reference_video",
+            resource_ids=[],
+            script_file="ep1.json",
+        )
+
+        assert found == []
+
+    @pytest.mark.unit
     async def test_dependency_cascade_failure(self, db_session):
         repo = TaskRepository(db_session)
 

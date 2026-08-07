@@ -8,9 +8,9 @@ import time
 import uuid
 from typing import Any
 
+from sqlalchemy import ColumnElement, func, select, text, update
 from sqlalchemy import bindparam as sa_bindparam
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +29,28 @@ ACTIVE_TASK_STATUSES = ("queued", "running", "cancelling")
 # 级联编码另在编码前按预算裁剪 reason（_encode_bounded_cascade_failure），保证结果本身
 # 不需要再被截断，深层依赖链也不会近指数增长。
 _MAX_ERROR_MESSAGE_LEN = 2000
+
+
+def _active_dedupe_clauses(
+    *,
+    project_name: str,
+    task_type: str,
+    script_file: str | None,
+    resource_type: str | None,
+) -> list[ColumnElement[bool]]:
+    """``idx_tasks_dedupe_active`` 去重键中与 ``resource_id`` 无关的那部分匹配条件。
+
+    ``enqueue`` 的 ``IntegrityError`` 回查与 :meth:`TaskRepository.get_active_tasks_for_resources`
+    共用这一份，去重口径只有一处定义。``script_file`` / ``resource_type`` 以空串归一，与索引
+    表达式里的 ``COALESCE`` 对齐。
+    """
+    return [
+        Task.project_name == project_name,
+        Task.task_type == task_type,
+        func.coalesce(Task.script_file, "") == (script_file or ""),
+        func.coalesce(Task.resource_type, "") == (resource_type or ""),
+        Task.status.in_(ACTIVE_TASK_STATUSES),
+    ]
 
 
 def _encode_bounded_cascade_failure(*, dependency_task_id: str, reason: str) -> str:
@@ -168,17 +190,16 @@ class TaskRepository(BaseRepository):
         except IntegrityError:
             await self.session.rollback()
             # Unique partial index violation: an active task already exists
-            sf = script_file or ""
-            rt = resource_type or ""
             result = await self.session.execute(
                 select(Task)
                 .where(
-                    Task.project_name == project_name,
-                    Task.task_type == task_type,
+                    *_active_dedupe_clauses(
+                        project_name=project_name,
+                        task_type=task_type,
+                        script_file=script_file,
+                        resource_type=resource_type,
+                    ),
                     Task.resource_id == resource_id,
-                    func.coalesce(Task.script_file, "") == sf,
-                    func.coalesce(Task.resource_type, "") == rt,
-                    Task.status.in_(ACTIVE_TASK_STATUSES),
                 )
                 .order_by(Task.queued_at.desc())
                 .limit(1)
@@ -201,6 +222,39 @@ class TaskRepository(BaseRepository):
             "deduped": False,
             "existing_task_id": None,
         }
+
+    async def get_active_tasks_for_resources(
+        self,
+        *,
+        project_name: str,
+        task_type: str,
+        resource_ids: list[str],
+        script_file: str | None = None,
+        resource_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """查询命中 ``idx_tasks_dedupe_active`` 去重键、当前处于活动态的任务。
+
+        match 条件与 :meth:`enqueue` 的 ``IntegrityError`` 分支共用
+        :func:`_active_dedupe_clauses`，供调用方在真正入队前探测冲突并拒绝，而不是让
+        ``enqueue`` 的原子去重悄悄回退到既有任务。结果按入队时间定序，调用方据此
+        组织的文案不随实现漂移。
+        """
+        if not resource_ids:
+            return []
+        result = await self.session.execute(
+            select(Task)
+            .where(
+                *_active_dedupe_clauses(
+                    project_name=project_name,
+                    task_type=task_type,
+                    script_file=script_file,
+                    resource_type=resource_type,
+                ),
+                Task.resource_id.in_(resource_ids),
+            )
+            .order_by(Task.queued_at, Task.task_id)
+        )
+        return [_task_to_dict(t) for t in result.scalars().all()]
 
     # NOTE: In multi-user mode, override this method to add user_id filtering
     async def claim_next(
