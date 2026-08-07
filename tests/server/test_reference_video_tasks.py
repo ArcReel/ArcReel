@@ -525,6 +525,39 @@ def test_precheck_unit_is_pure_and_matches_slot_semantics(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("ad_shots", "expected_seconds"),
+    [
+        # 索引缓存声明有参考、成员镜头已被清空 → 按不带图的全集取档（8 秒是档位成员，原样通过）
+        ([{"shot_id": "E1S01", "duration_seconds": 8}], 8),
+        # 索引缓存为空、成员镜头带产品参考 → 按带图收窄后的档位取档（720p 带图仅 8 秒）
+        ([{"shot_id": "E1S01", "duration_seconds": 8, "products_in_shot": ["口红"]}], 8),
+    ],
+)
+def test_precheck_unit_ad_tiers_follow_member_shots_not_index_cache(ad_shots, expected_seconds):
+    """ad 取档的「是否带参考图」以成员镜头为准，与同一调用点的定桶同源。
+
+    否则缓存与镜头相反时会出现「按 r2v 模型解析能力、按 i2v 档位取档」，弹出错误的时长
+    确认、并让费用估算与执行期时长对不上。
+    """
+    ctx = ProjectDurationContext(
+        supported_durations=(4, 6, 8),
+        resolution="720p",
+        provider_id="gemini-aistudio",
+        model_name="veo-3.1-generate-preview",
+    )
+    has_shot_refs = bool(ad_shots[0].get("products_in_shot"))
+    # 缓存一律与镜头相反：判据若误读缓存，收窄结果会与断言不符
+    unit = {"shot_ids": ["E1S01"], "references": [] if has_shot_refs else [{"type": "character", "name": "张三"}]}
+    slot = precheck_unit(ctx, unit, ad_shots)
+    assert slot.seconds == expected_seconds
+    # 不带图时 5 秒会被上调到 6（全集），带图时只剩 8 秒——用一个非档位成员的申请值区分两条路径
+    short_unit = {**unit, "shot_ids": ["E1S01"]}
+    short_shots = [{**ad_shots[0], "duration_seconds": 5}]
+    assert precheck_unit(ctx, short_unit, short_shots).seconds == (8 if has_shot_refs else 6)
+
+
+@pytest.mark.unit
 def test_default_unit_duration_narrows_by_references_like_precheck_unit():
     """新建 unit 若已带 references，默认时长要按参考图约束收窄——否则会给出一个立刻被
     precheck_unit 打回、要求用户确认的默认值——两处判据须保持一致。"""

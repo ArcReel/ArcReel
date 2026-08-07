@@ -324,17 +324,21 @@ def precheck_unit(ctx: ProjectDurationContext, unit: dict, ad_shots: list[dict] 
     provider 按 ADR-0001 在执行时才解析，故 ``ctx`` 只是近似：实际档位以执行时的 model
     能力为准。
 
-    「是否带参考图」按 unit 声明的 references 近似——执行层按解析后的实际图判定，而 ad 路径
-    的资产缺图退化为纯文本要读盘才知道。近似方向保守：声明了参考却缺图的异常单元会多收窄
-    一档、至多多问一次确认，不会漏掉需要确认的情形。
+    「是否带参考图」的判据与调用方的定桶同源：ad 传入了成员镜头，就从镜头现算参考集
+    （索引里的 references 只是可能落后于镜头的展示缓存，两处取不同来源会出现「按 r2v
+    模型解析能力、却按 i2v 档位取档」的自相矛盾）；其余路径按 unit 声明的 references。
+    两者都是近似——执行层按解析后的实际图判定，而 ad 路径的资产缺图退化为纯文本要读盘才
+    知道。近似方向保守：声明了参考却缺图的异常单元会多收窄一档、至多多问一次确认，不会
+    漏掉需要确认的情形。
     """
+    with_reference_images = bool(ad_unit_references(ad_shots) if ad_shots is not None else unit.get("references"))
     durations = (
         effective_reference_durations(
             ctx.provider_id,
             ctx.model_name,
             list(ctx.supported_durations),
             ctx.resolution,
-            with_reference_images=bool(unit.get("references")),
+            with_reference_images=with_reference_images,
         )
         if ctx.supported_durations
         else []

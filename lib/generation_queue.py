@@ -59,13 +59,15 @@ async def video_bucket_for_queued_task(
     if not is_ad:
         return reference_unit_video_bucket(unit)
     # ad 的参考集从成员镜头现算（与执行侧同源），索引里的 references 只是展示缓存；
-    # 索引悬空时按「读不到 unit」同处置回退代表桶，成员镜头无从水合也就无从定桶。
+    # 索引悬空（ValueError）或索引结构被裸写坏（如 shot_ids 写成布尔值，遍历抛 TypeError）
+    # 时，按「读不到 unit」同处置回退代表桶：成员镜头无从水合也就无从定桶，而定桶只影响
+    # claim 池过滤与限流槽路由的精度，不该让一次入队整体失败——与上方读剧本失败同口径。
     from lib.reference_video.ad_units import resolve_ad_unit_shots
 
     try:
         ad_shots = resolve_ad_unit_shots(script, unit)
-    except ValueError:
-        logger.debug("reference_video 定桶遇到过期的分组索引，回退 %s 桶", fallback, exc_info=True)
+    except Exception:
+        logger.debug("reference_video 定桶水合成员镜头失败，回退 %s 桶", fallback, exc_info=True)
         return fallback
     return reference_unit_video_bucket(unit, ad_shots=ad_shots)
 
