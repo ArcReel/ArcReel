@@ -17,14 +17,23 @@ from lib.script_models import resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
+from server.services.grid_resolution import resolve_large_grid_allowed
 
 
-def _list_groups(project: dict, script: dict, scene_ids: list[str] | None = None) -> list[str]:
+def _list_groups(
+    project: dict,
+    script: dict,
+    scene_ids: list[str] | None = None,
+    *,
+    allow_large_grid: bool = False,
+) -> list[str]:
     """List grid groups, optionally filtered to groups containing ``scene_ids``.
 
     Empty list (``[]``) and ``None`` carry different intents: ``None`` means
     "no filter, list all groups"; ``[]`` means "filter to zero groups"
     (explicit zero selection). Use ``is not None`` to keep them distinct.
+
+    ``allow_large_grid`` 与实际生成分支同源，非 4K 项目的预览里不会出现 4×4 / 5×5。
     """
     items, id_field, _, _, _ = get_storyboard_items(script)
     aspect_ratio = project.get("aspect_ratio", "9:16")
@@ -35,7 +44,7 @@ def _list_groups(project: dict, script: dict, scene_ids: list[str] | None = None
     lines = [f"共 {len(groups)} 个分组："]
     for i, group in enumerate(groups):
         ids = [item[id_field] for item in group]
-        layout = calculate_grid_layout(len(ids), aspect_ratio)
+        layout = calculate_grid_layout(len(ids), aspect_ratio, allow_large_grid=allow_large_grid)
         status = f"{layout.grid_size} ({layout.rows}×{layout.cols})" if layout else "single (< 4 场景)"
         lines.append(f"  组 {i + 1}: {ids[0]}..{ids[-1]} ({len(ids)} 场景) → {status}")
     return lines
@@ -85,8 +94,12 @@ def generate_grid_tool(ctx: ToolContext):
                     "is_error": True,
                 }
 
+            # 4×4 / 5×5 只在图像分辨率档为 4K 时放行；预览与生成共用同一次判定
+            allow_large_grid = await resolve_large_grid_allowed(project)
+
             if list_only:
-                return {"content": [{"type": "text", "text": "\n".join(_list_groups(project, script, scene_ids))}]}
+                lines = _list_groups(project, script, scene_ids, allow_large_grid=allow_large_grid)
+                return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
             episode = ProjectManager.resolve_episode_from_script(script, script_filename)
             project_path = ctx.project_path
@@ -118,7 +131,7 @@ def generate_grid_tool(ctx: ToolContext):
 
             for group in groups:
                 group_ids = [item[id_field] for item in group]
-                layout = calculate_grid_layout(len(group_ids), aspect_ratio)
+                layout = calculate_grid_layout(len(group_ids), aspect_ratio, allow_large_grid=allow_large_grid)
                 if layout is None:
                     skipped.append(f"⏭️  跳过 {group_ids[0]}..{group_ids[-1]}（{len(group_ids)} 场景，不足 4 个）")
                     continue

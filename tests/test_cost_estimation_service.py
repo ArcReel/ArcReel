@@ -711,6 +711,37 @@ class TestCostEstimationService:
         assert seg2["actual"]["image"] == {}
 
     @pytest.mark.unit
+    async def test_grid_estimate_count_follows_4k_gate(self, db_factory, monkeypatch):
+        """估算的宫格张数按 4K 门控走同一条阶梯：12 场景一组，4K 下一张 4×4 装下，
+        非 4K 下封顶 3×3 要切两张，估算总价相应翻倍。"""
+        from server.services import cost_estimation as ce
+
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 13)]
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 12)}
+
+        async def _estimated_image_total(resolution: str | None) -> float:
+            async def _resolution(_r, _project):
+                return resolution
+
+            monkeypatch.setattr(ce, "resolve_grid_image_resolution", _resolution)
+            service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+            result = await service.compute(project_data, scripts, project_name="proj")
+            return sum(seg["estimate"]["image"]["USD"] for seg in result["episodes"][0]["segments"])
+
+        total_4k = await _estimated_image_total("4K")
+        assert total_4k > 0
+        # 未配置分辨率（None）与 2K 同样落在门控内
+        assert await _estimated_image_total("2K") == pytest.approx(total_4k * 2, rel=1e-4)  # 每条份额各自 round(…, 6)
+        assert await _estimated_image_total(None) == pytest.approx(total_4k * 2, rel=1e-4)  # 每条份额各自 round(…, 6)
+
+    @pytest.mark.unit
     async def test_project_level_actual_split_by_asset_type(self, db_factory):
         """project-level image 成本应按 output_path 前缀拆分为 characters/scenes/props 三项。"""
         resolver = ConfigResolver(db_factory)

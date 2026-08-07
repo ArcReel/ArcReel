@@ -1,10 +1,26 @@
 export interface GridLayout {
-  gridSize: "grid_4" | "grid_6" | "grid_9" | null;
+  gridSize: "grid_4" | "grid_9" | "grid_16" | "grid_25" | null;
   rows: number;
   cols: number;
   cellCount: number;
   batchCount: number;
 }
+
+/**
+ * 档位阶梯，与后端 lib/grid/layout.py 的 _GRID_LADDER 逐项对应:
+ * 全部为 N×N 平方切分,单格比例恒等于整图比例(即项目视频比例)。
+ * 哪几档可用由格数上限决定,上限取自后端 /grid-capability 的 max_cell_count
+ * (4K 门控要经供应商解析才能定,前端不自行推导分辨率档)。
+ */
+const GRID_LADDER = [
+  { cellCount: 4, gridSize: "grid_4", side: 2 },
+  { cellCount: 9, gridSize: "grid_9", side: 3 },
+  { cellCount: 16, gridSize: "grid_16", side: 4 },
+  { cellCount: 25, gridSize: "grid_25", side: 5 },
+] as const;
+
+/** 拿不到后端上限时按门控生效展示(封顶 3×3),宁可少算批次也不虚报 */
+export const FALLBACK_MAX_CELL_COUNT = 9;
 
 interface GridMatchRecord {
   id: string;
@@ -14,7 +30,7 @@ interface GridMatchRecord {
 }
 
 /**
- * 后端会把超过 layout.cell_count(最多 9)的 group 拆成多个 chunk,
+ * 后端会把超过 layout.cell_count 的 group 拆成多个 chunk,
  * 每条 grid 记录的 scene_ids 是 group 的子集。匹配时按子集判断,
  * 再按 created_at 降序贪心覆盖:只保留贡献新 scene_id 的 grid,
  * 过滤掉被新生成覆盖的旧 chunk(用户调整 segment_break 后未重新生成时,
@@ -67,34 +83,15 @@ export function groupBySegmentBreak<S extends { segment_break?: boolean }>(
   return groups;
 }
 
-export function computeGridSize(count: number, aspectRatio: string = "9:16"): GridLayout {
+export function computeGridSize(
+  count: number,
+  maxCellCount: number = FALLBACK_MAX_CELL_COUNT
+): GridLayout {
   if (count < 1) return { gridSize: null, rows: 0, cols: 0, cellCount: 0, batchCount: 0 };
-  const [w, h] = aspectRatio.split(":").map(Number);
-  const isHorizontal = w > h;
-  const effective = Math.min(count, 9);
-
-  let gridSize: "grid_4" | "grid_6" | "grid_9";
-  let cellCount: number;
-  let rows: number;
-  let cols: number;
-
-  if (effective <= 4) {
-    gridSize = "grid_4";
-    cellCount = 4;
-    rows = 2;
-    cols = 2;
-  } else if (effective <= 6) {
-    gridSize = "grid_6";
-    cellCount = 6;
-    rows = isHorizontal ? 3 : 2;
-    cols = isHorizontal ? 2 : 3;
-  } else {
-    gridSize = "grid_9";
-    cellCount = 9;
-    rows = 3;
-    cols = 3;
-  }
+  const effective = Math.min(count, maxCellCount);
+  const { cellCount, gridSize, side } =
+    GRID_LADDER.find((cfg) => effective <= cfg.cellCount) ?? GRID_LADDER[GRID_LADDER.length - 1];
 
   const batchCount = count > cellCount ? Math.ceil(count / cellCount) : 1;
-  return { gridSize, rows, cols, cellCount, batchCount };
+  return { gridSize, rows: side, cols: side, cellCount, batchCount };
 }

@@ -16,7 +16,6 @@ interface GridPreviewViewProps {
   scriptFile?: string;
   segments: Segment[];
   contentMode: "narration" | "drama";
-  aspectRatio: "9:16" | "16:9";
   onGenerateGrid?: (
     episode: number,
     scriptFile: string,
@@ -36,7 +35,6 @@ export function GridPreviewView({
   scriptFile,
   segments,
   contentMode,
-  aspectRatio,
   onGenerateGrid,
 }: GridPreviewViewProps) {
   const { t } = useTranslation("dashboard");
@@ -44,8 +42,23 @@ export function GridPreviewView({
   const [grids, setGrids] = useState<GridGeneration[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [generatingGroups, setGeneratingGroups] = useState<Set<string>>(new Set());
+  // 单张宫格的格数上限由后端给：4×4 / 5×5 的 4K 门控要经供应商解析才能定，前端自行推导
+  // 必然与入队口径漂移。取不到时 computeGridSize 用保守默认值。
+  const [maxCellCount, setMaxCellCount] = useState<number | undefined>(undefined);
 
   const groups = useMemo(() => groupBySegmentBreak(segments), [segments]);
+
+  useEffect(() => {
+    if (!projectName) return;
+    const controller = new AbortController();
+    API.getGridCapability(projectName, { signal: controller.signal })
+      .then((cap) => {
+        if (controller.signal.aborted) return;
+        setMaxCellCount(cap.max_cell_count);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [projectName]);
 
   const refreshGrids = useCallback(() => {
     if (!projectName) return;
@@ -92,7 +105,11 @@ export function GridPreviewView({
   );
 
   const stats = useMemo(() => {
-    const batches = groups.length;
+    // 一个分组超过单张格数上限时后端会切成多张宫格,批次数按实际入队张数累计
+    const batches = groups.reduce(
+      (sum, group) => sum + computeGridSize(group.length, maxCellCount).batchCount,
+      0,
+    );
     const cells = segments.length;
     const readyBatches = groups.filter((group) => {
       const sceneIds = group.map((s) => getSegmentId(s, contentMode));
@@ -106,9 +123,10 @@ export function GridPreviewView({
       }
       return sceneIds.every((id) => covered.has(id));
     }).length;
-    const percent = batches > 0 ? Math.round((readyBatches / batches) * 100) : 0;
+    // 就绪率按分组算(一组内多张宫格全部完成才算就绪),分母用分组数而非宫格张数
+    const percent = groups.length > 0 ? Math.round((readyBatches / groups.length) * 100) : 0;
     return { batches, cells, percent };
-  }, [groups, segments, grids, episode, contentMode]);
+  }, [groups, segments, grids, episode, contentMode, maxCellCount]);
 
   if (segments.length === 0) {
     return (
@@ -142,7 +160,7 @@ export function GridPreviewView({
 
       <div className="flex flex-col gap-3">
         {groups.map((group, idx) => {
-          const layout = computeGridSize(group.length, aspectRatio);
+          const layout = computeGridSize(group.length, maxCellCount);
           const ids = getGridIdsForGroup(group);
           const groupKey = group
             .map((s) => getSegmentId(s, contentMode))

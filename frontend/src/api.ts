@@ -61,7 +61,7 @@ import type {
   VideoCapabilities,
 } from "@/types";
 import type { GenerationRoute } from "@/utils/generation-mode";
-import type { GridGeneration } from "@/types/grid";
+import type { GridCapability, GridGeneration } from "@/types/grid";
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
 import type {
   AgentCredential,
@@ -2249,6 +2249,19 @@ class API {
     options: { signal?: AbortSignal } = {}
   ): Promise<GridGeneration[]> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/grids`, {
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * 获取项目的宫格档位能力（4×4/5×5 是否可用、单张格数上限）
+   * @param projectName - 项目名称
+   */
+  static async getGridCapability(
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<GridCapability> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/grid-capability`, {
       signal: options.signal,
     });
   }

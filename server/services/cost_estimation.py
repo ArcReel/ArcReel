@@ -20,7 +20,7 @@ from lib.config.resolver import (
 from lib.cost_calculator import cost_calculator
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
-from lib.grid.layout import calculate_grid_layout
+from lib.grid.layout import calculate_grid_layout, large_grid_allowed
 from lib.pricing.strategies import PricingParams
 from lib.project_manager import grid_storyboard_enabled, is_reference_video_project
 from lib.reference_video import assemble_shots_text
@@ -29,6 +29,7 @@ from lib.reference_video.units import reference_unit_video_bucket
 from lib.script_editor import ScriptEditError
 from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
+from server.services.grid_resolution import resolve_grid_image_resolution
 from server.services.reference_video_tasks import (
     ProjectDurationContext,
     precheck_unit,
@@ -176,6 +177,10 @@ class CostEstimationService:
                 image_provider, image_model = resolved_image.provider_id, resolved_image.model_id
             except Exception:
                 image_provider, image_model = "unknown", "unknown"
+
+            # 宫格 4×4 / 5×5 的 4K 门控：与路由入队、SDK 工具共用 ``grid_resolution`` 的取档，
+            # 估算的宫格张数才不会与实际入队张数漂移。
+            grid_allow_large = large_grid_allowed(await resolve_grid_image_resolution(r, project_data))
 
             # 视频按能力桶解析（``docs/adr/0054``），与执行扣费同一个模型：图生视频 / 宫格算
             # i2v 桶的价；参考生视频按 unit 声明的参考集逐 unit 分桶（有参考图 → r2v，无参考图
@@ -376,7 +381,7 @@ class CostEstimationService:
                 groups = group_scenes_by_segment_break(raw_segments, id_key)
                 for group in groups:
                     n = len(group)
-                    layout = calculate_grid_layout(n, aspect_ratio)
+                    layout = calculate_grid_layout(n, aspect_ratio, allow_large_grid=grid_allow_large)
                     if layout is None:
                         continue
                     grid_count = math.ceil(n / layout.cell_count) if n > layout.cell_count else 1

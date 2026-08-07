@@ -325,7 +325,6 @@ export function GridImageToVideoCanvas({
             scriptFile={scriptFile}
             segments={segments}
             contentMode={editorContentMode}
-            aspectRatio={aspectRatio}
             onGenerateGrid={onGenerateGrid}
           />
         ) : episodeScript && segments.length > 0 && editorContentMode ? (
