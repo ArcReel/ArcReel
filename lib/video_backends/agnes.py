@@ -1,8 +1,15 @@
 """AgnesVideoBackend — Agnes 视频生成后端（裸 base64 + 异步轮询 + resume）。
 
 走 apihub 网关上的 OpenAI 风格异步端点：submit ``POST /v1/videos``（JSON）取 task_id →
-轮询 ``GET /v1/videos/{task_id}`` 至 ``status=completed`` → 从响应 ``remixed_from_video_id``
-字段取成片 mp4 URL → 下载本地。状态机 ``queued → in_progress → completed / failed``。
+轮询 ``GET /v1/videos/{task_id}`` 至 ``status=completed``。成片 URL 分两级取：完成态响应
+自带直接 URL 字段（``url`` / ``video_url`` / ``metadata.url``，或 ``remixed_from_video_id``
+恰好是 URL 形态时兼容旧网关）即直接下载；只有 ``video_id`` 时以其向网关根下的成片查询端点
+``GET /agnesapi?video_id=...`` 二次查询，从查询响应同样按上述字段取 URL。
+``remixed_from_video_id`` 语义是 remix 来源视频 ID，非 URL 形态时一律不当下载地址。
+状态机 ``queued → in_progress → completed / failed``。
+
+轮询端点 ``/v1/videos/{task_id}`` 是网关的旧版任务查询接口，仍受支持；成片结果查询归
+``/agnesapi?video_id=``（网关文档指明按 video_id 查询，不要拿 task_id 打这个端点）。
 
 能力约束：fps 固定 24；时长 1–18s（内部 ``num_frames = 最近的 8n+1``，由秒 × fps 取整对齐，
 上限 441 帧）；分辨率经 aspect_size 精确算出并显式下发 ``height`` × ``width``（不显式下发时
@@ -19,10 +26,11 @@ import base64
 import logging
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 
-from lib.agnes_shared import agnes_base_url, agnes_headers, resolve_agnes_api_key
+from lib.agnes_shared import agnes_base_url, agnes_headers, agnes_host, resolve_agnes_api_key
 from lib.aspect_size import VIDEO_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.logging_utils import format_kwargs_for_log
@@ -54,6 +62,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "agnes-video-v2.0"
 
 _VIDEOS_ENDPOINT = "/videos"
+# 成片查询端点，挂在网关根（不在 /v1 下），按 video_id 查询。
+_VIDEO_QUERY_ENDPOINT = "/agnesapi"
 
 # fps 固定 24；num_frames 必须形如 8n+1，上限 441（≈18.4s @24fps）。时长按秒 × fps 取整后
 # 对齐到最近的 8n+1。1–3s 会落到 81 帧以下（25/49/73），文档允许的合法值。
@@ -92,6 +102,49 @@ _FAILED_STATUSES = ("failed", "error", "cancelled", "canceled")
 
 # 进日志的安全标量白名单；image / extra_body 内的 base64 一律不入日志。
 _SAFE_LOG_KEYS = ("model", "height", "width", "num_frames", "frame_rate", "seed")
+
+# 完成态响应中可能承载成片 URL 的权威字段，按优先级探测（顶层与 metadata 同权，顶层优先）。
+_PRIMARY_URL_FIELDS = ("url", "video_url")
+
+# remix 来源视频 ID 字段。语义不是 URL（非 URL 形态时不当下载地址），列在此处仅为兼容部分
+# 网关把成片 URL 直接回填在该字段的行为；优先级低于 _PRIMARY_URL_FIELDS——顶层与 metadata
+# 的权威字段任一命中都优先于本字段，避免它抢在真正的成片 URL 前面被当下载地址。
+_COMPAT_URL_FIELD = "remixed_from_video_id"
+
+
+def _looks_like_url(value: str) -> bool:
+    """粗粒度 URL 形态校验：http/https scheme + 非空 netloc。用于把 remixed_from_video_id
+    这类语义不是 URL 的字段与真正的下载地址区分开，避免把 remix 来源 ID 误当 URL 下载。
+    """
+    if not value:
+        return False
+    parsed = urlsplit(value)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def _first_url_field(body: dict) -> str | None:
+    """探测响应体中形态为 URL 的成片地址，按 _PRIMARY_URL_FIELDS 优先、_COMPAT_URL_FIELD
+    兜底的顺序；每一级顶层与 ``metadata``（网关成片查询把下载地址放在 metadata.url）同权、
+    顶层优先，无命中返回 None。
+
+    _COMPAT_URL_FIELD 兜底级必须整体排在 _PRIMARY_URL_FIELDS 之后：否则顶层的兼容字段会
+    抢在 metadata 里的权威 URL 字段前面命中，误把兼容字段值当下载地址。
+    """
+    metadata = body.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+
+    for key in _PRIMARY_URL_FIELDS:
+        for source in (body, metadata):
+            value = source.get(key)
+            if isinstance(value, str) and _looks_like_url(value):
+                return value
+
+    for source in (body, metadata):
+        value = source.get(_COMPAT_URL_FIELD)
+        if isinstance(value, str) and _looks_like_url(value):
+            return value
+
+    return None
 
 
 def _duration_to_num_frames(duration_seconds: int) -> int:
@@ -144,16 +197,20 @@ def _extract_task_id(body: dict) -> str:
     raise RuntimeError(f"Agnes 视频提交返回体缺少 task_id（字段: {sorted(body)}）")
 
 
-def _extract_duration_seconds(final: dict, fallback: int) -> int:
-    """从轮询终态取实际计费时长（``usage.duration_seconds`` 优先，回落顶层 ``seconds``，再回落请求值）。"""
-    usage = final.get("usage")
-    if isinstance(usage, dict):
-        parsed = _coerce_duration(usage.get("duration_seconds"))
-        if parsed is not None:
-            return parsed
+def _extract_duration_seconds(final: dict, queried: dict | None, fallback: int) -> int:
+    """从轮询终态取实际成片时长（顶层 ``seconds``），缺失时改读 video_id 二次查询响应的
+    ``seconds``（完成态只带 video_id 时才有此响应），两处均缺失或不可解析才回落请求时长。
+
+    不读 ``usage.duration_seconds``——该字段是任务处理耗时，与成片时长无关，读它会错记
+    计费与元数据。
+    """
     parsed = _coerce_duration(final.get("seconds"))
     if parsed is not None:
         return parsed
+    if queried is not None:
+        parsed = _coerce_duration(queried.get("seconds"))
+        if parsed is not None:
+            return parsed
     return fallback
 
 
@@ -201,6 +258,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
     ) -> None:
         self._api_key = resolve_agnes_api_key(api_key)
         self._base_url = agnes_base_url(base_url)
+        self._host = agnes_host(base_url)
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
 
@@ -381,6 +439,48 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         resp.raise_for_status()
         return resp.json()
 
+    @with_retry_async(
+        max_attempts=DEFAULT_MAX_ATTEMPTS,
+        backoff_seconds=DEFAULT_BACKOFF_SECONDS,
+        retry_if=should_retry_poll,
+    )
+    async def _query_video(self, client: httpx.AsyncClient, video_id: str) -> dict:
+        """按 ``video_id`` 向成片查询端点二次查询（完成态只含 video_id、无直接 URL 字段时）。
+
+        该端点挂在网关根而非 ``/v1`` 下，且只认 video_id——拿 task_id 打它会排队异常。
+        幂等 GET，复用轮询同一套重试判定。
+        """
+        resp = await client.get(
+            f"{self._host}{_VIDEO_QUERY_ENDPOINT}",
+            params={"video_id": video_id},
+            headers=agnes_headers(self._api_key),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def _resolve_video_url(self, client: httpx.AsyncClient, final: dict) -> tuple[str, dict | None]:
+        """成片 URL 两级来源：完成态直接字段命中即用；否则用 video_id 二次查询取 URL。
+
+        命中二次查询时一并返回该查询响应体（未查询则 None），供调用方从中补解析成片时长——
+        终态响应可能不带 ``seconds``，只有二次查询响应才带。
+
+        两级来源均不可用时报错信息只列字段名，不回显响应体（可能含签名 URL 等敏感字段，
+        与 _safe_body_for_log 同口径）。
+        """
+        video_url = _first_url_field(final)
+        if video_url is not None:
+            return video_url, None
+
+        video_id = final.get("video_id")
+        if isinstance(video_id, str) and video_id:
+            queried = await self._query_video(client, video_id)
+            video_url = _first_url_field(queried)
+            if video_url is not None:
+                return video_url, queried
+            raise RuntimeError(f"Agnes 任务完成但 video_id 查询响应缺少成片 URL（字段: {sorted(queried)}）")
+
+        raise RuntimeError(f"Agnes 任务完成但缺少成片 URL 与 video_id（字段: {sorted(final)}）")
+
     async def _poll_and_build(
         self,
         client: httpx.AsyncClient,
@@ -416,10 +516,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             ),
         )
 
-        video_url = final.get("remixed_from_video_id")
-        if not isinstance(video_url, str) or not video_url:
-            # 仅暴露字段名，不回显整串响应（可能含签名 URL 等敏感字段，与 _safe_body_for_log 同口径）。
-            raise RuntimeError(f"Agnes 任务完成但缺少 remixed_from_video_id 成片 URL（字段: {sorted(final)}）")
+        video_url, queried = await self._resolve_video_url(client, final)
 
         await self._download_with_retry(video_url, request.output_path)
         logger.info("Agnes 视频下载完成: %s", request.output_path)
@@ -428,7 +525,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             video_path=request.output_path,
             provider=PROVIDER_AGNES,
             model=self._model,
-            duration_seconds=_extract_duration_seconds(final, request.duration_seconds),
+            duration_seconds=_extract_duration_seconds(final, queried, request.duration_seconds),
             video_uri=video_url,
             task_id=task_id,
             seed=request.seed,

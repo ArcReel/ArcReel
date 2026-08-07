@@ -8,6 +8,7 @@ from lib.agnes_shared import (
     AGNES_BASE_URL,
     agnes_base_url,
     agnes_headers,
+    agnes_host,
     resolve_agnes_api_key,
 )
 
@@ -37,6 +38,25 @@ class TestBaseUrlDerivation:
         # 纯空白 base_url 是真值会绕过 or，须 strip 后回落默认 host，
         # 不能 strip 成空串派生出 "/v1" 这类非法相对 URL
         assert agnes_base_url("   ") == AGNES_BASE_URL
+
+
+class TestHostDerivation:
+    """agnes_host 与 agnes_base_url 同源归一化，差别只在不带 /v1——网关的成片查询端点
+    /agnesapi 挂在 host 根下，拼接需要这个形态。"""
+
+    def test_default_host(self):
+        assert agnes_host(None) == "https://apihub.agnes-ai.com"
+
+    def test_strips_v1_suffix(self):
+        assert agnes_host("https://apihub.agnes-ai.com/v1") == "https://apihub.agnes-ai.com"
+        assert agnes_host("https://apihub.agnes-ai.com/v1/") == "https://apihub.agnes-ai.com"
+
+    def test_host_only_unchanged(self):
+        assert agnes_host("https://apihub.agnes-ai.com") == "https://apihub.agnes-ai.com"
+        assert agnes_host("https://relay.example.com/") == "https://relay.example.com"
+
+    def test_whitespace_falls_back_to_default(self):
+        assert agnes_host("   ") == "https://apihub.agnes-ai.com"
 
 
 class TestApiKeyResolution:
