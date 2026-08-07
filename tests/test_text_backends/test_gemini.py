@@ -7,6 +7,7 @@ import pytest
 from pydantic import BaseModel
 
 from lib.text_backends.base import (
+    StructuredOutputExhaustedError,
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
@@ -367,15 +368,27 @@ class TestStructuredFallback:
         assert result.input_tokens == 30
         assert result.output_tokens == 15
 
-    async def test_fallback_exhausted_raises_value_error(self, backend):
-        """降级重试穷尽后 fail-loud，错误消息面向用户可读（不透传 pydantic 原始串）。"""
+    async def test_fallback_exhausted_raises_structured_output_exhausted(self, backend):
+        """降级重试穷尽后收敛为 StructuredOutputExhaustedError，消息面向用户可读（不透传 pydantic 原始串）。"""
         gc = AsyncMock(side_effect=[_resp(_PROSE), _resp(_PROSE), _resp(_PROSE)])
         backend._test_client.aio.models.generate_content = gc
 
-        with pytest.raises(ValueError, match="结构化输出"):
+        with pytest.raises(StructuredOutputExhaustedError, match="结构化输出能力不足") as exc_info:
             await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
 
         assert gc.call_count == 3
+        assert exc_info.value.provider == "gemini"
+        assert exc_info.value.model == "gemini-3-flash-preview"
+
+    async def test_fallback_logs_raw_model_output(self, backend, caplog):
+        """降级触发点以 warning 记录模型原始输出，供事后诊断模型实际吐了什么。"""
+        gc = AsyncMock(side_effect=[_resp(_PROSE), _resp(_VALID_JSON)])
+        backend._test_client.aio.models.generate_content = gc
+
+        with caplog.at_level("WARNING", logger="lib.text_backends.gemini"):
+            await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
+
+        assert any(_PROSE in record.getMessage() for record in caplog.records)
 
     async def test_valid_schema_json_no_fallback(self, backend):
         """满足 schema 的合法 JSON 不触发降级（单次调用）。"""

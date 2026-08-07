@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from instructor import Mode
 from openai import BadRequestError
 from pydantic import BaseModel
 
@@ -421,6 +422,61 @@ class TestInstructorFallback:
         assert result.provider == PROVIDER_OPENAI
         assert result.input_tokens == 20
         assert result.output_tokens == 10
+
+    async def test_response_format_rejected_succeeds_via_tools_mode(self):
+        """上游拒收 response_format 但支持 tools：降级链首档 TOOLS 即产出合规结构化结果。"""
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
+
+        instructor_result = _PersonSchema(name="Dana", age=31)
+        instructor_completion = MagicMock()
+        instructor_completion.usage = None
+        mock_patched = AsyncMock()
+        mock_patched.chat.completions.create_with_completion = AsyncMock(
+            return_value=(instructor_result, instructor_completion)
+        )
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("instructor.from_openai", return_value=mock_patched) as mock_from_openai,
+        ):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            result = await backend.generate(TextGenerationRequest(prompt="Extract info", response_schema=_PersonSchema))
+
+        assert result.text == instructor_result.model_dump_json()
+        assert [call.kwargs["mode"] for call in mock_from_openai.call_args_list] == [Mode.TOOLS]
+
+    async def test_tools_mode_rejected_falls_back_to_md_json(self):
+        """上游连 tools 也不接受时降到 MD_JSON 档，两档都在同一次 generate 内完成。"""
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
+
+        instructor_result = _PersonSchema(name="Erin", age=27)
+        instructor_completion = MagicMock()
+        instructor_completion.usage = None
+
+        tools_patched = AsyncMock()
+        tools_patched.chat.completions.create_with_completion = AsyncMock(
+            side_effect=_make_bad_request_error("tools is not supported")
+        )
+        md_json_patched = AsyncMock()
+        md_json_patched.chat.completions.create_with_completion = AsyncMock(
+            return_value=(instructor_result, instructor_completion)
+        )
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("instructor.from_openai", side_effect=[tools_patched, md_json_patched]) as mock_from_openai,
+        ):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            result = await backend.generate(TextGenerationRequest(prompt="Extract info", response_schema=_PersonSchema))
+
+        assert result.text == instructor_result.model_dump_json()
+        assert [call.kwargs["mode"] for call in mock_from_openai.call_args_list] == [Mode.TOOLS, Mode.MD_JSON]
 
     async def test_bad_request_error_with_dict_schema_falls_back_to_plain(self):
         """原生 response_format 抛 BadRequestError 且 schema 为 dict 时，降级为无结构化输出的普通调用。"""

@@ -3,11 +3,14 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
-from instructor.core import IncompleteOutputException
-from pydantic import BaseModel
+from instructor import Mode
+from instructor.core import IncompleteOutputException, InstructorRetryException, ResponseParsingError
+from openai import BadRequestError
+from pydantic import BaseModel, ValidationError
 
-from lib.text_backends.base import TextOutputTruncatedError
+from lib.text_backends.base import StructuredOutputExhaustedError, TextOutputTruncatedError
 from lib.text_backends.instructor_support import (
     generate_structured_via_instructor,
     generate_structured_via_instructor_async,
@@ -21,6 +24,45 @@ pytestmark = pytest.mark.unit
 class SampleModel(BaseModel):
     name: str
     age: int
+
+
+def _completion(content: str) -> SimpleNamespace:
+    """构造一个只带文本内容的 completion，供诊断日志断言取原始输出。"""
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content, tool_calls=None))])
+
+
+def _retry_exhausted(inner: Exception, *, content: str = "") -> InstructorRetryException:
+    """构造 Instructor 档内重试耗尽异常，failed_attempts 决定失败属 wire 层还是校验类。"""
+    from instructor.core.exceptions import FailedAttempt
+
+    return InstructorRetryException(
+        "retries exhausted",
+        last_completion=_completion(content),
+        n_attempts=3,
+        total_usage=0,
+        failed_attempts=[FailedAttempt(attempt_number=1, exception=inner)],
+    )
+
+
+def _validation_error() -> ValidationError:
+    try:
+        SampleModel.model_validate({"name": "Alice"})
+    except ValidationError as exc:
+        return exc
+    raise AssertionError("SampleModel 缺 age 字段应当校验失败")
+
+
+def _no_tool_call_error() -> ResponseParsingError:
+    return ResponseParsingError("No tool calls or function call found in response", mode="TOOLS")
+
+
+def _tools_rejected_error() -> BadRequestError:
+    message = "tools is not supported by this endpoint"
+    return BadRequestError(
+        message=message,
+        response=httpx.Response(400, request=httpx.Request("POST", "https://proxy.example/v1/chat/completions")),
+        body={"error": {"message": message}},
+    )
 
 
 class TestGenerateStructuredViaInstructor:
@@ -360,6 +402,170 @@ class TestInstructorFallbackSync:
 
         assert exc_info.value.provider == "test-provider"
         assert exc_info.value.model == "test-model"
+
+
+class TestStructuredModeChainSync:
+    """TOOLS → MD_JSON 降级链（同步版）。"""
+
+    @staticmethod
+    def _call(mock_gen):
+        return instructor_fallback_sync(
+            client=MagicMock(),
+            model="test-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema=SampleModel,
+            provider="test-provider",
+        )
+
+    @staticmethod
+    def _modes(mock_gen) -> list[Mode]:
+        return [call.kwargs["mode"] for call in mock_gen.call_args_list]
+
+    def test_chain_starts_with_tools_mode(self):
+        """首档是 TOOLS：成功即返回，不触碰约束更弱的 MD_JSON。"""
+        sample = SampleModel(name="Alice", age=30)
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            return_value=(sample.model_dump_json(), 50, 20),
+        ) as mock_gen:
+            result = self._call(mock_gen)
+
+        assert self._modes(mock_gen) == [Mode.TOOLS]
+        assert result.text == sample.model_dump_json()
+
+    def test_tools_param_rejected_falls_back_to_md_json(self):
+        """上游拒收 tools 参数（wire 层）→ 降档到 MD_JSON 并产出合规结果。"""
+        sample = SampleModel(name="Bob", age=25)
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[_tools_rejected_error(), (sample.model_dump_json(), 10, 5)],
+        ) as mock_gen:
+            result = self._call(mock_gen)
+
+        assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
+        assert result.text == sample.model_dump_json()
+
+    def test_no_tool_call_in_response_falls_back_to_md_json(self):
+        """上游收下 tools 却不回 tool call（wire 层）→ 降档到 MD_JSON。"""
+        sample = SampleModel(name="Carol", age=28)
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[_retry_exhausted(_no_tool_call_error()), (sample.model_dump_json(), 10, 5)],
+        ) as mock_gen:
+            result = self._call(mock_gen)
+
+        assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
+        assert result.text == sample.model_dump_json()
+
+    def test_tools_validation_exhaustion_is_terminal(self):
+        """TOOLS 档校验类耗尽不降档：上游确实回了 tool call，换更弱的档只会更差。"""
+        exhausted = _retry_exhausted(_validation_error(), content='{"name": "Alice"}')
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[exhausted],
+        ) as mock_gen:
+            with pytest.raises(StructuredOutputExhaustedError) as exc_info:
+                self._call(mock_gen)
+
+        assert self._modes(mock_gen) == [Mode.TOOLS]
+        assert exc_info.value.__cause__ is exhausted
+        assert exc_info.value.provider == "test-provider"
+
+    def test_md_json_exhaustion_raises_structured_output_exhausted(self):
+        """末档耗尽同样收敛为终局异常，不把 InstructorRetryException 原文透出去。"""
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[_tools_rejected_error(), _retry_exhausted(_validation_error())],
+        ) as mock_gen:
+            with pytest.raises(StructuredOutputExhaustedError, match="结构化输出能力不足"):
+                self._call(mock_gen)
+
+        assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
+
+    def test_transient_error_propagates_unchanged(self):
+        """瞬态错误既不降档也不收敛为终局异常，原样冒泡交调用方的重试装饰器判定。"""
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[ConnectionError("503 service unavailable")],
+        ) as mock_gen:
+            with pytest.raises(ConnectionError):
+                self._call(mock_gen)
+
+        assert self._modes(mock_gen) == [Mode.TOOLS]
+
+    def test_truncation_does_not_fall_back(self):
+        """截断是硬错误：重发同一份必然再截断的请求没有意义，不降档。"""
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[TextOutputTruncatedError(provider="test-provider", model="test-model")],
+        ) as mock_gen:
+            with pytest.raises(TextOutputTruncatedError):
+                self._call(mock_gen)
+
+        assert self._modes(mock_gen) == [Mode.TOOLS]
+
+    def test_downgrade_logs_raw_model_output(self, caplog):
+        """降档触发点以 warning 记录截断后的模型原始输出。"""
+        sample = SampleModel(name="Dave", age=33)
+        raw = "抱歉，我无法按要求输出 JSON。"
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[
+                _retry_exhausted(_no_tool_call_error(), content=raw),
+                (sample.model_dump_json(), 10, 5),
+            ],
+        ) as mock_gen:
+            with caplog.at_level("WARNING", logger="lib.text_backends.instructor_support"):
+                self._call(mock_gen)
+
+        assert any(raw in record.getMessage() for record in caplog.records)
+
+
+class TestStructuredModeChainAsync:
+    """TOOLS → MD_JSON 降级链（异步版），与同步版同口径。"""
+
+    @staticmethod
+    async def _call():
+        return await instructor_fallback_async(
+            client=AsyncMock(),
+            model="async-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema=SampleModel,
+            provider="async-provider",
+        )
+
+    @staticmethod
+    def _modes(mock_gen) -> list[Mode]:
+        return [call.kwargs["mode"] for call in mock_gen.call_args_list]
+
+    async def test_wire_failure_falls_back_to_md_json(self):
+        sample = SampleModel(name="Eve", age=45)
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor_async",
+            side_effect=[_tools_rejected_error(), (sample.model_dump_json(), 10, 5)],
+        ) as mock_gen:
+            result = await self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
+        assert result.text == sample.model_dump_json()
+
+    async def test_validation_exhaustion_is_terminal(self):
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor_async",
+            side_effect=[_retry_exhausted(_validation_error())],
+        ) as mock_gen:
+            with pytest.raises(StructuredOutputExhaustedError):
+                await self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS]
+
+    async def test_transient_error_propagates_unchanged(self):
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor_async",
+            side_effect=[ConnectionError("503 service unavailable")],
+        ):
+            with pytest.raises(ConnectionError):
+                await self._call()
 
 
 class TestInstructorFallbackAsync:
