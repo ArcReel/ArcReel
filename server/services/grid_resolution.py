@@ -7,8 +7,12 @@
 
 from __future__ import annotations
 
+import logging
+
 from lib.config.resolver import ConfigResolver
 from lib.grid.layout import large_grid_allowed
+
+logger = logging.getLogger(__name__)
 
 
 async def resolve_grid_image_resolution(r: ConfigResolver, project: dict) -> str | None:
@@ -20,11 +24,13 @@ async def resolve_grid_image_resolution(r: ConfigResolver, project: dict) -> str
     ``model_id``（与估价一致）而非构造后的 backend 身份，避免为一次门控判定构造 backend。
 
     解析失败（未配置图像供应商等）按未配置处理：门控是收紧方向，取不到档位即不放行大宫格。
+    这条降级会让已配置 4K 的项目静默退回 3×3，故留一条 warning 便于排查。
     """
     try:
         resolved = await r.resolve_image_backend(project, None, capability="t2i")
         return await r.resolve_resolution(project, resolved.provider_id, resolved.model_id or "")
-    except Exception:
+    except Exception as exc:
+        logger.warning("宫格档位门控取不到图像分辨率档，按未配置收紧: %s", exc)
         return None
 
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import gcd
 
 # Base resolution for grid rendering (width reference for 16:9)
 _BASE_WIDTH = 1920
@@ -54,6 +53,9 @@ _GRID_LADDER: tuple[tuple[int, str, int], ...] = (
 # 整图比例直接取项目视频比例的规范朝向，单格比例与之一致
 _ORIENTATION_ASPECT: dict[str, str] = {"horizontal": "16:9", "vertical": "9:16"}
 
+# 存量 grid_6（曾经唯一的非方形档）写入时的整图比例，按 (rows, cols) 索引
+_LEGACY_NON_SQUARE_ASPECT: dict[tuple[int, int], str] = {(3, 2): "4:3", (2, 3): "3:4"}
+
 _GATED_MAX_CELL_COUNT = 9
 _MAX_CELL_COUNT = 25
 
@@ -79,16 +81,18 @@ def _orientation_of(aspect_ratio: str) -> str:
 
 
 def grid_aspect_ratio_for(rows: int, cols: int, aspect_ratio: str) -> str:
-    """按记录自身的 rows/cols 反推整图比例，使单格比例恒等于项目视频比例。
+    """按记录自身的 rows/cols 取整图比例，供存量记录重生成使用。
 
-    方形档（rows == cols）下结果即视频比例本身，与 :func:`calculate_grid_layout` 一致；存量
-    非方形记录（3×2 的 grid_6）也按同一条规则求值，重生成时整图比例与该记录的实际几何相符，
-    不必为已删除的档位保留一张历史比例表。
+    方形档（rows == cols）下结果即视频比例本身，与 :func:`calculate_grid_layout` 一致。
+    非方形只可能来自存量 grid_6 记录，取其写入时的比例：重生成沿用记录里冻结的 prompt，
+    下发的比例必须与该 prompt 描述的画布一致；按单格比例反推出的几何自洽比例（3×2 → 32:27）
+    既与 prompt 矛盾，也不在各图像 backend 的尺寸表内，会被静默回退成近方图。
+    未登记的非方形几何回落到视频比例——同样是各 backend 都认得的比例。
     """
-    cell_w, cell_h = (int(x) for x in _ORIENTATION_ASPECT[_orientation_of(aspect_ratio)].split(":"))
-    gw, gh = cell_w * cols, cell_h * rows
-    divisor = gcd(gw, gh)
-    return f"{gw // divisor}:{gh // divisor}"
+    video_aspect = _ORIENTATION_ASPECT[_orientation_of(aspect_ratio)]
+    if rows == cols:
+        return video_aspect
+    return _LEGACY_NON_SQUARE_ASPECT.get((rows, cols), video_aspect)
 
 
 def calculate_grid_layout(num_scenes: int, aspect_ratio: str, *, allow_large_grid: bool = False) -> GridLayout | None:

@@ -21,8 +21,9 @@ export interface FrameCell {
 }
 
 /**
- * 宫格档位能力。grid_size 存的是历史记录写入时的档位字符串（含已停用的 grid_6），
- * 故 GridGeneration.grid_size 保持宽松的 string 类型。
+ * 宫格档位能力。`max_cell_count` 是单张宫格的格数上限，前端据它镜像后端阶梯。
+ * 注意 GridGeneration.grid_size 存的是历史记录写入时的档位字符串（含已停用的 grid_6），
+ * 故保持宽松的 string 类型。
  */
 export interface GridCapability {
   large_grid_allowed: boolean;

@@ -9,8 +9,8 @@ export interface GridLayout {
 /**
  * 档位阶梯，与后端 lib/grid/layout.py 的 _GRID_LADDER 逐项对应:
  * 全部为 N×N 平方切分,单格比例恒等于整图比例(即项目视频比例)。
- * 4×4 / 5×5 只在图像分辨率档为 4K 时可用,由调用方传 allowLargeGrid 门控
- * (取值来自后端 /grid-capability,前端不自行推导分辨率档)。
+ * 哪几档可用由格数上限决定,上限取自后端 /grid-capability 的 max_cell_count
+ * (4K 门控要经供应商解析才能定,前端不自行推导分辨率档)。
  */
 const GRID_LADDER = [
   { cellCount: 4, gridSize: "grid_4", side: 2 },
@@ -19,8 +19,8 @@ const GRID_LADDER = [
   { cellCount: 25, gridSize: "grid_25", side: 5 },
 ] as const;
 
-const GATED_MAX_CELL_COUNT = 9;
-const MAX_CELL_COUNT = 25;
+/** 拿不到后端上限时按门控生效展示(封顶 3×3),宁可少算批次也不虚报 */
+export const FALLBACK_MAX_CELL_COUNT = 9;
 
 interface GridMatchRecord {
   id: string;
@@ -83,10 +83,12 @@ export function groupBySegmentBreak<S extends { segment_break?: boolean }>(
   return groups;
 }
 
-export function computeGridSize(count: number, allowLargeGrid: boolean = false): GridLayout {
+export function computeGridSize(
+  count: number,
+  maxCellCount: number = FALLBACK_MAX_CELL_COUNT
+): GridLayout {
   if (count < 1) return { gridSize: null, rows: 0, cols: 0, cellCount: 0, batchCount: 0 };
-  const cap = allowLargeGrid ? MAX_CELL_COUNT : GATED_MAX_CELL_COUNT;
-  const effective = Math.min(count, cap);
+  const effective = Math.min(count, maxCellCount);
   const { cellCount, gridSize, side } =
     GRID_LADDER.find((cfg) => effective <= cfg.cellCount) ?? GRID_LADDER[GRID_LADDER.length - 1];
 

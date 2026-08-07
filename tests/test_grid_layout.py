@@ -153,9 +153,14 @@ class TestGridAspectRatioFor:
         assert grid_aspect_ratio_for(side, side, "16:9") == "16:9"
         assert grid_aspect_ratio_for(side, side, "9:16") == "9:16"
 
-    def test_legacy_non_square_record_derives_from_own_geometry(self):
-        # 存量 grid_6 记录（横屏 3 行 2 列）：单格取视频比例，整图按该几何反推
-        assert grid_aspect_ratio_for(3, 2, "16:9") == "32:27"
+    def test_legacy_non_square_record_keeps_original_aspect(self):
+        # 存量 grid_6 记录沿用写入时的整图比例，与其冻结的 prompt 描述的画布一致
+        assert grid_aspect_ratio_for(3, 2, "16:9") == "4:3"
+        assert grid_aspect_ratio_for(2, 3, "9:16") == "3:4"
+
+    def test_unregistered_non_square_falls_back_to_video_aspect(self):
+        # 未登记的非方形几何回落到 backend 尺寸表都认得的视频比例，而非自行推算的冷门比例
+        assert grid_aspect_ratio_for(2, 4, "16:9") == "16:9"
 
 
 class TestGridLayoutPixelDimensions:

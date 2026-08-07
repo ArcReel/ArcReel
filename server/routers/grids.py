@@ -318,8 +318,8 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
 
     raw_aspect_ratio = project.get("aspect_ratio")
     aspect_ratio = raw_aspect_ratio if raw_aspect_ratio is not None else "9:16"
-    # 重生成沿用记录自身的 rows/cols（含存量非方形记录），整图比例按该几何反推，
-    # 与记录里已冻结的 prompt 描述的画布保持一致，不重走档位阶梯
+    # 重生成沿用记录自身的 rows/cols（含存量非方形记录）与冻结的 prompt，整图比例按该记录写入时的
+    # 取值给出，与 prompt 描述的画布一致，不重走档位阶梯
     grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, aspect_ratio)
 
     queue = get_generation_queue()

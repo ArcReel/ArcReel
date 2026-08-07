@@ -37,22 +37,26 @@ describe("computeGridSize", () => {
     [16, "grid_16", 4],
     [17, "grid_25", 5],
     [25, "grid_25", 5],
-  ])("uses the %i-scene large layout only when 4K is allowed", (count, gridSize, side) => {
-    const layout = computeGridSize(count, true);
+  ])("uses the %i-scene large layout when the backend raises the cap", (count, gridSize, side) => {
+    const layout = computeGridSize(count, 25);
     expect(layout.gridSize).toBe(gridSize);
     expect([layout.rows, layout.cols]).toEqual([side, side]);
     expect(layout.batchCount).toBe(1);
   });
 
-  it.each([10, 17, 30])("caps at 3×3 for %i scenes when 4K is not allowed", (count) => {
-    const layout = computeGridSize(count, false);
+  it.each([10, 17, 30])("caps at 3×3 for %i scenes under the gated cap", (count) => {
+    const layout = computeGridSize(count, 9);
     expect(layout.gridSize).toBe("grid_9");
     expect(layout.cellCount).toBe(9);
     expect(layout.batchCount).toBe(Math.ceil(count / 9));
   });
 
+  it("falls back to the gated cap when the backend cap is unknown", () => {
+    expect(computeGridSize(16, undefined).gridSize).toBe("grid_9");
+  });
+
   it("chunks beyond the largest layout", () => {
-    expect(computeGridSize(30, true).batchCount).toBe(2);
+    expect(computeGridSize(30, 25).batchCount).toBe(2);
   });
 
   it("returns a null layout for an empty group", () => {

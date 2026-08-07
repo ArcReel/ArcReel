@@ -42,9 +42,9 @@ export function GridPreviewView({
   const [grids, setGrids] = useState<GridGeneration[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [generatingGroups, setGeneratingGroups] = useState<Set<string>>(new Set());
-  // 4×4 / 5×5 的 4K 门控由后端判定：分辨率档要经供应商解析才能定，前端自行推导必然与
-  // 入队口径漂移。取不到时按门控生效（封顶 3×3）保守展示。
-  const [allowLargeGrid, setAllowLargeGrid] = useState(false);
+  // 单张宫格的格数上限由后端给：4×4 / 5×5 的 4K 门控要经供应商解析才能定，前端自行推导
+  // 必然与入队口径漂移。取不到时 computeGridSize 用保守默认值。
+  const [maxCellCount, setMaxCellCount] = useState<number | undefined>(undefined);
 
   const groups = useMemo(() => groupBySegmentBreak(segments), [segments]);
 
@@ -54,7 +54,7 @@ export function GridPreviewView({
     API.getGridCapability(projectName, { signal: controller.signal })
       .then((cap) => {
         if (controller.signal.aborted) return;
-        setAllowLargeGrid(cap.large_grid_allowed);
+        setMaxCellCount(cap.max_cell_count);
       })
       .catch(() => {});
     return () => controller.abort();
@@ -107,7 +107,7 @@ export function GridPreviewView({
   const stats = useMemo(() => {
     // 一个分组超过单张格数上限时后端会切成多张宫格,批次数按实际入队张数累计
     const batches = groups.reduce(
-      (sum, group) => sum + computeGridSize(group.length, allowLargeGrid).batchCount,
+      (sum, group) => sum + computeGridSize(group.length, maxCellCount).batchCount,
       0,
     );
     const cells = segments.length;
@@ -126,7 +126,7 @@ export function GridPreviewView({
     // 就绪率按分组算(一组内多张宫格全部完成才算就绪),分母用分组数而非宫格张数
     const percent = groups.length > 0 ? Math.round((readyBatches / groups.length) * 100) : 0;
     return { batches, cells, percent };
-  }, [groups, segments, grids, episode, contentMode, allowLargeGrid]);
+  }, [groups, segments, grids, episode, contentMode, maxCellCount]);
 
   if (segments.length === 0) {
     return (
@@ -160,7 +160,7 @@ export function GridPreviewView({
 
       <div className="flex flex-col gap-3">
         {groups.map((group, idx) => {
-          const layout = computeGridSize(group.length, allowLargeGrid);
+          const layout = computeGridSize(group.length, maxCellCount);
           const ids = getGridIdsForGroup(group);
           const groupKey = group
             .map((s) => getSegmentId(s, contentMode))
