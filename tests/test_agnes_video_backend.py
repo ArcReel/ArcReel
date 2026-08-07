@@ -619,8 +619,9 @@ class TestFailureAndTimeout:
         assert result.video_uri == "https://cdn.agnes/queried.mp4"
         assert result.duration_seconds == 8
         assert result.video_path.read_bytes() == b"queried-bytes"
-        # 二次查询打到同一 /videos/{id} 端点，用 video_id 而非 task_id
-        assert client.get.call_args_list[1].args[0] == "https://apihub.agnes-ai.com/v1/videos/vid-123"
+        # 二次查询打网关根下的 /agnesapi，按 video_id 传参（不带 /v1，也不用 task_id）
+        assert client.get.call_args_list[1].args[0] == "https://apihub.agnes-ai.com/agnesapi"
+        assert client.get.call_args_list[1].kwargs["params"] == {"video_id": "vid-123"}
 
     async def test_completed_with_direct_url_field_skips_video_id_query(self, tmp_path: Path):
         """完成态直接带 url 字段时直接下载，不发起 video_id 二次查询。"""
@@ -728,6 +729,45 @@ class TestFailureAndTimeout:
             )
 
         assert result.video_uri == "https://cdn.agnes/from-query.mp4"
+
+    async def test_video_id_query_url_under_metadata_is_used(self, tmp_path: Path):
+        """成片查询把下载地址放在 metadata.url：顶层无直接 URL 字段时下探 metadata 取到。"""
+        create_resp = _make_response(200, {"task_id": "t-meta", "status": "queued"})
+        poll_resp = _make_response(
+            200,
+            {"task_id": "t-meta", "video_id": "vid-meta", "status": "completed", "remixed_from_video_id": None},
+        )
+        query_resp = _make_response(
+            200,
+            {
+                "video_id": "vid-meta",
+                "status": "completed",
+                "seconds": "8.0",
+                "metadata": {"url": "https://platform-outputs.agnes-ai.com/videos/meta.mp4"},
+            },
+        )
+        client = _mock_client(
+            post=AsyncMock(return_value=create_resp),
+            get=AsyncMock(side_effect=[poll_resp, query_resp]),
+        )
+        fake_download = AsyncMock(side_effect=_fake_download_factory(b"meta-bytes"))
+
+        with (
+            patch("httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.agnes._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.agnes.download_video", fake_download),
+        ):
+            from lib.video_backends.agnes import AgnesVideoBackend
+
+            backend = AgnesVideoBackend(api_key="k", base_url="https://x/v1")
+            result = await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
+                )
+            )
+
+        assert result.video_uri == "https://platform-outputs.agnes-ai.com/videos/meta.mp4"
+        assert result.video_path.read_bytes() == b"meta-bytes"
 
     async def test_video_id_query_without_url_raises_descriptive_error(self, tmp_path: Path):
         create_resp = _make_response(200, {"task_id": "t-bad-query", "status": "queued"})
@@ -930,7 +970,8 @@ class TestResume:
 
         client.post.assert_not_called()
         assert client.get.call_args_list[0].args[0].endswith("/videos/task-resume-vid")
-        assert client.get.call_args_list[1].args[0] == "https://apihub.agnes-ai.com/v1/videos/vid-resume"
+        assert client.get.call_args_list[1].args[0] == "https://apihub.agnes-ai.com/agnesapi"
+        assert client.get.call_args_list[1].kwargs["params"] == {"video_id": "vid-resume"}
         assert result.video_uri == "https://cdn.agnes/resume-queried.mp4"
         assert result.duration_seconds == 8
         assert (tmp_path / "out.mp4").read_bytes() == b"resume-queried"

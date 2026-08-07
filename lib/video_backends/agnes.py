@@ -2,10 +2,14 @@
 
 走 apihub 网关上的 OpenAI 风格异步端点：submit ``POST /v1/videos``（JSON）取 task_id →
 轮询 ``GET /v1/videos/{task_id}`` 至 ``status=completed``。成片 URL 分两级取：完成态响应
-自带直接 URL 字段（``url`` / ``video_url``，或 ``remixed_from_video_id`` 恰好是 URL 形态时
-兼容旧网关）即直接下载；只有 ``video_id`` 时以其向同一 ``/videos/{video_id}`` 端点二次查询，
-从查询响应取 URL。``remixed_from_video_id`` 语义是 remix 来源视频 ID，非 URL 形态时一律不当
-下载地址。状态机 ``queued → in_progress → completed / failed``。
+自带直接 URL 字段（``url`` / ``video_url`` / ``metadata.url``，或 ``remixed_from_video_id``
+恰好是 URL 形态时兼容旧网关）即直接下载；只有 ``video_id`` 时以其向网关根下的成片查询端点
+``GET /agnesapi?video_id=...`` 二次查询，从查询响应同样按上述字段取 URL。
+``remixed_from_video_id`` 语义是 remix 来源视频 ID，非 URL 形态时一律不当下载地址。
+状态机 ``queued → in_progress → completed / failed``。
+
+轮询端点 ``/v1/videos/{task_id}`` 是网关的旧版任务查询接口，仍受支持；成片结果查询归
+``/agnesapi?video_id=``（网关文档指明按 video_id 查询，不要拿 task_id 打这个端点）。
 
 能力约束：fps 固定 24；时长 1–18s（内部 ``num_frames = 最近的 8n+1``，由秒 × fps 取整对齐，
 上限 441 帧）；分辨率经 aspect_size 精确算出并显式下发 ``height`` × ``width``（不显式下发时
@@ -26,7 +30,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from lib.agnes_shared import agnes_base_url, agnes_headers, resolve_agnes_api_key
+from lib.agnes_shared import agnes_base_url, agnes_headers, agnes_host, resolve_agnes_api_key
 from lib.aspect_size import VIDEO_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.logging_utils import format_kwargs_for_log
@@ -58,6 +62,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "agnes-video-v2.0"
 
 _VIDEOS_ENDPOINT = "/videos"
+# 成片查询端点，挂在网关根（不在 /v1 下），按 video_id 查询。
+_VIDEO_QUERY_ENDPOINT = "/agnesapi"
 
 # fps 固定 24；num_frames 必须形如 8n+1，上限 441（≈18.4s @24fps）。时长按秒 × fps 取整后
 # 对齐到最近的 8n+1。1–3s 会落到 81 帧以下（25/49/73），文档允许的合法值。
@@ -113,11 +119,21 @@ def _looks_like_url(value: str) -> bool:
 
 
 def _first_url_field(body: dict) -> str | None:
-    """按 _DIRECT_URL_FIELDS 顺序探测响应体中形态为 URL 的直接字段，无命中返回 None。"""
+    """按 _DIRECT_URL_FIELDS 顺序探测响应体中形态为 URL 的字段，无命中返回 None。
+
+    顶层无命中时下探 ``metadata``——网关成片查询把下载地址放在 ``metadata.url``。
+    """
     for key in _DIRECT_URL_FIELDS:
         value = body.get(key)
         if isinstance(value, str) and _looks_like_url(value):
             return value
+
+    metadata = body.get("metadata")
+    if isinstance(metadata, dict):
+        for key in _DIRECT_URL_FIELDS:
+            value = metadata.get(key)
+            if isinstance(value, str) and _looks_like_url(value):
+                return value
     return None
 
 
@@ -227,6 +243,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
     ) -> None:
         self._api_key = resolve_agnes_api_key(api_key)
         self._base_url = agnes_base_url(base_url)
+        self._host = agnes_host(base_url)
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
 
@@ -413,11 +430,14 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         retry_if=should_retry_poll,
     )
     async def _query_video(self, client: httpx.AsyncClient, video_id: str) -> dict:
-        """按 ``video_id`` 向同一 ``/videos/{id}`` 端点二次查询成片信息（完成态只含 video_id、
-        无直接 URL 字段时）。幂等 GET，复用轮询同一套重试判定。
+        """按 ``video_id`` 向成片查询端点二次查询（完成态只含 video_id、无直接 URL 字段时）。
+
+        该端点挂在网关根而非 ``/v1`` 下，且只认 video_id——拿 task_id 打它会排队异常。
+        幂等 GET，复用轮询同一套重试判定。
         """
         resp = await client.get(
-            f"{self._base_url}{_VIDEOS_ENDPOINT}/{video_id}",
+            f"{self._host}{_VIDEO_QUERY_ENDPOINT}",
+            params={"video_id": video_id},
             headers=agnes_headers(self._api_key),
         )
         resp.raise_for_status()
