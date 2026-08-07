@@ -32,8 +32,12 @@ _REFERENCE_FIELDS: tuple[tuple[str, str], ...] = (
 )
 
 
-def _unit_references(shots: list[dict]) -> list[dict]:
+def ad_unit_references(shots: list[dict]) -> list[dict]:
     """unit 参考集：成员镜头参考的并集，产品在前，类型内按首次出现顺序去重。
+
+    shots 是内容唯一真相：派生索引、来源签名与执行期请求都从成员镜头现算参考集，
+    三处同源——索引里持久化的 ``references`` 只是展示用缓存，镜头参考字段被编辑后
+    未重新派生时它会落后于镜头，拿它送生成会让产物依据的参考与签名记录的不一致。
 
     去重按归一名（:func:`lib.asset_types.normalize_asset_name`）而非裸字符串：同一资产在不同
     镜头里可能以 NFC/NFD 两种等价编码写入，裸比对判不相等会让它派生出两条 reference——画布
@@ -71,7 +75,7 @@ def derive_ad_reference_units(
     时长之和不超过该上限。单镜头自身超上限时无法再拆，独立成 unit，留给
     执行层 clamp + warning 软处理。
 
-    每个 unit 继承成员镜头的参考集（产品全量且绝对优先，见 ``_unit_references``）。
+    每个 unit 继承成员镜头的参考集（产品全量且绝对优先，见 ``ad_unit_references``）。
 
     Returns:
         ``[{"unit_id": "E{episode}U{n}", "shot_ids": [...], "references": [...]}, ...]``
@@ -109,7 +113,7 @@ def derive_ad_reference_units(
         {
             "unit_id": f"E{episode}U{n}",
             "shot_ids": [s["shot_id"] for s in group],
-            "references": _unit_references(group),
+            "references": ad_unit_references(group),
         }
         for n, group in enumerate(groups, start=1)
     ]
@@ -118,7 +122,7 @@ def derive_ad_reference_units(
 def _reference_signature(entries: object) -> list[tuple[str, str]]:
     """references 的比较坐标系：(type, NFC 归一名) 有序列表。
 
-    落盘条目保留镜头里的原始编码形式（见 ``_unit_references``），同一资产可能以
+    落盘条目保留镜头里的原始编码形式（见 ``ad_unit_references``），同一资产可能以
     NFC/NFD 两种等价形式出现——参考集是否变化必须按归一名判定，裸字节比较会把
     编码形式差异误判为语义变化。脏条目（非 dict、非字符串字段）确定性跳过/降级，
     与派生侧对脏数据的稳健口径一致。
@@ -170,7 +174,7 @@ def ad_unit_source_signature(script: dict, unit: dict) -> str:
     member_ids = [sid for sid in unit.get("shot_ids") or [] if isinstance(sid, str) and sid in by_id]
     payload = {
         "shot_ids": member_ids,
-        "references": _reference_signature(_unit_references([by_id[sid] for sid in member_ids])),
+        "references": _reference_signature(ad_unit_references([by_id[sid] for sid in member_ids])),
     }
     canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

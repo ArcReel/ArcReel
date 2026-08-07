@@ -33,8 +33,10 @@ class _FakePM:
 
 
 class _FakeVM:
-    def __init__(self, project_path=None):
+    def __init__(self, project_path=None, version_metadata=None):
         self.project_path = project_path
+        # 版本档案里的补充元数据（如 source_signature），缺省无档案
+        self.version_metadata = version_metadata or {}
 
     def get_versions(self, resource_type, resource_id):
         if resource_type == "bad":
@@ -48,7 +50,7 @@ class _FakeVM:
         return "2026-01-01T00:00:00+00:00"
 
     def get_version_metadata(self, resource_type, resource_id, version, key) -> str | None:
-        return None
+        return self.version_metadata.get(key)
 
     def restore_version(self, resource_type, resource_id, version, current_file):
         if version == 404:
@@ -246,13 +248,9 @@ class TestVersionsRouter:
             validate=False,
         )
 
-        class _SignedVM(_FakeVM):
-            def get_version_metadata(self, resource_type, resource_id, version, key):
-                assert key == "source_signature"
-                return "signature-of-restored-version"
-
+        signed_vm = _FakeVM(version_metadata={"source_signature": "signature-of-restored-version"})
         monkeypatch.setattr(versions, "get_project_manager", lambda: real_pm)
-        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _SignedVM())
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: signed_vm)
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")

@@ -426,3 +426,41 @@ async def test_ad_stale_index_fails_loud(tmp_path: Path, monkeypatch: pytest.Mon
             {"script_file": "scripts/episode_1.json"},
             user_id="u1",
         )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_ad_generation_uses_shot_derived_references_not_stale_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """镜头参考被改但未重新派生：生成按镜头现算参考集，与落盘的来源签名同源。
+
+    索引里的 ``references`` 是展示缓存，改镜头不会刷新它。若执行期照它送生成，产物会
+    依据旧参考、finalize 却盖上按镜头现算的新签名——stale 被错误清除，档案留下假
+    provenance。断言实收参考图与写回的签名都对齐当前镜头。
+    """
+    from lib.reference_video.ad_units import ad_unit_source_signature
+    from server.services import reference_video_tasks as rvt
+
+    proj_dir = _write_ad_project(tmp_path)
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    # 只改镜头：角色从 E1S2 上摘除，索引条目的 references 仍留着「小美」
+    script["shots"][1].pop("characters_in_shot")
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    fake_generator = _wire_executor(proj_dir, monkeypatch)
+
+    await rvt.execute_reference_video_task(
+        "ad-demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    kwargs = fake_generator.generate_video_async.call_args.kwargs
+    assert [p.name for p in kwargs["reference_images"]] == ["按摩仪.png", "按摩仪_原图.jpg"]
+
+    written = json.loads(script_path.read_text(encoding="utf-8"))
+    unit = written["reference_units"][0]
+    assert unit["generated_assets"]["source_signature"] == ad_unit_source_signature(written, unit)

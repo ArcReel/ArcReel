@@ -26,7 +26,7 @@ from lib.generation_queue import get_generation_queue
 from lib.path_safety import safe_exists
 from lib.prompt_builders import append_product_fidelity_tail
 from lib.reference_video import assemble_shots_text, assemble_shots_text_for_render
-from lib.reference_video.ad_units import ad_unit_source_signature, resolve_ad_unit_shots
+from lib.reference_video.ad_units import ad_unit_references, ad_unit_source_signature, resolve_ad_unit_shots
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.errors import MissingReferenceError
 from lib.reference_video.prompt_render import (
@@ -595,8 +595,11 @@ async def execute_reference_video_task(
     ad_entries: list[dict] = []
     ad_warnings: list[dict] = []
     if is_ad:
+        # 参考集从成员镜头快照现算，与来源签名同源：索引里持久化的 references 只是
+        # 展示缓存，镜头参考字段被编辑后未重新派生时它落后于镜头——拿它送生成会让
+        # 产物依据旧参考、签名却记录新参考，stale 被错误清除且档案留下假 provenance。
         ad_entries, ad_warnings = _resolve_ad_unit_reference_entries(
-            project, project_path, unit.get("references") or []
+            project, project_path, ad_unit_references(ad_shots or [])
         )
         source_refs = [e["image"] for e in ad_entries]
     else:

@@ -793,9 +793,8 @@ async def test_execute_reference_video_task_ad_bucket_follows_resolved_not_decla
 ):
     """ad 声明了参考但资产全缺图 → 软跳过后实际参考为空，按 i2v 定桶。
 
-    与清空声明的用例互补：这里 ``unit["references"]`` 非空，只有按**解析结果**定桶才会
-    得到 i2v——若实现回退成按声明判定（``bool(unit["references"])``），该 unit 会被送进
-    拒空参考的 r2v 桶模型，正是分流要消除的失败。
+    与清空声明的用例互补：这里镜头声明了参考，只有按**解析结果**定桶才会得到 i2v——
+    若实现回退成按声明判定，该 unit 会被送进拒空参考的 r2v 桶模型，正是分流要消除的失败。
     """
     proj_dir = _write_project(tmp_path)
 
@@ -813,6 +812,7 @@ async def test_execute_reference_video_task_ad_bucket_follows_resolved_not_decla
         {
             "shot_id": "S1",
             "duration_seconds": 3,
+            "scenes": ["酒馆"],
             "image_prompt": {"scene": "产品置于木桌上"},
             "video_prompt": {"action": "镜头缓推"},
         }

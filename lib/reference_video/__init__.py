@@ -1,5 +1,6 @@
 from lib.reference_video.ad_units import (
     AD_UNIT_MAX_SHOTS,
+    ad_unit_references,
     ad_unit_source_signature,
     annotate_ad_unit_staleness,
     derive_ad_reference_units,
@@ -75,6 +76,7 @@ __all__ = [
     "ScriptPreview",
     "ShotUtterance",
     "VoiceBindings",
+    "ad_unit_references",
     "ad_unit_source_signature",
     "annotate_ad_unit_staleness",
     "assemble_shots_text",
