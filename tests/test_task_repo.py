@@ -131,16 +131,28 @@ class TestTaskRepository:
             payload={"prompt": "unit1"},
             script_file="ep1.json",
         )
-        # 同名 resource_id 落在另一个 script_file 下，不算冲突。
-        other_episode = await repo.enqueue(
-            project_name="demo",
-            task_type="reference_video",
-            media_type="video",
-            resource_id="E1U1",
-            payload={"prompt": "other-episode"},
-            script_file="ep2.json",
-        )
-        assert not other_episode["deduped"]
+        # 去重键的每个维度各放一个同名 resource_id 的活动干扰任务：任一维度从查询条件里
+        # 漏掉，它对应的干扰任务就会混进结果，把别的项目/任务类型的在途状态错算成本次冲突。
+        decoys = [
+            {"project_name": "other-demo"},
+            {"task_type": "video"},
+            {"resource_type": "unit"},
+            {"script_file": "ep2.json"},
+            {"resource_id": "E1U9"},
+        ]
+        for override in decoys:
+            enqueued = await repo.enqueue(
+                **{
+                    "project_name": "demo",
+                    "task_type": "reference_video",
+                    "media_type": "video",
+                    "resource_id": "E1U1",
+                    "payload": {"prompt": "decoy"},
+                    "script_file": "ep1.json",
+                    **override,
+                }
+            )
+            assert not enqueued["deduped"], f"干扰任务被去重，无法验证维度 {override}"
 
         found = await repo.get_active_tasks_for_resources(
             project_name="demo",
