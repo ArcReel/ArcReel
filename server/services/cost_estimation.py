@@ -385,29 +385,29 @@ class CostEstimationService:
                         grid_cost_per_segment[seg.get(id_key, "")] = (per_scene_cost, grid_image_unit_cost[1])
 
             # --- Grid actual cost apportionment ---
-            # Map grid_id → [scene_ids] from each segment's generated_assets
-            grid_to_scenes: dict[str, list[str]] = {}
-            for seg in raw_segments:
+            # 均摊份额以条目在 raw_segments 中的位置为身份，而非条目 ID：ADR 0053 接受一张
+            # 宫格覆盖的多个条目共用同一 ID，位置唯一而 ID 不唯一，只有按位置组织才能让每个
+            # 条目（含同 ID 条目）恰好消费一次自己的份额。
+            grid_to_indices: dict[str, list[int]] = {}
+            for idx, seg in enumerate(raw_segments):
                 gid = get_generated_assets(seg).get("grid_id")
-                sid = seg.get(id_key, "")
-                if gid and sid:
-                    grid_to_scenes.setdefault(gid, []).append(sid)
+                if gid and seg.get(id_key, ""):
+                    grid_to_indices.setdefault(gid, []).append(idx)
 
-            # Compute per-scene share of each grid's actual cost
-            grid_actual_per_scene: dict[str, CostBreakdown] = {}
-            for gid, sids in grid_to_scenes.items():
+            # 逐宫格算出每个位置的份额；``_split_cost_across`` 的余数补偿保证各份之和与冻结
+            # 实付分文不差。
+            grid_actual_per_index: dict[int, CostBreakdown] = {}
+            for gid, indices in grid_to_indices.items():
                 grid_cost = _claim_actual(actual_by_segment, claimed_actual, gid, ("image",)).get("image", {})
                 if grid_cost:
-                    n = len(sids)
-                    per_scene: CostBreakdown = {cur: round(amt / n, 6) for cur, amt in grid_cost.items()}
-                    for sid in sids:
-                        grid_actual_per_scene[sid] = _merge_breakdowns(grid_actual_per_scene.get(sid, {}), per_scene)
+                    for idx, share in zip(indices, _split_cost_across(grid_cost, len(indices)), strict=True):
+                        grid_actual_per_index[idx] = share
 
             segments_result = []
             ep_est: dict[str, CostBreakdown] = {}
             ep_act: dict[str, CostBreakdown] = {}
 
-            for seg in raw_segments:
+            for idx, seg in enumerate(raw_segments):
                 seg_id = seg.get(id_key, "")
                 duration = seg.get("duration_seconds", 8)
 
@@ -457,8 +457,8 @@ class CostEstimationService:
 
                 seg_actual = _claim_actual(actual_by_segment, claimed_actual, seg_id)
                 act_image: CostBreakdown = seg_actual.get("image", {})
-                if seg_id in grid_actual_per_scene:
-                    act_image = _merge_breakdowns(act_image, grid_actual_per_scene[seg_id])
+                if idx in grid_actual_per_index:
+                    act_image = _merge_breakdowns(act_image, grid_actual_per_index[idx])
                 act_video: CostBreakdown = seg_actual.get("video", {})
                 act_audio: CostBreakdown = seg_actual.get("audio", {})
 
