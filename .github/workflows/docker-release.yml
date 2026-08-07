@@ -83,12 +83,23 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
-      - name: Trivy HIGH report (non-blocking)
+      - name: Trivy HIGH report amd64 (non-blocking)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}:scan-amd64-${{ github.sha }}
+          format: table
+          severity: HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Trivy HIGH report arm64 (non-blocking)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}:scan-arm64-${{ github.sha }}
           format: table
           severity: HIGH
           ignore-unfixed: true

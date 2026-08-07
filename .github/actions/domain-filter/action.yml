@@ -61,17 +61,18 @@ runs:
       shell: bash
       env:
         FULL: ${{ inputs.full }}
-        F_WORKFLOW: ${{ steps.filter.outputs.workflow }}
-        F_BACKEND: ${{ steps.filter.outputs.backend }}
-        F_FRONTEND: ${{ steps.filter.outputs.frontend }}
-        F_DOCKER: ${{ steps.filter.outputs.docker }}
+        # full 模式跳过 filter 步骤时其 outputs 为空，在表达式层统一兜底
+        F_WORKFLOW: ${{ steps.filter.outputs.workflow || 'false' }}
+        F_BACKEND: ${{ steps.filter.outputs.backend || 'false' }}
+        F_FRONTEND: ${{ steps.filter.outputs.frontend || 'false' }}
+        F_DOCKER: ${{ steps.filter.outputs.docker || 'false' }}
       run: |
         if [[ "$FULL" == "true" || "$F_WORKFLOW" == "true" ]]; then
           echo "backend=true" >> "$GITHUB_OUTPUT"
           echo "frontend=true" >> "$GITHUB_OUTPUT"
           echo "docker=true" >> "$GITHUB_OUTPUT"
         else
-          echo "backend=${F_BACKEND:-false}" >> "$GITHUB_OUTPUT"
-          echo "frontend=${F_FRONTEND:-false}" >> "$GITHUB_OUTPUT"
-          echo "docker=${F_DOCKER:-false}" >> "$GITHUB_OUTPUT"
+          echo "backend=$F_BACKEND" >> "$GITHUB_OUTPUT"
+          echo "frontend=$F_FRONTEND" >> "$GITHUB_OUTPUT"
+          echo "docker=$F_DOCKER" >> "$GITHUB_OUTPUT"
         fi
