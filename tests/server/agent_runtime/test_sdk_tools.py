@@ -3515,6 +3515,34 @@ async def test_generate_video_selected_ad_reports_residual_staleness(
     assert "E1U1" in text
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("mutated_index", [[], {"E1U1": {"unit_id": "E1U1"}}], ids=["vanished", "malformed"])
+async def test_generate_video_selected_ad_recheck_without_coverage_says_so(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch, mutated_index: Any
+) -> None:
+    """复核覆盖不到点名 unit 时报「无法复核」，不把空集合当成「未偏离」宣布干净。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
+
+    inner = _ad_batch(ad_reference_ctx, [])
+
+    async def fake_batch(**kwargs: Any):
+        result = await inner(**kwargs)
+        # 生成落盘后索引被并发重新派生：点名的 ID 消失 / 容器被写成非数组
+        pm.script_payload["reference_units"] = mutated_index  # type: ignore[attr-defined]
+        return result
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_selected_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
+
+    assert out.get("is_error") is not True, out
+    assert "无法复核" in out["content"][0]["text"]
+
+
 # ---------------------------------------------------------------------------
 # split_reference_video_units
 # ---------------------------------------------------------------------------

@@ -737,12 +737,18 @@ def _report_residual_staleness(ctx: ToolContext, script_filename: str, unit_ids:
     stale 是产物签名与当前编排的读时比较结果，正常路径下 finalize 落新签名即自然回清；
     但生成期间剧本被改、或产物没带上签名时它会留下来。不复核就只能由智能体替系统宣布
     角标已消失，说错了用户无从察觉。复核失败不改变本次生成的成败——产物已落盘、已计费。
+
+    覆盖不到全部点名 unit 的复核一律按「无法复核」报，不按「未偏离」报：索引被并发重新
+    派生后点名的 ID 可能已不存在，此时过滤只会得到空集合，沿用空集合等于替系统宣布干净。
     """
     try:
         fresh = ctx.pm.load_script(ctx.project_name, script_filename)
-        units = [
-            u for u in (fresh.get("reference_units") or []) if isinstance(u, dict) and u.get("unit_id") in unit_ids
-        ]
+        indexed = fresh.get("reference_units") or []
+        if not isinstance(indexed, list):
+            raise ValueError(f"reference_units 必须是数组，当前为 {type(indexed).__name__}")
+        units = [u for u in indexed if isinstance(u, dict) and u.get("unit_id") in unit_ids]
+        if missing := unit_ids - {str(u["unit_id"]) for u in units}:
+            raise ValueError(f"以下 unit 已不在分组索引中：{'、'.join(sorted(missing))}")
         residual = ad_stale_unit_ids(fresh, units)
     except Exception as exc:  # noqa: BLE001
         log.append(f"⚠️  无法复核重新生成后的 stale 状态：{exc}")
@@ -1106,8 +1112,9 @@ def generate_video_all_tool(ctx: ToolContext):
 def generate_video_selected_tool(ctx: ToolContext):
     @tool(
         "generate_video_selected",
-        "生成指定多个场景的视频（独立 checkpoint，按 scene_ids 哈希）。ad 参考直出项目传 unit_id 列表即"
-        "对这些 unit 重新生成（覆盖已有成片）；其余 reference_video 项目会忽略 scene_ids 转整集生成。",
+        "生成指定多个场景的视频。storyboard 项目用按 scene_ids 哈希的独立 checkpoint，支持 resume 续传。"
+        "ad 参考直出项目传 unit_id 列表即对这些 unit 重新生成（覆盖已有成片），不落 checkpoint、不支持 resume；"
+        "其余 reference_video 项目会忽略 scene_ids 转整集生成。",
         {
             "type": "object",
             "properties": {
@@ -1120,7 +1127,10 @@ def generate_video_selected_tool(ctx: ToolContext):
                     "items": {"type": "string"},
                     "description": '场景或片段 ID 列表；ad 参考直出项目传 video_unit 的 unit_id 列表（如 ["E1U2"]）',
                 },
-                "resume": {"type": "boolean", "description": "是否从上次中断处继续"},
+                "resume": {
+                    "type": "boolean",
+                    "description": "是否从上次中断处继续；ad 参考直出项目的点名重新生成会忽略此参数",
+                },
                 "confirm_duration": _CONFIRM_DURATION_SCHEMA_PROPERTY,
             },
             "required": ["script", "scene_ids"],
