@@ -19,6 +19,7 @@ from lib.text_backends.base import (
     check_truncation,
     resolve_schema,
     structured_fallback_reason,
+    truncate_for_log,
 )
 
 logger = logging.getLogger(__name__)
@@ -91,8 +92,9 @@ class OpenAITextBackend:
             fallback_reason = structured_fallback_reason(native.text, request.response_schema)
             if fallback_reason:
                 logger.warning(
-                    "原生 response_format %s，降级到带校验的 Instructor 路径",
+                    "原生 response_format %s，降级到带校验的 Instructor 路径；模型原始输出：%s",
                     fallback_reason,
+                    truncate_for_log(native.text),
                 )
                 result = await _instructor_fallback(
                     self._client,

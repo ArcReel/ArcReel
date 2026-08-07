@@ -44,9 +44,11 @@ from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager, resolve_source_kind
 from lib.text_backends.base import (
     DEFAULT_MAX_OUTPUT_TOKENS,
+    StructuredOutputExhaustedError,
     TextGenerationRequest,
     TextOutputTruncatedError,
     TextTaskType,
+    truncate_for_log,
 )
 from lib.text_generator import TextGenerator
 from lib.text_metrics import count_reading_units, reading_unit_noun
@@ -606,6 +608,10 @@ class EpisodePlanner:
         结构化输出被输出上限截断时 :class:`TextOutputTruncatedError` 直接短路本循环——
         重发同一份必然再截断的请求没有意义；追加本规划器特有的杠杆提示（调小窗口字数 /
         每批集数）后转为 :class:`EpisodePlanningError` 冒泡（见 docs/adr/0044）。
+
+        后端结构化输出降级链耗尽的 :class:`StructuredOutputExhaustedError` 同样短路本循环，
+        转为 :class:`EpisodePlanningError`，让智能体拿到「供应商结构化输出能力不足」的可读
+        话术而非后端内部异常原文。
         """
         if self.generator is None:
             raise RuntimeError("TextGenerator 未初始化，请使用 EpisodePlanner.create() 工厂方法")
@@ -625,6 +631,9 @@ class EpisodePlanner:
                     f"{exc}也可调小项目设置 planning_window_chars（单批窗口字数）或 "
                     "planning_max_episodes（单批集数上限）以缩小本批输出体量后重试。"
                 ) from exc
+            except StructuredOutputExhaustedError as exc:
+                # 后端的降级链已把各档与档内重试都走完，本层再重试只是重复同一条必败路径。
+                raise EpisodePlanningError(str(exc)) from exc
             try:
                 draft = self._parse_draft(result.text, draft_model)
                 drafts = list(getattr(draft, "episodes"))
@@ -651,11 +660,13 @@ class EpisodePlanner:
         try:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
+            logger.warning("分集规划输出不是合法 JSON（%s）；模型原始输出：%s", exc, truncate_for_log(response_text))
             raise _DraftRejected([f"输出不是合法 JSON：{exc}"]) from exc
         try:
             return draft_model.model_validate(data)
         except ValidationError as exc:
             issues = "; ".join(f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors()[:5])
+            logger.warning("分集规划输出不符合 schema（%s）；模型原始输出：%s", issues, truncate_for_log(response_text))
             raise _DraftRejected([f"输出不符合 schema：{issues}"]) from exc
 
     def _effective_start(self, project: Mapping[str, Any]) -> tuple[str, int]:

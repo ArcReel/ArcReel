@@ -16,6 +16,7 @@ from ..logging_utils import format_kwargs_for_log
 from ..providers import PROVIDER_GEMINI
 from ..text_utils import strip_json_code_fences
 from .base import (
+    StructuredOutputExhaustedError,
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
@@ -24,6 +25,7 @@ from .base import (
     resolve_schema,
     structured_fallback_reason,
     summarize_validation_error,
+    truncate_for_log,
 )
 
 logger = logging.getLogger(__name__)
@@ -203,8 +205,7 @@ class GeminiTextBackend:
         """异步生成文本，支持结构化输出和 vision。
 
         本方法不带重试装饰器：瞬态错误重试在 :meth:`_generate_native` 层完成。若把复验/
-        降级也包进重试范围，降级尝试的失败会连带重放已成功的原生调用（重试叠乘），且降级
-        穷尽的 ValueError 消息含模型侧动态文本，可能误中重试判定的字符串模式。
+        降级也包进重试范围，降级尝试的失败会连带重放已成功的原生调用（重试叠乘）。
         """
         native = await self._generate_native(request, structured=bool(request.response_schema))
 
@@ -215,7 +216,11 @@ class GeminiTextBackend:
             # 容忍可强转值，避免对供应商已接受的合法响应触发多余的计费降级调用。
             fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
             if fallback_reason:
-                logger.warning("原生 response_schema %s，降级到 prompt 注入路径", fallback_reason)
+                logger.warning(
+                    "原生 response_schema %s，降级到 prompt 注入路径；模型原始输出：%s",
+                    fallback_reason,
+                    truncate_for_log(native.text),
+                )
                 result = await self._prompt_json_fallback(request)
                 # 这次原生 200 调用已被计费，把它的 token 并入降级结果，否则会系统性漏记。
                 # 仅在至少一侧有计量时相加；两侧皆 None（未追踪）保持 None，不塌成字面 0 token。
@@ -325,11 +330,16 @@ class GeminiTextBackend:
                     output_tokens=total_output,
                 )
             feedback = f"\n\n上次输出不符合要求（{last_reason}），请严格按上述 JSON Schema 重新输出纯 JSON。"
-            logger.warning("prompt 注入降级输出校验未通过（%s），带反馈重试", last_reason)
+            logger.warning(
+                "prompt 注入降级输出校验未通过（%s），带反馈重试；模型原始输出：%s",
+                last_reason,
+                truncate_for_log(text),
+            )
 
-        raise ValueError(
-            f"模型 {_FALLBACK_MAX_ATTEMPTS + 1} 次尝试后仍未返回符合要求的 JSON（{last_reason}）；"
-            "当前供应商或模型可能不支持结构化输出，请更换模型或供应商后重试"
+        raise StructuredOutputExhaustedError(
+            provider=PROVIDER_GEMINI,
+            model=self._model,
+            reason=f"prompt 注入降级 {_FALLBACK_MAX_ATTEMPTS} 次尝试后输出仍不合规（{last_reason}）",
         )
 
 
