@@ -368,9 +368,10 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     **代表性** provider——worker 认领时拿不到真实 capability（见 ``docs/adr/0001``），这点近似不影响
     生成正确性（执行层会独立精确再解析一次）；``image_edit`` 是唯一例外（必然 i2i、入队即知），
     按 i2i 槽精确解析。视频定桶经 ``video_bucket_for_queued_task`` 与入队派生共用：
-    参考生视频按 unit **声明**的参考集近似分流（无引用退化镜头 → i2v），投影只服务 claim
-    过滤与限流路由；执行侧按解析后的**实际**参考图精确定桶，ad 声明了参考但资产缺图时
-    两者允许分裂（执行前经 ``persist_execution_identity`` 把实际身份写回投影列与锁定键）。
+    参考生视频按参考集分流（无引用退化镜头 → i2v）——ad 从成员镜头现算（与执行侧同源，
+    索引里的 references 只是可能落后于镜头的展示缓存），其余按 unit **声明**的参考集近似。
+    投影只服务 claim 过滤与限流路由；执行侧按解析后的**实际**参考图精确定桶，ad 参考集
+    非空但资产缺图时两者允许分裂（执行前经 ``persist_execution_identity`` 把实际身份写回投影列与锁定键）。
     解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
