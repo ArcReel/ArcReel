@@ -131,20 +131,21 @@ class TestTaskRepository:
             payload={"prompt": "unit1"},
             script_file="ep1.json",
         )
-        # 不同 script_file 命中同一 resource_id 但不应算作冲突。
-        await repo.enqueue(
+        # 同名 resource_id 落在另一个 script_file 下，不算冲突。
+        other_episode = await repo.enqueue(
             project_name="demo",
             task_type="reference_video",
             media_type="video",
-            resource_id="E1U3",
+            resource_id="E1U1",
             payload={"prompt": "other-episode"},
             script_file="ep2.json",
         )
+        assert not other_episode["deduped"]
 
         found = await repo.get_active_tasks_for_resources(
             project_name="demo",
             task_type="reference_video",
-            resource_ids=["E1U1", "E1U2", "E1U3"],
+            resource_ids=["E1U1", "E1U2"],
             script_file="ep1.json",
         )
 
