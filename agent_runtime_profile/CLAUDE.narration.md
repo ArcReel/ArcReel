@@ -166,7 +166,7 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 ├── characters/        # 角色设计图
 ├── scenes/            # 场景设计图
 ├── props/             # 道具设计图
-├── storyboards/       # 分镜图片（storyboard 模式；`grid_storyboard=true` 时存宫格切割出的首尾帧）
+├── storyboards/       # 分镜图片（storyboard 模式；`grid_storyboard=true` 时存宫格切割出的起始分镜图）
 ├── grids/             # 宫格大图（storyboard 模式且 `grid_storyboard=true`）
 ├── videos/            # 生成的视频片段（storyboard 模式）
 ├── reference_videos/  # 生成的 video_unit（reference_video 模式）
