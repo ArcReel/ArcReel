@@ -70,7 +70,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 ### 参考直出（reference_video）的派生分组
 
 - 剧本骨架不变（仍是平铺 `shots[]`）；`generate_video_*` 工具会自动把**连续镜头**派生分组为 video_unit（每 unit ≤4 个镜头，unit 总时长受供应商单次生成上限约束），按 unit 直出视频到 `reference_videos/{unit_id}.mp4`，跳过分镜步骤
-- 分组索引持久在剧本 `reference_units` 字段（仅引用 shot_id 与参考集）——由工具派生维护，**不要手工编辑**；shots 是内容唯一真相，镜头编辑后再次生成即自动重新派生，未变化的 unit 不重复生成
+- 分组索引持久在剧本 `reference_units` 字段（仅引用 shot_id 与参考集）——由工具派生维护，**不要手工编辑**；shots 是内容唯一真相，镜头编辑后再次生成即自动重新派生。整集生成只补没有成片的 unit，已有成片的一律沿用——编排改动过的 unit 也不例外，要更新须按 `unit_id` 点名重做（见 `generate-video` skill）
 - unit 参考集从成员镜头继承：产品参考全量注入且绝对优先（有 sheet 时 sheet + 原图，无 sheet 时原图直注，自动附高保真指令），其后是角色/场景/道具 sheet；口播文案不进画面 prompt
 - **镜头时长约束**：reference_video 路径下单镜头时长为 1-15 秒自由整数（storyboard 路径则须取视频模型 `supported_durations` 成员）；越界时主动列出并建议调整，经 `patch_episode_script` 修正后再生成
 

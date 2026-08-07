@@ -3263,6 +3263,287 @@ async def test_generate_video_all_ad_reference_falls_through_to_episode(
 
 
 # ---------------------------------------------------------------------------
+# ad 参考直出：点名 unit 重新生成
+# ---------------------------------------------------------------------------
+
+
+def _existing_ad_unit(
+    ctx: ToolContext, *, shot_ids: list[str], signature: str | None = "signature-of-old-orchestration"
+) -> dict[str, Any]:
+    """一个已有成片（文件也在盘）的分组索引条目；``signature`` 为 None 表示存量无签名产物。"""
+    assets: dict[str, Any] = {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"}
+    if signature is not None:
+        assets["source_signature"] = signature
+    out = ctx.project_path / "reference_videos" / "E1U1.mp4"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(b"\x00")
+    return {
+        "unit_id": "E1U1",
+        "shot_ids": shot_ids,
+        "references": [{"type": "product", "name": "保温杯"}],
+        "generated_assets": assets,
+    }
+
+
+def _ad_batch(ctx: ToolContext, enqueued: list[Any], *, refresh_signature: bool = True, fail: bool = False):
+    """``batch_enqueue_and_wait`` 替身：记录 spec，成功时按 finalize 的写点更新索引条目。"""
+
+    async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+        from lib.reference_video.ad_units import ad_unit_source_signature
+
+        script = ctx.pm.script_payload  # type: ignore[attr-defined]
+        by_id = {u["unit_id"]: u for u in script.get("reference_units") or []}
+        successes: list[Any] = []
+        failures: list[Any] = []
+        for spec in specs:
+            enqueued.append(spec)
+            if fail:
+                br = BatchTaskResult(
+                    resource_id=spec.resource_id, task_id="t1", status="failed", error="供应商拒绝：额度不足"
+                )
+                failures.append(br)
+                if on_failure:
+                    on_failure(br)
+                continue
+            out = ctx.project_path / "reference_videos" / f"{spec.resource_id}.mp4"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(b"\x01")
+            unit = by_id.get(spec.resource_id)
+            if unit is not None:
+                assets = unit.setdefault("generated_assets", {})
+                assets["video_clip"] = f"reference_videos/{spec.resource_id}.mp4"
+                assets["status"] = "completed"
+                if refresh_signature:
+                    assets["source_signature"] = ad_unit_source_signature(script, unit)
+            br = BatchTaskResult(
+                resource_id=spec.resource_id,
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
+            )
+            successes.append(br)
+            if on_success:
+                on_success(br)
+        return successes, failures
+
+    return fake_batch
+
+
+@pytest.mark.unit
+async def test_generate_video_selected_ad_regenerates_named_stale_unit(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """点名 stale unit：不复用既有成片、照常入队，且不重新派生分组索引。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
+
+    enqueued: list[Any] = []
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, enqueued))
+
+    tool_obj = generate_video_selected_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
+
+    assert out.get("is_error") is not True, out
+    assert [s.resource_id for s in enqueued] == ["E1U1"]
+    # 分组不重新派生：索引仍是点名时的成员集，prompt 也只含该成员镜头
+    script = pm.script_payload  # type: ignore[attr-defined]
+    assert script["reference_units"][0]["shot_ids"] == ["E1S1"]
+    assert "E1S2" not in enqueued[0].payload["prompt"]
+    # finalize 落新签名后不再偏离，工具不再报 stale
+    assert "stale" not in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_generate_video_scene_ad_regenerates_named_unit(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """单 unit 入口同样点名生效，不再退化成整集生成。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
+
+    enqueued: list[Any] = []
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, enqueued))
+
+    tool_obj = generate_video_scene_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1U1"})
+
+    assert out.get("is_error") is not True, out
+    assert [s.resource_id for s in enqueued] == ["E1U1"]
+    assert "转整集生成" not in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_generate_video_selected_ad_forces_non_stale_unit(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """非 stale 的 unit 被点名时同样重新生成——点名即强制，不按现有产物复用。"""
+    from lib.reference_video.ad_units import ad_unit_source_signature
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    unit = _existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1", "E1S2"], signature=None)
+    pm.script_payload["reference_units"] = [unit]  # type: ignore[attr-defined]
+    unit["generated_assets"]["source_signature"] = ad_unit_source_signature(pm.script_payload, unit)  # type: ignore[attr-defined]
+
+    enqueued: list[Any] = []
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, enqueued))
+
+    tool_obj = generate_video_selected_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
+
+    assert out.get("is_error") is not True, out
+    assert [s.resource_id for s in enqueued] == ["E1U1"]
+
+
+@pytest.mark.unit
+async def test_generate_video_selected_ad_keeps_episode_checkpoint(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """点名重新生成不落 checkpoint，也不清掉整集生成留下的断点。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
+    ckpt = ad_reference_ctx.project_path / "videos" / ".checkpoint_ep1.json"
+    ckpt.parent.mkdir(parents=True, exist_ok=True)
+    ckpt.write_text(json.dumps({"completed_scenes": ["E1U9"]}), encoding="utf-8")
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, []))
+
+    tool_obj = generate_video_selected_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"], "resume": True})
+
+    assert out.get("is_error") is not True, out
+    assert json.loads(ckpt.read_text(encoding="utf-8"))["completed_scenes"] == ["E1U9"]
+    # resume 对点名重新生成无意义，照单收下再无视会让调用方以为断点还在
+    assert "resume 已忽略" in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_generate_video_selected_ad_unknown_unit_ids_error(ad_reference_ctx: ToolContext) -> None:
+    """全部点名 ID 都不在索引里：报错并带上索引现有的 unit_id。"""
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
+
+    tool_obj = generate_video_selected_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U7"]})
+
+    assert out["is_error"] is True
+    text = out["content"][0]["text"]
+    assert "E1U7" in text
+    assert "E1U1" in text
+
+
+@pytest.mark.unit
+async def test_generate_video_selected_ad_skips_unknown_and_generates_rest(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """部分点名 ID 无效时生成其余 unit，被跳过的 ID 写进输出供智能体转述。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
+
+    enqueued: list[Any] = []
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, enqueued))
+
+    tool_obj = generate_video_selected_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1", "E1U7"]})
+
+    assert out.get("is_error") is not True, out
+    assert [s.resource_id for s in enqueued] == ["E1U1"]
+    assert "E1U7" in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_generate_video_selected_ad_dangling_index_fails_loud(ad_reference_ctx: ToolContext) -> None:
+    """点名 unit 的成员镜头已被删：报出重新派生分组的指引，不静默跳过。"""
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S9"])]  # type: ignore[attr-defined]
+
+    tool_obj = generate_video_selected_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
+
+    assert out["is_error"] is True
+    text = out["content"][0]["text"]
+    assert "E1U1" in text
+    assert "重新派生分组" in text
+
+
+@pytest.mark.unit
+async def test_generate_video_selected_ad_reports_failure_reason(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """生成失败时供应商给的原因随工具输出回到智能体手上。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, [], fail=True))
+
+    tool_obj = generate_video_selected_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
+
+    assert out["is_error"] is True
+    assert "额度不足" in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_generate_video_selected_ad_reports_residual_staleness(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """产物没带上新签名时仍判 stale，工具明说而不是让智能体宣布角标已消失。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, [], refresh_signature=False))
+
+    tool_obj = generate_video_selected_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
+
+    assert out.get("is_error") is not True, out
+    text = out["content"][0]["text"]
+    assert "stale" in text
+    assert "E1U1" in text
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mutated_index", [[], {"E1U1": {"unit_id": "E1U1"}}], ids=["vanished", "malformed"])
+async def test_generate_video_selected_ad_recheck_without_coverage_says_so(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch, mutated_index: Any
+) -> None:
+    """复核覆盖不到点名 unit 时报「无法复核」，不把空集合当成「未偏离」宣布干净。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    pm = ad_reference_ctx.pm
+    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
+
+    inner = _ad_batch(ad_reference_ctx, [])
+
+    async def fake_batch(**kwargs: Any):
+        result = await inner(**kwargs)
+        # 生成落盘后索引被并发重新派生：点名的 ID 消失 / 容器被写成非数组
+        pm.script_payload["reference_units"] = mutated_index  # type: ignore[attr-defined]
+        return result
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_selected_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
+
+    assert out.get("is_error") is not True, out
+    assert "无法复核" in out["content"][0]["text"]
+
+
+# ---------------------------------------------------------------------------
 # split_reference_video_units
 # ---------------------------------------------------------------------------
 

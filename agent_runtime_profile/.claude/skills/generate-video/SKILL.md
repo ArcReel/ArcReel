@@ -33,6 +33,8 @@ ad 剧本骨架唯一（平铺 `shots[]`，不存在 `video_units`）。项目 `
 
 镜头编辑（增删/改时长/重排）后再次调用生成工具即自动重新派生；成员与参考集未变的 unit 保留已生成的视频，不重复消耗。
 
+成员或参考集变了的 unit 同样保留旧成片（剧本编辑不作废产物），只在工具输出里以 stale 清单透出——整集生成**不会**替用户把它们重做。要更新这些 unit，点名它们重新生成（见下方「点名重新生成 unit」）。
+
 广告/短片项目的产品镜头（`products_in_shot` 非空）在视频层自动二次注入产品参考：视频后端支持在首帧请求上叠加参考输入时把产品参考随请求注入并附高保真指令，不支持时正常降级——无需手动指定，video_prompt 不必复述产品外观。
 
 > 画面比例、时长等规格由项目配置和视频模型能力决定，MCP 工具自动处理。
@@ -54,7 +56,26 @@ ad 剧本骨架唯一（平铺 `shots[]`，不存在 `video_units`）。项目 `
 
 > 所有任务一次性提交到生成队列，由 Worker 按 per-provider 并发配置自动调度。
 > 集号从 script 顶层 `episode` 或文件名推导，无需手动传。
-> `reference_video` 模式下 `scene_id` / `scene_ids` 会被忽略，转整集生成。
+> narration / drama 的 `reference_video` 项目下 `scene_id` / `scene_ids` 会被忽略，转整集生成；
+> ad 参考直出项目改为按 unit 点名，见下。
+
+### 点名重新生成 unit（ad 参考直出）
+
+ad 参考直出项目下，`scene_id` / `scene_ids` 传的是 video_unit 的 `unit_id`：
+
+| 操作 | 工具 |
+|------|------|
+| 重新生成单个 unit | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1U2"})` |
+| 重新生成多个 unit | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1U2", "E1U3"]})` |
+
+一次调用完成入队、等待与结果回报（申请时长与剧本编排不一致时同样先走下方的时长确认，
+确认后的那次调用才入队）。要点：
+
+- **点名即强制**：已有成片一律覆盖重做，unit 是否 stale 都可以重来一次——用户对满意度不够的 unit 说「再生成一版」照此处理
+- **不重新派生分组**：分组索引原样沿用，只对点名的 unit 重做。镜头有增删导致索引悬空时工具会报错要求先重新派生（重新派生走整集生成工具）
+- stale 是产物与当前编排的比较结果，不是一个要去清除的标记：重新生成成功后它自然不再偏离，无需额外操作
+- 索引里没有的 `unit_id` 会被跳过并写进输出；一个都没命中时报错并列出索引现有的 unit_id
+- 点名重新生成没有断点可续，`resume` 会被忽略
 
 ### reference_video 模式的时长确认
 
