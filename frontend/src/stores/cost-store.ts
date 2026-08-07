@@ -53,6 +53,11 @@ export const useCostStore = create<CostState>((set, get) => ({
   _episodeIndex: new Map(),
 
   fetchCost: async (projectName: string) => {
+    // 过期调用不得中止当前项目的在途请求：debouncedFetch 的定时器在触发时不会重新
+    // 校验过期（只在排期时查过一次），public 方法也可能被直接调用，晚到执行时项目
+    // 可能已经切走——此时若仍无条件 abort，会错误中止一个不相干、真正需要跑完的
+    // 当前项目请求。直接返回，不动 loading（不是它开的，也不该由它收）。
+    if (isStaleProject(projectName)) return;
     // 使切入前尚在途的请求作废：无论接下来走哪条分支，这次调用都取代它
     _abortController?.abort();
     // 引导演示项目在后端不存在，费用估算无从计算，界面按「未估算」显示

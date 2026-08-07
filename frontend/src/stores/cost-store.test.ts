@@ -89,6 +89,35 @@ describe("cost-store", () => {
     expect(fetchCostSpy).toHaveBeenCalledWith("project-b");
   });
 
+  it("does not abort the current project's in-flight request when a stale project's fetchCost fires late", async () => {
+    // project-b 的请求先发起且保持 pending（模拟仍在等待响应）。
+    useProjectsStore.setState({ currentProjectName: "project-b" });
+    let releaseB: (data: CostEstimateResponse) => void = () => {};
+    const bSignals: (AbortSignal | undefined)[] = [];
+    vi.spyOn(API, "getCostEstimate").mockImplementation((name, options) => {
+      if (name === "project-b") {
+        bSignals.push(options?.signal);
+        return new Promise<CostEstimateResponse>((resolve) => {
+          releaseB = resolve;
+        });
+      }
+      return Promise.resolve(buildResponse(name));
+    });
+
+    const bPromise = useCostStore.getState().fetchCost("project-b");
+
+    // project-a 的调用在用户已经离开之后才触发（比如某个慢 PATCH 的 .then 回调），
+    // 不应中止仍在合法进行中的 project-b 请求——这与"顶替同项目在途请求"是两回事。
+    await useCostStore.getState().fetchCost("project-a");
+    expect(bSignals[0]?.aborted).toBe(false);
+
+    releaseB(buildResponse("project-b"));
+    await bPromise;
+
+    expect(useCostStore.getState().costData?.project_name).toBe("project-b");
+    expect(useCostStore.getState().loading).toBe(false);
+  });
+
   it("aborts the in-flight request when a newer fetchCost supersedes it", async () => {
     useProjectsStore.setState({ currentProjectName: "project-a" });
     const signals: (AbortSignal | undefined)[] = [];
