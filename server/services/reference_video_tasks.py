@@ -893,7 +893,13 @@ async def _finalize_reference_video_unit(
             logger.warning("来源签名补写版本记录失败 resource_id=%s version=%s", resource_id, version, exc_info=True)
 
     def _latest_created_at() -> str | None:
-        history = versions.get_versions("reference_videos", resource_id) or {}
+        # 与上面的档案补写读同一个 versions.json，同样在产物与剧本落盘之后：文件不可读时
+        # 让结果少一个时间戳，而不是把已成功的付费生成报成失败——只吞掉护栏才成立。
+        try:
+            history = versions.get_versions("reference_videos", resource_id) or {}
+        except Exception:
+            logger.warning("读取版本记录取入库时间失败 resource_id=%s", resource_id, exc_info=True)
+            return None
         records = history.get("versions") or []
         if not records:
             return None

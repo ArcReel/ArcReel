@@ -474,7 +474,9 @@ async def test_ad_finalize_survives_version_metadata_archival_failure(tmp_path: 
 
     proj_dir = _write_ad_project(tmp_path)
     fake_generator = _wire_executor(proj_dir, monkeypatch)
+    # versions.json 整体不可读：补写与随后的入库时间回读走同一个文件，两处都得吞
     fake_generator.versions.update_version_metadata.side_effect = OSError("versions.json 不可写")
+    fake_generator.versions.get_versions.side_effect = OSError("versions.json 不可读")
 
     result = await rvt.execute_reference_video_task(
         "ad-demo",
@@ -484,6 +486,8 @@ async def test_ad_finalize_survives_version_metadata_archival_failure(tmp_path: 
     )
 
     assert result["file_path"] == "reference_videos/E1U1.mp4"
+    # 时间戳读不到就留空，不因此报失败
+    assert result["created_at"] is None
     # 剧本侧签名仍写成功——补写失败只降级还原时的基准精度
     unit = json.loads((proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))["reference_units"][0]
     assert unit["generated_assets"]["source_signature"]
