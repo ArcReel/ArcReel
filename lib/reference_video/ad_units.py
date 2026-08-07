@@ -238,12 +238,15 @@ def ad_stale_unit_ids(script: dict, units: object) -> list[str]:
     """偏离当前编排的 unit_id 清单，判定与 ``annotate_ad_unit_staleness`` 同源。
 
     只要 id 清单的调用方走这里，就与注入路径共用同一份镜头索引，也不必为读一个
-    布尔位构造整份对外副本。
+    布尔位构造整份对外副本。清单是要给人看的（智能体把它拼进提示文案），无
+    ``unit_id`` 的脏条目按跳过处理——转成字符串会让 ``None`` 混进去冒充真实 unit ID。
     """
     if not isinstance(units, list):
         return []
     by_id = ad_shots_by_id(script)
-    return [str(u.get("unit_id")) for u in units if isinstance(u, dict) and _is_stale(by_id, u)]
+    return [
+        u["unit_id"] for u in units if isinstance(u, dict) and isinstance(u.get("unit_id"), str) and _is_stale(by_id, u)
+    ]
 
 
 def sync_ad_reference_units(

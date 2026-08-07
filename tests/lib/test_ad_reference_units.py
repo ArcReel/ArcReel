@@ -390,6 +390,10 @@ class TestReadTimeStaleness:
 
         assert ad_stale_unit_ids(script, script["reference_units"]) == ["E1U1"]
         assert ad_stale_unit_ids(script, [*script["reference_units"], "oops"]) == ["E1U1"]
+        # 缺 unit_id 的脏条目跳过：清单会被拼进提示文案，混入 "None" 会冒充真实 unit ID
+        nameless = {**script["reference_units"][0]}
+        del nameless["unit_id"]
+        assert ad_stale_unit_ids(script, [nameless]) == []
         assert ad_stale_unit_ids(script, "not-a-list") == []
 
     def test_non_list_shot_ids_degrades_to_empty_members(self):
