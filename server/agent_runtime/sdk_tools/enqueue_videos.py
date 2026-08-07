@@ -761,10 +761,11 @@ def _report_residual_staleness(ctx: ToolContext, script_filename: str, unit_ids:
 async def _assert_no_active_tasks(ctx: ToolContext, script_filename: str, units: list[dict[str, Any]]) -> None:
     """点名重做前探测同 unit 是否已有在途任务：命中即拒绝，不新建任务也不静默沿用在途任务。
 
-    点名即强制（见 ``_run_ad_reference_units`` docstring），但强制不等于抢占：撞上同一
-    unit 的在途任务时用户已裁定拒绝入队，不采用「沿用在途任务并在输出中透出 deduped」。
-    只作用于点名路径；常规批量生成（``_run_ad_reference_episode``）的入队去重语义不变，
-    仍走 ``GenerationQueue.enqueue_task`` 的既有去重。
+    点名即强制（见 ``_run_ad_reference_units`` docstring），但强制不等于抢占——在途任务
+    没有可抢占的中间产物，直接入队只会被 ``enqueue`` 的去重悄悄折回既有任务，智能体读到
+    一次"已提交"却并未真的重做。整批拒绝而非部分入队，避免一部分 unit 已建任务、一部分
+    被拒的不一致状态。只作用于点名路径；常规批量生成（``_run_ad_reference_episode``）
+    仍走 ``GenerationQueue.enqueue_task`` 的既有入队去重。
     """
     unit_ids = [str(u["unit_id"]) for u in units]
     active = await get_active_tasks_for_resources(

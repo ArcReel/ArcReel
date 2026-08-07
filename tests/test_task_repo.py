@@ -119,8 +119,8 @@ class TestTaskRepository:
             payload={"prompt": "unit2"},
             script_file="ep1.json",
         )
-        running = await repo.claim_next("video")
-        assert running is not None and running["task_id"] == finished["task_id"]
+        claimed = await repo.claim_next("video")
+        assert claimed is not None and claimed["task_id"] == finished["task_id"]
         await repo.mark_succeeded(finished["task_id"], {"file": "unit2.mp4"})
 
         active = await repo.enqueue(
