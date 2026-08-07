@@ -853,7 +853,7 @@ async def _finalize_reference_video_unit(
     """Normal + resume + 上传共用：抽缩略图、写 unit.generated_assets、返回 result dict。
 
     ``source_signature``：正常生成传执行期快照的签名，resume / 上传按缺省口径写回时现算
-    （见 ``apply_unit_video_assets``）。写入的签名同步补进本次版本记录，供版本还原取回
+    （见 ``apply_unit_video_assets``）。写入的签名同步补进对应版本记录，供版本还原取回
     该版产物的来源基准。
     """
     warnings = warnings if warnings is not None else []
@@ -877,15 +877,20 @@ async def _finalize_reference_video_unit(
 
     written_signature = await asyncio.to_thread(_update_unit_assets)
     if written_signature:
-        # 版本记录是签名的还原档案：补写失败只影响将来还原时的基准精度（按无档案
-        # 口径清除签名），不动摇本次 finalize 的结果，不 fail-fast。
-        await asyncio.to_thread(
-            versions.update_version_metadata,
-            "reference_videos",
-            resource_id,
-            version,
-            source_signature=written_signature,
-        )
+        # 版本记录是签名的还原档案：补写发生在产物与剧本都已落盘之后，失败只降级
+        # 还原时的基准精度（按无档案口径清除签名），不足以推翻已成功的 finalize
+        # 结果——versions.json 读写异常在此吞掉并记日志，不让它把成功的付费生成
+        # 报成失败、诱发重试再生成一个版本。
+        try:
+            await asyncio.to_thread(
+                versions.update_version_metadata,
+                "reference_videos",
+                resource_id,
+                version,
+                source_signature=written_signature,
+            )
+        except Exception:
+            logger.warning("来源签名补写版本记录失败 resource_id=%s version=%s", resource_id, version, exc_info=True)
 
     def _latest_created_at() -> str | None:
         history = versions.get_versions("reference_videos", resource_id) or {}

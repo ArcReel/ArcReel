@@ -171,7 +171,12 @@ def ad_unit_source_signature(script: dict, unit: dict) -> str:
     读时自然判为偏离。
     """
     by_id = ad_shots_by_id(script)
-    member_ids = [sid for sid in unit.get("shot_ids") or [] if isinstance(sid, str) and sid in by_id]
+    # shot_ids 整体非 list（Agent 裸写的脏索引）与元素非字符串同口径降级为空成员集，
+    # 而不是让读时派生在 GET /units、导出预检这些只读路径上抛 TypeError。
+    shot_ids = unit.get("shot_ids")
+    member_ids = [
+        sid for sid in (shot_ids if isinstance(shot_ids, list) else []) if isinstance(sid, str) and sid in by_id
+    ]
     payload = {
         "shot_ids": member_ids,
         "references": _reference_signature(ad_unit_references([by_id[sid] for sid in member_ids])),

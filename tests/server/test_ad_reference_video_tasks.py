@@ -464,3 +464,26 @@ async def test_ad_generation_uses_shot_derived_references_not_stale_index(
     written = json.loads(script_path.read_text(encoding="utf-8"))
     unit = written["reference_units"][0]
     assert unit["generated_assets"]["source_signature"] == ad_unit_source_signature(written, unit)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_ad_finalize_survives_version_metadata_archival_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """版本档案补写签名失败不推翻已成功的 finalize：产物与剧本已落盘，任务照常返回成功。"""
+    from server.services import reference_video_tasks as rvt
+
+    proj_dir = _write_ad_project(tmp_path)
+    fake_generator = _wire_executor(proj_dir, monkeypatch)
+    fake_generator.versions.update_version_metadata.side_effect = OSError("versions.json 不可写")
+
+    result = await rvt.execute_reference_video_task(
+        "ad-demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    assert result["file_path"] == "reference_videos/E1U1.mp4"
+    # 剧本侧签名仍写成功——补写失败只降级还原时的基准精度
+    unit = json.loads((proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))["reference_units"][0]
+    assert unit["generated_assets"]["source_signature"]

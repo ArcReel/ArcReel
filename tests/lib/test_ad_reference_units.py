@@ -379,6 +379,14 @@ class TestReadTimeStaleness:
         assert annotate_ad_unit_staleness(script, ["oops", None]) == ["oops", None]
         assert annotate_ad_unit_staleness(script, "not-a-list") == []
 
+    def test_non_list_shot_ids_degrades_to_empty_members(self):
+        """裸写的脏索引（shot_ids 非 list）按空成员集签名，只读路径不抛 TypeError。"""
+        script = {"episode": 1, "shots": [_shot("E1S1")]}
+        dirty = {"unit_id": "E1U1", "shot_ids": 3, "generated_assets": {"video_clip": "x.mp4", "source_signature": "s"}}
+
+        assert is_ad_unit_stale(script, dirty) is True
+        assert annotate_ad_unit_staleness(script, [dirty])[0]["stale"] is True
+
 
 class TestResolveUnitShots:
     def test_hydrates_member_shots_from_script_in_index_order(self):
