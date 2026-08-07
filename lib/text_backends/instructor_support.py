@@ -13,7 +13,6 @@ from enum import Enum
 import instructor
 from instructor import Mode
 from instructor.core import IncompleteOutputException, InstructorRetryException, ResponseParsingError
-from openai import BadRequestError
 from pydantic import BaseModel
 
 from lib.text_backends.base import (
@@ -22,6 +21,7 @@ from lib.text_backends.base import (
     TextOutputTruncatedError,
     TokenParam,
     check_truncation,
+    merge_billed_tokens,
     truncate_for_log,
 )
 
@@ -32,8 +32,9 @@ logger = logging.getLogger(__name__)
 # 各 backend 的 generate() 里，本模块只负责 native 之后的两档（见 docs/adr/0014）。
 _STRUCTURED_MODE_CHAIN: tuple[Mode, ...] = (Mode.TOOLS, Mode.MD_JSON)
 
-# 上游不接受 tools 参数时的错误关键字。与 openai backend 的 _SCHEMA_ERROR_KEYWORDS 同构：
-# 代理网关会把上游的参数不兼容包装成非 400 状态码，只认 BadRequestError 会漏判。
+# 上游不接受 tools 参数时的错误关键字，匹配前把错误文本转小写（各家代理的大小写不统一）。
+# 与 openai backend 的 _SCHEMA_ERROR_KEYWORDS 同构：代理网关会把上游的参数不兼容包装成非 400
+# 状态码，只认 BadRequestError 会漏判。
 _TOOLS_UNSUPPORTED_KEYWORDS = (
     "tools",
     "tool_calls",
@@ -110,6 +111,19 @@ def _failure_reason(exc: BaseException) -> str:
     return f"降级链各档重试耗尽后模型输出仍不合规（{exc.n_attempts} 次尝试，最后一次 {detail}）"
 
 
+def _billed_usage(exc: BaseException) -> tuple[int | None, int | None]:
+    """取这一档已经计费的 token，供降档时并入最终结果。
+
+    档内重试里每次拿到 HTTP 200 的尝试都已被计费，即便响应最终没通过解析 / 校验；Instructor
+    把它们累加在 ``total_usage`` 上。上游直接拒收参数时该累加值为零，此时按「无计量」处理，
+    以免把 None 塌成字面 0 token。
+    """
+    usage = getattr(exc, "total_usage", None)
+    prompt = getattr(usage, "prompt_tokens", None) or None
+    completion = getattr(usage, "completion_tokens", None) or None
+    return prompt, completion
+
+
 def _propagated_cause(exc: Exception) -> Exception:
     """冒泡时该抛的异常：API 调用失败抛原异常本身，其余抛原样。"""
     if isinstance(exc, InstructorRetryException):
@@ -135,8 +149,14 @@ class _ModeFailure(Enum):
 def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
     """判定某一档的失败该降档、判终局，还是原样冒泡。
 
-    只有 wire 层不兼容才降档，两种形态：上游拒收 tools 参数（API 调用异常），或收下了却不回
-    tool call（解析器抛 ``ResponseParsingError``，属档内可重试解析错误）。
+    只有 wire 层不兼容才降档，两种形态：上游拒收 tools 参数（API 调用异常，须由错误文本指名
+    tools / functions 才算数），或收下了却不回 tool call（解析器抛 ``ResponseParsingError``，
+    属档内可重试解析错误）。
+
+    API 调用异常一律走关键字判据，400 也不例外：无 ``STRUCTURED_OUTPUT`` 能力位的 Ark 模型
+    不经原生档直接进本链，此处的 400 同样可能是模型名无效、上下文超限或策略拒绝。把这些无差别
+    当成 tools 不兼容，既白花一次 MD_JSON 调用，又会把真实原因替换成不可重试的终局异常、
+    使调用方拿到错误的处置指引。
 
     上游确实回了 tool call、只是参数结构反复不合规，属校验类失败，判终局。
 
@@ -151,11 +171,7 @@ def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
         if any(isinstance(attempt.exception, ResponseParsingError) for attempt in exc.failed_attempts or []):
             return _ModeFailure.DOWNGRADE
         return _ModeFailure.TERMINAL
-    if isinstance(api_failure, BadRequestError):
-        # 走到降级链说明 native 档已经跟上游握过手，模型名 / 鉴权类 400 早在那里就炸了；
-        # 此处的 400 压倒性地是参数不被接受，值得花一次 MD_JSON 调用去试。
-        return _ModeFailure.DOWNGRADE
-    if any(kw in str(api_failure) for kw in _TOOLS_UNSUPPORTED_KEYWORDS):
+    if any(kw in str(api_failure).lower() for kw in _TOOLS_UNSUPPORTED_KEYWORDS):
         return _ModeFailure.DOWNGRADE
     return _ModeFailure.PROPAGATE
 
@@ -281,10 +297,10 @@ def _handle_mode_failure(
     next_mode: Mode | None,
     provider: str,
     model: str,
-) -> None:
+) -> tuple[int | None, int | None]:
     """处理降级链某一档的失败：可降档则记日志后正常返回，否则抛终局异常或原样冒泡。
 
-    正常返回即「调用方应继续下一档」。
+    正常返回即「调用方应继续下一档」，返回值是这一档已计费、需并入最终结果的 token。
     """
     failure = _classify_mode_failure(exc)
     if failure is _ModeFailure.PROPAGATE:
@@ -299,7 +315,7 @@ def _handle_mode_failure(
             next_mode.value,
             _raw_output_from_exception(exc),
         )
-        return
+        return _billed_usage(exc)
     # 校验类耗尽，或末档仍是 wire 层不兼容——降级链已无更弱的档可退。
     logger.warning(
         "Instructor %s 档失败且降级链已走完，判定为结构化输出能力不足；模型原始输出：%s",
@@ -330,6 +346,8 @@ def instructor_fallback_sync(
         json_text: str | None = None
         input_tokens: int | None = None
         output_tokens: int | None = None
+        billed_input: int | None = None
+        billed_output: int | None = None
         for mode, next_mode in _mode_chain_steps():
             try:
                 json_text, input_tokens, output_tokens = generate_structured_via_instructor(
@@ -344,14 +362,18 @@ def instructor_fallback_sync(
                 )
                 break
             except Exception as exc:
-                _handle_mode_failure(exc, mode=mode, next_mode=next_mode, provider=provider, model=model)
+                discarded_input, discarded_output = _handle_mode_failure(
+                    exc, mode=mode, next_mode=next_mode, provider=provider, model=model
+                )
+                billed_input = merge_billed_tokens(billed_input, discarded_input)
+                billed_output = merge_billed_tokens(billed_output, discarded_output)
         assert json_text is not None  # 链内每条失败路径都抛异常，走到这里必有结果
         return TextGenerationResult(
             text=json_text,
             provider=provider,
             model=model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            input_tokens=merge_billed_tokens(input_tokens, billed_input),
+            output_tokens=merge_billed_tokens(output_tokens, billed_output),
         )
 
     logger.info("response_schema 为 dict，无法使用 Instructor，回退到 json_object 模式")
@@ -407,6 +429,8 @@ async def instructor_fallback_async(
         json_text: str | None = None
         input_tokens: int | None = None
         output_tokens: int | None = None
+        billed_input: int | None = None
+        billed_output: int | None = None
         for mode, next_mode in _mode_chain_steps():
             try:
                 json_text, input_tokens, output_tokens = await generate_structured_via_instructor_async(
@@ -421,14 +445,18 @@ async def instructor_fallback_async(
                 )
                 break
             except Exception as exc:
-                _handle_mode_failure(exc, mode=mode, next_mode=next_mode, provider=provider, model=model)
+                discarded_input, discarded_output = _handle_mode_failure(
+                    exc, mode=mode, next_mode=next_mode, provider=provider, model=model
+                )
+                billed_input = merge_billed_tokens(billed_input, discarded_input)
+                billed_output = merge_billed_tokens(billed_output, discarded_output)
         assert json_text is not None  # 链内每条失败路径都抛异常，走到这里必有结果
         return TextGenerationResult(
             text=json_text,
             provider=provider,
             model=model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            input_tokens=merge_billed_tokens(input_tokens, billed_input),
+            output_tokens=merge_billed_tokens(output_tokens, billed_output),
         )
 
     logger.info("response_schema 为 dict，无法使用 Instructor，回退到 json_object 模式")

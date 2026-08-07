@@ -33,15 +33,24 @@ def _completion(content: str) -> SimpleNamespace:
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content, tool_calls=None))])
 
 
-def _retry_exhausted(inner: Exception, *, content: str = "") -> InstructorRetryException:
-    """构造 Instructor 档内重试耗尽异常，failed_attempts 决定失败属 wire 层还是校验类。"""
+def _retry_exhausted(
+    inner: Exception,
+    *,
+    content: str = "",
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+) -> InstructorRetryException:
+    """构造 Instructor 档内重试耗尽异常，failed_attempts 决定失败属 wire 层还是校验类。
+
+    prompt_tokens / completion_tokens 模拟档内那些拿到 HTTP 200、已被计费的尝试。
+    """
     from instructor.core.exceptions import FailedAttempt
 
     return InstructorRetryException(
         "retries exhausted",
         last_completion=_completion(content),
         n_attempts=3,
-        total_usage=0,
+        total_usage=SimpleNamespace(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens),  # type: ignore[arg-type]
         failed_attempts=[FailedAttempt(attempt_number=1, exception=inner)],
     )
 
@@ -592,6 +601,59 @@ class TestStructuredModeChainSync:
         # 消息文本不含任何瞬态状态码模式，只有异常类型能证明它可重试。
         assert _should_retry(exc_info.value, BASE_RETRYABLE_ERRORS)
 
+    def test_non_tools_bad_request_propagates(self):
+        """与 tools 无关的 400（如上下文超限）原样冒泡：无 STRUCTURED_OUTPUT 能力位的模型
+        不经原生档直接进本链，把这类 400 当 tools 不兼容会替换掉真实的失败原因。"""
+        rejection = _bad_request("This model's maximum context length is 8192 tokens")
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[instructor_api_call_exhausted(rejection)],
+        ) as mock_gen:
+            with pytest.raises(BadRequestError):
+                self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS]
+
+    def test_tools_rejection_matched_case_insensitively(self):
+        """代理的拒收文案大小写不统一，判据须归一后再匹配，否则降档路径形同虚设。"""
+        sample = SampleModel(name="Grace", age=31)
+        rejection = _bad_request("Tools Are Not Supported By This Endpoint")
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[instructor_api_call_exhausted(rejection), (sample.model_dump_json(), 10, 5)],
+        ) as mock_gen:
+            result = self._call()
+
+        assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
+        assert result.text == sample.model_dump_json()
+
+    def test_downgrade_carries_billed_tokens_of_failed_mode(self):
+        """TOOLS 档拿到过 HTTP 200（已计费）后才降档，这部分 token 并入最终结果。"""
+        sample = SampleModel(name="Heidi", age=29)
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[
+                _retry_exhausted(_no_tool_call_error(), prompt_tokens=70, completion_tokens=30),
+                (sample.model_dump_json(), 10, 5),
+            ],
+        ):
+            result = self._call()
+
+        assert result.input_tokens == 80
+        assert result.output_tokens == 35
+
+    def test_downgrade_without_usage_keeps_tokens_untracked(self):
+        """两侧皆未追踪用量时保持 None，不因并账塌成字面 0 token。"""
+        sample = SampleModel(name="Ivan", age=26)
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            side_effect=[_retry_exhausted(_no_tool_call_error()), (sample.model_dump_json(), None, None)],
+        ):
+            result = self._call()
+
+        assert result.input_tokens is None
+        assert result.output_tokens is None
+
     def test_last_mode_wire_rejection_is_terminal(self):
         """末档仍被上游拒收：无更弱的档可退，收敛为终局异常而非无限降档。"""
         with patch(
@@ -649,6 +711,20 @@ class TestStructuredModeChainAsync:
         ):
             with pytest.raises(ConnectionError):
                 await self._call()
+
+    async def test_downgrade_carries_billed_tokens_of_failed_mode(self):
+        sample = SampleModel(name="Judy", age=27)
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor_async",
+            side_effect=[
+                _retry_exhausted(_no_tool_call_error(), prompt_tokens=70, completion_tokens=30),
+                (sample.model_dump_json(), 10, 5),
+            ],
+        ):
+            result = await self._call()
+
+        assert result.input_tokens == 80
+        assert result.output_tokens == 35
 
 
 class TestInstructorFallbackAsync:

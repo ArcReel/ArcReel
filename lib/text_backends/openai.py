@@ -17,6 +17,7 @@ from lib.text_backends.base import (
     TextGenerationResult,
     TokenParam,
     check_truncation,
+    merge_billed_tokens,
     resolve_schema,
     structured_fallback_reason,
     truncate_for_log,
@@ -104,13 +105,9 @@ class OpenAITextBackend:
                     provider=self._provider_name,
                     token_param=self._max_tokens_param,
                 )
-                # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果，否则
-                # 记账层会系统性漏记。仅在至少一侧有计量时相加；两侧皆 None
-                # （未追踪）保持 None，不塌成字面 0 token。
-                if result.input_tokens is not None or native.input_tokens is not None:
-                    result.input_tokens = (result.input_tokens or 0) + (native.input_tokens or 0)
-                if result.output_tokens is not None or native.output_tokens is not None:
-                    result.output_tokens = (result.output_tokens or 0) + (native.output_tokens or 0)
+                # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果。
+                result.input_tokens = merge_billed_tokens(result.input_tokens, native.input_tokens)
+                result.output_tokens = merge_billed_tokens(result.output_tokens, native.output_tokens)
                 return result
 
         return native

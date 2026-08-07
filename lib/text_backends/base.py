@@ -219,6 +219,18 @@ class TextGenerationResult:
     output_tokens: int | None = None
 
 
+def merge_billed_tokens(kept: int | None, discarded: int | None) -> int | None:
+    """把降级路径上被丢弃的那次调用的 token 并入保留结果的计量。
+
+    降级前的调用只要拿到过 HTTP 200 就已被计费，不并账会系统性漏记用量与成本。
+    仅在至少一侧有计量时相加；两侧皆 None（未追踪）保持 None，不塌成字面 0 token——
+    「未追踪」与「零消耗」在成本口径上不是一回事。
+    """
+    if kept is None and discarded is None:
+        return None
+    return (kept or 0) + (discarded or 0)
+
+
 def resolve_schema(schema: dict | type[BaseModel]) -> dict:
     """将 response_schema 转为无 $ref 的纯 JSON Schema dict。
 

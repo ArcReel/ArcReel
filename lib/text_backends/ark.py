@@ -135,7 +135,7 @@ class ArkTextBackend:
             # ark 原生 response_format 未声明 strict，复验同样用 strict=False，避免对可强转值误判违例。
             fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
             if fallback_reason:
-                from lib.text_backends.base import truncate_for_log
+                from lib.text_backends.base import merge_billed_tokens, truncate_for_log
 
                 logger.warning(
                     "原生 response_format %s，降级到带校验的 Instructor 路径；模型原始输出：%s",
@@ -143,16 +143,9 @@ class ArkTextBackend:
                     truncate_for_log(native.text),
                 )
                 result = await self._structured_fallback(request, messages)
-                # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果，否则会系统性漏记。
-                # 仅在至少一侧有计量时相加；两侧皆 None（未追踪）保持 None，不塌成字面 0 token。
-                if result.input_tokens is not None or native.input_tokens is not None:
-                    result.input_tokens = (result.input_tokens if result.input_tokens is not None else 0) + (
-                        native.input_tokens if native.input_tokens is not None else 0
-                    )
-                if result.output_tokens is not None or native.output_tokens is not None:
-                    result.output_tokens = (result.output_tokens if result.output_tokens is not None else 0) + (
-                        native.output_tokens if native.output_tokens is not None else 0
-                    )
+                # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果。
+                result.input_tokens = merge_billed_tokens(result.input_tokens, native.input_tokens)
+                result.output_tokens = merge_billed_tokens(result.output_tokens, native.output_tokens)
                 return result
             return native
 
