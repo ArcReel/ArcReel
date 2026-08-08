@@ -24,7 +24,7 @@ from typing import Any, Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from lib.episode_paths import episode_drafts_dir, episode_script_relpath
-from lib.path_safety import safe_exists
+from lib.path_safety import PathTraversalError, safe_exists, safe_join
 
 logger = logging.getLogger(__name__)
 
@@ -400,6 +400,41 @@ def parse_source_range(entry: Mapping[str, Any]) -> tuple[str, int, int] | None:
     ):
         return rel, start, end
     return None
+
+
+def episode_source_slice(project_dir: Path, project: Mapping[str, Any], episode: int) -> str | None:
+    """按账本 ``source_range`` 切出本集原文（归一化坐标系），无位置记录时返回 None。
+
+    供 step1 内容生成工具（normalize / split）默认只喂本集切片，避免整篇源文被重复
+    塞进每一集的 prompt。坐标校验与派生文件重写（``lib.episode_planner``）同口径：
+    源文件缺失 / 读取失败 / 坐标越界一律 fail-loud 抛 ValueError——账本坐标绑定的是
+    源文件内容，静默回退全文会让多集产出重复内容。旧式条目（无 ``source_range``）
+    由调用方自行决定回退策略，本函数返回 None 不抛错。
+    """
+    entry = next(
+        (e for e in (project.get("episodes") or []) if isinstance(e, Mapping) and e.get("episode") == episode),
+        None,
+    )
+    if entry is None:
+        return None
+    coords = parse_source_range(entry)
+    if coords is None:
+        return None
+    rel, start, end = coords
+    try:
+        path = safe_join(project_dir, rel, require_file=True)
+    except (PathTraversalError, FileNotFoundError) as exc:
+        raise ValueError(f"本集源文件不可读（{rel}）：{exc}") from exc
+    try:
+        text = normalize_source_text(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"本集源文件读取失败（{rel}）：{exc}") from exc
+    if not 0 <= start <= end <= len(text):
+        raise ValueError(
+            f"第 {episode} 集原文范围越界（start={start}，end={end}，源文长度 {len(text)}）："
+            "账本坐标与源文件内容不一致，请先全量重置分集规划再重新规划"
+        )
+    return text[start:end]
 
 
 def episodes_without_source_range(project: Mapping[str, Any]) -> list[int]:

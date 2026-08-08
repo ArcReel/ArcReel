@@ -24,7 +24,7 @@ from lib.asset_types import BUCKET_KEY
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
 from lib.db import async_session_factory
-from lib.episode_ledger import episode_outline_context
+from lib.episode_ledger import discover_sources, episode_outline_context, episode_source_slice
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
     REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
@@ -145,15 +145,32 @@ def _load_novel_source(project_path: Path, source: str | None) -> str:
         source_dir = project_path / "source"
         if not source_dir.exists() or not any(source_dir.iterdir()):
             raise ValueError(f"source/ 目录为空或不存在: {source_dir}")
-        texts = [
-            f.read_text(encoding="utf-8")
-            for f in sorted(source_dir.iterdir())
-            if f.is_file() and f.suffix in (".txt", ".md", ".text")
-        ]
-        novel_text = "\n\n".join(texts)
+        # 只拼候选源文件（discover_sources 排除派生 episode_N.txt 与 _ / . 前缀文件）：
+        # 派生集文件是账本的派生物，若与主文本一起进全文，每集 prompt 都会重复整篇故事。
+        sources = discover_sources(project_path)
+        if not sources:
+            raise ValueError(f"source/ 目录下没有可用的源文本文件: {source_dir}")
+        novel_text = "\n\n".join(doc.text for doc in sources)
     if not novel_text.strip():
         raise ValueError("小说原文为空")
     return novel_text
+
+
+def _load_episode_source(
+    project_path: Path, project: dict[str, Any], episode: int, source: str | None
+) -> tuple[str, bool]:
+    """读取 step1 工具的源文：显式 ``source`` 优先，否则按账本 ``source_range`` 切本集切片。
+
+    返回 ``(文本, 是否按集切片)``。显式 ``source`` 保持整文件读取（参考视频隔离草稿等
+    既有调用路径沿用）；默认路径下账本有该集位置记录时只取本集切片，旧式条目（无
+    ``source_range``）回退读取全部候选源文。
+    """
+    if source:
+        return _load_novel_source(project_path, source), False
+    sliced = episode_source_slice(project_path, project, episode)
+    if sliced is not None:
+        return sliced, True
+    return _load_novel_source(project_path, None), False
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +463,7 @@ async def _fetch_caps_with_fallback(project: dict[str, Any], episode: int) -> tu
 def normalize_drama_script_tool(ctx: ToolContext):
     @tool(
         "normalize_drama_script",
-        "把 source/ 小说原文（或指定 source 文件）抽取为结构化分镜内容（场景边界、出场资产、"
+        "把本集小说原文（或指定 source 文件）抽取为结构化分镜内容（场景边界、出场资产、"
         "逐字口播 utterances、原文锚 source_text、视觉改编描述），保存到 "
         "drafts/episode_N/step1_normalized_script.json，供 generate_episode_script 透传消费。"
         "dry_run=true 时仅返回 prompt。",
@@ -456,7 +473,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 "episode": {"type": "integer", "description": "剧集编号"},
                 "source": {
                     "type": "string",
-                    "description": "指定小说源文件路径（相对项目目录）；默认读取 source/ 下所有文本",
+                    "description": "指定小说源文件路径（相对项目目录）；默认按分集规划的 source_range 读取本集原文切片",
                 },
                 "dry_run": {"type": "boolean", "description": "仅显示 prompt，不调用模型"},
             },
@@ -473,7 +490,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
 
             try:
-                novel_text = _load_novel_source(project_path, source)
+                novel_text, is_episode_slice = _load_episode_source(project_path, project, episode, source)
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
@@ -493,6 +510,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 source_kind=project.get("source_kind") or DEFAULT_SOURCE_KIND,
                 episode_outline=episode_outline,
                 next_episode_outline=next_episode_outline,
+                source_is_episode_slice=is_episode_slice,
                 # 输出语言取项目 source_language（生成内容语言的唯一真相源）；缺省回退默认中文，
                 # 非中文项目的 step1 内容据此用目标语言产出，而非默认中文。
                 target_language=project.get("source_language") or "中文",
@@ -1479,7 +1497,7 @@ def split_narration_segments_tool(ctx: ToolContext):
                 "episode": {"type": "integer", "description": "剧集编号"},
                 "source": {
                     "type": "string",
-                    "description": "指定小说源文件路径（相对项目目录）；默认读取 source/ 下所有文本",
+                    "description": "指定小说源文件路径（相对项目目录）；默认按分集规划的 source_range 读取本集原文切片",
                 },
                 "dry_run": {"type": "boolean", "description": "仅显示 prompt，不调用模型"},
             },
@@ -1496,7 +1514,7 @@ def split_narration_segments_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
 
             try:
-                novel_text = _load_novel_source(project_path, source)
+                novel_text, is_episode_slice = _load_episode_source(project_path, project, episode, source)
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
@@ -1519,6 +1537,7 @@ def split_narration_segments_tool(ctx: ToolContext):
                 default_duration=default_duration,
                 supported_durations=supported_durations,
                 episode=episode,
+                source_is_episode_slice=is_episode_slice,
                 # 输出语言取项目 source_language（生成内容语言的唯一真相源），与 normalize / reference 同口径。
                 target_language=project.get("source_language") or "中文",
             )
