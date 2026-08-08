@@ -20,6 +20,7 @@ async def test_active_credential_returns_full_dict(monkeypatch: pytest.MonkeyPat
         "Cred",
         (),
         dict(
+            preset_id="anthropic-official",
             api_key="sk-test",
             base_url="https://api.anthropic.com",
             model="claude-opus-4-7",
@@ -42,6 +43,7 @@ async def test_active_credential_returns_full_dict(monkeypatch: pytest.MonkeyPat
 
     result = await build_anthropic_env_dict(session)
     assert result["ANTHROPIC_API_KEY"] == "sk-test"
+    assert result["ANTHROPIC_AUTH_TOKEN"] == ""
     assert result["ANTHROPIC_BASE_URL"] == "https://api.anthropic.com"
     assert result["ANTHROPIC_MODEL"] == "claude-opus-4-7"
 
@@ -107,6 +109,7 @@ async def test_function_does_not_touch_environ(monkeypatch: pytest.MonkeyPatch) 
         "Cred",
         (),
         dict(
+            preset_id="anthropic-official",
             api_key="sk-test",
             base_url="x",
             model="y",
@@ -129,3 +132,38 @@ async def test_function_does_not_touch_environ(monkeypatch: pytest.MonkeyPatch) 
 
     await build_anthropic_env_dict(session)
     assert dict(os.environ) == baseline, "build 函数禁止改 os.environ"
+
+
+@pytest.mark.asyncio
+async def test_bearer_preset_fills_auth_token_and_blanks_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ark-agent-plan 等 bearer 预设：key 注入 ANTHROPIC_AUTH_TOKEN，ANTHROPIC_API_KEY 置空。"""
+    session = AsyncMock()
+    repo_mock = AsyncMock()
+    cred = type(
+        "Cred",
+        (),
+        dict(
+            preset_id="ark-agent-plan",
+            api_key="ark-test-key",
+            base_url="https://ark.cn-beijing.volces.com/api/plan",
+            model="",
+            haiku_model=None,
+            sonnet_model=None,
+            opus_model=None,
+            subagent_model=None,
+        ),
+    )()
+    repo_mock.get_active = AsyncMock(return_value=cred)
+
+    setting_repo = AsyncMock()
+    setting_repo.get_all = AsyncMock(return_value={})
+
+    monkeypatch.setattr(
+        "lib.db.repositories.agent_credential_repo.AgentCredentialRepository",
+        lambda _s: repo_mock,
+    )
+    monkeypatch.setattr("lib.config.service.SystemSettingRepository", lambda _s: setting_repo)
+
+    result = await build_anthropic_env_dict(session)
+    assert result["ANTHROPIC_AUTH_TOKEN"] == "ark-test-key"
+    assert result["ANTHROPIC_API_KEY"] == ""

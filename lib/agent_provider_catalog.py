@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 CUSTOM_SENTINEL_ID = "__custom__"
 
@@ -28,6 +29,8 @@ class PresetProvider:
     notes_i18n_key: str | None
     api_key_pattern: str | None
     is_recommended: bool
+    # 鉴权方式：x-api-key（Anthropic 官方默认）或 bearer（方舟 Coding/Agent Plan 网关）
+    auth_scheme: Literal["x-api-key", "bearer"] = "x-api-key"
 
 
 PRESET_PROVIDERS: dict[str, PresetProvider] = {
@@ -163,13 +166,14 @@ PRESET_PROVIDERS: dict[str, PresetProvider] = {
         icon_key="Volcengine",
         messages_url="https://ark.cn-beijing.volces.com/api/coding",
         discovery_url="https://ark.cn-beijing.volces.com",
-        default_model="",
+        default_model="ark-code-latest",
         suggested_models=(),
         docs_url="https://www.volcengine.com/docs/82379/1928262",
         api_key_url="https://console.volcengine.com/ark",
         notes_i18n_key="preset_notes_ark_coding_plan",
         api_key_pattern=None,
         is_recommended=False,
+        auth_scheme="bearer",
     ),
     "ark-agent-plan": PresetProvider(
         id="ark-agent-plan",
@@ -177,13 +181,14 @@ PRESET_PROVIDERS: dict[str, PresetProvider] = {
         icon_key="Volcengine",
         messages_url="https://ark.cn-beijing.volces.com/api/plan",
         discovery_url="https://ark.cn-beijing.volces.com",
-        default_model="",
+        default_model="ark-code-latest",
         suggested_models=(),
         docs_url="https://www.volcengine.com/docs/82379/2375486",
         api_key_url="https://console.volcengine.com/ark",
         notes_i18n_key="preset_notes_ark_agent_plan",
         api_key_pattern=None,
         is_recommended=False,
+        auth_scheme="bearer",
     ),
 }
 

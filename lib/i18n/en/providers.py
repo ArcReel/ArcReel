@@ -28,6 +28,6 @@ MESSAGES: dict[str, str] = {
     # Agent preset notes (lib/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek official Anthropic-compat endpoint; needs sk- prefixed key.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo only accepts known model names; no public model list.",
-    "preset_notes_ark_coding_plan": "Volcengine Ark Coding Plan",
-    "preset_notes_ark_agent_plan": "Volcengine Ark Agent Plan",
+    "preset_notes_ark_coding_plan": "Volcengine Ark Coding Plan: requires the dedicated Coding Plan API Key; model can be ark-code-latest",
+    "preset_notes_ark_agent_plan": "Volcengine Ark Agent Plan: requires the dedicated Agent Plan API Key (regular Ark / Coding Plan keys won't work); model can be ark-code-latest",
 }

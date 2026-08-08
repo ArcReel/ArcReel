@@ -363,3 +363,77 @@ async def test_run_test_custom_mode_requires_base_url() -> None:
 async def test_run_test_unknown_preset_raises() -> None:
     with pytest.raises(ValueError, match="unknown preset"):
         await run_test(preset_id="bogus-preset", base_url=None, api_key="sk", model=None)
+
+
+@pytest.mark.asyncio
+async def test_probe_messages_bearer_auth_uses_authorization_header() -> None:
+    fake = httpx.Response(200, json={"id": "msg_1", "type": "message", "content": []})
+    with patch("lib.config.anthropic_probe._post", AsyncMock(return_value=fake)) as mocked:
+        result = await probe_messages(
+            messages_root="https://ark.cn-beijing.volces.com/api/plan",
+            api_key="ark-secret",
+            model="ark-code-latest",
+            auth_scheme="bearer",
+        )
+    assert result.success is True
+    headers = mocked.await_args.kwargs["headers"]
+    assert headers["Authorization"] == "Bearer ark-secret"
+    assert "x-api-key" not in headers
+
+
+@pytest.mark.asyncio
+async def test_probe_discovery_bearer_auth_uses_authorization_header() -> None:
+    fake = httpx.Response(200, json={"data": []})
+    with patch("lib.config.anthropic_probe._get", AsyncMock(return_value=fake)) as mocked:
+        result = await probe_discovery(
+            discovery_root="https://ark.cn-beijing.volces.com",
+            api_key="ark-secret",
+            auth_scheme="bearer",
+        )
+    assert result is not None
+    assert result.success is True
+    headers = mocked.await_args.kwargs["headers"]
+    assert headers["Authorization"] == "Bearer ark-secret"
+    assert "x-api-key" not in headers
+
+
+@pytest.mark.asyncio
+async def test_run_test_ark_agent_plan_uses_bearer_and_default_model() -> None:
+    """ark 预设：probe 走 Bearer 头，无显式 model 时回退 preset.default_model。"""
+    captured: dict[str, object] = {}
+
+    async def fake_post(
+        *, url: str, headers: dict[str, str], payload: dict[str, object], **_kw: object
+    ) -> httpx.Response:
+        captured["messages_url"] = url
+        captured["messages_headers"] = headers
+        captured["model"] = payload.get("model")
+        return httpx.Response(200, json={"id": "msg_1", "type": "message", "content": []})
+
+    async def fake_get(*, url: str, headers: dict[str, str], **_kw: object) -> httpx.Response:
+        captured["discovery_url"] = url
+        captured["discovery_headers"] = headers
+        return httpx.Response(200, json={"data": []})
+
+    with (
+        patch("lib.config.anthropic_probe._post", AsyncMock(side_effect=fake_post)),
+        patch("lib.config.anthropic_probe._get", AsyncMock(side_effect=fake_get)),
+    ):
+        resp = await run_test(
+            preset_id="ark-agent-plan",
+            base_url=None,
+            api_key="ark-secret",
+            model=None,
+        )
+
+    assert resp.overall == "ok"
+    assert captured["model"] == "ark-code-latest"
+    assert captured["messages_url"] == "https://ark.cn-beijing.volces.com/api/plan/v1/messages"
+    assert captured["discovery_url"] == "https://ark.cn-beijing.volces.com/v1/models"
+    headers = captured["messages_headers"]
+    assert isinstance(headers, dict)
+    assert headers["Authorization"] == "Bearer ark-secret"
+    assert "x-api-key" not in headers
+    discovery_headers = captured["discovery_headers"]
+    assert isinstance(discovery_headers, dict)
+    assert discovery_headers["Authorization"] == "Bearer ark-secret"

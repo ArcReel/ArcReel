@@ -8,6 +8,7 @@ from __future__ import annotations
 # —— SDK 子进程需要的 Anthropic env keys（通过 options.env 注入）——
 ANTHROPIC_ENV_KEYS: tuple[str, ...] = (
     "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_BASE_URL",
     "ANTHROPIC_MODEL",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
@@ -48,6 +49,7 @@ OTHER_PROVIDER_ENV_KEYS: tuple[str, ...] = (
 PROVIDER_SECRET_KEYS: frozenset[str] = frozenset(
     {
         "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
         "ARK_API_KEY",
         "XAI_API_KEY",
         "GEMINI_API_KEY",

@@ -25,7 +25,7 @@ def test_ark_agent_plan_registered() -> None:
     assert defaults_by_media == {
         "text": "doubao-seed-2.0-lite",
         "image": "doubao-seedream-5.0-lite",
-        "video": "doubao-seedance-2.0-mini",
+        "video": "doubao-seedance-1.5-pro",
     }
     for mid, m in p.models.items():
         if m.media_type == "video":
@@ -42,16 +42,8 @@ def test_ark_agent_plan_baseline_models_present() -> None:
         "doubao-seed-2.0-code",
         "doubao-seedream-5.0-lite",
         "doubao-seedance-1.5-pro",
-        "doubao-seedance-2.0",
-        "doubao-seedance-2.0-fast",
-        "doubao-seedance-2.0-mini",
     }
     assert baseline.issubset(set(p.models.keys()))
-
-
-def test_ark_agent_plan_fast_has_no_1080p() -> None:
-    p = PROVIDER_REGISTRY["ark-agent-plan"]
-    assert p.models["doubao-seedance-2.0-fast"].resolutions == ["480p", "720p"]
 
 
 def test_ark_agent_plan_model_id_format_differs_from_ark() -> None:

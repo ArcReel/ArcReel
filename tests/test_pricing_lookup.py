@@ -140,7 +140,7 @@ class TestUnknownModelFallback:
 
     def test_agent_plan_no_pricing_falls_back_to_gemini_quietly(self, caplog):
         with caplog.at_level(logging.WARNING, logger="lib.pricing.lookup"):
-            pricing = lookup_pricing("ark-agent-plan", "doubao-seedance-2.0", "video")
+            pricing = lookup_pricing("ark-agent-plan", "doubao-seedance-1.5-pro", "video")
         # Agent Plan 模型 pricing=None → 回落 Gemini 默认视频费率，不发 WARNING
         assert isinstance(pricing, PerSecondMatrix)
         assert "veo-3.1-lite-generate-preview" in pricing.rates

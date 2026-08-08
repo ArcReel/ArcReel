@@ -28,6 +28,6 @@ MESSAGES: dict[str, str] = {
     # Agent preset notes (lib/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek 官方 Anthropic 兼容端点，需 sk- 开头的 API Key",
     "preset_notes_xiaomi_mimo": "小米 MiMo 仅支持已知模型名，未公开模型列表",
-    "preset_notes_ark_coding_plan": "火山方舟 Coding Plan 套餐",
-    "preset_notes_ark_agent_plan": "火山方舟 Agent Plan 套餐",
+    "preset_notes_ark_coding_plan": "火山方舟 Coding Plan 套餐：需使用 Coding Plan 专属 API Key，模型可填 ark-code-latest",
+    "preset_notes_ark_agent_plan": "火山方舟 Agent Plan 套餐：需使用 Agent Plan 专属 API Key（方舟普通 API Key / Coding Plan Key 不可用），模型可填 ark-code-latest",
 }

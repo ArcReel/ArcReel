@@ -694,34 +694,14 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 default=True,
             ),
             # --- video ---
+            # Agent Plan 仅支持 seedance-1.5-pro 生成视频，后续 2.0 系列不在套餐内
             "doubao-seedance-1.5-pro": ModelInfo(
                 display_name="Seedance 1.5 Pro",
                 media_type="video",
                 capabilities=["generate_audio", "seed_control", "flex_tier"],
+                default=True,
                 supported_durations=list(range(4, 13)),
                 resolutions=["480p", "720p", "1080p"],
-            ),
-            "doubao-seedance-2.0": ModelInfo(
-                display_name="Seedance 2.0",
-                media_type="video",
-                capabilities=["generate_audio", "seed_control", "video_extend"],
-                supported_durations=list(range(4, 16)),
-                resolutions=["480p", "720p", "1080p"],
-            ),
-            "doubao-seedance-2.0-fast": ModelInfo(
-                display_name="Seedance 2.0 Fast",
-                media_type="video",
-                capabilities=["generate_audio", "seed_control", "video_extend"],
-                supported_durations=list(range(4, 16)),
-                resolutions=["480p", "720p"],
-            ),
-            "doubao-seedance-2.0-mini": ModelInfo(
-                display_name="Seedance 2.0 Mini",
-                media_type="video",
-                capabilities=["generate_audio", "seed_control", "video_extend"],
-                default=True,
-                supported_durations=list(range(4, 16)),
-                resolutions=["480p", "720p"],
             ),
         },
         default_base_url="https://ark.cn-beijing.volces.com/api/plan/v3",

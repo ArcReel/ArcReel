@@ -7,6 +7,7 @@ from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset
 from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
@@ -51,6 +52,7 @@ class ProviderConfigValueError(ValueError):
 # DB setting key → environment variable name
 _ANTHROPIC_ENV_MAP: dict[str, str] = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",
+    "anthropic_auth_token": "ANTHROPIC_AUTH_TOKEN",
     "anthropic_base_url": "ANTHROPIC_BASE_URL",
     "anthropic_model": "ANTHROPIC_MODEL",
     "anthropic_default_haiku_model": "ANTHROPIC_DEFAULT_HAIKU_MODEL",
@@ -80,10 +82,16 @@ async def build_anthropic_env_dict(session: AsyncSession) -> dict[str, str]:
 
     if cred is not None:
         settings = await SystemSettingRepository(session).get_all()
+        preset = get_preset(cred.preset_id) if cred.preset_id and cred.preset_id != CUSTOM_SENTINEL_ID else None
+        auth_scheme = preset.auth_scheme if preset else "x-api-key"
+        api_key = cred.api_key or ""
         return {
-            "ANTHROPIC_API_KEY": cred.api_key or "",
+            "ANTHROPIC_API_KEY": "" if auth_scheme == "bearer" else api_key,
+            "ANTHROPIC_AUTH_TOKEN": api_key if auth_scheme == "bearer" else "",
             "ANTHROPIC_BASE_URL": cred.base_url or "",
-            "ANTHROPIC_MODEL": cred.model or settings.get("anthropic_model", "").strip(),
+            "ANTHROPIC_MODEL": cred.model
+            or (preset.default_model if preset else "")
+            or settings.get("anthropic_model", "").strip(),
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": cred.haiku_model
             or settings.get("anthropic_default_haiku_model", "").strip(),
             "ANTHROPIC_DEFAULT_SONNET_MODEL": cred.sonnet_model
