@@ -30,6 +30,7 @@ import { errMsg } from "@/utils/async";
 import {
   getCustomProviderModels,
   getProviderModels,
+  buildProviderModelNames,
   lookupCatalogVideoAudio,
   lookupResolutions,
 } from "@/utils/provider-models";
@@ -90,6 +91,10 @@ export function MediaModelSection() {
     [options],
   );
   const bucketLabels = useCapabilityBucketLabels();
+  const allModelNames = useMemo(
+    () => buildProviderModelNames(providers, customProviders),
+    [providers, customProviders],
+  );
 
   const fetchConfig = useCallback(async () => {
     const [res, cand, catalog, custom] = await Promise.all([
@@ -265,6 +270,7 @@ export function MediaModelSection() {
             emptyLabel={t("auto_select")}
             emptyHint={t("auto")}
             providerNames={allProviderNames}
+            modelNames={allModelNames}
             renderOptionMeta={renderVideoOptionMeta}
             subFields={videoSubFields}
           >
@@ -308,6 +314,7 @@ export function MediaModelSection() {
             emptyLabel={t("auto_select")}
             emptyHint={t("auto")}
             providerNames={allProviderNames}
+            modelNames={allModelNames}
             subFields={imageSubFields}
           />
         ) : (
@@ -350,6 +357,7 @@ export function MediaModelSection() {
             value={currentAudioBackend}
             options={audioBackends}
             providerNames={allProviderNames}
+            modelNames={allModelNames}
             onChange={(v) => setDraft((prev) => ({ ...prev, default_audio_backend: v }))}
             allowDefault
             defaultLabel={t("auto_select")}

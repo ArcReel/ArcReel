@@ -22,6 +22,25 @@ export async function getCustomProviderModels(): Promise<CustomProviderInfo[]> {
   return res.providers;
 }
 
+/** Build human-readable labels for every canonical `provider/model` option. */
+export function buildProviderModelNames(
+  providers: ProviderInfo[],
+  customProviders: CustomProviderInfo[] = [],
+): Record<string, string> {
+  const names: Record<string, string> = {};
+  for (const provider of providers) {
+    for (const [modelId, model] of Object.entries(provider.models)) {
+      names[`${provider.id}/${modelId}`] = model.display_name || modelId;
+    }
+  }
+  for (const provider of customProviders) {
+    for (const model of provider.models) {
+      names[`custom-${provider.id}/${model.model_id}`] = model.display_name || model.model_id;
+    }
+  }
+  return names;
+}
+
 // ---------------------------------------------------------------------------
 // Lookup
 // ---------------------------------------------------------------------------

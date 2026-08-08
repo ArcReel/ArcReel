@@ -18,6 +18,8 @@ interface ProviderModelSelectProps {
   value: string; // "gemini-aistudio/veo-3.1-generate-001"
   options: string[]; // ["gemini-aistudio/veo-3.1-generate-001", ...]
   providerNames: Record<string, string>; // {"gemini-aistudio": "Gemini AI Studio", ...}
+  /** Human-readable model labels keyed by the canonical `provider/model` value. */
+  modelNames?: Record<string, string>;
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
@@ -69,6 +71,7 @@ export function ProviderModelSelect({
   value,
   options,
   providerNames,
+  modelNames = {},
   onChange,
   placeholder,
   className,
@@ -152,11 +155,14 @@ export function ProviderModelSelect({
         out[providerId] = models;
         continue;
       }
-      const matched = models.filter((m) => m.toLowerCase().includes(q));
+      const matched = models.filter((m) => {
+        const fullValue = `${providerId}/${m}`;
+        return m.toLowerCase().includes(q) || (modelNames[fullValue] ?? "").toLowerCase().includes(q);
+      });
       if (matched.length > 0) out[providerId] = matched;
     }
     return out;
-  }, [grouped, query, providerNames, showSearch]);
+  }, [grouped, query, providerNames, modelNames, showSearch]);
 
   const hasQuery = showSearch && query.trim().length > 0;
   const showDefault = !!allowDefault && !hasQuery;
@@ -313,7 +319,8 @@ export function ProviderModelSelect({
     const idx = fullValue.indexOf("/");
     if (idx === -1) return providerNames[fullValue] || fullValue;
     const provider = fullValue.slice(0, idx);
-    return `${providerNames[provider] || provider} · ${fullValue.slice(idx + 1)}`;
+    const model = fullValue.slice(idx + 1);
+    return `${providerNames[provider] || provider} · ${modelNames[fullValue] || model}`;
   };
 
   const showFallback = !value && !!fallbackValue;
@@ -436,6 +443,7 @@ export function ProviderModelSelect({
                 {models.map((model) => {
                   const currentFlatIdx = flatIdx++;
                   const fullValue = `${providerId}/${model}`;
+                  const modelLabel = modelNames[fullValue] || model;
                   const isSelected = fullValue === value;
                   const isActive = currentFlatIdx === activeIndex;
                   const meta = renderOptionMeta?.(fullValue);
@@ -464,7 +472,12 @@ export function ProviderModelSelect({
                         <span className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       )}
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate">{model}</span>
+                        <span className="block truncate">{modelLabel}</span>
+                        {modelLabel !== model && (
+                          <span className="mt-0.5 block truncate font-mono text-[9.5px] text-text-4">
+                            {model}
+                          </span>
+                        )}
                         {meta && (
                           <span className="mt-0.5 block truncate font-mono text-[10px] tabular-nums text-text-4">
                             {meta}

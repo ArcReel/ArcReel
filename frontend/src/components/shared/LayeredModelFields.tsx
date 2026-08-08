@@ -104,6 +104,7 @@ export interface LayeredModelFieldsProps {
   /** 默认层留空时的生效模型（项目层 = 全局默认层）；全局层是基准、不传。 */
   defaultEffective?: string;
   providerNames: Record<string, string>;
+  modelNames?: Record<string, string>;
   renderOptionMeta?: (fullValue: string) => React.ReactNode;
   /** 默认层下拉与折叠区之间的附加内容（模型规格条、分辨率、时长等）。 */
   children?: React.ReactNode;
@@ -124,6 +125,7 @@ export function LayeredModelFields({
   emptyHint,
   defaultEffective,
   providerNames,
+  modelNames,
   renderOptionMeta,
   children,
   subFields,
@@ -143,6 +145,7 @@ export function LayeredModelFields({
         value={defaultValue}
         options={defaultOptions}
         providerNames={providerNames}
+        modelNames={modelNames}
         onChange={onDefaultChange}
         allowDefault
         defaultLabel={emptyLabel}
@@ -185,6 +188,7 @@ export function LayeredModelFields({
                   value={field.value}
                   options={field.options}
                   providerNames={providerNames}
+                  modelNames={modelNames}
                   onChange={field.onChange}
                   allowDefault
                   defaultLabel={t("follow_model_default")}

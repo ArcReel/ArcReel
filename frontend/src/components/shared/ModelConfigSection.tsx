@@ -6,7 +6,11 @@ import {
   durationOutOfRangeReason,
   useModelCapabilities,
 } from "@/hooks/useModelCapabilities";
-import { lookupCatalogVideoAudio, lookupResolutions } from "@/utils/provider-models";
+import {
+  buildProviderModelNames,
+  lookupCatalogVideoAudio,
+  lookupResolutions,
+} from "@/utils/provider-models";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
 import {
@@ -155,6 +159,10 @@ export function ModelConfigSection({
   const showDuration = enable?.duration !== false;
 
   const bucketLabels = useCapabilityBucketLabels();
+  const modelNames = useMemo(
+    () => buildProviderModelNames(providers, customProviders),
+    [providers, customProviders],
+  );
 
   // 时长 / 分辨率 / 声音档位按模型查能力，问的必须是当前配置真正会执行的模型：细分项被覆盖时
   // 它不是默认层那个模型，拿默认层去查会把用户引到执行时并不支持的时长与分辨率上。
@@ -339,6 +347,7 @@ export function ModelConfigSection({
             }
             defaultEffective={globalDefaults.video || undefined}
             providerNames={options.providerNames}
+            modelNames={modelNames}
             renderOptionMeta={renderVideoOptionMeta}
             subFields={videoSubFields}
           >
@@ -439,6 +448,7 @@ export function ModelConfigSection({
             }
             defaultEffective={globalDefaults.image || undefined}
             providerNames={options.providerNames}
+            modelNames={modelNames}
             subFields={imageSubFields}
           >
             {renderResolutionField(executingImage, value.imageResolution, (v) =>

@@ -34,6 +34,24 @@ describe("ProviderModelSelect – trigger display", () => {
     expect(trigger).toHaveTextContent(/seedance/);
   });
 
+  it("shows a friendly model name while keeping the canonical id in the option", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProviderModelSelect
+        value="ark/seedance"
+        options={OPTIONS}
+        providerNames={PROVIDER_NAMES}
+        modelNames={{ "ark/seedance": "Seedance 图生视频" }}
+        onChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("combobox")).toHaveTextContent("Ark · Seedance 图生视频");
+    await user.click(screen.getByRole("combobox"));
+    const option = screen.getByRole("option", { name: /Seedance 图生视频/ });
+    expect(option).toHaveTextContent("seedance");
+  });
+
   it("shows 'follow global default · provider · model' when value is empty and fallbackValue provided", () => {
     render(
       <ProviderModelSelect
