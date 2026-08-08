@@ -36,6 +36,7 @@
 agent session 的当前工作目录（cwd）已绑定到当前项目根，**所有工具参数中的路径必须遵循以下规则**：
 
 - **Read / Edit / Write / Glob / Grep**：`file_path` 使用**绝对路径**
+- **不要用 Read 读取图片文件**（png/jpg 等）：图片体积大，base64 展开会超过 Claude Code 1MB 消息缓冲上限导致会话崩溃；生成的图片会直接展示在 WebUI，无需 agent 读取
 - **Bash 调用 skill 脚本**：使用**相对项目根 cwd** 的路径，例如：
   - ✅ `source/episode_1.txt`、`drafts/episode_1/step1_segments.json`、`scripts/episode_1.json`
   - ❌ `projects/{项目名}/source/episode_1.txt`（双前缀，占位符替换或拼接出错就会落到 projects 根）
