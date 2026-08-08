@@ -529,6 +529,7 @@ def build_normalize_prompt(
     source_language: str | None = None,
     episode_outline: dict | None = None,
     next_episode_outline: dict | None = None,
+    source_is_episode_slice: bool = False,
 ) -> str:
     """Step-1 规范化 prompt：源文 → 结构化分镜内容（utterances + source_text + 视觉改编描述）。
 
@@ -539,6 +540,8 @@ def build_normalize_prompt(
     ``source_kind="screenplay"`` 翻为「提取/逐字保留」：台词与画外音逐字落 utterances、视觉转写为
     scene_description；默认 ``"novel"`` 维持「改编」语义、画外音由语境判断放开。``episode_outline`` /
     ``next_episode_outline`` 来自分集账本，驱动内容覆盖故事节点、末场落地集尾钩子。
+    ``source_is_episode_slice`` 为真时 ``novel_text`` 只含本集原文切片：prompt 明确本集范围、
+    抑制模型扩展整篇（normalize 工具默认按账本 ``source_range`` 切片后置真）。
 
     ``source_language`` 供时长指引的「台词口播时长」单向下界软指引取语速（阅读单位 / 秒，来自
     ``lib.speech_rate`` 单一真相源，与保存期上界 warning、字幕派生同口径）；缺省 / 未登记回退默认语速。
@@ -558,6 +561,15 @@ def build_normalize_prompt(
     utterances_rule = _NORMALIZE_UTTERANCES_SCREENPLAY if is_screenplay else _NORMALIZE_UTTERANCES_NOVEL
     break_rule = _NORMALIZE_BREAK_RULE_SCREENPLAY if is_screenplay else _NORMALIZE_BREAK_RULE_NOVEL
     outline_block = _format_episode_outline_block(episode_outline, next_episode_outline)
+    if source_is_episode_slice:
+        source_heading = f"本集{source_heading}（仅第 {episode} 集对应段落）"
+        source_scope_note = (
+            "下方原文已按分集规划切分，只包含本集内容：仅据此段改编，不要扩展引用整篇故事或下文尚未出现的情节。\n\n"
+        )
+        episode_scope_rule = "所有分镜内容须取自上方本集原文段。 "
+    else:
+        source_scope_note = ""
+        episode_scope_rule = ""
 
     # 资产引用字段（characters_in_scene / scenes / props，须逐字等于 project.json 登记名）与
     # 说话人引用 `utterances[].speaker`（须等于 characters_in_scene 中登记的角色名）须排除在目标语言要求外——
@@ -649,13 +661,13 @@ def build_normalize_prompt(
 
 ## {source_heading}
 
-<{source_tag}>
+{source_scope_note}<{source_tag}>
 {novel_text}
 </{source_tag}>
 
 {outline_block}# 字段写作指引
 
-把源文拆为有序分镜，逐条产出结构化场景内容。当前正在生成第 {episode} 集。
+{episode_scope_rule}把源文拆为有序分镜，逐条产出结构化场景内容。当前正在生成第 {episode} 集。
 
 ## 基础字段
 
@@ -688,6 +700,7 @@ def build_narration_split_prompt(
     supported_durations: list[int],
     episode: int,
     target_language: str = "中文",
+    source_is_episode_slice: bool = False,
 ) -> str:
     """Step-1 说书片段拆分 prompt：源文 → 结构化片段表（逐字 novel_text + 时长 + 资产登记）。
 
@@ -700,6 +713,8 @@ def build_narration_split_prompt(
     ``default_duration`` 为单片段默认秒数偏好；与 ``build_normalize_prompt`` 不同，此处对漂移到
     ``supported_durations`` 之外的 default 按 None 处理（软偏好、可被内容需要覆盖），不 fail-loud——
     与 split-narration-segments subagent 的「default 非成员按 null」口径一致。
+    ``source_is_episode_slice`` 为真时 ``novel_text`` 只含本集原文切片：prompt 明确本集范围、
+    抑制模型扩展整篇（split_narration_segments 工具默认按账本 ``source_range`` 切片后置真）。
     """
     normalized_durations = sorted({int(d) for d in supported_durations})
     if not normalized_durations:
@@ -717,6 +732,17 @@ def build_narration_split_prompt(
     else:
         duration_rule = f"按朗读节奏从档位（{durations_str}）中取值（最长 {max_dur} 秒），不强制默认值"
     pacing_block = render_pacing_section("narration") + "\n\n"
+
+    if source_is_episode_slice:
+        source_heading = f"本集小说原文（仅第 {episode} 集对应段落）"
+        source_scope_note = (
+            "下方原文已按分集规划切分，只包含本集内容：仅据此段拆分，不要扩展引用整篇故事或下文尚未出现的情节。\n\n"
+        )
+        episode_scope_rule = "所有片段须取自上方本集原文段。 "
+    else:
+        source_heading = "小说原文"
+        source_scope_note = ""
+        episode_scope_rule = ""
 
     character_names = list(characters.keys())
     scene_names = list(scenes.keys())
@@ -755,15 +781,15 @@ def build_narration_split_prompt(
 {_format_names(props)}
 </props>
 
-## 小说原文
+## {source_heading}
 
-<novel>
+{source_scope_note}<novel>
 {novel_text}
 </novel>
 
 # 拆分规则
 
-当前正在生成第 {episode} 集。
+{episode_scope_rule}当前正在生成第 {episode} 集。
 
 - **novel_text**：逐字保留小说原文，不改编 / 不删减 / 不添加 / 不改标点（后期配音与透传的真相源）；
   对话片段含完整说话内容与引导语（如「他说道」）。在句号 / 问号 / 感叹号 / 省略号等标点或段落结束处拆分，
