@@ -35,6 +35,12 @@ from claude_agent_sdk.types import HookMatcher, SystemPromptPreset
 
 SDK_AVAILABLE = True
 
+#: Claude Code CLI 单条 JSON 消息缓冲上限（内置 claude.exe 硬编码 1MB）；Read 结果
+#: 超过上限会让整个 agent 会话崩溃。图片经 base64 展开约 4/3，阈值留足余量。
+_READ_MAX_IMAGE_BYTES = 512 * 1024
+_READ_MAX_TEXT_BYTES = 900 * 1024
+_READ_IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"})
+
 
 async def load_provider_env_overrides() -> dict[str, str]:
     """构造 options.env 注入字典。
@@ -366,9 +372,49 @@ class OptionsAssembler:
                         },
                     }
 
+                read_blocked, read_reason = self._check_read_size_guard(tool_name, file_path)
+                if read_blocked:
+                    return {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": read_reason,
+                        },
+                    }
+
             return {"continue_": True}
 
         return _file_access_hook
+
+    @staticmethod
+    def _check_read_size_guard(tool_name: str, file_path: str) -> tuple[bool, str]:
+        """Read 大文件守卫：全量读取会撑爆 Claude Code 1MB 消息缓冲导致会话崩溃。
+
+        图片无法分段读取且 base64 展开约 4/3，阈值更严；文本可改用 Grep 或
+        Read 的 offset/limit 分段读取。返回 (是否拦截, 拒绝原因)。
+        """
+        if tool_name != "Read":
+            return False, ""
+        path = Path(file_path)
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return False, ""
+        if path.suffix.lower() in _READ_IMAGE_EXTENSIONS:
+            if size >= _READ_MAX_IMAGE_BYTES:
+                return True, (
+                    f"Read 被拦截：{file_path} 是图片且体积 {size // 1024}KB，"
+                    "base64 展开后会超过 Claude Code 1MB 消息缓冲上限，导致会话崩溃。"
+                    "生成的图片会直接展示在 WebUI，无需用 Read 查看；确需确认文件存在用 Glob。"
+                )
+            return False, ""
+        if size >= _READ_MAX_TEXT_BYTES:
+            return True, (
+                f"Read 被拦截：{file_path} 体积 {size // 1024}KB，全量读取会超过 "
+                "Claude Code 1MB 消息缓冲上限。请改用 Grep 定位，或使用 Read 的 "
+                "offset/limit 参数分段读取。"
+            )
+        return False, ""
 
     def _build_json_validation_hook(
         self,
