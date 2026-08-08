@@ -40,6 +40,8 @@ def _run(
         cwd=str(cwd),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         input=stdin,
     )
@@ -127,7 +129,7 @@ def test_compose_video_rejects_narration_mode(fake_project: Path) -> None:
     result = _run(COMPOSE_VIDEO, fake_project, "scripts/ep_narration.json")
     assert result.returncode != 0
     out = result.stdout + result.stderr
-    assert "仅支持 drama 模式" in out
+    assert "仅支持 drama（顶层 scenes[]）与 reference_video（顶层 video_units[]）" in out
     # 不能出现裸 KeyError
     assert "KeyError" not in out
 
@@ -157,7 +159,7 @@ def test_compose_video_rejects_ad_mode(fake_project: Path) -> None:
     result = _run(COMPOSE_VIDEO, fake_project, "scripts/ep_ad.json")
     assert result.returncode != 0
     out = result.stdout + result.stderr
-    assert "仅支持 drama 模式" in out
+    assert "仅支持 drama（顶层 scenes[]）与 reference_video（顶层 video_units[]）" in out
     assert "content_mode=ad" in out
     assert "剪映草稿导出" in out
     assert "KeyError" not in out
