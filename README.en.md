@@ -299,7 +299,7 @@ uv run alembic upgrade head
 # Note: --reload-dir is required. Without it, watchfiles scans the entire
 # project tree (node_modules / .venv / .git / .worktrees, 150k+ files),
 # pinning a CPU core at 50%+.
-uv run uvicorn server.app:app --reload --reload-dir server --reload-dir lib --port 1241
+uv run uvicorn server.app:app --loop server.proactor_loop:proactor_loop_factory --reload --reload-dir server --reload-dir lib --port 1241
 
 # Start frontend (Terminal 2)
 cd frontend && pnpm dev

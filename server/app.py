@@ -3,13 +3,19 @@
 
 启动方式:
     cd ArcReel
-    uv run uvicorn server.app:app --reload --reload-dir server --reload-dir lib --port 1241
+    uv run uvicorn server.app:app --loop server.proactor_loop:proactor_loop_factory --reload --reload-dir server --reload-dir lib --port 1241
 
 注意：必须用 --reload-dir 限定监视目录，否则 watchfiles 会扫描
 node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+。
 """
 
 import asyncio
+import sys
+
+# Windows 上强制 ProactorEventLoop 以支持子进程启动（Claude Agent SDK 需要）
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 import logging
 import os
 import platform
@@ -325,6 +331,7 @@ async def lifespan(app: FastAPI):
     # Windows 回退时跳过，避免无意义的文件系统调用。
     is_docker = detect_docker_environment() if sandbox_enabled else False
     logger.info("Sandbox runtime: enabled=%s docker=%s", sandbox_enabled, is_docker)
+    logger.info("Event loop: %s", type(asyncio.get_running_loop()).__name__)
 
     app.state.in_docker = is_docker
     app.state.sandbox_enabled = sandbox_enabled

@@ -21,7 +21,7 @@ uv run alembic upgrade head
 # 启动后端 (终端 1)
 # 注意：必须用 --reload-dir 限定监视目录，否则 watchfiles 会扫描
 # node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+
-uv run uvicorn server.app:app --reload --reload-dir server --reload-dir lib --port 1241
+uv run uvicorn server.app:app --loop server.proactor_loop:proactor_loop_factory --reload --reload-dir server --reload-dir lib --port 1241
 
 # 启动前端 (终端 2)
 cd frontend && pnpm dev

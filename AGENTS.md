@@ -15,7 +15,7 @@ frontend/ (React SPA)  →  server/ (FastAPI)  →  lib/ (核心库)
 # 后端
 # 启动开发服务器（必须用 --reload-dir 限定监视目录，否则 watchfiles 会扫描
 # node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+）
-uv run uvicorn server.app:app --reload --reload-dir server --reload-dir lib --port 1241
+uv run uvicorn server.app:app --loop server.proactor_loop:proactor_loop_factory --reload --reload-dir server --reload-dir lib --port 1241
 
 uv run python -m pytest                              # 测试（-v 单文件 / -k 关键字 / --cov 覆盖率）
 uv run ruff check . && uv run ruff format .          # lint + format
@@ -126,6 +126,8 @@ API Key、后端选择、模型配置等通过 WebUI 配置页（`/settings`）�
 ## Windows 兼容性
 
 主开发平台是 macOS / Linux，但 server 必须能在 Windows 上完成项目创建与基础流程。涉及文件系统、子进程、tmp 路径、权限的新代码遵循：
+
+- **事件循环** — uvicorn 在 `--reload` / 多 worker 模式下 Windows 会强制 `SelectorEventLoop`（不支持 `asyncio.create_subprocess_exec`），Claude Agent SDK 起子进程会失败；启动命令里的 `--loop server.proactor_loop:proactor_loop_factory` 将其改为 `ProactorEventLoop`，不可省略
 
 - **POSIX-only `os` 常量** — `O_NOFOLLOW` / `O_DIRECT` 等用 `getattr(os, "O_NOFOLLOW", 0)`，Python 层 `is_symlink()` 兜底（例：`lib/profile_manifest.py::_project_lock`）
 - **`os.chmod(0o600)`** — 以 `if os.name == "posix":` 包裹；Windows 凭证保护交给 ACL（用户级 `%LOCALAPPDATA%`）
