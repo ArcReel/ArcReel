@@ -92,6 +92,7 @@ MESSAGES = {
     "unsupported_audio_type": "Unsupported audio type {ext}. Allowed types: {allowed}",
     "upload_too_large": "Uploaded file exceeds the size limit ({max_mb} MB)",
     "invalid_image_file": "Invalid image file, could not be parsed",
+    "image_pixels_too_large": "Image has too many pixels; keep it under {max_megapixels} megapixels",
     "invalid_audio_file": "Invalid audio file, could not be parsed",
     "audio_duration_out_of_range": "Audio duration must be between {min_seconds} and {max_seconds} seconds",
     "vision_model_required": "Text model {provider}/{model} does not support image input (vision) and cannot perform the {task} task; please select a vision-capable text model for the simple tier or default model in settings",

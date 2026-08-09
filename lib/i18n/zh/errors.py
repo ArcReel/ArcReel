@@ -90,6 +90,7 @@ MESSAGES = {
     "unsupported_audio_type": "不支持的音频类型 {ext}，允许的类型: {allowed}",
     "upload_too_large": "上传文件超过大小上限（{max_mb} MB）",
     "invalid_image_file": "无效的图片文件，无法解析",
+    "image_pixels_too_large": "图片像素过多，请控制在 {max_megapixels} 百万像素以内",
     "invalid_audio_file": "无效的音频文件，无法解析",
     "audio_duration_out_of_range": "音频时长需在 {min_seconds}–{max_seconds} 秒之间",
     "vision_model_required": "文本模型 {provider}/{model} 不支持图像输入（vision），无法执行 {task} 任务；请在设置中为简单档或默认模型选择支持 vision 的文本模型",

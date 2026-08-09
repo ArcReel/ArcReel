@@ -92,6 +92,7 @@ MESSAGES = {
     "unsupported_audio_type": "Định dạng âm thanh không hỗ trợ {ext}. Các loại cho phép: {allowed}",
     "upload_too_large": "Tệp tải lên vượt quá giới hạn dung lượng ({max_mb} MB)",
     "invalid_image_file": "Tệp ảnh không hợp lệ, không thể phân tích",
+    "image_pixels_too_large": "Ảnh có quá nhiều điểm ảnh; vui lòng giữ dưới {max_megapixels} megapixel",
     "invalid_audio_file": "Tệp âm thanh không hợp lệ, không thể phân tích",
     "audio_duration_out_of_range": "Thời lượng âm thanh phải từ {min_seconds} đến {max_seconds} giây",
     "vision_model_required": "Mô hình văn bản {provider}/{model} không hỗ trợ đầu vào hình ảnh (vision) nên không thể thực hiện tác vụ {task}; vui lòng chọn mô hình văn bản hỗ trợ vision cho cấp đơn giản hoặc mô hình mặc định trong cài đặt",

@@ -20,7 +20,7 @@ from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.i18n import Translator
-from lib.image_utils import normalize_storyboard_upload
+from lib.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_storyboard_upload
 from lib.json_io import domain_error_on_value_error
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager, grid_storyboard_enabled
@@ -400,6 +400,8 @@ async def upload_grid_image(
         raise HTTPException(status_code=e.status_code, detail=_t(e.key, **e.params))
     try:
         png_bytes = await asyncio.to_thread(normalize_storyboard_upload, content, max_long_edge=None)
+    except ImagePixelLimitError:
+        raise BadRequestError("image_pixels_too_large", max_megapixels=MAX_UPLOAD_PIXELS // 1_000_000)
     except ValueError:
         raise BadRequestError("invalid_image_file")
 
