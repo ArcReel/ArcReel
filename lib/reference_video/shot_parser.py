@@ -295,6 +295,32 @@ def extract_mentions(text: str) -> list[str]:
     return result
 
 
+def rewrite_mentions(text: str, old_name: str, new_name: str) -> tuple[str, int]:
+    """把文本中指向 *old_name* 的 @ 引用改写为 ``@[new_name]``，返回 ``(新文本, 改写数)``。
+
+    资产重命名的正文改写原语：与 ``_iter_mentions`` 同口径识别 mention（含旧式裸 ``@名字``，
+    改写时一并升格为包裹形式），名字判等走比对坐标系（NFC）——正文以 NFD 落盘的同名 mention
+    也会被命中改写。不做其他归一（不去 BOM、不整体 NFC），未命中的字符原样保留：重命名只
+    该改名字本身，不该顺带改写正文的编码形式。已经是目标形式的 mention 不计入改写数。
+    """
+    target = normalize_asset_name(old_name)
+    replacement = f"@[{new_name}]"
+    pieces: list[str] = []
+    last = 0
+    count = 0
+    for start, end, name in _iter_mentions(text):
+        if normalize_asset_name(name) != target or text[start:end] == replacement:
+            continue
+        pieces.append(text[last:start])
+        pieces.append(replacement)
+        last = end
+        count += 1
+    if not count:
+        return text, 0
+    pieces.append(text[last:])
+    return "".join(pieces), count
+
+
 def derive_references_from_text(text: str, project: dict) -> tuple[list[ReferenceResource], list[str]]:
     """书写层正文 → ``(references, missing)`` 的唯一派生入口。
 

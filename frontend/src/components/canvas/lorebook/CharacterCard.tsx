@@ -13,6 +13,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
+import { EditableAssetName } from "./EditableAssetName";
 import { VoiceSampleButton } from "./VoiceSampleButton";
 import type { Character } from "@/types";
 
@@ -338,12 +339,15 @@ export function CharacterCard({
         >
           <User className="h-3.5 w-3.5" />
         </span>
-        <h3
-          className="display-serif min-w-0 flex-1 truncate text-[16px] font-semibold tracking-tight"
-          style={{ color: "var(--color-text)" }}
-        >
-          {name}
-        </h3>
+        <EditableAssetName
+          projectName={projectName}
+          name={name}
+          assetType="character"
+          readOnly={readOnly}
+          /* 改名会搬动落盘文件：与本卡片自身在途的写请求交错会留下旧名孤儿文件，
+             因此改名比兄弟控件多禁用一档，把卡片本地的在途标志也算进占用态。 */
+          busy={generating || uploadingSheet || saving || deletingAudio}
+        />
         {readOnly ? null : (
         <div className="flex shrink-0 items-center gap-0.5">
           <button

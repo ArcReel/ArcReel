@@ -77,6 +77,28 @@ import i18n from "./i18n";
 
 // ==================== Helper types ====================
 
+/** 项目内四类资产（与后端 ASSET_SPECS 的 asset_type 对齐）。 */
+export type ProjectAssetType = "character" | "scene" | "prop" | "product";
+
+/** asset_type → REST 路径段（与后端 spec.subdir 对齐）。 */
+const ASSET_TYPE_PATH: Record<ProjectAssetType, string> = {
+  character: "characters",
+  scene: "scenes",
+  prop: "props",
+  product: "products",
+};
+
+/** 资产级联重命名的影响报告（dry_run 预览与执行同一结构）。 */
+export interface AssetRenameResult {
+  success: boolean;
+  dry_run: boolean;
+  old_name: string;
+  new_name: string;
+  episodes: number;
+  references: number;
+  files: number;
+}
+
 /** Login response from POST /auth/token (mirrors backend TokenResponse). */
 export interface LoginResponse {
   access_token: string;
@@ -821,6 +843,29 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/products/${encodeURIComponent(productName)}`,
       {
         method: "DELETE",
+      }
+    );
+  }
+
+  // ==================== 项目资产重命名 ====================
+
+  /**
+   * 级联重命名项目内资产。`dryRun: true` 只返回影响预览（将更新的集数/引用处数/文件数），
+   * 预览与执行共用后端同一套扫描逻辑，确认框数字与实际执行一致。
+   */
+  static async renameProjectAsset(
+    projectName: string,
+    assetType: ProjectAssetType,
+    name: string,
+    newName: string,
+    options: { dryRun?: boolean; signal?: AbortSignal } = {}
+  ): Promise<AssetRenameResult> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/${ASSET_TYPE_PATH[assetType]}/${encodeURIComponent(name)}/rename`,
+      {
+        method: "POST",
+        body: JSON.stringify({ new_name: newName, dry_run: options.dryRun ?? false }),
+        signal: options.signal,
       }
     );
   }

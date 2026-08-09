@@ -1,6 +1,6 @@
 ---
 name: manage-project
-description: 项目管理工具集。使用场景：新增/修改角色/场景/道具到 project.json（经 patch_project 工具，按 table+name upsert）、写顶层 settings 字段、编辑项目概述 overview，以及查询视频模型能力（get_video_capabilities）。分集规划不在本 skill：走 mcp__arcreel__plan_episodes / reset_episode_planning 服务端工具。
+description: 项目管理工具集。使用场景：新增/修改角色/场景/道具到 project.json（经 patch_project 工具，按 table+name upsert）、级联重命名资产（rename_asset 工具）、写顶层 settings 字段、编辑项目概述 overview，以及查询视频模型能力（get_video_capabilities）。分集规划不在本 skill：走 mcp__arcreel__plan_episodes / reset_episode_planning 服务端工具。
 user-invocable: false
 ---
 
@@ -13,6 +13,7 @@ user-invocable: false
 | 工具 | 功能 | 调用者 |
 |------|------|--------|
 | `mcp__arcreel__patch_project`（SDK tool） | 新增/修改 project.json 的角色/场景/道具（按 table+name upsert）、顶层 settings 字段或项目概述（overview 分支） | subagent / 主 agent |
+| `mcp__arcreel__rename_asset`（SDK tool） | 级联重命名资产：一次改齐资产表 key、全部剧集剧本与 step1 草稿的名称引用（引用数组 / speaker / `@[名称]` mention）及关联文件与版本历史 | subagent / 主 agent |
 | `mcp__arcreel__get_video_capabilities`（SDK tool） | 查视频模型能力（model 粒度，按项目唯一 generation_mode 解析，全项目同一口径，无需指定剧集） | **subagent**（执行任务时自行查询） |
 
 > 分集规划（拆集/调整）由服务端工具 `mcp__arcreel__plan_episodes` / `mcp__arcreel__reset_episode_planning` 完成，调整已规划内容走「重置 + 重新规划」，流程见 manga-workflow 阶段 2。
@@ -52,7 +53,8 @@ mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与
 工具返回会区分**新增 N 个 / 合并改字段 N 个**,并显式列出被忽略的字段（``reference_image`` /
 ``character_sheet`` 等系统管理字段、``type`` / ``importance`` 等已废弃字段）。结构非法（如缺
 description）时不落盘并返回 `is_error: true`。
-**严禁**用 Write/Edit/Bash 直接改 `project.json`——只能走 patch_project 工具。
+**严禁**用 Write/Edit/Bash 直接改 `project.json`——改字段走 patch_project 工具，改资产名走 rename_asset 工具。
+`patch_project` 按 name upsert，用它改名只会「新名新建 + 旧名残留」且不更新任何引用。
 
 ## 查视频模型能力
 

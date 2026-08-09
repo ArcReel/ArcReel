@@ -22,6 +22,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from lib.api_errors import NotFoundError
+from lib.asset_rename import (
+    AssetRenameConflictError,
+    AssetRenameFileCollisionError,
+    AssetRenameHistoryCollisionError,
+    AssetRenameNotFoundError,
+)
 from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
@@ -64,6 +70,13 @@ class _InvalidFieldValue(Exception):
     def __init__(self, field: str):
         self.field = field
         super().__init__(field)
+
+
+class _RenameRequest(BaseModel):
+    """级联重命名请求体。``dry_run=True`` 只返回影响预览（将更新的集数/引用处数/文件数）。"""
+
+    new_name: str
+    dry_run: bool = False
 
 
 class _CreateRequest(BaseModel):
@@ -226,6 +239,57 @@ def build_asset_router(
             raise HTTPException(status_code=422, detail=f"field '{exc.field}' has an invalid value")
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("请求处理失败")
+            raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+    @router.post(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}/rename")
+    async def rename_entry(
+        project_name: str,
+        entry_name: str,
+        req: _RenameRequest,
+        _t: Translator,
+    ):
+        """级联重命名（dry_run 形态即影响预览）：预览与执行共用同一套扫描逻辑，数字必然一致。"""
+        try:
+            validate_asset_name(req.new_name)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=req.new_name))
+        try:
+
+            def _sync():
+                manager = pm_getter()
+                with project_change_source("webui"):
+                    report = manager.rename_asset(
+                        project_name, spec.bucket_key, entry_name, req.new_name, dry_run=req.dry_run
+                    )
+                return {
+                    "success": True,
+                    "dry_run": report.dry_run,
+                    "old_name": report.old_name,
+                    "new_name": report.new_name,
+                    "episodes": report.episodes,
+                    "references": report.references,
+                    "files": report.files,
+                }
+
+            return await asyncio.to_thread(_sync)
+        except AssetRenameNotFoundError:
+            raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
+        except AssetRenameConflictError as exc:
+            raise HTTPException(status_code=409, detail=_t(keys["exists"], name=exc.conflict_name))
+        except AssetRenameFileCollisionError as exc:
+            raise HTTPException(status_code=409, detail=_t("asset_rename_file_conflict", filename=exc.destination.name))
+        except AssetRenameHistoryCollisionError as exc:
+            raise HTTPException(status_code=409, detail=_t("asset_rename_history_conflict", name=exc.resource_id))
+        except FileNotFoundError as exc:
+            raise NotFoundError("project_not_found", name=project_name) from exc
+        except ValueError:
+            # 结构「不更坏」校验拒绝等罕见情形：整体未落盘，提示用户重试或检查项目数据。
+            logger.exception("资产重命名被校验拒绝")
+            raise HTTPException(status_code=422, detail=_t("asset_rename_rejected", name=entry_name))
         except HTTPException:
             raise
         except Exception:

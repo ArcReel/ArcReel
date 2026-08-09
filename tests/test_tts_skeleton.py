@@ -42,7 +42,11 @@ class TestVersionManagerAudio:
         assert VersionManager.EXTENSIONS["audio"] == ".wav"
 
     def test_ensure_dirs_creates_audio(self, tmp_path: Path):
-        VersionManager(tmp_path)
+        vm = VersionManager(tmp_path)
+        # 目录由写路径按需创建，构造本身只读，不落盘
+        assert not (tmp_path / "versions").exists()
+
+        vm._ensure_dirs()
         assert (tmp_path / "versions" / "audio").is_dir()
 
 

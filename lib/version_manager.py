@@ -9,7 +9,7 @@ import json
 import shutil
 import threading
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lib.api_errors import BadRequestError, NotFoundError
@@ -49,11 +49,12 @@ class VersionManager:
         self.versions_file = self.versions_dir / "versions.json"
         self._lock = _get_versions_file_lock(self.versions_file)
 
-        # 确保版本目录存在
-        self._ensure_dirs()
-
     def _ensure_dirs(self) -> None:
-        """确保版本目录结构存在"""
+        """确保版本目录结构存在。
+
+        由写路径按需调用，不在 ``__init__`` 里建：只读用法（含改名的 ``dry_run`` 预演）
+        构造本类时不应在项目下留下空的 ``versions/`` 目录树。
+        """
         self.versions_dir.mkdir(parents=True, exist_ok=True)
         for resource_type in self.RESOURCE_TYPES:
             (self.versions_dir / resource_type).mkdir(exist_ok=True)
@@ -68,6 +69,7 @@ class VersionManager:
 
     def _save_versions(self, data: dict) -> None:
         """保存版本元数据"""
+        self._ensure_dirs()
         with open(self.versions_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -171,6 +173,7 @@ class VersionManager:
 
             # 如果有源文件，复制到版本目录
             if source_file and Path(source_file).exists():
+                self._ensure_dirs()
                 shutil.copy2(source_file, version_abs_path)
 
             # 创建版本记录
@@ -187,6 +190,63 @@ class VersionManager:
 
             self._save_versions(data)
             return new_version
+
+    def rename_resource(self, resource_type: str, old_id: str, new_id: str, *, dry_run: bool = False) -> int:
+        """把资源的版本历史整体迁移到新 id：re-key 元数据、重命名快照文件、改写记录内路径。
+
+        资产重命名的版本时光机迁移入口。resource_id 与快照文件名都以资产名为前缀
+        （``{name}_v{n}_{timestamp}{ext}``），名字判等走比对坐标系（NFC）——存量记录
+        与文件名可能以 NFD 落盘。返回涉及的快照文件数；旧 id 无版本记录时返回 0
+        （幂等：级联事务中途失败后重跑安全）。``dry_run=True`` 只统计、不迁移。
+
+        新 id 下已有他人的版本历史时整体拒绝：资产删除只删资产桶 key、版本记录与快照留存，
+        迁移过去会不可恢复地覆盖它。拒绝发生在 ``dry_run`` 分支之前，因此级联事务的扫描
+        阶段就能拦下，零写入承诺不破。
+
+        Raises:
+            AssetRenameHistoryCollisionError: 新 id 下已有属于别的资产的版本历史。
+        """
+        if resource_type not in self.RESOURCE_TYPES:
+            raise ValueError(f"不支持的资源类型: {resource_type}")
+
+        from lib.asset_rename import AssetRenameHistoryCollisionError
+        from lib.asset_types import normalize_asset_name, rekey_equivalent_entries, resolve_asset_key
+
+        with self._lock:
+            data = self._load_versions()
+            bucket = data.get(resource_type)
+            if not isinstance(bucket, dict):
+                return 0
+            key = resolve_asset_key(bucket, old_id)
+            if key is None or not isinstance(bucket.get(key), dict):
+                return 0
+            record = bucket[key]
+            # 解析到 key 自身说明只是编码形式或大小写变化，那是同一份历史，放行。
+            existing_new_key = resolve_asset_key(bucket, new_id)
+            if existing_new_key is not None and existing_new_key != key:
+                raise AssetRenameHistoryCollisionError(new_id)
+            versions = [v for v in record.get("versions", []) if isinstance(v, dict) and isinstance(v.get("file"), str)]
+            if dry_run:
+                return len(versions)
+
+            self._ensure_dirs()
+            prefix = f"{normalize_asset_name(old_id)}_v"
+            for version in versions:
+                basename = normalize_asset_name(PurePosixPath(version["file"].replace("\\", "/")).name)
+                if not basename.startswith(prefix):
+                    continue
+                new_basename = f"{new_id}_v{basename[len(prefix) :]}"
+                src = self.project_path / version["file"]
+                dst = self.versions_dir / resource_type / new_basename
+                if src.exists():
+                    src.replace(dst)
+                version["file"] = f"versions/{resource_type}/{new_basename}"
+            # 视觉同名的等价 key（NFC / NFD 并存）一并收编到新 id 下，留一条会顶着旧名残留、
+            # 之后被重建的同名资产接上。被合并掉的那条记录，其快照文件会留在盘上成为孤儿——
+            # 与资产删除只删桶 key、快照留存是同一口径，宁可留下也不静默删除用户的历史。
+            rekey_equivalent_entries(bucket, old_id, new_id)
+            self._save_versions(data)
+            return len(versions)
 
     def backup_current(
         self, resource_type: str, resource_id: str, current_file: Path, prompt: str, **metadata

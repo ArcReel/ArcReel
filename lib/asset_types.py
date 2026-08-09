@@ -115,7 +115,7 @@ SHEET_KEY: dict[str, str] = {t: s.sheet_field for t, s in ASSET_SPECS.items()}
 
 GLOBAL_LIBRARY_ASSET_TYPES: frozenset[str] = frozenset(t for t, s in ASSET_SPECS.items() if s.in_global_library)
 
-ILLEGAL_ASSET_NAME_CHARS: tuple[str, ...] = ("/", "\\", "\0", ":", "*", "?", '"', "<", ">", "|")
+ILLEGAL_ASSET_NAME_CHARS: tuple[str, ...] = ("/", "\\", "\0", ":", "*", "?", '"', "<", ">", "|", "]")
 
 WINDOWS_RESERVED_BASENAMES: frozenset[str] = frozenset(
     {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
@@ -183,6 +183,25 @@ def resolve_asset_key(bucket: object, name: str) -> str | None:
     return found
 
 
+def rekey_equivalent_entries[T](bucket: dict[str, T], old_name: str, new_name: str) -> T | None:
+    """把桶中与 *old_name* 视觉等价的全部 key 一并改成 *new_name*，返回改名后该 key 的值。
+
+    改名要收编整簇等价 key（NFC / NFD 并存）：只改 :func:`resolve_asset_key` 选中的那一条，
+    另一条等价 key 会顶着旧名带着失效的路径字段留在桶里，之后还可能被重建的同名资产接上。
+    合并方向与读侧一致——后写入的值胜出，即读侧解析到的那一条。桶里没有等价 key 时返回
+    ``None`` 且不改动桶。
+
+    原地重建而非 pop + 赋值，保留条目在桶中的原位置：JSON 里资产的排列顺序是用户可见的。
+    """
+    if resolve_asset_key(bucket, old_name) is None:
+        return None
+    target = normalize_asset_name(old_name)
+    rekeyed = {(new_name if normalize_asset_name(key) == target else key): value for key, value in bucket.items()}
+    bucket.clear()
+    bucket.update(rekeyed)
+    return rekeyed[new_name]
+
+
 def validate_asset_name(name: object) -> str:
     """校验并规范化（strip + NFC）资产名，非法时抛 ValueError，合法时返回规范化后的名字。
 
@@ -196,6 +215,10 @@ def validate_asset_name(name: object) -> str:
     拒绝 ``: * ? " < > |``、尾随点与保留设备名（CON / COM1 等，按首个点段判定，
     ``CON.backup`` 同样保留）。项目目录须可跨平台迁移，这些约束在所有平台统一执行，
     并在创建入口拒绝。
+
+    ``]`` 一并拒绝：正文里的引用写作 ``@[名称]``，解析以首个 ``]`` 收尾
+    （见 :func:`lib.reference_video.shot_parser._iter_mentions`），名字含 ``]`` 时写出的
+    引用会在中途截断。``[`` 不致坏——名为 ``[甲`` 时 ``@[[甲]`` 仍解析回完整的 ``[甲``——不拦。
     """
     if not isinstance(name, str):
         raise ValueError(f"资产名称必须是字符串，当前为 {type(name).__name__}")
@@ -208,7 +231,8 @@ def validate_asset_name(name: object) -> str:
         or any(ord(c) < 32 or ord(c) == 127 for c in cleaned)
     ):
         raise ValueError(
-            f'资产名称 {cleaned!r} 含非法字符：不允许路径分隔符（/ \\）、Windows 保留字符（: * ? " < > |）、控制字符或 ..'
+            f"资产名称 {cleaned!r} 含非法字符：不允许路径分隔符（/ \\）、"
+            f'Windows 保留字符（: * ? " < > |）、引用定界符（]）、控制字符或 ..'
         )
     if cleaned.endswith("."):
         raise ValueError(f"资产名称 {cleaned!r} 不能以点结尾（Windows 文件名约束）")
