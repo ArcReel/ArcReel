@@ -21,7 +21,7 @@
 | 首尾帧 | **无 1.1 变体** | — | — | 官方首尾帧场景推荐 `wan2.7-i2v-2026-04-25` | — |
 | 视频编辑 | `happyhorse-1.0-video-edit`(仅 1.0,无 1.1) | 720P / 1080P(默认) | 输出 3–15s(输入视频 3–60s) | 视频 + 0–5 张参考图 + 文本指令,风格转换/局部替换 | 未能确认 |
 
-促销:1.1 全系曾有限时 6 折(2026-06-22 至 2026-07-06,720P 0.54 / 1080P 0.72 元/秒),同期 1.0 享 8 折;当前是否仍在折扣期未能确认。新用户免费额度:10 秒视频生成。
+促销:1.1 全系曾有限时 6 折(2026-06-22 至 2026-07-06,720P 0.54 / 1080P 0.72 元/秒),同期 1.0 享 8 折;该促销期已结束,是否续期或另有新促销未能确认。新用户免费额度:10 秒视频生成。
 
 ## 2. 各项详述与引用
 
@@ -141,7 +141,7 @@ GET  https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1/tasks/{task_id}
 - `lib/custom_provider/duration_presets.py` 的 `happyhorse` 正则(3–15)与 `lib/custom_provider/endpoints.py` 的 `"happyhorse"` 子串路由(dashscope-async-video)天然覆盖 1.1,无需改动
 - 首尾帧需求不要落在 happyhorse 上(全系无尾帧);官方首尾帧推荐 `wan2.7-i2v-2026-04-25`
 - Token Plan 接入:视频走原生异步路径且 schema 同构,理论上现有 `DashScopeVideoBackend` 换 `base_url`(`https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1`)+ `sk-sp-` Key 即可复用;但额度用尽是 429 硬阻断而非转按量,若接入需把该错误映射成用户可读的配额提示,且仅北京地域可用
-- `docs/dashscope-docs/参考生视频-HappyHorse.md` 现为 1.0 快照(且写「同系列 t2v/i2v 待官方扩充」),若实施 1.1 接入应按维护约定回写该目录
+- `docs/dashscope-docs/参考生视频-HappyHorse.md` 已按维护约定回写为 HappyHorse 全系文档(1.0/1.1 × t2v/i2v/r2v),r2v 完整 schema 为主线,t2v/i2v 差异与版本差异各成一节
 
 ## 来源清单
 
