@@ -126,7 +126,12 @@ describe("EditableAssetName", () => {
     rerender(<EditableAssetName projectName="demo" name="李白" assetType="character" busy />);
     fireEvent.keyDown(input, { key: "Enter" });
 
-    await waitFor(() => expect(useAppStore.getState().toast?.text).toBeTruthy());
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "该资产正在生成中，请等生成结束后再重命名",
+        tone: "info",
+      }),
+    );
     expect(renameSpy).not.toHaveBeenCalled();
   });
 

@@ -629,6 +629,17 @@ class TestRenameAssetCascade:
             preview.files,
         )
 
+    def test_preexisting_error_naming_the_asset_does_not_block_rename(self, pm: ProjectManager) -> None:
+        """历史遗留错误里点名了该资产时，改名不算「更坏」：错误随名字换了措辞，不是新增。"""
+        project = pm.load_project("demo")
+        project["characters"]["角色A"]["description"] = ""
+        atomic_write_json(_project_dir(pm) / "project.json", project)
+
+        report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
+
+        assert report.new_name == "主角甲"
+        assert "主角甲" in pm.load_project("demo")["characters"]
+
     def test_dry_run_leaves_no_version_directory(self, pm: ProjectManager) -> None:
         """零写入承诺覆盖目录：预演不得在项目下建出空的 ``versions/`` 目录树。"""
         pm.save_script("demo", _narration_script(), "episode_1.json")

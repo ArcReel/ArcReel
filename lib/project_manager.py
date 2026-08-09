@@ -68,6 +68,7 @@ from lib.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
 from lib.script_models import get_generated_assets, script_duration_total
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
+from lib.validation_messages import ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +180,29 @@ class ProjectOverview(BaseModel):
     # 由 generate_overview 在落盘时同步写入。所有度量/切分调用方一律读顶层字段，
     # 不要直接读 overview.language。
     language: Literal["zh", "en", "vi"] = Field(description="小说源语言代码")
+
+
+def _rename_agnostic_errors(
+    result: ValidationResult, old_name: str, new_name: str
+) -> dict[tuple[str, tuple[tuple[str, str], ...]], str]:
+    """把校验错误压成与「被改名的那个身份」无关的指纹，映射到可读文本。
+
+    资产改名的「不更坏」判据是比对改写前后的错误集合，而不少校验消息会点名是哪个资产
+    （缺 description、路径字段非法等），参数位上因此带着资产名。按渲染文本直接做集合差，
+    会把一条原就存在的历史遗留错误当成本次新引入的——名字变了，文本就变了——从而拒绝
+    一次本不更坏的改名。指纹按结构化消息（key + params）构造，并把参数里出现的新名折回
+    旧名；前后两侧用同一个折叠函数，折叠若有误差也对称抵消。
+    """
+    folded: dict[tuple[str, tuple[tuple[str, str], ...]], str] = {}
+    for message in result.error_messages:
+        params = tuple(
+            sorted(
+                (name, value.replace(new_name, old_name) if isinstance(value, str) else repr(value))
+                for name, value in message.params.items()
+            )
+        )
+        folded[(message.key, params)] = message.render()
+    return folded
 
 
 class ProjectManager:
@@ -2046,11 +2070,12 @@ class ProjectManager:
             # project.json 变更先在副本上应用并做「不更坏」校验：校验失败整体拒绝、任何一处不落盘。
             mutated = copy.deepcopy(project)
             validator = DataValidator(str(self.projects_root))
-            before_errors = set(validator.validate_project_payload(mutated).errors)
+            before_errors = _rename_agnostic_errors(validator.validate_project_payload(mutated), old_key, new_clean)
             entry = rekey_equivalent_entries(mutated[spec.bucket_key], old_key, new_clean)
             if isinstance(entry, dict):
                 rewrite_entry_paths(entry, spec, old_key, new_clean)
-            new_errors = set(validator.validate_project_payload(mutated).errors) - before_errors
+            after_errors = _rename_agnostic_errors(validator.validate_project_payload(mutated), old_key, new_clean)
+            new_errors = {after_errors[fingerprint] for fingerprint in after_errors.keys() - before_errors.keys()}
             if new_errors:
                 raise ValueError("project.json 结构校验失败: " + "; ".join(sorted(new_errors)))
 
