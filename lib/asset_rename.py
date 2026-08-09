@@ -31,6 +31,18 @@ class AssetRenameConflictError(ValueError):
         self.conflict_name = conflict_name
 
 
+class AssetRenameFileCollisionError(ValueError):
+    """迁移目标文件已被占用，整体拒绝、不落盘。
+
+    占用者是无对应资产的孤儿文件（有资产时先被 :class:`AssetRenameConflictError` 拦下），
+    落盘处的 ``os.replace`` 会静默销毁它。
+    """
+
+    def __init__(self, destination: Path):
+        super().__init__(f"迁移目标文件已存在: {destination}，请先移除该文件或换一个名字")
+        self.destination = destination
+
+
 @dataclass(frozen=True)
 class AssetRenameReport:
     """级联重命名的影响报告。dry-run 预览与实际执行共用同一次扫描，数字必然一致。"""
@@ -199,6 +211,13 @@ def plan_asset_file_renames(
     ``旧名_{序号}`` 形态只在多图序列资产（entry 带 ``reference_images``）的 ``refs``
     子目录放行——那里的文件名由上传侧按序号机械生成，不会是别的资产的名字；其余目录
     一律精确同名，否则兄弟资产「旧名_2」的设计图会被一并卷走。
+
+    目标已被占用时抛 :class:`AssetRenameFileCollisionError`：规划早于任何写入，因此整体
+    拒绝、不落盘。这不影响「中途失败重跑收敛」——已完成的迁移其 ``src`` 已不存在，扫描
+    不会再把它规划进来。
+
+    Raises:
+        AssetRenameFileCollisionError: 某个迁移目标路径已存在。
     """
     base = project_dir / spec.subdir
     sequenced_refs = "reference_images" in spec.extra_list_fields
@@ -211,12 +230,16 @@ def plan_asset_file_renames(
                 continue
             new_stem = renamed_file_stem(file.stem, old_name, new_name, allow_sequence=allow_sequence)
             if new_stem is not None and file.stem != new_stem:
-                moves.append((file, file.with_name(new_stem + file.suffix)))
+                destination = file.with_name(new_stem + file.suffix)
+                if destination.exists():
+                    raise AssetRenameFileCollisionError(destination)
+                moves.append((file, destination))
     return moves
 
 
 __all__ = [
     "AssetRenameConflictError",
+    "AssetRenameFileCollisionError",
     "AssetRenameNotFoundError",
     "AssetRenameReport",
     "plan_asset_file_renames",

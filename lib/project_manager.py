@@ -1972,6 +1972,7 @@ class ProjectManager:
             ValueError: table 未知或新名非法（``validate_asset_name``）/ 结构校验失败。
             AssetRenameNotFoundError: 旧名不存在（message 含幂等恢复提示）。
             AssetRenameConflictError: 新名与既有同类型资产归一化判定冲突。
+            AssetRenameFileCollisionError: 某个关联文件的迁移目标已被孤儿文件占用。
         """
         # data_validator 在模块级 import 本模块，惰性 import 破环（与 upsert_assets 同理）。
         from lib.data_validator import DataValidator

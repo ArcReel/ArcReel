@@ -107,7 +107,12 @@ export function EditableAssetName({
       useAppStore.getState().pushToast(t("assets:rename_success", { name: result.new_name }), "success");
       setPreview(null);
       setIsEditing(false);
-      await useProjectsStore.getState().refreshProject(projectName);
+      // 重命名已提交，刷新是独立的后续步骤：refreshProject 以结算值报告失败而不 reject，
+      // 不单独提示的话卡片会停在旧名上，看着像改名没生效。cancelled 是项目已切走，静默。
+      const refreshed = await useProjectsStore.getState().refreshProject(projectName);
+      if (refreshed === "failed") {
+        useAppStore.getState().pushToast(t("assets:rename_refresh_failed"), "warning");
+      }
     } catch (err) {
       useAppStore.getState().pushToast(t("assets:rename_failed", { message: errMsg(err) }), "error");
       // 失败保持确认框关闭、编辑态保留，用户可改名后重试

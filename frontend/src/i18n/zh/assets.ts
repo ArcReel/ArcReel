@@ -20,6 +20,7 @@ export default {
   "rename_impact_none": "剧本与文件中暂无对该名称的引用。",
   "rename_success": "已重命名为「{{name}}」",
   "rename_failed": "重命名失败：{{message}}",
+  "rename_refresh_failed": "重命名已完成，但页面数据刷新失败，请手动刷新查看最新状态",
   "field.name": "名称",
   "field.description": "描述",
   "field.voice_style": "声音风格",

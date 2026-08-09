@@ -226,7 +226,12 @@ class VersionManager:
                     src.replace(dst)
                 version["file"] = f"versions/{resource_type}/{new_basename}"
             del bucket[key]
-            # 重跑场景下新 id 可能已有残缺记录：旧记录是完整历史，覆盖之。
+            # 重跑场景下新 id 可能已有残缺记录：旧记录是完整历史，覆盖之。按 NFC 解析后再删——
+            # 残缺记录的 key 可能是另一种编码形式，精确下标写入会留下两条视觉同名的记录，
+            # 而 resolve_asset_key 按遍历顺序取最后一条，可能命中残缺记录而非完整历史。
+            existing_new_key = resolve_asset_key(bucket, new_id)
+            if existing_new_key is not None:
+                del bucket[existing_new_key]
             bucket[new_id] = record
             self._save_versions(data)
             return len(versions)

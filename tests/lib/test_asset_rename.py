@@ -16,8 +16,13 @@ import pytest
 
 from lib.asset_rename import (
     AssetRenameConflictError,
+    AssetRenameFileCollisionError,
     AssetRenameNotFoundError,
     rewrite_payload_references,
+)
+from lib.episode_paths import (
+    REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
 )
 from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
@@ -389,6 +394,71 @@ class TestRenameAssetCascade:
         project = pm.load_project("demo")
         assert "角色A" in project["characters"]
         assert _load_script(pm)["segments"][0]["characters_in_segment"] == ["角色A"]
+
+    def test_orphan_destination_file_rejected_atomically(self, pm: ProjectManager) -> None:
+        """新名下的孤儿文件没有对应资产，资产桶冲突检查看不见它，须在迁移前独立拦下。"""
+        pm.save_script("demo", _narration_script(), "episode_1.json")
+        project_dir = _project_dir(pm)
+        sheet = project_dir / "characters" / "角色A.png"
+        sheet.write_bytes(b"sheet")
+        orphan = project_dir / "characters" / "主角甲.png"
+        orphan.write_bytes(b"orphan")
+
+        # 预览同样拒绝：占用在扫描阶段就已知，不该等到用户确认后才失败。
+        with pytest.raises(AssetRenameFileCollisionError):
+            pm.rename_asset("demo", "characters", "角色A", "主角甲", dry_run=True)
+
+        with pytest.raises(AssetRenameFileCollisionError) as exc_info:
+            pm.rename_asset("demo", "characters", "角色A", "主角甲")
+
+        assert exc_info.value.destination == orphan
+        assert orphan.read_bytes() == b"orphan"
+        assert sheet.read_bytes() == b"sheet"
+        assert "角色A" in pm.load_project("demo")["characters"]
+        assert _load_script(pm)["segments"][0]["characters_in_segment"] == ["角色A"]
+
+    def test_quarantine_drafts_rewritten(self, pm: ProjectManager) -> None:
+        """隔离草稿晋升后会回流为正式内容，漏改会让旧名经晋升重新进入剧本。"""
+        draft_dir = _project_dir(pm) / "drafts" / "episode_1"
+        draft_dir.mkdir(parents=True)
+        draft = {
+            "units": [
+                {
+                    "unit_id": "E1U1",
+                    "shots": [{"text": "@[角色A] 在河边"}],
+                    "duration_seconds": 8,
+                    "references": [{"type": "character", "name": "角色A"}],
+                }
+            ]
+        }
+        for filename in (REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME, REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME):
+            atomic_write_json(draft_dir / filename, draft)
+
+        pm.rename_asset("demo", "characters", "角色A", "主角甲")
+
+        for filename in (REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME, REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME):
+            saved = json.loads((draft_dir / filename).read_text(encoding="utf-8"))
+            assert saved["units"][0]["shots"][0]["text"] == "@[主角甲] 在河边"
+            assert saved["units"][0]["references"][0]["name"] == "主角甲"
+
+    def test_version_bucket_nfd_duplicate_replaced(self, pm: ProjectManager) -> None:
+        """新名的残缺记录可能以 NFD 形式存量落盘，精确下标写入会留下两条视觉同名记录。"""
+        project_dir = _project_dir(pm)
+        sheet = project_dir / "characters" / "角色A.png"
+        sheet.write_bytes(b"v1")
+        vm = VersionManager(project_dir)
+        vm.add_version("characters", "角色A", "第一版", source_file=sheet)
+
+        nfd = unicodedata.normalize("NFD", "café")
+        data = vm._load_versions()  # pyright: ignore[reportPrivateUsage]
+        data["characters"][nfd] = {"current_version": 0, "versions": []}
+        vm._save_versions(data)  # pyright: ignore[reportPrivateUsage]
+
+        pm.rename_asset("demo", "characters", "角色A", "café")
+
+        bucket = vm._load_versions()["characters"]  # pyright: ignore[reportPrivateUsage]
+        assert [unicodedata.normalize("NFC", key) for key in bucket] == ["café"]
+        assert vm.get_versions("characters", "café")["current_version"] == 1
 
     def test_missing_old_name_hints_idempotency(self, pm: ProjectManager) -> None:
         with pytest.raises(AssetRenameNotFoundError) as exc_info:

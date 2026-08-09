@@ -22,7 +22,7 @@ function renameResult(overrides: Partial<AssetRenameResult> = {}): AssetRenameRe
 describe("EditableAssetName", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
-    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue(undefined as never);
+    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
   });
 
   afterEach(() => {
@@ -64,6 +64,28 @@ describe("EditableAssetName", () => {
     await waitFor(() =>
       expect(useProjectsStore.getState().refreshProject).toHaveBeenCalledWith("demo"),
     );
+  });
+
+  it("warns instead of reporting failure when only the post-rename refresh fails", async () => {
+    vi.spyOn(API, "renameProjectAsset")
+      .mockResolvedValueOnce(renameResult())
+      .mockResolvedValueOnce(renameResult({ dry_run: false }));
+    // refreshProject 以结算值报告失败而不 reject，重命名本身已经成功
+    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("failed");
+
+    render(<EditableAssetName projectName="demo" name="李白" assetType="character" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "重命名" }));
+    const input = screen.getByRole("textbox", { name: "重命名" });
+    fireEvent.change(input, { target: { value: "青莲" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    const dialogButtons = await screen.findAllByRole("button", { name: "重命名" });
+    fireEvent.click(dialogButtons[dialogButtons.length - 1]);
+
+    await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("warning"));
+    expect(useAppStore.getState().toast?.text).toContain("刷新失败");
+    expect(useAppStore.getState().toast?.text).not.toContain("重命名失败");
   });
 
   it("cancels on Escape without calling the API", () => {
