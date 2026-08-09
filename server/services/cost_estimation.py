@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -20,7 +19,7 @@ from lib.config.resolver import (
 from lib.cost_calculator import cost_calculator
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
-from lib.grid.layout import calculate_grid_layout, large_grid_allowed
+from lib.grid.layout import large_grid_allowed, plan_grid_chunks
 from lib.pricing.strategies import PricingParams
 from lib.project_manager import grid_storyboard_enabled, is_reference_video_project
 from lib.reference_video import assemble_shots_text
@@ -381,10 +380,12 @@ class CostEstimationService:
                 groups = group_scenes_by_segment_break(raw_segments, id_key)
                 for group in groups:
                     n = len(group)
-                    layout = calculate_grid_layout(n, aspect_ratio, allow_large_grid=grid_allow_large)
-                    if layout is None:
+                    # 宫格张数与实际入队同源（plan_grid_chunks）：超上限分组按切块后的
+                    # 张数计费，避免估算与执行漂移。
+                    plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=grid_allow_large)
+                    if not plans:
                         continue
-                    grid_count = math.ceil(n / layout.cell_count) if n > layout.cell_count else 1
+                    grid_count = len(plans)
                     per_scene_cost = round(grid_image_unit_cost[0] * grid_count / n, 6)
                     for seg in group:
                         grid_cost_per_segment[seg.get(id_key, "")] = (per_scene_cost, grid_image_unit_cost[1])

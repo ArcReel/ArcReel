@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.generation_queue import get_generation_queue
-from lib.grid.layout import calculate_grid_layout, grid_aspect_ratio_for, max_cell_count
+from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks
 from lib.grid.models import GridGeneration
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
@@ -136,9 +136,10 @@ async def generate_grid(
 
     for group in groups:
         all_scene_ids = [item[id_field] for item in group]
-        n = len(all_scene_ids)
-        layout = calculate_grid_layout(n, aspect_ratio, allow_large_grid=allow_large_grid)
-        if layout is None:
+        # 超上限分组切为多张宫格批次（末批不足一档时落小档 + 占位格），
+        # 切块与预览、费用估算、SDK 工具同源（plan_grid_chunks）
+        plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=allow_large_grid)
+        if not plans:
             continue
 
         # 清理该组旧的 grid 记录（限定同脚本同集，scene_ids 是当前组子集的旧 grid）
@@ -154,20 +155,8 @@ async def generate_grid(
             ):
                 gm.delete(old_grid.id)
 
-        # 将大分组拆分为多个宫格批次（余下不足一档的场景用小一档 + 占位符）
-        chunks: list[list] = []
-        if n > layout.cell_count:
-            for i in range(0, n, layout.cell_count):
-                chunk = group[i : i + layout.cell_count]
-                chunks.append(chunk)
-        else:
-            chunks.append(group)
-
-        for chunk in chunks:
+        for chunk, chunk_layout in plans:
             chunk_ids = [item[id_field] for item in chunk]
-            chunk_layout = calculate_grid_layout(len(chunk_ids), aspect_ratio, allow_large_grid=allow_large_grid)
-            if chunk_layout is None:
-                continue
 
             # provider/model 由 execute_grid_task 在 image lane 解析之后回填，
             # 因为只有 task 层能根据 reference_images 判断走 T2I 还是 I2I 槽

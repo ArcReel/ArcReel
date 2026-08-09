@@ -8,6 +8,7 @@ from lib.grid.layout import (
     grid_aspect_ratio_for,
     large_grid_allowed,
     max_cell_count,
+    plan_grid_chunks,
 )
 from lib.grid.models import GridGeneration, build_frame_chain
 from lib.grid.prompt_builder import _compute_panel_aspect
@@ -127,6 +128,52 @@ class TestCalculateGridLayout:
         layout = calculate_grid_layout(4, "4:3")
         assert layout is not None
         assert layout.grid_aspect_ratio == "16:9"
+
+
+class TestPlanGridChunks:
+    def test_empty_group_returns_no_plans(self):
+        assert plan_grid_chunks([], "16:9") == []
+
+    def test_group_within_cap_is_single_chunk(self):
+        scenes = [f"S{i}" for i in range(1, 8)]
+        plans = plan_grid_chunks(scenes, "16:9")
+        assert len(plans) == 1
+        chunk, layout = plans[0]
+        assert chunk == scenes
+        assert layout.grid_size == "grid_9"
+        assert layout.placeholder_count == 2
+
+    def test_group_above_cap_splits_into_multiple_chunks(self):
+        scenes = [f"S{i:02d}" for i in range(1, 13)]
+        plans = plan_grid_chunks(scenes, "9:16", allow_large_grid=False)
+        assert [(len(chunk), layout.grid_size) for chunk, layout in plans] == [(9, "grid_9"), (3, "grid_4")]
+        # 各块不重叠、并集等于整组、顺序保持
+        assert [s for chunk, _ in plans for s in chunk] == scenes
+
+    def test_remainder_chunk_falls_to_smaller_tier_with_placeholders(self):
+        scenes = [f"S{i:02d}" for i in range(1, 13)]
+        plans = plan_grid_chunks(scenes, "9:16")
+        _, tail_layout = plans[-1]
+        assert (tail_layout.rows, tail_layout.cols) == (2, 2)
+        assert tail_layout.placeholder_count == 1
+
+    def test_large_grid_keeps_group_in_one_chunk(self):
+        scenes = [f"S{i:02d}" for i in range(1, 13)]
+        plans = plan_grid_chunks(scenes, "16:9", allow_large_grid=True)
+        assert [(len(chunk), layout.grid_size) for chunk, layout in plans] == [(12, "grid_16")]
+
+    def test_above_25_splits_even_with_large_grid(self):
+        scenes = [f"S{i:02d}" for i in range(1, 31)]
+        plans = plan_grid_chunks(scenes, "16:9", allow_large_grid=True)
+        assert [(len(chunk), layout.grid_size) for chunk, layout in plans] == [(25, "grid_25"), (5, "grid_9")]
+        assert [s for chunk, _ in plans for s in chunk] == scenes
+
+    def test_every_chunk_fits_its_layout(self):
+        for n in (1, 4, 9, 10, 18, 27):
+            plans = plan_grid_chunks(list(range(n)), "16:9", allow_large_grid=False)
+            assert sum(len(chunk) for chunk, _ in plans) == n
+            for chunk, layout in plans:
+                assert len(chunk) <= layout.cell_count == layout.rows * layout.cols
 
 
 class TestLargeGridGate:

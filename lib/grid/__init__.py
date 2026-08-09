@@ -7,6 +7,7 @@ from lib.grid.layout import (
     grid_aspect_ratio_for,
     large_grid_allowed,
     max_cell_count,
+    plan_grid_chunks,
 )
 from lib.grid.models import FrameCell, GridGeneration, build_frame_chain
 
@@ -17,6 +18,7 @@ __all__ = [
     "grid_aspect_ratio_for",
     "large_grid_allowed",
     "max_cell_count",
+    "plan_grid_chunks",
     "FrameCell",
     "GridGeneration",
     "build_frame_chain",

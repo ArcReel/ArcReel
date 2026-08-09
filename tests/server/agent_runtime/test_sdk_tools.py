@@ -1067,6 +1067,75 @@ async def test_generate_grid_list_only_respects_4k_gate(
 
 
 @pytest.mark.unit
+async def test_generate_grid_list_only_shows_split_for_oversized_group(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 超过单张格数上限的分组，预览按切块后的张数与档位展示，与实际入队同源
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": f"E1S{i:02d}", "image_prompt": "p", "segment_break": False} for i in range(1, 13)
+    ]
+
+    async def _gate(_project: dict) -> bool:
+        return False
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    tool_obj = generate_grid_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "list_only": True})
+    assert out.get("is_error") is not True
+    text = out["content"][0]["text"]
+    assert "2 张宫格: grid_9 (3×3) + grid_4 (2×2)" in text
+
+
+@pytest.mark.unit
+async def test_generate_grid_splits_oversized_group_into_multiple_grids(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 12 场景 + 非 4K（上限 9）：入队 2 张宫格，场景不重不漏，每张 prompt 场景数与格数一致
+    from lib.grid_manager import GridManager
+
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    all_ids = [f"E1S{i:02d}" for i in range(1, 13)]
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": sid, "image_prompt": "p", "video_prompt": "v", "segment_break": False} for sid in all_ids
+    ]
+
+    async def _gate(_project: dict) -> bool:
+        return False
+
+    payloads: list[dict[str, Any]] = []
+
+    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+        payloads.append(payload)
+        return {"task_id": f"t{len(payloads)}"}
+
+    async def fake_wait(_task_id: str) -> dict[str, Any]:
+        return {"status": "succeeded"}
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.wait_for_task", fake_wait)
+
+    tool_obj = generate_grid_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+    assert out.get("is_error") is not True
+
+    assert [(len(p["scene_ids"]), p["grid_size"]) for p in payloads] == [(9, "grid_9"), (3, "grid_4")]
+    # 场景不重不漏且保持顺序
+    assert [sid for p in payloads for sid in p["scene_ids"]] == all_ids
+    # 每张的 prompt 按自身块与档位构建
+    assert "3×3" in payloads[0]["prompt"]
+    assert "2×2" in payloads[1]["prompt"]
+
+    # 落盘的 grid 记录与 payload 一致，帧链长度等于格数
+    grids = sorted(GridManager(fake_ctx.project_path).list_all(), key=lambda g: len(g.scene_ids), reverse=True)
+    assert [(g.scene_ids, g.rows, g.cols) for g in grids] == [(all_ids[:9], 3, 3), (all_ids[9:], 2, 2)]
+    assert all(len(g.frame_chain) == g.rows * g.cols for g in grids)
+
+
+@pytest.mark.unit
 async def test_generate_grid_wrong_mode(fake_ctx: ToolContext) -> None:
     # 项目未开启 grid_storyboard → error
     tool_obj = generate_grid_tool(fake_ctx)
