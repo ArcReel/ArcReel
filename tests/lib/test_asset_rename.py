@@ -19,8 +19,10 @@ from lib.asset_rename import (
     AssetRenameFileCollisionError,
     AssetRenameHistoryCollisionError,
     AssetRenameNotFoundError,
+    rewrite_entry_paths,
     rewrite_payload_references,
 )
+from lib.asset_types import ASSET_SPECS
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
@@ -681,3 +683,21 @@ class TestRenameAgnosticErrors:
         renamed = ValidationMessage("val_invalid_path", {"field": "assets/甲板/图.png"})
         original = ValidationMessage("val_invalid_path", {"field": "assets/角色A板/图.png"})
         assert self._fingerprints(renamed) != self._fingerprints(original)
+
+
+def test_path_field_outside_migrated_dirs_is_left_alone() -> None:
+    """迁移范围外的路径不改写：那里的文件不会被搬，改了字段就把一条有效引用指成空。"""
+    spec = ASSET_SPECS["product"]
+    entry = {
+        "product_sheet": "thumbnails/商品A.png",
+        "reference_images": ["thumbnails/商品A_1.png", "products/商品A_1.png", "products/refs/商品A_2.png"],
+    }
+
+    assert rewrite_entry_paths(entry, spec, "商品A", "新品甲") == 1
+    assert entry["product_sheet"] == "thumbnails/商品A.png"
+    # 序号形态只在 refs 子目录随文件一并迁移，目录本级的同形态文件不搬，字段也不能改
+    assert entry["reference_images"] == [
+        "thumbnails/商品A_1.png",
+        "products/商品A_1.png",
+        "products/refs/新品甲_2.png",
+    ]

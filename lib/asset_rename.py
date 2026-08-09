@@ -196,24 +196,38 @@ def renamed_relpath(rel: str, old_name: str, new_name: str, *, allow_sequence: b
 def rewrite_entry_paths(entry: dict, spec: AssetSpec, old_name: str, new_name: str) -> int:
     """就地同步资产 entry 内按名命名的路径字段（sheet / 参考图 / 参考音频 / 多图序列），返回改写数。
 
-    只改 stem 命中旧名的值：用户手动指到别处的路径不动，物理文件迁移由
-    :func:`plan_asset_file_renames` 按目录扫描独立完成。两侧的 stem 口径按位置对齐——
-    单图字段只认精确同名，多图序列字段才放行 ``旧名_{序号}``。
+    改写范围与 :func:`plan_asset_file_renames` 的迁移范围逐维对齐，两侧用同一个谓词：只动
+    落在该资产类型目录本级及其 ``refs`` / ``refs_audio`` 子目录下、且 stem 命中旧名的值；
+    ``旧名_{序号}`` 形态只在多图序列资产的 ``refs`` 子目录放行，其余位置一律精确同名。
+    用户手动指到别处的路径（如 ``thumbnails/旧名.png``）不动——那里的文件不在迁移范围内，
+    改了字段就会把一条原本有效的引用指成空。
     """
+    base = PurePosixPath(spec.subdir)
+    migrated_dirs = {base, base / "refs", base / "refs_audio"}
+    sequenced_refs = "reference_images" in spec.extra_list_fields
+
+    def rewrite(value: str, *, sequenced_field: bool = False) -> str | None:
+        parent = PurePosixPath(value.replace("\\", "/")).parent
+        if parent not in migrated_dirs:
+            return None
+        allow_sequence = sequenced_field and sequenced_refs and parent == base / "refs"
+        renamed = renamed_relpath(value, old_name, new_name, allow_sequence=allow_sequence)
+        return renamed if renamed != value else None
+
     count = 0
     for field in (spec.sheet_field, "reference_image", "reference_audio"):
         value = entry.get(field)
         if isinstance(value, str) and value:
-            renamed = renamed_relpath(value, old_name, new_name)
-            if renamed is not None and renamed != value:
+            renamed = rewrite(value)
+            if renamed is not None:
                 entry[field] = renamed
                 count += 1
     images = entry.get("reference_images")
     if isinstance(images, list):
         for i, value in enumerate(images):
             if isinstance(value, str) and value:
-                renamed = renamed_relpath(value, old_name, new_name, allow_sequence=True)
-                if renamed is not None and renamed != value:
+                renamed = rewrite(value, sequenced_field=True)
+                if renamed is not None:
                     images[i] = renamed
                     count += 1
     return count
