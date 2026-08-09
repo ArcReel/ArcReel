@@ -7,7 +7,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.api_errors import BadRequestError
@@ -80,3 +83,34 @@ class TestRequireAudioSwitchSupported:
             await require_audio_switch_supported({}, "i2v")
         finally:
             await engine.dispose()
+
+
+@pytest.mark.unit
+class TestResolutionFailurePassesThrough:
+    """两次解析都读库；任一次数据库故障都退化成放行，不把配置解析问题升级为提交期拒绝。"""
+
+    def _install_resolver(self, monkeypatch, *, backend_exc=None, audio_exc=None):
+        class _FakeResolver:
+            def __init__(self, _factory):
+                pass
+
+            async def resolve_video_backend(self, _project, _model, *, capability):
+                if backend_exc is not None:
+                    raise backend_exc
+                return SimpleNamespace(provider_id="dashscope", model_id="wan2.7-i2v")
+
+            async def video_generate_audio_for_project(self, _project):
+                if audio_exc is not None:
+                    raise audio_exc
+                return False
+
+        monkeypatch.setattr("server.services.video_caps.ConfigResolver", _FakeResolver)
+
+    async def test_backend_resolution_db_failure(self, monkeypatch):
+        self._install_resolver(monkeypatch, backend_exc=SQLAlchemyError("db down"))
+        await require_audio_switch_supported({}, "i2v")
+
+    async def test_audio_setting_db_failure(self, monkeypatch):
+        """恒有声模型已解析出来，但读音频开关时数据库故障——同样放行。"""
+        self._install_resolver(monkeypatch, audio_exc=SQLAlchemyError("db down"))
+        await require_audio_switch_supported({}, "i2v")

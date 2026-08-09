@@ -203,20 +203,29 @@ def _get_video_prompt(
     return prompt
 
 
-async def _resolve_voice_context(ctx: ToolContext, content_mode: str) -> dict[str, Any] | None:
-    """分镜路线入队前的音频闸门 + 供 Voice_Profiles 注入的角色资产（``None`` 表示不注入）。
+async def _assert_audio_switch_for_storyboard(ctx: ToolContext) -> None:
+    """分镜路线入队前的音频闸门（``assert_audio_switch_supported``，与 WebUI 提交入口同一判据）。
 
-    先过音频开关预检（``assert_audio_switch_supported``，与 WebUI 提交入口同一判据）：成片恒有声
-    的模型收不到关闭音频的请求，放行只会让下面的无声判据把音色约束整批裁掉。该闸门与内容模式
-    无关，先于 drama 分支执行——narration/ad 也因此多付一次视频能力解析。
+    成片恒有声的模型收不到关闭音频的请求，放行只会让无声判据把音色约束整批裁掉。闸门与内容模式
+    无关，narration/ad 同样受检。
 
-    再取注入用的角色资产：非 drama 不注入；drama 按无声判据排除（C 类模型不产音、或本集关闭了
-    音频，两条路径同口径）。台词不受影响、照常下发。
+    调用点固定在「确有任务要入队」之后、提交之前：整集已完成、或条目全被
+    :func:`_build_video_specs` 过滤时本就不会产生任何请求，此时拒绝等于把一次正常的空转变成报错。
+    参考路线的 :func:`_assert_audio_switch_for_units` 是同一语义。
     """
     project = ctx.pm.load_project(ctx.project_name)
     await assert_audio_switch_supported(project, video_bucket_for_generation_mode(project.get("generation_mode")))
+
+
+async def _resolve_voice_context(ctx: ToolContext, content_mode: str) -> dict[str, Any] | None:
+    """供 Voice_Profiles 注入的角色资产（``None`` 表示不注入）。
+
+    非 drama 不注入；drama 按无声判据排除（C 类模型不产音、或本集关闭了音频，两条路径同口径）。
+    台词不受影响、照常下发。
+    """
     if content_mode != "drama":
         return None
+    project = ctx.pm.load_project(ctx.project_name)
     if await resolve_project_is_silent(project):
         return None
     return project.get("characters") or {}
@@ -963,6 +972,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                 raise RuntimeError("没有可生成的视频片段")
 
             if specs:
+                await _assert_audio_switch_for_storyboard(ctx)
                 failures = await _submit_with_checkpoint(
                     project_name=ctx.project_name,
                     project_dir=project_dir,
@@ -1079,6 +1089,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                 extra_payload=extra_payload or None,
             )
 
+            await _assert_audio_switch_for_storyboard(ctx)
             queued = await enqueue_and_wait(
                 project_name=ctx.project_name,
                 task_type=spec.task_type,
@@ -1161,6 +1172,7 @@ def generate_video_all_tool(ctx: ToolContext):
             if not specs:
                 return {"content": [{"type": "text", "text": "\n".join([*log, "⚠️  没有任何可生成的视频任务"])}]}
 
+            await _assert_audio_switch_for_storyboard(ctx)
             successes, failures = await batch_enqueue_and_wait(project_name=ctx.project_name, specs=specs)
             details: list[str] = []
             for br in successes:
@@ -1310,6 +1322,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                 raise RuntimeError("没有任何可生成的视频任务（全部 selected 都被跳过）")
 
             if specs:
+                await _assert_audio_switch_for_storyboard(ctx)
                 failures = await _submit_with_checkpoint(
                     project_name=ctx.project_name,
                     project_dir=project_dir,

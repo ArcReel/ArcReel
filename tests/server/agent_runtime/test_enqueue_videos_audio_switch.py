@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.config.service import ConfigService
 from lib.db.base import Base
+from lib.generation_queue_client import TaskSpec
 from server.agent_runtime.sdk_tools import enqueue_videos as mod
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.services.video_caps import assert_audio_switch_supported
@@ -54,6 +55,17 @@ def _ctx(tmp_path: Path, project: dict[str, Any]) -> ToolContext:
     )
 
 
+def _unit_spec(unit: dict[str, Any]) -> TaskSpec:
+    """可入队 unit 的替身 spec：只用于让逐桶去重判定「这条要入队」。"""
+    return TaskSpec.from_request(
+        task_type="video",
+        media_type="video",
+        resource_id=str(unit["unit_id"]),
+        prompt="镜头",
+        script_file="episode_1.json",
+    )
+
+
 @pytest.mark.integration
 class TestAssertAudioSwitchSupported:
     async def test_always_audible_model_with_audio_off_names_provider_and_model(self, monkeypatch):
@@ -77,9 +89,9 @@ class TestAssertAudioSwitchSupported:
 
 @pytest.mark.unit
 class TestStoryboardRouteGate:
-    """分镜路线：闸门在 ``_resolve_voice_context``，先于 drama 分支——非 drama 项目同样被拦。"""
+    """分镜路线：闸门与内容模式无关，但只在确有任务要入队时才拦。"""
 
-    async def test_gate_runs_before_the_drama_branch(self, tmp_path, monkeypatch):
+    async def test_gate_is_content_mode_agnostic(self, tmp_path, monkeypatch):
         seen: list[str] = []
 
         async def _reject(_project, capability):
@@ -88,17 +100,13 @@ class TestStoryboardRouteGate:
 
         monkeypatch.setattr(mod, "assert_audio_switch_supported", _reject)
         with pytest.raises(ValueError):
-            await mod._resolve_voice_context(_ctx(tmp_path, {"generation_mode": "storyboard"}), "narration")
+            await mod._assert_audio_switch_for_storyboard(_ctx(tmp_path, {"generation_mode": "storyboard"}))
         assert seen == ["i2v"]
 
-    async def test_gate_passes_through_to_voice_characters(self, tmp_path, monkeypatch):
-        async def _pass(_project, _capability):
-            return None
-
+    async def test_voice_characters_resolve_independently_of_the_gate(self, tmp_path, monkeypatch):
         async def _not_silent(_project):
             return False
 
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _pass)
         monkeypatch.setattr(mod, "resolve_project_is_silent", _not_silent)
         project = {"generation_mode": "storyboard", "characters": {"张三": {"description": "主角"}}}
         assert await mod._resolve_voice_context(_ctx(tmp_path, project), "drama") == project["characters"]
@@ -125,7 +133,7 @@ class TestReferenceRouteGate:
             project={},
             units=units,
             skip_ids={"E1U4"},
-            spec_for=lambda _u: None,  # type: ignore[arg-type,return-value]
+            spec_for=_unit_spec,
             ad_shots_for=None,
         )
         assert sorted(seen) == ["i2v", "r2v"]
@@ -150,3 +158,72 @@ class TestReferenceRouteGate:
             ad_shots_for=None,
         )
         assert called is False
+
+
+class _EpisodePM:
+    """整集工具够用的 pm 替身：一集一个 segment，分镜图有无由调用方决定。"""
+
+    def __init__(self, project_dir: Path, *, with_storyboard: bool) -> None:
+        self._project_dir = project_dir
+        item: dict[str, Any] = {"segment_id": "E1S01", "video_prompt": "镜头平移"}
+        if with_storyboard:
+            item["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
+        self.script_payload: dict[str, Any] = {"content_mode": "narration", "episode": 1, "segments": [item]}
+
+    def get_project_path(self, _name: str) -> Path:
+        return self._project_dir
+
+    def load_project(self, _name: str) -> dict[str, Any]:
+        return {"generation_mode": "storyboard"}
+
+    def load_script(self, _name: str, _filename: str) -> dict[str, Any]:
+        return self.script_payload
+
+
+@pytest.mark.unit
+class TestStoryboardGateSkipsEmptyBatches:
+    """没有任务要入队时不触发闸门：存量的关闭音频配置不该把一次空转变成报错。"""
+
+    def _ctx_with(self, tmp_path: Path, *, with_storyboard: bool) -> ToolContext:
+        project_dir = tmp_path / "demo"
+        (project_dir / "storyboards").mkdir(parents=True)
+        (project_dir / "storyboards" / "scene_E1S01.png").write_bytes(b"")
+        return ToolContext(
+            project_name="demo",
+            projects_root=tmp_path,
+            pm=_EpisodePM(project_dir, with_storyboard=with_storyboard),  # type: ignore[arg-type]
+        )
+
+    async def _run_episode(self, ctx: ToolContext, monkeypatch, **args: Any) -> dict[str, Any]:
+        rejected: list[str] = []
+
+        async def _reject(_project, capability):
+            rejected.append(capability)
+            raise ValueError("成片恒有声")
+
+        monkeypatch.setattr(mod, "assert_audio_switch_supported", _reject)
+        tool_obj = mod.generate_video_episode_tool(ctx)
+        out = await tool_obj.handler({"script": "episode_1.json", **args})
+        return {"out": out, "rejected": rejected}
+
+    async def test_resume_with_everything_done_reports_completion(self, tmp_path, monkeypatch):
+        ctx = self._ctx_with(tmp_path, with_storyboard=True)
+        videos_dir = tmp_path / "demo" / "videos"
+        videos_dir.mkdir(parents=True)
+        (videos_dir / "scene_E1S01.mp4").write_bytes(b"")
+        mod._save_checkpoint_at(videos_dir / ".checkpoint_ep1.json", ["E1S01"], "2026-01-01T00:00:00+00:00", episode=1)
+
+        result = await self._run_episode(ctx, monkeypatch, resume=True)
+
+        assert result["rejected"] == []
+        assert result["out"].get("is_error") is not True
+
+    async def test_all_items_filtered_out_still_fails_without_consulting_the_gate(self, tmp_path, monkeypatch):
+        """全部条目缺分镜图时报的应是「没有可生成的片段」，而不是音频开关冲突。"""
+        ctx = self._ctx_with(tmp_path, with_storyboard=False)
+
+        result = await self._run_episode(ctx, monkeypatch)
+
+        assert result["rejected"] == []
+        assert result["out"].get("is_error") is True
+        assert "没有可生成的视频片段" in result["out"]["content"][0]["text"]

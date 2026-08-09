@@ -58,7 +58,8 @@ async def resolve_audio_switch_conflict(project: dict, capability: VideoCapabili
     视频生成的各个提交入口据此在入队前拒绝，WebUI 与智能体两条路径共用这一份判据。
 
     解析失败一律返回 ``None``（不把配置解析问题升级为提交期拒绝），自定义供应商与未登记模型
-    没有逐模型音轨声明，无信号不收紧。
+    没有逐模型音轨声明，无信号不收紧。两次解析都读库，故同在一个 ``try`` 内并一并接住
+    ``SQLAlchemyError``——数据库故障退化成放行，与 :func:`project_video_caps` 的降级口径一致。
     """
     # 模块级绑定在导入时就固化了 factory；这里延迟到调用时从 lib.db 取，测试才能替换它。
     from lib.db import async_session_factory
@@ -66,13 +67,13 @@ async def resolve_audio_switch_conflict(project: dict, capability: VideoCapabili
     resolver = ConfigResolver(async_session_factory)
     try:
         selected = await resolver.resolve_video_backend(project, None, capability=capability)
-    except (VideoBucketCapabilityError, ValueError):
-        return None
-    provider_meta = PROVIDER_REGISTRY.get(selected.provider_id)
-    model_info = provider_meta.models.get(selected.model_id) if provider_meta is not None else None
-    if model_info is None or not model_audio_always_on(selected.provider_id, model_info):
-        return None
-    if await resolver.video_generate_audio_for_project(project):
+        provider_meta = PROVIDER_REGISTRY.get(selected.provider_id)
+        model_info = provider_meta.models.get(selected.model_id) if provider_meta is not None else None
+        if model_info is None or not model_audio_always_on(selected.provider_id, model_info):
+            return None
+        if await resolver.video_generate_audio_for_project(project):
+            return None
+    except (VideoBucketCapabilityError, ValueError, SQLAlchemyError):
         return None
     return selected.provider_id, selected.model_id
 
