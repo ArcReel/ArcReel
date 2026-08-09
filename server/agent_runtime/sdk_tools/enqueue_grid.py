@@ -12,12 +12,14 @@ from lib.grid.layout import GridLayout, plan_grid_chunks
 from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
+from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager, grid_storyboard_enabled
 from lib.script_models import resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 from server.services.grid_resolution import resolve_large_grid_allowed
+from server.services.grid_split import apply_grid_split
 
 
 def _list_groups(
@@ -66,7 +68,8 @@ def generate_grid_tool(ctx: ToolContext):
     @tool(
         "generate_grid",
         "为已开启宫格装配的 storyboard 项目（generation_mode=storyboard 且 grid_storyboard=true）"
-        "生成宫格分镜图（按 segment_break 分组）。"
+        "生成宫格联合图（按 segment_break 分组），并在每张生成完成后自动执行切分落格，"
+        "端到端产出各场景起始分镜图。"
         "list_only=true 时只列出分组不执行生成。scene_ids 过滤包含这些场景的分组。",
         {
             "type": "object",
@@ -221,13 +224,30 @@ def generate_grid_tool(ctx: ToolContext):
                     failures.append((grid.id, str(result)))
                     details.append(f"  ✗ {grid.id}: {result}")
                     continue
-                if result.get("status") == "succeeded":
-                    successes.append(grid.id)
-                    details.append(f"  ✓ {grid.id}（{grid.scene_ids[0]}..{grid.scene_ids[-1]}）")
-                else:
+                if result.get("status") != "succeeded":
                     err = result.get("error_message") or "unknown"
                     failures.append((grid.id, err))
                     details.append(f"  ✗ {grid.id}: {err}")
+                    continue
+                # 生成任务只产出联合图；分镜格落盘由编排方在此显式调用切分补上，
+                # 端到端语义（分镜格齐备）不变。重载记录取 worker 回填的最新状态。
+                try:
+                    reloaded = gm.get(grid.id)
+                    if reloaded is None:
+                        raise RuntimeError(f"grid record missing after generation: {grid.id}")
+                    with project_change_source("worker"):
+                        split_result = await apply_grid_split(ctx.project_name, reloaded)
+                except Exception as exc:  # noqa: BLE001
+                    # 联合图已生成成功，仅落格失败：不并入生成失败语义，提示可在
+                    # WebUI 宫格面板重试切分（无需重新生成、不重复计费）。
+                    failures.append((grid.id, str(exc)))
+                    details.append(f"  ✗ {grid.id}: 联合图已生成，但切分落格失败（可在宫格面板重试切分）: {exc}")
+                    continue
+                successes.append(grid.id)
+                line = f"  ✓ {grid.id}（{grid.scene_ids[0]}..{grid.scene_ids[-1]}，已切分 {len(split_result.updated_scene_ids)} 格）"
+                if split_result.missing_scene_ids:
+                    line += f"，跳过已不在剧本的分镜: {split_result.missing_scene_ids}"
+                details.append(line)
 
             total_failed = len(failures) + len(enqueue_failures)
             header = f"generate_grid summary: {len(successes)} succeeded, {total_failed} failed"

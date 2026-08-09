@@ -155,10 +155,69 @@ class TestVersionsRouter:
             unsupported = client.post("/api/v1/projects/demo/versions/unknown/Alice/restore/1")
             assert unsupported.status_code == 400
 
-            # grids 是 VersionManager 合法类型，但本路由不放行其还原
-            # （无还原后元数据同步分支），行为保持为 400——不因路径形状收敛而被静默放开。
-            resp = client.post("/api/v1/projects/demo/versions/grids/x/restore/1")
-            assert resp.status_code == 400
+    def test_grid_restore_resets_split_state_without_touching_scripts(self, tmp_path, monkeypatch):
+        """grids 还原放行：只换回联合图并复位宫格记录的切分态；不同步任何剧本、
+        frame_chain 原样保留，分镜图不被触碰。"""
+        from lib.grid.models import GridGeneration
+        from lib.grid_manager import GridManager
+
+        class _GridPM:
+            def __init__(self, project_path):
+                self.project_path = project_path
+                self.update_calls = []
+
+            def get_project_path(self, project_name):
+                return self.project_path
+
+            def update_scene_asset(self, *args, **kwargs):
+                self.update_calls.append((args, kwargs))
+
+            def batch_update_scene_assets(self, *args, **kwargs):
+                self.update_calls.append((args, kwargs))
+
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=["a", "b"],
+            rows=2,
+            cols=2,
+            grid_size="grid_4",
+            provider="p",
+            model="m",
+        )
+        grid.status = "failed"
+        grid.error_message = "boom"
+        grid.split_at = "2026-01-01T00:00:00+00:00"
+        frame_chain_before = [c.to_dict() for c in grid.frame_chain]
+        GridManager(tmp_path).save(grid)
+        (tmp_path / "grids" / f"{grid.id}.png").write_bytes(b"restored-bytes")
+
+        fake_pm = _GridPM(tmp_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        client = TestClient(app)
+
+        with client:
+            resp = client.post(f"/api/v1/projects/demo/versions/grids/{grid.id}/restore/1")
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["file_path"] == f"grids/{grid.id}.png"
+            # 还原后联合图文件的 mtime 指纹供前端 cache-bust
+            assert f"grids/{grid.id}.png" in body["asset_fingerprints"]
+
+        saved = GridManager(tmp_path).get(grid.id)
+        assert saved is not None
+        assert saved.status == "completed"
+        assert saved.error_message is None
+        assert saved.split_at is None
+        assert [c.to_dict() for c in saved.frame_chain] == frame_chain_before
+        # 不做分镜侧元数据同步
+        assert fake_pm.update_calls == []
 
     def test_reference_video_restore_returns_thumbnail_fingerprint(self, tmp_path, monkeypatch):
         """reference_videos 还原放行：清缩略图并以 fingerprint=0 通知前端失效。"""

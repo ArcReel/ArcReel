@@ -126,7 +126,8 @@ class GridGeneration:
     cols: int
     cell_count: int
     frame_chain: list[FrameCell]
-    status: Literal["pending", "generating", "splitting", "completed", "failed"]
+    # 联合图生命周期：completed 仅表示联合图就绪，是否已切分落格由 split_at 表达
+    status: Literal["pending", "generating", "completed", "failed"]
     prompt: str | None
     provider: str
     model: str
@@ -134,6 +135,8 @@ class GridGeneration:
     created_at: str
     error_message: str | None = None
     reference_images: list[ReferenceImage] | None = None
+    # 最近一次按当前联合图切分落格的时间；联合图内容变更（重新生成/上传/版本还原）时清空
+    split_at: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -154,10 +157,15 @@ class GridGeneration:
             "created_at": self.created_at,
             "error_message": self.error_message,
             "reference_images": [r.to_dict() for r in self.reference_images] if self.reference_images else None,
+            "split_at": self.split_at,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> GridGeneration:
+        # 生成与切分曾是同一任务，中间态记录可能残留 status="splitting"；
+        # 该态下联合图已落盘，按当前模型等价于「联合图就绪、未落格」。
+        raw_status = data["status"]
+        status = "completed" if raw_status == "splitting" else raw_status
         return cls(
             id=data["id"],
             episode=data["episode"],
@@ -168,7 +176,7 @@ class GridGeneration:
             cols=data["cols"],
             cell_count=data["cell_count"],
             frame_chain=[FrameCell.from_dict(c) for c in data.get("frame_chain", [])],
-            status=data["status"],
+            status=status,
             prompt=data.get("prompt"),
             provider=data["provider"],
             model=data["model"],
@@ -178,6 +186,7 @@ class GridGeneration:
             reference_images=[ReferenceImage.from_dict(r) for r in data["reference_images"]]
             if data.get("reference_images")
             else None,
+            split_at=data.get("split_at"),
         )
 
     @classmethod

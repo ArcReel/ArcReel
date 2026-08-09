@@ -338,6 +338,8 @@ MESSAGES = {
     "invalid_project_name": "Invalid project name '{name}'",
     "invalid_script_file": "Invalid script file '{name}'",
     "grid_not_found": "Grid '{grid_id}' does not exist",
+    "grid_image_not_ready": "Grid '{grid_id}' has no combined image yet; generate or upload one before splitting",
+    "grid_generation_in_progress": "Grid '{grid_id}' is being generated; wait for it to finish first",
     "version_not_found": "Version {version} does not exist",
     "version_resource_not_found": "Resource '{resource_type}/{resource_id}' does not exist",
     "session_busy": "The session is busy; wait for the current reply to finish before sending",

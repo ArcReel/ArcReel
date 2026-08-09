@@ -294,6 +294,8 @@ MESSAGES = {
     "invalid_project_name": "项目名称 '{name}' 非法",
     "invalid_script_file": "剧本文件名 '{name}' 非法",
     "grid_not_found": "宫格图 '{grid_id}' 不存在",
+    "grid_image_not_ready": "宫格图 '{grid_id}' 尚无联合图，请先生成或上传后再切分",
+    "grid_generation_in_progress": "宫格图 '{grid_id}' 正在生成中，请等待完成后再操作",
     "version_not_found": "版本 {version} 不存在",
     "version_resource_not_found": "资源 '{resource_type}/{resource_id}' 不存在",
     "session_busy": "会话正在处理中，请等待当前回复完成后再发送",

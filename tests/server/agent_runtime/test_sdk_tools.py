@@ -1114,13 +1114,25 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(
     async def fake_wait(_task_id: str) -> dict[str, Any]:
         return {"status": "succeeded"}
 
+    # 生成成功后工具会对每张宫格显式调用切分；此处替换为假实现，单独锁定入队分块行为
+    split_calls: list[str] = []
+
+    async def fake_split(project_name: str, grid: Any) -> Any:
+        from server.services.grid_split import GridSplitResult
+
+        split_calls.append(grid.id)
+        return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
+
     monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
     monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
     monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.wait_for_task", fake_wait)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.apply_grid_split", fake_split)
 
     tool_obj = generate_grid_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
+    # 每张生成成功的宫格都被显式切分
+    assert len(split_calls) == 2
 
     assert [(len(p["scene_ids"]), p["grid_size"]) for p in payloads] == [(9, "grid_9"), (3, "grid_4")]
     # 场景不重不漏且保持顺序

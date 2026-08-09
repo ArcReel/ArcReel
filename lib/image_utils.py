@@ -56,13 +56,16 @@ def convert_image_bytes_to_png(content: bytes) -> bytes:
         raise ValueError("Invalid image") from e
 
 
-def normalize_storyboard_upload(content: bytes, *, max_long_edge: int = _MAX_LONG_EDGE) -> bytes:
+def normalize_storyboard_upload(content: bytes, *, max_long_edge: int | None = _MAX_LONG_EDGE) -> bytes:
     """
     将上传的分镜图归一化为 PNG 字节：exif 矫正方向、长边超限时等比缩放。
 
     分镜图 canonical 路径固定为 .png（resource_paths / VersionManager / restore
     均按此扩展名工作），因此无论输入格式一律转 PNG。
     已合规的 PNG（模式/方向/尺寸均达标）原样返回，不做无谓的解码重编码。
+
+    ``max_long_edge=None`` 表示不缩放，只做格式/方向归一化——宫格联合图等
+    分辨率即信息量的上传走此档，避免 4K 联合图被静默降采样后切格失真。
 
     Raises:
         ValueError: if the input bytes are not a valid image.
@@ -72,13 +75,14 @@ def normalize_storyboard_upload(content: bytes, *, max_long_edge: int = _MAX_LON
             if (
                 probe.format == "PNG"
                 and probe.mode in ("RGB", "RGBA")
-                and max(probe.size) <= max_long_edge
+                and (max_long_edge is None or max(probe.size) <= max_long_edge)
                 and probe.getexif().get(_EXIF_ORIENTATION, 1) == 1
             ):
                 return content
 
         with _open_oriented(content, target_modes=("RGB", "RGBA"), fallback_mode="RGBA") as img:
-            img = _fit_long_edge(img, max_long_edge)
+            if max_long_edge is not None:
+                img = _fit_long_edge(img, max_long_edge)
             out = BytesIO()
             img.save(out, format="PNG")
             return out.getvalue()

@@ -6,8 +6,8 @@ asset_fingerprints 供上传方即时 cache-bust（SSE 兜底其他客户端）�
 subdir + naming 路径模型与 MetadataSetter 签名不覆盖这条管线。扩展名与大小校验共用
 upload_finalize.validate_upload。
 
-宫格模式无独立端点：拆分后的单元格图 canonical 路径与图生视频模式相同
-（storyboards/scene_{id}.png），按镜头上传即覆盖该单元格，宫格记录不动。
+宫格切分后的单元格图 canonical 路径与图生视频模式相同（storyboards/scene_{id}.png），
+按镜头上传即覆盖该单元格，宫格记录不动；联合图整图上传走 grids.py 的独立端点。
 """
 
 from __future__ import annotations

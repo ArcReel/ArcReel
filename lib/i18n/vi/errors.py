@@ -340,6 +340,8 @@ MESSAGES = {
     "invalid_project_name": "Tên dự án '{name}' không hợp lệ",
     "invalid_script_file": "Tên tệp kịch bản '{name}' không hợp lệ",
     "grid_not_found": "Lưới '{grid_id}' không tồn tại",
+    "grid_image_not_ready": "Lưới '{grid_id}' chưa có ảnh ghép; hãy tạo hoặc tải lên trước khi tách",
+    "grid_generation_in_progress": "Lưới '{grid_id}' đang được tạo; vui lòng đợi hoàn tất trước khi thao tác",
     "version_not_found": "Phiên bản {version} không tồn tại",
     "version_resource_not_found": "Tài nguyên '{resource_type}/{resource_id}' không tồn tại",
     "session_busy": "Phiên đang xử lý; vui lòng đợi phản hồi hiện tại hoàn tất trước khi gửi",

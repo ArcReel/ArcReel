@@ -624,3 +624,234 @@ def test_regenerate_grid_success(monkeypatch, tmp_path):
     assert saved.status == "pending"
     assert saved.error_message is None
     assert saved.provider == ""
+
+
+# ==================== 切分端点 ====================
+
+
+def _make_completed_grid(tmp_path, *, with_image: bool = True) -> GridGeneration:
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["a", "b", "c", "d"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="p",
+        model="m",
+    )
+    grid.status = "completed"
+    grid.grid_image_path = f"grids/{grid.id}.png"
+    if with_image:
+        from PIL import Image
+
+        (tmp_path / "grids").mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (100, 100)).save(tmp_path / "grids" / f"{grid.id}.png")
+    GridManager(tmp_path).save(grid)
+    return grid
+
+
+def test_split_grid_success(monkeypatch, tmp_path):
+    grid = _make_completed_grid(tmp_path)
+
+    from server.services.grid_split import GridSplitResult
+
+    calls = []
+
+    async def fake_split(project_name, g):
+        calls.append((project_name, g.id))
+        g.split_at = "2026-01-01T00:00:00+00:00"
+        return GridSplitResult(
+            updated_scene_ids=["a", "b"],
+            missing_scene_ids=["c"],
+            asset_fingerprints={"storyboards/scene_a.png": 1},
+        )
+
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegenerate(tmp_path),
+        apply_grid_split=fake_split,
+    )
+    with client:
+        resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/split")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["success"] is True
+        assert body["updated_scene_ids"] == ["a", "b"]
+        assert body["missing_scene_ids"] == ["c"]
+        assert body["asset_fingerprints"] == {"storyboards/scene_a.png": 1}
+        assert body["split_at"] == "2026-01-01T00:00:00+00:00"
+    assert calls == [("demo", grid.id)]
+
+
+def test_split_grid_rejected_when_switch_off(monkeypatch, tmp_path):
+    grid = _make_completed_grid(tmp_path)
+    client = _client(monkeypatch, get_project_manager=_FakePMGridDisabled)
+    with client:
+        resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/split")
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == i18n_message("grid_storyboard_not_enabled")
+
+
+def test_split_grid_conflict_while_generating(monkeypatch, tmp_path):
+    # 生成在途的宫格拒绝切分：worker 完成时会覆写联合图，按旧图切分会被踩踏
+    grid = _make_completed_grid(tmp_path)
+    grid.status = "generating"
+    GridManager(tmp_path).save(grid)
+
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/split")
+        assert resp.status_code == 409
+
+
+def test_split_grid_image_not_ready(monkeypatch, tmp_path):
+    # 联合图缺失（未生成完成且未上传）→ 400，业务语义明确不落通用 500
+    grid = _make_completed_grid(tmp_path, with_image=False)
+
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/split")
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == i18n_message("grid_image_not_ready", grid_id=grid.id)
+
+
+def test_split_grid_not_found(monkeypatch, tmp_path):
+    client = _client(
+        monkeypatch,
+        get_project_manager=_FakePMNarration,
+        GridManager=_FakeGMNotFound,
+    )
+    with client:
+        resp = client.post("/api/v1/projects/demo/grids/grid-missing/split")
+        assert resp.status_code == 404
+
+
+# ==================== 联合图上传 ====================
+
+
+def _png_bytes(size=(64, 64), color=(1, 2, 3)) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", size, color).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _jpeg_bytes(size=(64, 64), color=(9, 9, 9)) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", size, color).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def test_upload_grid_image_normalizes_to_png_and_versions(monkeypatch, tmp_path):
+    """非 PNG 输入归一化为 PNG 并登记新版本；宫格记录复位为「联合图就绪、待切分」。"""
+    from lib.version_manager import VersionManager
+
+    grid = _make_completed_grid(tmp_path)
+    grid.status = "failed"
+    grid.error_message = "boom"
+    grid.split_at = "2026-01-01T00:00:00+00:00"
+    GridManager(tmp_path).save(grid)
+
+    monkeypatch.setattr(
+        "server.services.generation_tasks.emit_generation_success_batch",
+        lambda **kw: {f"grids/{grid.id}.png": 123},
+    )
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("photo.jpg", _jpeg_bytes(), "image/jpeg")},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["success"] is True
+        assert body["path"] == f"grids/{grid.id}.png"
+        assert body["asset_fingerprints"] == {f"grids/{grid.id}.png": 123}
+
+    # 落盘为合法 PNG
+    from io import BytesIO
+
+    from PIL import Image
+
+    saved_bytes = (tmp_path / "grids" / f"{grid.id}.png").read_bytes()
+    with Image.open(BytesIO(saved_bytes)) as img:
+        assert img.format == "PNG"
+
+    # 旧联合图补登 + 新版本登记（source=upload）
+    versions = VersionManager(tmp_path).get_versions("grids", grid.id)
+    assert len(versions["versions"]) >= 2
+
+    saved = GridManager(tmp_path).get(grid.id)
+    assert saved is not None
+    assert saved.status == "completed"
+    assert saved.error_message is None
+    assert saved.split_at is None
+    assert saved.grid_image_path == f"grids/{grid.id}.png"
+
+
+def test_upload_grid_image_does_not_downscale(monkeypatch, tmp_path):
+    """联合图上传不缩放：超过分镜图 2048 上限的大图原尺寸保留（4K 联合图切格不失真）。"""
+    grid = _make_completed_grid(tmp_path)
+    monkeypatch.setattr(
+        "server.services.generation_tasks.emit_generation_success_batch",
+        lambda **kw: {},
+    )
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("big.png", _png_bytes(size=(4096, 64)), "image/png")},
+        )
+        assert resp.status_code == 200, resp.text
+
+    from io import BytesIO
+
+    from PIL import Image
+
+    with Image.open(BytesIO((tmp_path / "grids" / f"{grid.id}.png").read_bytes())) as img:
+        assert img.size == (4096, 64)
+
+
+def test_upload_grid_image_rejects_invalid_image(monkeypatch, tmp_path):
+    grid = _make_completed_grid(tmp_path)
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("bad.png", b"not-an-image", "image/png")},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == i18n_message("invalid_image_file")
+
+
+def test_upload_grid_image_conflict_while_generating(monkeypatch, tmp_path):
+    grid = _make_completed_grid(tmp_path)
+    grid.status = "pending"
+    GridManager(tmp_path).save(grid)
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("a.png", _png_bytes(), "image/png")},
+        )
+        assert resp.status_code == 409
+
+
+def test_upload_grid_image_rejected_when_switch_off(monkeypatch, tmp_path):
+    grid = _make_completed_grid(tmp_path)
+    client = _client(monkeypatch, get_project_manager=_FakePMGridDisabled)
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("a.png", _png_bytes(), "image/png")},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == i18n_message("grid_storyboard_not_enabled")

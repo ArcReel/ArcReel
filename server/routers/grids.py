@@ -7,23 +7,35 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from lib.api_errors import BadRequestError, NotFoundError
+from lib.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.generation_queue import get_generation_queue
 from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks
 from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.i18n import Translator
+from lib.image_utils import normalize_storyboard_upload
 from lib.json_io import domain_error_on_value_error
+from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager, grid_storyboard_enabled
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
+from lib.version_manager import VersionManager
 from server.auth import CurrentUser
 from server.services.grid_resolution import resolve_large_grid_allowed
+from server.services.grid_split import GridImageNotReadyError, apply_grid_split
+from server.services.upload_finalize import (
+    UploadTooLargeError,
+    UploadValidationError,
+    record_upload_version,
+    save_uploaded_bytes,
+    validate_upload,
+)
 
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
 
@@ -256,18 +268,33 @@ async def get_grid(project_name: str, grid_id: str):
 # ==================== 重新生成宫格图 ====================
 
 
-@router.post("/grids/{grid_id}/regenerate")
-async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
-    """重置宫格图状态并重新入队生成任务。"""
+def _load_project_for_grid_write(project_name: str) -> dict:
+    """加载项目并校验宫格写操作闸门（首次提交端点已封禁的项目，其余写入口同样设防）。
+
+    - 广告/短片项目不开放宫格分镜，残留的历史 grid 记录不可再被改写；
+    - 宫格开关关闭后同理——历史 grid 不再可重生成/切分/上传。
+    """
     # project.json 损坏（JSONDecodeError）不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
     with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
         project = get_project_manager().load_project(project_name)
-    # 广告/短片项目不开放宫格分镜：首次提交端点已封禁，重生成端点同样设防,
-    # 否则残留的历史 grid 记录仍可被重新入队。宫格开关关闭后同理——历史 grid 不再可重生成
     if project.get("content_mode") == "ad":
         raise BadRequestError("ad_grid_not_supported")
     if not grid_storyboard_enabled(project):
         raise BadRequestError("grid_storyboard_not_enabled")
+    return project
+
+
+def _ensure_grid_idle(grid: GridGeneration) -> None:
+    """生成在途（pending/generating）的宫格拒绝切分/上传：worker 完成时会覆写联合图，
+    与刚上传的图或按旧图的切分互相踩踏。"""
+    if grid.status in ("pending", "generating"):
+        raise ConflictError("grid_generation_in_progress", grid_id=grid.id)
+
+
+@router.post("/grids/{grid_id}/regenerate")
+async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
+    """重置宫格图状态并重新入队联合图生成任务（不隐含落格，切分另行显式触发）。"""
+    project = _load_project_for_grid_write(project_name)
     project_path = get_project_manager().get_project_path(project_name)
     gm = GridManager(project_path)
     grid = _load_grid_or_404(project_path, grid_id)
@@ -307,3 +334,113 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     )
 
     return {"success": True, "task_id": task["task_id"], "deduped": task.get("deduped", False)}
+
+
+# ==================== 切分落格 ====================
+
+
+@router.post("/grids/{grid_id}/split")
+async def split_grid(project_name: str, grid_id: str):
+    """按当前联合图切分并覆写各分镜格——唯一覆写分镜格的操作，直接执行不设确认。
+
+    逐格覆写前旧文件补登版本、覆写后登记新版本；frame_chain 中已不在剧本内的
+    scene id 跳过（missing_scene_ids 返回）。切坏可在分镜格的版本史逐格回滚。
+    """
+    _load_project_for_grid_write(project_name)
+    project_path = get_project_manager().get_project_path(project_name)
+    grid = _load_grid_or_404(project_path, grid_id)
+    _ensure_grid_idle(grid)
+    if not grid.grid_image_path or not (project_path / "grids" / f"{grid_id}.png").exists():
+        raise BadRequestError("grid_image_not_ready", grid_id=grid_id)
+
+    try:
+        with project_change_source("webui"):
+            result = await apply_grid_split(project_name, grid)
+    except GridImageNotReadyError as exc:
+        # 服务侧兜底（与上方预检间存在文件被并发删除的窗口）
+        raise BadRequestError("grid_image_not_ready", grid_id=grid_id) from exc
+
+    return {
+        "success": True,
+        "split_at": grid.split_at,
+        "updated_scene_ids": result.updated_scene_ids,
+        "missing_scene_ids": result.missing_scene_ids,
+        "asset_fingerprints": result.asset_fingerprints,
+    }
+
+
+# ==================== 联合图上传 ====================
+
+
+@router.post("/grids/{grid_id}/upload")
+async def upload_grid_image(
+    project_name: str,
+    grid_id: str,
+    _t: Translator,
+    file: UploadFile = File(...),
+):
+    """上传联合图替换当前宫格图。
+
+    仅做格式归一化（转 PNG、EXIF 方向矫正，不缩放不校验 rows×cols 布局，
+    布局正确性由用户自行负责），登记为一个新的 grids 版本；不触发切分、
+    不触碰任何分镜格。
+    """
+    _load_project_for_grid_write(project_name)
+    project_path = get_project_manager().get_project_path(project_name)
+    grid = _load_grid_or_404(project_path, grid_id)
+    _ensure_grid_idle(grid)
+
+    try:
+        max_bytes = validate_upload(file.filename, file.size, kind="image")
+        # 限定读入内存的字节数：Content-Length 缺失/被绕过时不至于 OOM
+        content = await file.read(max_bytes + 1)
+        if len(content) > max_bytes:
+            raise UploadTooLargeError(max_bytes)
+    except UploadValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=_t(e.key, **e.params))
+    try:
+        png_bytes = await asyncio.to_thread(normalize_storyboard_upload, content, max_long_edge=None)
+    except ValueError:
+        raise BadRequestError("invalid_image_file")
+
+    target = project_path / "grids" / f"{grid_id}.png"
+    versions = VersionManager(project_path)
+
+    with project_change_source("webui"):
+        # 旧联合图若从未入版本库（历史迁移等），先补登，避免被覆盖后字节丢失
+        await asyncio.to_thread(versions.ensure_current_tracked, "grids", grid_id, target, "")
+        await save_uploaded_bytes(png_bytes, target)
+        version = await asyncio.to_thread(
+            record_upload_version,
+            versions=versions,
+            resource_type="grids",
+            resource_id=grid_id,
+            current_file=target,
+            original_filename=file.filename,
+        )
+
+        def _finalize_record() -> dict[str, int]:
+            from server.services.generation_tasks import emit_generation_success_batch
+
+            # 手动补图等价于一次成功的联合图产出：failed 记录就此回到就绪态；
+            # 联合图内容已变更，split_at 清空表示「待显式切分」。
+            grid.grid_image_path = f"grids/{grid_id}.png"
+            grid.status = "completed"
+            grid.error_message = None
+            grid.split_at = None
+            GridManager(project_path).save(grid)
+            return emit_generation_success_batch(
+                task_type="grid",
+                project_name=project_name,
+                resource_id=grid_id,
+                payload={"script_file": grid.script_file},
+            )
+
+        fingerprints = await asyncio.to_thread(_finalize_record)
+
+    return {
+        "success": True,
+        "path": f"grids/{grid_id}.png",
+        "version": version,
+        "asset_fingerprints": fingerprints,
+    }

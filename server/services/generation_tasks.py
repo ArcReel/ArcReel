@@ -443,16 +443,17 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
                 project_path / "products" / f"{resource_id}.png",
             )
         )
-    elif task_type == "grid":
+    elif task_type in ("grid", "grid_split"):
         paths.append(
             (
                 f"grids/{resource_id}.png",
                 project_path / "grids" / f"{resource_id}.png",
             )
         )
-        # 宫格切割还会覆写多个 canonical 分镜图，实际写入的 cell 路径持久化在
+        # 宫格切分会覆写多个 canonical 分镜图，实际写入的 cell 路径持久化在
         # grid 记录的 frame_chain 中，一并纳入指纹让前端对这些文件 cache-bust；
-        # 记录缺失/损坏时降级为只报宫格主图。
+        # 记录缺失/损坏时降级为只报宫格主图。生成事件（"grid"）也带上 cell 指纹：
+        # 生成本身不再触碰分镜格，未变更文件的 mtime 指纹与前端已持有值相同，无副作用。
         try:
             from lib.grid_manager import GridManager
 
@@ -507,6 +508,7 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
     "tts": ("segment", "tts_ready", "旁白「{}」", True),
     "grid": ("grid", "grid_ready", "宫格「{}」", True),
+    "grid_split": ("grid", "grid_split_done", "宫格「{}」切分", True),
     "voice_sample": ("character", "voice_sample_ready", "「{}」试听样本", False),
     **{atype: (atype, "updated", f"{spec.label_zh}「{{}}」设计图", False) for atype, spec in ASSET_SPECS.items()},
 }
@@ -1433,19 +1435,17 @@ async def execute_grid_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    """Execute a grid image generation task.
+    """Execute a grid joint-image generation task.
 
     resource_id is the grid_id. Steps:
     1. Load GridGeneration, set status to generating
-    2. Generate image via MediaGenerator
-    3. Split grid image into cells
-    4. Assign cell images to scenes in the script
-    5. Mark completed
-    """
-    from PIL import Image
+    2. Generate the joint image via MediaGenerator (versioned as resource_type "grids")
+    3. Mark completed
 
+    只产出联合图，不触碰任何分镜格；落格由独立的切分操作
+    （server.services.grid_split.apply_grid_split）显式执行。
+    """
     from lib.grid.layout import GRID_FALLBACK_RESOLUTION
-    from lib.grid.splitter import split_grid_image
     from lib.grid_manager import GridManager
 
     project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
@@ -1455,8 +1455,6 @@ async def execute_grid_task(
     grid = grid_manager.get(resource_id)
     if grid is None:
         raise ValueError(f"grid not found: {resource_id}")
-
-    script_file = grid.script_file
 
     try:
         # b) Set status to generating
@@ -1500,7 +1498,7 @@ async def execute_grid_task(
         # 渲染却按别的档位下发
         image_size = ctx.image.resolution or GRID_FALLBACK_RESOLUTION
 
-        image_path, version = await generator.generate_image_async(
+        _image_path, version = await generator.generate_image_async(
             prompt=prompt_text,
             resource_type="grids",
             resource_id=resource_id,
@@ -1509,89 +1507,11 @@ async def execute_grid_task(
             image_size=image_size,
         )
 
-        # e) Set grid_image_path, status to splitting
+        # e) Mark joint image ready；联合图内容已更新，旧的落格结果不再对应当前图，
+        # split_at 清空表示「待显式切分」。
         grid.grid_image_path = f"grids/{resource_id}.png"
-        grid.status = "splitting"
-        grid_manager.save(grid)
-
-        # f) Split the grid image
-        grid_image = Image.open(image_path)
-        video_aspect_ratio = get_aspect_ratio(project, "videos")
-        cells = split_grid_image(grid_image, grid.rows, grid.cols, video_aspect_ratio)
-
-        # g) Assign cells to scenes
-        storyboards_dir = project_path / "storyboards"
-        storyboards_dir.mkdir(parents=True, exist_ok=True)
-
-        def _assign_cells():
-            from lib.script_editor import resolve_items
-
-            # batch_update_scene_assets 在任一 scene_id 未命中时整批 fail-loud 回滚——避免
-            # cell.save() 已写 PNG 落盘后又因 KeyError 整批回滚留下 orphan PNG,这里先 load
-            # 当前剧本拿 valid id 集合,frame_chain 中已不存在的分镜(grid plan 生成后 agent
-            # split/remove 改动了剧本)跳过 cell PNG 保存 + 收集到 missing 列表 + warning。
-            pm = get_project_manager()
-            script = pm.load_script(project_name, script_file)
-            items, id_field, _kind = resolve_items(script)
-            valid_ids = {str(item.get(id_field)) for item in items if isinstance(item, dict)}
-
-            asset_updates: list[tuple[str, str, Any]] = []
-            missing_ids: list[str] = []
-
-            # 宫格已统一走普通图生视频（不再使用 first_last 模式），cell 仅作为
-            # next_scene_id 的起始分镜图，文件名与普通分镜对齐为 scene_{id}.png。
-            for cell, frame in zip(cells, grid.frame_chain):
-                if frame.frame_type == "placeholder":
-                    continue
-                if frame.frame_type not in ("first", "transition"):
-                    continue
-                if not frame.next_scene_id:
-                    continue
-
-                if str(frame.next_scene_id) not in valid_ids:
-                    missing_ids.append(str(frame.next_scene_id))
-                    continue
-
-                cell_rel = f"storyboards/scene_{frame.next_scene_id}.png"
-                cell_path = storyboards_dir / f"scene_{frame.next_scene_id}.png"
-                # 与 MediaGenerator 版本顺序一致：旧文件先补登再覆写、覆写后登记新版本。
-                # 否则宫格重切的单元格不进版本史，版本面板的「当前版本」与磁盘内容脱节，
-                # 且下一次还原/上传会让未登记的格子字节永久丢失。
-                generator.versions.ensure_current_tracked("storyboards", str(frame.next_scene_id), cell_path, "")
-                cell.save(cell_path, format="PNG")
-                generator.versions.add_version(
-                    resource_type="storyboards",
-                    resource_id=str(frame.next_scene_id),
-                    prompt="",
-                    source_file=cell_path,
-                    source="grid_split",
-                    grid_id=resource_id,
-                )
-                frame.image_path = cell_rel
-                asset_updates.append((frame.next_scene_id, "storyboard_image", cell_rel))
-                asset_updates.append((frame.next_scene_id, "grid_id", resource_id))
-                asset_updates.append((frame.next_scene_id, "grid_cell_index", frame.index))
-
-            if missing_ids:
-                logger.warning(
-                    "grid %s: frame_chain 中以下分镜在剧本 %s 已不存在,跳过 cell 保存: %s",
-                    resource_id,
-                    script_file,
-                    sorted(set(missing_ids)),
-                )
-
-            # Batch-write all asset updates in one script read+write pass
-            if asset_updates:
-                pm.batch_update_scene_assets(
-                    project_name=project_name,
-                    script_filename=script_file,
-                    updates=asset_updates,
-                )
-
-        await asyncio.to_thread(_assign_cells)
-
-        # h) Set status to completed
         grid.status = "completed"
+        grid.split_at = None
         grid_manager.save(grid)
 
     except Exception:
