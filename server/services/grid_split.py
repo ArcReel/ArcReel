@@ -58,16 +58,15 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
     def _split_and_assign() -> tuple[list[str], list[str]]:
         from lib.script_editor import resolve_items
 
-        # Image.open 惰性读取并持有文件句柄；切格与逐格 save 期间上传/还原可能要覆写
-        # 同一个 PNG，Windows 上未释放的句柄会让覆写失败。解码后立即 copy 成脱离
-        # 源文件的内存图像，句柄随 with 退出即释放（与 image_utils._open_oriented 同款）。
-        with Image.open(grid_image_file) as src:
-            src.load()
-            grid_image = src.copy()
         # 比例取记录冻结值：项目 aspect_ratio 改过之后再切历史联合图，按新比例中心裁切
         # 会把每格削掉大半（横版图按竖版切）。存量记录无该字段，回退到项目当前设置。
         video_aspect_ratio = grid.video_aspect_ratio or get_aspect_ratio(project, "videos")
-        cells = split_grid_image(grid_image, grid.rows, grid.cols, video_aspect_ratio)
+        # Image.open 惰性读取并持有文件句柄，而逐格 save 期间上传/还原可能要覆写同一个 PNG，
+        # Windows 上未释放的句柄会让覆写失败。切格在 with 内完成，切出的 cell 已是各自独立的
+        # 内存图像，句柄随 with 退出即释放；不再额外 copy 整张联合图，省下一份满尺寸副本。
+        with Image.open(grid_image_file) as src:
+            src.load()
+            cells = split_grid_image(src, grid.rows, grid.cols, video_aspect_ratio)
 
         storyboards_dir = project_path / "storyboards"
         storyboards_dir.mkdir(parents=True, exist_ok=True)
