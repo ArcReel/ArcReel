@@ -18,6 +18,7 @@ def _make_grid(**kwargs) -> GridGeneration:
         grid_size="grid_4",
         provider="test",
         model="m",
+        video_aspect_ratio="9:16",
     )
     defaults.update(kwargs)
     return GridGeneration.create(**defaults)
@@ -83,3 +84,36 @@ class TestGridManager:
             gm.save(g)
         loaded = gm.list_all()
         assert [g.id for g in loaded] == [g.id for g in sorted(grids, key=lambda g: g.created_at)]
+
+
+class TestLegacyRecordMigration:
+    """两段式生命周期之前落盘的记录没有 split_at 字段，读回时按旧 status 推断切分态。"""
+
+    def _legacy_payload(self, status: str) -> dict:
+        payload = _make_grid().to_dict()
+        payload["status"] = status
+        del payload["split_at"]
+        return payload
+
+    def test_legacy_completed_reads_as_already_split(self):
+        """旧流程只在切格落盘后才写 completed，这类记录等价于已切分。
+
+        读成未切分会让前端提示待切分，用户照做就用旧联合图覆盖了之后单独重生成过的分镜图。
+        """
+        payload = self._legacy_payload("completed")
+        grid = GridGeneration.from_dict(payload)
+        assert grid.status == "completed"
+        assert grid.split_at == payload["created_at"]
+
+    def test_legacy_splitting_reads_as_unsplit(self):
+        """splitting 是「联合图已落盘、尚未落格」的中间态，迁移后仍待切分。"""
+        grid = GridGeneration.from_dict(self._legacy_payload("splitting"))
+        assert grid.status == "completed"
+        assert grid.split_at is None
+
+    def test_explicit_null_split_at_stays_unsplit(self):
+        """新记录显式写 null 表示未切分，不被旧记录的迁移规则波及。"""
+        payload = _make_grid().to_dict()
+        payload["status"] = "completed"
+        payload["split_at"] = None
+        assert GridGeneration.from_dict(payload).split_at is None

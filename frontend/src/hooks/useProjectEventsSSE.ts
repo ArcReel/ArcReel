@@ -40,6 +40,7 @@ const CHANGE_PRIORITY: Record<string, number> = {
   storyboard_ready: 7,
   video_ready: 8,
   grid_ready: 9,
+  grid_split_done: 9.5,
   reference_video_ready: 10,
   tts_ready: 11,
   voice_sample_ready: 12,
@@ -356,12 +357,17 @@ export function useProjectEventsSSE(projectName?: string | null): void {
               (c.action === "task_failed" || c.action === "task_cancelled") &&
               c.task_type === "voice_sample",
           );
-          if ((hasGenerationEvent || hasBilledVoiceSampleTerminal) && projectName) {
+          // 切分本身不计费，但它把各分镜的 generated_assets.grid_id 写回，宫格已发生的
+          // 成本随之从「未归属」桶转入本集均摊（ADR 0053）。归属变了就要重拉，否则成本面板
+          // 一直显示切分前的分配；grid_split_done 不进 GENERATION_ACTIONS（那是完成通知
+          // 类别，切分不是一次生成），故在这里单列。
+          const hasGridSplit = entityChanges.some((c) => c.action === "grid_split_done");
+          if ((hasGenerationEvent || hasBilledVoiceSampleTerminal || hasGridSplit) && projectName) {
             useCostStore.getState().debouncedFetch(projectName);
           }
 
-          // Refresh grid list when a grid completes
-          if (entityChanges.some((c) => c.action === "grid_ready")) {
+          // Refresh grid list when a grid completes or gets split into cells
+          if (entityChanges.some((c) => c.action === "grid_ready" || c.action === "grid_split_done")) {
             useAppStore.getState().invalidateGrids();
           }
         },

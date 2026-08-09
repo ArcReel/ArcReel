@@ -62,6 +62,7 @@ function grid(scriptFile: string, cellPath: string): GridGeneration {
     grid_size: "grid_4",
     created_at: "2026-01-01T00:00:00Z",
     error_message: null,
+    split_at: "2026-01-01T00:10:00Z",
   };
 }
 

@@ -7,23 +7,36 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from lib.api_errors import BadRequestError, NotFoundError
+from lib.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.generation_queue import get_generation_queue
-from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks
+from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks, video_aspect_ratio_of
 from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.i18n import Translator
+from lib.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_storyboard_upload
 from lib.json_io import domain_error_on_value_error
-from lib.project_manager import get_project_manager, grid_storyboard_enabled
+from lib.project_change_hints import project_change_source
+from lib.project_manager import get_project_manager
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
+from lib.version_manager import VersionManager
 from server.auth import CurrentUser
+from server.services.grid_access import ensure_grid_writable
 from server.services.grid_resolution import resolve_large_grid_allowed
+from server.services.grid_split import GridImageNotReadyError, apply_grid_split
+from server.services.upload_finalize import (
+    UploadTooLargeError,
+    UploadValidationError,
+    record_upload_version,
+    save_uploaded_bytes,
+    validate_upload,
+)
 
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
 
@@ -62,18 +75,9 @@ async def generate_grid(
 
     立即返回 grid_ids 和 task_ids。生成由 GenerationWorker 异步执行。
     """
-    # 非法项目名（路径穿越等）是坏请求，不是「不存在」；project.json 损坏（JSONDecodeError）
-    # 不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
-    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
-        project = get_project_manager().load_project(project_name)
-    # 广告/短片项目不开放宫格分镜（宫格单格分辨率与产品高保真目标冲突），
-    # 写入边界（create/PATCH 拒 ad 开启 grid_storyboard）之外在动作端点再设一道防线
-    if project.get("content_mode") == "ad":
-        raise BadRequestError("ad_grid_not_supported")
-    # 宫格开关是入队的唯一闸门，与 SDK 工具同用一个谓词：未开宫格（含 reference_video 路线）
-    # 的项目直接拒绝，不让 HTTP 直调绕过开关产生计费任务
-    if not grid_storyboard_enabled(project):
-        raise BadRequestError("grid_storyboard_not_enabled")
+    # 广告/短片项目与关闭宫格开关的项目在此一并拒绝：写入边界（create/PATCH 拒 ad 开启
+    # grid_storyboard）之外，动作端点再设一道防线，不让 HTTP 直调绕过开关产生计费任务
+    project = _load_project_for_grid_write(project_name)
     # 路径穿越等非法 script_file 是坏请求，400 而非落入下方 500 兜底；剧本文件损坏
     # （JSONDecodeError）不能被误判为非法 script_file，交由 app 级 catch-all 收口为通用 500
     with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=req.script_file)):
@@ -81,10 +85,8 @@ async def generate_grid(
     project_path = get_project_manager().get_project_path(project_name)
 
     items, id_field, _, _, _ = get_storyboard_items(script)
-    # project.json 中 aspect_ratio/style 允许显式写入 null（Pydantic 模型为 str | None），
-    # dict.get(key, default) 遇到值为 None 的既有 key 不会回退默认值，须显式判空
-    raw_aspect_ratio = project.get("aspect_ratio")
-    aspect_ratio = raw_aspect_ratio if raw_aspect_ratio is not None else "9:16"
+    aspect_ratio = video_aspect_ratio_of(project)
+    # style 同样允许显式 null，须显式判空而非依赖 dict.get 的默认值
     raw_style = project.get("style")
     style = raw_style if raw_style is not None else ""
 
@@ -143,6 +145,7 @@ async def generate_grid(
                 grid_size=chunk_layout.grid_size,
                 provider="",
                 model="",
+                video_aspect_ratio=aspect_ratio,
             )
 
             prompt = build_grid_prompt(
@@ -256,34 +259,45 @@ async def get_grid(project_name: str, grid_id: str):
 # ==================== 重新生成宫格图 ====================
 
 
-@router.post("/grids/{grid_id}/regenerate")
-async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
-    """重置宫格图状态并重新入队生成任务。"""
+def _load_project_for_grid_write(project_name: str) -> dict:
+    """加载项目并校验宫格写操作闸门；判定与版本还原共用 ``ensure_grid_writable``。"""
     # project.json 损坏（JSONDecodeError）不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
     with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
         project = get_project_manager().load_project(project_name)
-    # 广告/短片项目不开放宫格分镜：首次提交端点已封禁，重生成端点同样设防,
-    # 否则残留的历史 grid 记录仍可被重新入队。宫格开关关闭后同理——历史 grid 不再可重生成
-    if project.get("content_mode") == "ad":
-        raise BadRequestError("ad_grid_not_supported")
-    if not grid_storyboard_enabled(project):
-        raise BadRequestError("grid_storyboard_not_enabled")
+    ensure_grid_writable(project)
+    return project
+
+
+def _ensure_grid_idle(grid: GridGeneration) -> None:
+    """生成在途（pending/generating）的宫格拒绝切分/上传：worker 完成时会覆写联合图，
+    与刚上传的图或按旧图的切分互相踩踏。"""
+    if grid.status in ("pending", "generating"):
+        raise ConflictError("grid_generation_in_progress", grid_id=grid.id)
+
+
+@router.post("/grids/{grid_id}/regenerate")
+async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
+    """重置宫格图状态并重新入队联合图生成任务（不隐含落格，切分另行显式触发）。"""
+    project = _load_project_for_grid_write(project_name)
     project_path = get_project_manager().get_project_path(project_name)
     gm = GridManager(project_path)
     grid = _load_grid_or_404(project_path, grid_id)
+
+    # 重生成是把同一次产出重跑一遍：rows/cols、prompt 与比例全部沿用记录上冻结的值，
+    # 三者必须同源——prompt 里写死了画布比例，换用项目当前比例会让画布描述与下发参数矛盾。
+    # 存量记录没有冻结值，回落到项目当前比例并就地补齐。想按新比例重排的用户重跑生成，
+    # 那条路径会重新规划分组、prompt 与档位。
+    aspect_ratio = grid.video_aspect_ratio or video_aspect_ratio_of(project)
+    grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, aspect_ratio)
 
     grid.status = "pending"
     grid.error_message = None
     # 清空旧 metadata，由 execute_grid_task 按 needs_i2i 重新回填
     grid.provider = ""
     grid.model = ""
+    # 存量记录的冻结值在此补齐；已有冻结值时是恒等写入
+    grid.video_aspect_ratio = aspect_ratio
     gm.save(grid)
-
-    raw_aspect_ratio = project.get("aspect_ratio")
-    aspect_ratio = raw_aspect_ratio if raw_aspect_ratio is not None else "9:16"
-    # 重生成沿用记录自身的 rows/cols（含存量非方形记录）与冻结的 prompt，整图比例按该记录写入时的
-    # 取值给出，与 prompt 描述的画布一致，不重走档位阶梯
-    grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, aspect_ratio)
 
     queue = get_generation_queue()
     task = await queue.enqueue_task(
@@ -307,3 +321,118 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     )
 
     return {"success": True, "task_id": task["task_id"], "deduped": task.get("deduped", False)}
+
+
+# ==================== 切分落格 ====================
+
+
+@router.post("/grids/{grid_id}/split")
+async def split_grid(project_name: str, grid_id: str):
+    """按当前联合图切分并覆写各分镜格——唯一覆写分镜格的操作，直接执行不设确认。
+
+    逐格覆写前旧文件补登版本、覆写后登记新版本；frame_chain 中已不在剧本内的
+    scene id 跳过（missing_scene_ids 返回）。切坏可在分镜格的版本史逐格回滚。
+    """
+    _load_project_for_grid_write(project_name)
+    project_path = get_project_manager().get_project_path(project_name)
+    grid = _load_grid_or_404(project_path, grid_id)
+    _ensure_grid_idle(grid)
+    if not grid.grid_image_path or not GridManager(project_path).image_path(grid_id).exists():
+        raise BadRequestError("grid_image_not_ready", grid_id=grid_id)
+
+    try:
+        with project_change_source("webui"):
+            result = await apply_grid_split(project_name, grid)
+    except GridImageNotReadyError as exc:
+        # 服务侧兜底（与上方预检间存在文件被并发删除的窗口）
+        raise BadRequestError("grid_image_not_ready", grid_id=grid_id) from exc
+
+    return {
+        "success": True,
+        "split_at": grid.split_at,
+        "updated_scene_ids": result.updated_scene_ids,
+        "missing_scene_ids": result.missing_scene_ids,
+        "asset_fingerprints": result.asset_fingerprints,
+    }
+
+
+# ==================== 联合图上传 ====================
+
+
+@router.post("/grids/{grid_id}/upload")
+async def upload_grid_image(
+    project_name: str,
+    grid_id: str,
+    _t: Translator,
+    file: UploadFile = File(...),
+):
+    """上传联合图替换当前宫格图。
+
+    仅做格式归一化（转 PNG、EXIF 方向矫正，不缩放不校验 rows×cols 布局，
+    布局正确性由用户自行负责），登记为一个新的 grids 版本；不触发切分、
+    不触碰任何分镜格。
+    """
+    project = _load_project_for_grid_write(project_name)
+    project_path = get_project_manager().get_project_path(project_name)
+    grid = _load_grid_or_404(project_path, grid_id)
+    _ensure_grid_idle(grid)
+    aspect_ratio = video_aspect_ratio_of(project)
+
+    try:
+        max_bytes = validate_upload(file.filename, file.size, kind="image")
+        # 限定读入内存的字节数：Content-Length 缺失/被绕过时不至于 OOM
+        content = await file.read(max_bytes + 1)
+        if len(content) > max_bytes:
+            raise UploadTooLargeError(max_bytes)
+    except UploadValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=_t(e.key, **e.params))
+    try:
+        png_bytes = await asyncio.to_thread(normalize_storyboard_upload, content, max_long_edge=None)
+    except ImagePixelLimitError:
+        raise BadRequestError("image_pixels_too_large", max_megapixels=MAX_UPLOAD_PIXELS // 1_000_000)
+    except ValueError:
+        raise BadRequestError("invalid_image_file")
+
+    grid_manager = GridManager(project_path)
+    target = grid_manager.image_path(grid_id)
+    versions = VersionManager(project_path)
+
+    with project_change_source("webui"):
+        # 旧联合图若从未入版本库（历史迁移等），先补登，避免被覆盖后字节丢失
+        await asyncio.to_thread(versions.ensure_current_tracked, "grids", grid_id, target, "")
+        await save_uploaded_bytes(png_bytes, target)
+        version = await asyncio.to_thread(
+            record_upload_version,
+            versions=versions,
+            resource_type="grids",
+            resource_id=grid_id,
+            current_file=target,
+            original_filename=file.filename,
+        )
+
+        def _finalize_record() -> dict[str, int]:
+            from server.services.generation_tasks import emit_generation_success_batch
+
+            # 手动补图等价于一次成功的联合图产出：failed 记录就此回到就绪态；
+            # 联合图内容已变更，split_at 清空表示「待显式切分」。
+            grid.mark_composite_replaced()
+            # 补的图按用户当前的项目比例排布，冻结值随之改写；沿用旧值会在项目比例
+            # 改过之后把新图按旧比例中心裁切。版本还原不适用：历史联合图当时的比例
+            # 未随版本记录，只能沿用记录上的冻结值。
+            grid.video_aspect_ratio = aspect_ratio
+            grid_manager.save(grid)
+            return emit_generation_success_batch(
+                task_type="grid",
+                project_name=project_name,
+                resource_id=grid_id,
+                payload={"script_file": grid.script_file},
+            )
+
+        fingerprints = await asyncio.to_thread(_finalize_record)
+
+    return {
+        "success": True,
+        "path": f"grids/{grid_id}.png",
+        "version": version,
+        "asset_fingerprints": fingerprints,
+    }

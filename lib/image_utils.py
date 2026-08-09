@@ -12,6 +12,11 @@ from PIL import Image, ImageOps
 
 _COMPRESS_THRESHOLD = 2 * 1024 * 1024  # 2 MB
 _MAX_LONG_EDGE = 2048
+# 解码后的像素总数上限（8192×8192）。字节上限拦不住这一层：低熵 PNG 能把上亿像素压进
+# 30MB 以内；PIL 自带的 MAX_IMAGE_PIXELS 也只在超过其两倍时才抛 DecompressionBombError，
+# 介于一倍与两倍之间（约 8900 万至 1.78 亿像素）仅告警放行，而一份 RGBA 缓冲即数百 MB。
+# 宫格联合图最高档位为 4K 见方（约 1700 万像素），此处留出数倍余量后显式拒绝。
+MAX_UPLOAD_PIXELS = 8192 * 8192
 _JPEG_QUALITY = 85
 # sentinel：意为「不向 PIL 传 subsampling」。PIL 的 subsampling=-1 仅在 JPEG→JPEG 时表示
 # “保持源色度”，对 PNG/其它源解码后再编码不合法，故默认用本 sentinel 拦掉，保证缺省行为不变。
@@ -19,6 +24,19 @@ _SUBSAMPLING_KEEP = -1
 
 # EXIF Orientation tag（ImageOps.exif_transpose 读取的字段）
 _EXIF_ORIENTATION = 0x0112
+
+
+class ImagePixelLimitError(ValueError):
+    """图片解码后的像素总数超过 ``MAX_UPLOAD_PIXELS``。
+
+    继承 ValueError：调用方不单独处理时，与其它无效图片一样收口为 400。
+    """
+
+
+def _ensure_pixel_budget(size: tuple[int, int]) -> None:
+    """在解码分配像素缓冲之前拦掉超大图。"""
+    if size[0] * size[1] > MAX_UPLOAD_PIXELS:
+        raise ImagePixelLimitError(f"image has {size[0]}x{size[1]} pixels, over the {MAX_UPLOAD_PIXELS} limit")
 
 
 def _open_oriented(content: bytes, *, target_modes: tuple[str, ...], fallback_mode: str) -> Image.Image:
@@ -56,7 +74,7 @@ def convert_image_bytes_to_png(content: bytes) -> bytes:
         raise ValueError("Invalid image") from e
 
 
-def normalize_storyboard_upload(content: bytes, *, max_long_edge: int = _MAX_LONG_EDGE) -> bytes:
+def normalize_storyboard_upload(content: bytes, *, max_long_edge: int | None = _MAX_LONG_EDGE) -> bytes:
     """
     将上传的分镜图归一化为 PNG 字节：exif 矫正方向、长边超限时等比缩放。
 
@@ -64,24 +82,34 @@ def normalize_storyboard_upload(content: bytes, *, max_long_edge: int = _MAX_LON
     均按此扩展名工作），因此无论输入格式一律转 PNG。
     已合规的 PNG（模式/方向/尺寸均达标）原样返回，不做无谓的解码重编码。
 
+    ``max_long_edge=None`` 表示不缩放，只做格式/方向归一化——宫格联合图等
+    分辨率即信息量的上传走此档，避免 4K 联合图被静默降采样后切格失真。
+
     Raises:
+        ImagePixelLimitError: if the decoded pixel count exceeds MAX_UPLOAD_PIXELS.
         ValueError: if the input bytes are not a valid image.
     """
     try:
         with Image.open(BytesIO(content)) as probe:
+            # 尺寸来自文件头，此时尚未分配像素缓冲
+            _ensure_pixel_budget(probe.size)
             if (
                 probe.format == "PNG"
                 and probe.mode in ("RGB", "RGBA")
-                and max(probe.size) <= max_long_edge
+                and (max_long_edge is None or max(probe.size) <= max_long_edge)
                 and probe.getexif().get(_EXIF_ORIENTATION, 1) == 1
             ):
                 return content
 
         with _open_oriented(content, target_modes=("RGB", "RGBA"), fallback_mode="RGBA") as img:
-            img = _fit_long_edge(img, max_long_edge)
+            if max_long_edge is not None:
+                img = _fit_long_edge(img, max_long_edge)
             out = BytesIO()
             img.save(out, format="PNG")
             return out.getvalue()
+    except ImagePixelLimitError:
+        # 图片本身可解析，只是过大——保留该类型，让调用方给出可操作的提示
+        raise
     except Exception as e:
         raise ValueError("Invalid image") from e
 

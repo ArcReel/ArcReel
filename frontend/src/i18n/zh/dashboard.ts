@@ -1122,9 +1122,9 @@ export default {
   // GridPreviewPanel
   'grid_status_pending': '待处理',
   'grid_status_generating': '生成中',
-  'grid_status_splitting': '切分中',
   'grid_status_completed': '已完成',
   'grid_status_failed': '失败',
+  'grid_unsplit_hint': '未切分',
   'grid_preview_title': '宫格预览',
   'grid_not_generated': '尚未生成',
   'grid_batch_unit': '{{count}} 批',
@@ -1140,6 +1140,15 @@ export default {
   'grid_cell_info': '{{count}} 格 · {{size}}',
   'grid_no_image': '无图像',
   'grid_reference_images': '参考图',
+  'grid_split_btn': '切分落格',
+  'grid_splitting': '切分中...',
+  'grid_split_success': '已切分 {{count}} 格',
+  'grid_split_missing_skipped': '以下分镜已不在剧本中，已跳过：{{ids}}',
+  'grid_split_failed': '切分失败：{{message}}',
+  'grid_upload_btn': '上传联合图',
+  'grid_uploading': '上传中...',
+  'grid_upload_success': '联合图已上传，可切分落格',
+  'grid_upload_failed': '上传失败：{{message}}',
 
   // StudioCanvasRouter
   'grid_generation_failed': '宫格生成失败: {{message}}',

@@ -1096,9 +1096,9 @@ export default {
   // GridPreviewPanel
   'grid_status_pending': 'Đang chờ',
   'grid_status_generating': 'Đang tạo',
-  'grid_status_splitting': 'Đang tách',
   'grid_status_completed': 'Hoàn tất',
   'grid_status_failed': 'Thất bại',
+  'grid_unsplit_hint': 'Chưa tách',
   'grid_preview_title': 'Xem trước lưới',
   'grid_not_generated': 'Chưa tạo',
   'grid_batch_unit': '{{count}} lô',
@@ -1114,6 +1114,15 @@ export default {
   'grid_cell_info': '{{count}} ô · {{size}}',
   'grid_no_image': 'Không có ảnh',
   'grid_reference_images': 'Ảnh tham chiếu',
+  'grid_split_btn': 'Tách vào khung hình',
+  'grid_splitting': 'Đang tách...',
+  'grid_split_success': 'Đã tách {{count}} ô',
+  'grid_split_missing_skipped': 'Đã bỏ qua các cảnh không còn trong kịch bản: {{ids}}',
+  'grid_split_failed': 'Tách thất bại: {{message}}',
+  'grid_upload_btn': 'Tải ảnh lên',
+  'grid_uploading': 'Đang tải lên...',
+  'grid_upload_success': 'Đã tải ảnh ghép lên; sẵn sàng tách vào khung hình',
+  'grid_upload_failed': 'Tải lên thất bại: {{message}}',
 
   // StudioCanvasRouter
   'grid_generation_failed': 'Tạo lưới thất bại: {{message}}',

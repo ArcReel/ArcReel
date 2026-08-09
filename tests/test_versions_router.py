@@ -64,6 +64,34 @@ class _FakeVM:
         }
 
 
+class _GridPM:
+    """记录剧本侧写回调用的 ProjectManager 替身，供 grids 还原用例断言「不碰剧本」。
+
+    ``load_project`` 供还原的宫格写闸门取项目形态，默认返回一个允许宫格写入的项目。
+    """
+
+    def __init__(self, project_path, project=None):
+        self.project_path = project_path
+        self.update_calls = []
+        self.project = (
+            project
+            if project is not None
+            else {"content_mode": "narration", "generation_mode": "storyboard", "grid_storyboard": True}
+        )
+
+    def get_project_path(self, project_name):
+        return self.project_path
+
+    def load_project(self, project_name):
+        return self.project
+
+    def update_scene_asset(self, *args, **kwargs):
+        self.update_calls.append((args, kwargs))
+
+    def batch_update_scene_assets(self, *args, **kwargs):
+        self.update_calls.append((args, kwargs))
+
+
 class _StoryboardSyncPM:
     def __init__(self, project_path):
         self.project_path = project_path
@@ -155,10 +183,162 @@ class TestVersionsRouter:
             unsupported = client.post("/api/v1/projects/demo/versions/unknown/Alice/restore/1")
             assert unsupported.status_code == 400
 
-            # grids 是 VersionManager 合法类型，但本路由不放行其还原
-            # （无还原后元数据同步分支），行为保持为 400——不因路径形状收敛而被静默放开。
-            resp = client.post("/api/v1/projects/demo/versions/grids/x/restore/1")
-            assert resp.status_code == 400
+    def test_grid_restore_resets_split_state_without_touching_scripts(self, tmp_path, monkeypatch):
+        """grids 还原放行：只换回联合图并复位宫格记录的切分态；不同步任何剧本、
+        frame_chain 原样保留，分镜图不被触碰。"""
+        from lib.grid.models import GridGeneration
+        from lib.grid_manager import GridManager
+
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=["a", "b"],
+            rows=2,
+            cols=2,
+            grid_size="grid_4",
+            provider="p",
+            model="m",
+            video_aspect_ratio="16:9",
+        )
+        grid.status = "failed"
+        grid.error_message = "boom"
+        grid.split_at = "2026-01-01T00:00:00+00:00"
+        frame_chain_before = [c.to_dict() for c in grid.frame_chain]
+        GridManager(tmp_path).save(grid)
+        (tmp_path / "grids" / f"{grid.id}.png").write_bytes(b"restored-bytes")
+
+        fake_pm = _GridPM(tmp_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        client = TestClient(app)
+
+        with client:
+            resp = client.post(f"/api/v1/projects/demo/versions/grids/{grid.id}/restore/1")
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["file_path"] == f"grids/{grid.id}.png"
+            # 还原后联合图文件的 mtime 指纹供前端 cache-bust
+            assert f"grids/{grid.id}.png" in body["asset_fingerprints"]
+
+        saved = GridManager(tmp_path).get(grid.id)
+        assert saved is not None
+        assert saved.status == "completed"
+        assert saved.error_message is None
+        assert saved.split_at is None
+        assert [c.to_dict() for c in saved.frame_chain] == frame_chain_before
+        # 冻结比例保持不变：还原换回的是历史联合图，其产出比例未随版本记录，
+        # 改写成项目当前比例会把老图按新比例裁切。与手动上传（改写为当前比例）相反。
+        assert saved.video_aspect_ratio == "16:9"
+        # 不做分镜侧元数据同步
+        assert fake_pm.update_calls == []
+
+    @pytest.mark.parametrize(
+        "project,expected_detail",
+        [
+            ({"content_mode": "ad", "generation_mode": "storyboard", "grid_storyboard": True}, "广告/短片项目"),
+            (
+                {"content_mode": "narration", "generation_mode": "storyboard", "grid_storyboard": False},
+                "项目未启用分镜板",
+            ),
+        ],
+    )
+    def test_grid_restore_rejected_when_grid_writes_disabled(self, tmp_path, monkeypatch, project, expected_detail):
+        """还原与重生成/切分/上传共用宫格写闸门：广告项目与关闭宫格开关的项目一律拒绝。
+
+        还原同样会换掉联合图并复位宫格记录，闸门漏在这里就成了改写残留 grid 的绕行路径。
+        """
+        from lib.grid.models import GridGeneration
+        from lib.grid_manager import GridManager
+
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=["a", "b"],
+            rows=2,
+            cols=2,
+            grid_size="grid_4",
+            provider="p",
+            model="m",
+            video_aspect_ratio="9:16",
+        )
+        grid.split_at = "2026-01-01T00:00:00+00:00"
+        GridManager(tmp_path).save(grid)
+        (tmp_path / "grids" / f"{grid.id}.png").write_bytes(b"original-bytes")
+
+        grid_pm = _GridPM(tmp_path, project=project)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: grid_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+
+        with TestClient(app) as client:
+            resp = client.post(f"/api/v1/projects/demo/versions/grids/{grid.id}/restore/1")
+
+        assert resp.status_code == 400
+        # 断言到具体文案：两道闸门各自触发，不被对方的 400 顶替
+        assert expected_detail in resp.json()["detail"]
+        # 拒绝即止：联合图未被替换，宫格记录的切分态原样保留
+        assert (tmp_path / "grids" / f"{grid.id}.png").read_bytes() == b"original-bytes"
+        saved = GridManager(tmp_path).get(grid.id)
+        assert saved is not None
+        assert saved.split_at == "2026-01-01T00:00:00+00:00"
+
+    def test_non_grid_restore_unaffected_by_grid_gate(self, monkeypatch):
+        """闸门只作用于 grids：其它资源类型的还原不因项目宫格配置被拦。"""
+        client, fake_pm = _client(monkeypatch)
+        with client:
+            resp = client.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
+        assert resp.status_code == 200
+
+    def test_grid_restore_keeps_in_flight_status(self, tmp_path, monkeypatch):
+        """生成在途时还原不把记录复位成 completed：记录一旦谎报空闲，
+        切分/上传的在途闸门就会放行，用户可对着即将被 worker 覆写的联合图落格。
+        切分态仍无条件作废——联合图内容确已换成历史版本。"""
+        from lib.grid.models import GridGeneration
+        from lib.grid_manager import GridManager
+
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=["a", "b"],
+            rows=2,
+            cols=2,
+            grid_size="grid_4",
+            provider="p",
+            model="m",
+            video_aspect_ratio="9:16",
+        )
+        grid.status = "generating"
+        grid.split_at = "2026-01-01T00:00:00+00:00"
+        GridManager(tmp_path).save(grid)
+        (tmp_path / "grids" / f"{grid.id}.png").write_bytes(b"restored-bytes")
+
+        grid_pm = _GridPM(tmp_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: grid_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        client = TestClient(app)
+
+        with client:
+            resp = client.post(f"/api/v1/projects/demo/versions/grids/{grid.id}/restore/1")
+            assert resp.status_code == 200, resp.text
+
+        saved = GridManager(tmp_path).get(grid.id)
+        assert saved is not None
+        assert saved.status == "generating"
+        assert saved.split_at is None
 
     def test_reference_video_restore_returns_thumbnail_fingerprint(self, tmp_path, monkeypatch):
         """reference_videos 还原放行：清缩略图并以 fingerprint=0 通知前端失效。"""

@@ -1123,9 +1123,9 @@ export default {
   // GridPreviewPanel
   'grid_status_pending': 'Pending',
   'grid_status_generating': 'Generating',
-  'grid_status_splitting': 'Splitting',
   'grid_status_completed': 'Completed',
   'grid_status_failed': 'Failed',
+  'grid_unsplit_hint': 'Not split yet',
   'grid_preview_title': 'Grid Preview',
   'grid_not_generated': 'Not generated',
   'grid_batch_unit': '{{count}} batches',
@@ -1141,6 +1141,15 @@ export default {
   'grid_cell_info': '{{count}} cells · {{size}}',
   'grid_no_image': 'No image',
   'grid_reference_images': 'Reference Images',
+  'grid_split_btn': 'Split into cells',
+  'grid_splitting': 'Splitting...',
+  'grid_split_success': 'Split {{count}} cells',
+  'grid_split_missing_skipped': 'Skipped shots no longer in the script: {{ids}}',
+  'grid_split_failed': 'Split failed: {{message}}',
+  'grid_upload_btn': 'Upload image',
+  'grid_uploading': 'Uploading...',
+  'grid_upload_success': 'Grid image uploaded; ready to split into cells',
+  'grid_upload_failed': 'Upload failed: {{message}}',
 
   // StudioCanvasRouter
   'grid_generation_failed': 'Grid generation failed: {{message}}',

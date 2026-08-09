@@ -36,6 +36,7 @@ export interface ProjectChange {
     | "storyboard_ready"
     | "video_ready"
     | "grid_ready"
+    | "grid_split_done"
     | "reference_video_ready"
     | "tts_ready"
     | "voice_sample_ready"

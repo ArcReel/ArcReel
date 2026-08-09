@@ -8,7 +8,8 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
-from lib.image_utils import compress_image_bytes, normalize_uploaded_image
+from lib import image_utils
+from lib.image_utils import compress_image_bytes, normalize_storyboard_upload, normalize_uploaded_image
 
 pytestmark = pytest.mark.unit
 
@@ -122,3 +123,35 @@ class TestCompressImageBytes:
         processed, suffix = normalize_uploaded_image(small, ".png")
         assert processed == small
         assert suffix == ".png"
+
+
+class TestUploadPixelBudget:
+    """解码后像素总数上限：字节上限与 PIL 自带的 bomb 检查都覆盖不到的区间。"""
+
+    def _png(self, width: int, height: int) -> bytes:
+        buf = BytesIO()
+        Image.new("RGB", (width, height), color="red").save(buf, format="PNG")
+        return buf.getvalue()
+
+    def test_rejects_image_over_pixel_budget(self, monkeypatch):
+        """超出上限的图片被拒绝，且不与「无法解析」混为一谈。
+
+        用 monkeypatch 压低上限：真正触界的图需上亿像素，构造代价过高，
+        而判定读的是文件头声明的尺寸，与具体阈值无关。
+        """
+        monkeypatch.setattr(image_utils, "MAX_UPLOAD_PIXELS", 100 * 100 - 1)
+        with pytest.raises(image_utils.ImagePixelLimitError):
+            normalize_storyboard_upload(self._png(100, 100), max_long_edge=None)
+
+    def test_accepts_image_at_budget(self, monkeypatch):
+        """恰好等于上限的图片放行（边界不多拦一格）。"""
+        monkeypatch.setattr(image_utils, "MAX_UPLOAD_PIXELS", 100 * 100)
+        assert normalize_storyboard_upload(self._png(100, 100), max_long_edge=None)
+
+    def test_pixel_limit_is_a_value_error(self):
+        """继承 ValueError：未单独处理该类型的调用方仍收口为无效图片。"""
+        assert issubclass(image_utils.ImagePixelLimitError, ValueError)
+
+    def test_grid_sized_composite_passes_default_budget(self):
+        """4K 见方的联合图在默认上限内，不被误拦。"""
+        assert 4096 * 4096 < image_utils.MAX_UPLOAD_PIXELS

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -75,6 +75,17 @@ def large_grid_allowed(image_resolution: str | None) -> bool:
 def max_cell_count(*, allow_large_grid: bool) -> int:
     """单张宫格的格数上限；分组超出时由调用方按此切块。"""
     return _MAX_CELL_COUNT if allow_large_grid else _GATED_MAX_CELL_COUNT
+
+
+def video_aspect_ratio_of(project: dict[str, Any]) -> str:
+    """项目的视频比例，宫格画布与冻结在记录上的单格比例共用同一取值。
+
+    project.json 中 aspect_ratio 允许显式写入 null（Pydantic 模型为 str | None），
+    dict.get(key, default) 遇到值为 None 的既有 key 不会回退默认值，须显式判空——
+    None 会一路流进画布几何、prompt 与记录上的冻结值。
+    """
+    raw = project.get("aspect_ratio")
+    return raw if raw is not None else _ORIENTATION_ASPECT["vertical"]
 
 
 def _orientation_of(aspect_ratio: str) -> str:
