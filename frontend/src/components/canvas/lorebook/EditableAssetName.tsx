@@ -67,12 +67,14 @@ export function EditableAssetName({
   if (readOnly) return heading;
 
   /**
-   * 占用复核并作两路取：`rejectIfAssetBusy` 只看任务队列，而卡片自身在途的写请求（上传、
-   * 保存）是组件本地 state、不进队列，队列口径看不见，必须把 `busy` 并进同一道闸——
-   * 否则渲染时刻禁用了按钮，提交时刻却放行同一份占用。
+   * 占用复核并作三路取：`rejectIfAssetBusy` 只看任务队列，而卡片自身在途的写请求（上传、
+   * 保存）与本组件自己那次尚未刷新完的改名都是本地 state、不进队列，队列口径看不见，必须
+   * 把 `busy` 与 `renaming` 并进同一道闸——否则渲染时刻禁用了按钮，提交时刻却放行同一份占用。
+   * `renaming` 直到 `refreshProject` 结算才落下：那之前 `name` 仍是旧值，放行会拿过期的
+   * 基准名再提交一次，把刚改成的新名又改回去。
    */
   const rejectIfBusy = () => {
-    if (busy) {
+    if (busy || renaming) {
       useAppStore.getState().pushToast(t("assets:rename_busy_hint"), "info");
       return true;
     }
@@ -142,7 +144,7 @@ export function EditableAssetName({
         <button
           type="button"
           onClick={enterEdit}
-          disabled={busy}
+          disabled={busy || renaming}
           title={t("assets:rename_asset")}
           aria-label={t("assets:rename_asset")}
           className={`${ICON_BTN_CLS} text-[var(--color-text-3)] opacity-0 hover:text-[var(--color-text)] focus-visible:opacity-100 group-hover:opacity-100`}

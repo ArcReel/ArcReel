@@ -135,6 +135,33 @@ describe("EditableAssetName", () => {
     expect(renameSpy).not.toHaveBeenCalled();
   });
 
+  it("keeps the rename entry closed until the post-rename refresh settles", async () => {
+    let releaseRefresh: (value: "success") => void = () => {};
+    vi.spyOn(API, "renameProjectAsset")
+      .mockResolvedValueOnce(renameResult())
+      .mockResolvedValueOnce(renameResult({ dry_run: false }));
+    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockReturnValue(
+      new Promise((resolve) => {
+        releaseRefresh = resolve;
+      }),
+    );
+
+    render(<EditableAssetName projectName="demo" name="李白" assetType="character" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "重命名" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "重命名" }), { target: { value: "青莲" } });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "重命名" }), { key: "Enter" });
+    const dialogButtons = await screen.findAllByRole("button", { name: "重命名" });
+    fireEvent.click(dialogButtons[dialogButtons.length - 1]);
+
+    // 刷新未结算前 name 仍是旧值，此时重新进入编辑会拿过期基准名再提交一次
+    const pencil = await screen.findByRole("button", { name: "重命名" });
+    await waitFor(() => expect(pencil).toBeDisabled());
+
+    releaseRefresh("success");
+    await waitFor(() => expect(pencil).not.toBeDisabled());
+  });
+
   it("toasts and stays editable when the preview request fails", async () => {
     vi.spyOn(API, "renameProjectAsset").mockRejectedValue(new Error("同名冲突"));
     render(<EditableAssetName projectName="demo" name="李白" assetType="character" />);
