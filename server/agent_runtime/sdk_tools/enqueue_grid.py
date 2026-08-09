@@ -55,7 +55,7 @@ def _list_groups(
 def _describe_plans(plans: list[tuple[list[dict[str, Any]], GridLayout]]) -> str:
     """把一组的宫格规划渲染为预览文案；单张沿用原格式，多张标注张数。"""
     if not plans:
-        return "single (< 4 场景)"
+        return "skip (空分组)"
     parts = [f"{layout.grid_size} ({layout.rows}×{layout.cols})" for _, layout in plans]
     if len(parts) == 1:
         return parts[0]
@@ -138,18 +138,13 @@ def generate_grid_tool(ctx: ToolContext):
 
             gm = GridManager(project_path)
             pending: list[tuple[GridGeneration, str]] = []
-            skipped: list[str] = []
             enqueue_failures: list[tuple[str, list[str], str]] = []
 
             for group in groups:
-                group_ids = [item[id_field] for item in group]
                 # 超上限分组切为多张宫格逐张入队：每张的场景数与画格数一致
                 # （末张不足一档时落小档 + 占位格），与预览、费用估算同源。
+                # 空分组（``plan_grid_chunks`` 的唯一空产出）自然跳过循环体。
                 plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=allow_large_grid)
-                if not plans:
-                    skipped.append(f"⏭️  跳过 {group_ids[0]}..{group_ids[-1]}（{len(group_ids)} 场景，不足 4 个）")
-                    continue
-
                 for chunk, layout in plans:
                     chunk_ids = [item[id_field] for item in chunk]
                     prompt = build_grid_prompt(
@@ -202,7 +197,7 @@ def generate_grid_tool(ctx: ToolContext):
                         continue
                     pending.append((grid, enqueue_result["task_id"]))
 
-            details: list[str] = list(skipped)
+            details: list[str] = []
             for grid_id, group_ids, err in enqueue_failures:
                 details.append(f"  ✗ {grid_id}（{group_ids[0]}..{group_ids[-1]}）入队失败: {err}")
 

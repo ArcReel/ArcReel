@@ -57,7 +57,8 @@ async def generate_grid(
     _t: Translator,
 ):
     """
-    提交宫格图生成任务到队列，按分段分组，每组 N>=4 个场景生成一个宫格图。
+    提交宫格图生成任务到队列，按分段分组，每组生成一张宫格图；场景数超过单张宫格
+    格数上限的分组切为多张，末张不足一档时落到更小档并由占位格补齐。
 
     立即返回 grid_ids 和 task_ids。生成由 GenerationWorker 异步执行。
     """
@@ -109,7 +110,8 @@ async def generate_grid(
     for group in groups:
         all_scene_ids = [item[id_field] for item in group]
         # 超上限分组切为多张宫格批次（末批不足一档时落小档 + 占位格），
-        # 切块与预览、费用估算、SDK 工具同源（plan_grid_chunks）
+        # 切块与预览、费用估算、SDK 工具同源（plan_grid_chunks）；
+        # 空分组是唯一的空产出，此时连旧记录清理也一并跳过。
         plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=allow_large_grid)
         if not plans:
             continue
