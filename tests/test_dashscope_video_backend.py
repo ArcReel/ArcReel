@@ -102,6 +102,31 @@ class TestCapabilities:
         assert vc.first_frame is False
 
     @pytest.mark.unit
+    def test_happyhorse_11_caps(self):
+        """1.1 三模态各自登记能力档：t2v 无首帧（未登记会回落默认档的 first_frame=True，
+        被误判进 i2v 桶），i2v 有首帧无参考图，r2v 参考图 9 张且无首帧。"""
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        t2v = DashScopeVideoBackend.video_capabilities_for_model("happyhorse-1.1-t2v")
+        assert t2v.first_frame is False
+        assert t2v.max_reference_images == 0
+
+        i2v = DashScopeVideoBackend.video_capabilities_for_model("happyhorse-1.1-i2v")
+        assert i2v.first_frame is True
+        assert i2v.max_reference_images == 0
+
+        r2v = DashScopeVideoBackend.video_capabilities_for_model("happyhorse-1.1-r2v")
+        assert r2v.first_frame is False
+        assert r2v.max_reference_images == 9
+
+    @pytest.mark.unit
+    def test_default_model_is_happyhorse_11_i2v(self):
+        from lib.video_backends.dashscope import DEFAULT_MODEL, DashScopeVideoBackend
+
+        assert DEFAULT_MODEL == "happyhorse-1.1-i2v"
+        assert DashScopeVideoBackend(api_key="sk").model == "happyhorse-1.1-i2v"
+
+    @pytest.mark.unit
     def test_wan_r2v_caps(self):
         from lib.video_backends.dashscope import DashScopeVideoBackend
 
@@ -396,6 +421,27 @@ class TestFirstFrameAndTextOnly:
             await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="1080p"))
         assert "media" not in post.call_args.kwargs["json"]["input"]
         assert post.call_args.kwargs["json"]["parameters"]["resolution"] == "1080P"
+
+    @pytest.mark.unit
+    async def test_happyhorse_11_i2v_payload(self, tmp_path: Path):
+        """1.1 与 1.0 同口径：水印显式关（官方默认开），480P 档位透传为大写。"""
+        post = AsyncMock(return_value=_resp(_submit()))
+        get = AsyncMock(return_value=_resp(_succeeded()))
+        client = _client(post=post, get=get)
+        start = _ref(tmp_path, "start.png")
+        p1, p2, p3 = _patches(client, AsyncMock())
+        with p1, p2, p3:
+            from lib.video_backends.dashscope import DashScopeVideoBackend
+
+            b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.1-i2v")
+            await b.generate(
+                VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", start_image=start, resolution="480p")
+            )
+        params = post.call_args.kwargs["json"]["parameters"]
+        assert post.call_args.kwargs["json"]["model"] == "happyhorse-1.1-i2v"
+        assert params["watermark"] is False
+        assert params["resolution"] == "480P"
+        assert post.call_args.kwargs["json"]["input"]["media"][0]["type"] == "first_frame"
 
 
 class TestPollingAndFailures:

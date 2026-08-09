@@ -1,8 +1,8 @@
-# HappyHorse 参考生视频（happyhorse-1.0-r2v）
+# HappyHorse 视频系列（1.0 / 1.1 的 t2v / i2v / r2v）
 
-HappyHorse 参考生视频支持传入**多张参考图像**,通过**文本提示词**描述场景,将图像中的主体角色融合生成一段流畅视频。
+HappyHorse 是阿里自研的原生多模态视频生成系列,音画联合生成(输出恒带音轨,无音频开关参数)。1.0 与 1.1 两代并行在售,各含文生视频(t2v)、图生视频(i2v)、参考生视频(r2v)三个模态。
 
-通用 API 模式(异步、Headers、轮询)详见 [API 概览.md](./API%20概览.md)。本文只列模型独有 schema。
+通用 API 模式(异步、Headers、轮询)详见 [API 概览.md](./API%20概览.md)。本文以参考生视频的完整 schema 为主线,t2v / i2v 的差异集中在文末[同系列模态](#同系列模态t2v--i2v)一节。1.1 相对 1.0 的差异见[版本差异](#版本差异11-vs-10)。
 
 ## 步骤 1:创建任务
 
@@ -14,7 +14,7 @@ POST /api/v1/services/aigc/video-generation/video-synthesis
 
 ```json
 {
-  "model": "happyhorse-1.0-r2v",
+  "model": "happyhorse-1.1-r2v",
   "input": {
     "prompt": "[Image 1]中身着红色旗袍的女性,镜头先以侧面中景勾勒...",
     "media": [
@@ -33,7 +33,7 @@ POST /api/v1/services/aigc/video-generation/video-synthesis
 
 ### `model`
 
-固定值 `happyhorse-1.0-r2v`。
+`happyhorse-1.1-r2v` 或 `happyhorse-1.0-r2v`。
 
 ### `input.prompt`（必选)
 
@@ -61,7 +61,7 @@ POST /api/v1/services/aigc/video-generation/video-synthesis
 
 | 参数 | 类型 | 默认 | 取值 | 说明 |
 |------|------|------|------|------|
-| `resolution` | string | `1080P` | `720P` / `1080P` | 分辨率档位 |
+| `resolution` | string | `1080P` | `480P` / `720P` / `1080P` | 分辨率档位。官方参数表为 1.1 / 1.0 合并呈现,480P 的版本归属见[版本差异](#版本差异11-vs-10) |
 | `ratio` | string | `16:9` | `16:9` / `9:16` / `3:4` / `4:3` / `4:5` / `5:4` / `1:1` / `9:21` / `21:9` | 宽高比 |
 | `duration` | integer | `5` | `3 ~ 15` 整数(秒) | 视频时长,按秒计费 |
 | `watermark` | bool | `true` | `true` / `false` | 右下角水印,文案固定 "Happy Horse" |
@@ -109,18 +109,31 @@ GET /api/v1/tasks/{task_id}
 | `SR` | int | 输出分辨率档位(如 720) |
 | `ratio` | string | 输出宽高比 |
 
+## 同系列模态（t2v / i2v）
+
+三个模态共用同一异步端点与 `parameters` 表(`resolution` / `duration` / `watermark` / `seed`),差异只在输入形态与 `ratio`:
+
+| 模态 | model id | 输入 | `ratio` |
+|------|----------|------|---------|
+| 文生视频 | `happyhorse-1.1-t2v` / `happyhorse-1.0-t2v` | 仅 `input.prompt` | 支持,9 档(默认 `16:9`) |
+| 图生视频 | `happyhorse-1.1-i2v` / `happyhorse-1.0-i2v` | 首帧图(`media` 中 `first_frame`) | **不支持**,宽高比自动跟随首帧 |
+| 参考生视频 | `happyhorse-1.1-r2v` / `happyhorse-1.0-r2v` | 参考图 1~9 张 | 支持,同 t2v |
+
+图生视频首帧图约束:JPEG / JPG / PNG / WEBP;宽高均 ≥ 300 px;宽高比 1:2.5 ~ 2.5:1;≤ 20 MB。全系**无尾帧**能力,首尾帧场景走 wan2.7 系列(见 [参考生视频-wan2.7.md](./参考生视频-wan2.7.md))。
+
+## 版本差异（1.1 vs 1.0）
+
+- 分辨率:官方参数表把 1.1 / 1.0 合并呈现为 `480P` / `720P` / `1080P`,未按版本区分;1.0 早期资料只出现 `720P` / `1080P`,**480P 是否 1.0 通用未能确认**
+- 定价(元/秒,刊例价):1.1 为 480P 0.45 / 720P 0.9 / 1080P 1.2;1.0 为 720P 0.9 / 1080P 1.6。详见 [阿里百炼费用参考.md](./阿里百炼费用参考.md)
+- 1.1 指令遵循更严格、参考图还原度与口型同步精度提升、出片更快(来源为阿里云开发者社区通稿,非 API 参考);两代时长档位相同(3~15s)
+- 1.0 全系仍在售,无官方停售公告
+
 ## ArcReel 集成要点
 
-- **R2V 单镜头参考图上限 = 9**(`max_reference_images: 9`)
-- **resolutions**:`["720P", "1080P"]`
-- **supported_durations**:`[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]`
-- **capabilities**:`["reference_images", "generate_audio"]`(音频恒开,无开关参数)
-- **水印**:`watermark=false` 关闭,默认会带 "Happy Horse" 水印 — ArcReel 应在 backend 默认传 `false`
-
-## 同系列模型(待官方扩充)
-
-HappyHorse 系列除 R2V 外,根据 PRD 还规划:
-- `happyhorse-1.0-t2v`(文生视频 + 音频)
-- `happyhorse-1.0-i2v`(图生视频 + 音频)
-
-这两个的 schema 阿里官方文档另列,字段大体同构(`input.prompt` + `parameters.resolution/duration` 等),实现时按官方文档为准。
+- **R2V 单镜头参考图上限 = 9**(`max_reference_images: 9`),t2v / i2v 无参考图槽位
+- **能力位归 backend**:i2v 声明 `first_frame=True`,t2v / r2v 为 `False`(视频能力位不入 `ModelInfo.capabilities`,见 `docs/adr/0054`)
+- **resolutions**:1.1 `["480p", "720p", "1080p"]`;1.0 `["720p", "1080p"]`(480P 对 1.0 未确权,registry 不替官方补写)
+- **supported_durations**:`[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]`(两代同)
+- **音频**:恒开、无开关参数,由恒有声例外表判定有音轨
+- **水印**:官方默认 `watermark=true`(右下角 "Happy Horse"),ArcReel backend 构造 payload 时显式传 `false`
+- **默认视频模型**:`happyhorse-1.1-i2v`

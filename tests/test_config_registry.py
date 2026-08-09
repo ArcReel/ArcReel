@@ -294,6 +294,9 @@ class TestModelHasAudioTrack:
         """DashScope 视频全家族恒有声：_build_payload 不下传音频开关，故不声明 token，
         由恒有声例外表判定有音轨。"""
         for model_id in (
+            "happyhorse-1.1-i2v",
+            "happyhorse-1.1-t2v",
+            "happyhorse-1.1-r2v",
             "happyhorse-1.0-i2v",
             "happyhorse-1.0-t2v",
             "happyhorse-1.0-r2v",
