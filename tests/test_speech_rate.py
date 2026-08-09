@@ -87,6 +87,11 @@ class TestSpeechRateOverride:
         assert not is_valid_speech_rate(0.0)
         assert not is_valid_speech_rate(MAX_SPEECH_RATE_UPS + 0.001)
 
+    def test_integer_beyond_float_range_is_out_of_range(self):
+        # JSON 整数字面量无位宽上限，超出双精度表示范围的整数按越界收掉而非抛 OverflowError
+        assert not is_valid_speech_rate(10**400)
+        assert not is_valid_speech_rate(-(10**400))
+
 
 class TestProjectSpeechRateOverride:
     def test_missing_field_is_none(self):
@@ -102,6 +107,7 @@ class TestProjectSpeechRateOverride:
         # bool 是 int 子类，True/False 不得被当成 1.0 / 0.0 的语速
         assert project_speech_rate_override({SPEECH_RATE_FIELD: dirty}) is None
 
-    @pytest.mark.parametrize("bad", [0, -3, MAX_SPEECH_RATE_UPS + 1])
+    @pytest.mark.parametrize("bad", [0, -3, MAX_SPEECH_RATE_UPS + 1, 10**400, float("inf"), float("nan")])
     def test_out_of_range_value_is_none(self, bad):
+        # 手改 project.json 可写进超出双精度范围的整数：按脏值回退语言默认，不让生成崩在这里
         assert project_speech_rate_override({SPEECH_RATE_FIELD: bad}) is None

@@ -1367,6 +1367,26 @@ class TestProjectsRouter:
             assert resp.status_code == 422
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("value", [True, False])
+    def test_create_project_rejects_boolean_speech_rate(self, tmp_path, monkeypatch, value):
+        """JSON 布尔不得被 Pydantic 折成 1.0 / 0.0 混进语速覆盖，两个取值都应 422 且不建目录。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "generation_mode": "storyboard",
+                    "title": "布尔语速",
+                    "name": "sr-bool",
+                    "speech_rate_units_per_second": value,
+                },
+            )
+            assert resp.status_code == 422
+            assert "sr-bool" not in fake_pm.project_data
+
+    @pytest.mark.unit
     def test_create_project_with_invalid_backend_returns_400(self, tmp_path, monkeypatch):
         """非法 backend 字符串应被校验器拒绝。"""
         fake_pm = _FakePM(tmp_path)
@@ -1532,6 +1552,17 @@ class TestProjectsRouter:
         client = _client(monkeypatch, fake_pm, _FakeCalc())
         with client:
             resp = client.patch("/api/v1/projects/ready", json={"speech_rate_units_per_second": bad})
+            assert resp.status_code == 422
+            assert "speech_rate_units_per_second" not in fake_pm.project_data["ready"]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("value", [True, False])
+    def test_update_project_rejects_boolean_speech_rate(self, tmp_path, monkeypatch, value):
+        """PATCH 同样拒布尔：否则 true 会作为 1.0 落盘、false 被当成未填静默跳过。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"speech_rate_units_per_second": value})
             assert resp.status_code == 422
             assert "speech_rate_units_per_second" not in fake_pm.project_data["ready"]
 

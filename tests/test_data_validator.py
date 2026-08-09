@@ -569,12 +569,14 @@ class TestDataValidator:
     @pytest.mark.unit
     def test_validate_project_rejects_out_of_range_speech_rate(self, tmp_path):
         # 项目级语速覆盖出现即须落在硬区间内；越界 / 非数字都是 error
-        for bad in (0, -1, 20.5, "5"):
-            project_dir = tmp_path / str(bad) / "projects" / "demo"
+        # 10**400 是 project.json 里合法但超出双精度范围的整数字面量，须报越界而非中断校验
+        for index, bad in enumerate((0, -1, 20.5, "5", 10**400)):
+            case_root = tmp_path / f"case-{index}"
+            project_dir = case_root / "projects" / "demo"
             payload = _project_payload("drama")
             payload["speech_rate_units_per_second"] = bad
             _write_json(project_dir / "project.json", payload)
-            result = validate_project("demo", projects_root=str(tmp_path / str(bad) / "projects"))
+            result = validate_project("demo", projects_root=str(case_root / "projects"))
             assert not result.valid
             assert any("speech_rate_units_per_second" in e for e in result.errors)
 

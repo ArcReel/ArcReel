@@ -49,8 +49,15 @@ def is_valid_speech_rate(value: float) -> bool:
     """该数值是否落在项目级语速覆盖的硬区间内（``0 < value <= 20``，且为有限数）。
 
     前端输入校验、请求模型校验与持久化后的读时守卫共用这一把尺，避免三处各写一套边界。
+    入参允许是 project.json 直接解析出的 ``int``：JSON 整数字面量没有位宽上限，
+    ``float()`` 对超出双精度表示范围的整数抛 ``OverflowError``，在这里收成「越界」，
+    调用方因此不必在转换外围各自包一层 try。
     """
-    return math.isfinite(value) and MIN_SPEECH_RATE_UPS < value <= MAX_SPEECH_RATE_UPS
+    try:
+        rate = float(value)
+    except OverflowError:
+        return False
+    return math.isfinite(rate) and MIN_SPEECH_RATE_UPS < rate <= MAX_SPEECH_RATE_UPS
 
 
 def project_speech_rate_override(project: Mapping[str, Any] | None) -> float | None:
@@ -67,8 +74,8 @@ def project_speech_rate_override(project: Mapping[str, Any] | None) -> float | N
     # bool 是 int 的子类，True 会被当成 1.0；显式排除，避免脏数据把语速压到 1 单位 / 秒。
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return None
-    value = float(raw)
-    return value if is_valid_speech_rate(value) else None
+    # 先过区间再转 float：区间内的值必然可安全转换，超大整数在 is_valid_speech_rate 内按越界收掉。
+    return float(raw) if is_valid_speech_rate(raw) else None
 
 
 def speech_rate_units_per_second(language: str | None = None, override: float | None = None) -> float:

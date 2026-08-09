@@ -389,7 +389,7 @@ class DataValidator:
         if speech_rate is not None:
             if isinstance(speech_rate, bool) or not isinstance(speech_rate, (int, float)):
                 errors.append(_m("val_field_type_number", field=SPEECH_RATE_FIELD))
-            elif not is_valid_speech_rate(float(speech_rate)):
+            elif not is_valid_speech_rate(speech_rate):
                 errors.append(
                     _m(
                         "val_speech_rate_out_of_range",

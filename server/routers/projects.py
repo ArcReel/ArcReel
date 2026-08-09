@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi import Path as FastAPIPath
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 from starlette.background import BackgroundTask
 
@@ -87,6 +87,21 @@ _PROJECT_BACKEND_FIELDS = (
 )
 
 
+def _reject_bool_speech_rate(value: object) -> object:
+    """布尔不是语速：Pydantic 非严格模式会把 JSON ``true`` 折成 1.0、``false`` 折成 0.0。
+
+    真相源与数据校验器都把 bool 判为脏值，写入侧若放行，落库后的 1.0 已无从辨认原本是布尔，
+    而 0.0 又会被当成「未填」跳过写入——同一类输入两种结局。在进入区间校验前直接拒。
+    """
+    if isinstance(value, bool):
+        raise ValueError("speech rate must be a number, not a boolean")
+    return value
+
+
+#: 创建 / PATCH 请求上的口播语速估算字段类型，两个模型共用同一把布尔守卫。
+SpeechRateOverride = Annotated[float | None, BeforeValidator(_reject_bool_speech_rate)]
+
+
 def _validated_speech_rate(value: float, _t: Translator) -> float:
     """把创建 / PATCH 传入的口播语速估算收进硬区间，越界即 422。
 
@@ -121,7 +136,7 @@ class CreateProjectRequest(BaseModel):
     grid_storyboard: bool = False
     # 口播语速估算（阅读单位 / 秒）项目级覆盖：空 = 回退 lib.speech_rate 的语言默认。
     # 与 TTS 的 narration_speed（供应商配音倍率）无关，两者不联动。
-    speech_rate_units_per_second: float | None = None
+    speech_rate_units_per_second: SpeechRateOverride = None
     # ===== 新增 =====
     style_template_id: str | None = None
     video_backend: str | None = None
@@ -181,7 +196,7 @@ class UpdateProjectRequest(BaseModel):
     narration_voice: str | None = None
     narration_speed: float | None = None
     # 口播语速估算（阅读单位 / 秒）项目级覆盖；null = 清除、回退语言默认
-    speech_rate_units_per_second: float | None = None
+    speech_rate_units_per_second: SpeechRateOverride = None
     # 文本任务档位（docs/adr/0051）项目级覆盖 + 项目默认模型；空值 = 清除、继承全局
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
