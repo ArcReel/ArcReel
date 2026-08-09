@@ -629,8 +629,8 @@ def test_regenerate_grid_success(monkeypatch, tmp_path):
     assert saved.provider == ""
 
 
-def test_regenerate_grid_refreshes_frozen_aspect_ratio(monkeypatch, tmp_path):
-    """重生成按项目当前比例产出新联合图，记录上冻结的比例随之覆写为项目当前比例。"""
+def _regenerate_with_frozen_ratio(monkeypatch, tmp_path, frozen: str | None) -> tuple[GridGeneration, dict]:
+    """按给定冻结值建档并重生成，返回落盘后的记录与入队 payload。"""
     grid = GridGeneration.create(
         episode=1,
         script_file="episode_1.json",
@@ -642,20 +642,43 @@ def test_regenerate_grid_refreshes_frozen_aspect_ratio(monkeypatch, tmp_path):
         model="m",
         video_aspect_ratio="16:9",
     )
+    grid.video_aspect_ratio = frozen
     grid.status = "completed"
     GridManager(tmp_path).save(grid)
 
+    queue = _FakeQueue()
     client = _client(
         monkeypatch,
         get_project_manager=lambda: _FakePMRegenerate(tmp_path),
-        get_generation_queue=_FakeQueue,
+        get_generation_queue=lambda: queue,
     )
     with client:
         assert client.post(f"/api/v1/projects/demo/grids/{grid.id}/regenerate").status_code == 200
 
     saved = GridManager(tmp_path).get(grid.id)
     assert saved is not None
+    return saved, queue.calls[0]["payload"]
+
+
+def test_regenerate_grid_keeps_frozen_aspect_ratio(monkeypatch, tmp_path):
+    """重生成沿用记录冻结的比例，不改用项目当前比例。
+
+    prompt 冻结在记录上、其中写死了画布比例；改用项目当前比例（_FakePMRegenerate 为
+    9:16）会让下发参数与 prompt 描述的画布矛盾。
+    """
+    saved, payload = _regenerate_with_frozen_ratio(monkeypatch, tmp_path, "16:9")
+
+    assert saved.video_aspect_ratio == "16:9"
+    assert payload["video_aspect_ratio"] == "16:9"
+    assert payload["grid_aspect_ratio"] == "16:9"
+
+
+def test_regenerate_grid_backfills_missing_aspect_ratio(monkeypatch, tmp_path):
+    """存量记录没有冻结值，重生成回落到项目当前比例并就地补齐。"""
+    saved, payload = _regenerate_with_frozen_ratio(monkeypatch, tmp_path, None)
+
     assert saved.video_aspect_ratio == "9:16"
+    assert payload["video_aspect_ratio"] == "9:16"
 
 
 # ==================== 切分端点 ====================

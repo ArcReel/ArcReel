@@ -8,7 +8,7 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.generation_queue_client import enqueue_task_only, wait_for_task
-from lib.grid.layout import GridLayout, plan_grid_chunks
+from lib.grid.layout import GridLayout, plan_grid_chunks, video_aspect_ratio_of
 from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
@@ -40,7 +40,7 @@ def _list_groups(
     即实际生成的张数与档位。
     """
     items, id_field, _, _, _ = get_storyboard_items(script)
-    aspect_ratio = project.get("aspect_ratio", "9:16")
+    aspect_ratio = video_aspect_ratio_of(project)
     groups = group_scenes_by_segment_break(items, id_field)
     if scene_ids is not None:
         wanted = set(scene_ids)
@@ -119,7 +119,7 @@ def generate_grid_tool(ctx: ToolContext):
             episode = ProjectManager.resolve_episode_from_script(script, script_filename)
             project_path = ctx.project_path
             items, id_field, _, _, _ = get_storyboard_items(script)
-            aspect_ratio = project.get("aspect_ratio", "9:16")
+            aspect_ratio = video_aspect_ratio_of(project)
             style = project.get("style", "")
             groups = group_scenes_by_segment_break(items, id_field)
 

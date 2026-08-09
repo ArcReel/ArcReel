@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.generation_queue import get_generation_queue
-from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks
+from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks, video_aspect_ratio_of
 from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
@@ -39,16 +39,6 @@ from server.services.upload_finalize import (
 )
 
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
-
-
-def _video_aspect_ratio(project: dict) -> str:
-    """项目的视频比例，宫格画布与冻结在记录上的单格比例共用同一取值。
-
-    project.json 中 aspect_ratio 允许显式写入 null（Pydantic 模型为 str | None），
-    dict.get(key, default) 遇到值为 None 的既有 key 不会回退默认值，须显式判空。
-    """
-    raw = project.get("aspect_ratio")
-    return raw if raw is not None else "9:16"
 
 
 # ==================== 请求/响应模型 ====================
@@ -95,7 +85,7 @@ async def generate_grid(
     project_path = get_project_manager().get_project_path(project_name)
 
     items, id_field, _, _, _ = get_storyboard_items(script)
-    aspect_ratio = _video_aspect_ratio(project)
+    aspect_ratio = video_aspect_ratio_of(project)
     # style 同样允许显式 null，须显式判空而非依赖 dict.get 的默认值
     raw_style = project.get("style")
     style = raw_style if raw_style is not None else ""
@@ -293,9 +283,11 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     gm = GridManager(project_path)
     grid = _load_grid_or_404(project_path, grid_id)
 
-    aspect_ratio = _video_aspect_ratio(project)
-    # 重生成沿用记录自身的 rows/cols（含存量非方形记录）与冻结的 prompt，整图比例按该记录写入时的
-    # 取值给出，与 prompt 描述的画布一致，不重走档位阶梯
+    # 重生成是把同一次产出重跑一遍：rows/cols、prompt 与比例全部沿用记录上冻结的值，
+    # 三者必须同源——prompt 里写死了画布比例，换用项目当前比例会让画布描述与下发参数矛盾。
+    # 存量记录没有冻结值，回落到项目当前比例并就地补齐。想按新比例重排的用户重跑生成，
+    # 那条路径会重新规划分组、prompt 与档位。
+    aspect_ratio = grid.video_aspect_ratio or video_aspect_ratio_of(project)
     grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, aspect_ratio)
 
     grid.status = "pending"
@@ -303,7 +295,7 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     # 清空旧 metadata，由 execute_grid_task 按 needs_i2i 重新回填
     grid.provider = ""
     grid.model = ""
-    # 新联合图按当前项目比例产出，记录随之改写，切分才不会拿旧比例裁切新图
+    # 存量记录的冻结值在此补齐；已有冻结值时是恒等写入
     grid.video_aspect_ratio = aspect_ratio
     gm.save(grid)
 
@@ -384,7 +376,7 @@ async def upload_grid_image(
     project_path = get_project_manager().get_project_path(project_name)
     grid = _load_grid_or_404(project_path, grid_id)
     _ensure_grid_idle(grid)
-    aspect_ratio = _video_aspect_ratio(project)
+    aspect_ratio = video_aspect_ratio_of(project)
 
     try:
         max_bytes = validate_upload(file.filename, file.size, kind="image")

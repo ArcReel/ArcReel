@@ -9,6 +9,7 @@ from lib.grid.layout import (
     large_grid_allowed,
     max_cell_count,
     plan_grid_chunks,
+    video_aspect_ratio_of,
 )
 from lib.grid.models import GridGeneration, build_frame_chain
 from lib.grid.prompt_builder import _compute_panel_aspect
@@ -273,3 +274,16 @@ class TestGridGeneration:
         assert grid.cell_count == 4
         assert len(grid.frame_chain) == 4
         assert grid.id.startswith("grid_")
+
+
+class TestVideoAspectRatioOf:
+    def test_reads_project_value(self):
+        assert video_aspect_ratio_of({"aspect_ratio": "16:9"}) == "16:9"
+
+    def test_missing_key_falls_back(self):
+        assert video_aspect_ratio_of({}) == "9:16"
+
+    def test_explicit_null_falls_back(self):
+        # project.json 允许把 aspect_ratio 显式写为 null，dict.get 的默认值对此无效；
+        # None 漏下去会流进画布几何、prompt 与记录上冻结的比例
+        assert video_aspect_ratio_of({"aspect_ratio": None}) == "9:16"
