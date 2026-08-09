@@ -56,8 +56,8 @@ def is_valid_speech_rate(value: float) -> bool:
 def project_speech_rate_override(project: Mapping[str, Any] | None) -> float | None:
     """从 project.json 解析项目级语速覆盖，未填 / 脏值 / 越界一律返回 ``None``。
 
-    返回 ``None`` 即「无覆盖」，调用方把它原样交给下面两个函数即回退语言默认——所以
-    老项目与未填项目的行为与引入本字段之前逐字一致。写入侧（创建 / PATCH 请求模型）已
+    返回 ``None`` 即「无覆盖」，调用方把它原样交给下面两个函数即回退语言默认——未填该
+    字段的项目一律按语言默认估算。写入侧（创建 / PATCH 请求模型）已
     按同一把尺拒绝越界值，这里的守卫是对手改 project.json 与历史脏数据的读时兜底：估算
     语速不值得让一次已付费的生成崩在脏字段上。
     """
