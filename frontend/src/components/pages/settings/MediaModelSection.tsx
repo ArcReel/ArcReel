@@ -19,6 +19,7 @@ import {
 } from "@/components/shared/LayeredModelFields";
 import { TextTierFields } from "@/components/shared/TextTierFields";
 import { VideoModelSpecBar, videoOptionMetaRenderer } from "@/components/shared/VideoModelSpecBar";
+import { InlineWarning } from "@/components/ui/InlineWarning";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
@@ -32,6 +33,7 @@ import {
   getProviderModels,
   lookupCatalogVideoAudio,
   lookupResolutions,
+  lookupVideoAudioControl,
 } from "@/utils/provider-models";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { ProviderInfo } from "@/types/provider";
@@ -212,6 +214,23 @@ export function MediaModelSection() {
   const videoSpecTier = currentVideo
     ? (lookupCatalogVideoAudio(providers, currentVideo)?.voiceConsistency ?? null)
     : null;
+  // 音频勾选框按两个生效桶（细分桶留空即回退基础默认）的开关可控性判定：两桶同为恒有声或
+  // 同为恒无声时，无论走哪条路线都收不到音轨开关，置灰并展示成片的实际音轨状态。只要还有一个
+  // 桶可控就不置灰——否则闲置的基础默认会连带禁掉可控桶的合法关闭。
+  // 两桶不一致时只由下方警告提示，存量的「关闭」由警告给一键修正入口，不静默改写配置
+  // （入队前预检按实际执行的桶拒绝）。
+  const bucketAudioControl = (backend: string) =>
+    backend ? lookupVideoAudioControl(providers, backend) : null;
+  const i2vAudioControl = bucketAudioControl(currentVideoI2V || currentVideo);
+  const r2vAudioControl = bucketAudioControl(currentVideoR2V || currentVideo);
+  const audioLockedControl =
+    i2vAudioControl === r2vAudioControl &&
+    (i2vAudioControl === "always_on" || i2vAudioControl === "always_off")
+      ? i2vAudioControl
+      : null;
+  const audioLocked = audioLockedControl !== null;
+  const audioConflict =
+    !currentAudio && (i2vAudioControl === "always_on" || r2vAudioControl === "always_on");
   const videoSpecDurations = currentVideo ? catalogDurations(providers, customProviders, currentVideo) : null;
   const videoSpecResolutions = currentVideo
     ? lookupResolutions(providers, currentVideo, customProviders, endpointToMediaType).options
@@ -292,21 +311,47 @@ export function MediaModelSection() {
           emptyHint(t("no_video_providers_hint"))
         )}
 
-        <div className="mt-4 flex items-start gap-2.5 text-[12.5px] text-text-2">
+        <div
+          className={`mt-4 flex items-start gap-2.5 text-[12.5px] ${
+            audioLocked ? "text-text-4" : "text-text-2"
+          }`}
+        >
           <input
             id="media-generate-audio"
             type="checkbox"
-            checked={currentAudio}
+            checked={audioLocked ? audioLockedControl === "always_on" : currentAudio}
+            disabled={audioLocked}
             onChange={(e) =>
               setDraft((prev) => ({ ...prev, video_generate_audio: e.target.checked }))
             }
-            className="mt-0.5 h-3.5 w-3.5 cursor-pointer rounded border-hairline bg-bg-grad-a accent-[var(--color-accent)]"
+            className="mt-0.5 h-3.5 w-3.5 rounded border-hairline bg-bg-grad-a accent-[var(--color-accent)] disabled:cursor-not-allowed enabled:cursor-pointer"
           />
-          <label htmlFor="media-generate-audio" className="flex cursor-pointer flex-col">
+          <label
+            htmlFor="media-generate-audio"
+            className={`flex flex-col ${audioLocked ? "cursor-not-allowed" : "cursor-pointer"}`}
+          >
             <span>{t("generate_audio")}</span>
-            <span className="text-[11px] text-text-4">{t("audio_support_hint")}</span>
+            <span className="text-[11px] text-text-4">
+              {audioLocked
+                ? t(
+                    audioLockedControl === "always_on"
+                      ? "audio_switch_locked_always_on"
+                      : "audio_switch_locked_always_off",
+                  )
+                : t("audio_support_hint")}
+            </span>
           </label>
         </div>
+        {audioConflict && (
+          <InlineWarning
+            className="mt-2"
+            message={t("audio_switch_conflict_notice")}
+            action={{
+              label: t("audio_switch_conflict_action"),
+              onClick: () => setDraft((prev) => ({ ...prev, video_generate_audio: true })),
+            }}
+          />
+        )}
       </SectionCard>
 
       {/* Image */}

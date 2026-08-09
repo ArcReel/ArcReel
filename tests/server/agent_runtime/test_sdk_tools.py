@@ -125,6 +125,20 @@ def fake_ctx(tmp_path: Path) -> ToolContext:
     )
 
 
+@pytest.fixture(autouse=True)
+def _stub_audio_switch_guard(monkeypatch):
+    """视频入队前的音频开关预检要读真实配置库，本文件不覆盖它的行为，一律放行。
+
+    行为覆盖在 tests/server/agent_runtime/test_enqueue_videos_audio_switch.py。
+    """
+    from server.agent_runtime.sdk_tools import enqueue_videos as _mod
+
+    async def _noop(_project, _capability):
+        return None
+
+    monkeypatch.setattr(_mod, "assert_audio_switch_supported", _noop)
+
+
 async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
     return await tool_obj.handler(args)
 
@@ -2181,15 +2195,15 @@ def test_get_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() 
 
 
 @pytest.mark.unit
-async def test_resolve_voice_characters_skips_non_drama(fake_ctx: ToolContext) -> None:
+async def test_resolve_voice_context_skips_non_drama(fake_ctx: ToolContext) -> None:
     """narration/ad：不解析 voice_consistency，直接跳过（无 drama dialogue speaker 概念）。"""
-    from server.agent_runtime.sdk_tools.enqueue_videos import _resolve_voice_characters
+    from server.agent_runtime.sdk_tools.enqueue_videos import _resolve_voice_context
 
-    assert await _resolve_voice_characters(fake_ctx, "narration") is None
+    assert await _resolve_voice_context(fake_ctx, "narration") is None
 
 
 @pytest.mark.unit
-async def test_resolve_voice_characters_drama_reads_project_characters_and_gate(
+async def test_resolve_voice_context_drama_reads_project_characters_and_gate(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """drama：读项目角色资产，无声（C 类真无声、或本集关闭音频）时退回不注入。"""
@@ -2199,14 +2213,14 @@ async def test_resolve_voice_characters_drama_reads_project_characters_and_gate(
         return False
 
     monkeypatch.setattr(mod, "resolve_project_is_silent", fake_not_silent)
-    characters = await mod._resolve_voice_characters(fake_ctx, "drama")
+    characters = await mod._resolve_voice_context(fake_ctx, "drama")
     assert characters == fake_ctx.pm.project_payload["characters"]  # type: ignore[attr-defined]
 
     async def fake_silent(_project, _episode=None):
         return True
 
     monkeypatch.setattr(mod, "resolve_project_is_silent", fake_silent)
-    assert await mod._resolve_voice_characters(fake_ctx, "drama") is None
+    assert await mod._resolve_voice_context(fake_ctx, "drama") is None
 
 
 @pytest.mark.unit

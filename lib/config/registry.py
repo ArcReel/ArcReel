@@ -65,11 +65,11 @@ class ModelInfo:
 
 
 #: `generate_audio` token 语义是「音轨开关可控」，不是「有无音轨」——AI Studio 的 Veo、
-#: Grok Imagine 与 DashScope 视频全家族恒有声但请求参数无法关闭该开关，故 registry 不为其
-#: 声明该 token（声明了会误导调用方以为开关生效）。`model_has_audio_track` 据此在 token 判定
-#: 之外单列这几家例外，供 voice_consistency 派生与前端能力线渲染共用，防止两处各自维护一份
-#: 漂移的判断。
-_ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS = frozenset({"gemini-aistudio", "grok", "dashscope"})
+#: Grok Imagine、DashScope 视频全家族与 OpenAI 的 Sora 恒有声但请求参数无法关闭该开关，故
+#: registry 不为其声明该 token（声明了会误导调用方以为开关生效）。`model_has_audio_track`
+#: 据此在 token 判定之外单列这几家例外，供 voice_consistency 派生与前端能力线渲染共用，
+#: 防止两处各自维护一份漂移的判断。
+_ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS = frozenset({"gemini-aistudio", "grok", "dashscope", "openai"})
 
 
 def model_has_audio_track(provider_id: str, model_info: ModelInfo) -> bool:
@@ -77,6 +77,23 @@ def model_has_audio_track(provider_id: str, model_info: ModelInfo) -> bool:
     if model_info.media_type != "video":
         return False
     return "generate_audio" in model_info.capabilities or provider_id in _ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS
+
+
+def model_audio_switch_controllable(model_info: ModelInfo) -> bool:
+    """请求参数能否控制该视频 model 的音轨开关（即 `generate_audio` token 的字面语义）。
+
+    与 :func:`model_has_audio_track` 共同构成音轨的两位描述：可控 → 用户的开关有效；不可控
+    时再看有无音轨，区分「恒有声」与「恒无声」。设置界面的开关禁用态与入队前的无声请求校验
+    都读这两位，不各自解读 token。
+    """
+    if model_info.media_type != "video":
+        return False
+    return "generate_audio" in model_info.capabilities
+
+
+def model_audio_always_on(provider_id: str, model_info: ModelInfo) -> bool:
+    """成片恒有声且开关不可控——请求里没有可下发的音轨开关，关闭音频的意图必然落空。"""
+    return model_has_audio_track(provider_id, model_info) and not model_audio_switch_controllable(model_info)
 
 
 # 合法并发 lane 名，与 CapacityTable 的 image/video/audio 三条容量通道对齐。
@@ -871,11 +888,12 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 ),
             ),
             # --- video ---
-            # generate_audio：官方文档明确 Sora 2 原生含对话音轨。
+            # Sora 2 原生含对话音轨，但请求参数里没有音轨开关，故不声明 generate_audio token，
+            # 有音轨改由 _ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS 表达。
             "sora-2": ModelInfo(
                 display_name="Sora 2",
                 media_type="video",
-                capabilities=["generate_audio"],
+                capabilities=[],
                 default=True,
                 supported_durations=[4, 8, 12],
                 resolutions=["720p"],
@@ -884,7 +902,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "sora-2-pro": ModelInfo(
                 display_name="Sora 2 Pro",
                 media_type="video",
-                capabilities=["generate_audio"],
+                capabilities=[],
                 supported_durations=[4, 8, 12],
                 resolutions=["720p", "1080p"],
                 pricing=_sora_video_pricing("sora-2-pro", {"720p": 0.30, "1024p": 0.50, "1080p": 0.70}),

@@ -98,6 +98,7 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # 视频桶预检需要 DB（system_settings）；router 单测无 DB，能力闸行为由
     # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
     monkeypatch.setattr(router_mod, "require_video_bucket_capability", AsyncMock(return_value=None))
+    monkeypatch.setattr(router_mod, "require_audio_switch_supported", AsyncMock(return_value=None))
     fake_queue = AsyncMock()
     fake_queue.enqueue_task = AsyncMock(return_value={"task_id": "t1", "deduped": False})
     monkeypatch.setattr(router_mod, "get_generation_queue", lambda: fake_queue)

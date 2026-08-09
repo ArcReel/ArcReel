@@ -35,6 +35,7 @@ function provider(overrides: Partial<ProviderInfo["models"][string]> = {}): Prov
           duration_resolution_constraints: {},
           resolutions: ["720p", "1080p"],
           has_audio_track: true,
+          audio_switch_controllable: true,
           voice_consistency: "soft",
           ...overrides,
         },

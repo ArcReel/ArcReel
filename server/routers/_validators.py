@@ -32,6 +32,27 @@ async def require_video_bucket_capability(project: dict, capability: VideoCapabi
         return
 
 
+async def require_audio_switch_supported(project: dict, capability: VideoCapability) -> None:
+    """视频生成入口预检：成片恒有声的模型不接受「关闭音频」的配置。
+
+    这类模型的请求里没有音轨开关可下发（``model_audio_always_on``），关闭意图无法抵达供应商，
+    却会让编排层按无声路径裁掉全部音色约束——用户拿到的是失去音色约束的有声成片。提交入口
+    显式拒绝并说明修复路径，比让请求带着不可能实现的意图执行下去更可用。
+
+    设置界面已按同一判据禁用开关，此处覆盖存量配置里已存「关闭」的项目。判据取自
+    :func:`server.services.video_caps.resolve_audio_switch_conflict`，与智能体入队路径同源；
+    解析失败一律放行（与 :func:`require_video_bucket_capability` 同口径），不把配置解析问题
+    升级为提交期拒绝。
+    """
+    from server.services.video_caps import resolve_audio_switch_conflict
+
+    conflict = await resolve_audio_switch_conflict(project, capability)
+    if conflict is None:
+        return
+    provider_id, model_id = conflict
+    raise BadRequestError("video_audio_switch_not_supported", provider=provider_id, model=model_id)
+
+
 # backend 字段名 → 期望 media_type，驱动 validate_backend_value 的档位/模型能力匹配校验。
 # 未登记的字段名视为不做该项校验（新增字段忘记登记时静默放行，而非误报）。
 _FIELD_MEDIA_TYPES: dict[str, str] = {

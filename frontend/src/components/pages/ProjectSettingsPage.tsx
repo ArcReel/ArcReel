@@ -125,6 +125,9 @@ export function ProjectSettingsPage() {
     image: "", imageT2I: "", imageI2I: "",
     textDefault: "", textSimple: "", textComplex: "", audio: "",
   });
+  // 全局「视频生成音频」的生效值，供项目级「跟随全局」时判定与执行模型的矛盾。
+  // 未保存过时取 true，镜像后端 _DEFAULT_VIDEO_GENERATE_AUDIO。
+  const [globalGenerateAudio, setGlobalGenerateAudio] = useState(true);
 
   const allProviderNames = useMemo(
     () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
@@ -216,6 +219,7 @@ export function ProjectSettingsPage() {
         audio: configRes.settings?.default_audio_backend ?? "",
       };
       setGlobalDefaults(nextGlobals);
+      setGlobalGenerateAudio(configRes.settings?.video_generate_audio ?? true);
       setProviders(providerList);
       setCustomProviders(customProviderList);
 
@@ -659,6 +663,7 @@ export function ProjectSettingsPage() {
                     textComplex: globalDefaults.textComplex,
                   }}
                   videoGenerateAudio={audioOverride}
+                  globalVideoGenerateAudio={globalGenerateAudio}
                   onVideoGenerateAudioChange={setAudioOverride}
                   usesReferenceImages={generationRoute === "reference_video"}
                   enable={contentMode === "ad" ? { duration: false } : undefined}

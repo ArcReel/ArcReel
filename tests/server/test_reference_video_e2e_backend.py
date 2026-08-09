@@ -79,6 +79,7 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
     # 视频桶预检需要 DB（system_settings）；本用例无 DB，能力闸行为由
     # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
     monkeypatch.setattr(router_mod, "require_video_bucket_capability", AsyncMock(return_value=None))
+    monkeypatch.setattr(router_mod, "require_audio_switch_supported", AsyncMock(return_value=None))
 
     from server.services import generation_tasks as gt_mod
     from server.services import reference_video_tasks as rvt_mod

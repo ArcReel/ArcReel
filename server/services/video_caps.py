@@ -12,7 +12,8 @@ import logging
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.config.resolver import ConfigResolver, VideoCapability
+from lib.config.registry import PROVIDER_REGISTRY, model_audio_always_on
+from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, VideoCapability
 from lib.db import async_session_factory
 from lib.reference_video.voice_settings import VoiceRenderSettings
 
@@ -47,6 +48,51 @@ async def project_video_caps(
             logger.info("video_generate_audio 独立解析也失败，%s：%s", degraded_to, inner_exc)
             caps["requested_generate_audio"] = False
         return caps
+
+
+async def resolve_audio_switch_conflict(project: dict, capability: VideoCapability) -> tuple[str, str] | None:
+    """项目的「关闭音频」意图是否落在一个收不到音轨开关的模型上；冲突时返回 ``(provider, model)``。
+
+    成片恒有声（``model_audio_always_on``）的模型请求里没有音轨开关可下发，关闭意图无法抵达
+    供应商，却会让编排层按无声路径裁掉全部音色约束——用户拿到的是失去音色约束的有声成片。
+    视频生成的各个提交入口据此在入队前拒绝，WebUI 与智能体两条路径共用这一份判据。
+
+    解析失败一律返回 ``None``（不把配置解析问题升级为提交期拒绝），自定义供应商与未登记模型
+    没有逐模型音轨声明，无信号不收紧。两次解析都读库，故同在一个 ``try`` 内并一并接住
+    ``SQLAlchemyError``——数据库故障退化成放行，与 :func:`project_video_caps` 的降级口径一致。
+    """
+    # 模块级绑定在导入时就固化了 factory；这里延迟到调用时从 lib.db 取，测试才能替换它。
+    from lib.db import async_session_factory
+
+    resolver = ConfigResolver(async_session_factory)
+    try:
+        selected = await resolver.resolve_video_backend(project, None, capability=capability)
+        provider_meta = PROVIDER_REGISTRY.get(selected.provider_id)
+        model_info = provider_meta.models.get(selected.model_id) if provider_meta is not None else None
+        if model_info is None or not model_audio_always_on(selected.provider_id, model_info):
+            return None
+        if await resolver.video_generate_audio_for_project(project):
+            return None
+    except (VideoBucketCapabilityError, ValueError, SQLAlchemyError):
+        return None
+    return selected.provider_id, selected.model_id
+
+
+async def assert_audio_switch_supported(project: dict, capability: VideoCapability) -> None:
+    """智能体视频入队前的音频开关预检，冲突时抛 ``ValueError``。
+
+    与 WebUI 入口的 ``server.routers._validators.require_audio_switch_supported`` 判据同源
+    （:func:`resolve_audio_switch_conflict`），差别只在出口：这里的消息面向智能体转述，不走
+    Translator。
+    """
+    conflict = await resolve_audio_switch_conflict(project, capability)
+    if conflict is None:
+        return
+    provider_id, model_id = conflict
+    raise ValueError(
+        f"{provider_id}/{model_id} 的成片恒有声，无法关闭音频；"
+        "请让用户在设置中把音频开关改回开启后重试（当前配置会让声音照常出现，但音色约束被裁掉）"
+    )
 
 
 async def resolve_project_is_silent(project: dict) -> bool:

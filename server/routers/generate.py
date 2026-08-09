@@ -32,7 +32,7 @@ from lib.storyboard_sequence import (
     resolve_storyboard_image_ref,
 )
 from server.auth import CurrentUser
-from server.routers._validators import require_video_bucket_capability
+from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
 from server.services.generation_context import AudioLaneRequest, resolve_generation_context
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
 
@@ -210,7 +210,9 @@ async def generate_video(
     # 归桶按项目路线求值（docs/adr/0054），与执行层 lane 声明同源、不第二次硬编码 i2v；
     # 上面的路线闸门已挡掉参考路线，此处对能到达的项目恒为 i2v。解析闸预检让能力缺失 /
     # 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
-    await require_video_bucket_capability(project, video_bucket_for_generation_mode(project.get("generation_mode")))
+    _video_bucket = video_bucket_for_generation_mode(project.get("generation_mode"))
+    await require_video_bucket_capability(project, _video_bucket)
+    await require_audio_switch_supported(project, _video_bucket)
 
     # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）。
     # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）。

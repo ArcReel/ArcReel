@@ -1,6 +1,13 @@
 import pytest
 
-from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta, model_has_audio_track
+from lib.config.registry import (
+    PROVIDER_REGISTRY,
+    ModelInfo,
+    ProviderMeta,
+    model_audio_always_on,
+    model_audio_switch_controllable,
+    model_has_audio_track,
+)
 
 
 @pytest.mark.unit
@@ -314,11 +321,12 @@ class TestModelHasAudioTrack:
         assert model.media_type != "video"
         assert model_has_audio_track("dashscope", model) is False
 
-    def test_sora_2_declares_token(self):
-        """Sora 2 声明修正随本票落地：目录已补 generate_audio（官方原生含对话音轨）。"""
-        model = self._model("openai", "sora-2")
-        assert "generate_audio" in model.capabilities
-        assert model_has_audio_track("openai", model) is True
+    def test_sora_always_audible_without_token(self):
+        """Sora 原生含对话音轨，但请求参数里没有音轨开关：不声明 token，由恒有声例外表判定有音轨。"""
+        for model_id in ("sora-2", "sora-2-pro"):
+            model = self._model("openai", model_id)
+            assert "generate_audio" not in model.capabilities
+            assert model_has_audio_track("openai", model) is True
 
     def test_kling_audio_capable_models_declare_token(self):
         """可灵支持音画同出的三档均声明 token；能力地图的「声音控制（人声）」列是指定音色通道，
@@ -351,3 +359,42 @@ class TestModelHasAudioTrack:
         model = self._model("gemini-aistudio", "gemini-3-flash-preview")
         assert model.media_type != "video"
         assert model_has_audio_track("gemini-aistudio", model) is False
+
+
+@pytest.mark.unit
+class TestAudioSwitchControllable:
+    """音轨的第二位描述：开关是否可控，及由两位合成的「恒有声」判定。"""
+
+    def _model(self, provider_id: str, model_id: str) -> ModelInfo:
+        return PROVIDER_REGISTRY[provider_id].models[model_id]
+
+    def test_token_declared_is_controllable(self):
+        model = self._model("ark", "doubao-seedance-2-0-260128")
+        assert model_audio_switch_controllable(model) is True
+        assert model_audio_always_on("ark", model) is False
+
+    @pytest.mark.parametrize(
+        ("provider_id", "model_id"),
+        [
+            ("gemini-aistudio", "veo-3.1-generate-preview"),
+            ("grok", "grok-imagine-video"),
+            ("dashscope", "wan2.7-i2v"),
+            ("openai", "sora-2"),
+            ("openai", "sora-2-pro"),
+        ],
+    )
+    def test_always_audible_families_are_not_controllable(self, provider_id: str, model_id: str):
+        """恒有声家族：请求里没有开关可下发，故关闭意图必然落空。"""
+        model = self._model(provider_id, model_id)
+        assert model_audio_switch_controllable(model) is False
+        assert model_audio_always_on(provider_id, model) is True
+
+    def test_silent_model_is_neither_controllable_nor_always_on(self):
+        model = self._model("minimax", "MiniMax-Hailuo-2.3")
+        assert model_audio_switch_controllable(model) is False
+        assert model_audio_always_on("minimax", model) is False
+
+    def test_non_video_model_is_not_controllable(self):
+        model = self._model("dashscope", "wan2.7-image")
+        assert model_audio_switch_controllable(model) is False
+        assert model_audio_always_on("dashscope", model) is False
