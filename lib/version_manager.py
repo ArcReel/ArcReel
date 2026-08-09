@@ -49,11 +49,12 @@ class VersionManager:
         self.versions_file = self.versions_dir / "versions.json"
         self._lock = _get_versions_file_lock(self.versions_file)
 
-        # 确保版本目录存在
-        self._ensure_dirs()
-
     def _ensure_dirs(self) -> None:
-        """确保版本目录结构存在"""
+        """确保版本目录结构存在。
+
+        由写路径按需调用，不在 ``__init__`` 里建：只读用法（含改名的 ``dry_run`` 预演）
+        构造本类时不应在项目下留下空的 ``versions/`` 目录树。
+        """
         self.versions_dir.mkdir(parents=True, exist_ok=True)
         for resource_type in self.RESOURCE_TYPES:
             (self.versions_dir / resource_type).mkdir(exist_ok=True)
@@ -68,6 +69,7 @@ class VersionManager:
 
     def _save_versions(self, data: dict) -> None:
         """保存版本元数据"""
+        self._ensure_dirs()
         with open(self.versions_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -171,6 +173,7 @@ class VersionManager:
 
             # 如果有源文件，复制到版本目录
             if source_file and Path(source_file).exists():
+                self._ensure_dirs()
                 shutil.copy2(source_file, version_abs_path)
 
             # 创建版本记录
@@ -226,6 +229,7 @@ class VersionManager:
             if dry_run:
                 return len(versions)
 
+            self._ensure_dirs()
             prefix = f"{normalize_asset_name(old_id)}_v"
             for version in versions:
                 basename = normalize_asset_name(PurePosixPath(version["file"].replace("\\", "/")).name)

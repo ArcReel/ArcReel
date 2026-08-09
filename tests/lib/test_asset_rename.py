@@ -629,6 +629,16 @@ class TestRenameAssetCascade:
             preview.files,
         )
 
+    def test_dry_run_leaves_no_version_directory(self, pm: ProjectManager) -> None:
+        """零写入承诺覆盖目录：预演不得在项目下建出空的 ``versions/`` 目录树。"""
+        pm.save_script("demo", _narration_script(), "episode_1.json")
+        versions_dir = _project_dir(pm) / "versions"
+        assert not versions_dir.exists()
+
+        pm.rename_asset("demo", "characters", "角色A", "主角甲", dry_run=True)
+
+        assert not versions_dir.exists()
+
     def test_invalid_new_name_rejected(self, pm: ProjectManager) -> None:
         with pytest.raises(ValueError):
             pm.rename_asset("demo", "characters", "角色A", "坏/名字")

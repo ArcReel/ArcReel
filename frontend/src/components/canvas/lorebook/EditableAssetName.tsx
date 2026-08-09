@@ -66,8 +66,21 @@ export function EditableAssetName({
 
   if (readOnly) return heading;
 
+  /**
+   * 占用复核并作两路取：`rejectIfAssetBusy` 只看任务队列，而卡片自身在途的写请求（上传、
+   * 保存）是组件本地 state、不进队列，队列口径看不见，必须把 `busy` 并进同一道闸——
+   * 否则渲染时刻禁用了按钮，提交时刻却放行同一份占用。
+   */
+  const rejectIfBusy = () => {
+    if (busy) {
+      useAppStore.getState().pushToast(t("assets:rename_busy_hint"), "info");
+      return true;
+    }
+    return rejectIfAssetBusy(assetType, projectName, name, t, "assets:rename_busy_hint");
+  };
+
   const enterEdit = () => {
-    if (rejectIfAssetBusy(assetType, projectName, name, t, "assets:rename_busy_hint")) return;
+    if (rejectIfBusy()) return;
     setDraft(name);
     setIsEditing(true);
   };
@@ -83,7 +96,7 @@ export function EditableAssetName({
       setIsEditing(false);
       return;
     }
-    if (rejectIfAssetBusy(assetType, projectName, name, t, "assets:rename_busy_hint")) return;
+    if (rejectIfBusy()) return;
     setPreviewLoading(true);
     try {
       const result = await API.renameProjectAsset(projectName, assetType, name, trimmed, { dryRun: true });
@@ -97,7 +110,7 @@ export function EditableAssetName({
 
   const executeRename = async () => {
     if (!preview) return;
-    if (rejectIfAssetBusy(assetType, projectName, name, t, "assets:rename_busy_hint")) {
+    if (rejectIfBusy()) {
       setPreview(null);
       return;
     }

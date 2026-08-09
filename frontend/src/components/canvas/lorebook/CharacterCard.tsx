@@ -346,7 +346,7 @@ export function CharacterCard({
           readOnly={readOnly}
           /* 改名会搬动落盘文件：与本卡片自身在途的写请求交错会留下旧名孤儿文件，
              因此改名比兄弟控件多禁用一档，把卡片本地的在途标志也算进占用态。 */
-          busy={generating || uploadingSheet || saving}
+          busy={generating || uploadingSheet || saving || deletingAudio}
         />
         {readOnly ? null : (
         <div className="flex shrink-0 items-center gap-0.5">

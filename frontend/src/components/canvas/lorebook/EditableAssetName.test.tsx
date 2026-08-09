@@ -112,6 +112,24 @@ describe("EditableAssetName", () => {
     expect(renameSpy).not.toHaveBeenCalled();
   });
 
+  it("rejects submission when the card starts its own write while the input is open", async () => {
+    const renameSpy = vi.spyOn(API, "renameProjectAsset");
+    const { rerender } = render(
+      <EditableAssetName projectName="demo" name="李白" assetType="character" busy={false} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "重命名" }));
+    const input = screen.getByRole("textbox", { name: "重命名" });
+    fireEvent.change(input, { target: { value: "青莲" } });
+
+    // 打开输入框后卡片自身起了一次写请求（上传立绘等），该占用只体现在本地 state 上
+    rerender(<EditableAssetName projectName="demo" name="李白" assetType="character" busy />);
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(useAppStore.getState().toast?.text).toBeTruthy());
+    expect(renameSpy).not.toHaveBeenCalled();
+  });
+
   it("toasts and stays editable when the preview request fails", async () => {
     vi.spyOn(API, "renameProjectAsset").mockRejectedValue(new Error("同名冲突"));
     render(<EditableAssetName projectName="demo" name="李白" assetType="character" />);
