@@ -22,7 +22,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from lib.api_errors import NotFoundError
-from lib.asset_rename import AssetRenameConflictError, AssetRenameFileCollisionError, AssetRenameNotFoundError
+from lib.asset_rename import (
+    AssetRenameConflictError,
+    AssetRenameFileCollisionError,
+    AssetRenameHistoryCollisionError,
+    AssetRenameNotFoundError,
+)
 from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
@@ -277,6 +282,8 @@ def build_asset_router(
             raise HTTPException(status_code=409, detail=_t(keys["exists"], name=exc.conflict_name))
         except AssetRenameFileCollisionError as exc:
             raise HTTPException(status_code=409, detail=_t("asset_rename_file_conflict", filename=exc.destination.name))
+        except AssetRenameHistoryCollisionError as exc:
+            raise HTTPException(status_code=409, detail=_t("asset_rename_history_conflict", name=exc.resource_id))
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
         except ValueError:

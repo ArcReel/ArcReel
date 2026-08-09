@@ -12,6 +12,7 @@ MESSAGES = {
     "asset_voice_notice_dismissed_at_stale": "Cài đặt giọng nói đã thay đổi trước khi xác nhận. Vui lòng làm mới và thử lại",
     "asset_rename_rejected": 'Đổi tên "{name}" không vượt qua kiểm tra. Không có thay đổi nào được thực hiện; vui lòng làm mới và thử lại',
     "asset_rename_file_conflict": 'Đã tồn tại tệp "{filename}" ứng với tên mới. Không có thay đổi nào được thực hiện; hãy xóa tệp đó hoặc chọn tên khác',
+    "asset_rename_history_conflict": 'Vẫn còn lịch sử phiên bản của một tài nguyên đã xóa dưới tên mới "{name}". Không có thay đổi nào được thực hiện; hãy xóa lịch sử đó hoặc chọn tên khác',
     "asset_type_character": "nhân vật",
     "asset_type_scene": "cảnh",
     "asset_type_prop": "đạo cụ",

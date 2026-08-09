@@ -12,6 +12,7 @@ MESSAGES = {
     "asset_voice_notice_dismissed_at_stale": "The voice setting changed before this could be confirmed. Please refresh and try again",
     "asset_rename_rejected": 'Renaming "{name}" failed validation. Nothing was changed; please refresh and try again',
     "asset_rename_file_conflict": 'A file named "{filename}" already exists for the new name. Nothing was changed; remove that file or pick another name',
+    "asset_rename_history_conflict": 'Version history from a deleted asset still exists under the new name "{name}". Nothing was changed; clear that history or pick another name',
     "asset_type_character": "character",
     "asset_type_scene": "scene",
     "asset_type_prop": "prop",

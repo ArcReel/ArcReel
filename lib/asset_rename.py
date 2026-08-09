@@ -43,6 +43,18 @@ class AssetRenameFileCollisionError(ValueError):
         self.destination = destination
 
 
+class AssetRenameHistoryCollisionError(ValueError):
+    """新名下已有保留的版本历史，整体拒绝、不落盘。
+
+    资产删除只删资产桶 key，版本记录与快照会留下（见 delete_entry）：迁移过去会覆盖这份
+    历史且不可恢复。与孤儿文件同口径——宁可 fail loud 让用户先处理，也不静默销毁。
+    """
+
+    def __init__(self, resource_id: str):
+        super().__init__(f"新名 {resource_id!r} 下已有保留的版本历史，请先清理该历史或换一个名字")
+        self.resource_id = resource_id
+
+
 @dataclass(frozen=True)
 class AssetRenameReport:
     """级联重命名的影响报告。dry-run 预览与实际执行共用同一次扫描，数字必然一致。"""
@@ -213,15 +225,22 @@ def plan_asset_file_renames(
     一律精确同名，否则兄弟资产「旧名_2」的设计图会被一并卷走。
 
     目标已被占用时抛 :class:`AssetRenameFileCollisionError`：规划早于任何写入，因此整体
-    拒绝、不落盘。这不影响「中途失败重跑收敛」——已完成的迁移其 ``src`` 已不存在，扫描
-    不会再把它规划进来。
+    拒绝、不落盘。占用有两种来源，都要拦：磁盘上已有的孤儿文件，以及同批两个源文件（如
+    NFC / NFD 两种编码的同名文件）撞到同一个目标——后者若放行，第二次 ``os.replace``
+    会吃掉第一次的成果。
+
+    大小写不敏感或归一化不敏感的文件系统（APFS / NTFS）上，仅改大小写或仅改编码形式的
+    改名会让目标解析回源文件自身，那不是占用，按 ``samefile`` 豁免。
+
+    这不影响「中途失败重跑收敛」——已完成的迁移其 ``src`` 已不存在，扫描不会再把它规划进来。
 
     Raises:
-        AssetRenameFileCollisionError: 某个迁移目标路径已存在。
+        AssetRenameFileCollisionError: 某个迁移目标路径已被他人占用或被同批另一次迁移占用。
     """
     base = project_dir / spec.subdir
     sequenced_refs = "reference_images" in spec.extra_list_fields
     moves: list[tuple[Path, Path]] = []
+    planned: set[Path] = set()
     for directory, allow_sequence in ((base, False), (base / "refs", sequenced_refs), (base / "refs_audio", False)):
         if not directory.is_dir():
             continue
@@ -231,8 +250,11 @@ def plan_asset_file_renames(
             new_stem = renamed_file_stem(file.stem, old_name, new_name, allow_sequence=allow_sequence)
             if new_stem is not None and file.stem != new_stem:
                 destination = file.with_name(new_stem + file.suffix)
-                if destination.exists():
+                if destination in planned:
                     raise AssetRenameFileCollisionError(destination)
+                if destination.exists() and not destination.samefile(file):
+                    raise AssetRenameFileCollisionError(destination)
+                planned.add(destination)
                 moves.append((file, destination))
     return moves
 
@@ -240,6 +262,7 @@ def plan_asset_file_renames(
 __all__ = [
     "AssetRenameConflictError",
     "AssetRenameFileCollisionError",
+    "AssetRenameHistoryCollisionError",
     "AssetRenameNotFoundError",
     "AssetRenameReport",
     "plan_asset_file_renames",

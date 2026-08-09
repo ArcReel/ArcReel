@@ -195,10 +195,18 @@ class VersionManager:
         （``{name}_v{n}_{timestamp}{ext}``），名字判等走比对坐标系（NFC）——存量记录
         与文件名可能以 NFD 落盘。返回涉及的快照文件数；旧 id 无版本记录时返回 0
         （幂等：级联事务中途失败后重跑安全）。``dry_run=True`` 只统计、不迁移。
+
+        新 id 下已有他人的版本历史时整体拒绝：资产删除只删资产桶 key、版本记录与快照留存，
+        迁移过去会不可恢复地覆盖它。拒绝发生在 ``dry_run`` 分支之前，因此级联事务的扫描
+        阶段就能拦下，零写入承诺不破。
+
+        Raises:
+            AssetRenameHistoryCollisionError: 新 id 下已有属于别的资产的版本历史。
         """
         if resource_type not in self.RESOURCE_TYPES:
             raise ValueError(f"不支持的资源类型: {resource_type}")
 
+        from lib.asset_rename import AssetRenameHistoryCollisionError
         from lib.asset_types import normalize_asset_name, resolve_asset_key
 
         with self._lock:
@@ -210,6 +218,10 @@ class VersionManager:
             if key is None or not isinstance(bucket.get(key), dict):
                 return 0
             record = bucket[key]
+            # 解析到 key 自身说明只是编码形式或大小写变化，那是同一份历史，放行。
+            existing_new_key = resolve_asset_key(bucket, new_id)
+            if existing_new_key is not None and existing_new_key != key:
+                raise AssetRenameHistoryCollisionError(new_id)
             versions = [v for v in record.get("versions", []) if isinstance(v, dict) and isinstance(v.get("file"), str)]
             if dry_run:
                 return len(versions)
@@ -226,12 +238,6 @@ class VersionManager:
                     src.replace(dst)
                 version["file"] = f"versions/{resource_type}/{new_basename}"
             del bucket[key]
-            # 重跑场景下新 id 可能已有残缺记录：旧记录是完整历史，覆盖之。按 NFC 解析后再删——
-            # 残缺记录的 key 可能是另一种编码形式，精确下标写入会留下两条视觉同名的记录，
-            # 而 resolve_asset_key 按遍历顺序取最后一条，可能命中残缺记录而非完整历史。
-            existing_new_key = resolve_asset_key(bucket, new_id)
-            if existing_new_key is not None:
-                del bucket[existing_new_key]
             bucket[new_id] = record
             self._save_versions(data)
             return len(versions)

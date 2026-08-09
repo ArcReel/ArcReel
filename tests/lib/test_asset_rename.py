@@ -17,6 +17,7 @@ import pytest
 from lib.asset_rename import (
     AssetRenameConflictError,
     AssetRenameFileCollisionError,
+    AssetRenameHistoryCollisionError,
     AssetRenameNotFoundError,
     rewrite_payload_references,
 )
@@ -417,6 +418,38 @@ class TestRenameAssetCascade:
         assert "角色A" in pm.load_project("demo")["characters"]
         assert _load_script(pm)["segments"][0]["characters_in_segment"] == ["角色A"]
 
+    def test_case_only_rename_not_treated_as_collision(self, pm: ProjectManager) -> None:
+        """大小写不敏感的文件系统上目标解析回源文件自身，那不是占用。
+
+        文件系统区分大小写时（多数 Linux）走不到该豁免分支，改名照样通过，断言仍成立。
+        """
+        pm.upsert_assets("demo", "characters", {"Alice": {"description": "主角"}})
+        sheet = _project_dir(pm) / "characters" / "Alice.png"
+        sheet.write_bytes(b"sheet")
+
+        report = pm.rename_asset("demo", "characters", "Alice", "alice")
+
+        assert report.files == 1
+        assert "alice" in pm.load_project("demo")["characters"]
+        assert (_project_dir(pm) / "characters" / "alice.png").read_bytes() == b"sheet"
+
+    def test_duplicate_destination_rejected(self, pm: ProjectManager) -> None:
+        """两个视觉同名的存量文件（NFC / NFD）会撞到同一目标，后一次迁移吃掉前一次的成果。"""
+        chars = _project_dir(pm) / "characters"
+        nfd = unicodedata.normalize("NFD", "café")
+        nfc = unicodedata.normalize("NFC", "café")
+        (chars / f"{nfd}.png").write_bytes(b"nfd")
+        (chars / f"{nfc}.png").write_bytes(b"nfc")
+        if len([p for p in chars.iterdir() if p.suffix == ".png"]) < 2:
+            pytest.skip("文件系统归一化文件名，两种编码落到同一文件，构造不出同批撞车")
+        pm.upsert_assets("demo", "characters", {nfc: {"description": "存量"}})
+
+        with pytest.raises(AssetRenameFileCollisionError):
+            pm.rename_asset("demo", "characters", nfc, "主角甲")
+
+        assert (chars / f"{nfd}.png").read_bytes() == b"nfd"
+        assert (chars / f"{nfc}.png").read_bytes() == b"nfc"
+
     def test_quarantine_drafts_rewritten(self, pm: ProjectManager) -> None:
         """隔离草稿晋升后会回流为正式内容，漏改会让旧名经晋升重新进入剧本。"""
         draft_dir = _project_dir(pm) / "drafts" / "episode_1"
@@ -441,24 +474,61 @@ class TestRenameAssetCascade:
             assert saved["units"][0]["shots"][0]["text"] == "@[主角甲] 在河边"
             assert saved["units"][0]["references"][0]["name"] == "主角甲"
 
-    def test_version_bucket_nfd_duplicate_replaced(self, pm: ProjectManager) -> None:
-        """新名的残缺记录可能以 NFD 形式存量落盘，精确下标写入会留下两条视觉同名记录。"""
+    def test_history_under_new_name_rejected_atomically(self, pm: ProjectManager) -> None:
+        """删除资产只删资产桶 key、版本历史留存，改名过去会不可恢复地覆盖它——整体拒绝。"""
         project_dir = _project_dir(pm)
-        sheet = project_dir / "characters" / "角色A.png"
+        pm.upsert_assets("demo", "characters", {"角色B": {"description": "配角"}})
+        sheet_b = project_dir / "characters" / "角色B.png"
+        sheet_b.write_bytes(b"b1")
+        vm = VersionManager(project_dir)
+        vm.add_version("characters", "角色B", "配角初版", source_file=sheet_b)
+        # 与 delete_entry 路由同形：只删资产桶 key，版本记录与快照留在原地。
+        pm.update_project("demo", lambda project: project["characters"].pop("角色B"))
+        sheet_b.unlink()
+
+        sheet_a = project_dir / "characters" / "角色A.png"
+        sheet_a.write_bytes(b"a1")
+        vm.add_version("characters", "角色A", "主角初版", source_file=sheet_a)
+
+        for dry_run in (True, False):
+            with pytest.raises(AssetRenameHistoryCollisionError):
+                pm.rename_asset("demo", "characters", "角色A", "角色B", dry_run=dry_run)
+
+        assert vm.get_versions("characters", "角色B")["current_version"] == 1
+        assert vm.get_versions("characters", "角色A")["current_version"] == 1
+        assert "角色A" in pm.load_project("demo")["characters"]
+
+    def test_history_under_equivalent_key_is_same_asset(self, pm: ProjectManager) -> None:
+        """新名解析回记录自身（仅换编码形式）时是同一份历史，不算占用。"""
+        project_dir = _project_dir(pm)
+        pm.upsert_assets("demo", "characters", {"café": {"description": "存量"}})
+        nfd = unicodedata.normalize("NFD", "café")
+        sheet = project_dir / "characters" / f"{nfd}.png"
         sheet.write_bytes(b"v1")
         vm = VersionManager(project_dir)
-        vm.add_version("characters", "角色A", "第一版", source_file=sheet)
+        vm.add_version("characters", nfd, "第一版", source_file=sheet)
 
-        nfd = unicodedata.normalize("NFD", "café")
-        data = vm._load_versions()  # pyright: ignore[reportPrivateUsage]
-        data["characters"][nfd] = {"current_version": 0, "versions": []}
-        vm._save_versions(data)  # pyright: ignore[reportPrivateUsage]
+        vm.rename_resource("characters", nfd, "café")
 
-        pm.rename_asset("demo", "characters", "角色A", "café")
-
-        bucket = vm._load_versions()["characters"]  # pyright: ignore[reportPrivateUsage]
-        assert [unicodedata.normalize("NFC", key) for key in bucket] == ["café"]
+        bucket = json.loads(vm.versions_file.read_text(encoding="utf-8"))["characters"]
+        assert list(bucket) == ["café"]
         assert vm.get_versions("characters", "café")["current_version"] == 1
+
+    def test_equivalent_bucket_keys_collapsed(self, pm: ProjectManager) -> None:
+        """NFC / NFD 并存的存量资产桶 key 一并收编，否则等价 key 顶着旧名带失效路径残留。"""
+        project = pm.load_project("demo")
+        nfd = unicodedata.normalize("NFD", "café")
+        project["characters"] = {
+            nfd: {"description": "存量 NFD", "character_sheet": f"characters/{nfd}.png"},
+            "café": {"description": "存量 NFC", "character_sheet": "characters/café.png"},
+        }
+        atomic_write_json(_project_dir(pm) / "project.json", project)
+
+        pm.rename_asset("demo", "characters", "café", "主角甲")
+
+        characters = pm.load_project("demo")["characters"]
+        assert list(characters) == ["主角甲"]
+        assert characters["主角甲"]["description"] == "存量 NFC"
 
     def test_missing_old_name_hints_idempotency(self, pm: ProjectManager) -> None:
         with pytest.raises(AssetRenameNotFoundError) as exc_info:

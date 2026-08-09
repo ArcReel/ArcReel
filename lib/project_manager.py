@@ -1973,6 +1973,7 @@ class ProjectManager:
             AssetRenameNotFoundError: 旧名不存在（message 含幂等恢复提示）。
             AssetRenameConflictError: 新名与既有同类型资产归一化判定冲突。
             AssetRenameFileCollisionError: 某个关联文件的迁移目标已被孤儿文件占用。
+            AssetRenameHistoryCollisionError: 新名下已有属于别的资产的版本历史。
         """
         # data_validator 在模块级 import 本模块，惰性 import 破环（与 upsert_assets 同理）。
         from lib.data_validator import DataValidator
@@ -2045,8 +2046,13 @@ class ProjectManager:
             mutated = copy.deepcopy(project)
             validator = DataValidator(str(self.projects_root))
             before_errors = set(validator.validate_project_payload(mutated).errors)
+            # 视觉同名的存量 key（NFC / NFD 并存）一并收编到新名下：只改精确 key 的话，等价
+            # key 会顶着旧名带着失效路径残留。读侧 resolve_asset_key 取最后一条，而 old_key
+            # 正是这样解析出来的，因此推导式的 last-wins 让 old_key 的 value 胜出，与读侧一致。
+            old_norm = normalize_asset_name(old_key)
             mutated_bucket = {
-                (new_clean if key == old_key else key): value for key, value in mutated[spec.bucket_key].items()
+                (new_clean if normalize_asset_name(key) == old_norm else key): value
+                for key, value in mutated[spec.bucket_key].items()
             }
             mutated[spec.bucket_key] = mutated_bucket
             entry = mutated_bucket[new_clean]

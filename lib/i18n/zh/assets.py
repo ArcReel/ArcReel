@@ -12,6 +12,7 @@ MESSAGES = {
     "asset_voice_notice_dismissed_at_stale": "声音设置在确认前发生了变化，请刷新后重试",
     "asset_rename_rejected": "「{name}」重命名未通过校验，未做任何更改，请刷新后重试",
     "asset_rename_file_conflict": "新名称对应的文件「{filename}」已存在，未做任何更改，请先移除该文件或换一个名称",
+    "asset_rename_history_conflict": "新名称「{name}」下还留有已删除资产的历史版本，未做任何更改，请先清理该历史版本或换一个名称",
     "asset_type_character": "角色",
     "asset_type_scene": "场景",
     "asset_type_prop": "道具",
