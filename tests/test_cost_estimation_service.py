@@ -754,7 +754,7 @@ class TestCostEstimationService:
             async def _resolution(_r, _project):
                 return resolution
 
-            monkeypatch.setattr(ce, "resolve_grid_image_resolution", _resolution)
+            monkeypatch.setattr(ce, "resolve_image_resolution", _resolution)
             service = CostEstimationService(ConfigResolver(db_factory), db_factory)
             result = await service.compute(project_data, scripts, project_name="proj")
             return sum(seg["estimate"]["image"]["USD"] for seg in result["episodes"][0]["segments"])
@@ -791,7 +791,7 @@ class TestCostEstimationService:
             async def _resolution(_r, _project):
                 return resolution
 
-            monkeypatch.setattr(ce, "resolve_grid_image_resolution", _resolution)
+            monkeypatch.setattr(ce, "resolve_image_resolution", _resolution)
             service = CostEstimationService(ConfigResolver(db_factory), db_factory)
             result = await service.compute(project_data, scripts, project_name="proj")
             return sum(seg["estimate"]["image"]["USD"] for seg in result["episodes"][0]["segments"])
@@ -808,8 +808,9 @@ class TestCostEstimationService:
 
     @pytest.mark.unit
     async def test_plain_storyboard_estimate_prices_at_resolved_resolution(self, db_factory, monkeypatch):
-        """普通（非宫格）分镜图同样按执行期生效的分辨率档计价，未配置时按保底档 1K。"""
+        """普通（非宫格）分镜图同样按执行期生效的分辨率档计价，未配置时按保底档。"""
         from server.services import cost_estimation as ce
+        from server.services.cost_estimation import _IMAGE_PRICING_FALLBACK_RESOLUTION
 
         seg_ids = [f"E1S{i:03d}" for i in range(1, 4)]
         project_data = {
@@ -826,17 +827,17 @@ class TestCostEstimationService:
             async def _resolution(_r, _project):
                 return resolution
 
-            monkeypatch.setattr(ce, "resolve_grid_image_resolution", _resolution)
+            monkeypatch.setattr(ce, "resolve_image_resolution", _resolution)
             service = CostEstimationService(ConfigResolver(db_factory), db_factory)
             result = await service.compute(project_data, scripts, project_name="proj")
             return sum(seg["estimate"]["image"]["USD"] for seg in result["episodes"][0]["segments"])
 
-        total_1k = await _estimated_image_total("1K")
-        assert total_1k > 0
-        # 4K 档单价高于 1K，估算须随之上浮而非恒按 1K
-        assert await _estimated_image_total("4K") > total_1k
+        total_fallback = await _estimated_image_total(_IMAGE_PRICING_FALLBACK_RESOLUTION)
+        assert total_fallback > 0
+        # 该型号 4K 单价高于保底档，估算须随之上浮而非恒按保底档
+        assert await _estimated_image_total("4K") > total_fallback
         # 解析失败（未配置图像供应商）按保底档计价，不抛错
-        assert await _estimated_image_total(None) == pytest.approx(total_1k)
+        assert await _estimated_image_total(None) == pytest.approx(total_fallback)
 
     @pytest.mark.unit
     async def test_grid_estimate_duplicate_ids_across_groups_each_correct(self, db_factory):
