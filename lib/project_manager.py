@@ -189,16 +189,26 @@ def _rename_agnostic_errors(
 
     资产改名的「不更坏」判据是比对改写前后的错误集合，而不少校验消息会点名是哪个资产
     （缺 description、路径字段非法等），参数位上因此带着资产名。按渲染文本直接做集合差，
-    会把一条原就存在的历史遗留错误当成本次新引入的——名字变了，文本就变了——从而拒绝
-    一次本不更坏的改名。指纹按结构化消息（key + params）构造，并把参数里出现的新名折回
-    旧名；前后两侧用同一个折叠函数，折叠若有误差也对称抵消。
+    会把一条原就存在的历史遗留错误当成改写后新增的——名字变了，文本就变了——从而拒绝
+    一次本不更坏的改名。指纹按结构化消息（key + params）构造，并把参数里的新名折回旧名。
+
+    折叠只认两种确定形态：参数值整体就是新名，以及 ``characters[新名].xxx`` 这类字段路径里
+    的方括号段。不做任意子串替换——新名若恰是某段无关文本的子串，泛化替换会把一条真正新增
+    的错误折到已有指纹上、被静默吞掉。收窄后若漏认某种嵌名形态，失败方向是保守的：历史遗留
+    错误被当作新增，改名被拒而非被放行。
     """
+
+    def fold(value: str) -> str:
+        if normalize_asset_name(value) == normalized_new:
+            return old_name
+        return value.replace(f"[{new_name}]", f"[{old_name}]")
+
+    normalized_new = normalize_asset_name(new_name)
     folded: dict[tuple[str, tuple[tuple[str, str], ...]], str] = {}
     for message in result.error_messages:
         params = tuple(
             sorted(
-                (name, value.replace(new_name, old_name) if isinstance(value, str) else repr(value))
-                for name, value in message.params.items()
+                (name, fold(value) if isinstance(value, str) else repr(value)) for name, value in message.params.items()
             )
         )
         folded[(message.key, params)] = message.render()

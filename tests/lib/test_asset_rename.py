@@ -26,7 +26,8 @@ from lib.episode_paths import (
     REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
 )
 from lib.json_io import atomic_write_json
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, _rename_agnostic_errors
+from lib.validation_messages import ValidationMessage, ValidationResult
 from lib.version_manager import VersionManager
 
 pytestmark = pytest.mark.unit
@@ -655,3 +656,28 @@ class TestRenameAssetCascade:
             pm.rename_asset("demo", "characters", "角色A", "坏/名字")
         with pytest.raises(ValueError):
             pm.rename_asset("demo", "unknown_table", "角色A", "新名")
+
+
+class TestRenameAgnosticErrors:
+    """错误指纹折叠的边界：折回新名只认确定形态，不做任意子串替换。"""
+
+    @staticmethod
+    def _fingerprints(*messages: ValidationMessage) -> set[Any]:
+        result = ValidationResult(valid=False, error_messages=list(messages))
+        return set(_rename_agnostic_errors(result, "角色A", "甲").keys())
+
+    def test_folds_exact_name_param(self) -> None:
+        renamed = ValidationMessage("val_asset_missing_description", {"asset_type": "角色", "name": "甲"})
+        original = ValidationMessage("val_asset_missing_description", {"asset_type": "角色", "name": "角色A"})
+        assert self._fingerprints(renamed) == self._fingerprints(original)
+
+    def test_folds_bracketed_field_path(self) -> None:
+        renamed = ValidationMessage("val_invalid_path", {"field": "characters[甲].character_sheet"})
+        original = ValidationMessage("val_invalid_path", {"field": "characters[角色A].character_sheet"})
+        assert self._fingerprints(renamed) == self._fingerprints(original)
+
+    def test_keeps_unrelated_value_merely_containing_the_new_name(self) -> None:
+        """新名只是无关文本的子串时不得折叠，否则改写后真正新增的错误会被静默吞掉。"""
+        renamed = ValidationMessage("val_invalid_path", {"field": "assets/甲板/图.png"})
+        original = ValidationMessage("val_invalid_path", {"field": "assets/角色A板/图.png"})
+        assert self._fingerprints(renamed) != self._fingerprints(original)
