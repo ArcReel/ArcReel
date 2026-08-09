@@ -6,6 +6,7 @@ import { API } from "@/api";
 import * as providerModels from "@/utils/provider-models";
 import { useAppStore } from "@/stores/app-store";
 import { MediaModelSection } from "./MediaModelSection";
+import type { ProviderInfo } from "@/types/provider";
 
 const CONFIG = {
   options: {
@@ -181,32 +182,42 @@ describe("MediaModelSection", () => {
   });
 
   describe("音频勾选框的模型可控性", () => {
-    function mockProviders(hasAudioTrack: boolean, controllable: boolean) {
-      vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
-        {
-          id: "gemini",
-          display_name: "Gemini",
-          description: "",
-          status: "ready",
-          media_types: ["video"],
-          capabilities: [],
-          configured_keys: [],
-          missing_keys: [],
-          models: {
-            "veo-3": {
-              display_name: "Veo 3",
-              media_type: "video",
-              capabilities: [],
-              default: true,
-              supported_durations: [8],
-              duration_resolution_constraints: {},
-              resolutions: [],
-              has_audio_track: hasAudioTrack,
-              audio_switch_controllable: controllable,
-              voice_consistency: hasAudioTrack ? "soft" : "none",
-            },
+    function videoProvider(
+      providerId: string,
+      modelId: string,
+      audio: { has_audio_track: boolean; audio_switch_controllable: boolean },
+    ): ProviderInfo {
+      return {
+        id: providerId,
+        display_name: providerId,
+        description: "",
+        status: "ready",
+        media_types: ["video"],
+        capabilities: [],
+        configured_keys: [],
+        missing_keys: [],
+        models: {
+          [modelId]: {
+            display_name: modelId,
+            media_type: "video",
+            capabilities: [],
+            default: true,
+            supported_durations: [8],
+            duration_resolution_constraints: {},
+            resolutions: [],
+            ...audio,
+            voice_consistency: audio.has_audio_track ? "soft" : "none",
           },
         },
+      };
+    }
+
+    function mockProviders(hasAudioTrack: boolean, controllable: boolean) {
+      vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+        videoProvider("gemini", "veo-3", {
+          has_audio_track: hasAudioTrack,
+          audio_switch_controllable: controllable,
+        }),
       ]);
     }
 
@@ -232,6 +243,30 @@ describe("MediaModelSection", () => {
       await user.click(screen.getByRole("button", { name: "改为开启" }));
       await user.click(screen.getByRole("button", { name: /保存|Save/ }));
       await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_generate_audio: true }));
+    });
+
+    // 细分桶覆盖成恒有声模型时，基础默认仍可控：置灰会连带禁掉另一个可控桶的合法关闭，
+    // 故只给矛盾提示。判据漏掉细分桶就会让这份配置一路带到入队才被拒。
+    it("warns about a stored off setting when only a capability-bucket override is always audible", async () => {
+      const user = userEvent.setup();
+      mockConfig({ default_video_backend_i2v: "dashscope/wan" });
+      vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+        videoProvider("gemini", "veo-3", { has_audio_track: true, audio_switch_controllable: true }),
+        videoProvider("dashscope", "wan", { has_audio_track: true, audio_switch_controllable: false }),
+      ]);
+      render(<MediaModelSection />);
+      const box = await screen.findByRole("checkbox", { name: /生成音频/ });
+      expect(box).toBeEnabled();
+      expect(screen.getByRole("alert")).toHaveTextContent(/无法关闭声音/);
+
+      const patch = vi
+        .spyOn(API, "updateSystemConfig")
+        .mockResolvedValue(CONFIG as unknown as Awaited<ReturnType<typeof API.updateSystemConfig>>);
+      await user.click(screen.getByRole("button", { name: "改为开启" }));
+      await user.click(screen.getByRole("button", { name: /保存|Save/ }));
+      await waitFor(() =>
+        expect(patch).toHaveBeenCalledWith(expect.objectContaining({ video_generate_audio: true })),
+      );
     });
 
     it("locks the checkbox on a model without an audio track", async () => {

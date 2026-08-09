@@ -218,6 +218,13 @@ export function MediaModelSection() {
   // 置灰并展示成片的实际音轨状态；存量的「关闭」由警告给一键修正入口，不静默改写配置。
   const audioControl = currentVideo ? lookupVideoAudioControl(providers, currentVideo) : null;
   const audioLocked = audioControl === "always_on" || audioControl === "always_off";
+  // 置灰按基础默认模型，矛盾警告按生效桶模型：细分桶覆盖成恒有声模型时，基础默认仍可控，
+  // 此时禁用开关会连带禁掉另一个可控桶的合法关闭，故只提示不锁死（入队前预检按桶拒绝）。
+  const audioConflict =
+    !currentAudio &&
+    [currentVideoI2V || currentVideo, currentVideoR2V || currentVideo].some(
+      (backend) => backend && lookupVideoAudioControl(providers, backend) === "always_on",
+    );
   const videoSpecDurations = currentVideo ? catalogDurations(providers, customProviders, currentVideo) : null;
   const videoSpecResolutions = currentVideo
     ? lookupResolutions(providers, currentVideo, customProviders, endpointToMediaType).options
@@ -329,7 +336,7 @@ export function MediaModelSection() {
             </span>
           </label>
         </div>
-        {audioControl === "always_on" && !currentAudio && (
+        {audioConflict && (
           <InlineWarning
             className="mt-2"
             message={t("audio_switch_conflict_notice")}

@@ -96,6 +96,11 @@ export interface ModelConfigSectionProps {
    * 与旁白配音（TTS）无关，故归在视频通道而非单列。创建项目向导不传则不渲染。
    */
   videoGenerateAudio?: boolean | null;
+  /**
+   * 全局「视频生成音频」的生效值，用于把 `videoGenerateAudio` 的 null（跟随全局）折叠成实际
+   * 生效值——矛盾提示要按生效值给，否则项目留空而全局为「关闭」时界面无从察觉。省略即按开启处理。
+   */
+  globalVideoGenerateAudio?: boolean;
   onVideoGenerateAudioChange?: (next: boolean | null) => void;
   /**
    * 当前项目是否走参考生视频（资产图直出）。部分模型在参考图路径下把时长收窄到单一取值，
@@ -142,6 +147,7 @@ export function ModelConfigSection({
   customProviders = EMPTY_CUSTOM_PROVIDERS,
   globalDefaults,
   videoGenerateAudio,
+  globalVideoGenerateAudio = true,
   onVideoGenerateAudioChange,
   usesReferenceImages,
   enable,
@@ -276,7 +282,9 @@ export function ModelConfigSection({
           : "dashboard:audio_switch_locked_always_off",
       )
     : null;
-  const audioConflict = audioControl === "always_on" && videoGenerateAudio === false;
+  // 按生效值判矛盾：项目级 null 表示跟随全局，全局为「关闭」时同样落在恒有声模型上。
+  const audioConflict =
+    audioControl === "always_on" && (videoGenerateAudio ?? globalVideoGenerateAudio) === false;
 
   const videoResolutionOptions = lookupResolutions(
     providers,

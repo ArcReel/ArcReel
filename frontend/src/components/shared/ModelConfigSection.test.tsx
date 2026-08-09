@@ -963,6 +963,7 @@ describe("音频开关的模型可控性", () => {
     videoBackend: string,
     videoGenerateAudio: boolean | null,
     onVideoGenerateAudioChange = vi.fn(),
+    globalVideoGenerateAudio = true,
   ) {
     render(
       <ModelConfigSection
@@ -978,6 +979,7 @@ describe("音频开关的模型可控性", () => {
         }}
         globalDefaults={EMPTY_GLOBALS}
         videoGenerateAudio={videoGenerateAudio}
+        globalVideoGenerateAudio={globalVideoGenerateAudio}
         onVideoGenerateAudioChange={onVideoGenerateAudioChange}
         enable={{ image: false, text: false }}
       />,
@@ -1017,5 +1019,20 @@ describe("音频开关的模型可控性", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/无法关闭声音/);
     await user.click(screen.getByRole("button", { name: "改为开启" }));
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  // 项目级留空是「跟随全局」：全局为关闭时同样落在恒有声模型上，提示按生效值给，
+  // 否则界面只显示置灰的「开启」，用户要到入队被拒才知道配置有矛盾。
+  it("offers the same fix when the project follows a global off setting", async () => {
+    const user = userEvent.setup();
+    const onChange = renderAudio("dashscope/wan", null, vi.fn(), false);
+    expect(screen.getByRole("alert")).toHaveTextContent(/无法关闭声音/);
+    await user.click(screen.getByRole("button", { name: "改为开启" }));
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("stays quiet when the project follows a global on setting", () => {
+    renderAudio("dashscope/wan", null, vi.fn(), true);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
