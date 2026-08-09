@@ -44,6 +44,10 @@ SPEECH_RATE_FIELD: str = "speech_rate_units_per_second"
 MIN_SPEECH_RATE_UPS: float = 0.0
 MAX_SPEECH_RATE_UPS: float = 20.0
 
+#: 溢出探针：判定语速可用性时假想的单段口播阅读单位数，取值远超任何真实文本。
+#: 语速越小时长越大，只要探针长度除以它仍是有限数，真实文本的估算就不会溢出。
+_OVERFLOW_PROBE_UNITS: float = 1e6
+
 
 def is_valid_speech_rate(value: float) -> bool:
     """该数值是否落在项目级语速覆盖的硬区间内（``0 < value <= 20``，且能算出有限时长）。
@@ -53,9 +57,11 @@ def is_valid_speech_rate(value: float) -> bool:
     ``float()`` 对超出双精度表示范围的整数抛 ``OverflowError``，在这里收成「越界」，
     调用方因此不必在转换外围各自包一层 try。
 
-    区间下界之外还要求 ``1 / rate`` 有限：次正规数量级的语速（如 ``5e-324``）虽然大于 0，
-    但一个阅读单位就让 ``estimate_spoken_seconds`` 得出 ``inf``，成片字幕的微秒换算会
-    直接抛 ``OverflowError``。把它挡在入口，下游拿到的估算值因此恒为有限数。
+    区间下界之外还要求探针长度除以该语速仍为有限数：极小的正语速（如 ``1e-308``）虽然
+    大于 0，却让 ``estimate_spoken_seconds`` 得出 ``inf``，成片字幕的微秒换算会直接抛
+    ``OverflowError``。校验发生在写入时、文本尚不存在，故以 ``_OVERFLOW_PROBE_UNITS``
+    代替真实长度取上界，下游拿到的估算值因此恒为有限数。该约束的有效下限在 1e-302
+    量级，正常取值不受影响。
     """
     try:
         rate = float(value)
@@ -63,7 +69,7 @@ def is_valid_speech_rate(value: float) -> bool:
         return False
     if not (math.isfinite(rate) and MIN_SPEECH_RATE_UPS < rate <= MAX_SPEECH_RATE_UPS):
         return False
-    return math.isfinite(1.0 / rate)
+    return math.isfinite(_OVERFLOW_PROBE_UNITS / rate)
 
 
 def project_speech_rate_override(project: Mapping[str, Any] | None) -> float | None:

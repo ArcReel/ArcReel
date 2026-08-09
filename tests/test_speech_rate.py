@@ -87,11 +87,14 @@ class TestSpeechRateOverride:
         assert not is_valid_speech_rate(0.0)
         assert not is_valid_speech_rate(MAX_SPEECH_RATE_UPS + 0.001)
 
-    def test_subnormal_rate_is_out_of_range(self):
-        # 次正规语速大于 0 却让估算时长溢出成 inf，下游微秒换算会抛 OverflowError；在入口拒掉
+    def test_rate_overflowing_the_estimate_is_out_of_range(self):
+        # 极小语速大于 0 却让估算时长溢出成 inf，下游微秒换算会抛 OverflowError；在入口拒掉。
+        # 1e-308 的倒数仍是有限数，只有按整段文本长度衡量才暴露溢出
         assert not is_valid_speech_rate(5e-324)
         assert not is_valid_speech_rate(1e-320)
-        assert estimate_spoken_seconds("一", "zh", 5e-324) == pytest.approx(0.2)
+        assert not is_valid_speech_rate(1e-308)
+        # 被拒的覆盖按无覆盖处理，多个阅读单位照常按语言默认语速估算
+        assert estimate_spoken_seconds("你好世界", "zh", 1e-308) == pytest.approx(0.8)
 
     def test_integer_beyond_float_range_is_out_of_range(self):
         # JSON 整数字面量无位宽上限，超出双精度表示范围的整数按越界收掉而非抛 OverflowError

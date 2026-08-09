@@ -17,12 +17,16 @@ import { FieldLabel } from "@/components/ui/FieldLabel";
 export const SPEECH_RATE_MIN_EXCLUSIVE = 0;
 export const SPEECH_RATE_MAX = 20;
 
+/** 溢出探针长度（阅读单位）：与后端 _OVERFLOW_PROBE_UNITS 同一个数。 */
+const SPEECH_RATE_OVERFLOW_PROBE_UNITS = 1e6;
+
 /** 该值是否可提交（null = 未填，合法）。 */
 export function isValidSpeechRate(value: number | null): boolean {
   if (value === null) return true;
   if (!(Number.isFinite(value) && value > SPEECH_RATE_MIN_EXCLUSIVE && value <= SPEECH_RATE_MAX)) return false;
-  // 次正规数量级的语速（如 5e-324）虽大于 0，但估算时长会溢出成 Infinity；后端同样按越界拒。
-  return Number.isFinite(1 / value);
+  // 极小的正语速（如 1e-308）会让估算时长溢出成 Infinity。校验时文本尚不存在，故以远超
+  // 真实文本的探针长度取上界——与后端 _OVERFLOW_PROBE_UNITS 同一个数。
+  return Number.isFinite(SPEECH_RATE_OVERFLOW_PROBE_UNITS / value);
 }
 
 /** 阅读单位名词的 i18n key：按词计的语言用「词」，其余（含未知 / 未定）按「字」。 */
