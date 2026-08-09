@@ -46,18 +46,24 @@ MAX_SPEECH_RATE_UPS: float = 20.0
 
 
 def is_valid_speech_rate(value: float) -> bool:
-    """该数值是否落在项目级语速覆盖的硬区间内（``0 < value <= 20``，且为有限数）。
+    """该数值是否落在项目级语速覆盖的硬区间内（``0 < value <= 20``，且能算出有限时长）。
 
     前端输入校验、请求模型校验与持久化后的读时守卫共用这一把尺，避免三处各写一套边界。
     入参允许是 project.json 直接解析出的 ``int``：JSON 整数字面量没有位宽上限，
     ``float()`` 对超出双精度表示范围的整数抛 ``OverflowError``，在这里收成「越界」，
     调用方因此不必在转换外围各自包一层 try。
+
+    区间下界之外还要求 ``1 / rate`` 有限：次正规数量级的语速（如 ``5e-324``）虽然大于 0，
+    但一个阅读单位就让 ``estimate_spoken_seconds`` 得出 ``inf``，成片字幕的微秒换算会
+    直接抛 ``OverflowError``。把它挡在入口，下游拿到的估算值因此恒为有限数。
     """
     try:
         rate = float(value)
     except OverflowError:
         return False
-    return math.isfinite(rate) and MIN_SPEECH_RATE_UPS < rate <= MAX_SPEECH_RATE_UPS
+    if not (math.isfinite(rate) and MIN_SPEECH_RATE_UPS < rate <= MAX_SPEECH_RATE_UPS):
+        return False
+    return math.isfinite(1.0 / rate)
 
 
 def project_speech_rate_override(project: Mapping[str, Any] | None) -> float | None:

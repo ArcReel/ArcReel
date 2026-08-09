@@ -20,7 +20,9 @@ export const SPEECH_RATE_MAX = 20;
 /** 该值是否可提交（null = 未填，合法）。 */
 export function isValidSpeechRate(value: number | null): boolean {
   if (value === null) return true;
-  return Number.isFinite(value) && value > SPEECH_RATE_MIN_EXCLUSIVE && value <= SPEECH_RATE_MAX;
+  if (!(Number.isFinite(value) && value > SPEECH_RATE_MIN_EXCLUSIVE && value <= SPEECH_RATE_MAX)) return false;
+  // 次正规数量级的语速（如 5e-324）虽大于 0，但估算时长会溢出成 Infinity；后端同样按越界拒。
+  return Number.isFinite(1 / value);
 }
 
 /** 阅读单位名词的 i18n key：按词计的语言用「词」，其余（含未知 / 未定）按「字」。 */

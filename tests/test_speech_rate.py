@@ -87,6 +87,12 @@ class TestSpeechRateOverride:
         assert not is_valid_speech_rate(0.0)
         assert not is_valid_speech_rate(MAX_SPEECH_RATE_UPS + 0.001)
 
+    def test_subnormal_rate_is_out_of_range(self):
+        # 次正规语速大于 0 却让估算时长溢出成 inf，下游微秒换算会抛 OverflowError；在入口拒掉
+        assert not is_valid_speech_rate(5e-324)
+        assert not is_valid_speech_rate(1e-320)
+        assert estimate_spoken_seconds("一", "zh", 5e-324) == pytest.approx(0.2)
+
     def test_integer_beyond_float_range_is_out_of_range(self):
         # JSON 整数字面量无位宽上限，超出双精度表示范围的整数按越界收掉而非抛 OverflowError
         assert not is_valid_speech_rate(10**400)
