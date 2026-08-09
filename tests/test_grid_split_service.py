@@ -30,7 +30,8 @@ def project_with_script(tmp_path):
                 "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
                 "characters": {},
             }
-        )
+        ),
+        encoding="utf-8",
     )
     (p / "scripts" / "episode_1.json").write_text(
         json.dumps(
@@ -45,7 +46,8 @@ def project_with_script(tmp_path):
                     for i in range(1, 4)
                 ],
             }
-        )
+        ),
+        encoding="utf-8",
     )
     return p
 
@@ -67,18 +69,20 @@ def grid_with_image(project_with_script):
     grid.status = "completed"
     grid.grid_image_path = f"grids/{grid.id}.png"
     Image.new("RGB", (400, 400), color=(30, 60, 90)).save(project_with_script / "grids" / f"{grid.id}.png")
-    (project_with_script / "grids" / f"{grid.id}.json").write_text(json.dumps(grid.to_dict(), ensure_ascii=False))
+    (project_with_script / "grids" / f"{grid.id}.json").write_text(
+        json.dumps(grid.to_dict(), ensure_ascii=False), encoding="utf-8"
+    )
     return grid
 
 
 def _mock_pm(project_with_script, script_data=None):
     pm = MagicMock()
     pm.get_project_path.return_value = project_with_script
-    pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+    pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
     pm.load_script.return_value = (
         script_data
         if script_data is not None
-        else json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        else json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
     )
     return pm
 
@@ -126,7 +130,7 @@ class TestApplyGridSplit:
         asset_types = {asset_type for _, asset_type, _ in updates}
         assert asset_types == {"storyboard_image", "grid_id", "grid_cell_index"}
 
-        saved = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text())
+        saved = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text(encoding="utf-8"))
         assert saved["split_at"] is not None
 
     async def test_split_skips_missing_scene_ids(self, project_with_script, grid_with_image, caplog):
@@ -134,7 +138,7 @@ class TestApplyGridSplit:
         跳过 cell PNG 保存 + warning + 不让 batch_update 抛 KeyError 整批回滚
         （避免 cell PNG 已落盘但 script 无引用的 orphan PNG）。"""
         grid = grid_with_image
-        script_data = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        script_data = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         script_data["segments"] = [seg for seg in script_data["segments"] if seg["segment_id"] == "E1S01"]
 
         pm = _mock_pm(project_with_script, script_data)

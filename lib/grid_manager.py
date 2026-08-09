@@ -32,6 +32,11 @@ class GridManager:
             raise ValueError(f"非法宫格 ID: {grid_id!r}")
         return safe_join(self._dir, f"{grid_id}{suffix}")
 
+    def image_path(self, grid_id: str) -> Path:
+        """grids/ 下的联合图路径。调用方一律经此取路径，不自行拼接，
+        否则 ID 白名单与越界校验会被绕过。"""
+        return self._path(grid_id, ".png")
+
     def save(self, grid: GridGeneration) -> None:
         """Write grid as JSON to {grid_id}.json."""
         path = self._path(grid.id)
@@ -50,9 +55,9 @@ class GridManager:
         if not path.exists():
             return False
         # Also remove the grid image if it exists
-        image_path = self._path(grid_id, ".png")
-        if image_path.exists():
-            image_path.unlink()
+        image_file = self.image_path(grid_id)
+        if image_file.exists():
+            image_file.unlink()
         path.unlink()
         return True
 

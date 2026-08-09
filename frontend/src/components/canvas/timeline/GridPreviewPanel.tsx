@@ -241,7 +241,9 @@ export function GridPreviewPanel({
     API.splitGrid(projectName, selectedGridId)
       .then((res) => {
         useProjectsStore.getState().updateAssetFingerprints(res.asset_fingerprints);
-        setGrid((prev) => (prev ? { ...prev, split_at: res.split_at } : prev));
+        // 只回写发起切分的那个宫格：批次切换不受动作禁用限制，请求在途时用户可能已切到
+        // 别的宫格，无条件回写会把本次的 split_at 记到另一个宫格上。
+        setGrid((prev) => (prev && prev.id === selectedGridId ? { ...prev, split_at: res.split_at } : prev));
         useAppStore
           .getState()
           .pushToast(t("grid_split_success", { count: res.updated_scene_ids.length }), "success");

@@ -350,7 +350,7 @@ async def split_grid(project_name: str, grid_id: str):
     project_path = get_project_manager().get_project_path(project_name)
     grid = _load_grid_or_404(project_path, grid_id)
     _ensure_grid_idle(grid)
-    if not grid.grid_image_path or not (project_path / "grids" / f"{grid_id}.png").exists():
+    if not grid.grid_image_path or not GridManager(project_path).image_path(grid_id).exists():
         raise BadRequestError("grid_image_not_ready", grid_id=grid_id)
 
     try:
@@ -403,7 +403,8 @@ async def upload_grid_image(
     except ValueError:
         raise BadRequestError("invalid_image_file")
 
-    target = project_path / "grids" / f"{grid_id}.png"
+    grid_manager = GridManager(project_path)
+    target = grid_manager.image_path(grid_id)
     versions = VersionManager(project_path)
 
     with project_change_source("webui"):
@@ -425,7 +426,7 @@ async def upload_grid_image(
             # 手动补图等价于一次成功的联合图产出：failed 记录就此回到就绪态；
             # 联合图内容已变更，split_at 清空表示「待显式切分」。
             grid.mark_composite_replaced()
-            GridManager(project_path).save(grid)
+            grid_manager.save(grid)
             return emit_generation_success_batch(
                 task_type="grid",
                 project_name=project_name,

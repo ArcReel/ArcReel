@@ -47,18 +47,23 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
     project_path = await asyncio.to_thread(pm.get_project_path, project_name)
     project = await asyncio.to_thread(pm.load_project, project_name)
 
-    grid_image_file = project_path / "grids" / f"{grid.id}.png"
+    grid_manager = GridManager(project_path)
+    grid_image_file = grid_manager.image_path(grid.id)
     if not grid.grid_image_path or not grid_image_file.exists():
         raise GridImageNotReadyError(f"grid {grid.id} has no grid image to split")
 
-    grid_manager = GridManager(project_path)
     versions = VersionManager(project_path)
     script_file = grid.script_file
 
     def _split_and_assign() -> tuple[list[str], list[str]]:
         from lib.script_editor import resolve_items
 
-        grid_image = Image.open(grid_image_file)
+        # Image.open 惰性读取并持有文件句柄；切格与逐格 save 期间上传/还原可能要覆写
+        # 同一个 PNG，Windows 上未释放的句柄会让覆写失败。解码后立即 copy 成脱离
+        # 源文件的内存图像，句柄随 with 退出即释放（与 image_utils._open_oriented 同款）。
+        with Image.open(grid_image_file) as src:
+            src.load()
+            grid_image = src.copy()
         video_aspect_ratio = get_aspect_ratio(project, "videos")
         cells = split_grid_image(grid_image, grid.rows, grid.cols, video_aspect_ratio)
 

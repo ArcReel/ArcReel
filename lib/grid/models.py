@@ -166,6 +166,14 @@ class GridGeneration:
         # 该态下联合图已落盘，按当前模型等价于「联合图就绪、未落格」。
         raw_status = data["status"]
         status = "completed" if raw_status == "splitting" else raw_status
+        # 旧记录没有 split_at 字段。旧流程下 status="completed" 只在切格落盘之后才写入，
+        # 因此这类记录等价于「已切分」，用 created_at 充当落格时间；若一律读成未切分，
+        # 前端会提示待切分，用户照做就会用旧联合图覆盖之后单独重生成过的分镜图。
+        # 显式为 null 的新记录、以及 status="splitting"（联合图已就绪但未落格）保持未切分。
+        if "split_at" not in data and raw_status == "completed":
+            split_at = data["created_at"]
+        else:
+            split_at = data.get("split_at")
         return cls(
             id=data["id"],
             episode=data["episode"],
@@ -186,7 +194,7 @@ class GridGeneration:
             reference_images=[ReferenceImage.from_dict(r) for r in data["reference_images"]]
             if data.get("reference_images")
             else None,
-            split_at=data.get("split_at"),
+            split_at=split_at,
         )
 
     def mark_composite_replaced(self) -> None:
