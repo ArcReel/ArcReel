@@ -321,11 +321,12 @@ class TestModelHasAudioTrack:
         assert model.media_type != "video"
         assert model_has_audio_track("dashscope", model) is False
 
-    def test_sora_2_declares_token(self):
-        """Sora 2 声明修正随本票落地：目录已补 generate_audio（官方原生含对话音轨）。"""
-        model = self._model("openai", "sora-2")
-        assert "generate_audio" in model.capabilities
-        assert model_has_audio_track("openai", model) is True
+    def test_sora_always_audible_without_token(self):
+        """Sora 原生含对话音轨，但请求参数里没有音轨开关：不声明 token，由恒有声例外表判定有音轨。"""
+        for model_id in ("sora-2", "sora-2-pro"):
+            model = self._model("openai", model_id)
+            assert "generate_audio" not in model.capabilities
+            assert model_has_audio_track("openai", model) is True
 
     def test_kling_audio_capable_models_declare_token(self):
         """可灵支持音画同出的三档均声明 token；能力地图的「声音控制（人声）」列是指定音色通道，
@@ -378,6 +379,8 @@ class TestAudioSwitchControllable:
             ("gemini-aistudio", "veo-3.1-generate-preview"),
             ("grok", "grok-imagine-video"),
             ("dashscope", "wan2.7-i2v"),
+            ("openai", "sora-2"),
+            ("openai", "sora-2-pro"),
         ],
     )
     def test_always_audible_families_are_not_controllable(self, provider_id: str, model_id: str):
