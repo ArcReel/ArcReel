@@ -22,6 +22,7 @@ from server.agent_runtime.sdk_tools.patch_script import (
     remove_segment_tool,
     split_segment_tool,
 )
+from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
 
 
 def _segment(segment_id: str, duration: int = 4) -> dict[str, Any]:
@@ -1206,3 +1207,43 @@ class TestPatchProjectBriefSetting:
         assert out.get("is_error") is True
         # 创建时写入的 brief=""（可空）不被非法写入污染
         assert ad_ctx.pm.load_project("ad-demo")["brief"] == ""
+
+
+class TestRenameAssetTool:
+    """rename_asset 是独立工具（patch_project 章程限定 project.json 字段写入），
+    经 ProjectManager.rename_asset 走真实级联；错误文本做恢复导向。"""
+
+    @pytest.fixture
+    def rename_ctx(self, ctx: ToolContext) -> ToolContext:
+        ctx.pm.upsert_assets("demo", "characters", {"角色A": {"description": "主角"}})
+        return ctx
+
+    @pytest.mark.unit
+    async def test_rename_cascades_script_references(self, rename_ctx: ToolContext) -> None:
+        out = await _call(
+            rename_asset_tool(rename_ctx), {"table": "characters", "old_name": "角色A", "new_name": "主角甲"}
+        )
+        assert out.get("is_error") is not True
+        assert "主角甲" in _text(out)
+        project = rename_ctx.pm.load_project("demo")
+        assert "主角甲" in project["characters"] and "角色A" not in project["characters"]
+        assert _load(rename_ctx)["segments"][0]["characters_in_segment"] == ["主角甲"]
+
+    @pytest.mark.unit
+    async def test_missing_old_name_error_hints_idempotency(self, rename_ctx: ToolContext) -> None:
+        await _call(rename_asset_tool(rename_ctx), {"table": "characters", "old_name": "角色A", "new_name": "主角甲"})
+        out = await _call(
+            rename_asset_tool(rename_ctx), {"table": "characters", "old_name": "角色A", "new_name": "主角甲"}
+        )
+        assert out.get("is_error") is True
+        assert "可能上次重命名已成功" in _text(out)
+
+    @pytest.mark.unit
+    async def test_conflict_rejected(self, rename_ctx: ToolContext) -> None:
+        rename_ctx.pm.upsert_assets("demo", "characters", {"主角甲": {"description": "另一个"}})
+        out = await _call(
+            rename_asset_tool(rename_ctx), {"table": "characters", "old_name": "角色A", "new_name": "主角甲"}
+        )
+        assert out.get("is_error") is True
+        assert "冲突" in _text(out)
+        assert "角色A" in rename_ctx.pm.load_project("demo")["characters"]

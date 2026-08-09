@@ -10,6 +10,7 @@ MESSAGES = {
     "asset_invalid_conflict_policy": "conflict_policy must be skip / overwrite / rename",
     "asset_invalid_name": "Asset name '{name}' is invalid: characters like / \\ : * ? \" < > |, control characters, .., a trailing dot, or Windows reserved names (e.g. CON) are not allowed",
     "asset_voice_notice_dismissed_at_stale": "The voice setting changed before this could be confirmed. Please refresh and try again",
+    "asset_rename_rejected": 'Renaming "{name}" failed validation. Nothing was changed; please refresh and try again',
     "asset_type_character": "character",
     "asset_type_scene": "scene",
     "asset_type_prop": "prop",

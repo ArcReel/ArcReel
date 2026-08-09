@@ -12,6 +12,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
+import { EditableAssetName } from "./EditableAssetName";
 import type { Prop } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -161,12 +162,13 @@ export function PropCard({
         >
           <Package className="h-3.5 w-3.5" />
         </span>
-        <h3
-          className="display-serif min-w-0 flex-1 truncate text-[16px] font-semibold tracking-tight"
-          style={{ color: "var(--color-text)" }}
-        >
-          {name}
-        </h3>
+        <EditableAssetName
+          projectName={projectName}
+          name={name}
+          assetType="prop"
+          readOnly={readOnly}
+          busy={generating || uploadingSheet}
+        />
         {readOnly ? null : (
         <div className="flex shrink-0 items-center gap-0.5">
           <button

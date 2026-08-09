@@ -43,6 +43,7 @@ from server.agent_runtime.sdk_tools.patch_script import (
     remove_segment_tool,
     split_segment_tool,
 )
+from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
 from server.agent_runtime.sdk_tools.text_generation import (
     confirm_script_review_tool,
     generate_episode_script_tool,
@@ -90,6 +91,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "remove_segment",
     "split_segment",
     "patch_project",
+    "rename_asset",
 )
 
 
@@ -126,5 +128,6 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
             remove_segment_tool(ctx),
             split_segment_tool(ctx),
             patch_project_tool(ctx),
+            rename_asset_tool(ctx),
         ],
     )

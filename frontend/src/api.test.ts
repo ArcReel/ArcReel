@@ -190,6 +190,8 @@ describe("API", () => {
       await API.addProjectProduct("demo", "Phone", "sleek", "Acme");
       await API.updateProjectProduct("demo", "Phone", { description: "matte" });
       await API.deleteProjectProduct("demo", "Phone");
+      await API.renameProjectAsset("demo", "character", "Hero", "Knight");
+      await API.renameProjectAsset("demo", "product", "Phone", "Tablet", { dryRun: true });
 
       await API.getScript("demo", "episode 1.json");
       await API.updateScene("demo", "scene-1", "episode_1.json", { x: 1 });
@@ -262,6 +264,16 @@ describe("API", () => {
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/products/Phone", {
         method: "DELETE",
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/characters/Hero/rename", {
+        method: "POST",
+        body: JSON.stringify({ new_name: "Knight", dry_run: false }),
+        signal: undefined,
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/products/Phone/rename", {
+        method: "POST",
+        body: JSON.stringify({ new_name: "Tablet", dry_run: true }),
+        signal: undefined,
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/product/Phone", {
         method: "POST",

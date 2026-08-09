@@ -10,6 +10,7 @@ MESSAGES = {
     "asset_invalid_conflict_policy": "冲突策略必须为 skip / overwrite / rename",
     "asset_invalid_name": '资产名「{name}」无效：不允许 / \\ : * ? " < > | 等字符、控制字符、..、以点结尾或 Windows 保留名（如 CON）',
     "asset_voice_notice_dismissed_at_stale": "声音设置在确认前发生了变化，请刷新后重试",
+    "asset_rename_rejected": "「{name}」重命名未通过校验，未做任何更改，请刷新后重试",
     "asset_type_character": "角色",
     "asset_type_scene": "场景",
     "asset_type_prop": "道具",

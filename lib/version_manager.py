@@ -9,7 +9,7 @@ import json
 import shutil
 import threading
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lib.api_errors import BadRequestError, NotFoundError
@@ -187,6 +187,49 @@ class VersionManager:
 
             self._save_versions(data)
             return new_version
+
+    def rename_resource(self, resource_type: str, old_id: str, new_id: str, *, dry_run: bool = False) -> int:
+        """把资源的版本历史整体迁移到新 id：re-key 元数据、重命名快照文件、改写记录内路径。
+
+        资产重命名的版本时光机迁移入口。resource_id 与快照文件名都以资产名为前缀
+        （``{name}_v{n}_{timestamp}{ext}``），名字判等走比对坐标系（NFC）——存量记录
+        与文件名可能以 NFD 落盘。返回涉及的快照文件数；旧 id 无版本记录时返回 0
+        （幂等：级联事务中途失败后重跑安全）。``dry_run=True`` 只统计、不迁移。
+        """
+        if resource_type not in self.RESOURCE_TYPES:
+            raise ValueError(f"不支持的资源类型: {resource_type}")
+
+        from lib.asset_types import normalize_asset_name, resolve_asset_key
+
+        with self._lock:
+            data = self._load_versions()
+            bucket = data.get(resource_type)
+            if not isinstance(bucket, dict):
+                return 0
+            key = resolve_asset_key(bucket, old_id)
+            if key is None or not isinstance(bucket.get(key), dict):
+                return 0
+            record = bucket[key]
+            versions = [v for v in record.get("versions", []) if isinstance(v, dict) and isinstance(v.get("file"), str)]
+            if dry_run:
+                return len(versions)
+
+            prefix = f"{normalize_asset_name(old_id)}_v"
+            for version in versions:
+                basename = normalize_asset_name(PurePosixPath(version["file"].replace("\\", "/")).name)
+                if not basename.startswith(prefix):
+                    continue
+                new_basename = f"{new_id}_v{basename[len(prefix) :]}"
+                src = self.project_path / version["file"]
+                dst = self.versions_dir / resource_type / new_basename
+                if src.exists():
+                    src.replace(dst)
+                version["file"] = f"versions/{resource_type}/{new_basename}"
+            del bucket[key]
+            # 重跑场景下新 id 可能已有残缺记录：旧记录是完整历史，覆盖之。
+            bucket[new_id] = record
+            self._save_versions(data)
+            return len(versions)
 
     def backup_current(
         self, resource_type: str, resource_id: str, current_file: Path, prompt: str, **metadata

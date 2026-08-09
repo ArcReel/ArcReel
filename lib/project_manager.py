@@ -16,7 +16,7 @@ import shutil
 import time
 import unicodedata
 from collections.abc import Callable, Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -26,6 +26,14 @@ from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
 from lib.app_data_dir import app_data_dir
+from lib.asset_rename import (
+    AssetRenameConflictError,
+    AssetRenameNotFoundError,
+    AssetRenameReport,
+    plan_asset_file_renames,
+    rewrite_entry_paths,
+    rewrite_payload_references,
+)
 from lib.asset_types import (
     ASSET_SPECS,
     normalize_asset_bucket,
@@ -34,7 +42,13 @@ from lib.asset_types import (
     validate_asset_name,
 )
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
-from lib.episode_paths import episode_script_relpath
+from lib.episode_paths import (
+    REFERENCE_VIDEO_STEP1_FILENAME,
+    REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+    STEP1_FILENAMES,
+    episode_script_relpath,
+)
 from lib.json_io import atomic_write_json, load_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import (
@@ -1922,6 +1936,147 @@ class ProjectManager:
     def _strip_legacy_asset_fields(cls, attrs: dict) -> dict:
         """剔除旧式 type/importance 字段（schema 演进遗留），返回新 dict。"""
         return {k: v for k, v in attrs.items() if k not in cls._LEGACY_ASSET_FIELDS}
+
+    #: 级联重命名须一并改写的 step1 草稿文件名（结构化 JSON，含隔离草稿——它们承载
+    #: 引用数组 / ``@[名称]`` 正文，晋升后会回流为正式内容）。旧版 ``.md`` 自由文本别名
+    #: 不在列：读取层仅兼认浏览，写盘与生成侧已不认。
+    _RENAME_DRAFT_FILENAMES = frozenset(
+        {
+            *STEP1_FILENAMES.values(),
+            REFERENCE_VIDEO_STEP1_FILENAME,
+            REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
+            REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+        }
+    )
+
+    def rename_asset(
+        self, project_name: str, table: str, old_name: str, new_name: str, *, dry_run: bool = False
+    ) -> AssetRenameReport:
+        """资产级联重命名的单一事务入口（UI 与智能体共用，见 docs/adr/0057）。
+
+        在「全部剧本锁（按文件名排序）→ 草稿文件锁 → 项目锁」内一次完成：扫描全部剧集
+        剧本与 step1 草稿的名称引用、规划关联文件迁移、对 project.json 变更做「不更坏」
+        结构校验；``dry_run=True`` 时到此为止只返回影响报告（预览与执行共用同一套扫描，
+        数字必然一致），否则按 剧本 → 草稿 → 关联文件 → 版本历史 → project.json 的顺序
+        落盘——资产桶 key 最后改，中途失败时旧名仍在桶内，重跑同一次重命名即可收敛
+        （各步骤均幂等）。锁获取顺序与 ``locked_episode_script`` 的 脚本锁 → 项目锁 一致，
+        避免 ABBA 死锁。
+
+        Raises:
+            ValueError: table 未知或新名非法（``validate_asset_name``）/ 结构校验失败。
+            AssetRenameNotFoundError: 旧名不存在（message 含幂等恢复提示）。
+            AssetRenameConflictError: 新名与既有同类型资产归一化判定冲突。
+        """
+        # data_validator 在模块级 import 本模块，惰性 import 破环（与 upsert_assets 同理）。
+        from lib.data_validator import DataValidator
+        from lib.version_manager import VersionManager
+
+        asset_type = self._BUCKET_TO_ASSET_TYPE.get(table)
+        if asset_type is None:
+            raise ValueError(f"未知资产表: {table!r}，须是 {sorted(self._BUCKET_TO_ASSET_TYPE)} 之一")
+        spec = ASSET_SPECS[asset_type]
+        new_clean = validate_asset_name(new_name)
+        if not self.project_exists(project_name):
+            raise FileNotFoundError(f"项目不存在: {project_name}")
+        project_dir = self.get_project_path(project_name)
+
+        script_files = sorted(self.list_scripts(project_name))
+        drafts_root = project_dir / "drafts"
+        draft_files = (
+            sorted(p for p in drafts_root.glob("episode_*/*.json") if p.name in self._RENAME_DRAFT_FILENAMES)
+            if drafts_root.is_dir()
+            else []
+        )
+
+        with ExitStack() as stack:
+            for filename in script_files:
+                stack.enter_context(self._script_lock(project_name, filename))
+            for path in draft_files:
+                stack.enter_context(self.file_lock(path))
+            stack.enter_context(self._project_lock(project_name))
+
+            project = self._read_project_raw_unlocked(project_name)
+            bucket = project.get(spec.bucket_key)
+            old_key = resolve_asset_key(bucket, old_name)
+            if old_key is None:
+                hint = (
+                    "；新名已存在于资产表——可能上次重命名已成功（级联重命名可安全重试）"
+                    if resolve_asset_key(bucket, new_clean) is not None
+                    else ""
+                )
+                raise AssetRenameNotFoundError(f"{table} 中不存在名为 {old_name!r} 的资产{hint}")
+            conflict_key = resolve_asset_key(bucket, new_clean)
+            if conflict_key is not None and conflict_key != old_key:
+                raise AssetRenameConflictError(conflict_key)
+
+            # —— 扫描（dry-run 预览与执行共用同一套逻辑）——
+            references = 0
+            changed_scripts: list[tuple[str, dict, dict]] = []
+            for filename in script_files:
+                script, _migrated = self._read_script_unlocked(project_name, filename)
+                before = copy.deepcopy(script)
+                changes = rewrite_payload_references(script, asset_type, old_key, new_clean)
+                if changes:
+                    changed_scripts.append((filename, script, before))
+                    references += changes
+            changed_drafts: list[tuple[Path, dict]] = []
+            for path in draft_files:
+                payload = load_json_or_none(path)
+                if not isinstance(payload, dict):
+                    continue
+                changes = rewrite_payload_references(payload, asset_type, old_key, new_clean)
+                if changes:
+                    changed_drafts.append((path, payload))
+                    references += changes
+            episode_ids = {Path(filename).stem for filename, _s, _b in changed_scripts} | {
+                path.parent.name for path, _p in changed_drafts
+            }
+
+            moves = plan_asset_file_renames(project_dir, spec, old_key, new_clean)
+            version_manager = VersionManager(project_dir)
+            version_files = version_manager.rename_resource(spec.bucket_key, old_key, new_clean, dry_run=True)
+
+            # project.json 变更先在副本上应用并做「不更坏」校验：校验失败整体拒绝、任何一处不落盘。
+            mutated = copy.deepcopy(project)
+            validator = DataValidator(str(self.projects_root))
+            before_errors = set(validator.validate_project_payload(mutated).errors)
+            mutated_bucket = {
+                (new_clean if key == old_key else key): value for key, value in mutated[spec.bucket_key].items()
+            }
+            mutated[spec.bucket_key] = mutated_bucket
+            entry = mutated_bucket[new_clean]
+            if isinstance(entry, dict):
+                rewrite_entry_paths(entry, spec, old_key, new_clean)
+            new_errors = set(validator.validate_project_payload(mutated).errors) - before_errors
+            if new_errors:
+                raise ValueError("project.json 结构校验失败: " + "; ".join(sorted(new_errors)))
+
+            report = AssetRenameReport(
+                table=table,
+                old_name=old_key,
+                new_name=new_clean,
+                episodes=len(episode_ids),
+                references=references,
+                files=len(moves) + version_files,
+                dry_run=dry_run,
+            )
+            if dry_run:
+                return report
+
+            # —— 落盘（每步幂等，中途失败重跑同一次重命名即可收敛）——
+            for filename, script, before in changed_scripts:
+                self._write_script_unlocked(project_name, script, filename, sync_project=False, before=before)
+            for path, payload in changed_drafts:
+                atomic_write_json(path, payload)
+            for src, dst in moves:
+                if src.exists():
+                    os.replace(src, dst)
+            version_manager.rename_resource(spec.bucket_key, old_key, new_clean)
+            self._touch_metadata(mutated)
+            atomic_write_json(self._get_project_file_path(project_name), mutated)
+
+        emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
+        return report
 
     def _update_asset_sheet(self, asset_type: str, project_name: str, name: str, sheet_path: str) -> dict:
         """更新资产 sheet 字段路径。资产不存在抛 KeyError。

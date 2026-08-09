@@ -1,0 +1,217 @@
+"""资产级联重命名的纯函数层：剧本/草稿引用改写、关联文件迁移规划与结果报告。
+
+资产以 name 为身份（见 docs/adr/0057），重命名是一次级联事务：资产桶 key、全部剧集剧本
+与 step1 草稿里的名称引用（引用数组 / speaker / ``@[名称]`` mention）、按名命名的关联文件
+（不变式「文件 stem = 资产名」）须一次改齐。本模块承载其中**无副作用**的部分——引用改写
+（就地改 dict、返回改写数）与文件迁移规划（返回 (src, dst) 列表）——供 ProjectManager 的
+编排入口在锁内先扫描（dry-run 预览与执行共用同一套扫描）再落盘。
+
+名字判等一律走比对坐标系（NFC，见 :func:`lib.asset_types.normalize_asset_name`）：正文、
+引用数组与文件名都可能以 NFD 形式存量落盘，按字节比对会漏改视觉同名的引用。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+
+from lib.asset_types import ASSET_SPECS, AssetSpec, normalize_asset_name, resolve_asset_key
+from lib.reference_video.shot_parser import rewrite_mentions
+
+
+class AssetRenameNotFoundError(KeyError):
+    """旧名在资产桶中不存在。message 含恢复导向提示（可能上次重命名已成功）。"""
+
+
+class AssetRenameConflictError(ValueError):
+    """目标名与既有同类型资产归一化判定冲突，整体拒绝、不落盘。"""
+
+    def __init__(self, conflict_name: str):
+        super().__init__(f"目标名与既有资产 {conflict_name!r} 冲突（按 NFC 归一判定），请换一个名字或先处理既有资产")
+        self.conflict_name = conflict_name
+
+
+@dataclass(frozen=True)
+class AssetRenameReport:
+    """级联重命名的影响报告。dry-run 预览与实际执行共用同一次扫描，数字必然一致。"""
+
+    table: str
+    old_name: str
+    new_name: str
+    episodes: int
+    references: int
+    files: int
+    dry_run: bool
+
+
+#: 各资产类型在剧本/草稿骨架里的「名称列表」引用字段。列表内只有 str 元素才是名称引用——
+#: drama 顶层 ``scenes`` 是场景 dict 列表，与 narration 分段里的场景名列表同 key 不同形，
+#: 按元素类型即可区分，无需骨架特例。
+_LIST_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
+    "character": frozenset({"characters_in_segment", "characters_in_scene", "characters_in_shot"}),
+    "scene": frozenset({"scenes"}),
+    "prop": frozenset({"props"}),
+    "product": frozenset({"products_in_shot"}),
+}
+
+
+def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, new_name: str) -> int:
+    """就地把剧本/草稿 payload 中指向 *old_name* 的名称引用改写为 *new_name*，返回改写数。
+
+    覆盖面（与 :mod:`lib.data_validator` 的引用扫描 + 书写层派生口径对齐）：
+
+    - 各骨架的引用数组（``_LIST_FIELDS_BY_TYPE``，仅 str 元素）；
+    - ``references`` 列表内 ``{type, name}`` 引用（type 须匹配本资产类型）；
+    - drama ``utterances[].speaker`` 与 ad ``video_prompt.dialogue[].speaker``（仅 character）；
+    - ``shots[].text`` 自由文本内的 ``@[旧名]`` mention（经 :func:`rewrite_mentions`）；
+    - 旧式剧本内嵌的顶层 ``characters`` 镜像 dict（仅 character：re-key + 路径字段同步）。
+
+    只识别骨架结构、不校验语义：结构校验由写盘统一入口的「不更坏」守卫兜底。
+    """
+    target = normalize_asset_name(old_name)
+    list_fields = _LIST_FIELDS_BY_TYPE[asset_type]
+    count = 0
+
+    def _matches(value: object) -> bool:
+        return isinstance(value, str) and normalize_asset_name(value) == target and value != new_name
+
+    def _walk(node: object) -> None:
+        nonlocal count
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in list_fields and isinstance(value, list):
+                    for i, item in enumerate(value):
+                        if _matches(item):
+                            value[i] = new_name
+                            count += 1
+                        else:
+                            _walk(item)
+                    continue
+                if key == "references" and isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict) and item.get("type") == asset_type and _matches(item.get("name")):
+                            item["name"] = new_name
+                            count += 1
+                    continue
+                if key == "speaker" and asset_type == "character" and _matches(value):
+                    node[key] = new_name
+                    count += 1
+                    continue
+                if key == "shots" and isinstance(value, list):
+                    # 参考路线 shot 只有 text（改写 mention）；ad shot 还带引用数组与
+                    # video_prompt.dialogue，继续下钻由通用规则处理。
+                    for item in value:
+                        if isinstance(item, dict) and isinstance(item.get("text"), str):
+                            new_text, n = rewrite_mentions(item["text"], old_name, new_name)
+                            if n:
+                                item["text"] = new_text
+                                count += n
+                        _walk(item)
+                    continue
+                _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    if asset_type == "character":
+        # 旧式剧本把角色表镜像内嵌在顶层 characters dict（update_character_sheet 写入路径），
+        # re-key 并同步其中的 sheet 路径字段，避免旧名以镜像形式残留。
+        embedded = payload.get("characters")
+        if isinstance(embedded, dict):
+            key = resolve_asset_key(embedded, old_name)
+            if key is not None and key != new_name:
+                entry = embedded.pop(key)
+                embedded[new_name] = entry
+                count += 1
+                if isinstance(entry, dict):
+                    count += rewrite_entry_paths(entry, ASSET_SPECS[asset_type], old_name, new_name)
+
+    _walk(payload)
+    return count
+
+
+def renamed_file_stem(stem: str, old_name: str, new_name: str) -> str | None:
+    """按「文件 stem = 资产名」不变式推导改名后的 stem；与旧名无关时返回 None。
+
+    命中两种形态：stem 归一后精确等于旧名（sheet / 参考图 / 参考音频），或形如
+    ``旧名_{序号}``（product 多图序列，见 server/routers/files.py 的 sequenced 命名）。
+    比对与拼接都在归一坐标系上进行——macOS 落盘的文件名可能是 NFD。
+    """
+    normalized = normalize_asset_name(stem)
+    target = normalize_asset_name(old_name)
+    if normalized == target:
+        return new_name
+    prefix = f"{target}_"
+    if normalized.startswith(prefix) and normalized[len(prefix) :].isdigit():
+        return f"{new_name}_{normalized[len(prefix) :]}"
+    return None
+
+
+def renamed_relpath(rel: str, old_name: str, new_name: str) -> str | None:
+    """把路径字段值中的文件 stem 从旧名改为新名；stem 与旧名无关时返回 None。"""
+    path = PurePosixPath(rel.replace("\\", "/"))
+    new_stem = renamed_file_stem(path.stem, old_name, new_name)
+    if new_stem is None:
+        return None
+    return str(path.with_name(new_stem + path.suffix))
+
+
+def rewrite_entry_paths(entry: dict, spec: AssetSpec, old_name: str, new_name: str) -> int:
+    """就地同步资产 entry 内按名命名的路径字段（sheet / 参考图 / 参考音频 / 多图序列），返回改写数。
+
+    只改 stem 命中旧名的值：用户手动指到别处的路径不动，物理文件迁移由
+    :func:`plan_asset_file_renames` 按目录扫描独立完成，两侧口径一致（同走
+    :func:`renamed_file_stem`）。
+    """
+    count = 0
+    for field in (spec.sheet_field, "reference_image", "reference_audio"):
+        value = entry.get(field)
+        if isinstance(value, str) and value:
+            renamed = renamed_relpath(value, old_name, new_name)
+            if renamed is not None and renamed != value:
+                entry[field] = renamed
+                count += 1
+    images = entry.get("reference_images")
+    if isinstance(images, list):
+        for i, value in enumerate(images):
+            if isinstance(value, str) and value:
+                renamed = renamed_relpath(value, old_name, new_name)
+                if renamed is not None and renamed != value:
+                    images[i] = renamed
+                    count += 1
+    return count
+
+
+def plan_asset_file_renames(
+    project_dir: Path, spec: AssetSpec, old_name: str, new_name: str
+) -> list[tuple[Path, Path]]:
+    """扫描该资产类型的落盘目录，规划 stem 命中旧名的文件迁移，返回 ``(src, dst)`` 列表。
+
+    覆盖设计图目录本级与其上传子目录（``refs`` / ``refs_audio``），版本快照另由
+    VersionManager 迁移。锁文件等隐藏文件跳过。按目录扫描而非只信 entry 路径字段：
+    生成中间产物可能已按旧名落盘而字段未写，旧名文件不应残留。
+    """
+    base = project_dir / spec.subdir
+    moves: list[tuple[Path, Path]] = []
+    for directory in (base, base / "refs", base / "refs_audio"):
+        if not directory.is_dir():
+            continue
+        for file in sorted(directory.iterdir()):
+            if not file.is_file() or file.name.startswith("."):
+                continue
+            new_stem = renamed_file_stem(file.stem, old_name, new_name)
+            if new_stem is not None and file.stem != new_stem:
+                moves.append((file, file.with_name(new_stem + file.suffix)))
+    return moves
+
+
+__all__ = [
+    "AssetRenameConflictError",
+    "AssetRenameNotFoundError",
+    "AssetRenameReport",
+    "plan_asset_file_renames",
+    "renamed_file_stem",
+    "renamed_relpath",
+    "rewrite_entry_paths",
+    "rewrite_payload_references",
+]
