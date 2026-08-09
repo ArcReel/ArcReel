@@ -38,6 +38,7 @@ from lib.asset_types import (
     ASSET_SPECS,
     normalize_asset_bucket,
     normalize_asset_name,
+    rekey_equivalent_entries,
     resolve_asset_key,
     validate_asset_name,
 )
@@ -2046,16 +2047,7 @@ class ProjectManager:
             mutated = copy.deepcopy(project)
             validator = DataValidator(str(self.projects_root))
             before_errors = set(validator.validate_project_payload(mutated).errors)
-            # 视觉同名的存量 key（NFC / NFD 并存）一并收编到新名下：只改精确 key 的话，等价
-            # key 会顶着旧名带着失效路径残留。读侧 resolve_asset_key 取最后一条，而 old_key
-            # 正是这样解析出来的，因此推导式的 last-wins 让 old_key 的 value 胜出，与读侧一致。
-            old_norm = normalize_asset_name(old_key)
-            mutated_bucket = {
-                (new_clean if normalize_asset_name(key) == old_norm else key): value
-                for key, value in mutated[spec.bucket_key].items()
-            }
-            mutated[spec.bucket_key] = mutated_bucket
-            entry = mutated_bucket[new_clean]
+            entry = rekey_equivalent_entries(mutated[spec.bucket_key], old_key, new_clean)
             if isinstance(entry, dict):
                 rewrite_entry_paths(entry, spec, old_key, new_clean)
             new_errors = set(validator.validate_project_payload(mutated).errors) - before_errors

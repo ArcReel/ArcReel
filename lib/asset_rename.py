@@ -15,7 +15,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from lib.asset_types import ASSET_SPECS, AssetSpec, normalize_asset_name, resolve_asset_key
+from lib.asset_types import (
+    ASSET_SPECS,
+    AssetSpec,
+    normalize_asset_name,
+    rekey_equivalent_entries,
+    resolve_asset_key,
+)
 from lib.reference_video.shot_parser import rewrite_mentions
 
 
@@ -143,13 +149,12 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
         # re-key 并同步其中的 sheet 路径字段，避免旧名以镜像形式残留。
         embedded = payload.get("characters")
         if isinstance(embedded, dict):
-            key = resolve_asset_key(embedded, old_name)
-            if key is not None and key != new_name:
-                entry = embedded.pop(key)
-                embedded[new_name] = entry
-                count += 1
-                if isinstance(entry, dict):
-                    count += rewrite_entry_paths(entry, ASSET_SPECS[asset_type], old_name, new_name)
+            if resolve_asset_key(embedded, old_name) != new_name:
+                entry = rekey_equivalent_entries(embedded, old_name, new_name)
+                if entry is not None:
+                    count += 1
+                    if isinstance(entry, dict):
+                        count += rewrite_entry_paths(entry, ASSET_SPECS[asset_type], old_name, new_name)
 
     _walk(payload)
     return count
@@ -218,8 +223,12 @@ def plan_asset_file_renames(
     """扫描该资产类型的落盘目录，规划 stem 命中旧名的文件迁移，返回 ``(src, dst)`` 列表。
 
     覆盖设计图目录本级与其上传子目录（``refs`` / ``refs_audio``），版本快照另由
-    VersionManager 迁移。锁文件等隐藏文件跳过。按目录扫描而非只信 entry 路径字段：
-    生成中间产物可能已按旧名落盘而字段未写，旧名文件不应残留。
+    VersionManager 迁移。按目录扫描而非只信 entry 路径字段：生成中间产物可能已按旧名
+    落盘而字段未写，旧名文件不应残留。
+
+    不按文件名前缀排除隐藏文件：命中与否只由 stem 是否等于资产名决定，这已足以排除杂物
+    （``.DS_Store`` 的 stem 就是 ``.DS_Store``，原子写的临时文件形如 ``tmpXXXX.tmp``），
+    而前导点是合法资产名，一刀切跳过会让名为 ``.甲`` 的资产改名后留下失效的路径字段。
 
     ``旧名_{序号}`` 形态只在多图序列资产（entry 带 ``reference_images``）的 ``refs``
     子目录放行——那里的文件名由上传侧按序号机械生成，不会是别的资产的名字；其余目录
@@ -246,7 +255,7 @@ def plan_asset_file_renames(
         if not directory.is_dir():
             continue
         for file in sorted(directory.iterdir()):
-            if not file.is_file() or file.name.startswith("."):
+            if not file.is_file():
                 continue
             new_stem = renamed_file_stem(file.stem, old_name, new_name, allow_sequence=allow_sequence)
             if new_stem is not None and file.stem != new_stem:

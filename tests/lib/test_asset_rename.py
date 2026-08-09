@@ -224,6 +224,19 @@ class TestRewritePayloadReferences:
         assert count == 1
         assert payload["segments"][0]["characters_in_segment"] == ["咖啡师"]
 
+    def test_legacy_embedded_equivalent_keys_collapsed(self) -> None:
+        """内嵌镜像里 NFC / NFD 并存时一并收编，留一条会顶着旧名带失效 sheet 路径残留。"""
+        nfd = unicodedata.normalize("NFD", "café")
+        payload = _narration_script(
+            characters={
+                nfd: {"character_sheet": f"characters/{nfd}.png"},
+                "café": {"character_sheet": "characters/café.png"},
+            }
+        )
+        rewrite_payload_references(payload, "character", "café", "咖啡师")
+        assert list(payload["characters"]) == ["咖啡师"]
+        assert payload["characters"]["咖啡师"]["character_sheet"] == "characters/咖啡师.png"
+
     def test_legacy_embedded_characters_rekeyed(self) -> None:
         payload = _narration_script(characters={"角色A": {"character_sheet": "characters/角色A.png"}})
         rewrite_payload_references(payload, "character", "角色A", "新角色")
@@ -541,6 +554,39 @@ class TestRenameAssetCascade:
         characters = pm.load_project("demo")["characters"]
         assert list(characters) == ["主角甲"]
         assert characters["主角甲"]["description"] == "存量 NFC"
+
+    def test_equivalent_version_history_keys_collapsed(self, pm: ProjectManager) -> None:
+        """版本桶按原始 resource_id 建 key，NFC / NFD 两条记录一并收编到新名下。"""
+        project_dir = _project_dir(pm)
+        nfd = unicodedata.normalize("NFD", "café")
+        pm.upsert_assets("demo", "characters", {"café": {"description": "存量"}})
+        sheet = project_dir / "characters" / "café.png"
+        sheet.write_bytes(b"v1")
+        vm = VersionManager(project_dir)
+        vm.add_version("characters", nfd, "NFD 记录", source_file=sheet)
+        vm.add_version("characters", "café", "NFC 记录", source_file=sheet)
+
+        vm.rename_resource("characters", "café", "咖啡师")
+
+        bucket = json.loads(vm.versions_file.read_text(encoding="utf-8"))["characters"]
+        assert list(bucket) == ["咖啡师"]
+
+    def test_leading_dot_name_files_migrated(self, pm: ProjectManager) -> None:
+        """前导点是合法资产名：其落盘文件须随改名迁移，否则 entry 路径字段指向不存在的文件。"""
+        project_dir = _project_dir(pm)
+        pm.upsert_assets("demo", "characters", {".甲": {"description": "点号开头"}})
+        sheet = project_dir / "characters" / ".甲.png"
+        sheet.write_bytes(b"png")
+        pm.update_project(
+            "demo",
+            lambda project: project["characters"][".甲"].update({"character_sheet": "characters/.甲.png"}),
+        )
+
+        pm.rename_asset("demo", "characters", ".甲", "主角甲")
+
+        assert not sheet.exists()
+        assert (project_dir / "characters" / "主角甲.png").exists()
+        assert pm.load_project("demo")["characters"]["主角甲"]["character_sheet"] == "characters/主角甲.png"
 
     def test_missing_old_name_hints_idempotency(self, pm: ProjectManager) -> None:
         with pytest.raises(AssetRenameNotFoundError) as exc_info:

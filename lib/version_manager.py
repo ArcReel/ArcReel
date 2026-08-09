@@ -207,7 +207,7 @@ class VersionManager:
             raise ValueError(f"不支持的资源类型: {resource_type}")
 
         from lib.asset_rename import AssetRenameHistoryCollisionError
-        from lib.asset_types import normalize_asset_name, resolve_asset_key
+        from lib.asset_types import normalize_asset_name, rekey_equivalent_entries, resolve_asset_key
 
         with self._lock:
             data = self._load_versions()
@@ -237,8 +237,10 @@ class VersionManager:
                 if src.exists():
                     src.replace(dst)
                 version["file"] = f"versions/{resource_type}/{new_basename}"
-            del bucket[key]
-            bucket[new_id] = record
+            # 视觉同名的等价 key（NFC / NFD 并存）一并收编到新 id 下，留一条会顶着旧名残留、
+            # 之后被重建的同名资产接上。被合并掉的那条记录，其快照文件会留在盘上成为孤儿——
+            # 与资产删除只删桶 key、快照留存是同一口径，宁可留下也不静默删除用户的历史。
+            rekey_equivalent_entries(bucket, old_id, new_id)
             self._save_versions(data)
             return len(versions)
 
