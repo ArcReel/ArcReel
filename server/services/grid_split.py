@@ -64,7 +64,9 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
         with Image.open(grid_image_file) as src:
             src.load()
             grid_image = src.copy()
-        video_aspect_ratio = get_aspect_ratio(project, "videos")
+        # 比例取记录冻结值：项目 aspect_ratio 改过之后再切历史联合图，按新比例中心裁切
+        # 会把每格削掉大半（横版图按竖版切）。存量记录无该字段，回退到项目当前设置。
+        video_aspect_ratio = grid.video_aspect_ratio or get_aspect_ratio(project, "videos")
         cells = split_grid_image(grid_image, grid.rows, grid.cols, video_aspect_ratio)
 
         storyboards_dir = project_path / "storyboards"

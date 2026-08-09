@@ -202,6 +202,7 @@ class TestExecuteGridTask:
             grid_size="2K",
             provider="gemini-aistudio",
             model="gemini-2.0-flash-preview-image-generation",
+            video_aspect_ratio="9:16",
             prompt="test grid prompt",
         )
         grid_path = project_with_script / "grids" / f"{grid.id}.json"
@@ -356,6 +357,7 @@ class TestGridMetadataT2II2ISlotSelection:
             grid_size="2K",
             provider="",
             model="",
+            video_aspect_ratio="9:16",
             prompt="test grid prompt",
         )
         grid_path = project_with_script / "grids" / f"{grid.id}.json"

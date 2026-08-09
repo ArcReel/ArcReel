@@ -18,6 +18,7 @@ def _make_grid(**kwargs) -> GridGeneration:
         grid_size="grid_4",
         provider="test",
         model="m",
+        video_aspect_ratio="9:16",
     )
     defaults.update(kwargs)
     return GridGeneration.create(**defaults)

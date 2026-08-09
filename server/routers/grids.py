@@ -147,6 +147,7 @@ async def generate_grid(
                 grid_size=chunk_layout.grid_size,
                 provider="",
                 model="",
+                video_aspect_ratio=aspect_ratio,
             )
 
             prompt = build_grid_prompt(
@@ -284,18 +285,20 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     gm = GridManager(project_path)
     grid = _load_grid_or_404(project_path, grid_id)
 
-    grid.status = "pending"
-    grid.error_message = None
-    # 清空旧 metadata，由 execute_grid_task 按 needs_i2i 重新回填
-    grid.provider = ""
-    grid.model = ""
-    gm.save(grid)
-
     raw_aspect_ratio = project.get("aspect_ratio")
     aspect_ratio = raw_aspect_ratio if raw_aspect_ratio is not None else "9:16"
     # 重生成沿用记录自身的 rows/cols（含存量非方形记录）与冻结的 prompt，整图比例按该记录写入时的
     # 取值给出，与 prompt 描述的画布一致，不重走档位阶梯
     grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, aspect_ratio)
+
+    grid.status = "pending"
+    grid.error_message = None
+    # 清空旧 metadata，由 execute_grid_task 按 needs_i2i 重新回填
+    grid.provider = ""
+    grid.model = ""
+    # 新联合图按当前项目比例产出，记录随之改写，切分才不会拿旧比例裁切新图
+    grid.video_aspect_ratio = aspect_ratio
+    gm.save(grid)
 
     queue = get_generation_queue()
     task = await queue.enqueue_task(

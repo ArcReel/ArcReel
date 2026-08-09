@@ -169,6 +169,7 @@ def generate_grid_tool(ctx: ToolContext):
                         grid_size=layout.grid_size,
                         provider="",
                         model="",
+                        video_aspect_ratio=aspect_ratio,
                         prompt=prompt,
                     )
                     # 先 save 后 enqueue 给 worker 提供可读的 grid 文件；入队失败时

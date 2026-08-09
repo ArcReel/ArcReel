@@ -64,6 +64,7 @@ def grid_with_image(project_with_script):
         grid_size="2K",
         provider="openai",
         model="gpt-image-2",
+        video_aspect_ratio="9:16",
         prompt="p",
     )
     grid.status = "completed"
@@ -184,3 +185,40 @@ class TestApplyGridSplit:
         assert emit.call_args.kwargs["task_type"] == "grid_split"
         assert emit.call_args.kwargs["resource_id"] == grid.id
         assert result.asset_fingerprints == {"a": 1}
+
+
+class TestSplitAspectRatio:
+    """切分按联合图产出时冻结的比例裁切，而非项目当下的 aspect_ratio。"""
+
+    async def _split_and_measure(self, project_with_script, grid) -> tuple[int, int]:
+        pm = _mock_pm(project_with_script)
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            patch("server.services.generation_tasks.emit_generation_success_batch", return_value={}),
+        ):
+            await apply_grid_split("test-project", grid)
+        with Image.open(project_with_script / "storyboards" / "scene_E1S01.png") as cell:
+            return cell.size
+
+    async def test_uses_frozen_ratio_after_project_ratio_changed(self, project_with_script, grid_with_image):
+        """项目从 16:9 改到 9:16 后再切历史联合图，各格仍按 16:9 裁切。
+
+        读项目当下设置会把横版格中心裁成竖版，每格丢掉大半宽度。
+        """
+        grid = grid_with_image
+        grid.video_aspect_ratio = "16:9"
+
+        width, height = await self._split_and_measure(project_with_script, grid)
+
+        assert width > height, f"应按记录冻结的 16:9 裁成横版，实际 {width}x{height}"
+        assert abs(width / height - 16 / 9) < 0.05
+
+    async def test_legacy_record_without_ratio_falls_back_to_project(self, project_with_script, grid_with_image):
+        """存量记录没有该字段，退回项目当前设置（9:16），保持既有行为。"""
+        grid = grid_with_image
+        grid.video_aspect_ratio = None
+
+        width, height = await self._split_and_measure(project_with_script, grid)
+
+        assert height > width, f"应回退到项目的 9:16，实际 {width}x{height}"
+        assert abs(height / width - 16 / 9) < 0.05

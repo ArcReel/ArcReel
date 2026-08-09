@@ -137,6 +137,10 @@ class GridGeneration:
     reference_images: list[ReferenceImage] | None = None
     # 最近一次按当前联合图切分落格的时间；联合图内容变更（重新生成/上传/版本还原）时清空
     split_at: str | None = None
+    # 产出当前联合图时的单格目标比例。项目 aspect_ratio 可随时改，而切分与产出已解耦、
+    # 可以隔很久才执行，读当时的项目设置会把历史联合图按新比例中心裁切（横版按竖版切会
+    # 丢掉大半画面宽度），故随联合图一起冻结在记录上。存量记录为 None，切分时回退到项目设置。
+    video_aspect_ratio: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -158,6 +162,7 @@ class GridGeneration:
             "error_message": self.error_message,
             "reference_images": [r.to_dict() for r in self.reference_images] if self.reference_images else None,
             "split_at": self.split_at,
+            "video_aspect_ratio": self.video_aspect_ratio,
         }
 
     @classmethod
@@ -195,6 +200,7 @@ class GridGeneration:
             if data.get("reference_images")
             else None,
             split_at=split_at,
+            video_aspect_ratio=data.get("video_aspect_ratio"),
         )
 
     def mark_composite_replaced(self) -> None:
@@ -224,6 +230,7 @@ class GridGeneration:
         grid_size: str,
         provider: str,
         model: str,
+        video_aspect_ratio: str,
         prompt: str | None = None,
     ) -> GridGeneration:
         """Create a new GridGeneration with a generated id and pending status."""
@@ -246,6 +253,7 @@ class GridGeneration:
             grid_size=grid_size,
             created_at=datetime.now(UTC).isoformat(),
             error_message=None,
+            video_aspect_ratio=video_aspect_ratio,
         )
 
 

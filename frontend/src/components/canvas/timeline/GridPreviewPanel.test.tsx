@@ -246,3 +246,41 @@ describe("GridPreviewPanel upload", () => {
     });
   });
 });
+
+describe("GridPreviewPanel 版本时光机跨宫格切换", () => {
+  it("切换宫格清空旧数据卸载版本时光机，上一张在途的版本列表响应不落进新宫格的面板", async () => {
+    const version = (v: number) => ({
+      version: v,
+      filename: `v${v}.png`,
+      created_at: "2026-07-16T00:00:00Z",
+      file_size: 1,
+      is_current: false,
+    });
+    let resolveStale: (r: { resource_type: string; resource_id: string; current_version: number; versions: ReturnType<typeof version>[] }) => void = () => {};
+
+    vi.spyOn(API, "getGrid").mockImplementation(async (_p, id) => makeGrid({ id }));
+    vi.spyOn(API, "getVersions").mockImplementation(async (_p, _t, resourceId) => {
+      if (resourceId === "grid-1") {
+        return new Promise((resolve) => {
+          resolveStale = resolve;
+        });
+      }
+      return { resource_type: "grids", resource_id: resourceId, current_version: 3, versions: [version(3)] };
+    });
+
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1", "grid-2"]} defaultExpanded />);
+
+    // grid-1 的版本列表请求发出后不解析，切到 grid-2 并读到它自己的版本；
+    // 保护来自切换时的 setGrid(null) 卸载，改成加载期间留旧数据渲染即回归
+    fireEvent.click(await screen.findByLabelText("版本"));
+    await waitFor(() => expect(API.getVersions).toHaveBeenCalledWith("demo", "grids", "grid-1"));
+    fireEvent.click(screen.getByText("2"));
+    fireEvent.click(await screen.findByLabelText("版本"));
+    await waitFor(() => expect(screen.getByText("v3")).toBeTruthy());
+
+    resolveStale({ resource_type: "grids", resource_id: "grid-1", current_version: 7, versions: [version(7)] });
+
+    await waitFor(() => expect(screen.getByText("v3")).toBeTruthy());
+    expect(screen.queryByText("v7")).toBeNull();
+  });
+});

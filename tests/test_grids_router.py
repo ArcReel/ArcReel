@@ -529,6 +529,7 @@ def test_list_grids_success(monkeypatch, tmp_path):
         grid_size="grid_4",
         provider="",
         model="",
+        video_aspect_ratio="9:16",
     )
     GridManager(tmp_path).save(grid)
     client = _client(monkeypatch, get_project_manager=lambda: _FakePMPath(tmp_path))
@@ -550,6 +551,7 @@ def test_get_grid_success(monkeypatch, tmp_path):
         grid_size="grid_4",
         provider="",
         model="",
+        video_aspect_ratio="9:16",
     )
     GridManager(tmp_path).save(grid)
     client = _client(monkeypatch, get_project_manager=lambda: _FakePMPath(tmp_path))
@@ -601,6 +603,7 @@ def test_regenerate_grid_success(monkeypatch, tmp_path):
         grid_size="grid_4",
         provider="stale-provider",
         model="stale-model",
+        video_aspect_ratio="9:16",
     )
     grid.status = "failed"
     grid.error_message = "boom"
@@ -626,6 +629,38 @@ def test_regenerate_grid_success(monkeypatch, tmp_path):
     assert saved.provider == ""
 
 
+def test_regenerate_grid_refreshes_frozen_aspect_ratio(monkeypatch, tmp_path):
+    """重生成按项目当前比例产出新联合图，记录上冻结的比例随之改写。
+
+    只在建档时写一次，改过项目比例后重生成的新图会被旧比例裁切。
+    """
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["a", "b", "c", "d"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="p",
+        model="m",
+        video_aspect_ratio="16:9",
+    )
+    grid.status = "completed"
+    GridManager(tmp_path).save(grid)
+
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegenerate(tmp_path),
+        get_generation_queue=lambda: _FakeQueue(),
+    )
+    with client:
+        assert client.post(f"/api/v1/projects/demo/grids/{grid.id}/regenerate").status_code == 200
+
+    saved = GridManager(tmp_path).get(grid.id)
+    assert saved is not None
+    assert saved.video_aspect_ratio == "9:16"
+
+
 # ==================== 切分端点 ====================
 
 
@@ -639,6 +674,7 @@ def _make_completed_grid(tmp_path, *, with_image: bool = True) -> GridGeneration
         grid_size="grid_4",
         provider="p",
         model="m",
+        video_aspect_ratio="9:16",
     )
     grid.status = "completed"
     grid.grid_image_path = f"grids/{grid.id}.png"

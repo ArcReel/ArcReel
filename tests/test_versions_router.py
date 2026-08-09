@@ -198,6 +198,7 @@ class TestVersionsRouter:
             grid_size="grid_4",
             provider="p",
             model="m",
+            video_aspect_ratio="9:16",
         )
         grid.status = "failed"
         grid.error_message = "boom"
@@ -260,6 +261,7 @@ class TestVersionsRouter:
             grid_size="grid_4",
             provider="p",
             model="m",
+            video_aspect_ratio="9:16",
         )
         grid.split_at = "2026-01-01T00:00:00+00:00"
         GridManager(tmp_path).save(grid)
@@ -309,6 +311,7 @@ class TestVersionsRouter:
             grid_size="grid_4",
             provider="p",
             model="m",
+            video_aspect_ratio="9:16",
         )
         grid.status = "generating"
         grid.split_at = "2026-01-01T00:00:00+00:00"

@@ -267,6 +267,7 @@ class TestGridGeneration:
             grid_size="grid_4",
             provider="test",
             model="test-m",
+            video_aspect_ratio="9:16",
         )
         assert grid.status == "pending"
         assert grid.cell_count == 4
