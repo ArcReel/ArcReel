@@ -1,8 +1,12 @@
+---
+status: accepted
+---
+
 # 资产以 name 为身份，重命名走级联重写而非引入稳定 id
 
 资产（character/scene/prop/product）以 name 作唯一标识，剧本、prompt 渲染与 `@[名称]` mention 都以专名为介质——剧本是 LLM 读写的文档，专名直读是核心可用性。重命名因此定义为原子级联事务：一次改齐资产桶 key、全部剧集剧本引用（引用数组、speaker、mention）与按名命名的关联文件及路径字段（不变式「文件 stem = 资产名」）。
 
-## Considered Options
+## 明确不采用
 
 - **引入稳定资产 id，剧本引用改存 id**：改名退化为改显示字段、永不级联，但需全量剧本 schema 迁移与存量项目迁移，且 LLM 生成剧本、mention、prompt 渲染各层都要加解引用，专名可读性受损。否决——id 化把复杂度摊到每次生成/渲染的高频路径，级联把复杂度集中在低频的重命名操作。
 

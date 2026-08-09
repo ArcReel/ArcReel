@@ -130,27 +130,32 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
     return count
 
 
-def renamed_file_stem(stem: str, old_name: str, new_name: str) -> str | None:
+def renamed_file_stem(stem: str, old_name: str, new_name: str, *, allow_sequence: bool = False) -> str | None:
     """按「文件 stem = 资产名」不变式推导改名后的 stem；与旧名无关时返回 None。
 
-    命中两种形态：stem 归一后精确等于旧名（sheet / 参考图 / 参考音频），或形如
-    ``旧名_{序号}``（product 多图序列，见 server/routers/files.py 的 sequenced 命名）。
+    默认只认 stem 归一后**精确等于**旧名（sheet / 参考图 / 参考音频）。``allow_sequence``
+    额外放行 ``旧名_{序号}`` 形态（product 多图序列，见 server/routers/files.py 的
+    sequenced 命名），仅可用于确实按序号累积命名的位置：资产名本身允许下划线加数字
+    （``validate_asset_name`` 不禁），在普通目录放行该形态会把兄弟资产「旧名_2」的文件
+    一并卷走、把它的路径字段改成悬空。
+
     比对与拼接都在归一坐标系上进行——macOS 落盘的文件名可能是 NFD。
     """
     normalized = normalize_asset_name(stem)
     target = normalize_asset_name(old_name)
     if normalized == target:
         return new_name
-    prefix = f"{target}_"
-    if normalized.startswith(prefix) and normalized[len(prefix) :].isdigit():
-        return f"{new_name}_{normalized[len(prefix) :]}"
+    if allow_sequence:
+        prefix = f"{target}_"
+        if normalized.startswith(prefix) and normalized[len(prefix) :].isdigit():
+            return f"{new_name}_{normalized[len(prefix) :]}"
     return None
 
 
-def renamed_relpath(rel: str, old_name: str, new_name: str) -> str | None:
+def renamed_relpath(rel: str, old_name: str, new_name: str, *, allow_sequence: bool = False) -> str | None:
     """把路径字段值中的文件 stem 从旧名改为新名；stem 与旧名无关时返回 None。"""
     path = PurePosixPath(rel.replace("\\", "/"))
-    new_stem = renamed_file_stem(path.stem, old_name, new_name)
+    new_stem = renamed_file_stem(path.stem, old_name, new_name, allow_sequence=allow_sequence)
     if new_stem is None:
         return None
     return str(path.with_name(new_stem + path.suffix))
@@ -160,8 +165,8 @@ def rewrite_entry_paths(entry: dict, spec: AssetSpec, old_name: str, new_name: s
     """就地同步资产 entry 内按名命名的路径字段（sheet / 参考图 / 参考音频 / 多图序列），返回改写数。
 
     只改 stem 命中旧名的值：用户手动指到别处的路径不动，物理文件迁移由
-    :func:`plan_asset_file_renames` 按目录扫描独立完成，两侧口径一致（同走
-    :func:`renamed_file_stem`）。
+    :func:`plan_asset_file_renames` 按目录扫描独立完成。两侧的 stem 口径按位置对齐——
+    单图字段只认精确同名，多图序列字段才放行 ``旧名_{序号}``。
     """
     count = 0
     for field in (spec.sheet_field, "reference_image", "reference_audio"):
@@ -175,7 +180,7 @@ def rewrite_entry_paths(entry: dict, spec: AssetSpec, old_name: str, new_name: s
     if isinstance(images, list):
         for i, value in enumerate(images):
             if isinstance(value, str) and value:
-                renamed = renamed_relpath(value, old_name, new_name)
+                renamed = renamed_relpath(value, old_name, new_name, allow_sequence=True)
                 if renamed is not None and renamed != value:
                     images[i] = renamed
                     count += 1
@@ -190,16 +195,21 @@ def plan_asset_file_renames(
     覆盖设计图目录本级与其上传子目录（``refs`` / ``refs_audio``），版本快照另由
     VersionManager 迁移。锁文件等隐藏文件跳过。按目录扫描而非只信 entry 路径字段：
     生成中间产物可能已按旧名落盘而字段未写，旧名文件不应残留。
+
+    ``旧名_{序号}`` 形态只在多图序列资产（entry 带 ``reference_images``）的 ``refs``
+    子目录放行——那里的文件名由上传侧按序号机械生成，不会是别的资产的名字；其余目录
+    一律精确同名，否则兄弟资产「旧名_2」的设计图会被一并卷走。
     """
     base = project_dir / spec.subdir
+    sequenced_refs = "reference_images" in spec.extra_list_fields
     moves: list[tuple[Path, Path]] = []
-    for directory in (base, base / "refs", base / "refs_audio"):
+    for directory, allow_sequence in ((base, False), (base / "refs", sequenced_refs), (base / "refs_audio", False)):
         if not directory.is_dir():
             continue
         for file in sorted(directory.iterdir()):
             if not file.is_file() or file.name.startswith("."):
                 continue
-            new_stem = renamed_file_stem(file.stem, old_name, new_name)
+            new_stem = renamed_file_stem(file.stem, old_name, new_name, allow_sequence=allow_sequence)
             if new_stem is not None and file.stem != new_stem:
                 moves.append((file, file.with_name(new_stem + file.suffix)))
     return moves

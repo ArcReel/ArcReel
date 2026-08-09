@@ -1811,9 +1811,7 @@ class ProjectManager:
         # data_validator 在模块级 import 本模块（VALID_GENERATION_MODES），故惰性 import 破环。
         from lib.data_validator import DataValidator
 
-        asset_type = self._BUCKET_TO_ASSET_TYPE.get(table)
-        if asset_type is None:
-            raise ValueError(f"未知资产表: {table!r}，须是 {sorted(self._BUCKET_TO_ASSET_TYPE)} 之一")
+        asset_type = self._resolve_asset_type(table)
         # 拆开两种失败 case 让 agent 错误更精确（之前合并的 "entries 不能为空" 无法区分两者）
         if not isinstance(entries, dict):
             raise ValueError(f"entries 必须是对象（dict），当前为 {type(entries).__name__}")
@@ -1930,6 +1928,14 @@ class ProjectManager:
     # bucket_key（characters/scenes/props）→ 资产类型，从静态 ASSET_SPECS 派生一次，避免每次 upsert 重建。
     _BUCKET_TO_ASSET_TYPE = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
 
+    @classmethod
+    def _resolve_asset_type(cls, table: str) -> str:
+        """bucket_key → 资产类型；未知表名抛 ValueError（message 列出合法取值）。"""
+        asset_type = cls._BUCKET_TO_ASSET_TYPE.get(table)
+        if asset_type is None:
+            raise ValueError(f"未知资产表: {table!r}，须是 {sorted(cls._BUCKET_TO_ASSET_TYPE)} 之一")
+        return asset_type
+
     _LEGACY_ASSET_FIELDS = frozenset({"type", "importance"})
 
     @classmethod
@@ -1971,9 +1977,7 @@ class ProjectManager:
         from lib.data_validator import DataValidator
         from lib.version_manager import VersionManager
 
-        asset_type = self._BUCKET_TO_ASSET_TYPE.get(table)
-        if asset_type is None:
-            raise ValueError(f"未知资产表: {table!r}，须是 {sorted(self._BUCKET_TO_ASSET_TYPE)} 之一")
+        asset_type = self._resolve_asset_type(table)
         spec = ASSET_SPECS[asset_type]
         new_clean = validate_asset_name(new_name)
         if not self.project_exists(project_name):

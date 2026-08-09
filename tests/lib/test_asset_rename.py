@@ -298,6 +298,28 @@ class TestRenameAssetCascade:
         assert saved["units"][0]["shots"][0]["text"] == "@[主角甲] 在河边"
         assert saved["units"][0]["references"][0]["name"] == "主角甲"
 
+    def test_sibling_with_numeric_suffix_untouched(self, pm: ProjectManager) -> None:
+        """``旧名_2`` 是合法资产名：兄弟资产的设计图不得被序号形态的 stem 匹配卷走。"""
+        pm.upsert_assets("demo", "characters", {"角色A_2": {"description": "副手"}})
+        project_dir = _project_dir(pm)
+        sibling = project_dir / "characters" / "角色A_2.png"
+        sibling.write_bytes(b"sibling")
+        (project_dir / "characters" / "角色A.png").write_bytes(b"png")
+
+        def _set_paths(project: dict) -> None:
+            project["characters"]["角色A"]["character_sheet"] = "characters/角色A.png"
+            project["characters"]["角色A_2"]["character_sheet"] = "characters/角色A_2.png"
+
+        pm.update_project("demo", _set_paths)
+
+        report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
+
+        assert report.files == 1
+        assert sibling.exists()
+        project = pm.load_project("demo")
+        assert project["characters"]["角色A_2"]["character_sheet"] == "characters/角色A_2.png"
+        assert project["characters"]["主角甲"]["character_sheet"] == "characters/主角甲.png"
+
     def test_product_sequenced_files_and_paths(self, tmp_path: Path) -> None:
         pm = ProjectManager(str(tmp_path))
         pm.create_project("demo", content_mode="ad")
