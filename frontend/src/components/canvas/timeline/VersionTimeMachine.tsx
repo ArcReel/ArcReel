@@ -9,7 +9,7 @@ import { errMsg } from "@/utils/async";
 
 interface VersionTimeMachineProps {
   projectName: string;
-  resourceType: "storyboards" | "videos" | "characters" | "scenes" | "props" | "products" | "reference_videos";
+  resourceType: "storyboards" | "videos" | "characters" | "scenes" | "props" | "products" | "reference_videos" | "grids";
   resourceId: string;
   onRestore?: (version: number) => void | Promise<void>;
   /** Icon-only trigger button: hides label and chevron for narrow card headers. */
@@ -71,6 +71,7 @@ export function VersionTimeMachine({
     resourceType === "reference_videos" ? `reference_videos/${resourceId}.mp4` :
     resourceType === "characters" ? `characters/${resourceId}.png` :
     resourceType === "scenes" ? `scenes/${resourceId}.png` :
+    resourceType === "grids" ? `grids/${resourceId}.png` :
     `props/${resourceId}.png`;
   const resourceFp = useProjectsStore((s) => s.getAssetFingerprint(resourcePath));
   const triggerRef = useRef<HTMLButtonElement>(null);

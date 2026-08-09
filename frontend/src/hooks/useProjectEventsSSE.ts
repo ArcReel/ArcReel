@@ -40,6 +40,7 @@ const CHANGE_PRIORITY: Record<string, number> = {
   storyboard_ready: 7,
   video_ready: 8,
   grid_ready: 9,
+  grid_split_done: 9.5,
   reference_video_ready: 10,
   tts_ready: 11,
   voice_sample_ready: 12,
@@ -360,8 +361,8 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             useCostStore.getState().debouncedFetch(projectName);
           }
 
-          // Refresh grid list when a grid completes
-          if (entityChanges.some((c) => c.action === "grid_ready")) {
+          // Refresh grid list when a grid completes or gets split into cells
+          if (entityChanges.some((c) => c.action === "grid_ready" || c.action === "grid_split_done")) {
             useAppStore.getState().invalidateGrids();
           }
         },

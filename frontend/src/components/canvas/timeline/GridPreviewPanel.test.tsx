@@ -46,6 +46,7 @@ function makeGrid(overrides: Partial<GridGeneration> = {}): GridGeneration {
     grid_size: "2x2",
     created_at: "2026-07-16T00:00:00Z",
     error_message: null,
+    split_at: "2026-07-16T00:10:00Z",
     ...overrides,
   };
 }
@@ -150,5 +151,98 @@ describe("GridPreviewPanel occupancy", () => {
     expect(regenerateSpy).not.toHaveBeenCalled();
     // 拒绝提示不得替换面板内容：宫格图与重新生成按钮仍在
     expect(screen.getByText("重新生成")).toBeInTheDocument();
+  });
+});
+
+describe("GridPreviewPanel split", () => {
+  it("切分成功后应用指纹、更新 split_at 并弹成功提示；跳过的分镜另弹警示", async () => {
+    vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid({ split_at: null }));
+    const { useProjectsStore } = await import("@/stores/projects-store");
+    vi.spyOn(API, "splitGrid").mockResolvedValue({
+      success: true,
+      split_at: "2026-07-16T01:00:00Z",
+      updated_scene_ids: ["SCN-1", "SCN-2"],
+      missing_scene_ids: ["SCN-9"],
+      asset_fingerprints: { "storyboards/scene_SCN-1.png": 42 },
+    });
+
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+
+    const splitBtn = await screen.findByText("切分落格");
+    fireEvent.click(splitBtn);
+
+    await waitFor(() => {
+      expect(API.splitGrid).toHaveBeenCalledWith("demo", "grid-1");
+      expect(useProjectsStore.getState().assetFingerprints["storyboards/scene_SCN-1.png"]).toBe(42);
+      // 单槽 toast：有跳过分镜时警示后发、留在最终态
+      expect(useAppStore.getState().toast?.text).toContain("SCN-9");
+    });
+    // 切分完成后「未切分」提示消失
+    expect(screen.queryByText("未切分")).toBeNull();
+  });
+
+  it("无跳过分镜时切分成功提示展示落格格数", async () => {
+    vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid({ split_at: null }));
+    vi.spyOn(API, "splitGrid").mockResolvedValue({
+      success: true,
+      split_at: "2026-07-16T01:00:00Z",
+      updated_scene_ids: ["SCN-1", "SCN-2"],
+      missing_scene_ids: [],
+      asset_fingerprints: {},
+    });
+
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+    fireEvent.click(await screen.findByText("切分落格"));
+
+    await waitFor(() => {
+      expect(useAppStore.getState().toast?.text).toContain("已切分 2 格");
+    });
+  });
+
+  it("联合图就绪但未落格时展示「未切分」提示", async () => {
+    vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid({ split_at: null }));
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+    expect(await screen.findByText("未切分")).toBeTruthy();
+  });
+
+  it("生成在途时切分按钮禁用", async () => {
+    vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid({ split_at: null }));
+    useTasksStore.setState({ tasks: [makeTask()], optimisticActive: new Set() });
+
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+
+    const splitBtn = (await screen.findByText("切分落格")).closest("button");
+    expect(splitBtn?.disabled).toBe(true);
+  });
+});
+
+describe("GridPreviewPanel upload", () => {
+  it("选择文件后上传联合图：应用指纹、触发 grids 失效重拉并弹成功提示", async () => {
+    vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid({ split_at: null }));
+    const { useProjectsStore } = await import("@/stores/projects-store");
+    vi.spyOn(API, "uploadGridImage").mockResolvedValue({
+      success: true,
+      path: "grids/grid-1.png",
+      version: 3,
+      asset_fingerprints: { "grids/grid-1.png": 99 },
+    });
+    const revisionBefore = useAppStore.getState().gridsRevision;
+
+    const { container } = render(
+      <GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />,
+    );
+
+    await screen.findByText("上传联合图");
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).toBeTruthy();
+    const file = new File([new Uint8Array([1, 2, 3])], "big.jpg", { type: "image/jpeg" });
+    fireEvent.change(input!, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(API.uploadGridImage).toHaveBeenCalledWith("demo", "grid-1", expect.any(File));
+      expect(useProjectsStore.getState().assetFingerprints["grids/grid-1.png"]).toBe(99);
+      expect(useAppStore.getState().gridsRevision).toBe(revisionBefore + 1);
+      expect(useAppStore.getState().toast?.text).toContain("联合图已上传");
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   ChevronRight,
   RefreshCw,
@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Clock,
   Scissors,
+  Upload,
   User,
   Search,
 } from "lucide-react";
@@ -20,6 +21,7 @@ import { errMsg } from "@/utils/async";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
+import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import type { GridGeneration, ReferenceImage } from "@/types/grid";
 
 // ---------------------------------------------------------------------------
@@ -47,7 +49,6 @@ function StatusBadge({ status, t }: { status: GridStatus; t: (key: string) => st
   const STATUS_KEY: Record<GridStatus, string> = {
     pending: "grid_status_pending",
     generating: "grid_status_generating",
-    splitting: "grid_status_splitting",
     completed: "grid_status_completed",
     failed: "grid_status_failed",
   };
@@ -63,10 +64,6 @@ function StatusBadge({ status, t }: { status: GridStatus; t: (key: string) => st
     generating: {
       icon: <Loader2 className="h-3 w-3 animate-spin" />,
       cls: "bg-blue-950/60 text-blue-300 border-blue-700/40",
-    },
-    splitting: {
-      icon: <Scissors className="h-3 w-3" />,
-      cls: "bg-violet-950/60 text-violet-300 border-violet-700/40",
     },
     completed: {
       icon: <CheckCircle2 className="h-3 w-3" />,
@@ -170,6 +167,10 @@ export function GridPreviewPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
+  const [splitting, setSplitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useTranslation("dashboard");
 
   const hasGrids = gridIds.length > 0;
@@ -222,6 +223,60 @@ export function GridPreviewPanel({
   // 不再依赖本地 grid.status 快照（刷新才更新，提交后到下次 fetch 之间会误判为空闲）。
   const activeGridIds = useActiveResourceIds("grid", projectName);
   const isInProgress = selectedGridId != null && activeGridIds.has(selectedGridId);
+  // 面板动作（重生成/切分/上传/版本恢复）互斥：都写同一份联合图或分镜格，
+  // 任一在途时兄弟控件同步禁用。
+  const actionBusy = regenerating || splitting || uploading || restoring || isInProgress;
+
+  // 提交时刻的占用新鲜读：渲染快照（isInProgress）之外复核 tasks store 最新状态
+  const freshBusy = () =>
+    selectedGridId != null && isResourceBusy("grid", projectName, selectedGridId);
+
+  const handleSplit = () => {
+    if (!grid || !selectedGridId || actionBusy) return;
+    if (freshBusy()) {
+      useAppStore.getState().pushToast(t("grid_regenerate_busy"), "error");
+      return;
+    }
+    setSplitting(true);
+    API.splitGrid(projectName, selectedGridId)
+      .then((res) => {
+        useProjectsStore.getState().updateAssetFingerprints(res.asset_fingerprints);
+        setGrid((prev) => (prev ? { ...prev, split_at: res.split_at } : prev));
+        useAppStore
+          .getState()
+          .pushToast(t("grid_split_success", { count: res.updated_scene_ids.length }), "success");
+        if (res.missing_scene_ids.length > 0) {
+          useAppStore
+            .getState()
+            .pushToast(t("grid_split_missing_skipped", { ids: res.missing_scene_ids.join(", ") }), "error");
+        }
+      })
+      .catch((err: unknown) => {
+        // 瞬态失败走 toast，不用 setError 毁掉整个面板视图
+        useAppStore.getState().pushToast(t("grid_split_failed", { message: errMsg(err) }), "error");
+      })
+      .finally(() => setSplitting(false));
+  };
+
+  const handleUploadFile = (file: File) => {
+    if (!selectedGridId || actionBusy) return;
+    if (freshBusy()) {
+      useAppStore.getState().pushToast(t("grid_regenerate_busy"), "error");
+      return;
+    }
+    setUploading(true);
+    API.uploadGridImage(projectName, selectedGridId, file)
+      .then((res) => {
+        useProjectsStore.getState().updateAssetFingerprints(res.asset_fingerprints);
+        // 联合图内容与宫格记录（status / split_at）已变，走全局失效信号重拉详情
+        useAppStore.getState().invalidateGrids();
+        useAppStore.getState().pushToast(t("grid_upload_success"), "success");
+      })
+      .catch((err: unknown) => {
+        useAppStore.getState().pushToast(t("grid_upload_failed", { message: errMsg(err) }), "error");
+      })
+      .finally(() => setUploading(false));
+  };
 
   // 优先使用持久化的 mtime 指纹做 cache-bust，跨页面刷新仍然有效；
   // 回退到 refreshKey 仅用于指纹尚未送达前的当次会话。
@@ -326,6 +381,13 @@ export function GridPreviewPanel({
 
                     <StatusBadge status={grid.status} t={t} />
 
+                    {grid.status === "completed" && grid.grid_image_path && !grid.split_at && (
+                      <span className="inline-flex items-center gap-1 rounded border border-violet-700/40 bg-violet-950/60 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-violet-300">
+                        <Scissors className="h-3 w-3" />
+                        {t("grid_unsplit_hint")}
+                      </span>
+                    )}
+
                     <span className="text-[10px] text-gray-600">
                       {grid.model}
                     </span>
@@ -339,39 +401,104 @@ export function GridPreviewPanel({
                       </span>
                     )}
 
-                    <motion.button
-                      type="button"
-                      disabled={regenerating || isInProgress}
-                      onClick={() => {
-                        if (!selectedGridId || regenerating || isInProgress) return;
-                        // 提交前用 getState() 新鲜读复核：面板停留期间占用状态可能
-                        // 已变化，渲染期捕获的 isInProgress 未必反映最新状态。
-                        if (isResourceBusy("grid", projectName, selectedGridId)) {
-                          // 用 toast 而非 setError：error 是面板的整体错误态，会把宫格图、
-                          // 批次切换与本按钮一并替换掉，直到下次 refetch 才恢复；占用拒绝是
-                          // 瞬态提示，不该毁掉当前视图。
-                          useAppStore.getState().pushToast(t("grid_regenerate_busy"), "error");
-                          return;
-                        }
-                        setRegenerating(true);
-                        enqueueGridRegenerate(projectName, selectedGridId, grid?.script_file ?? null)
-                          .then(() => {
-                            setGrid((prev) => prev ? { ...prev, status: "pending" } : prev);
-                            onRegenerated?.();
-                          })
-                          .catch((err: unknown) => {
-                            setError(errMsg(err, t("grid_regenerate_failed")));
-                          })
-                          .finally(() => setRegenerating(false));
-                      }}
-                      className={`ml-auto shrink-0 whitespace-nowrap inline-flex items-center gap-1 rounded border border-amber-800/30 bg-amber-950/30 px-2 py-1 text-[10px] font-medium text-amber-400/80 transition-colors ${
-                        regenerating || isInProgress ? "opacity-50 cursor-not-allowed" : "hover:bg-amber-900/40 hover:text-amber-300"
-                      }`}
-                      whileTap={regenerating || isInProgress ? {} : { scale: 0.95 }}
-                    >
-                      <RefreshCw className={`h-3 w-3 ${regenerating || isInProgress ? "animate-spin" : ""}`} />
-                      {regenerating ? t("grid_regenerating") : isInProgress ? t("generating_grid") : t("grid_regenerate_btn")}
-                    </motion.button>
+                    <div className="ml-auto flex shrink-0 items-center gap-1">
+                      {selectedGridId && (
+                        <VersionTimeMachine
+                          projectName={projectName}
+                          resourceType="grids"
+                          resourceId={selectedGridId}
+                          iconOnly
+                          busy={actionBusy}
+                          checkBusy={freshBusy}
+                          onRestoringChange={setRestoring}
+                          onRestore={() => {
+                            // 还原换回历史联合图并复位切分态，重拉记录同步 split_at
+                            useAppStore.getState().invalidateGrids();
+                          }}
+                        />
+                      )}
+
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          // 复位 value：同一文件二次选择也要触发 change
+                          e.target.value = "";
+                          if (file) handleUploadFile(file);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => fileInputRef.current?.click()}
+                        className={`shrink-0 whitespace-nowrap inline-flex items-center gap-1 rounded border border-gray-700/50 bg-gray-900/40 px-2 py-1 text-[10px] font-medium text-gray-400 transition-colors ${
+                          actionBusy ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-800/60 hover:text-gray-200"
+                        }`}
+                      >
+                        {uploading ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Upload className="h-3 w-3" />
+                        )}
+                        {uploading ? t("grid_uploading") : t("grid_upload_btn")}
+                      </button>
+
+                      <motion.button
+                        type="button"
+                        disabled={actionBusy || !grid.grid_image_path}
+                        onClick={handleSplit}
+                        className={`shrink-0 whitespace-nowrap inline-flex items-center gap-1 rounded border border-amber-800/30 bg-amber-950/30 px-2 py-1 text-[10px] font-medium text-amber-400/80 transition-colors ${
+                          actionBusy || !grid.grid_image_path
+                            ? "opacity-50 cursor-not-allowed"
+                            : "hover:bg-amber-900/40 hover:text-amber-300"
+                        }`}
+                        whileTap={actionBusy || !grid.grid_image_path ? {} : { scale: 0.95 }}
+                      >
+                        {splitting ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Scissors className="h-3 w-3" />
+                        )}
+                        {splitting ? t("grid_splitting") : t("grid_split_btn")}
+                      </motion.button>
+
+                      <motion.button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => {
+                          if (!selectedGridId || actionBusy) return;
+                          // 提交前用 getState() 新鲜读复核：面板停留期间占用状态可能
+                          // 已变化，渲染期捕获的 isInProgress 未必反映最新状态。
+                          if (freshBusy()) {
+                            // 用 toast 而非 setError：error 是面板的整体错误态，会把宫格图、
+                            // 批次切换与本按钮一并替换掉，直到下次 refetch 才恢复；占用拒绝是
+                            // 瞬态提示，不该毁掉当前视图。
+                            useAppStore.getState().pushToast(t("grid_regenerate_busy"), "error");
+                            return;
+                          }
+                          setRegenerating(true);
+                          enqueueGridRegenerate(projectName, selectedGridId, grid?.script_file ?? null)
+                            .then(() => {
+                              setGrid((prev) => prev ? { ...prev, status: "pending" } : prev);
+                              onRegenerated?.();
+                            })
+                            .catch((err: unknown) => {
+                              setError(errMsg(err, t("grid_regenerate_failed")));
+                            })
+                            .finally(() => setRegenerating(false));
+                        }}
+                        className={`shrink-0 whitespace-nowrap inline-flex items-center gap-1 rounded border border-amber-800/30 bg-amber-950/30 px-2 py-1 text-[10px] font-medium text-amber-400/80 transition-colors ${
+                          actionBusy ? "opacity-50 cursor-not-allowed" : "hover:bg-amber-900/40 hover:text-amber-300"
+                        }`}
+                        whileTap={actionBusy ? {} : { scale: 0.95 }}
+                      >
+                        <RefreshCw className={`h-3 w-3 ${regenerating || isInProgress ? "animate-spin" : ""}`} />
+                        {regenerating ? t("grid_regenerating") : isInProgress ? t("generating_grid") : t("grid_regenerate_btn")}
+                      </motion.button>
+                    </div>
                   </div>
 
                   {/* Composite image + metadata */}

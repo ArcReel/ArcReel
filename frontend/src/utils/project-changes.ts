@@ -77,7 +77,7 @@ function getEntityLabel(group: GroupedProjectChange): string {
   if (group.action === "video_ready") {
     return "视频";
   }
-  if (group.action === "grid_ready") {
+  if (group.action === "grid_ready" || group.action === "grid_split_done") {
     return "宫格";
   }
   if (group.action === "tts_ready") {
@@ -125,6 +125,9 @@ function formatSingleNotificationText(change: ProjectChange): string {
   ) {
     return `${change.label}已生成`;
   }
+  if (change.action === "grid_split_done") {
+    return `${change.label}已完成`;
+  }
   if (change.action === "created") {
     return `${change.label}已创建`;
   }
@@ -148,6 +151,9 @@ function formatSingleDeferredText(change: ProjectChange): string {
     change.action === "voice_sample_ready"
   ) {
     return `${change.label} 已生成`;
+  }
+  if (change.action === "grid_split_done") {
+    return `${change.label} 已完成`;
   }
   if (change.action === "created") {
     return `AI 刚新增了 ${change.label}，点击查看`;
