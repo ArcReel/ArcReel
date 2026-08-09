@@ -28,7 +28,7 @@ from lib.reference_video.units import reference_unit_video_bucket
 from lib.script_editor import ScriptEditError
 from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
-from server.services.grid_resolution import resolve_grid_image_resolution
+from server.services.grid_resolution import resolve_image_resolution
 from server.services.reference_video_tasks import (
     ProjectDurationContext,
     precheck_unit,
@@ -47,6 +47,12 @@ ACTUAL_COST_TYPES = ("image", "video", "audio")
 #: 逐 unit 分桶（有参考图 → r2v，无参考图退化镜头 → i2v）。两个桶都在这里预解析，省去按
 #: 路线与镜头分支判断该解析哪个桶的复杂度——桶只有两个，代价有界。
 _VIDEO_BUCKETS: tuple[VideoCapability, ...] = ("i2v", "r2v")
+
+#: 普通分镜图取不到分辨率档时的计价档。执行侧此路径把 ``None`` 原样下发给 backend、由其自行定档
+#: （不像宫格有 ``GRID_FALLBACK_RESOLUTION`` 这一确定的保底档），估价无从同源，只能取最低档保守
+#: 计价——宁可低估未配置供应商的项目，也不拿高档单价虚报。取值与分档策略自身的缺省档一致（见
+#: ``lib.pricing.strategies``），显式写出是为了让估价侧的保底口径可读、不随策略层缺省漂移。
+_IMAGE_PRICING_FALLBACK_RESOLUTION = "1K"
 
 
 @dataclass(frozen=True)
@@ -177,11 +183,15 @@ class CostEstimationService:
             except Exception:
                 image_provider, image_model = "unknown", "unknown"
 
-            # 宫格档位：与路由入队、SDK 工具共用 ``grid_resolution`` 的取档，估算的宫格张数才
-            # 不会与实际入队张数漂移；同一档位还是宫格图的计价档，未配置时回落
-            # ``GRID_FALLBACK_RESOLUTION``（与 ``execute_grid_task`` 下发的保底档同源）。
-            grid_image_resolution = await resolve_grid_image_resolution(r, project_data)
-            grid_allow_large = large_grid_allowed(grid_image_resolution)
+            # T2I 槽分辨率档：与路由入队、SDK 工具共用 ``grid_resolution`` 的取档，估算的宫格
+            # 张数才不会与实际入队张数漂移；同一档位又是两路分镜图的计价档——宫格图未配置时回落
+            # ``GRID_FALLBACK_RESOLUTION``（与 ``execute_grid_task`` 下发的保底档同源），普通
+            # 分镜图未配置时回落 ``_IMAGE_PRICING_FALLBACK_RESOLUTION``。解析在两路之前，宫格
+            # 与非宫格项目共用这一次 IO。计价与执行取的是同一个 T2I 槽、同一套项目配置，但身份
+            # 键不同（此处 registry ``model_id``，执行侧构造后的 backend 型号），两者分叉的供应
+            # 商上估价档位可能与实际渲染档位不一致。
+            image_resolution = await resolve_image_resolution(r, project_data)
+            grid_allow_large = large_grid_allowed(image_resolution)
 
             # 视频按能力桶解析（``docs/adr/0054``），与执行扣费同一个模型：图生视频 / 宫格算
             # i2v 桶的价；参考生视频按 unit 声明的参考集逐 unit 分桶（有参考图 → r2v，无参考图
@@ -266,7 +276,11 @@ class CostEstimationService:
         try:
             image_unit_cost = cost_calculator.calculate_cost(
                 image_provider,
-                PricingParams(call_type="image", model=image_model, resolution="1K"),
+                PricingParams(
+                    call_type="image",
+                    model=image_model,
+                    resolution=image_resolution or _IMAGE_PRICING_FALLBACK_RESOLUTION,
+                ),
                 custom_price_input=image_price.price_input,
                 custom_price_output=image_price.price_output,
                 custom_currency=image_price.currency,
@@ -281,7 +295,7 @@ class CostEstimationService:
                     PricingParams(
                         call_type="image",
                         model=image_model,
-                        resolution=grid_image_resolution or GRID_FALLBACK_RESOLUTION,
+                        resolution=image_resolution or GRID_FALLBACK_RESOLUTION,
                     ),
                     custom_price_input=image_price.price_input,
                     custom_price_output=image_price.price_output,
