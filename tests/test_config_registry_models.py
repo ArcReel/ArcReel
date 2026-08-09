@@ -146,6 +146,20 @@ class TestProviderRegistry:
             meta = PROVIDER_REGISTRY[provider_id]
             assert "text" in meta.media_types, f"{provider_id} missing 'text'"
 
+    def test_dashscope_video_models_include_happyhorse_11(self):
+        meta = PROVIDER_REGISTRY["dashscope"]
+        video_models = {mid: m for mid, m in meta.models.items() if m.media_type == "video"}
+        for mid in ("happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v"):
+            assert mid in video_models
+            # supported_durations 未登记即 fail loud（ADR 0018），三模态均为 3–15s 整数
+            assert video_models[mid].supported_durations == list(range(3, 16))
+            assert video_models[mid].resolutions == ["480p", "720p", "1080p"]
+        # 默认视频模型是 1.1-i2v；1.0 三条仍在售，保留登记但非默认
+        assert video_models["happyhorse-1.1-i2v"].default is True
+        assert video_models["happyhorse-1.0-i2v"].default is False
+        for mid in ("happyhorse-1.0-t2v", "happyhorse-1.0-i2v", "happyhorse-1.0-r2v"):
+            assert video_models[mid].resolutions == ["720p", "1080p"]
+
     def test_ark_video_models_include_seedance_2(self):
         meta = PROVIDER_REGISTRY["ark"]
         video_models = {mid: m for mid, m in meta.models.items() if m.media_type == "video"}

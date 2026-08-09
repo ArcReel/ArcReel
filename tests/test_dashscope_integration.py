@@ -83,6 +83,18 @@ class TestLookupPricing:
         assert a720 == pytest.approx(4.5)
         assert a1080 == pytest.approx(8.0)
 
+    @pytest.mark.parametrize("model", ["happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v"])
+    def test_happyhorse_11_pricing_covers_three_resolutions(self, model: str):
+        """三档分辨率都要有价：任一档缺键会让该档的用量记账断链。"""
+        p = lookup_pricing(PROVIDER_DASHSCOPE, model, "video")
+        for resolution, expected in (("480p", 4.5), ("720p", 9.0), ("1080p", 12.0)):
+            amount, cur = calculate_pricing(
+                p,
+                PricingParams(call_type="video", model=model, resolution=resolution, duration_seconds=10),
+            )
+            assert cur == "CNY"
+            assert amount == pytest.approx(expected)
+
     def test_wan_video_cny(self):
         p = lookup_pricing(PROVIDER_DASHSCOPE, "wan2.7-r2v", "video")
         amount, cur = calculate_pricing(

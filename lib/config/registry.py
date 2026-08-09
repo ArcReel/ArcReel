@@ -1054,12 +1054,37 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_dashscope_image_pricing("wan2.7-image-pro", 0.5),
             ),
             # --- video ---
+            # HappyHorse 1.1 系列：480P ¥0.45/s，720P ¥0.9/s，1080P ¥1.2/s（音频恒开）。
+            "happyhorse-1.1-i2v": ModelInfo(
+                display_name="HappyHorse 1.1 图生视频",
+                media_type="video",
+                capabilities=[],
+                default=True,
+                supported_durations=list(range(3, 16)),
+                resolutions=["480p", "720p", "1080p"],
+                pricing=_dashscope_video_pricing("happyhorse-1.1-i2v", {"480p": 0.45, "720p": 0.9, "1080p": 1.2}),
+            ),
+            "happyhorse-1.1-t2v": ModelInfo(
+                display_name="HappyHorse 1.1 文生视频",
+                media_type="video",
+                capabilities=[],
+                supported_durations=list(range(3, 16)),
+                resolutions=["480p", "720p", "1080p"],
+                pricing=_dashscope_video_pricing("happyhorse-1.1-t2v", {"480p": 0.45, "720p": 0.9, "1080p": 1.2}),
+            ),
+            "happyhorse-1.1-r2v": ModelInfo(
+                display_name="HappyHorse 1.1 参考生视频",
+                media_type="video",
+                capabilities=[],
+                supported_durations=list(range(3, 16)),
+                resolutions=["480p", "720p", "1080p"],
+                pricing=_dashscope_video_pricing("happyhorse-1.1-r2v", {"480p": 0.45, "720p": 0.9, "1080p": 1.2}),
+            ),
             # HappyHorse 1.0 系列：720P ¥0.9/s，1080P ¥1.6/s（音频恒开）。
             "happyhorse-1.0-i2v": ModelInfo(
                 display_name="HappyHorse 1.0 图生视频",
                 media_type="video",
                 capabilities=[],
-                default=True,
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("happyhorse-1.0-i2v", {"720p": 0.9, "1080p": 1.6}),

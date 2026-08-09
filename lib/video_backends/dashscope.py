@@ -1,8 +1,8 @@
 """DashScopeVideoBackend — 阿里百炼 HappyHorse / 万相视频生成后端（异步两步式）。
 
 走原生 video-generation/video-synthesis 异步端点：submit 取 task_id → 轮询
-GET /tasks/{id} 至 SUCCEEDED → 下载 video_url。覆盖 happyhorse-1.0 与 wan2.7
-系列的 t2v / i2v / r2v。schema 依据 docs/dashscope-docs/ 一手核实快照。
+GET /tasks/{id} 至 SUCCEEDED → 下载 video_url。覆盖 happyhorse-1.0 / happyhorse-1.1
+与 wan2.7 系列的 t2v / i2v / r2v。schema 依据 docs/dashscope-docs/ 一手核实快照。
 
 注：t2v/i2v 起始帧用 media[{type:"first_frame"}]（first_frame type 在 r2v media
 枚举中确权）；尾帧 / 续写字段在一手 docs 未确权，不臆造，故 i2v 仅声明首帧能力。
@@ -86,7 +86,7 @@ def _read_reference_audio_or_none(path: Path) -> str | None:
         return None
 
 
-DEFAULT_MODEL = "happyhorse-1.0-i2v"
+DEFAULT_MODEL = "happyhorse-1.1-i2v"
 
 _VIDEO_ENDPOINT = "/services/aigc/video-generation/video-synthesis"
 
@@ -104,6 +104,9 @@ _WAN27_MAX_PROMPT_CHARS = 5000
 # 按 model id 派发能力声明。happyhorse-r2v 仅 reference_image（无 first_frame）；
 # wan2.7-r2v 额外支持首帧与参考音色。
 _MODEL_PROFILES: dict[str, VideoCapabilities] = {
+    "happyhorse-1.1-t2v": VideoCapabilities(first_frame=False),
+    "happyhorse-1.1-i2v": VideoCapabilities(first_frame=True),
+    "happyhorse-1.1-r2v": VideoCapabilities(first_frame=False, max_reference_images=9),
     "happyhorse-1.0-t2v": VideoCapabilities(first_frame=False),
     "happyhorse-1.0-i2v": VideoCapabilities(first_frame=True),
     "happyhorse-1.0-r2v": VideoCapabilities(first_frame=False, max_reference_images=9),
@@ -141,7 +144,7 @@ def _profile_for_model(model: str | None) -> VideoCapabilities:
         return _DEFAULT_PROFILE
     if normalized in _MODEL_PROFILES:
         return _MODEL_PROFILES[normalized]
-    # 各 profile key（happyhorse-1.0-{t2v,i2v,r2v} / wan2.7-{t2v,i2v,r2v}）互不为子串，无歧义
+    # 各 profile key（happyhorse-{1.0,1.1}-{t2v,i2v,r2v} / wan2.7-{t2v,i2v,r2v}）互不为子串，无歧义
     for known, profile in _MODEL_PROFILES.items():
         if known in normalized:
             return profile
