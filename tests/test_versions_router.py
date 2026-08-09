@@ -64,6 +64,23 @@ class _FakeVM:
         }
 
 
+class _GridPM:
+    """记录剧本侧写回调用的 ProjectManager 替身，供 grids 还原用例断言「不碰剧本」。"""
+
+    def __init__(self, project_path):
+        self.project_path = project_path
+        self.update_calls = []
+
+    def get_project_path(self, project_name):
+        return self.project_path
+
+    def update_scene_asset(self, *args, **kwargs):
+        self.update_calls.append((args, kwargs))
+
+    def batch_update_scene_assets(self, *args, **kwargs):
+        self.update_calls.append((args, kwargs))
+
+
 class _StoryboardSyncPM:
     def __init__(self, project_path):
         self.project_path = project_path
@@ -161,20 +178,6 @@ class TestVersionsRouter:
         from lib.grid.models import GridGeneration
         from lib.grid_manager import GridManager
 
-        class _GridPM:
-            def __init__(self, project_path):
-                self.project_path = project_path
-                self.update_calls = []
-
-            def get_project_path(self, project_name):
-                return self.project_path
-
-            def update_scene_asset(self, *args, **kwargs):
-                self.update_calls.append((args, kwargs))
-
-            def batch_update_scene_assets(self, *args, **kwargs):
-                self.update_calls.append((args, kwargs))
-
         grid = GridGeneration.create(
             episode=1,
             script_file="episode_1.json",
@@ -218,6 +221,46 @@ class TestVersionsRouter:
         assert [c.to_dict() for c in saved.frame_chain] == frame_chain_before
         # 不做分镜侧元数据同步
         assert fake_pm.update_calls == []
+
+    def test_grid_restore_keeps_in_flight_status(self, tmp_path, monkeypatch):
+        """生成在途时还原不把记录复位成 completed：记录一旦谎报空闲，
+        切分/上传的在途闸门就会放行，用户可对着即将被 worker 覆写的联合图落格。
+        切分态仍无条件作废——联合图内容确已换成历史版本。"""
+        from lib.grid.models import GridGeneration
+        from lib.grid_manager import GridManager
+
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=["a", "b"],
+            rows=2,
+            cols=2,
+            grid_size="grid_4",
+            provider="p",
+            model="m",
+        )
+        grid.status = "generating"
+        grid.split_at = "2026-01-01T00:00:00+00:00"
+        GridManager(tmp_path).save(grid)
+        (tmp_path / "grids" / f"{grid.id}.png").write_bytes(b"restored-bytes")
+
+        monkeypatch.setattr(versions, "get_project_manager", lambda: _GridPM(tmp_path))
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        client = TestClient(app)
+
+        with client:
+            resp = client.post(f"/api/v1/projects/demo/versions/grids/{grid.id}/restore/1")
+            assert resp.status_code == 200, resp.text
+
+        saved = GridManager(tmp_path).get(grid.id)
+        assert saved is not None
+        assert saved.status == "generating"
+        assert saved.split_at is None
 
     def test_reference_video_restore_returns_thumbnail_fingerprint(self, tmp_path, monkeypatch):
         """reference_videos 还原放行：清缩略图并以 fingerprint=0 通知前端失效。"""

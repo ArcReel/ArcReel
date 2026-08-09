@@ -189,6 +189,22 @@ class GridGeneration:
             split_at=data.get("split_at"),
         )
 
+    def mark_composite_replaced(self) -> None:
+        """联合图被用户动作换成新内容（手动上传 / 版本还原）后复位记录。
+
+        - ``split_at`` 无条件清空：旧的落格结果不再对应当前联合图，落格须重新显式执行；
+        - ``status`` / ``error_message`` 仅在生成不在途时复位——手动补图等价于一次成功的
+          联合图产出，failed 记录就此回到就绪态；pending/generating 期间保留在途态，
+          否则记录会谎报空闲，切分/上传的在途闸门随之失效。
+
+        生成任务自身的 generating→completed 收尾不走本方法：那是状态机推进而非替换。
+        """
+        self.grid_image_path = f"grids/{self.id}.png"
+        self.split_at = None
+        if self.status not in ("pending", "generating"):
+            self.status = "completed"
+            self.error_message = None
+
     @classmethod
     def create(
         cls,

@@ -167,20 +167,21 @@ def _sync_grid_record(project_path: Path, resource_id: str) -> None:
 
     只动宫格记录自身（split_at / 失败态），不同步剧本或分镜——落格由切分端点显式执行；
     frame_chain 原样保留。记录缺失/损坏时跳过：联合图文件已还原成功，记录属 best-effort。
+
+    还原本身不设在途闸门（与分镜图还原同口径），复位口径见
+    ``GridGeneration.mark_composite_replaced``：生成在途时保留在途态，否则记录会谎报空闲。
     """
     from lib.grid_manager import GridManager
 
+    manager = GridManager(project_path)
     try:
-        grid = GridManager(project_path).get(resource_id)
+        grid = manager.get(resource_id)
     except Exception:
         grid = None
     if grid is None:
         return
-    grid.grid_image_path = f"grids/{resource_id}.png"
-    grid.status = "completed"
-    grid.error_message = None
-    grid.split_at = None
-    GridManager(project_path).save(grid)
+    grid.mark_composite_replaced()
+    manager.save(grid)
 
 
 # resource_type（复数，URL 段）→ asset_type（单数，ASSET_SPECS 键）

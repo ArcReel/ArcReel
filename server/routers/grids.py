@@ -424,10 +424,7 @@ async def upload_grid_image(
 
             # 手动补图等价于一次成功的联合图产出：failed 记录就此回到就绪态；
             # 联合图内容已变更，split_at 清空表示「待显式切分」。
-            grid.grid_image_path = f"grids/{grid_id}.png"
-            grid.status = "completed"
-            grid.error_message = None
-            grid.split_at = None
+            grid.mark_composite_replaced()
             GridManager(project_path).save(grid)
             return emit_generation_success_batch(
                 task_type="grid",

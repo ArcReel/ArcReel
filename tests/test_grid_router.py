@@ -30,6 +30,14 @@ class TestGridRouterExists:
         paths = [r.path for r in router.routes]
         assert any("regenerate" in p for p in paths)
 
+    def test_router_has_split_endpoint(self):
+        paths = [r.path for r in router.routes]
+        assert any(p.endswith("/grids/{grid_id}/split") for p in paths)
+
+    def test_router_has_upload_endpoint(self):
+        paths = [r.path for r in router.routes]
+        assert any(p.endswith("/grids/{grid_id}/upload") for p in paths)
+
 
 class TestAdProjectRejected:
     def test_generate_grid_rejects_ad_project(self, monkeypatch):
