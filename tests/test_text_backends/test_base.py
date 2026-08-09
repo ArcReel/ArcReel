@@ -275,6 +275,30 @@ class TestStructuredFallbackReason:
         assert structured_fallback_reason("", None) is None
 
 
+class TestMergeBilledTokens:
+    """降级路径的原生调用计量并账：仅在至少一侧有值时相加，两侧皆 None 保持 None。"""
+
+    def test_both_sides_have_values(self):
+        from lib.text_backends.base import merge_billed_tokens
+
+        assert merge_billed_tokens(100, 50) == 150
+
+    def test_only_native_has_value(self):
+        from lib.text_backends.base import merge_billed_tokens
+
+        assert merge_billed_tokens(None, 50) == 50
+
+    def test_only_fallback_has_value(self):
+        from lib.text_backends.base import merge_billed_tokens
+
+        assert merge_billed_tokens(100, None) == 100
+
+    def test_both_none_stays_none(self):
+        from lib.text_backends.base import merge_billed_tokens
+
+        assert merge_billed_tokens(None, None) is None
+
+
 class TestIsValidJson:
     def test_valid(self):
         from lib.text_backends.base import is_valid_json

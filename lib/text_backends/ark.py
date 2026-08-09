@@ -15,6 +15,7 @@ from lib.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
+    merge_billed_tokens,
 )
 
 logger = logging.getLogger(__name__)
@@ -135,7 +136,7 @@ class ArkTextBackend:
             # ark 原生 response_format 未声明 strict，复验同样用 strict=False，避免对可强转值误判违例。
             fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
             if fallback_reason:
-                from lib.text_backends.base import merge_billed_tokens, truncate_for_log
+                from lib.text_backends.base import truncate_for_log
 
                 logger.warning(
                     "原生 response_format %s，降级到带校验的 Instructor 路径；模型原始输出：%s",
