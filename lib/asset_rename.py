@@ -121,9 +121,10 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
                     node[key] = new_name
                     count += 1
                     continue
-                if key == "shots" and isinstance(value, list):
+                if key in ("shots", "units") and isinstance(value, list):
                     # 参考路线 shot 只有 text（改写 mention）；ad shot 还带引用数组与
-                    # video_prompt.dialogue，继续下钻由通用规则处理。
+                    # video_prompt.dialogue，继续下钻由通用规则处理。unit 一并认：隔离草稿装的是
+                    # 扁平书写层产物，mention 直接落在 units[].text 上，结构字段尚未派生出 shots。
                     for item in value:
                         if isinstance(item, dict) and isinstance(item.get("text"), str):
                             new_text, n = rewrite_mentions(item["text"], old_name, new_name)

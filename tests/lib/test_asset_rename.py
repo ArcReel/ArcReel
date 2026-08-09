@@ -451,28 +451,40 @@ class TestRenameAssetCascade:
         assert (chars / f"{nfc}.png").read_bytes() == b"nfc"
 
     def test_quarantine_drafts_rewritten(self, pm: ProjectManager) -> None:
-        """隔离草稿晋升后会回流为正式内容，漏改会让旧名经晋升重新进入剧本。"""
+        """隔离草稿晋升后会回流为正式内容，漏改会让旧名经晋升重新进入剧本。
+
+        草稿装的是扁平书写层产物：mention 落在 ``content.units[].text``，结构字段（``shots`` /
+        ``references``）尚未派生，按信封原形构造（见 lib/reference_video/quarantine.py）。
+        """
         draft_dir = _project_dir(pm) / "drafts" / "episode_1"
         draft_dir.mkdir(parents=True)
-        draft = {
-            "units": [
-                {
-                    "unit_id": "E1U1",
-                    "shots": [{"text": "@[角色A] 在河边"}],
-                    "duration_seconds": 8,
-                    "references": [{"type": "character", "name": "角色A"}],
-                }
-            ]
+        drafts = {
+            REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME: {
+                "kind": "reference_video_step1",
+                "episode": 1,
+                "meta": {},
+                "violations": [],
+                "content": {"units": [{"duration_seconds": 8, "source_text": "原文", "text": "@[角色A] 在河边"}]},
+            },
+            REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME: {
+                "kind": "reference_video_step2",
+                "episode": 1,
+                "meta": {},
+                "violations": [],
+                "content": {"title": "标题", "units": [{"text": "@[角色A] 抬头"}]},
+            },
         }
-        for filename in (REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME, REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME):
-            atomic_write_json(draft_dir / filename, draft)
+        for filename, payload in drafts.items():
+            atomic_write_json(draft_dir / filename, payload)
 
-        pm.rename_asset("demo", "characters", "角色A", "主角甲")
+        report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
 
-        for filename in (REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME, REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME):
-            saved = json.loads((draft_dir / filename).read_text(encoding="utf-8"))
-            assert saved["units"][0]["shots"][0]["text"] == "@[主角甲] 在河边"
-            assert saved["units"][0]["references"][0]["name"] == "主角甲"
+        step1 = json.loads((draft_dir / REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME).read_text(encoding="utf-8"))
+        step2 = json.loads((draft_dir / REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME).read_text(encoding="utf-8"))
+        assert step1["content"]["units"][0]["text"] == "@[主角甲] 在河边"
+        assert step2["content"]["units"][0]["text"] == "@[主角甲] 抬头"
+        assert report.references == 2
+        assert report.episodes == 1
 
     def test_history_under_new_name_rejected_atomically(self, pm: ProjectManager) -> None:
         """删除资产只删资产桶 key、版本历史留存，改名过去会不可恢复地覆盖它——整体拒绝。"""
