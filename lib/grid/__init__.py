@@ -9,7 +9,7 @@ from lib.grid.layout import (
     max_cell_count,
     plan_grid_chunks,
 )
-from lib.grid.models import FrameCell, GridGeneration, build_frame_chain
+from lib.grid.models import FrameCell, GridGeneration, build_frame_chain, build_grid_task_payload
 
 __all__ = [
     "GRID_FALLBACK_RESOLUTION",
@@ -22,4 +22,5 @@ __all__ = [
     "FrameCell",
     "GridGeneration",
     "build_frame_chain",
+    "build_grid_task_payload",
 ]

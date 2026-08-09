@@ -9,7 +9,7 @@ from claude_agent_sdk import tool
 
 from lib.generation_queue_client import enqueue_task_only, wait_for_task
 from lib.grid.layout import GridLayout, plan_grid_chunks
-from lib.grid.models import GridGeneration
+from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.project_manager import ProjectManager, grid_storyboard_enabled
@@ -52,7 +52,7 @@ def _list_groups(
     return lines
 
 
-def _describe_plans(plans: list[tuple[list[dict], GridLayout]]) -> str:
+def _describe_plans(plans: list[tuple[list[dict[str, Any]], GridLayout]]) -> str:
     """把一组的宫格规划渲染为预览文案；单张沿用原格式，多张标注张数。"""
     if not plans:
         return "single (< 4 场景)"
@@ -183,16 +183,16 @@ def generate_grid_tool(ctx: ToolContext):
                             task_type="grid",
                             media_type="image",
                             resource_id=grid.id,
-                            payload={
-                                "prompt": prompt,
-                                "script_file": script_filename,
-                                "scene_ids": chunk_ids,
-                                "grid_size": layout.grid_size,
-                                "rows": layout.rows,
-                                "cols": layout.cols,
-                                "grid_aspect_ratio": layout.grid_aspect_ratio,
-                                "video_aspect_ratio": aspect_ratio,
-                            },
+                            payload=build_grid_task_payload(
+                                prompt=prompt,
+                                script_file=script_filename,
+                                scene_ids=chunk_ids,
+                                grid_size=layout.grid_size,
+                                rows=layout.rows,
+                                cols=layout.cols,
+                                grid_aspect_ratio=layout.grid_aspect_ratio,
+                                video_aspect_ratio=aspect_ratio,
+                            ),
                             script_file=script_filename,
                             source="skill",
                         )

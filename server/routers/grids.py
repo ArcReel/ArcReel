@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.generation_queue import get_generation_queue
 from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks
-from lib.grid.models import GridGeneration
+from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.i18n import Translator
@@ -26,34 +26,6 @@ from server.auth import CurrentUser
 from server.services.grid_resolution import resolve_large_grid_allowed
 
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
-
-
-def _build_grid_task_payload(
-    *,
-    prompt: str | None,
-    script_file: str,
-    scene_ids: list[str],
-    grid_size: str,
-    rows: int,
-    cols: int,
-    grid_aspect_ratio: str,
-    video_aspect_ratio: str,
-) -> dict:
-    """Build a consistent payload dict for grid generation tasks.
-
-    入队不携带 provider 信息——provider 在执行时由 ConfigResolver 按当前项目配置解析
-    （见 docs/adr/0001）。
-    """
-    return {
-        "prompt": prompt,
-        "script_file": script_file,
-        "scene_ids": scene_ids,
-        "grid_size": grid_size,
-        "rows": rows,
-        "cols": cols,
-        "grid_aspect_ratio": grid_aspect_ratio,
-        "video_aspect_ratio": video_aspect_ratio,
-    }
 
 
 # ==================== 请求/响应模型 ====================
@@ -189,7 +161,7 @@ async def generate_grid(
                 task_type="grid",
                 media_type="image",
                 resource_id=grid.id,
-                payload=_build_grid_task_payload(
+                payload=build_grid_task_payload(
                     prompt=prompt,
                     script_file=req.script_file,
                     scene_ids=chunk_ids,
@@ -317,7 +289,7 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
         task_type="grid",
         media_type="image",
         resource_id=grid.id,
-        payload=_build_grid_task_payload(
+        payload=build_grid_task_payload(
             prompt=grid.prompt,
             script_file=grid.script_file,
             scene_ids=grid.scene_ids,
