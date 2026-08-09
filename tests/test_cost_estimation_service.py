@@ -713,8 +713,31 @@ class TestCostEstimationService:
     @pytest.mark.unit
     async def test_grid_estimate_count_follows_4k_gate(self, db_factory, monkeypatch):
         """估算的宫格张数按 4K 门控走同一条阶梯：12 场景一组，4K 下一张 4×4 装下，
-        非 4K 下封顶 3×3 要切两张，估算总价相应翻倍。"""
+        非 4K 下封顶 3×3 要切两张，估算总价相应翻倍。
+
+        用按张定价（与分辨率无关）的自定义供应商，把张数变化与单价随档位变化的影响隔开。
+        """
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
         from server.services import cost_estimation as ce
+
+        async with db_factory() as session:
+            await CustomProviderRepository(session).create_provider(
+                display_name="Custom",
+                discovery_format="openai",
+                base_url="https://api.example.com",
+                api_key="k",
+                models=[
+                    {
+                        "model_id": "img",
+                        "display_name": "Img",
+                        "endpoint": "openai-images",
+                        "price_unit": "image",
+                        "price_input": 0.09,
+                        "currency": "USD",
+                    },
+                ],
+            )
+            await session.commit()
 
         seg_ids = [f"E1S{i:03d}" for i in range(1, 13)]
         project_data = {
@@ -722,6 +745,7 @@ class TestCostEstimationService:
             "content_mode": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
+            "image_provider_t2i": "custom-1/img",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 12)}
@@ -740,6 +764,75 @@ class TestCostEstimationService:
         # 未配置分辨率（None）与 2K 同样落在门控内
         assert await _estimated_image_total("2K") == pytest.approx(total_4k * 2, rel=1e-4)  # 每条份额各自 round(…, 6)
         assert await _estimated_image_total(None) == pytest.approx(total_4k * 2, rel=1e-4)  # 每条份额各自 round(…, 6)
+
+    @pytest.mark.unit
+    async def test_grid_estimate_prices_at_resolved_resolution(self, db_factory, monkeypatch):
+        """宫格图按执行期生效的分辨率档计价：4K 项目按 4K 单价，未配置回落保底档。
+
+        9 场景在任何档位下都只切一张 grid_9，张数不变，差异只来自单价。
+        """
+        from lib.grid.layout import GRID_FALLBACK_RESOLUTION
+        from server.services import cost_estimation as ce
+
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 10)]
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            # 显式钉住按分辨率分档定价的型号：测试要验的是「计价档随解析结果走」，
+            # 不该依赖全局默认图片模型恰好是分档定价的
+            "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image-preview",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 9)}
+
+        async def _estimated_image_total(resolution: str | None) -> float:
+            async def _resolution(_r, _project):
+                return resolution
+
+            monkeypatch.setattr(ce, "resolve_grid_image_resolution", _resolution)
+            service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+            result = await service.compute(project_data, scripts, project_name="proj")
+            return sum(seg["estimate"]["image"]["USD"] for seg in result["episodes"][0]["segments"])
+
+        total_2k = await _estimated_image_total("2K")
+        total_4k = await _estimated_image_total("4K")
+        assert total_2k > 0
+        # 该型号 4K 单价高于 2K，估算须随之上浮而非恒按 2K
+        assert total_4k > total_2k
+        # 未配置分辨率时按保底档计价，与执行期下发的档位同源
+        assert await _estimated_image_total(None) == pytest.approx(
+            await _estimated_image_total(GRID_FALLBACK_RESOLUTION)
+        )
+
+    @pytest.mark.unit
+    async def test_grid_estimate_duplicate_ids_across_groups_each_correct(self, db_factory):
+        """同 ID 条目落在不同分组时各自展示本组的均摊估算，不被后写的分组覆盖。"""
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        # 前 9 条一组（grid_9，每条摊 1/9 张），第 10 条 segment_break 另起一组（grid_4，独占一张）
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 9)] + ["DUP", "DUP"]
+        script = _make_script(1, seg_ids, [6] * 10)
+        script["segments"][9]["segment_break"] = True
+
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+
+        result = await service.compute(project_data, {"ep1.json": script}, project_name="proj")
+        segments = result["episodes"][0]["segments"]
+
+        unit = segments[9]["estimate"]["image"]["USD"]  # 独占一张宫格 → 满张单价
+        assert unit > 0
+        # 含末位与第 10 条同名的第 9 条：按 ID 建 key 时它会被后写的第二组覆盖成满张单价
+        for seg in segments[:9]:
+            assert seg["estimate"]["image"]["USD"] == pytest.approx(round(unit / 9, 6))
 
     @pytest.mark.unit
     async def test_project_level_actual_split_by_asset_type(self, db_factory):
