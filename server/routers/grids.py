@@ -41,6 +41,16 @@ from server.services.upload_finalize import (
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
 
 
+def _video_aspect_ratio(project: dict) -> str:
+    """项目的视频比例，宫格画布与冻结在记录上的单格比例共用同一取值。
+
+    project.json 中 aspect_ratio 允许显式写入 null（Pydantic 模型为 str | None），
+    dict.get(key, default) 遇到值为 None 的既有 key 不会回退默认值，须显式判空。
+    """
+    raw = project.get("aspect_ratio")
+    return raw if raw is not None else "9:16"
+
+
 # ==================== 请求/响应模型 ====================
 
 
@@ -85,10 +95,8 @@ async def generate_grid(
     project_path = get_project_manager().get_project_path(project_name)
 
     items, id_field, _, _, _ = get_storyboard_items(script)
-    # project.json 中 aspect_ratio/style 允许显式写入 null（Pydantic 模型为 str | None），
-    # dict.get(key, default) 遇到值为 None 的既有 key 不会回退默认值，须显式判空
-    raw_aspect_ratio = project.get("aspect_ratio")
-    aspect_ratio = raw_aspect_ratio if raw_aspect_ratio is not None else "9:16"
+    aspect_ratio = _video_aspect_ratio(project)
+    # style 同样允许显式 null，须显式判空而非依赖 dict.get 的默认值
     raw_style = project.get("style")
     style = raw_style if raw_style is not None else ""
 
@@ -285,8 +293,7 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     gm = GridManager(project_path)
     grid = _load_grid_or_404(project_path, grid_id)
 
-    raw_aspect_ratio = project.get("aspect_ratio")
-    aspect_ratio = raw_aspect_ratio if raw_aspect_ratio is not None else "9:16"
+    aspect_ratio = _video_aspect_ratio(project)
     # 重生成沿用记录自身的 rows/cols（含存量非方形记录）与冻结的 prompt，整图比例按该记录写入时的
     # 取值给出，与 prompt 描述的画布一致，不重走档位阶梯
     grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, aspect_ratio)
@@ -373,10 +380,11 @@ async def upload_grid_image(
     布局正确性由用户自行负责），登记为一个新的 grids 版本；不触发切分、
     不触碰任何分镜格。
     """
-    _load_project_for_grid_write(project_name)
+    project = _load_project_for_grid_write(project_name)
     project_path = get_project_manager().get_project_path(project_name)
     grid = _load_grid_or_404(project_path, grid_id)
     _ensure_grid_idle(grid)
+    aspect_ratio = _video_aspect_ratio(project)
 
     try:
         max_bytes = validate_upload(file.filename, file.size, kind="image")
@@ -416,6 +424,10 @@ async def upload_grid_image(
             # 手动补图等价于一次成功的联合图产出：failed 记录就此回到就绪态；
             # 联合图内容已变更，split_at 清空表示「待显式切分」。
             grid.mark_composite_replaced()
+            # 补的图按用户当前的项目比例排布，冻结值随之改写；沿用旧值会在项目比例
+            # 改过之后把新图按旧比例中心裁切。版本还原不适用：历史联合图当时的比例
+            # 未随版本记录，只能沿用记录上的冻结值。
+            grid.video_aspect_ratio = aspect_ratio
             grid_manager.save(grid)
             return emit_generation_success_batch(
                 task_type="grid",

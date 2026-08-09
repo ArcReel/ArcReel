@@ -833,6 +833,33 @@ def test_upload_grid_image_normalizes_to_png_and_versions(monkeypatch, tmp_path)
     assert saved.grid_image_path == f"grids/{grid.id}.png"
 
 
+def test_upload_grid_image_refreshes_frozen_aspect_ratio(monkeypatch, tmp_path):
+    """手动补图按项目当前比例排布，记录上冻结的单格比例随之改写。
+
+    沿用旧冻结值会让改过项目比例后补的图被按旧比例中心裁切。
+    """
+    grid = _make_completed_grid(tmp_path)
+    grid.video_aspect_ratio = "16:9"
+    GridManager(tmp_path).save(grid)
+
+    monkeypatch.setattr(
+        "server.services.generation_tasks.emit_generation_success_batch",
+        lambda **kw: {},
+    )
+    # _FakePMRegenerate 的项目比例为 9:16，与记录冻结的 16:9 不同
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("a.png", _png_bytes(), "image/png")},
+        )
+        assert resp.status_code == 200, resp.text
+
+    saved = GridManager(tmp_path).get(grid.id)
+    assert saved is not None
+    assert saved.video_aspect_ratio == "9:16"
+
+
 def test_upload_grid_image_does_not_downscale(monkeypatch, tmp_path):
     """联合图上传不缩放：超过分镜图 2048 上限的大图原尺寸保留（4K 联合图切格不失真）。"""
     grid = _make_completed_grid(tmp_path)

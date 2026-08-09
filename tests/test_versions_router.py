@@ -198,7 +198,7 @@ class TestVersionsRouter:
             grid_size="grid_4",
             provider="p",
             model="m",
-            video_aspect_ratio="9:16",
+            video_aspect_ratio="16:9",
         )
         grid.status = "failed"
         grid.error_message = "boom"
@@ -231,6 +231,9 @@ class TestVersionsRouter:
         assert saved.error_message is None
         assert saved.split_at is None
         assert [c.to_dict() for c in saved.frame_chain] == frame_chain_before
+        # 冻结比例保持不变：还原换回的是历史联合图，其产出比例未随版本记录，
+        # 改写成项目当前比例会把老图按新比例裁切。与手动上传（改写为当前比例）相反。
+        assert saved.video_aspect_ratio == "16:9"
         # 不做分镜侧元数据同步
         assert fake_pm.update_calls == []
 
