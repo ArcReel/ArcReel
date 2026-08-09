@@ -17,7 +17,7 @@
 
 - HappyHorse / Wan2.7 R2V API schema:阿里云 Model Studio 官方 API 参考;HappyHorse 1.1 三模态与定价另见 `docs/research/happyhorse-1.1-dashscope-research.md` 的一手引用
 - 文本/图像/视频定价:百炼控制台模型市场页面截图,已逐项核对
-- 未在本目录覆盖的模型与字段(如 HappyHorse 视频编辑)按官方文档惯例与同系列 schema 同构,实现时按需扩充
+- 未在本目录覆盖的模型与字段(如 HappyHorse 视频编辑)一律以该模型自己的官方 API 参考为准;同系列的 schema 不保证同构(视频编辑要 1 个 `video` + 0~5 张参考图,r2v 要 1~9 张参考图),收录前不要按同系列推断扩散
 
 ## 维护约定
 

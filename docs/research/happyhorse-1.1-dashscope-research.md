@@ -92,7 +92,7 @@
 
 官方多模态接入文档给出的视频调用为:
 
-```
+```http
 POST https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis
 GET  https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1/tasks/{task_id}
 ```
