@@ -20,6 +20,7 @@ from lib.project_manager import get_project_manager
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
+from server.services.grid_access import ensure_grid_writable
 from server.services.reference_video_tasks import apply_unit_video_assets
 
 router = APIRouter()
@@ -282,6 +283,11 @@ async def restore_version(
     try:
 
         def _sync():
+            # 还原同样是一条联合图写入路径（换回历史联合图 + 复位宫格记录），
+            # 与重生成/切分/上传共用准入判定；漏掉这里，被封禁项目就能从还原绕过。
+            if resource_type == "grids":
+                ensure_grid_writable(get_project_manager().load_project(project_name))
+
             vm = get_version_manager(project_name)
             project_path = get_project_manager().get_project_path(project_name)
             current_file, file_path = _resolve_resource_path(resource_type, resource_id, project_path)

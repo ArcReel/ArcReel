@@ -23,10 +23,11 @@ from lib.i18n import Translator
 from lib.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_storyboard_upload
 from lib.json_io import domain_error_on_value_error
 from lib.project_change_hints import project_change_source
-from lib.project_manager import get_project_manager, grid_storyboard_enabled
+from lib.project_manager import get_project_manager
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from lib.version_manager import VersionManager
 from server.auth import CurrentUser
+from server.services.grid_access import ensure_grid_writable
 from server.services.grid_resolution import resolve_large_grid_allowed
 from server.services.grid_split import GridImageNotReadyError, apply_grid_split
 from server.services.upload_finalize import (
@@ -74,18 +75,9 @@ async def generate_grid(
 
     立即返回 grid_ids 和 task_ids。生成由 GenerationWorker 异步执行。
     """
-    # 非法项目名（路径穿越等）是坏请求，不是「不存在」；project.json 损坏（JSONDecodeError）
-    # 不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
-    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
-        project = get_project_manager().load_project(project_name)
-    # 广告/短片项目不开放宫格分镜（宫格单格分辨率与产品高保真目标冲突），
-    # 写入边界（create/PATCH 拒 ad 开启 grid_storyboard）之外在动作端点再设一道防线
-    if project.get("content_mode") == "ad":
-        raise BadRequestError("ad_grid_not_supported")
-    # 宫格开关是入队的唯一闸门，与 SDK 工具同用一个谓词：未开宫格（含 reference_video 路线）
-    # 的项目直接拒绝，不让 HTTP 直调绕过开关产生计费任务
-    if not grid_storyboard_enabled(project):
-        raise BadRequestError("grid_storyboard_not_enabled")
+    # 广告/短片项目与关闭宫格开关的项目在此一并拒绝：写入边界（create/PATCH 拒 ad 开启
+    # grid_storyboard）之外，动作端点再设一道防线，不让 HTTP 直调绕过开关产生计费任务
+    project = _load_project_for_grid_write(project_name)
     # 路径穿越等非法 script_file 是坏请求，400 而非落入下方 500 兜底；剧本文件损坏
     # （JSONDecodeError）不能被误判为非法 script_file，交由 app 级 catch-all 收口为通用 500
     with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=req.script_file)):
@@ -269,18 +261,11 @@ async def get_grid(project_name: str, grid_id: str):
 
 
 def _load_project_for_grid_write(project_name: str) -> dict:
-    """加载项目并校验宫格写操作闸门（首次提交端点已封禁的项目，其余写入口同样设防）。
-
-    - 广告/短片项目不开放宫格分镜，残留的历史 grid 记录不可再被改写；
-    - 宫格开关关闭后同理——历史 grid 不再可重生成/切分/上传。
-    """
+    """加载项目并校验宫格写操作闸门；判定与版本还原共用 ``ensure_grid_writable``。"""
     # project.json 损坏（JSONDecodeError）不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
     with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
         project = get_project_manager().load_project(project_name)
-    if project.get("content_mode") == "ad":
-        raise BadRequestError("ad_grid_not_supported")
-    if not grid_storyboard_enabled(project):
-        raise BadRequestError("grid_storyboard_not_enabled")
+    ensure_grid_writable(project)
     return project
 
 

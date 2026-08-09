@@ -65,14 +65,25 @@ class _FakeVM:
 
 
 class _GridPM:
-    """记录剧本侧写回调用的 ProjectManager 替身，供 grids 还原用例断言「不碰剧本」。"""
+    """记录剧本侧写回调用的 ProjectManager 替身，供 grids 还原用例断言「不碰剧本」。
 
-    def __init__(self, project_path):
+    ``load_project`` 供还原的宫格写闸门取项目形态，默认返回一个允许宫格写入的项目。
+    """
+
+    def __init__(self, project_path, project=None):
         self.project_path = project_path
         self.update_calls = []
+        self.project = (
+            project
+            if project is not None
+            else {"content_mode": "narration", "generation_mode": "storyboard", "grid_storyboard": True}
+        )
 
     def get_project_path(self, project_name):
         return self.project_path
+
+    def load_project(self, project_name):
+        return self.project
 
     def update_scene_asset(self, *args, **kwargs):
         self.update_calls.append((args, kwargs))
@@ -222,6 +233,66 @@ class TestVersionsRouter:
         # 不做分镜侧元数据同步
         assert fake_pm.update_calls == []
 
+    @pytest.mark.parametrize(
+        "project,expected_detail",
+        [
+            ({"content_mode": "ad", "generation_mode": "storyboard", "grid_storyboard": True}, "广告/短片项目"),
+            (
+                {"content_mode": "narration", "generation_mode": "storyboard", "grid_storyboard": False},
+                "项目未启用分镜板",
+            ),
+        ],
+    )
+    def test_grid_restore_rejected_when_grid_writes_disabled(self, tmp_path, monkeypatch, project, expected_detail):
+        """还原与重生成/切分/上传共用宫格写闸门：广告项目与关闭宫格开关的项目一律拒绝。
+
+        还原同样会换掉联合图并复位宫格记录，闸门漏在这里就成了改写残留 grid 的绕行路径。
+        """
+        from lib.grid.models import GridGeneration
+        from lib.grid_manager import GridManager
+
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=["a", "b"],
+            rows=2,
+            cols=2,
+            grid_size="grid_4",
+            provider="p",
+            model="m",
+        )
+        grid.split_at = "2026-01-01T00:00:00+00:00"
+        GridManager(tmp_path).save(grid)
+        (tmp_path / "grids" / f"{grid.id}.png").write_bytes(b"original-bytes")
+
+        grid_pm = _GridPM(tmp_path, project=project)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: grid_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+
+        with TestClient(app) as client:
+            resp = client.post(f"/api/v1/projects/demo/versions/grids/{grid.id}/restore/1")
+
+        assert resp.status_code == 400
+        # 断言到具体文案：两道闸门各自触发，不被对方的 400 顶替
+        assert expected_detail in resp.json()["detail"]
+        # 拒绝即止：联合图未被替换，宫格记录的切分态原样保留
+        assert (tmp_path / "grids" / f"{grid.id}.png").read_bytes() == b"original-bytes"
+        saved = GridManager(tmp_path).get(grid.id)
+        assert saved is not None
+        assert saved.split_at == "2026-01-01T00:00:00+00:00"
+
+    def test_non_grid_restore_unaffected_by_grid_gate(self, monkeypatch):
+        """闸门只作用于 grids：其它资源类型的还原不因项目宫格配置被拦。"""
+        client, fake_pm = _client(monkeypatch)
+        with client:
+            resp = client.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
+        assert resp.status_code == 200
+
     def test_grid_restore_keeps_in_flight_status(self, tmp_path, monkeypatch):
         """生成在途时还原不把记录复位成 completed：记录一旦谎报空闲，
         切分/上传的在途闸门就会放行，用户可对着即将被 worker 覆写的联合图落格。
@@ -244,7 +315,8 @@ class TestVersionsRouter:
         GridManager(tmp_path).save(grid)
         (tmp_path / "grids" / f"{grid.id}.png").write_bytes(b"restored-bytes")
 
-        monkeypatch.setattr(versions, "get_project_manager", lambda: _GridPM(tmp_path))
+        grid_pm = _GridPM(tmp_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: grid_pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
         app = FastAPI()
