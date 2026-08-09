@@ -452,10 +452,12 @@ class TestDataValidator:
         result = validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
         assert result.valid
 
-    def _drama_episode_with_scene(self, tmp_path, scene_extra: dict):
+    def _drama_episode_with_scene(self, tmp_path, scene_extra: dict, project_extra: dict | None = None):
         # 构造一个最小 drama 剧集，scene 合并 scene_extra（用于针对性校验 utterances）
         project_dir = tmp_path / "projects" / "demo"
-        _write_json(project_dir / "project.json", _project_payload("drama"))
+        project = _project_payload("drama")
+        project.update(project_extra or {})
+        _write_json(project_dir / "project.json", project)
         scene = {
             "scene_id": "E2S01",
             "duration_seconds": 8,
@@ -550,6 +552,40 @@ class TestDataValidator:
         )
         assert result.valid, result.errors
         assert any("说话时长" in w for w in result.warnings)
+
+    @pytest.mark.unit
+    def test_validate_episode_drama_speech_overflow_uses_project_speech_rate(self, tmp_path):
+        # 项目级语速覆盖生效：同一段台词在快速覆盖下不再触发说话量上界 warning
+        line = "台词" * 60
+        scene = {
+            "duration_seconds": 8,
+            "utterances": [{"kind": "dialogue", "speaker": "姜月茴", "text": line}],
+        }
+        slow = self._drama_episode_with_scene(tmp_path / "slow", scene)
+        assert any("说话时长" in w for w in slow.warnings)
+        fast = self._drama_episode_with_scene(tmp_path / "fast", scene, {"speech_rate_units_per_second": 20})
+        assert not any("说话时长" in w for w in fast.warnings)
+
+    @pytest.mark.unit
+    def test_validate_project_rejects_out_of_range_speech_rate(self, tmp_path):
+        # 项目级语速覆盖出现即须落在硬区间内；越界 / 非数字都是 error
+        for bad in (0, -1, 20.5, "5"):
+            project_dir = tmp_path / str(bad) / "projects" / "demo"
+            payload = _project_payload("drama")
+            payload["speech_rate_units_per_second"] = bad
+            _write_json(project_dir / "project.json", payload)
+            result = validate_project("demo", projects_root=str(tmp_path / str(bad) / "projects"))
+            assert not result.valid
+            assert any("speech_rate_units_per_second" in e for e in result.errors)
+
+    @pytest.mark.unit
+    def test_validate_project_accepts_in_range_speech_rate(self, tmp_path):
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _project_payload("drama")
+        payload["speech_rate_units_per_second"] = 6.5
+        _write_json(project_dir / "project.json", payload)
+        result = validate_project("demo", projects_root=str(tmp_path / "projects"))
+        assert result.valid, result.errors
 
     @pytest.mark.unit
     def test_validate_episode_drama_speech_overflow_counts_voiceover(self, tmp_path):

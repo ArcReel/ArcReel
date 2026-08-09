@@ -381,6 +381,11 @@ class TestDramaDurationSpeechLowerBound:
         for dirty in (5, ["zh"]):
             assert f"{default_rate:g} 字/秒" in self._normalize(source_language=dirty)
 
+    def test_project_override_wins_over_language_default(self):
+        # 项目级语速覆盖生效时，注入 prompt 的是覆盖值而非语言默认；量词仍随语言
+        assert "7.5 字/秒" in self._normalize(source_language="zh", speech_rate_override=7.5)
+        assert "7.5 词/秒" in self._normalize(source_language="en", speech_rate_override=7.5)
+
     def test_narration_and_step2_drama_have_no_speech_lower_bound(self):
         # 生成期时长下界只在 drama step1（normalize）；narration step2 与 drama step2 视觉层不含
         narration = build_narration_prompt(

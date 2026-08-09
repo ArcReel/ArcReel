@@ -8,7 +8,11 @@ import pytest
 
 from lib.speech_rate import (
     DEFAULT_SPEECH_RATE_UPS,
+    MAX_SPEECH_RATE_UPS,
+    SPEECH_RATE_FIELD,
     estimate_spoken_seconds,
+    is_valid_speech_rate,
+    project_speech_rate_override,
     speech_rate_units_per_second,
 )
 
@@ -60,3 +64,44 @@ class TestEstimateSpokenSeconds:
     def test_unknown_language_uses_default_rate(self):
         expected = 5 / DEFAULT_SPEECH_RATE_UPS
         assert estimate_spoken_seconds("一二三四五", None) == pytest.approx(expected)
+
+
+class TestSpeechRateOverride:
+    def test_override_wins_over_language_default(self):
+        assert speech_rate_units_per_second("zh", 3.0) == 3.0
+        assert speech_rate_units_per_second("en", 3.0) == 3.0
+
+    def test_none_override_falls_back_to_language_default(self):
+        assert speech_rate_units_per_second("en", None) == speech_rate_units_per_second("en")
+
+    def test_out_of_range_override_falls_back_to_language_default(self):
+        for bad in (0.0, -1.0, MAX_SPEECH_RATE_UPS + 0.1, float("inf"), float("nan")):
+            assert speech_rate_units_per_second("zh", bad) == speech_rate_units_per_second("zh")
+
+    def test_estimate_uses_override(self):
+        # 5 个阅读单位 ÷ 覆盖语速；覆盖生效即时长随之变化
+        assert estimate_spoken_seconds("一二三四五", "zh", 2.0) == pytest.approx(2.5)
+
+    def test_boundary_values(self):
+        assert is_valid_speech_rate(MAX_SPEECH_RATE_UPS)
+        assert not is_valid_speech_rate(0.0)
+        assert not is_valid_speech_rate(MAX_SPEECH_RATE_UPS + 0.001)
+
+
+class TestProjectSpeechRateOverride:
+    def test_missing_field_is_none(self):
+        assert project_speech_rate_override({}) is None
+        assert project_speech_rate_override(None) is None
+
+    def test_valid_value_is_returned(self):
+        assert project_speech_rate_override({SPEECH_RATE_FIELD: 6}) == 6.0
+        assert project_speech_rate_override({SPEECH_RATE_FIELD: 6.5}) == 6.5
+
+    @pytest.mark.parametrize("dirty", ["6", None, [], {}, True, False])
+    def test_dirty_value_is_none(self, dirty):
+        # bool 是 int 子类，True/False 不得被当成 1.0 / 0.0 的语速
+        assert project_speech_rate_override({SPEECH_RATE_FIELD: dirty}) is None
+
+    @pytest.mark.parametrize("bad", [0, -3, MAX_SPEECH_RATE_UPS + 1])
+    def test_out_of_range_value_is_none(self, bad):
+        assert project_speech_rate_override({SPEECH_RATE_FIELD: bad}) is None

@@ -202,6 +202,13 @@ class TestDialogueLoad:
         with pytest.raises(DraftViolation, match="超过该 unit"):
             validate_dialogue_load("unit E1U01", f"镜头1：空镜\n{{{long_line}}}", 4, "zh")
 
+    def test_project_override_changes_budget(self):
+        """项目级语速覆盖生效：同一段台词在慢速覆盖下判超载、在快速覆盖下放行。"""
+        text = "镜头1：门开了\n@[李明]：{一二三四五六七八九十一二三四五六七八九十。}"
+        with pytest.raises(DraftViolation, match="超过该 unit"):
+            validate_dialogue_load("unit E1U01", text, 4, "zh", 2.0)
+        validate_dialogue_load("unit E1U01", text, 4, "zh", 10.0)
+
     def test_non_string_language_falls_back_to_default_rate(self):
         """project.json 的 source_language 可能是脏数据：估算按默认语速走，不抛 AttributeError。"""
         validate_dialogue_load("unit E1U01", "@[李明]：{我来了。}", 4, 123)  # pyright: ignore[reportArgumentType]

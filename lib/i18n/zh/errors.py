@@ -71,6 +71,7 @@ MESSAGES = {
     "tts_novel_text_missing": "分镜「{segment_id}」没有可配音的小说原文",
     "audio_provider_not_configured": "请先配置音频供应商：在「全局设置 → 供应商」页面配置支持语音合成的供应商",
     "narration_speed_must_be_positive": "旁白语速必须是正数",
+    "speech_rate_out_of_range": "口播语速（估算用）必须大于 0 且不超过 {max} 阅读单位/秒",
     "character_not_found": "角色「{name}」不存在",
     "character_task_submitted": "角色「{name}」设计图生成任务已提交",
     "voice_sample_voice_required": "请先选择音色",

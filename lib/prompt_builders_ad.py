@@ -190,20 +190,23 @@ def build_ad_prompt(
     episode: int = 1,
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
+    speech_rate_override: float | None = None,
 ) -> str:
     """构建广告/短片模式的剧本生成 prompt。
 
     ``products`` 非空走带货八段框架 + 审定配比表；为空自动分流通用短片 prompt
-    （无带货框架，不设显式子模式开关）。
+    （无带货框架，不设显式子模式开关）。``speech_rate_override`` 是项目级语速覆盖
+    （由调用方经 ``project_speech_rate_override`` 解析），None 即回退语言默认。
     """
     if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
         raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
 
     duration_constraint = _shot_duration_constraint(generation_mode, supported_durations)
-    # 口播字数→时长折算从 lib.speech_rate 单一真相源取（与 drama step1 下界、字幕派生同口径）。
-    # 语速表按语言代码（zh / en / vi）登记；target_language 是自由文本（默认「中文」），
-    # 未登记值回退默认语速（zh 口径），量词（字 / 词）由 reading_unit_noun 同源派生。
-    speech_rate = speech_rate_units_per_second(target_language)
+    # 口播字数→时长折算从 lib.speech_rate 单一真相源取（与 drama step1 下界、字幕派生同口径）：
+    # 项目级覆盖优先，否则按语言默认。语速表按语言代码（zh / en / vi）登记；target_language 是
+    # 自由文本（默认「中文」），未登记值回退默认语速（zh 口径），量词（字 / 词）由
+    # reading_unit_noun 同源派生。
+    speech_rate = speech_rate_units_per_second(target_language, speech_rate_override)
     unit_label = reading_unit_noun(target_language)
     voiceover_rate_note = f"口播长度按约 {speech_rate:g} {unit_label}/秒折算"
     character_names = list(characters.keys())

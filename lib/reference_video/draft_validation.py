@@ -328,11 +328,19 @@ def validate_unit_text(
     return shots, refs
 
 
-def validate_dialogue_load(label: str, text: str, duration_seconds: int, language: str | None) -> None:
+def validate_dialogue_load(
+    label: str,
+    text: str,
+    duration_seconds: int,
+    language: str | None,
+    speech_rate_override: float | None = None,
+) -> None:
     """校验该 unit 的台词量念得完：口播估算超出 unit 时长（含宽容系数）即违约。
 
     时长就是计费，unit 时长在 step1 定稿；台词写超了意味着成片必然吞词或抢拍，且这在
     step1 阶段是可改的（重拆 unit 或删台词），拖到生成后才发现只能重来。
+    ``speech_rate_override`` 是项目级语速覆盖，None 即回退语言默认——与 prompt 构造侧同源，
+    prompt 给的下界与此处判的上界始终是同一把尺。
     """
     # language 取自 project.json，可能是非字符串脏数据；非字符串回退 None（按默认语速估算），
     # 与 prompt 构造侧同口径——否则 ``count_reading_units`` 的 ``language.strip()`` 会在一次
@@ -341,7 +349,7 @@ def validate_dialogue_load(label: str, text: str, duration_seconds: int, languag
     # 台词取自 normative_lines，已归一到 NFC：``count_reading_units`` 的 en / vi 分支按
     # ``\b\w+\b`` 数词，NFD 形式下组合附加符不算词字符，一个越南语词会被拆成数个单位
     # （9 词的句子计成 16 个），估算随之虚高、把念得完的 unit 判成超载。
-    spoken = sum(estimate_spoken_seconds(line[2], language) for line in normative_lines(text))
+    spoken = sum(estimate_spoken_seconds(line[2], language, speech_rate_override) for line in normative_lines(text))
     budget = duration_seconds * (1 + SPEECH_OVERFLOW_TOLERANCE)
     if spoken > budget:
         raise DraftViolation(
