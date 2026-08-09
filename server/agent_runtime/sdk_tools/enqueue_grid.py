@@ -8,8 +8,8 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.generation_queue_client import enqueue_task_only, wait_for_task
-from lib.grid.layout import calculate_grid_layout
-from lib.grid.models import GridGeneration
+from lib.grid.layout import GridLayout, plan_grid_chunks
+from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.project_manager import ProjectManager, grid_storyboard_enabled
@@ -34,6 +34,8 @@ def _list_groups(
     (explicit zero selection). Use ``is not None`` to keep them distinct.
 
     ``allow_large_grid`` 与实际生成分支同源，非 4K 项目的预览里不会出现 4×4 / 5×5。
+    分块与实际入队同源（``plan_grid_chunks``）：超上限分组展示的宫格张数与档位
+    即实际生成的张数与档位。
     """
     items, id_field, _, _, _ = get_storyboard_items(script)
     aspect_ratio = project.get("aspect_ratio", "9:16")
@@ -44,10 +46,20 @@ def _list_groups(
     lines = [f"共 {len(groups)} 个分组："]
     for i, group in enumerate(groups):
         ids = [item[id_field] for item in group]
-        layout = calculate_grid_layout(len(ids), aspect_ratio, allow_large_grid=allow_large_grid)
-        status = f"{layout.grid_size} ({layout.rows}×{layout.cols})" if layout else "single (< 4 场景)"
+        plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=allow_large_grid)
+        status = _describe_plans(plans)
         lines.append(f"  组 {i + 1}: {ids[0]}..{ids[-1]} ({len(ids)} 场景) → {status}")
     return lines
+
+
+def _describe_plans(plans: list[tuple[list[dict[str, Any]], GridLayout]]) -> str:
+    """把一组的宫格规划渲染为预览文案；单张沿用原格式，多张标注张数。"""
+    if not plans:
+        return "skip (空分组)"
+    parts = [f"{layout.grid_size} ({layout.rows}×{layout.cols})" for _, layout in plans]
+    if len(parts) == 1:
+        return parts[0]
+    return f"{len(parts)} 张宫格: " + " + ".join(parts)
 
 
 def generate_grid_tool(ctx: ToolContext):
@@ -126,67 +138,66 @@ def generate_grid_tool(ctx: ToolContext):
 
             gm = GridManager(project_path)
             pending: list[tuple[GridGeneration, str]] = []
-            skipped: list[str] = []
             enqueue_failures: list[tuple[str, list[str], str]] = []
 
             for group in groups:
-                group_ids = [item[id_field] for item in group]
-                layout = calculate_grid_layout(len(group_ids), aspect_ratio, allow_large_grid=allow_large_grid)
-                if layout is None:
-                    skipped.append(f"⏭️  跳过 {group_ids[0]}..{group_ids[-1]}（{len(group_ids)} 场景，不足 4 个）")
-                    continue
-
-                prompt = build_grid_prompt(
-                    scenes=group,
-                    id_field=id_field,
-                    rows=layout.rows,
-                    cols=layout.cols,
-                    style=style,
-                    aspect_ratio=aspect_ratio,
-                    grid_aspect_ratio=layout.grid_aspect_ratio,
-                )
-
-                grid = GridGeneration.create(
-                    episode=episode,
-                    script_file=script_filename,
-                    scene_ids=group_ids,
-                    rows=layout.rows,
-                    cols=layout.cols,
-                    grid_size=layout.grid_size,
-                    provider="",
-                    model="",
-                    prompt=prompt,
-                )
-                # 先 save 后 enqueue 给 worker 提供可读的 grid 文件；入队失败时
-                # 用 ``gm.delete`` 回收孤儿记录，并把该组并入 failures——前面已
-                # 入队成功的分组继续跑，调用方不会被一组失败导致全量重试。
-                gm.save(grid)
-                try:
-                    enqueue_result = await enqueue_task_only(
-                        project_name=ctx.project_name,
-                        task_type="grid",
-                        media_type="image",
-                        resource_id=grid.id,
-                        payload={
-                            "prompt": prompt,
-                            "script_file": script_filename,
-                            "scene_ids": group_ids,
-                            "grid_size": layout.grid_size,
-                            "rows": layout.rows,
-                            "cols": layout.cols,
-                            "grid_aspect_ratio": layout.grid_aspect_ratio,
-                            "video_aspect_ratio": aspect_ratio,
-                        },
-                        script_file=script_filename,
-                        source="skill",
+                # 超上限分组切为多张宫格逐张入队：每张的场景数与画格数一致
+                # （末张不足一档时落小档 + 占位格），与预览、费用估算同源。
+                # 空分组（``plan_grid_chunks`` 的唯一空产出）自然跳过循环体。
+                plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=allow_large_grid)
+                for chunk, layout in plans:
+                    chunk_ids = [item[id_field] for item in chunk]
+                    prompt = build_grid_prompt(
+                        scenes=chunk,
+                        id_field=id_field,
+                        rows=layout.rows,
+                        cols=layout.cols,
+                        style=style,
+                        aspect_ratio=aspect_ratio,
+                        grid_aspect_ratio=layout.grid_aspect_ratio,
                     )
-                except Exception as exc:  # noqa: BLE001
-                    gm.delete(grid.id)
-                    enqueue_failures.append((grid.id, group_ids, str(exc)))
-                    continue
-                pending.append((grid, enqueue_result["task_id"]))
 
-            details: list[str] = list(skipped)
+                    grid = GridGeneration.create(
+                        episode=episode,
+                        script_file=script_filename,
+                        scene_ids=chunk_ids,
+                        rows=layout.rows,
+                        cols=layout.cols,
+                        grid_size=layout.grid_size,
+                        provider="",
+                        model="",
+                        prompt=prompt,
+                    )
+                    # 先 save 后 enqueue 给 worker 提供可读的 grid 文件；入队失败时
+                    # 用 ``gm.delete`` 回收孤儿记录，并把该张并入 failures——前面已
+                    # 入队成功的宫格继续跑，调用方不会被一张失败导致全量重试。
+                    gm.save(grid)
+                    try:
+                        enqueue_result = await enqueue_task_only(
+                            project_name=ctx.project_name,
+                            task_type="grid",
+                            media_type="image",
+                            resource_id=grid.id,
+                            payload=build_grid_task_payload(
+                                prompt=prompt,
+                                script_file=script_filename,
+                                scene_ids=chunk_ids,
+                                grid_size=layout.grid_size,
+                                rows=layout.rows,
+                                cols=layout.cols,
+                                grid_aspect_ratio=layout.grid_aspect_ratio,
+                                video_aspect_ratio=aspect_ratio,
+                            ),
+                            script_file=script_filename,
+                            source="skill",
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        gm.delete(grid.id)
+                        enqueue_failures.append((grid.id, chunk_ids, str(exc)))
+                        continue
+                    pending.append((grid, enqueue_result["task_id"]))
+
+            details: list[str] = []
             for grid_id, group_ids, err in enqueue_failures:
                 details.append(f"  ✗ {grid_id}（{group_ids[0]}..{group_ids[-1]}）入队失败: {err}")
 

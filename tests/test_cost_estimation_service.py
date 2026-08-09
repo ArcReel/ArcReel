@@ -2049,6 +2049,54 @@ class TestCostEstimationService:
         assert result["episodes"][0]["totals"]["estimate"]["image"]["USD"] == pytest.approx(0.09, abs=1e-4)
 
     @pytest.mark.unit
+    async def test_grid_estimate_counts_every_chunk_of_oversized_group(self, db_factory):
+        """超过单张格数上限的分组按切块后的张数计价，与入队实际产出的宫格张数一致。"""
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+        from lib.grid.layout import plan_grid_chunks
+
+        async with db_factory() as session:
+            await CustomProviderRepository(session).create_provider(
+                display_name="Custom",
+                discovery_format="openai",
+                base_url="https://api.example.com",
+                api_key="k",
+                models=[
+                    {
+                        "model_id": "img",
+                        "display_name": "Img",
+                        "endpoint": "openai-images",
+                        "price_unit": "image",
+                        "price_input": 0.09,
+                        "currency": "USD",
+                    },
+                ],
+            )
+            await session.commit()
+
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 13)]  # 12 scenes，非 4K 上限 9 → 切 2 张
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "aspect_ratio": "9:16",
+            "image_provider_t2i": "custom-1/img",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 12)}
+
+        result = await service.compute(project_data, scripts, project_name="test-grid-oversized")
+
+        expected_grids = len(plan_grid_chunks(seg_ids, "9:16", allow_large_grid=False))
+        assert expected_grids == 2
+        assert result["episodes"][0]["totals"]["estimate"]["image"]["USD"] == pytest.approx(
+            0.09 * expected_grids, abs=1e-4
+        )
+
+    @pytest.mark.unit
     async def test_custom_provider_without_price_degrades_to_zero(self, db_factory):
         """自定义供应商查无价格模型：预估降级为 0（记 debug 日志、不抛错），与现状降级口径一致。"""
         resolver = ConfigResolver(db_factory)

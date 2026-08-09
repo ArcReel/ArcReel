@@ -14,8 +14,8 @@ from pydantic import BaseModel
 
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.generation_queue import get_generation_queue
-from lib.grid.layout import calculate_grid_layout, grid_aspect_ratio_for, max_cell_count
-from lib.grid.models import GridGeneration
+from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks
+from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.i18n import Translator
@@ -26,34 +26,6 @@ from server.auth import CurrentUser
 from server.services.grid_resolution import resolve_large_grid_allowed
 
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
-
-
-def _build_grid_task_payload(
-    *,
-    prompt: str | None,
-    script_file: str,
-    scene_ids: list[str],
-    grid_size: str,
-    rows: int,
-    cols: int,
-    grid_aspect_ratio: str,
-    video_aspect_ratio: str,
-) -> dict:
-    """Build a consistent payload dict for grid generation tasks.
-
-    入队不携带 provider 信息——provider 在执行时由 ConfigResolver 按当前项目配置解析
-    （见 docs/adr/0001）。
-    """
-    return {
-        "prompt": prompt,
-        "script_file": script_file,
-        "scene_ids": scene_ids,
-        "grid_size": grid_size,
-        "rows": rows,
-        "cols": cols,
-        "grid_aspect_ratio": grid_aspect_ratio,
-        "video_aspect_ratio": video_aspect_ratio,
-    }
 
 
 # ==================== 请求/响应模型 ====================
@@ -85,7 +57,8 @@ async def generate_grid(
     _t: Translator,
 ):
     """
-    提交宫格图生成任务到队列，按分段分组，每组 N>=4 个场景生成一个宫格图。
+    提交宫格图生成任务到队列，按分段分组，每组生成一张宫格图；场景数超过单张宫格
+    格数上限的分组切为多张，末张不足一档时落到更小档并由占位格补齐。
 
     立即返回 grid_ids 和 task_ids。生成由 GenerationWorker 异步执行。
     """
@@ -136,9 +109,11 @@ async def generate_grid(
 
     for group in groups:
         all_scene_ids = [item[id_field] for item in group]
-        n = len(all_scene_ids)
-        layout = calculate_grid_layout(n, aspect_ratio, allow_large_grid=allow_large_grid)
-        if layout is None:
+        # 超上限分组切为多张宫格批次（末批不足一档时落小档 + 占位格），
+        # 切块与预览、费用估算、SDK 工具同源（plan_grid_chunks）；
+        # 空分组是唯一的空产出，此时连旧记录清理也一并跳过。
+        plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=allow_large_grid)
+        if not plans:
             continue
 
         # 清理该组旧的 grid 记录（限定同脚本同集，scene_ids 是当前组子集的旧 grid）
@@ -154,20 +129,8 @@ async def generate_grid(
             ):
                 gm.delete(old_grid.id)
 
-        # 将大分组拆分为多个宫格批次（余下不足一档的场景用小一档 + 占位符）
-        chunks: list[list] = []
-        if n > layout.cell_count:
-            for i in range(0, n, layout.cell_count):
-                chunk = group[i : i + layout.cell_count]
-                chunks.append(chunk)
-        else:
-            chunks.append(group)
-
-        for chunk in chunks:
+        for chunk, chunk_layout in plans:
             chunk_ids = [item[id_field] for item in chunk]
-            chunk_layout = calculate_grid_layout(len(chunk_ids), aspect_ratio, allow_large_grid=allow_large_grid)
-            if chunk_layout is None:
-                continue
 
             # provider/model 由 execute_grid_task 在 image lane 解析之后回填，
             # 因为只有 task 层能根据 reference_images 判断走 T2I 还是 I2I 槽
@@ -200,7 +163,7 @@ async def generate_grid(
                 task_type="grid",
                 media_type="image",
                 resource_id=grid.id,
-                payload=_build_grid_task_payload(
+                payload=build_grid_task_payload(
                     prompt=prompt,
                     script_file=req.script_file,
                     scene_ids=chunk_ids,
@@ -328,7 +291,7 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
         task_type="grid",
         media_type="image",
         resource_id=grid.id,
-        payload=_build_grid_task_payload(
+        payload=build_grid_task_payload(
             prompt=grid.prompt,
             script_file=grid.script_file,
             scene_ids=grid.scene_ids,

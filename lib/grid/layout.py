@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 # Base resolution for grid rendering (width reference for 16:9)
 _BASE_WIDTH = 1920
@@ -126,3 +130,31 @@ def calculate_grid_layout(num_scenes: int, aspect_ratio: str, *, allow_large_gri
         cell_count=cell_count,
         placeholder_count=placeholder_count,
     )
+
+
+def plan_grid_chunks[T](
+    group: Sequence[T],
+    aspect_ratio: str,
+    *,
+    allow_large_grid: bool = False,
+) -> list[tuple[list[T], GridLayout]]:
+    """把一个场景分组按单张宫格的格数上限切块，返回各块及其布局。
+
+    「分组 → 按 :func:`max_cell_count` 切块 → 布局」的唯一实现：入队、预览、
+    费用估算消费同一产出，宫格张数与档位才不会各自漂移。首块按分组整体选档，
+    末块不足一档时落到更小档并由占位格补齐；各块场景不重叠、并集等于整组、
+    顺序保持原分组顺序（首尾帧链按块内自洽，块间不接链）。
+
+    分组为空时返回空列表。
+    """
+    layout = calculate_grid_layout(len(group), aspect_ratio, allow_large_grid=allow_large_grid)
+    if layout is None:
+        return []
+    plans: list[tuple[list[T], GridLayout]] = []
+    for i in range(0, len(group), layout.cell_count):
+        chunk = list(group[i : i + layout.cell_count])
+        chunk_layout = calculate_grid_layout(len(chunk), aspect_ratio, allow_large_grid=allow_large_grid)
+        if chunk_layout is None:  # pragma: no cover — chunk 恒非空，不可达
+            continue
+        plans.append((chunk, chunk_layout))
+    return plans

@@ -214,3 +214,34 @@ class GridGeneration:
             created_at=datetime.now(UTC).isoformat(),
             error_message=None,
         )
+
+
+def build_grid_task_payload(
+    *,
+    prompt: str | None,
+    script_file: str,
+    scene_ids: list[str],
+    grid_size: str,
+    rows: int,
+    cols: int,
+    grid_aspect_ratio: str,
+    video_aspect_ratio: str,
+) -> dict:
+    """宫格生成任务入队 payload 的唯一构造点，HTTP 路由与 SDK 工具共用。
+
+    两条入队路径各自内联字面量时，字段增删只改一侧就会让 worker 在另一条路径上
+    读到缺字段的 payload，故收在此处。
+
+    入队不携带 provider 信息——provider 在执行时由 ConfigResolver 按当前项目配置解析
+    （见 docs/adr/0001）。
+    """
+    return {
+        "prompt": prompt,
+        "script_file": script_file,
+        "scene_ids": scene_ids,
+        "grid_size": grid_size,
+        "rows": rows,
+        "cols": cols,
+        "grid_aspect_ratio": grid_aspect_ratio,
+        "video_aspect_ratio": video_aspect_ratio,
+    }
