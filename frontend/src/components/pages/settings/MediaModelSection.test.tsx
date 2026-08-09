@@ -245,8 +245,8 @@ describe("MediaModelSection", () => {
       await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_generate_audio: true }));
     });
 
-    // 细分桶覆盖成恒有声模型时，基础默认仍可控：置灰会连带禁掉另一个可控桶的合法关闭，
-    // 故只给矛盾提示。判据漏掉细分桶就会让这份配置一路带到入队才被拒。
+    // 置灰要求两个生效桶同为不可控，提示只要一个桶恒有声就给：两桶判定不一致时置灰会连带
+    // 禁掉可控桶的合法关闭。判据漏掉细分桶则会让这份配置一路带到入队才被拒。
     it("warns about a stored off setting when only a capability-bucket override is always audible", async () => {
       const user = userEvent.setup();
       mockConfig({ default_video_backend_i2v: "dashscope/wan" });
@@ -267,6 +267,23 @@ describe("MediaModelSection", () => {
       await waitFor(() =>
         expect(patch).toHaveBeenCalledWith(expect.objectContaining({ video_generate_audio: true })),
       );
+    });
+
+    it("keeps the checkbox interactive when both bucket overrides are controllable, whatever the base default is", async () => {
+      mockConfig({
+        default_video_backend: "dashscope/wan",
+        default_video_backend_i2v: "gemini/veo-3",
+        default_video_backend_r2v: "gemini/veo-3",
+      });
+      vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+        videoProvider("gemini", "veo-3", { has_audio_track: true, audio_switch_controllable: true }),
+        videoProvider("dashscope", "wan", { has_audio_track: true, audio_switch_controllable: false }),
+      ]);
+      render(<MediaModelSection />);
+      const box = await screen.findByRole("checkbox", { name: /生成音频/ });
+      expect(box).toBeEnabled();
+      expect(box).not.toBeChecked();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
     it("locks the checkbox on a model without an audio track", async () => {

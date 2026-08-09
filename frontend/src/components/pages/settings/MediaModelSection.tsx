@@ -214,17 +214,23 @@ export function MediaModelSection() {
   const videoSpecTier = currentVideo
     ? (lookupCatalogVideoAudio(providers, currentVideo)?.voiceConsistency ?? null)
     : null;
-  // 音频勾选框按全局默认视频模型的开关可控性判定：恒有声 / 恒无声的模型收不到音轨开关，
-  // 置灰并展示成片的实际音轨状态；存量的「关闭」由警告给一键修正入口，不静默改写配置。
-  const audioControl = currentVideo ? lookupVideoAudioControl(providers, currentVideo) : null;
-  const audioLocked = audioControl === "always_on" || audioControl === "always_off";
-  // 置灰按基础默认模型，矛盾警告按生效桶模型：细分桶覆盖成恒有声模型时，基础默认仍可控，
-  // 此时禁用开关会连带禁掉另一个可控桶的合法关闭，故只提示不锁死（入队前预检按桶拒绝）。
+  // 音频勾选框按两个生效桶（细分桶留空即回退基础默认）的开关可控性判定：两桶同为恒有声或
+  // 同为恒无声时，无论走哪条路线都收不到音轨开关，置灰并展示成片的实际音轨状态。只要还有一个
+  // 桶可控就不置灰——否则闲置的基础默认会连带禁掉可控桶的合法关闭。
+  // 两桶不一致时只由下方警告提示，存量的「关闭」由警告给一键修正入口，不静默改写配置
+  // （入队前预检按实际执行的桶拒绝）。
+  const bucketAudioControl = (backend: string) =>
+    backend ? lookupVideoAudioControl(providers, backend) : null;
+  const i2vAudioControl = bucketAudioControl(currentVideoI2V || currentVideo);
+  const r2vAudioControl = bucketAudioControl(currentVideoR2V || currentVideo);
+  const audioLockedControl =
+    i2vAudioControl === r2vAudioControl &&
+    (i2vAudioControl === "always_on" || i2vAudioControl === "always_off")
+      ? i2vAudioControl
+      : null;
+  const audioLocked = audioLockedControl !== null;
   const audioConflict =
-    !currentAudio &&
-    [currentVideoI2V || currentVideo, currentVideoR2V || currentVideo].some(
-      (backend) => backend && lookupVideoAudioControl(providers, backend) === "always_on",
-    );
+    !currentAudio && (i2vAudioControl === "always_on" || r2vAudioControl === "always_on");
   const videoSpecDurations = currentVideo ? catalogDurations(providers, customProviders, currentVideo) : null;
   const videoSpecResolutions = currentVideo
     ? lookupResolutions(providers, currentVideo, customProviders, endpointToMediaType).options
@@ -313,7 +319,7 @@ export function MediaModelSection() {
           <input
             id="media-generate-audio"
             type="checkbox"
-            checked={audioLocked ? audioControl === "always_on" : currentAudio}
+            checked={audioLocked ? audioLockedControl === "always_on" : currentAudio}
             disabled={audioLocked}
             onChange={(e) =>
               setDraft((prev) => ({ ...prev, video_generate_audio: e.target.checked }))
@@ -328,7 +334,7 @@ export function MediaModelSection() {
             <span className="text-[11px] text-text-4">
               {audioLocked
                 ? t(
-                    audioControl === "always_on"
+                    audioLockedControl === "always_on"
                       ? "audio_switch_locked_always_on"
                       : "audio_switch_locked_always_off",
                   )
