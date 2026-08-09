@@ -51,9 +51,11 @@ export function SpeechRateField({ value, onChange, sourceLanguage }: SpeechRateF
           id={id}
           type="number"
           inputMode="decimal"
-          min={0.1}
+          // 原生约束不比 isValidSpeechRate 更严，否则同一个值会同时呈现自定义有效与浏览器无效
+          // 两种状态：min 取闭下界 0（开下界 >0 由 isValidSpeechRate 判），step 放开步长限制。
+          min={SPEECH_RATE_MIN_EXCLUSIVE}
           max={SPEECH_RATE_MAX}
-          step={0.1}
+          step="any"
           value={value ?? ""}
           aria-invalid={invalid || undefined}
           aria-describedby={invalid ? errorId : undefined}

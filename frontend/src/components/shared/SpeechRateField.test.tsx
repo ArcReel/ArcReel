@@ -34,6 +34,16 @@ describe("SpeechRateField", () => {
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 
+  it("keeps native constraints no stricter than isValidSpeechRate", () => {
+    // min / step 若比 isValidSpeechRate 严，同一个值会同时显示自定义有效与浏览器 :invalid
+    render(<SpeechRateField value={0.05} onChange={() => {}} />);
+    const input = screen.getByRole("spinbutton");
+    expect(input).toHaveAttribute("min", "0");
+    expect(input).toHaveAttribute("step", "any");
+    expect(isValidSpeechRate(0.05)).toBe(true);
+    expect((input as HTMLInputElement).checkValidity()).toBe(true);
+  });
+
   it("accepts the whole range 0 < x <= 20, empty included", () => {
     expect(isValidSpeechRate(null)).toBe(true);
     expect(isValidSpeechRate(20)).toBe(true);
