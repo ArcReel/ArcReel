@@ -19,7 +19,7 @@ from lib.config.resolver import (
 from lib.cost_calculator import cost_calculator
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
-from lib.grid.layout import large_grid_allowed, plan_grid_chunks
+from lib.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed, plan_grid_chunks
 from lib.pricing.strategies import PricingParams
 from lib.project_manager import grid_storyboard_enabled, is_reference_video_project
 from lib.reference_video import assemble_shots_text
@@ -177,9 +177,11 @@ class CostEstimationService:
             except Exception:
                 image_provider, image_model = "unknown", "unknown"
 
-            # 宫格 4×4 / 5×5 的 4K 门控：与路由入队、SDK 工具共用 ``grid_resolution`` 的取档，
-            # 估算的宫格张数才不会与实际入队张数漂移。
-            grid_allow_large = large_grid_allowed(await resolve_grid_image_resolution(r, project_data))
+            # 宫格档位：与路由入队、SDK 工具共用 ``grid_resolution`` 的取档，估算的宫格张数才
+            # 不会与实际入队张数漂移；同一档位还是宫格图的计价档，未配置时回落
+            # ``GRID_FALLBACK_RESOLUTION``（与 ``execute_grid_task`` 下发的保底档同源）。
+            grid_image_resolution = await resolve_grid_image_resolution(r, project_data)
+            grid_allow_large = large_grid_allowed(grid_image_resolution)
 
             # 视频按能力桶解析（``docs/adr/0054``），与执行扣费同一个模型：图生视频 / 宫格算
             # i2v 桶的价；参考生视频按 unit 声明的参考集逐 unit 分桶（有参考图 → r2v，无参考图
@@ -276,7 +278,11 @@ class CostEstimationService:
             try:
                 grid_image_unit_cost = cost_calculator.calculate_cost(
                     image_provider,
-                    PricingParams(call_type="image", model=image_model, resolution="2K"),
+                    PricingParams(
+                        call_type="image",
+                        model=image_model,
+                        resolution=grid_image_resolution or GRID_FALLBACK_RESOLUTION,
+                    ),
                     custom_price_input=image_price.price_input,
                     custom_price_output=image_price.price_output,
                     custom_currency=image_price.currency,
@@ -374,21 +380,26 @@ class CostEstimationService:
                 logger.warning("费用估算跳过脏脚本 %s: %s", script_file, exc)
                 raw_segments, id_key = [], "segment_id"
 
-            # Grid 模式：预计算每个 segment 的图片分摊费用
-            grid_cost_per_segment: dict[str, tuple[float, str]] = {}
+            # Grid 模式：预计算每个 segment 的图片分摊费用。份额以条目在 ``raw_segments`` 中的
+            # 位置为身份，与下方实付均摊同口径（理由见该处）；分组由
+            # ``group_scenes_by_segment_break`` 按顺序切出、连续且不重不漏，故位置即组内序号
+            # 加上前序各组的长度。
+            grid_cost_per_index: dict[int, tuple[float, str]] = {}
             if grid_enabled and grid_image_unit_cost:
-                groups = group_scenes_by_segment_break(raw_segments, id_key)
-                for group in groups:
+                group_offset = 0
+                for group in group_scenes_by_segment_break(raw_segments, id_key):
                     n = len(group)
                     # 宫格张数与实际入队同源（plan_grid_chunks）：超上限分组按切块后的
                     # 张数计费，避免估算与执行漂移。
                     plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=grid_allow_large)
-                    if not plans:
-                        continue
-                    grid_count = len(plans)
-                    per_scene_cost = round(grid_image_unit_cost[0] * grid_count / n, 6)
-                    for seg in group:
-                        grid_cost_per_segment[seg.get(id_key, "")] = (per_scene_cost, grid_image_unit_cost[1])
+                    if plans:
+                        per_scene_cost = round(grid_image_unit_cost[0] * len(plans) / n, 6)
+                        for offset_in_group in range(n):
+                            grid_cost_per_index[group_offset + offset_in_group] = (
+                                per_scene_cost,
+                                grid_image_unit_cost[1],
+                            )
+                    group_offset += n
 
             # --- Grid actual cost apportionment ---
             # 均摊份额以条目在 raw_segments 中的位置为身份，而非条目 ID：ADR 0053 接受一张
@@ -421,8 +432,8 @@ class CostEstimationService:
                 est_video: CostBreakdown = {}
                 est_audio: CostBreakdown = {}
 
-                if grid_enabled and seg_id in grid_cost_per_segment:
-                    cost_amount, cost_currency = grid_cost_per_segment[seg_id]
+                if grid_enabled and idx in grid_cost_per_index:
+                    cost_amount, cost_currency = grid_cost_per_index[idx]
                     _add_cost(est_image, cost_amount, cost_currency)
                 elif image_unit_cost:
                     _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
