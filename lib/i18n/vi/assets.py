@@ -8,7 +8,7 @@ MESSAGES = {
     "asset_target_project_not_found": "Dự án đích '{project}' không tồn tại",
     "asset_load_project_failed": "Không tải được dự án đích",
     "asset_invalid_conflict_policy": "conflict_policy phải là skip / overwrite / rename",
-    "asset_invalid_name": "Tên tài nguyên '{name}' không hợp lệ: không cho phép các ký tự như / \\ : * ? \" < > |, ký tự điều khiển, .., dấu chấm ở cuối hoặc tên dành riêng của Windows (ví dụ CON)",
+    "asset_invalid_name": "Tên tài nguyên '{name}' không hợp lệ: không cho phép các ký tự như / \\ : * ? \" < > | ], ký tự điều khiển, .., dấu chấm ở cuối hoặc tên dành riêng của Windows (ví dụ CON)",
     "asset_voice_notice_dismissed_at_stale": "Cài đặt giọng nói đã thay đổi trước khi xác nhận. Vui lòng làm mới và thử lại",
     "asset_rename_rejected": 'Đổi tên "{name}" không vượt qua kiểm tra. Không có thay đổi nào được thực hiện; vui lòng làm mới và thử lại',
     "asset_rename_file_conflict": 'Đã tồn tại tệp "{filename}" ứng với tên mới. Không có thay đổi nào được thực hiện; hãy xóa tệp đó hoặc chọn tên khác',
