@@ -20,7 +20,6 @@ from lib.asset_types import (
     AssetSpec,
     normalize_asset_name,
     rekey_equivalent_entries,
-    resolve_asset_key,
 )
 from lib.reference_video.shot_parser import rewrite_mentions
 
@@ -149,12 +148,15 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
         # re-key 并同步其中的 sheet 路径字段，避免旧名以镜像形式残留。
         embedded = payload.get("characters")
         if isinstance(embedded, dict):
-            if resolve_asset_key(embedded, old_name) != new_name:
-                entry = rekey_equivalent_entries(embedded, old_name, new_name)
-                if entry is not None:
+            # 无条件收编：胜出 key 恰好已是新名（纯改编码形式的改名）时，另一条等价 key
+            # 仍带着旧路径，不能因为胜出 key 看起来没变就跳过。计数看 key 是否真的变了。
+            keys_before = list(embedded)
+            entry = rekey_equivalent_entries(embedded, old_name, new_name)
+            if entry is not None:
+                if list(embedded) != keys_before:
                     count += 1
-                    if isinstance(entry, dict):
-                        count += rewrite_entry_paths(entry, ASSET_SPECS[asset_type], old_name, new_name)
+                if isinstance(entry, dict):
+                    count += rewrite_entry_paths(entry, ASSET_SPECS[asset_type], old_name, new_name)
 
     _walk(payload)
     return count

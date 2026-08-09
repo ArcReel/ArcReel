@@ -237,6 +237,19 @@ class TestRewritePayloadReferences:
         assert list(payload["characters"]) == ["咖啡师"]
         assert payload["characters"]["咖啡师"]["character_sheet"] == "characters/咖啡师.png"
 
+    def test_legacy_embedded_encoding_only_rename_collapses(self) -> None:
+        """纯改编码形式的改名：胜出 key 已等于新名，另一条等价 key 仍须一并收编。"""
+        nfd = unicodedata.normalize("NFD", "café")
+        payload = _narration_script(
+            characters={
+                nfd: {"character_sheet": f"characters/{nfd}.png"},
+                "café": {"character_sheet": "characters/café.png"},
+            }
+        )
+        rewrite_payload_references(payload, "character", nfd, "café")
+        assert list(payload["characters"]) == ["café"]
+        assert payload["characters"]["café"]["character_sheet"] == "characters/café.png"
+
     def test_legacy_embedded_characters_rekeyed(self) -> None:
         payload = _narration_script(characters={"角色A": {"character_sheet": "characters/角色A.png"}})
         rewrite_payload_references(payload, "character", "角色A", "新角色")
