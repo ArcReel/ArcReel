@@ -13,7 +13,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.config.resolver import VideoCapability
+from lib.config.resolver import VideoCapability, video_bucket_for_generation_mode
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
@@ -51,7 +51,7 @@ from server.services.reference_video_tasks import (
     resolve_max_unit_duration,
     resolve_project_duration_context,
 )
-from server.services.video_caps import resolve_project_is_silent
+from server.services.video_caps import assert_audio_switch_supported, resolve_project_is_silent
 
 _CONFIRM_DURATION_SCHEMA_PROPERTY = {
     "type": "boolean",
@@ -141,6 +141,37 @@ async def _pending_duration_confirmations(
     return items
 
 
+async def _assert_audio_switch_for_units(
+    *,
+    project: dict[str, Any],
+    units: list[dict[str, Any]],
+    skip_ids: set[str],
+    spec_for: Callable[[dict[str, Any]], TaskSpec],
+    ad_shots_for: Callable[[dict[str, Any]], list[dict[str, Any]]] | None,
+) -> None:
+    """参考路线入队前的音频闸门，按本批真正要入队的 unit 所属能力桶逐桶检查。
+
+    定桶口径与 :func:`_pending_duration_confirmations` 一致（同一份 ``spec_for`` 判可入队性、
+    ad 从水合后的成员镜头现算参考集），同一桶只解析一次。放在时长确认之前：确认轮次走完再拒
+    等于让用户白确认一遍；整批都已完成或都不可入队时不触发任何 IO。
+    """
+    checked: set[VideoCapability] = set()
+    for unit in units:
+        unit_id = str(unit.get("unit_id") or "")
+        if not unit_id or unit_id in skip_ids:
+            continue
+        try:
+            spec_for(unit)
+            ad_shots = ad_shots_for(unit) if ad_shots_for else None
+        except ValueError:
+            continue
+        bucket = reference_unit_video_bucket(unit, ad_shots=ad_shots)
+        if bucket in checked:
+            continue
+        checked.add(bucket)
+        await assert_audio_switch_supported(project, bucket)
+
+
 def _get_video_prompt(
     item: dict[str, Any], *, content_mode: str, voice_characters: dict[str, Any] | None = None
 ) -> str:
@@ -172,15 +203,20 @@ def _get_video_prompt(
     return prompt
 
 
-async def _resolve_voice_characters(ctx: ToolContext, content_mode: str) -> dict[str, Any] | None:
-    """供 Voice_Profiles 注入的角色资产；``None`` 表示不注入。
+async def _resolve_voice_context(ctx: ToolContext, content_mode: str) -> dict[str, Any] | None:
+    """分镜路线入队前的音频闸门 + 供 Voice_Profiles 注入的角色资产（``None`` 表示不注入）。
 
-    非 drama 直接返回 None（无需为 narration/ad 项目多付一次视频能力解析），drama 再按无声
-    判据排除：C 类模型不产音、或本集关闭了音频，两条路径同口径。台词不受影响、照常下发。
+    先过音频开关预检（``assert_audio_switch_supported``，与 WebUI 提交入口同一判据）：成片恒有声
+    的模型收不到关闭音频的请求，放行只会让下面的无声判据把音色约束整批裁掉。该闸门与内容模式
+    无关，先于 drama 分支执行——narration/ad 也因此多付一次视频能力解析。
+
+    再取注入用的角色资产：非 drama 不注入；drama 按无声判据排除（C 类模型不产音、或本集关闭了
+    音频，两条路径同口径）。台词不受影响、照常下发。
     """
+    project = ctx.pm.load_project(ctx.project_name)
+    await assert_audio_switch_supported(project, video_bucket_for_generation_mode(project.get("generation_mode")))
     if content_mode != "drama":
         return None
-    project = ctx.pm.load_project(ctx.project_name)
     if await resolve_project_is_silent(project):
         return None
     return project.get("characters") or {}
@@ -538,6 +574,14 @@ async def _generate_reference_units(
                 completed.append(unit_id)
         elif unit_id in completed:
             completed.remove(unit_id)
+
+    await _assert_audio_switch_for_units(
+        project=project,
+        units=units,
+        skip_ids=set(already_done),
+        spec_for=spec_for,
+        ad_shots_for=ad_shots_for,
+    )
 
     if not confirm_duration:
         pending = await _pending_duration_confirmations(
@@ -903,7 +947,7 @@ def generate_video_episode_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(items, id_field, completed, videos_dir)
-            voice_characters = await _resolve_voice_characters(ctx, content_mode)
+            voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=items,
                 id_field=id_field,
@@ -1017,7 +1061,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                 raise FileNotFoundError(f"分镜图不存在: {storyboard_path}")
 
             content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
-            voice_characters = await _resolve_voice_characters(ctx, content_mode)
+            voice_characters = await _resolve_voice_context(ctx, content_mode)
             prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
             # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
             # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
@@ -1103,7 +1147,7 @@ def generate_video_all_tool(ctx: ToolContext):
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
 
-            voice_characters = await _resolve_voice_characters(ctx, content_mode)
+            voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, _order_map = _build_video_specs(
                 items=pending,
                 id_field=id_field,
@@ -1247,7 +1291,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(selected, id_field, completed, videos_dir)
-            voice_characters = await _resolve_voice_characters(ctx, content_mode)
+            voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=selected,
                 id_field=id_field,

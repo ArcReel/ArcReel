@@ -79,6 +79,23 @@ def model_has_audio_track(provider_id: str, model_info: ModelInfo) -> bool:
     return "generate_audio" in model_info.capabilities or provider_id in _ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS
 
 
+def model_audio_switch_controllable(model_info: ModelInfo) -> bool:
+    """请求参数能否控制该视频 model 的音轨开关（即 `generate_audio` token 的字面语义）。
+
+    与 :func:`model_has_audio_track` 共同构成音轨的两位描述：可控 → 用户的开关有效；不可控
+    时再看有无音轨，区分「恒有声」与「恒无声」。设置界面的开关禁用态与入队前的无声请求校验
+    都读这两位，不各自解读 token。
+    """
+    if model_info.media_type != "video":
+        return False
+    return "generate_audio" in model_info.capabilities
+
+
+def model_audio_always_on(provider_id: str, model_info: ModelInfo) -> bool:
+    """成片恒有声且开关不可控——请求里没有可下发的音轨开关，关闭音频的意图必然落空。"""
+    return model_has_audio_track(provider_id, model_info) and not model_audio_switch_controllable(model_info)
+
+
 # 合法并发 lane 名，与 CapacityTable 的 image/video/audio 三条容量通道对齐。
 _VALID_LANES = frozenset({"image", "video", "audio"})
 

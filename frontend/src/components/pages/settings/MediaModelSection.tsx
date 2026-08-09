@@ -19,6 +19,7 @@ import {
 } from "@/components/shared/LayeredModelFields";
 import { TextTierFields } from "@/components/shared/TextTierFields";
 import { VideoModelSpecBar, videoOptionMetaRenderer } from "@/components/shared/VideoModelSpecBar";
+import { InlineWarning } from "@/components/ui/InlineWarning";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
@@ -32,6 +33,7 @@ import {
   getProviderModels,
   lookupCatalogVideoAudio,
   lookupResolutions,
+  lookupVideoAudioControl,
 } from "@/utils/provider-models";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { ProviderInfo } from "@/types/provider";
@@ -212,6 +214,10 @@ export function MediaModelSection() {
   const videoSpecTier = currentVideo
     ? (lookupCatalogVideoAudio(providers, currentVideo)?.voiceConsistency ?? null)
     : null;
+  // 音频勾选框按全局默认视频模型的开关可控性判定：恒有声 / 恒无声的模型收不到音轨开关，
+  // 置灰并展示成片的实际音轨状态；存量的「关闭」由警告给一键修正入口，不静默改写配置。
+  const audioControl = currentVideo ? lookupVideoAudioControl(providers, currentVideo) : null;
+  const audioLocked = audioControl === "always_on" || audioControl === "always_off";
   const videoSpecDurations = currentVideo ? catalogDurations(providers, customProviders, currentVideo) : null;
   const videoSpecResolutions = currentVideo
     ? lookupResolutions(providers, currentVideo, customProviders, endpointToMediaType).options
@@ -292,21 +298,47 @@ export function MediaModelSection() {
           emptyHint(t("no_video_providers_hint"))
         )}
 
-        <div className="mt-4 flex items-start gap-2.5 text-[12.5px] text-text-2">
+        <div
+          className={`mt-4 flex items-start gap-2.5 text-[12.5px] ${
+            audioLocked ? "text-text-4" : "text-text-2"
+          }`}
+        >
           <input
             id="media-generate-audio"
             type="checkbox"
-            checked={currentAudio}
+            checked={audioLocked ? audioControl === "always_on" : currentAudio}
+            disabled={audioLocked}
             onChange={(e) =>
               setDraft((prev) => ({ ...prev, video_generate_audio: e.target.checked }))
             }
-            className="mt-0.5 h-3.5 w-3.5 cursor-pointer rounded border-hairline bg-bg-grad-a accent-[var(--color-accent)]"
+            className="mt-0.5 h-3.5 w-3.5 rounded border-hairline bg-bg-grad-a accent-[var(--color-accent)] disabled:cursor-not-allowed enabled:cursor-pointer"
           />
-          <label htmlFor="media-generate-audio" className="flex cursor-pointer flex-col">
+          <label
+            htmlFor="media-generate-audio"
+            className={`flex flex-col ${audioLocked ? "cursor-not-allowed" : "cursor-pointer"}`}
+          >
             <span>{t("generate_audio")}</span>
-            <span className="text-[11px] text-text-4">{t("audio_support_hint")}</span>
+            <span className="text-[11px] text-text-4">
+              {audioLocked
+                ? t(
+                    audioControl === "always_on"
+                      ? "audio_switch_locked_always_on"
+                      : "audio_switch_locked_always_off",
+                  )
+                : t("audio_support_hint")}
+            </span>
           </label>
         </div>
+        {audioControl === "always_on" && !currentAudio && (
+          <InlineWarning
+            className="mt-2"
+            message={t("audio_switch_conflict_notice")}
+            action={{
+              label: t("audio_switch_conflict_action"),
+              onClick: () => setDraft((prev) => ({ ...prev, video_generate_audio: true })),
+            }}
+          />
+        )}
       </SectionCard>
 
       {/* Image */}

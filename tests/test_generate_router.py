@@ -126,6 +126,8 @@ def _client(monkeypatch, fake_pm, fake_queue):
     # 视频桶预检需要 DB（system_settings）；router 单测无 DB，能力闸行为由
     # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
     monkeypatch.setattr(generate, "require_video_bucket_capability", _noop_bucket_precheck)
+    # 音频开关预检同理，行为由 test_validators_audio_switch 覆盖
+    monkeypatch.setattr(generate, "require_audio_switch_supported", _noop_bucket_precheck)
 
     app = FastAPI()
     register_error_handlers(app)
@@ -224,6 +226,33 @@ class TestGenerateRouter:
         assert res.status_code == 400
         assert res.json()["detail"] == i18n_message(
             "video_capability_missing_i2v", provider="dashscope", model="happyhorse-1.0-r2v"
+        )
+        assert fake_queue.calls == []
+
+    @pytest.mark.unit
+    def test_video_enqueue_rejected_when_audio_switch_unsupported(self, tmp_path, monkeypatch):
+        """恒有声模型遇到「关闭音频」的配置 → 提交入口 400，不入队（无声裁剪不得带着不可能实现的意图执行）。"""
+        from lib.api_errors import BadRequestError
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        async def _reject(project, capability):
+            assert capability == "i2v"
+            raise BadRequestError("video_audio_switch_not_supported", provider="dashscope", model="wan2.7-i2v")
+
+        monkeypatch.setattr(generate, "require_audio_switch_supported", _reject)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+        assert res.status_code == 400
+        assert res.json()["detail"] == i18n_message(
+            "video_audio_switch_not_supported", provider="dashscope", model="wan2.7-i2v"
         )
         assert fake_queue.calls == []
 

@@ -39,7 +39,7 @@ from lib.version_manager import VersionManager
 from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
 from server.routers._reorder import full_permutation_error
-from server.routers._validators import require_video_bucket_capability
+from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
 from server.services.generation_tasks import emit_generation_success_batch
 from server.services.reference_video_tasks import (
     _finalize_reference_video_unit,
@@ -547,7 +547,9 @@ async def generate_unit(
     # 退化镜头降级 → i2v。ad 按水合后的成员镜头现算参考集（与执行侧同源），其余按 unit
     # 声明的 references 近似（执行层按解析后的实际图独立判定）；解析闸让能力缺失 / 悬空
     # 引用在提交入口即返回修复指引，而非任务面板里的异步失败。
-    await require_video_bucket_capability(project, reference_unit_video_bucket(unit, ad_shots=unit_shots))
+    _video_bucket = reference_unit_video_bucket(unit, ad_shots=unit_shots)
+    await require_video_bucket_capability(project, _video_bucket)
+    await require_audio_switch_supported(project, _video_bucket)
 
     queue = get_generation_queue()
     result = await queue.enqueue_task(

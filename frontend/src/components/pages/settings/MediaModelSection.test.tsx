@@ -180,6 +180,70 @@ describe("MediaModelSection", () => {
     );
   });
 
+  describe("音频勾选框的模型可控性", () => {
+    function mockProviders(hasAudioTrack: boolean, controllable: boolean) {
+      vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+        {
+          id: "gemini",
+          display_name: "Gemini",
+          description: "",
+          status: "ready",
+          media_types: ["video"],
+          capabilities: [],
+          configured_keys: [],
+          missing_keys: [],
+          models: {
+            "veo-3": {
+              display_name: "Veo 3",
+              media_type: "video",
+              capabilities: [],
+              default: true,
+              supported_durations: [8],
+              duration_resolution_constraints: {},
+              resolutions: [],
+              has_audio_track: hasAudioTrack,
+              audio_switch_controllable: controllable,
+              voice_consistency: hasAudioTrack ? "soft" : "none",
+            },
+          },
+        },
+      ]);
+    }
+
+    it("keeps the checkbox interactive for a model whose audio track is controllable", async () => {
+      mockProviders(true, true);
+      render(<MediaModelSection />);
+      const box = await screen.findByRole("checkbox", { name: /生成音频/ });
+      expect(box).toBeEnabled();
+    });
+
+    it("locks the checkbox on an always-audible model and offers a one-click fix for a stored off setting", async () => {
+      const user = userEvent.setup();
+      mockProviders(true, false);
+      render(<MediaModelSection />);
+      const box = await screen.findByRole("checkbox", { name: /生成音频/ });
+      expect(box).toBeDisabled();
+      expect(box).toBeChecked();
+      expect(screen.getByText(/始终带声音/)).toBeInTheDocument();
+
+      const patch = vi
+        .spyOn(API, "updateSystemConfig")
+        .mockResolvedValue(CONFIG as unknown as Awaited<ReturnType<typeof API.updateSystemConfig>>);
+      await user.click(screen.getByRole("button", { name: "改为开启" }));
+      await user.click(screen.getByRole("button", { name: /保存|Save/ }));
+      await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_generate_audio: true }));
+    });
+
+    it("locks the checkbox on a model without an audio track", async () => {
+      mockProviders(false, false);
+      render(<MediaModelSection />);
+      const box = await screen.findByRole("checkbox", { name: /生成音频/ });
+      expect(box).toBeDisabled();
+      expect(box).not.toBeChecked();
+      expect(screen.getByText(/没有声音/)).toBeInTheDocument();
+    });
+  });
+
   it("auto-expands a channel whose sub-field is already configured", async () => {
     mockConfig({ default_image_backend_i2i: "openai/gpt-image-edit" });
     const { container } = render(<MediaModelSection />);

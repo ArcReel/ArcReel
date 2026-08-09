@@ -58,6 +58,7 @@ MESSAGES = {
     "generate_storyboard_first": "请先生成分镜图 scene_{segment_id}.png",
     "video_route_is_reference_video": "该项目是参考生视频路线，没有分镜图生视频这一步；请在参考生视频编辑器里按视频单元生成",
     "invalid_storyboard_image_path": "片段「{segment_id}」的分镜图引用无效，请重新生成分镜图",
+    "video_audio_switch_not_supported": "{provider}/{model} 的成片恒有声，无法关闭音频；请在设置中把音频开关改回开启后重试",
     "video_prompt_must_be_string_or_action_object": "prompt 必须是字符串或包含 action/camera_motion 的对象",
     "video_prompt_action_empty": "prompt.action 不能为空",
     "video_prompt_dialogue_array": "prompt.dialogue 必须是数组",

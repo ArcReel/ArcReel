@@ -21,7 +21,7 @@ from starlette.responses import Response
 
 from lib.app_data_dir import app_data_dir
 from lib.backend_assembly.specs import get_provider_spec
-from lib.config.registry import PROVIDER_REGISTRY, model_has_audio_track
+from lib.config.registry import PROVIDER_REGISTRY, model_audio_switch_controllable, model_has_audio_track
 from lib.config.repository import mask_secret
 from lib.config.resolver import VoiceConsistency, derive_voice_consistency
 from lib.config.service import ConfigService, ProviderConfigValueError
@@ -82,6 +82,10 @@ class ModelInfoResponse(BaseModel):
     # 视频 model 是否带音轨（非视频 model 恒 False）。不等于「音轨开关可控」——generate_audio
     # token 语义见 lib.config.registry.model_has_audio_track。供前端下拉选项的能力线渲染。
     has_audio_track: bool = False
+    # 请求参数能否控制该 model 的音轨开关（非视频 model 恒 False）。与 has_audio_track 合起来
+    # 分出可控 / 恒有声 / 恒无声三态，供设置页决定音频开关是否可交互；派生走
+    # lib.config.registry.model_audio_switch_controllable，前端不解读 capabilities token。
+    audio_switch_controllable: bool = False
     # 无项目上下文（全局设置「模型选择」）下的声音一致性档位：generation_mode 未知，故按非参考
     # 生视频路径派生，native 恒降格。派生走 lib.config.resolver.derive_voice_consistency 这唯一
     # 一处公式，前端只读枚举。有项目上下文时改用 /projects/{name}/video-capabilities（同一函数、
@@ -377,6 +381,9 @@ async def list_providers(
             models[mid] = ModelInfoResponse(
                 **minfo,
                 has_audio_track=has_audio_track,
+                audio_switch_controllable=(
+                    model_audio_switch_controllable(model_info) if model_info is not None else False
+                ),
                 # generation_mode=None：目录端点无项目上下文，按非参考生视频路径派生。
                 voice_consistency=derive_voice_consistency(
                     reference_audio_mode=reference_audio_mode,

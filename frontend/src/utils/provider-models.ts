@@ -89,6 +89,37 @@ export function lookupCatalogVideoAudio(
   return { hasAudioTrack: model.has_audio_track, voiceConsistency: model.voice_consistency };
 }
 
+/**
+ * 音频开关对该模型的可控性：可控 / 恒有声 / 恒无声。
+ *
+ * 两位声明都由服务端派生（`audio_switch_controllable` 与 `has_audio_track`），前端只做三态
+ * 归并，不解读 capabilities token。恒有声与恒无声的成片音轨不随开关变化，设置界面据此禁用
+ * 开关——否则用户的关闭意图到不了供应商，却会让编排层按无声裁掉全部音色约束。
+ */
+export type VideoAudioControl = "controllable" | "always_on" | "always_off";
+
+/**
+ * 查该 `provider/model` 的音频开关可控性；查不到模型返回 null（调用方按可控处理，不收紧）。
+ *
+ * 自定义供应商目录无逐模型音轨声明，与服务端 `_resolve_video_caps_for_model` 同口径按「无
+ * 信号不收紧」处理，保持开关可控。
+ */
+export function lookupVideoAudioControl(
+  providers: ProviderInfo[],
+  videoBackend: string,
+): VideoAudioControl | null {
+  const slashIdx = videoBackend.indexOf("/");
+  if (slashIdx === -1) return null;
+  const providerId = videoBackend.slice(0, slashIdx);
+  if (providerId.startsWith(CUSTOM_PREFIX)) return "controllable";
+
+  const provider = providers.find((p) => p.id === providerId);
+  const model = provider?.models?.[videoBackend.slice(slashIdx + 1)];
+  if (!model) return null;
+  if (model.audio_switch_controllable) return "controllable";
+  return model.has_audio_track ? "always_on" : "always_off";
+}
+
 // ---------------------------------------------------------------------------
 // Duration constraints
 //

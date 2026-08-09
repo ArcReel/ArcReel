@@ -6,7 +6,7 @@ import {
   durationOutOfRangeReason,
   useModelCapabilities,
 } from "@/hooks/useModelCapabilities";
-import { lookupCatalogVideoAudio, lookupResolutions } from "@/utils/provider-models";
+import { lookupCatalogVideoAudio, lookupResolutions, lookupVideoAudioControl } from "@/utils/provider-models";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
 import {
@@ -262,6 +262,22 @@ export function ModelConfigSection({
     ? voiceConsistency
     : (lookupCatalogVideoAudio(providers, executingVideo)?.voiceConsistency ?? null);
 
+  // 音频开关按执行模型的可控性判定：恒有声 / 恒无声的模型收不到音轨开关，置灰并展示成片的
+  // 实际音轨状态（而非存量配置值），存量的「关闭」由下方警告给一键修正入口，不静默改写配置。
+  const audioControl = lookupVideoAudioControl(providers, executingVideo);
+  const audioLocked = audioControl === "always_on" || audioControl === "always_off";
+  const audioDisplayValue = audioLocked
+    ? audioControl === "always_on"
+    : (videoGenerateAudio ?? null);
+  const audioLockedHint = audioLocked
+    ? t(
+        audioControl === "always_on"
+          ? "dashboard:audio_switch_locked_always_on"
+          : "dashboard:audio_switch_locked_always_off",
+      )
+    : null;
+  const audioConflict = audioControl === "always_on" && videoGenerateAudio === false;
+
   const videoResolutionOptions = lookupResolutions(
     providers,
     executingVideo,
@@ -403,7 +419,7 @@ export function ModelConfigSection({
               <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
                 {t("dashboard:generate_audio_label")}
               </div>
-              <fieldset className="flex flex-wrap gap-x-5 gap-y-2">
+              <fieldset className="flex flex-wrap gap-x-5 gap-y-2" disabled={audioLocked}>
                 <legend className="sr-only">{t("dashboard:audio_settings_sr_label")}</legend>
                 {(
                   [
@@ -414,12 +430,14 @@ export function ModelConfigSection({
                 ).map(([val, label]) => (
                   <label
                     key={String(val)}
-                    className="inline-flex items-center gap-2 text-[12.5px] text-text-2"
+                    className={`inline-flex items-center gap-2 text-[12.5px] ${
+                      audioLocked ? "text-text-4" : "text-text-2"
+                    }`}
                   >
                     <input
                       type="radio"
                       name={generateAudioName}
-                      checked={(videoGenerateAudio ?? null) === val}
+                      checked={audioDisplayValue === val}
                       onChange={() => onVideoGenerateAudioChange(val)}
                       className="accent-[oklch(0.76_0.09_295)]"
                     />
@@ -427,6 +445,19 @@ export function ModelConfigSection({
                   </label>
                 ))}
               </fieldset>
+              {audioLockedHint && (
+                <p className="mt-1.5 text-[11px] leading-[1.5] text-text-4">{audioLockedHint}</p>
+              )}
+              {audioConflict && (
+                <InlineWarning
+                  className="mt-2"
+                  message={t("dashboard:audio_switch_conflict_notice")}
+                  action={{
+                    label: t("dashboard:audio_switch_conflict_action"),
+                    onClick: () => onVideoGenerateAudioChange(true),
+                  }}
+                />
+              )}
             </div>
           )}
           </LayeredModelFields>
