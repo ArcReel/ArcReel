@@ -180,6 +180,20 @@ async def test_rejection_leaves_no_new_session_behind(branching):
     assert origin.superseded_by is None
 
 
+async def test_second_branch_of_the_same_origin_is_refused(branching):
+    """已被取代的会话再分叉即冲突：首个指针不被覆盖，冲突分支也不留下会话行。"""
+    service, meta_store, _, _, session_id, _ = branching
+    first = await service.branch(session_id, SECOND_USER_ENTRY)
+
+    with pytest.raises(SessionBranchError):
+        await service.branch(session_id, FIRST_USER_ENTRY)
+
+    origin = await meta_store.get(session_id)
+    assert origin is not None
+    assert origin.superseded_by == first.session_id
+    assert {meta.id for meta in await meta_store.list(project_name=PROJECT_NAME)} == {first.session_id}
+
+
 async def test_branching_requires_the_db_transcript_store(session_factory, tmp_path):
     """ARCREEL_SDK_SESSION_STORE=off 时没有可复制的镜像，拒绝而非静默产出空会话。"""
     service = SessionBranchService(

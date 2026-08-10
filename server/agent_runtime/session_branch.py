@@ -94,9 +94,12 @@ class SessionBranchService:
                 f"anchor {anchor_user_entry_uuid} is not a user message of session {session_id}: {exc}"
             ) from exc
 
-        # 先建新会话行再落指针，指针任何时刻都指向已存在的会话。
+        # 先建新会话行再落指针，指针任何时刻都指向已存在的会话；落指针失败
+        # （原会话已被另一次分叉取代）时撤回新会话行，不留孤立会话。
         await self._meta_store.create(meta.project_name, new_session_id)
-        await self._meta_store.mark_superseded(session_id, new_session_id)
+        if not await self._meta_store.mark_superseded(session_id, new_session_id):
+            await self._meta_store.delete(new_session_id)
+            raise SessionBranchError(f"session {session_id} has already been superseded by another branch")
 
         logger.info(
             "branch session: origin=%s new=%s entries=%d subagents=%d",

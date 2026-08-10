@@ -83,10 +83,11 @@ class SessionRepository(BaseRepository):
         return rowcount(result) > 0
 
     async def mark_superseded(self, session_id: str, superseded_by: str) -> bool:
+        """标记会话已被取代；已有指针时不改写，返回 False 让调用方按分叉冲突处理。"""
         now = utc_now()
         result = await self.session.execute(
             update(AgentSession)
-            .where(AgentSession.sdk_session_id == session_id)
+            .where(AgentSession.sdk_session_id == session_id, AgentSession.superseded_by.is_(None))
             .values(superseded_by=superseded_by, updated_at=now)
         )
         await self.session.commit()
