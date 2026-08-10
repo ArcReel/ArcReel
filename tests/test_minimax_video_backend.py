@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -330,14 +331,19 @@ class TestH3V2Payload:
         assert payload["ratio"] == "adaptive"
 
     def test_r2v_reference_images_and_audio_keep_order(self, tmp_path):
+        # role/type 断言之外逐项比对 data URI：素材顺序即 prompt 里「音频N」等指认编号的依据，
+        # 集合/全量断言不会捕获反转，需按内容钉死输入与条目的对应关系。
         refs = [_png(tmp_path / f"ref{i}.png") for i in range(3)]
         audios = [_wav(tmp_path / f"a{i}.wav") for i in range(2)]
         payload = _h3()._build_payload(_request(tmp_path, reference_images=refs, reference_audio_files=audios))
         items = payload["content"]
         assert [item["type"] for item in items] == ["text"] + ["image_url"] * 3 + ["audio_url"] * 2
-        assert {item.get("role") for item in items[1:4]} == {"reference_image"}
-        assert all(item["role"] == "reference_audio" for item in items[4:])
-        assert items[4]["audio_url"]["url"].startswith("data:audio/wav;base64,")
+        assert [item["role"] for item in items[1:4]] == ["reference_image"] * 3
+        assert [item["role"] for item in items[4:]] == ["reference_audio"] * 2
+        expected_images = [f"data:image/png;base64,{base64.b64encode(p.read_bytes()).decode()}" for p in refs]
+        assert [item["image_url"]["url"] for item in items[1:4]] == expected_images
+        expected_audios = [f"data:audio/wav;base64,{base64.b64encode(p.read_bytes()).decode()}" for p in audios]
+        assert [item["audio_url"]["url"] for item in items[4:]] == expected_audios
 
     def test_frames_and_references_are_mutually_exclusive(self, tmp_path):
         with pytest.raises(VideoCapabilityError) as exc:

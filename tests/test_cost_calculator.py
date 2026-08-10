@@ -78,6 +78,16 @@ class TestVideoCost:
         assert video(8, "1080p", False, model=preview) == pytest.approx(1.6)
         assert video(8, "1080p", True, model=fast_preview) == pytest.approx(0.96)
 
+    def test_minimax_h3_resolution_omitted_settles_at_768p(self):
+        # H3 项目留 Auto（resolution=None）时，_build_v2_payload 实际下发 768P；结算须跟随
+        # 同一默认（0.50 元/s），而非 resolution_only 的通用 720P 回落——H3 未登记 720P 档，
+        # 落空会把 resolution=None 的调用错误结算为 ¥0（见 default_resolution 声明）。
+        amount, currency = _cost("minimax", "video", duration_seconds=8, resolution=None, model="MiniMax-H3")
+        assert currency == "CNY"
+        assert amount == pytest.approx(4.0)
+        amount_2k, _ = _cost("minimax", "video", duration_seconds=8, resolution="2k", model="MiniMax-H3")
+        assert amount_2k == pytest.approx(6.4)
+
     def test_singleton_instance(self):
         assert isinstance(cost_calculator, CostCalculator)
 

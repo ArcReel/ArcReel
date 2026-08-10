@@ -23,6 +23,7 @@ import base64
 import logging
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -334,12 +335,16 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         duration = request.duration_seconds
         resolutions, durations = self._v2_output_specs()
         if resolution not in resolutions or duration not in durations:
+            # v2 的分辨率与时长是两个独立集合（不像 v1 按分辨率给时长），越界可能来自任一维度；
+            # supported 一并列出两维，避免「该分辨率下不支持 Ns」读成分辨率本身合法。
+            supported_resolutions = ", ".join(sorted(r.upper() for r in resolutions))
+            supported_durations = ", ".join(f"{d}s" for d in sorted(durations))
             raise VideoCapabilityError(
                 "video_resolution_duration_unsupported",
                 model=self._model,
                 resolution=resolution.upper(),
                 duration=duration,
-                supported=", ".join(f"{d}s" for d in sorted(durations)),
+                supported=f"{supported_resolutions} × {supported_durations}",
             )
 
         start_image = self._existing_path(request.start_image)
@@ -444,11 +449,12 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         return extract_minimax_video_task_id(resp.json())
 
     async def _poll_query(self, client: httpx.AsyncClient, task_id: str) -> dict:
-        # v2 把 task_id 放路径段，v1 放 query string。
+        # v2 把 task_id 放路径段，v1 放 query string。task_id 来自上游响应/持久化记录，
+        # 非本地生成的受控值，编码后再拼入路径段，避免被改写指向非预期端点。
         url = f"{self._base_url}{_QUERY_ENDPOINT}"
         params = None if self._is_v2 else {"task_id": task_id}
         if self._is_v2:
-            url = f"{url}/{task_id}"
+            url = f"{url}/{quote(task_id, safe='')}"
         resp = await client.get(url, params=params, headers=minimax_headers(self._api_key))
         resp.raise_for_status()
         return resp.json()
