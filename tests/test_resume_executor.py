@@ -410,6 +410,20 @@ async def test_resume_replays_submitted_base_url_for_builtin(monkeypatch, fake_p
 
 
 @pytest.mark.asyncio
+async def test_resume_replays_submitted_base_url_with_uppercase_scheme(monkeypatch, fake_pm, video_task):
+    """域名形态判别不区分 scheme 大小写：用户填的 base_url 原样落库，大写 scheme 同样是域名。"""
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint=None)
+
+    task = {**video_task, "provider_id": "dashscope", "provider_endpoint": "HTTPS://maas-a.example.com/ws-1/api/v1"}
+    await execute_resume_video_task(task, job_id="dashscope-job-1")
+
+    assert fake_gen.resume_calls[0]["submitted_base_url"] == "HTTPS://maas-a.example.com/ws-1/api/v1"
+
+
+@pytest.mark.asyncio
 async def test_resume_does_not_replay_endpoint_id_for_custom(monkeypatch, fake_pm, video_task):
     """自定义供应商：列里是 endpoint 标识、归比对闸消费，不当域名回放。"""
     from server.services.resume_executor import execute_resume_video_task

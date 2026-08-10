@@ -61,7 +61,7 @@ def _submitted_base_url(task: dict[str, Any], current_endpoint: str | None) -> s
     if current_endpoint:
         return None
     submitted = task.get("provider_endpoint")
-    if isinstance(submitted, str) and submitted.startswith(("http://", "https://")):
+    if isinstance(submitted, str) and submitted.lower().startswith(("http://", "https://")):
         return submitted
     return None
 
