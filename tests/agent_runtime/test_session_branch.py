@@ -199,6 +199,19 @@ async def test_second_branch_of_the_same_origin_is_refused(branching):
     assert {row["session_id"] for row in await store.list_sessions(project_key)} == sessions_before
 
 
+async def test_deleting_the_branch_brings_the_origin_back_to_the_list(branching):
+    """删掉分支会话后原会话必须回到列表——否则它会带着一个指向不存在会话的指针永久消失。"""
+    service, meta_store, _, _, session_id, _ = branching
+    branched = await service.branch(session_id, SECOND_USER_ENTRY)
+
+    assert await meta_store.delete(branched.session_id)
+
+    origin = await meta_store.get(session_id)
+    assert origin is not None
+    assert origin.superseded_by is None
+    assert {meta.id for meta in await meta_store.list(project_name=PROJECT_NAME)} == {session_id}
+
+
 class _StoreGone(Exception):
     """store 在复制途中失联。"""
 
