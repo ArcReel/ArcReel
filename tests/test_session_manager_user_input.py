@@ -8,7 +8,7 @@ import pytest
 
 from server.agent_runtime.event_log import REPLAYED_USER_ECHO_ENTRY_UUID_KEY, REPLAYED_USER_ECHO_KEY
 from server.agent_runtime.message_serialization import PendingUserEcho, match_user_echo, message_to_dict
-from server.agent_runtime.session_manager import SDK_AVAILABLE
+from server.agent_runtime.session_manager import SDK_AVAILABLE, AgentStartupError
 from tests.fakes import build_managed_with_actor
 
 pytestmark = pytest.mark.unit
@@ -191,14 +191,20 @@ class TestSessionManagerUserInput:
             await session_manager.close_session(meta.id)
 
         assert session_manager.unclaimed_user_echoes == 1
+        assert managed.pending_user_echoes == [], "记账之后队列要排空，不能只计数"
         unclaimed = [r for r in caplog.records if "unclaimed" in r.getMessage()]
         assert len(unclaimed) == 1
         assert getattr(unclaimed[0], "reason") == "session evicted"
 
     async def test_failed_new_session_startup_does_not_count_as_unclaimed(
-        self, session_manager, meta_store, monkeypatch, caplog
+        self, session_manager, meta_store, monkeypatch, caplog, tmp_path
     ):
         """新会话没建起来，回放副本不会抵达：启动失败不计入认领失败、不产生告警。"""
+        proj_dir = tmp_path / "projects" / "demo"
+        proj_dir.mkdir(parents=True)
+        (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
+
+        seen_commands: list[str] = []
 
         class _FakeActor:
             def __init__(self, *_, on_message=None, client_factory=None):
@@ -211,7 +217,9 @@ class TestSessionManagerUserInput:
                 pass
 
             async def enqueue(self, cmd):
-                cmd.error = RuntimeError("SDK 拒绝了这次投递")
+                seen_commands.append(cmd.type)
+                if cmd.type == "query":
+                    cmd.error = RuntimeError("SDK 拒绝了这次投递")
                 cmd.sent.set()
                 cmd.done.set()
 
@@ -226,9 +234,10 @@ class TestSessionManagerUserInput:
         monkeypatch.setattr(type(session_manager), "_ensure_capacity", AsyncMock(return_value=None))
 
         with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
-            with pytest.raises(Exception):
+            with pytest.raises(AgentStartupError, match="SDK 拒绝了这次投递"):
                 await session_manager.send_new_session("demo", "你好")
 
+        assert "query" in seen_commands, "投递失败要发生在 query 命令上，而非更早的装配阶段"
         assert session_manager.unclaimed_user_echoes == 0
         assert not [r for r in caplog.records if "unclaimed" in r.getMessage()]
 

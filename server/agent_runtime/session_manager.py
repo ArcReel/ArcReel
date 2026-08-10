@@ -653,10 +653,6 @@ class SessionManager:
             finish naturally), then belt-and-suspenders cancels the processor
             in case it is stuck elsewhere.
             """
-            # 新会话没建起来，SDK 不会回放刚登记的那条用户消息，登记不是认领
-            # 失败。在漏斗里清掉，_drain_pending_user_echoes 的告警语义便按构造
-            # 成立，不依赖拆解途中各处状态写入的先后。
-            managed.pending_user_echoes.clear()
             self.sessions.pop(temp_id, None)
             # sdk_session_id 就绪后 key swap 已把会话挂到正式 id 下，两个键都清。
             self.sessions.pop(managed.session_id, None)
@@ -670,6 +666,10 @@ class SessionManager:
             if managed._process_task is not None and not managed._process_task.done():
                 managed._process_task.cancel()
                 await asyncio.gather(managed._process_task, return_exceptions=True)
+            # 清理排在断开与 inbox 消化之后：actor 在断开前仍可能回放刚登记的这条
+            # 消息，提前清掉会让回放认不出自己是副本，从而二次写入事件日志。走到
+            # 这里已无回放可言，残留的登记也就不是认领失败，直接清空不记账。
+            managed.pending_user_echoes.clear()
             startup_stderr.stop()
 
         # 登记待回放的用户消息标识：SDK 会回放刚发送消息的副本，写入点凭此
@@ -751,10 +751,8 @@ class SessionManager:
             # seq 0 缺失的会话开头永远无法呈现。与常规受理路径同语义——
             # 失败显式回报（调用方收到异常）、状态回写 error、会话不再后台
             # 续跑。先清理再回写状态：inbox 处理 result 时 _finalize_turn
-            # 会写终态，清理完成后写入的 error 才不会被并发覆盖。直接清空而不走
-            # _drain_pending_user_echoes：受理失败的消息不会有回放副本抵达，
-            # 这里的残留不是认领失败。
-            managed.pending_user_echoes.clear()
+            # 会写终态，清理完成后写入的 error 才不会被并发覆盖。回显登记留给
+            # _cleanup_on_error 在断开之后清，此刻 actor 仍可能回放。
             managed.cancel_pending_questions("initial user entry persist failed")
             # 提前置内存态为 error：_cleanup_on_error 取消 _process_task 时，
             # _process_inbox 的 CancelledError 分支会依据 status == "running"
