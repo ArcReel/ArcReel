@@ -1009,7 +1009,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         display_name="阿里百炼",
         description="阿里云百炼（Model Studio）全模态平台，支持 Qwen 文本、Qwen-Image / 万相图像与 HappyHorse / 万相视频（含参考生视频）。",
         required_keys=["api_key"],
-        # wan3_base_url：万相 3.0 公测期走独立 maas 域名，且域名里含地域与 workspace，
+        # wan3_base_url：万相 3.0 走独立 maas 域名，且域名里含地域与 workspace，
         # 无法由通用 base_url 派生，故单列一键。仅 wan3.0-video 的请求消费它（见
         # lib/video_backends/dashscope.py），留空则该模型回落通用 base_url。
         optional_keys=["base_url", "wan3_base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],

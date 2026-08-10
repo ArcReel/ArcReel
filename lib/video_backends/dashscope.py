@@ -162,7 +162,7 @@ def _is_wan3(model: str | None) -> bool:
     """识别 wan3.0 系列：它与其余型号在请求形态上有三处结构差异。
 
     一是单模型通吃文生/图生/参考生，参考图缺席是合法请求（其余带参考能力的型号都是 r2v
-    专用，无参考图即无输入）；二是音轨由请求参数控制而非恒开；三是公测期可走独立 maas 域名。
+    专用，无参考图即无输入）；二是音轨由请求参数控制而非恒开；三是可走独立 maas 域名。
     三处都按型号名分派，profile 表只承载 VideoCapabilities 声明。
     """
     return _WAN3_MODEL_KEY in (model or "").strip().lower()

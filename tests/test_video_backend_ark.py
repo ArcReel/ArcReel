@@ -556,6 +556,7 @@ class TestArkPollBudget:
             with pytest.raises(RuntimeError):
                 await backend._poll_until_done("task-1", request)
         assert poll.call_args.kwargs["max_wait"] == 3600
+        assert poll.call_args.kwargs["poll_interval"] == 60
 
     @pytest.mark.unit
     @pytest.mark.parametrize("model", ["doubao-seedance-2-0-260128", "doubao-seedance-2-5-260628"])
