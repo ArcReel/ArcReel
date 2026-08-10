@@ -9,6 +9,7 @@ from lib.db.models.credential import ProviderCredential
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.models.session import AgentSession
 from lib.db.models.session_event import AgentSessionEventLogEntry
+from lib.db.models.session_message_link import AgentSessionUserMessageLink
 from lib.db.models.task import Task, WorkerLease
 from lib.db.models.user import User
 
@@ -18,6 +19,7 @@ __all__ = [
     "ApiCall",
     "AgentSession",
     "AgentSessionEventLogEntry",
+    "AgentSessionUserMessageLink",
     "ApiKey",
     "ProviderConfig",
     "SystemSetting",

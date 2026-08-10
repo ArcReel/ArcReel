@@ -274,6 +274,28 @@ class TestNewSessionEventLogFlow:
         finally:
             await manager.close_session(SDK_ID)
 
+    async def test_replayed_echo_persists_user_message_identity_mapping(self, manager: SessionManager):
+        """回放副本被丢弃前先落映射：条目 uuid 可查回 transcript entry 身份。"""
+        client = FakeSDKClient(messages=_new_session_messages())
+        fake_options = SimpleNamespace(env=None)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            user_entry = build_user_entry([{"type": "text", "text": "帮我写分镜"}])
+            await manager.send_new_session("demo", "帮我写分镜", user_entry=user_entry)
+
+        entries = await _wait_for_entries(manager.event_log_store, SDK_ID, 4)
+        try:
+            # 时间线不变：回放副本仍未产生第二条 user 条目
+            assert [e["type"] for e in entries] == ["user", "assistant", "tool_result", "assistant"]
+            linked = await manager.event_log_store.find_user_message_link(SDK_ID, entries[0]["uuid"])
+            assert linked == "sdk-u1"
+        finally:
+            await manager.close_session(SDK_ID)
+
     async def test_sdk_error_becomes_one_turn_failure_event_with_raw_assistant_and_result(
         self,
         manager: SessionManager,
@@ -573,6 +595,34 @@ class TestNewSessionEventLogFlow:
             assert client.sent_queries == ["继续"]  # 未重复投递
             entries = await manager.event_log_store.list_after(SDK_ID)
             assert len(entries) == 1
+        finally:
+            await manager.close_session(SDK_ID)
+
+    async def test_send_message_links_user_entry_to_replayed_transcript_uuid(self, manager: SessionManager):
+        """已有会话续发同样落映射：受理条目 uuid ↔ SDK 回放副本的 transcript uuid。"""
+        meta = await manager.meta_store.create("demo", SDK_ID)
+        client = FakeSDKClient(
+            messages=[
+                {"type": "user", "content": "继续", "uuid": "sdk-u9", "session_id": SDK_ID},
+                {"type": "result", "subtype": "success", "session_id": SDK_ID, "uuid": "r-1"},
+            ]
+        )
+        fake_options = SimpleNamespace(env=None)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            user_entry = build_user_entry([{"type": "text", "text": "继续"}])
+            log_entry = await manager.send_message(SDK_ID, "继续", meta=meta, user_entry=user_entry)
+
+        try:
+            assert log_entry is not None
+            await _wait_for_status(manager, SDK_ID, "completed")
+            assert len(await manager.event_log_store.list_after(SDK_ID)) == 1
+            linked = await manager.event_log_store.find_user_message_link(SDK_ID, log_entry["uuid"])
+            assert linked == "sdk-u9"
         finally:
             await manager.close_session(SDK_ID)
 

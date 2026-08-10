@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.session_event import AgentSessionEventLogEntry
+from lib.db.models.session_message_link import AgentSessionUserMessageLink
 from server.agent_runtime.failure_observation import build_turn_failure_observation
 from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.message_serialization import utc_now_iso
@@ -77,6 +78,10 @@ _SQLITE_UNIQUE_ERRORNAMES = {"SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIM
 # 标记 SDK 回放的用户消息副本（POST 受理时已写日志），供写入点跳过。
 # 只存活在进程内消息 dict 上，不落任何持久化层。
 REPLAYED_USER_ECHO_KEY = "_replayed_user_echo"
+
+# 随回放副本捎带的事件日志用户条目 uuid：写入点据此把「服务端消息 id ↔ SDK
+# transcript entry uuid」写入映射表。与上一个键同为进程内标记，不入条目 payload。
+REPLAYED_USER_ECHO_ENTRY_UUID_KEY = "_replayed_user_echo_entry_uuid"
 
 
 def _extract_parent(message: dict[str, Any]) -> str | None:
@@ -726,10 +731,54 @@ class EventLogStore:
             )
             await session.commit()
 
+    async def record_user_message_link(
+        self,
+        session_id: str,
+        user_entry_uuid: str,
+        sdk_entry_uuid: str,
+    ) -> None:
+        """记录用户消息条目 ↔ SDK transcript entry 的身份映射（幂等）。
+
+        同一条目重复记录（回放副本被二次处理）不产生第二行，也不改写既有映射：
+        transcript entry 身份一旦确定就不再变化，首次写入即权威。
+        """
+        now_dt = utc_now()
+        try:
+            async with self._session_factory() as session:
+                session.add(
+                    AgentSessionUserMessageLink(
+                        session_id=session_id,
+                        user_entry_uuid=user_entry_uuid,
+                        sdk_entry_uuid=sdk_entry_uuid,
+                        user_id=self._user_id,
+                        created_at=now_dt,
+                        updated_at=now_dt,
+                    )
+                )
+                await session.commit()
+        except IntegrityError as exc:
+            if not _is_unique_violation(exc):
+                raise
+
+    async def find_user_message_link(self, session_id: str, user_entry_uuid: str) -> str | None:
+        """按事件日志用户条目 uuid 查回 SDK transcript entry uuid；无映射返回 None。"""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(AgentSessionUserMessageLink.sdk_entry_uuid).where(
+                    AgentSessionUserMessageLink.session_id == session_id,
+                    AgentSessionUserMessageLink.user_entry_uuid == user_entry_uuid,
+                )
+            )
+            row = result.first()
+        return str(row.sdk_entry_uuid) if row is not None else None
+
     async def delete_session(self, session_id: str) -> None:
         async with self._session_factory() as session:
             await session.execute(
                 sa_delete(AgentSessionEventLogEntry).where(AgentSessionEventLogEntry.session_id == session_id)
+            )
+            await session.execute(
+                sa_delete(AgentSessionUserMessageLink).where(AgentSessionUserMessageLink.session_id == session_id)
             )
             await session.commit()
 
