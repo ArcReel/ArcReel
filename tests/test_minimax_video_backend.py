@@ -115,6 +115,18 @@ class TestConstructionAndCapabilities:
         assert "content" in payload  # v2 payload 形态，v1 是扁平 dict 无此键
         assert b.video_capabilities.max_reference_images == 9
 
+    @pytest.mark.parametrize("model", ["minimax-h3", "MINIMAX-H3", "proxy/minimax-h3"])
+    def test_h3_output_specs_use_canonical_registry_lookup(self, model):
+        # self._model 可能是大小写/命名空间变体，字面值查 registry 会 miss；_v2_output_specs
+        # 须归一化到 canonical "MiniMax-H3" 再查，否则变体会悄悄回落到硬编码兜底常量，脱离
+        # registry 声明的时长/分辨率范围（即便当前兜底常量与 registry 声明恰好同值，也不能
+        # 依赖这种巧合——registry 改动时兜底不会跟着变）。
+        with patch("lib.video_backends.minimax.model_info_for") as mock_lookup:
+            mock_lookup.return_value = None
+            b = _backend(model)
+            b._v2_output_specs()
+        assert mock_lookup.call_args.args[1] == "MiniMax-H3"
+
 
 class TestPayloadAndCapabilityGating:
     def test_fast_t2v_rejected(self, tmp_path):

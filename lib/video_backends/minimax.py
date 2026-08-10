@@ -405,10 +405,13 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         """本模型允许的（分辨率档，时长集合），取自 registry 声明。
 
         registry 是这两项的真相源，前端下拉门控读的也是它——两处若各写一份，改档位时必然漂移。
-        只有型号未登记（中转站自定义命名）才回落兜底常量；已登记但声明为空即视为不放行，
-        与 gemini backend 同口径：空声明是配置事实，不该被兜底悄悄补全。
+        本方法只在 `_is_v2`（即 `_is_h3_model` 判真）时被调用，故一律按 canonical 名 `_H3`
+        查 registry——self._model 可能是中转站发现的大小写/命名空间变体，字面值不一定与
+        registry key 一致，用它直接查会把已注册的 H3 误判成未登记而回落兜底常量，让变体悄悄
+        脱离 registry 声明的时长/分辨率范围（与 `_is_h3_model` 判定和 `video_capabilities_for_model`
+        走同一枚 canonical 名，避免第三处再长出不一致）。回落只在 registry 意外缺失该条目时触发。
         """
-        info = model_info_for(PROVIDER_MINIMAX, self._model)
+        info = model_info_for(PROVIDER_MINIMAX, _H3)
         if info is None:
             return _H3_FALLBACK_RESOLUTIONS, _H3_FALLBACK_DURATIONS
         return frozenset(r.lower() for r in info.resolutions), frozenset(info.supported_durations)
