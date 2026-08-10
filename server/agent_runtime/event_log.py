@@ -901,3 +901,35 @@ class EventLogService:
     ) -> list[dict[str, Any]]:
         await self.ensure_backfilled(session_id, project_cwd)
         return await self._store.list_after(session_id, after_seq)
+
+    async def resolve_user_message_anchor(
+        self,
+        session_id: str,
+        entry_uuid: str,
+        project_cwd: Path | str | None,
+    ) -> str | None:
+        """把事件日志里的用户条目 uuid 解析为 transcript 域的 entry uuid。
+
+        两段：身份映射表优先，未命中时按恒等性回退。映射表是活跃路径的唯一
+        通路——POST 受理时 mint 的 ``user-<hex>`` 先于 SDK 分配 uuid，两个域
+        天然不同名，只能靠映射对上。其余条目的两域 uuid 本就相同：懒生成时
+        用户条目直接取 transcript 条目的 uuid，前缀分叉复制时 uuid 原样保留，
+        因此分支的分支同样成立。
+
+        回退只接受主线 plain user 条目（无 subtype、无 parent_tool_use_id）：
+        问答回复、tool_result、skill 注入等条目的 uuid 都是派生或定型产物，
+        作锚点没有意义。返回的 uuid 未经 transcript 存在性校验——映射缺失的
+        活跃路径条目会走到这里并返回一个 transcript 查无此条的 uuid，由前缀
+        分叉在切片时 fail loud，不静默改切别处。
+        """
+        linked = await self._store.find_user_message_link(session_id, entry_uuid)
+        if linked is not None:
+            return linked
+        await self.ensure_backfilled(session_id, project_cwd)
+        for entry in await self._store.list_after(session_id):
+            if entry.get("uuid") != entry_uuid:
+                continue
+            if entry.get("type") != ENTRY_TYPE_USER or entry.get("subtype") or entry.get("parent_tool_use_id"):
+                return None
+            return entry_uuid
+        return None

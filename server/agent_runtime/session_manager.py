@@ -361,6 +361,8 @@ class SessionManager:
         )
         self.meta_store = meta_store
         self.sessions: dict[str, ManagedSession] = {}
+        # 轮次终结时仍未被认领的回显登记累计数，见 _drain_pending_user_echoes。
+        self.unclaimed_user_echoes = 0
         self._disconnecting: set[str] = set()
         self._session_actor_shutdown_timeout: float = 15.0  # total budget for send_disconnect + cancel fallback
         self._connect_locks: dict[str, asyncio.Lock] = {}
@@ -1090,9 +1092,32 @@ class SessionManager:
                 interrupt_requested=managed.interrupt_requested,
             )
 
+    def _drain_pending_user_echoes(self, managed: ManagedSession, reason: str) -> None:
+        """清空回显登记队列；轮次终结时仍有残留即认领失败，记一条告警。
+
+        观测点在轮次终结处而非逐条比对处：登记与回放一一对应，轮次结束时队列
+        必然已被排空，残留只可能是文本比对没认上，或回放根本没到。逐条告警做不
+        到——单看一条消息无从判定它「是回放副本却没认上」。残留的后果是同一条
+        用户消息在事件日志里重复落库，以及其身份映射缺失（改写锚点随后走恒等
+        回退，锚点若是活跃路径 mint 的 id 则解析失败）。
+        """
+        residue = len(managed.pending_user_echoes)
+        if residue:
+            self.unclaimed_user_echoes += residue
+            logger.warning(
+                "user echo replays went unclaimed at turn end",
+                extra={
+                    "session_id": managed.session_id,
+                    "residue": residue,
+                    "unclaimed_total": self.unclaimed_user_echoes,
+                    "reason": reason,
+                },
+            )
+        managed.pending_user_echoes.clear()
+
     async def _finalize_turn(self, managed: ManagedSession, result_msg: dict[str, Any]) -> None:
         """Settle session state after a result message completes a turn."""
-        managed.pending_user_echoes.clear()
+        self._drain_pending_user_echoes(managed, "turn finalized")
         managed.cancel_pending_questions("session completed")
         explicit = str(result_msg.get("session_status") or "").strip()
         final_status: SessionStatus = (
@@ -1154,7 +1179,7 @@ class SessionManager:
 
     async def _mark_session_terminal(self, managed: ManagedSession, status: SessionStatus, reason: str) -> None:
         """Set terminal status on abnormal consumer exit."""
-        managed.pending_user_echoes.clear()
+        self._drain_pending_user_echoes(managed, reason)
         managed.cancel_pending_questions(reason)
         managed.status = status
         managed.last_activity = time.monotonic()

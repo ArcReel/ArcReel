@@ -1298,3 +1298,84 @@ class TestSubagentBackfillMerge:
         assert len(skill_entries) == 1
         assert skill_entries[0]["skill_name"] == "commit"
         assert skill_entries[0]["parent_tool_use_id"] == "tu-agent"
+
+
+class TestResolveUserMessageAnchor:
+    """锚点解析两段化：身份映射优先，未命中按恒等性回退。"""
+
+    async def test_mapping_wins_and_needs_no_transcript(self, log_store: EventLogStore):
+        """活跃路径 mint 的条目 id 与 SDK uuid 天然不同名，只能靠映射对上。"""
+        adapter = _FakeAdapter([{"type": "user", "content": "hi", "uuid": "sdk-1"}])
+        service = EventLogService(log_store, adapter)
+        await log_store.record_user_message_link("s1", "user-abc", "sdk-1")
+
+        assert await service.resolve_user_message_anchor("s1", "user-abc", None) == "sdk-1"
+        assert adapter.read_count == 0
+
+    async def test_falls_back_to_identity_for_a_plain_user_entry(self, log_store: EventLogStore):
+        """无映射的历史用户条目：两个域的 uuid 本就相同，取自身即可。"""
+        adapter = _FakeAdapter(
+            [
+                {"type": "user", "content": "hi", "uuid": "t1"},
+                {"type": "assistant", "content": [{"type": "text", "text": "在"}], "uuid": "a1"},
+            ]
+        )
+        service = EventLogService(log_store, adapter)
+
+        assert await service.resolve_user_message_anchor("s1", "t1", None) == "t1"
+
+    async def test_assistant_entry_is_refused(self, log_store: EventLogStore):
+        adapter = _FakeAdapter([{"type": "assistant", "content": [{"type": "text", "text": "在"}], "uuid": "a1"}])
+        service = EventLogService(log_store, adapter)
+
+        assert await service.resolve_user_message_anchor("s1", "a1", None) is None
+
+    async def test_typed_user_subtypes_are_refused(self, log_store: EventLogStore):
+        """问答回复带 subtype、uuid 也是派生的；作锚点没有意义。"""
+        adapter = _FakeAdapter(
+            [
+                {
+                    "type": "assistant",
+                    "uuid": "a1",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "tu-q",
+                            "name": "AskUserQuestion",
+                            "input": {"questions": [{"question": "继续吗?"}]},
+                        }
+                    ],
+                },
+                {
+                    "type": "user",
+                    "uuid": "u-ans",
+                    "content": [{"type": "tool_result", "tool_use_id": "tu-q", "content": "answered"}],
+                },
+            ]
+        )
+        service = EventLogService(log_store, adapter)
+
+        assert await service.resolve_user_message_anchor("s1", "u-ans-tr0", None) is None
+        assert await service.resolve_user_message_anchor("s1", "u-ans", None) is None
+
+    async def test_subagent_entry_is_refused(self, log_store: EventLogStore):
+        """子时间线里的用户条目带 parent_tool_use_id，不在主线上。"""
+        adapter = _FakeAdapter(
+            [
+                {
+                    "type": "assistant",
+                    "uuid": "a1",
+                    "content": [{"type": "tool_use", "id": "tu-agent", "name": "Task", "input": {}}],
+                }
+            ],
+            {"tu-agent": [{"type": "user", "content": "子任务输入", "uuid": "sub-u1"}]},
+        )
+        service = EventLogService(log_store, adapter)
+
+        assert await service.resolve_user_message_anchor("s1", "sub-u1", None) is None
+
+    async def test_unknown_uuid_yields_nothing(self, log_store: EventLogStore):
+        adapter = _FakeAdapter([{"type": "user", "content": "hi", "uuid": "t1"}])
+        service = EventLogService(log_store, adapter)
+
+        assert await service.resolve_user_message_anchor("s1", "user-never-seen", None) is None

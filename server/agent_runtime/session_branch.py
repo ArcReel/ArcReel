@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from lib.agent_session_store import make_project_key
 from lib.agent_session_store.prefix_fork import InvalidAnchorError, SessionStoreLike, copy_session_prefix
-from server.agent_runtime.event_log import EventLogStore
+from server.agent_runtime.event_log import EventLogService
 from server.agent_runtime.session_store import SessionMetaStore
 
 logger = logging.getLogger(__name__)
@@ -46,20 +46,20 @@ class SessionBranchService:
         *,
         store: SessionStoreLike | None,
         meta_store: SessionMetaStore,
-        event_log_store: EventLogStore,
+        event_log: EventLogService,
         resolve_project_cwd: Callable[[str], Path | None],
     ) -> None:
         self._store = store
         self._meta_store = meta_store
-        self._event_log_store = event_log_store
+        self._event_log = event_log
         self._resolve_project_cwd = resolve_project_cwd
 
     async def branch(self, session_id: str, anchor_user_entry_uuid: str) -> BranchedSession:
         """从 ``anchor_user_entry_uuid`` 处分叉 ``session_id``，返回新会话。
 
-        ``anchor_user_entry_uuid`` 是事件日志里那条用户条目的 uuid；它到
-        transcript 条目的映射由身份映射表给出，查不到即拒绝——锚点必须是本会话
-        自己的用户消息。
+        ``anchor_user_entry_uuid`` 是事件日志里那条用户条目的 uuid，由事件日志
+        解析成 transcript 域的锚点；解析不出即拒绝——锚点必须是本会话自己的
+        一条用户消息。本服务不感知两个 uuid 域的差异。
         """
         store = self._store
         if store is None:
@@ -75,7 +75,7 @@ class SessionBranchService:
         if project_cwd is None:
             raise SessionBranchError(f"project {meta.project_name} of session {session_id} is unavailable")
 
-        anchor_uuid = await self._event_log_store.find_user_message_link(session_id, anchor_user_entry_uuid)
+        anchor_uuid = await self._event_log.resolve_user_message_anchor(session_id, anchor_user_entry_uuid, project_cwd)
         if anchor_uuid is None:
             raise SessionBranchError(f"anchor {anchor_user_entry_uuid} is not a user message of session {session_id}")
 
@@ -94,8 +94,15 @@ class SessionBranchService:
                 anchor_uuid=anchor_uuid,
                 new_session_id=new_session_id,
             )
-            # 先建新会话行再落指针，指针任何时刻都指向已存在的会话。
-            await self._meta_store.create(meta.project_name, new_session_id)
+            # 先建新会话行再落指针，指针任何时刻都指向已存在的会话。分叉血统随
+            # 建行落库：它是 branch 时刻的不可变事实，与 superseded_by 表达的
+            # 「原会话被谁取代」互为反向，后者可被删除接手改写，前者不会。
+            await self._meta_store.create(
+                meta.project_name,
+                new_session_id,
+                fork_parent_session_id=session_id,
+                fork_anchor_uuid=anchor_uuid,
+            )
             if not await self._meta_store.mark_superseded(session_id, new_session_id):
                 raise SessionBranchError(f"session {session_id} has already been superseded by another branch")
         except InvalidAnchorError as exc:

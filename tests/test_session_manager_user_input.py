@@ -1,11 +1,12 @@
 """Unit tests for SessionManager user-input and user-echo behavior."""
 
 import asyncio
+import logging
 
 import pytest
 
 from server.agent_runtime.event_log import REPLAYED_USER_ECHO_ENTRY_UUID_KEY, REPLAYED_USER_ECHO_KEY
-from server.agent_runtime.message_serialization import match_user_echo, message_to_dict
+from server.agent_runtime.message_serialization import PendingUserEcho, match_user_echo, message_to_dict
 from server.agent_runtime.session_manager import SDK_AVAILABLE
 from tests.fakes import build_managed_with_actor
 
@@ -134,6 +135,36 @@ class TestSessionManagerUserInput:
                 await asyncio.sleep(0.01)
 
             assert managed.status == "completed"
+        finally:
+            await _finish(managed)
+
+    async def test_unclaimed_echo_replays_are_reported_once_at_turn_end(self, session_manager, meta_store, caplog):
+        """回显没被认领 = 该消息会重复落库且缺身份映射；轮次终结时一次性报出残留数。"""
+        messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
+        meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
+        try:
+            managed.pending_user_echoes.extend([PendingUserEcho(dedup_key="从未被回放", entry_uuid="user-a")] * 2)
+
+            with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
+                await session_manager._finalize_turn(managed, {"type": "result", "subtype": "success"})
+
+            assert managed.pending_user_echoes == []
+            assert session_manager.unclaimed_user_echoes == 2
+            unclaimed = [r for r in caplog.records if "unclaimed" in r.getMessage()]
+            assert len(unclaimed) == 1, "一次 drain 只报一条，不逐条刷屏"
+            assert getattr(unclaimed[0], "residue") == 2
+        finally:
+            await _finish(managed)
+
+    async def test_a_fully_claimed_turn_reports_nothing(self, session_manager, meta_store, caplog):
+        messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
+        meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
+        try:
+            with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
+                await session_manager._mark_session_terminal(managed, "interrupted", "user interrupt")
+
+            assert session_manager.unclaimed_user_echoes == 0
+            assert not [r for r in caplog.records if "unclaimed" in r.getMessage()]
         finally:
             await _finish(managed)
 

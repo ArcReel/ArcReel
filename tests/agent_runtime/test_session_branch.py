@@ -46,7 +46,7 @@ async def branching(session_factory, tmp_path):
     service = SessionBranchService(
         store=store,
         meta_store=meta_store,
-        event_log_store=log_store,
+        event_log=EventLogService(log_store, SdkTranscriptAdapter(store=store)),
         resolve_project_cwd=lambda _name: tmp_path,
     )
 
@@ -299,7 +299,7 @@ async def test_failure_midway_through_copying_leaves_no_trace_of_the_new_session
     service = SessionBranchService(
         store=_StoreFailingAfterMainWrite(store),
         meta_store=meta_store,
-        event_log_store=log_store,
+        event_log=EventLogService(log_store, SdkTranscriptAdapter(store=store)),
         resolve_project_cwd=lambda _name: tmp_path,
     )
 
@@ -322,7 +322,7 @@ async def test_pointer_is_withdrawn_when_the_caller_is_cancelled_after_it_commit
     service = SessionBranchService(
         store=store,
         meta_store=meta_store,
-        event_log_store=log_store,
+        event_log=EventLogService(log_store, SdkTranscriptAdapter(store=store)),
         resolve_project_cwd=lambda _name: tmp_path,
     )
 
@@ -341,12 +341,163 @@ async def test_branching_requires_the_db_transcript_store(session_factory, tmp_p
     service = SessionBranchService(
         store=None,
         meta_store=SessionMetaStore(session_factory=session_factory),
-        event_log_store=EventLogStore(session_factory=session_factory),
+        event_log=EventLogService(EventLogStore(session_factory=session_factory), SdkTranscriptAdapter(store=None)),
         resolve_project_cwd=lambda _name: tmp_path,
     )
 
     with pytest.raises(SessionBranchError):
         await service.branch(str(uuid4()), SECOND_USER_ENTRY)
+
+
+async def _seed_three_rounds(store, meta_store, project_key):
+    """三轮对话的原会话，只有末轮用户消息建了身份映射。
+
+    前两轮模拟「早于映射表的历史」：分支会话拿到的前缀条目同样没有映射行，
+    正是恒等回退要服务的那一类锚点。
+    """
+    session_id = str(uuid4())
+    await meta_store.create(PROJECT_NAME, session_id)
+    uuids = [f"m{i}-{uuid4().hex[:8]}" for i in range(6)]
+    parents: list[str | None] = [None, *uuids[:-1]]
+    await store.append(
+        {"project_key": project_key, "session_id": session_id},
+        [
+            _entry(uuid, parent, "user" if index % 2 == 0 else "assistant", session_id, f"第{index}条")
+            for index, (uuid, parent) in enumerate(zip(uuids, parents, strict=True))
+        ],
+    )
+    return session_id, uuids
+
+
+async def test_a_prefix_message_without_a_mapping_row_can_still_be_rewritten(branching):
+    """AC：分支会话的前缀历史消息没有映射行，靠恒等性仍能作锚点再分叉。"""
+    service, meta_store, store, log_store, _, tmp_path = branching
+    project_key = make_project_key(tmp_path)
+    origin, uuids = await _seed_three_rounds(store, meta_store, project_key)
+    await log_store.record_user_message_link(origin, "user-third", uuids[4])
+
+    branched = await service.branch(origin, "user-third")
+    # 分支会话的前缀是前两轮，其中第二条用户消息在新会话里没有任何映射行。
+    again = await service.branch(branched.session_id, uuids[2])
+
+    assert again.resumable is True
+    copied = await store.load({"project_key": project_key, "session_id": again.session_id})
+    assert copied is not None
+    assert [e["type"] for e in copied] == ["user", "assistant"]
+
+
+async def test_rewriting_recurses_through_branches_of_branches(branching):
+    """AC：分支的分支同样可再改写——uuid 随前缀复制原样保留，恒等性递归成立。"""
+    service, meta_store, store, log_store, _, tmp_path = branching
+    project_key = make_project_key(tmp_path)
+    origin, uuids = await _seed_three_rounds(store, meta_store, project_key)
+    await log_store.record_user_message_link(origin, "user-third", uuids[4])
+
+    first = await service.branch(origin, "user-third")
+    second = await service.branch(first.session_id, uuids[2])
+    third = await service.branch(second.session_id, uuids[0])
+
+    assert third.session_id not in {origin, first.session_id, second.session_id}
+    # 锚点是整段历史的第一条，前缀为空——新会话就是全新会话。
+    assert third.resumable is False
+
+
+async def test_a_continued_branch_message_is_anchored_through_the_mapping(branching):
+    """续写进分支会话的新消息走映射表这一段，与前缀历史消息两类锚点并存。"""
+    service, _, store, log_store, session_id, tmp_path = branching
+    project_key = make_project_key(tmp_path)
+    branched = await service.branch(session_id, SECOND_USER_ENTRY)
+    copied = await store.load({"project_key": project_key, "session_id": branched.session_id})
+    assert copied is not None
+    continued = f"m-cont-{uuid4().hex[:8]}"
+    await store.append(
+        {"project_key": project_key, "session_id": branched.session_id},
+        [_entry(continued, copied[-1]["uuid"], "user", branched.session_id, "继续")],
+    )
+    await log_store.record_user_message_link(branched.session_id, "user-in-branch", continued)
+
+    again = await service.branch(branched.session_id, "user-in-branch")
+
+    assert again.resumable is True
+
+
+async def test_branch_records_where_it_forked_from(branching):
+    """分叉血统在 branch 时刻写入：父会话 + transcript 域的锚点 uuid。"""
+    service, meta_store, store, _, session_id, tmp_path = branching
+    main = await store.load({"project_key": make_project_key(tmp_path), "session_id": session_id})
+    assert main is not None
+    anchor_uuid = [e["uuid"] for e in main if e["type"] == "user"][1]
+
+    branched = await service.branch(session_id, SECOND_USER_ENTRY)
+
+    meta = await meta_store.get(branched.session_id)
+    assert meta is not None
+    assert meta.fork_parent_session_id == session_id
+    assert meta.fork_anchor_uuid == anchor_uuid
+    origin = await meta_store.get(session_id)
+    assert origin is not None
+    assert origin.fork_parent_session_id is None, "原会话不是分叉产物"
+
+
+async def test_a_tool_result_carrying_entry_is_refused_as_an_anchor(branching):
+    """transcript 把工具回执也写成 type:"user"；混排 tool_result 的条目作锚会悬空前一轮 tool_use。"""
+    service, meta_store, store, _, _, tmp_path = branching
+    project_key = make_project_key(tmp_path)
+    session_id = str(uuid4())
+    await meta_store.create(PROJECT_NAME, session_id)
+    u1, a1, mixed = (f"m{i}-{uuid4().hex[:8]}" for i in range(3))
+    await store.append(
+        {"project_key": project_key, "session_id": session_id},
+        [
+            _entry(u1, None, "user", session_id, "跑一下"),
+            _entry(a1, u1, "assistant", session_id, "好"),
+            {
+                **_entry(mixed, a1, "user", session_id, ""),
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "toolu_1", "content": "done"},
+                        {"type": "text", "text": "顺带说一句"},
+                    ],
+                },
+            },
+        ],
+    )
+
+    sessions_before = {row["session_id"] for row in await store.list_sessions(project_key)}
+
+    with pytest.raises(SessionBranchError):
+        await service.branch(session_id, mixed)
+
+    assert {row["session_id"] for row in await store.list_sessions(project_key)} == sessions_before
+
+
+async def test_an_identity_anchor_that_transcript_never_saw_fails_loud(branching):
+    """活跃路径条目丢了映射行：恒等回退放行，由前缀切片拒绝，不静默切错位置。"""
+    service, meta_store, store, log_store, _, tmp_path = branching
+    project_key = make_project_key(tmp_path)
+    session_id = str(uuid4())
+    await meta_store.create(PROJECT_NAME, session_id)
+    u1, a1 = (f"m{i}-{uuid4().hex[:8]}" for i in range(2))
+    await store.append(
+        {"project_key": project_key, "session_id": session_id},
+        [
+            _entry(u1, None, "user", session_id, "你好"),
+            _entry(a1, u1, "assistant", session_id, "在"),
+        ],
+    )
+    # 事件日志里有这条主线用户条目，transcript 里没有——mint 出来的 id 本该由
+    # 回显认领落进映射表，认领失败就是这个形态。
+    ghost = f"user-{uuid4().hex[:8]}"
+    await log_store.append(session_id, [{"type": "user", "uuid": ghost, "content": "改我"}])
+
+    sessions_before = {row["session_id"] for row in await store.list_sessions(project_key)}
+
+    # 拒绝来自前缀切片（"not on the main timeline"），不是恒等回退自己拦下的。
+    with pytest.raises(SessionBranchError, match="main timeline"):
+        await service.branch(session_id, ghost)
+
+    assert {row["session_id"] for row in await store.list_sessions(project_key)} == sessions_before
 
 
 async def test_new_session_event_log_is_rebuilt_from_the_copied_transcript(branching):
