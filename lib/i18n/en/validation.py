@@ -9,7 +9,7 @@ MESSAGES = {
     "val_field_type_string": "Field type error: {field} must be a string",
     "val_field_type_bool": "Field type error: {field} must be a boolean",
     "val_field_type_number": "Field type error: {field} must be a number",
-    "val_speech_rate_out_of_range": "{field} is out of range: {value}; it must be between {min} and {max}",
+    "val_speech_rate_out_of_range": "{field} value {value} is out of range; it must be between {min} and {max}",
     "val_field_must_be_string": "{field} must be a string",
     "val_field_must_be_string_typed": "{field} must be a string, got {actual}",
     "val_field_must_be_array": "{field} must be an array",

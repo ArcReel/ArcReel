@@ -18,11 +18,11 @@ describe("SpeechRateField", () => {
   it("stays unit-neutral and flags the pending unit while the language is unknown", () => {
     // 语言未定时给出具体单位是错误承诺：按「字/秒」填的数会在语言检测为 en / vi 后被按「词/秒」解释
     const { rerender } = render(<SpeechRateField value={null} onChange={() => {}} sourceLanguage={null} />);
-    expect(screen.getByText("阅读单位/秒")).toBeInTheDocument();
-    expect(screen.getByText(/项目语言尚未确定/)).toBeInTheDocument();
+    expect(screen.getByText("字或词/秒")).toBeInTheDocument();
+    expect(screen.getByText(/项目语言还未确定/)).toBeInTheDocument();
 
     rerender(<SpeechRateField value={null} onChange={() => {}} sourceLanguage="zh" />);
-    expect(screen.queryByText(/项目语言尚未确定/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/项目语言还未确定/)).not.toBeInTheDocument();
   });
 
   it("reports empty input as cleared (null), not 0", () => {

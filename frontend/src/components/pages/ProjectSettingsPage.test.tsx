@@ -583,7 +583,7 @@ describe("ProjectSettingsPage – 按用途指定模型", () => {
 
     renderAt("/app/projects/demo/settings");
 
-    const input = await screen.findByLabelText(/口播语速估算|Spoken pace for estimates/);
+    const input = await screen.findByLabelText(/^(语速（可选）|Pace \(optional\))$/);
     expect(input).toHaveValue(3);
     // en 项目按词计
     expect(screen.getByText("词/秒")).toBeInTheDocument();
@@ -607,7 +607,7 @@ describe("ProjectSettingsPage – 按用途指定模型", () => {
 
     renderAt("/app/projects/demo/settings");
 
-    const input = await screen.findByLabelText(/口播语速估算|Spoken pace for estimates/);
+    const input = await screen.findByLabelText(/^(语速（可选）|Pace \(optional\))$/);
     fireEvent.change(input, { target: { value: "25" } });
 
     expect(screen.getByRole("button", { name: /^(保存|Save)$/i })).toBeDisabled();

@@ -190,7 +190,7 @@ describe("CreateProjectModal", () => {
     render(<CreateProjectModal />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
     fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.change(screen.getByLabelText(/口播语速估算/), { target: { value: "6" } });
+    fireEvent.change(screen.getByLabelText(/^语速（可选）$/), { target: { value: "6" } });
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));

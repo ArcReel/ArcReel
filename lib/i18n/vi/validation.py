@@ -9,7 +9,7 @@ MESSAGES = {
     "val_field_type_string": "Sai kiểu trường: {field} phải là chuỗi",
     "val_field_type_bool": "Sai kiểu trường: {field} phải là boolean",
     "val_field_type_number": "Sai kiểu trường: {field} phải là số",
-    "val_speech_rate_out_of_range": "{field} nằm ngoài phạm vi hợp lệ: {value}; phải nằm trong khoảng {min} đến {max}",
+    "val_speech_rate_out_of_range": "Giá trị {value} của {field} nằm ngoài phạm vi; phải từ {min} đến {max}",
     "val_field_must_be_string": "{field} phải là chuỗi",
     "val_field_must_be_string_typed": "{field} phải là chuỗi, hiện là {actual}",
     "val_field_must_be_array": "{field} phải là mảng",

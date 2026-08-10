@@ -10,7 +10,7 @@ import { FieldLabel } from "@/components/ui/FieldLabel";
  * 措辞也各自独立，避免同名混淆。
  *
  * 单位名词随项目源语言：zh 计「字」、en / vi 计「词」——与后端 ``count_reading_units``
- * 的裁剪口径同源。语言未定时（创建向导阶段项目还没有 source_language）用中性的「阅读单位」
+ * 的裁剪口径同源。语言未定时（创建向导阶段项目还没有 source_language）用中性的「字或词」
  * 并提示单位待定：具体名词在这里是错误承诺——按「字/秒」填入的数值，在语言被检测为 en / vi
  * 后会被同一个估算器按「词/秒」解释，数字不变而含义变了。
  */
@@ -28,7 +28,7 @@ export function isValidSpeechRate(value: number | null): boolean {
   return value >= SPEECH_RATE_MIN && value <= SPEECH_RATE_MAX;
 }
 
-/** 阅读单位名词的 i18n key：en / vi 计「词」、zh 计「字」，语言未定时用中性的「阅读单位」。 */
+/** 阅读单位名词的 i18n key：en / vi 计「词」、zh 计「字」，语言未定时用中性的「字或词」。 */
 export function readingUnitKey(sourceLanguage?: string | null): string {
   const code = (sourceLanguage ?? "").trim().toLowerCase();
   if (code === "en" || code === "vi") return "reading_unit_word";
