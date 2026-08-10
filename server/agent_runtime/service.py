@@ -431,7 +431,8 @@ class AssistantService:
 
         编排顺序即拒绝的代价顺序：能拒的先拒（锚点、未决问答），代价大的后做
         （中断运行中的轮次、分叉、派发）——被拒的请求不该已经打断用户的轮次。
-        分叉之后派发失败即整次改写失败，分支整体撤回，原会话回到可再改写的状态。
+        分叉之后任何一步失败都是整次改写失败，分支整体撤回，原会话回到可再改写
+        的状态。
 
         响应与发送端点同构：``client_key`` 为请求侧幂等键，重试不产生第二个分支
         会话；``entry`` 是服务端分配身份后的权威用户条目，落在新会话的日志里。
@@ -504,12 +505,16 @@ class AssistantService:
 
         branched = await self._branch_or_reject(session_id, anchor_entry_uuid)
         new_session_id = branched.session_id
-        new_meta = await self.meta_store.get(new_session_id)
-        if branched.resumable:
-            # 懒生成先行：改写后的消息要排在复制来的前缀历史之后。
-            await self.event_log.ensure_backfilled(new_session_id, project_cwd)
-        user_entry = self._build_user_log_entry(text, echo_blocks)
+        # 分支一旦发布（superseded 指针已指向新会话），其后每一步都在补偿范围内：
+        # 中途失败若不撤回，原会话被隐藏、新会话又没收到改写后的消息，重试还会
+        # 撞上「已被取代」。send_message 的每条抛出路径都不留下受理条目（投递失败
+        # 的条目由它自己补偿删除，启动失败发生在写入之前），因此整体撤回不丢数据。
         try:
+            new_meta = await self.meta_store.get(new_session_id)
+            if branched.resumable:
+                # 懒生成先行：改写后的消息要排在复制来的前缀历史之后。
+                await self.event_log.ensure_backfilled(new_session_id, project_cwd)
+            user_entry = self._build_user_log_entry(text, echo_blocks)
             entry = await self.session_manager.send_message(
                 new_session_id,
                 sdk_prompt if sdk_prompt is not None else text,
@@ -522,9 +527,6 @@ class AssistantService:
                 resumable=branched.resumable,
             )
         except BaseException:
-            # 派发失败即整次改写失败。send_message 的每条抛出路径都不留下受理
-            # 条目（投递失败的条目由它自己补偿删除，启动失败发生在写入之前），
-            # 因此整体撤回不会丢用户数据。
             await self._discard_branch(session_id, new_session_id)
             raise
 

@@ -331,7 +331,7 @@ class TestRewriteRejections:
         service, runtime, session_id, _ = rewriting
         runtime.statuses[session_id] = "running"
         runtime.settle_after_interrupt = False
-        service._INTERRUPT_SETTLE_TIMEOUT = 0.05  # type: ignore[misc]
+        service._INTERRUPT_SETTLE_TIMEOUT = 0.05
 
         with pytest.raises(InterruptSettleTimeoutError):
             await _rewrite(service, session_id, SECOND_USER_ENTRY)
@@ -358,5 +358,28 @@ class TestRewriteDispatchFailure:
         runtime.send_failure = None
         result = await _rewrite(service, session_id, SECOND_USER_ENTRY)
         assert result["session_id"] != session_id
+        entries = await service.event_log.list_entries(result["session_id"], project_cwd)
+        assert [e["type"] for e in entries] == ["user", "assistant", "user"]
+
+    async def test_failed_prefix_backfill_discards_the_branch_too(self, rewriting):
+        """补偿范围覆盖分支发布之后的每一步，不止派发那一句。"""
+        service, _, session_id, project_cwd = rewriting
+        original_backfill = service.event_log.ensure_backfilled
+
+        async def failing_backfill(*args: object, **kwargs: object) -> None:
+            raise RuntimeError("前缀回填炸了")
+
+        service.event_log.ensure_backfilled = failing_backfill
+
+        with pytest.raises(RuntimeError, match="前缀回填炸了"):
+            await _rewrite(service, session_id, SECOND_USER_ENTRY)
+
+        origin = await service.meta_store.get(session_id)
+        assert origin is not None and origin.superseded_by is None
+        listed = {meta.id for meta in await service.meta_store.list(project_name=PROJECT_NAME)}
+        assert listed == {session_id}
+
+        service.event_log.ensure_backfilled = original_backfill
+        result = await _rewrite(service, session_id, SECOND_USER_ENTRY)
         entries = await service.event_log.list_entries(result["session_id"], project_cwd)
         assert [e["type"] for e in entries] == ["user", "assistant", "user"]
