@@ -4,7 +4,7 @@ status: proposed
 
 # TTS（audio 媒体类型）走 GenerationQueue/Worker，像 image/video；backend 仍同步、不像内联的 text
 
-> `docs/adr/0058` 已把可选 TTS 产物的适用范围与生成基数从“仅说书分镜路线、每 NarrationSegment 一段”扩展为“所有叙述旁白视频生成单元均可逐条生成”；视频请求也可选择不使用 TTS、留待外部后期配音。本 ADR 关于实际发起 TTS 时的 GenerationQueue/Worker 调度、同步 backend、任务面板与无 provider submit-poll-resume 的决定继续有效。
+> `docs/adr/0059` 已把可选 TTS 产物的适用范围与生成基数从“仅说书分镜路线、每 NarrationSegment 一段”扩展为“所有叙述旁白视频生成单元均可逐条生成”；视频请求也可选择不使用 TTS、留待外部后期配音。本 ADR 关于实际发起 TTS 时的 GenerationQueue/Worker 调度、同步 backend、任务面板与无 provider submit-poll-resume 的决定继续有效。
 
 ArcReel 的媒体生成沿 `media_type` 轴扇出：image/video 走 **GenerationQueue + GenerationWorker**（按 provider×media_type 分 slot，带进度/取消/续传/孤儿处理），text 则是 **同步内联调用**（`TextGenerator` = TextBackend + UsageTracker，不入队、worker 只 `for media_type in ("image","video")`、不建 task）。接入旁白配音（TTS）时第一个分叉是：audio 跟 text 走（同步内联）还是跟 image/video 走（队列）。
 
