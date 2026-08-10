@@ -211,6 +211,33 @@ async def test_empty_prefix_copies_nothing(seeded):
     assert await store.load({"project_key": project_key, "session_id": new_id}) is None
 
 
+async def test_leading_metadata_rows_do_not_count_as_a_prefix(session_factory, tmp_path):
+    """transcript 开头的元数据行不构成前缀——空看的是会话条目，不是行数。"""
+    store = DbSessionStore(session_factory)
+    project_key = project_key_for_directory(str(tmp_path))
+    session_id = str(uuid4())
+    anchor = f"m-{uuid4().hex[:8]}"
+    await store.append(
+        {"project_key": project_key, "session_id": session_id},
+        [
+            {"type": "file-history-snapshot", "sessionId": session_id, "snapshot": {}},
+            _entry(anchor, None, "user", session_id, message={"role": "user", "content": "第一句"}),
+        ],
+    )
+
+    new_id = str(uuid4())
+    result = await copy_session_prefix(
+        store,
+        project_key=project_key,
+        session_id=session_id,
+        anchor_uuid=anchor,
+        new_session_id=new_id,
+    )
+
+    assert result.entries_copied == 0
+    assert await store.load({"project_key": project_key, "session_id": new_id}) is None
+
+
 async def test_subagent_started_after_the_anchor_is_not_carried(seeded):
     """锚点之后才派出的 subagent 不随行——它属于被丢弃的分支。"""
     store, project_key, session_id, _, _ = seeded
