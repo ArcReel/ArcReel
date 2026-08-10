@@ -76,9 +76,9 @@ def resolve_first_frame_aspect_ratio(
     声明该约束的后端在带首帧（image-to-video）的请求上只接受
     :data:`FIRST_FRAME_ADAPTIVE_RATIO`——调用方原始持有的 ``aspect_ratio``（用户比例意图，仍
     完整作用于分镜图生成）不受影响，本函数只决定实际下发给该次视频请求的值。``caps`` 为 None
-    或未声明该约束、或本次请求不带首帧（纯文生 / 仅参考图）时原样返回 ``aspect_ratio``。
+    或未声明该约束、或实际下发的请求不带首帧（纯文生 / 仅参考图）时原样返回 ``aspect_ratio``。
 
-    ``has_first_frame`` 由调用方按"本次请求实际会不会带首帧"传入，而不是按入参是否非空——
+    ``has_first_frame`` 由调用方按"实际下发的请求是否带首帧"传入，而不是按入参是否非空——
     :func:`plan_frame_slots` 只让 ``str`` / ``Path`` 文件源进槽位，判定须与真正下发的
     ``VideoGenerationRequest.start_image`` 一致，否则约束会与实际请求脱节。
     """
