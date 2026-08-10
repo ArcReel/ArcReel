@@ -26,7 +26,7 @@
 
 **触发**:`coderabbit.walkthrough.is_paused == true`,且 `updated_at` 之后未发送过 `@coderabbitai resume`(从 `own_trigger_comments` 筛,最新一条 `createdAt` 早于 walkthrough 的 `updated_at`;为空视为未发送)→ 发送 `@coderabbitai resume`。其余场景 CodeRabbit 自动跟新 push,无需手动触发。暂停会在后续 push 后重现,触发判定逐轮执行;暂停期间的静默不是通过。
 
-**已审当前 HEAD**:`walkthrough.reviewed_current_head == true`。CodeRabbit 限流时会把 walkthrough 改写成限流横幅,这次改写不算审查——poll 已按 `is_rate_limited` 排除,该场景下字段恒为 false;慢审旧 HEAD 在 push 后才改写 walkthrough 的也不算——poll 已按最新 CR review 的 commit 锚定做矛盾检验排除。
+**已审当前 HEAD**:`walkthrough.reviewed_current_head == true`。CodeRabbit 限流时会把 walkthrough 改写成限流横幅,这次改写不算审查——poll 已按 `is_rate_limited` 排除,该场景下字段恒为 false。
 
 **actionable**:`walkthrough.is_ok == true` 或 `actionable_count == "0"` 时无 actionable;否则看 `inline_new_by_user["coderabbitai[bot]"]` 各行的 `cr_markers`:含 `potential_issue` / `major` / `refactor` / `verification` 任一即 actionable;仅含 nit 级 token(`nitpick` / `trivial` / `low_value` / `minor`)不算。**残留例外**:增量重审回复 `Already reviewed` 时 `is_ok` / `actionable_count` 是上一轮残留——跳过这条短路,直接按本轮 inline 的 `cr_markers` 判。
 
@@ -51,7 +51,7 @@
 - `gemini.reviews` 完全为空,`pr_created_at` 距今**已超 5 分钟** → cold-start fallback:自动 review 未在窗口内出现(可能失败或被跳过),发送 `/gemini review`。**此行不受 fix-up 顺延限制**——否则 Gemini 永远不会审本 PR。阈值宽松不必精确——误发代价只是一次受去重约束的额外触发
 - `gemini.reviews` 非空但无 `reviewed_current_head == true` 条目 → 发送 `/gemini review`(受 fix-up 顺延限制)
 
-**已审当前 HEAD**:`gemini.reviews` 至少一条 `reviewed_current_head == true`。`is_new` 只表「本轮要浮现的内容」——补捞的 straggler review 是对旧 HEAD 的审查,其意见照常处置,但不作已审当前 HEAD、其 pass marker 不作通过依据。
+**已审当前 HEAD**:`gemini.reviews` 至少一条 `reviewed_current_head == true`。
 
 **actionable**(两条路径,任一命中即算):
 
@@ -61,7 +61,7 @@
 **通过**:前置条件——已审当前 HEAD(避免误用上一轮的通过标记)。前置之上需**同时**满足:
 
 1. 本轮无新 inline,或本轮新 inline 全部为 `low/nit/style` 或全部 `is_ack`
-2. 最新一条 `reviewed_current_head == true` 的 review 的 `has_pass_marker == true`(straggler 携带的 pass marker 不作数——它与更早到的当前 HEAD review 并存时,后者的 summary 才是判定对象)
+2. 最新一条 `reviewed_current_head == true` 的 review 的 `has_pass_marker == true`
 
 **pushback 例外**:存在 pushback 时 pass marker 不可达,按「本轮非 ack inline 均已处置」判通过。
 
