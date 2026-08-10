@@ -5,15 +5,21 @@
 // `?msgedit=A|B|C` 切换，仅 DEV 构建启用。四个关键态：hover 入口、编辑态、
 // 禁用态（未决问答）、后果说明。「重新发送」是桩——不触发任何真实请求。
 //
-//   A 侧缘图标 · 气泡内编辑     入口最轻：气泡左侧浮现小圆按钮，编辑在气泡内完成
+//   A 右下操作行 · 气泡内编辑   气泡下方右对齐操作行（时间 · 复制 · 编辑，Codex 式），编辑在气泡内完成
 //   B 操作条 · 全宽改写卡       入口带文字：气泡下缘操作条，编辑态是占满行宽的卡片
 //   C 截断预览 · 后果可视化     编辑时其后消息立即变暗，后果由文字 + 视觉双重表达
+//
+// HITL 结论（用户已选 A 并逐轮修正，已落在下方实现）：
+//   1. 编辑入口用 Codex 式操作行：气泡下方右对齐「时间 · 复制 · 编辑」，hover 浮现，
+//      行高常驻避免高度跳动；按钮本体无底色，hover 出灰色圆角方形背景
+//   2. 不可编辑（智能体运行中 sessionStatus === "running"，或有未决问答）时
+//      编辑按钮直接不显示，仅保留复制按钮
 //
 // 抛弃式豁免：硬编码中文（不建 i18n key）、无测试、状态直接放模块级 store。
 // ---------------------------------------------------------------------------
 import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
-import { Lock, Pencil, Scissors, TriangleAlert } from "lucide-react";
+import { Check, Copy, Lock, Pencil, Scissors, TriangleAlert } from "lucide-react";
 import type { Turn } from "@/types";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { ChatMessage } from "../chat/ChatMessage";
@@ -25,14 +31,15 @@ const VARIANTS = ["A", "B", "C"] as const;
 type Variant = (typeof VARIANTS)[number];
 
 const VARIANT_NAMES: Record<Variant, string> = {
-  A: "侧缘图标 · 气泡内编辑",
+  A: "右下操作行 · 气泡内编辑",
   B: "操作条 · 全宽改写卡",
   C: "截断预览 · 后果可视化",
 };
 
 // Spec #974 固定文案
 const CONSEQUENCE = "此消息之后的对话将被丢弃，已产生的文件修改不会撤销";
-const BLOCKED_REASON = "请先完成问答卡片，再编辑历史消息";
+const BLOCKED_REASON_QA = "请先完成问答卡片，再编辑历史消息";
+const BLOCKED_REASON_RUNNING = "智能体正在运行，完成或中断后可编辑历史消息";
 const FLASH_TEXT =
   "原型桩：实际实现将在此创建分支会话，并以改写后的消息从这里重跑（智能体运行中会先中断）";
 
@@ -57,6 +64,7 @@ interface ProtoState {
   editingId: string | null;
   draft: string;
   simulateQA: boolean;
+  simulateRunning: boolean;
   flash: string | null;
   setVariant: (v: Variant) => void;
   startEdit: (id: string, text: string) => void;
@@ -64,6 +72,7 @@ interface ProtoState {
   cancelEdit: () => void;
   resend: () => void;
   toggleQA: () => void;
+  toggleRunning: () => void;
 }
 
 const useProtoStore = create<ProtoState>((set) => ({
@@ -71,6 +80,7 @@ const useProtoStore = create<ProtoState>((set) => ({
   editingId: null,
   draft: "",
   simulateQA: false,
+  simulateRunning: false,
   flash: null,
   setVariant: (v) => {
     const params = new URLSearchParams(window.location.search);
@@ -86,6 +96,7 @@ const useProtoStore = create<ProtoState>((set) => ({
     setTimeout(() => set({ flash: null }), 5000);
   },
   toggleQA: () => set((s) => ({ simulateQA: !s.simulateQA })),
+  toggleRunning: () => set((s) => ({ simulateRunning: !s.simulateRunning })),
 }));
 
 // ---------------------------------------------------------------------------
@@ -96,6 +107,7 @@ const useProtoStore = create<ProtoState>((set) => ({
 const mockTurn = (i: number, type: Turn["type"], text: string): Turn => ({
   type,
   uuid: `proto-mock-${i}`,
+  timestamp: `2026-05-02T14:2${i}:00`,
   content: [{ type: "text", text }],
 });
 
@@ -124,17 +136,55 @@ const turnText = (turn: Turn): string =>
 const isEditableUserTurn = (turn: Turn): boolean =>
   turn.type === "user" && turn.subtype !== "question_answer" && turnText(turn).trim().length > 0;
 
+const formatTime = (iso: string): string => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? ""
+    : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+
+// Codex 式无底色图标按钮：hover 出灰色圆角方形背景；点击后短暂显示已复制
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  const Icon = copied ? Check : Copy;
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard.writeText(text);
+        setCopied(true);
+      }}
+      title="复制消息内容"
+      aria-label="复制消息内容"
+      className="focus-ring grid h-6 w-6 place-items-center rounded-md transition-colors hover:bg-white/10"
+      style={{ color: copied ? "var(--color-accent-2)" : "var(--color-text-3)" }}
+    >
+      <Icon aria-hidden className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 消息列表（替换 AgentCopilot 内原本的 allTurns.map）
 // ---------------------------------------------------------------------------
 
 export function MsgEditProtoList({ allTurns, draftTurn }: { allTurns: Turn[]; draftTurn: Turn | null }) {
   const pendingQuestion = useAssistantStore((s) => s.pendingQuestion);
-  const { variant, simulateQA, editingId, flash } = useProtoStore();
+  const sessionStatus = useAssistantStore((s) => s.sessionStatus);
+  const { variant, simulateQA, simulateRunning, editingId, flash } = useProtoStore();
 
   const usingMocks = !allTurns.some((t) => t.type === "user");
   const turns = usingMocks ? MOCK_TURNS : allTurns;
-  const blocked = Boolean(pendingQuestion) || simulateQA;
+  // 未决问答与运行中同为禁用；问答原因更可行动，优先展示
+  const qaBlocked = Boolean(pendingQuestion) || simulateQA;
+  const runningBlocked = sessionStatus === "running" || simulateRunning;
+  const blocked = qaBlocked || runningBlocked;
+  const blockedReason = qaBlocked ? BLOCKED_REASON_QA : BLOCKED_REASON_RUNNING;
 
   const turnId = (turn: Turn, i: number) => turn.uuid || `proto-idx-${i}`;
   const editingIndex = editingId === null ? -1 : turns.findIndex((t, i) => turnId(t, i) === editingId);
@@ -152,7 +202,27 @@ export function MsgEditProtoList({ allTurns, draftTurn }: { allTurns: Turn[]; dr
         // 变体 C：编辑点之后的消息变暗，预演截断后果
         const dimmed = variant === "C" && editingIndex >= 0 && i > editingIndex;
         const node = isEditableUserTurn(turn) ? (
-          <EditableUserMessage turn={turn} id={id} variant={variant} blocked={blocked} droppedCount={droppedCount} />
+          <EditableUserMessage
+            turn={turn}
+            id={id}
+            variant={variant}
+            blocked={blocked}
+            blockedReason={blockedReason}
+            droppedCount={droppedCount}
+          />
+        ) : variant === "A" && turn.type === "assistant" && turn !== draftTurn && turnText(turn).trim() ? (
+          // A：助手消息下方留同高操作行（时间 · 复制），消息节奏与用户消息一致
+          <div className="group">
+            <ChatMessage message={turn} />
+            <div className="flex h-7 items-center gap-0.5 pl-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+              <CopyButton text={turnText(turn)} />
+              {turn.timestamp && (
+                <span className="ml-1 text-[10.5px] tabular-nums" style={{ color: "var(--color-text-4)" }}>
+                  {formatTime(turn.timestamp)}
+                </span>
+              )}
+            </div>
+          </div>
         ) : (
           <ChatMessage message={turn} streaming={turn === draftTurn} />
         );
@@ -194,11 +264,12 @@ interface EditableProps {
   id: string;
   variant: Variant;
   blocked: boolean;
+  blockedReason: string;
   /** 变体 C 横幅用：编辑点之后将被丢弃的消息数 */
   droppedCount: number;
 }
 
-function EditableUserMessage({ turn, id, variant, blocked, droppedCount }: EditableProps) {
+function EditableUserMessage({ turn, id, variant, blocked, blockedReason, droppedCount }: EditableProps) {
   const { editingId, startEdit, cancelEdit } = useProtoStore();
   const editing = editingId === id;
   const [blockedTip, setBlockedTip] = useState(false);
@@ -237,7 +308,7 @@ function EditableUserMessage({ turn, id, variant, blocked, droppedCount }: Edita
         >
           {blocked && (
             <span className="rounded px-1.5 py-0.5 text-[10.5px]" style={{ background: "oklch(0.22 0.011 265)", color: "var(--color-text-3)", border: "1px solid var(--color-hairline-soft)" }}>
-              {BLOCKED_REASON}
+              {blockedReason}
             </span>
           )}
           <button
@@ -259,27 +330,56 @@ function EditableUserMessage({ turn, id, variant, blocked, droppedCount }: Edita
     );
   }
 
-  // A / C：气泡左侧浮现小圆图标（C 在禁用时换锁形，点击显示原因）
-  const Icon = variant === "C" && blocked ? Lock : Pencil;
+  if (variant === "A") {
+    // A（Codex 式）：气泡下方右对齐操作行「时间 · 复制 · 编辑」，行高常驻（hover 只改
+    // 透明度，无高度跳动）；不可编辑时编辑按钮不渲染，仅保留复制
+    return (
+      <div className="group">
+        <ChatMessage message={turn} />
+        <div className="flex h-7 items-center justify-end gap-0.5 pr-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+          {turn.timestamp && (
+            <span className="mr-1 text-[10.5px] tabular-nums" style={{ color: "var(--color-text-4)" }}>
+              {formatTime(turn.timestamp)}
+            </span>
+          )}
+          <CopyButton text={turnText(turn)} />
+          {!blocked && (
+            <button
+              type="button"
+              onClick={onEntryClick}
+              title="编辑此消息并从这里重新发送"
+              aria-label="编辑此消息并从这里重新发送"
+              className="focus-ring grid h-6 w-6 place-items-center rounded-md transition-colors hover:bg-white/10"
+              style={{ color: "var(--color-text-3)" }}
+            >
+              <Pencil aria-hidden className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // C：气泡左侧浮现小圆图标（禁用时换锁形，点击显示原因）
+  const Icon = blocked ? Lock : Pencil;
   return (
     <div className="group relative flex items-center justify-end gap-1.5">
       {blockedTip && (
         <span className="rounded px-1.5 py-0.5 text-[10.5px]" style={{ background: "oklch(0.22 0.011 265)", color: "var(--color-text-3)", border: "1px solid var(--color-hairline-soft)" }}>
-          {BLOCKED_REASON}
+          {blockedReason}
         </span>
       )}
       <button
         type="button"
         aria-disabled={blocked}
         onClick={onEntryClick}
-        title={blocked ? BLOCKED_REASON : "编辑此消息并从这里重新发送"}
-        aria-label={blocked ? BLOCKED_REASON : "编辑此消息并从这里重新发送"}
+        title={blocked ? blockedReason : "编辑此消息并从这里重新发送"}
+        aria-label={blocked ? blockedReason : "编辑此消息并从这里重新发送"}
         className="focus-ring grid h-6 w-6 shrink-0 place-items-center rounded-full opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
         style={{
           background: "oklch(0.24 0.012 265)",
           border: "1px solid var(--color-hairline-soft)",
           color: blocked ? "var(--color-text-4)" : "var(--color-text-2)",
-          cursor: blocked && variant === "A" ? "not-allowed" : undefined,
         }}
       >
         <Icon aria-hidden className="h-3 w-3" />
@@ -485,7 +585,7 @@ function MockQuestionCard() {
 // ---------------------------------------------------------------------------
 
 export function MsgEditProtoSwitcher() {
-  const { variant, setVariant, simulateQA, toggleQA } = useProtoStore();
+  const { variant, setVariant, simulateQA, toggleQA, simulateRunning, toggleRunning } = useProtoStore();
 
   const cycle = (dir: 1 | -1) => {
     setVariant(VARIANTS[(VARIANTS.indexOf(variant) + dir + VARIANTS.length) % VARIANTS.length]);
@@ -520,6 +620,10 @@ export function MsgEditProtoSwitcher() {
       <label className="flex cursor-pointer items-center gap-1 whitespace-nowrap">
         <input type="checkbox" checked={simulateQA} onChange={toggleQA} className="accent-amber-600" />
         模拟未决问答
+      </label>
+      <label className="flex cursor-pointer items-center gap-1 whitespace-nowrap">
+        <input type="checkbox" checked={simulateRunning} onChange={toggleRunning} className="accent-amber-600" />
+        模拟运行中
       </label>
     </div>
   );
