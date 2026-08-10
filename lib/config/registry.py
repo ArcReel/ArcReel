@@ -31,7 +31,7 @@ ModelCapability = Literal[
     "vision",  # 消费点：文本解析的 vision 闸（lib/config/resolver.py）
     "text_to_image",  # 消费点：图片能力桶判定（lib/capability_buckets.py）
     "image_to_image",  # 消费点：同上
-    "generate_audio",  # 消费点：音轨开关判定（model_has_audio_track，语义见其上方注）
+    "generate_audio",  # 消费点：音轨开关判定（语义见 model_audio_switch_controllable 的 docstring）
     "text_to_speech",
 ]
 
