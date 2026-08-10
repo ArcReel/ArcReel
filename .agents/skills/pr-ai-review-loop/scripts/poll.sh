@@ -21,6 +21,8 @@
 #              rebuilt by re-running poll.sh. query.sh is its only intended reader.
 #   index    — last fully-printed index plus its printed_at, at <snapshot>.index.json;
 #              backs the no_change comparison, the round_estimate ratchet, and `query.sh index`.
+#   seen     — per-PR ledger of every comment/review id observed by any earlier poll, at
+#              <snapshot>.seen.json; backs the straggler half of is_new (see PITFALL 6).
 #
 # INDEX SCHEMA (stdout)
 # {
@@ -42,7 +44,9 @@
 #     "walkthrough": {                                  # CR's first comment (auto-edited each review)
 #       "id":                    <int>,                 # REST issue comment id — stable across rewrites
 #       "created_at", "updated_at",
-#       "reviewed_current_head": <bool>,                # updated_at > last_push_at AND not rate-limited
+#       "reviewed_current_head": <bool>,                # updated_at > last_push_at AND not rate-limited AND the
+#                                                       # latest CR review's commit (if any) matches the head
+#       "latest_review_commit":  "<sha>" | null,        # commit anchor of the latest CR review (contradiction check)
 #       "is_ok":                 <bool>,                # CR explicit pass marker
 #       "is_paused":             <bool>,                # CR paused for this PR
 #       "is_rate_limited":       <bool>,                # walkthrough body IS CR's rate-limit banner — not a review
@@ -54,7 +58,7 @@
 #     "comments_history": {total, last_created_at}      # older ones collapsed to counts ({total: 0} when empty)
 #   },
 #   "gemini": {
-#     "reviews":          [{id, submittedAt, state, has_pass_marker, is_new}],
+#     "reviews":          [{id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new}],
 #                                                       # body NEVER inlined — query.sh gemini-latest-body
 #     "comments_new":     [{id, createdAt, preview}],
 #     "comments_history": {total, last_created_at}
@@ -83,7 +87,7 @@
 #                                                       # the failing set: failure/timed_out/cancelled/action_required/
 #                                                       # startup_failure (single source of truth for "failed check");
 #                                                       # red CI can block reviewers, so fix it before waiting on them
-#   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 6
+#   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 7
 #     "available": <bool>,                              # false = alerts API unreachable; gate must degrade.
 #     "unavailable_hint": "<str>" | null,               # first lines of the gh errors when available=false (GitHub
 #                                                       # returns 404 for missing permissions too — hint, not proof);
@@ -96,10 +100,16 @@
 # }
 #
 # FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name)
-#   is_new                 new this round: created_at/submittedAt > last_push_at (see PITFALL 2)
-#   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false. CR rewrites its
-#                          first comment each review — but a rate-limit banner rewrite also advances updated_at
-#                          without reviewing anything, so it must not read as "reviewed"
+#   is_new                 new this round: created_at/submittedAt > last_push_at, OR id absent from the
+#                          seen ledger (straggler catch, see PITFALL 6; timestamp rule see PITFALL 2)
+#   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false AND the latest CR
+#                          review's commit anchor (when present) matches the head. CR rewrites its first comment
+#                          each review — but a rate-limit banner rewrite also advances updated_at without
+#                          reviewing anything, and a slow review of an older HEAD rewrites it after the next
+#                          push, so neither must read as "reviewed". On gemini review rows:
+#                          the REST review's commit_id vs headRefOid (submittedAt > last_push_at only as fallback
+#                          when the mapping is unavailable) — a straggler or slow review of an older HEAD
+#                          surfaces as is_new but must not read as current-HEAD (see PITFALL 6)
 #   is_rate_limited        walkthrough body carries CR's dedicated rate-limit banner marker (same match as
 #                          quota_alerts) — the current walkthrough is a rate-limit notice, not a review
 #   is_ack                 reviewer acknowledgment of a fix or inline reply (never actionable): body carries a
@@ -159,7 +169,19 @@
 #    The PR reaction is mutable: a new review replaces the previous +1 with eyes, naturally
 #    invalidating the previous pass while the current HEAD is under review.
 #
-# 6. security_alerts.open_introduced subtracts default-branch open alerts by alert number.
+# 6. Timestamp alone misses stragglers: a comment created between a poll and the looper's
+#    next push sorts before the refreshed last_push_at and would otherwise never surface as
+#    new. The seen ledger closes that window: an id no earlier poll has observed is new
+#    regardless of timestamp. First poll of a PR (no ledger yet) uses the timestamp rule
+#    alone so pre-loop history stays folded; reactions have no stable identity across
+#    replacement and stay timestamp-only. The ledger only ever grows within a PR, and is
+#    advanced only after the index has been stored and printed — an id acknowledged before
+#    a successful emission would fold the straggler into history unseen. is_new therefore
+#    means "surface this content", not "reviewed the current HEAD" — head-freshness stays
+#    timestamp/commit-based (reviewed_current_head).
+#    (This shrinks the miss window; the final-gate `unacked` sweep remains the backstop.)
+#
+# 7. security_alerts.open_introduced subtracts default-branch open alerts by alert number.
 #    The merge-ref analysis covers the whole codebase, so pre-existing alerts (e.g. scheduled
 #    Trivy scans on main) would otherwise block the exit gate forever. Alert numbers are
 #    repo-global and identical across refs, so a set difference on number is exact.
@@ -318,6 +340,15 @@ fi
 
 GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
+# Seen ledger (PITFALL 6). Stage the previous poll's ledger for pass 1; a missing or
+# unparsable ledger stages as null, which switches fresh() to the timestamp-only rule.
+SEEN_FILE="${SNAPSHOT_FILE%.json}.seen.json"
+if [[ -f "$SEEN_FILE" ]] && jq -e -s 'length == 1 and (.[0] | type == "array")' "$SEEN_FILE" >/dev/null 2>&1; then
+  cp "$SEEN_FILE" "$WORKDIR/seen.json"
+else
+  printf 'null' > "$WORKDIR/seen.json"
+fi
+
 # ---- Pass 1: build the FULL SNAPSHOT (full bodies + every flag) ----
 # Flags are computed once, here, so the index and every query.sh consumer see identical
 # judgments. Bot login normalization happens here so consumers see consistent keys.
@@ -334,6 +365,7 @@ jq -n \
   --slurpfile sub_d_w "$WORKDIR/sub_d.json" \
   --slurpfile sub_e_pr_w "$WORKDIR/sub_e_pr.json" \
   --slurpfile sub_e_base_w "$WORKDIR/sub_e_base.json" \
+  --slurpfile seen_w "$WORKDIR/seen.json" \
   --argjson security_available "$SECURITY_ALERTS_AVAILABLE" \
   --arg security_hint "$SECURITY_ALERTS_HINT" \
   --arg repo "$OWNER_REPO" \
@@ -348,12 +380,20 @@ jq -n \
   | ($sub_c2 | map(select(.node_id != null))
      | map({key: .node_id, value: .commit_id}) | from_entries) as $review_commit_by_id
   | ($main.commits | last | .committedDate) as $last_push
+  | ($seen_w[0]) as $seen_ids
   # Check-suite reruns leave same-name duplicates; keep only the latest run per name so a
   # superseded failure cannot pin codeql_checks / checks_failing red forever.
   | ((($sub_d_w | add) // []) | group_by(.name) | map(max_by(.started_at))) as $check_runs |
   # ---- shared helpers ----
   # Every body-consuming helper opens with (. // "") — jq string functions (gsub/test/
   # contains/capture) raise fatal errors on null input, and a null body must not kill a poll.
+  # is_new with the straggler catch (PITFALL 6): newer than the last push, or an id no
+  # earlier poll has observed. $seen_ids == null (first poll) keeps the timestamp rule alone.
+  def fresh($ts; $id):
+    ($ts > $last_push)
+    or ($seen_ids != null and $id != null
+        and (any($seen_ids[]; . == ($id | tostring)) | not));
+
   def mk_preview:
     (. // "")
     | gsub("<!--[\\s\\S]*?-->"; "")
@@ -425,11 +465,23 @@ jq -n \
     | if . == null then null else
         (.body // "") as $wb
         | ($wb | cr_rate_limited_body) as $rate_limited
+        # The walkthrough itself carries no commit anchor, so its freshness is timestamp-based —
+        # but a slow review of an older HEAD rewrites it after the next push, faking freshness.
+        # The REST commit_id of the latest CR review is the contradiction check: when it disagrees
+        # with the current HEAD, the timestamp claim is a straggler rewrite (null = no reviews,
+        # no evidence either way).
+        | ([$main.reviews[] | select(.author.login == "coderabbitai")] | sort_by(.submittedAt)
+           | last | if . == null then null else ($review_commit_by_id[.id] // null) end)
+          as $latest_review_commit
         | {
           id,
           created_at,
           updated_at,
-          reviewed_current_head: ((.updated_at > $last_push) and ($rate_limited | not)),
+          reviewed_current_head:
+            ((.updated_at > $last_push) and ($rate_limited | not)
+             and (if $latest_review_commit == null then true
+                  else ($latest_review_commit | codex_commit_is_current_head) end)),
+          latest_review_commit: $latest_review_commit,
           is_rate_limited: $rate_limited,
           is_ok:          ($wb | test("No actionable comments were generated in the recent review")),
           is_paused:      ($wb | test("(review[s]?\\s+paused|paused\\s+by\\s+coderabbit|automatic reviews are paused|paused\\s+for\\s+this\\s+PR)"; "i")),
@@ -453,12 +505,12 @@ jq -n \
        end) as $reviewed_current_head
     | {id, submittedAt, state, reviewed_commit: $reviewed_commit,
        reviewed_current_head: $reviewed_current_head,
-       is_new: (.submittedAt > $last_push), body};
+       is_new: fresh(.submittedAt; .id), body};
 
   def codex_comment_row:
     (.body // "") as $cb
     | ($cb | codex_reviewed_commit_from_body) as $reviewed_commit
-    | {id, createdAt, is_new: (.createdAt > $last_push),
+    | {id, createdAt, is_new: fresh(.createdAt; .id),
        reviewed_commit: $reviewed_commit,
        reviewed_current_head:
          (if $reviewed_commit == null
@@ -478,7 +530,7 @@ jq -n \
           path,
           commit_id,
           created_at,
-          is_new:       (.created_at > $last_push),
+          is_new:       fresh(.created_at; .id),
           severity_alt: ([(.body // "") | capture("!\\[(?<s>[^\\]]+)\\]")] | .[0].s // null),
           cr_markers:   (.body | cr_markers_of),
           is_ack:       (.body | is_ack_body),
@@ -532,20 +584,26 @@ jq -n \
       other_comments:
         ([$main.comments[] | select(.author.login == "coderabbitai")]
          | sort_by(.createdAt) | .[1:]
-         | map({id, createdAt, is_new: (.createdAt > $last_push), preview: (.body | mk_preview), body})),
+         | map({id, createdAt, is_new: fresh(.createdAt; .id), preview: (.body | mk_preview), body})),
       reviews:
         [$main.reviews[] | select(.author.login == "coderabbitai")
-         | {id, submittedAt, state, is_new: (.submittedAt > $last_push), body}]
+         | {id, submittedAt, state, is_new: fresh(.submittedAt; .id), body}]
     },
 
     gemini: {
       reviews:
         [$main.reviews[] | select(.author.login == "gemini-code-assist")
-         | {id, submittedAt, state, is_new: (.submittedAt > $last_push),
+         | ($review_commit_by_id[.id] // null) as $reviewed_commit
+         | {id, submittedAt, state, is_new: fresh(.submittedAt; .id),
+            reviewed_current_head:
+              (if $reviewed_commit == null
+               then (.submittedAt > $last_push)
+               else ($reviewed_commit | codex_commit_is_current_head)
+               end),
             has_pass_marker: (.body | has_pass_marker_body), body}],
       comments:
         [$main.comments[] | select(.author.login == "gemini-code-assist")
-         | {id, createdAt, is_new: (.createdAt > $last_push), preview: (.body | mk_preview), body}]
+         | {id, createdAt, is_new: fresh(.createdAt; .id), preview: (.body | mk_preview), body}]
     },
 
     codex: {
@@ -641,7 +699,7 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
       },
 
       gemini: {
-        reviews: [$s.gemini.reviews[] | {id, submittedAt, state, has_pass_marker, is_new}],
+        reviews: [$s.gemini.reviews[] | {id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new}],
         comments_new:
           [$s.gemini.comments[] | select(.is_new) | {id, createdAt, preview}],
         comments_history:
@@ -759,3 +817,21 @@ else
     render("")
   ' "$WORKDIR/index.json"
 fi
+
+# ---- Seen ledger update (PITFALL 6) ----
+# Last step on purpose: a straggler is new solely because its id is unseen, so the id must
+# not be acknowledged until the index that surfaces it has been stored and printed —
+# a ledger advanced before a failed/interrupted emission would fold the item into history
+# unseen. Union with the staged previous ledger: a transiently missing id (partial API
+# response) must not resurface as new on a later poll. Reactions carry no stable identity
+# and stay out.
+jq -c --slurpfile prev "$WORKDIR/seen.json" '
+  [.coderabbit.other_comments[]?.id, .coderabbit.reviews[]?.id,
+   .gemini.reviews[]?.id, .gemini.comments[]?.id,
+   .codex.reviews[]?.id, .codex.comments[]?.id,
+   ((.inline_comments_by_user // {})[]?[]?.id)]
+  | map(select(. != null) | tostring)
+  | . + ($prev[0] // [])
+  | unique
+' "$SNAPSHOT_FILE" > "$WORKDIR/seen_next.json"
+mv "$WORKDIR/seen_next.json" "$SEEN_FILE"
