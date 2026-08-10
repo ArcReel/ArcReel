@@ -433,6 +433,7 @@ _VIDEO_AUDIO_STANCES: dict[tuple[str, str], str] = {
     ("kling", "kling-v3"): "controllable",
     ("kling", "kling-v3-omni"): "controllable",
     ("kling", "kling-video-o1"): "silent",
+    ("minimax", "MiniMax-H3"): "always_on",
     ("minimax", "MiniMax-Hailuo-2.3"): "silent",
     ("minimax", "MiniMax-Hailuo-2.3-Fast"): "silent",
     ("minimax", "S2V-01"): "silent",

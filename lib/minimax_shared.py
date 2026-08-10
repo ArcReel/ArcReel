@@ -6,11 +6,13 @@
 - MINIMAX_INTL_BASE_URL — 国际站 base，供配置覆盖参考
 - resolve_minimax_api_key — Bearer API Key 解析（缺失即 raise，不走 env fallback）
 - minimax_text_base_url / minimax_video_base_url — 归一化为 {host}/v1，容忍用户填 host 或带 `/v1` 后缀
+- minimax_video_v2_base_url — 多模态视频端点 base {host}/v2（H3）
 - minimax_headers — Bearer 鉴权头
 - extract_image_url / extract_image_base64 — 单步 image_generation 响应取首图
 - minimax_failure_reason — 图像响应 base_resp.status_code 非零时的错误描述
 - safe_body_for_log — 日志白名单视图（剥 base64/URL/prompt）
 - 视频两步取 URL 状态机：submit→轮询 query 至 status=Success 取 file_id→files/retrieve 取 download_url
+- v2 视频单步取 URL 状态机：submit→轮询 query 至 task.status=succeeded 直接取 task.content.url
 """
 
 from __future__ import annotations
@@ -24,11 +26,22 @@ MINIMAX_INTL_BASE_URL = "https://api.minimax.io/v1"
 
 # 单一已知路径后缀，归一化 host 时剥除以容忍用户填入完整 base。
 _V1_SUFFIX = "/v1"
+# v2 视频端点（H3）与 v1 同 host 不同前缀，见 minimax_video_v2_base_url。
+_V2_SUFFIX = "/v2"
 
 # 视频异步任务终态：Success/Fail；中间态 Preparing/Queueing/Processing 继续轮询。
 MINIMAX_STATUS_SUCCESS = "Success"
 MINIMAX_STATUS_FAIL = "Fail"
 _TERMINAL_VIDEO_STATES = frozenset({MINIMAX_STATUS_SUCCESS, MINIMAX_STATUS_FAIL})
+
+# v2 任务状态取值与 v1 完全不同（小写、多出取消态），且成功响应直接给下载 URL、无 file_id
+# 取回步骤，故两套状态机各自独立，不在 v1 判定里加分支。
+MINIMAX_V2_STATUS_SUCCEEDED = "succeeded"
+MINIMAX_V2_STATUS_FAILED = "failed"
+MINIMAX_V2_STATUS_CANCELLED = "cancelled"
+_TERMINAL_V2_VIDEO_STATES = frozenset(
+    {MINIMAX_V2_STATUS_SUCCEEDED, MINIMAX_V2_STATUS_FAILED, MINIMAX_V2_STATUS_CANCELLED}
+)
 
 # 轮询间隔（秒）：海螺视频生成通常数十秒至数分钟，10s 一次平衡时延与请求量。
 MINIMAX_VIDEO_POLL_INTERVAL_SECONDS = 10.0
@@ -67,6 +80,11 @@ def minimax_text_base_url(configured: str | None = None) -> str:
 def minimax_video_base_url(configured: str | None = None) -> str:
     """原生视频端点 base：{host}/v1。与文本共用单一 /v1 base，仅命名区分用途。"""
     return f"{_minimax_host(configured)}{_V1_SUFFIX}"
+
+
+def minimax_video_v2_base_url(configured: str | None = None) -> str:
+    """多模态视频端点 base：{host}/v2。与 /v1 同 host，供 H3 的 content[] 端点使用。"""
+    return f"{_minimax_host(configured)}{_V2_SUFFIX}"
 
 
 def minimax_headers(api_key: str) -> dict[str, str]:
@@ -224,3 +242,37 @@ def extract_minimax_download_url(retrieve_payload: dict) -> str:
         reason = _base_resp_error(retrieve_payload)
         raise RuntimeError(reason or f"MiniMax files/retrieve 响应缺少 download_url: {retrieve_payload}")
     return url
+
+
+# ── v2 视频任务状态机工具（单步取 URL） ───────────────────────────────────────
+
+
+def minimax_v2_video_status(payload: dict) -> str | None:
+    """查询响应 task.status（queued/running/succeeded/failed/cancelled）。"""
+    return _as_dict(payload.get("task")).get("status")
+
+
+def is_minimax_v2_video_terminal(payload: dict) -> bool:
+    """succeeded / failed / cancelled 为终态；queued / running（含未知）继续轮询。"""
+    return minimax_v2_video_status(payload) in _TERMINAL_V2_VIDEO_STATES
+
+
+def minimax_v2_video_failure_reason(payload: dict) -> str | None:
+    """status=failed/cancelled 或顶层 base_resp 硬错误 → 错误描述；否则 None。
+
+    取消态一并按失败处理：任务不会再产出视频，继续轮询只会等到超时。
+    """
+    status = minimax_v2_video_status(payload)
+    if status in (MINIMAX_V2_STATUS_FAILED, MINIMAX_V2_STATUS_CANCELLED):
+        task = _as_dict(payload.get("task"))
+        detail = task.get("error") or task.get("status_msg") or ""
+        return f"MiniMax 视频任务{status} task_id={task.get('id')}: {detail}".strip()
+    return _base_resp_error(payload)
+
+
+def extract_minimax_v2_download_url(query_payload: dict) -> str:
+    """从 status=succeeded 的查询响应提取 task.content.url（限时下载地址）。"""
+    url = _as_dict(_as_dict(query_payload.get("task")).get("content")).get("url")
+    if not url:
+        raise RuntimeError(f"MiniMax 视频任务完成但缺少 content.url: {query_payload}")
+    return str(url)

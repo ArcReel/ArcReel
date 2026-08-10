@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from lib.config.registry import model_info_for
 from lib.providers import PROVIDER_MINIMAX
-from lib.video_backends.base import VideoCapabilityError, VideoGenerationRequest
-from lib.video_backends.minimax import MiniMaxVideoBackend
+from lib.video_backends.base import ReferenceAudioMode, VideoCapabilityError, VideoGenerationRequest
+from lib.video_backends.minimax import MiniMaxVideoBackend, _safe_body_for_log
+from lib.video_frame_slots import resolve_first_frame_aspect_ratio
 
 pytestmark = pytest.mark.unit
 
@@ -52,8 +55,31 @@ def _client(*, post=None, get=None) -> AsyncMock:
     return c
 
 
+def _v2_query(status: str, *, url: str = "", error: str = "") -> dict:
+    task: dict = {"id": "h3-task", "model": "MiniMax-H3", "status": status}
+    if url:
+        task["content"] = {"url": url}
+    if error:
+        task["error"] = error
+    return {"task": task}
+
+
 def _backend(model: str = "MiniMax-Hailuo-2.3") -> MiniMaxVideoBackend:
     return MiniMaxVideoBackend(api_key="sk-test", model=model)
+
+
+def _h3() -> MiniMaxVideoBackend:
+    return _backend("MiniMax-H3")
+
+
+def _png(path: Path) -> Path:
+    path.write_bytes(b"\x89PNG\r\n")
+    return path
+
+
+def _wav(path: Path) -> Path:
+    path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+    return path
 
 
 def _request(tmp_path: Path, **overrides) -> VideoGenerationRequest:
@@ -71,7 +97,7 @@ class TestConstructionAndCapabilities:
     def test_name_and_default_model(self):
         b = MiniMaxVideoBackend(api_key="k")
         assert b.name == PROVIDER_MINIMAX
-        assert b.model == "MiniMax-Hailuo-2.3"
+        assert b.model == "MiniMax-H3"
 
     def test_video_capabilities_first_frame(self):
         assert _backend().video_capabilities.first_frame is True
@@ -79,6 +105,46 @@ class TestConstructionAndCapabilities:
     def test_missing_api_key_raises(self):
         with pytest.raises(ValueError):
             MiniMaxVideoBackend(api_key=None)
+
+    @pytest.mark.parametrize("model", ["minimax-h3", "MINIMAX-H3", "proxy/minimax-h3"])
+    def test_h3_dispatch_case_and_namespace_insensitive(self, tmp_path, model):
+        # 中转站发现层（infer_endpoint）按大小写不敏感的 "minimax-h3" 子串把这些变体路由到
+        # minimax-video；派发/能力声明须用同一判定，否则会出现"发现路由对了，派发却落回
+        # v1"的裂缝——本用例锁定两处用的是同一谓词。
+        b = _backend(model)
+        payload = b._build_payload(_request(tmp_path))
+        assert "content" in payload  # v2 payload 形态，v1 是扁平 dict 无此键
+        assert b.video_capabilities.max_reference_images == 9
+
+    @pytest.mark.parametrize("model", ["minimax-h3", "MINIMAX-H3", "proxy/minimax-h3"])
+    def test_h3_output_specs_use_canonical_registry_lookup(self, model):
+        # self._model 可能是大小写/命名空间变体，字面值查 registry 会 miss；_v2_output_specs
+        # 须归一化到 canonical "MiniMax-H3" 再查，返回值须与 registry 实际声明一致（正向断言，
+        # 不止是"没崩"）。
+        b = _backend(model)
+        resolutions, durations = b._v2_output_specs()
+        registry_info = model_info_for(PROVIDER_MINIMAX, "MiniMax-H3")
+        assert registry_info is not None
+        assert resolutions == frozenset(r.lower() for r in registry_info.resolutions)
+        assert durations == frozenset(registry_info.supported_durations)
+
+    @pytest.mark.parametrize("model", ["minimax-h3", "MINIMAX-H3", "proxy/minimax-h3"])
+    def test_h3_output_specs_query_uses_canonical_name(self, model):
+        # 直接断言查询参数已归一化为 canonical 名，不依赖兜底值与 registry 声明恰好相等这种
+        # 巧合。
+        with patch("lib.video_backends.minimax.model_info_for") as mock_lookup:
+            mock_lookup.return_value = MagicMock(resolutions=["768p"], supported_durations=[6])
+            b = _backend(model)
+            b._v2_output_specs()
+        assert mock_lookup.call_args.args[1] == "MiniMax-H3"
+
+    def test_h3_output_specs_missing_registry_entry_fails_loud(self):
+        # 本方法只查固定的 canonical 名，缺失只可能是 registry 条目被误删/改名——这类配置
+        # 错误必须 fail loud，不能悄悄回落到硬编码常量掩盖过去。
+        with patch("lib.video_backends.minimax.model_info_for", return_value=None):
+            b = _backend("MiniMax-H3")
+            with pytest.raises(RuntimeError, match="registry"):
+                b._v2_output_specs()
 
 
 class TestPayloadAndCapabilityGating:
@@ -251,6 +317,209 @@ class TestGenerateHappyPath:
         persist.assert_awaited_once()
         assert persist.await_args is not None
         assert persist.await_args.args[1] == "task-x"
+
+
+class TestH3V2Capabilities:
+    """H3 走 v2 多模态端点：能力声明按官方《创建视频生成任务 (V2)》逐维度锁定。"""
+
+    def test_declared_capabilities(self):
+        caps = MiniMaxVideoBackend.video_capabilities_for_model("MiniMax-H3")
+        assert caps.first_frame is True
+        assert caps.last_frame is True
+        assert caps.max_reference_images == 9
+        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
+        assert caps.max_reference_audio_count == 3
+        assert caps.max_reference_audio_total_seconds == 15.0
+        assert caps.max_prompt_chars == 7000
+        assert caps.first_frame_ratio_adaptive_only is True
+
+    def test_first_frame_ratio_resolves_to_adaptive(self):
+        """不只断言声明位为真：走共享施加逻辑核实首帧任务实际拿到 adaptive。"""
+        caps = MiniMaxVideoBackend.video_capabilities_for_model("MiniMax-H3")
+        assert resolve_first_frame_aspect_ratio(caps=caps, aspect_ratio="16:9", has_first_frame=True) == "adaptive"
+        assert resolve_first_frame_aspect_ratio(caps=caps, aspect_ratio="16:9", has_first_frame=False) == "16:9"
+
+    def test_hailuo_capabilities_unchanged(self):
+        caps = MiniMaxVideoBackend.video_capabilities_for_model("MiniMax-Hailuo-2.3")
+        assert caps.first_frame is True
+        assert caps.last_frame is False
+        assert caps.max_reference_images == 0
+        assert caps.first_frame_ratio_adaptive_only is False
+
+    def test_base_url_uses_v2(self):
+        assert _h3()._base_url.endswith("/v2")
+        assert _backend()._base_url.endswith("/v1")
+
+
+class TestH3V2Payload:
+    def test_t2v_single_text_item(self, tmp_path):
+        payload = _h3()._build_payload(_request(tmp_path, resolution="2k", duration_seconds=15, aspect_ratio="16:9"))
+        assert payload["model"] == "MiniMax-H3"
+        assert payload["resolution"] == "2K"
+        assert payload["duration"] == 15
+        assert payload["ratio"] == "16:9"
+        assert payload["content"] == [{"type": "text", "text": "a cat"}]
+
+    def test_i2v_first_and_last_frame_roles(self, tmp_path):
+        first = _png(tmp_path / "first.png")
+        last = _png(tmp_path / "last.png")
+        payload = _h3()._build_payload(
+            _request(tmp_path, start_image=first, end_image=last, aspect_ratio="adaptive", duration_seconds=4)
+        )
+        roles = [item.get("role") for item in payload["content"]]
+        assert roles == [None, "first_frame", "last_frame"]
+        assert payload["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+        assert payload["ratio"] == "adaptive"
+
+    def test_r2v_reference_images_and_audio_keep_order(self, tmp_path):
+        # role/type 断言之外逐项比对 data URI：素材顺序即 prompt 里「音频N」等指认编号的依据，
+        # 集合/全量断言不会捕获反转，需按内容钉死输入与条目的对应关系。
+        refs = [_png(tmp_path / f"ref{i}.png") for i in range(3)]
+        audios = [_wav(tmp_path / f"a{i}.wav") for i in range(2)]
+        payload = _h3()._build_payload(_request(tmp_path, reference_images=refs, reference_audio_files=audios))
+        items = payload["content"]
+        assert [item["type"] for item in items] == ["text"] + ["image_url"] * 3 + ["audio_url"] * 2
+        assert [item["role"] for item in items[1:4]] == ["reference_image"] * 3
+        assert [item["role"] for item in items[4:]] == ["reference_audio"] * 2
+        expected_images = [f"data:image/png;base64,{base64.b64encode(p.read_bytes()).decode()}" for p in refs]
+        assert [item["image_url"]["url"] for item in items[1:4]] == expected_images
+        expected_audios = [f"data:audio/wav;base64,{base64.b64encode(p.read_bytes()).decode()}" for p in audios]
+        assert [item["audio_url"]["url"] for item in items[4:]] == expected_audios
+
+    def test_frames_and_references_are_mutually_exclusive(self, tmp_path):
+        with pytest.raises(VideoCapabilityError) as exc:
+            _h3()._build_payload(
+                _request(tmp_path, start_image=_png(tmp_path / "f.png"), reference_images=[_png(tmp_path / "r.png")])
+            )
+        assert exc.value.code == "video_reference_images_with_frames_unsupported"
+
+    @pytest.mark.parametrize("frame_field", ["start_image", "end_image"])
+    def test_frames_and_reference_audio_are_mutually_exclusive(self, tmp_path, frame_field):
+        # 参考音频同属参考生视频维度，与首/尾帧（任一）混合同样应在本地被拒，而非发出注定
+        # 被上游拒绝的请求（官方口径：图生视频与多模态参考生视频互斥）。end_image 单独给出时
+        # 互斥校验先于「尾帧须配首帧」校验命中，两个帧字段都要覆盖，回归才捕得到。
+        frame = _png(tmp_path / f"{frame_field}.png")
+        with pytest.raises(VideoCapabilityError) as exc:
+            _h3()._build_payload(
+                _request(
+                    tmp_path,
+                    reference_audio_files=[_wav(tmp_path / "a.wav")],
+                    **{frame_field: frame},
+                )
+            )
+        assert exc.value.code == "video_reference_images_with_frames_unsupported"
+
+    def test_last_frame_without_first_frame_rejected(self, tmp_path):
+        with pytest.raises(VideoCapabilityError) as exc:
+            _h3()._build_payload(_request(tmp_path, end_image=_png(tmp_path / "l.png")))
+        assert exc.value.code == "video_end_image_requires_start_image"
+
+    @pytest.mark.parametrize(("resolution", "duration"), [("1080p", 6), ("768p", 3), ("2k", 16)])
+    def test_out_of_range_specs_rejected(self, tmp_path, resolution, duration):
+        with pytest.raises(VideoCapabilityError) as exc:
+            _h3()._build_payload(_request(tmp_path, resolution=resolution, duration_seconds=duration))
+        assert exc.value.code == "video_resolution_duration_unsupported"
+
+    def test_output_specs_follow_registry_declaration(self, tmp_path):
+        # 分辨率档与时长的真相源在 registry：改声明即改放行范围，backend 不另存一份。
+        stub = MagicMock(resolutions=["4k"], supported_durations=[7])
+        with patch("lib.video_backends.minimax.model_info_for", return_value=stub):
+            assert _h3()._build_payload(_request(tmp_path, resolution="4k", duration_seconds=7))["duration"] == 7
+            with pytest.raises(VideoCapabilityError) as exc:
+                _h3()._build_payload(_request(tmp_path, resolution="768p", duration_seconds=6))
+        assert exc.value.code == "video_resolution_duration_unsupported"
+
+    def test_unreadable_first_frame_raises(self, tmp_path):
+        with pytest.raises(VideoCapabilityError) as exc:
+            _h3()._build_payload(_request(tmp_path, start_image=tmp_path / "nope.png"))
+        assert exc.value.code == "video_start_image_unreadable"
+
+    def test_unsupported_audio_format_raises(self, tmp_path):
+        bad = tmp_path / "a.ogg"
+        bad.write_bytes(b"OggS")
+        with pytest.raises(VideoCapabilityError) as exc:
+            _h3()._build_payload(_request(tmp_path, reference_audio_files=[bad]))
+        assert exc.value.code == "video_reference_audio_format_unsupported"
+
+    def test_safe_log_view_folds_content(self, tmp_path):
+        payload = _h3()._build_payload(_request(tmp_path, start_image=_png(tmp_path / "f.png")))
+        view = _safe_body_for_log(payload)
+        assert view["content"] == "<1 image_url, 1 text>"
+        assert view["prompt"] == "a cat"
+        assert "base64" not in str(view)
+
+
+class TestH3V2Generate:
+    async def test_single_step_url_extraction(self, tmp_path):
+        captured: dict = {}
+
+        async def _post(url, json, headers):
+            captured["url"] = url
+            captured["json"] = json
+            return _resp(_submit("h3-task"))
+
+        async def _get(url, params=None, headers=None):
+            captured["query_url"] = url
+            captured["query_params"] = params
+            return _resp(_v2_query("succeeded", url="https://x/h3.mp4"))
+
+        client = _client(post=AsyncMock(side_effect=_post), get=AsyncMock(side_effect=_get))
+        with (
+            patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.minimax.download_video", new=AsyncMock()) as dl,
+        ):
+            result = await _h3().generate(_request(tmp_path, duration_seconds=5))
+
+        assert captured["url"].endswith("/v2/video_generation")
+        # v2 把 task_id 放路径段，且成功响应直接带下载地址，无 files/retrieve 这一步。
+        assert captured["query_url"].endswith("/v2/query/video_generation/h3-task")
+        assert captured["query_params"] is None
+        assert result.video_uri == "https://x/h3.mp4"
+        assert result.task_id == "h3-task"
+        dl.assert_awaited_once()
+
+    async def test_running_status_keeps_polling(self, tmp_path):
+        get = AsyncMock(side_effect=[_resp(_v2_query("running")), _resp(_v2_query("succeeded", url="https://x/o.mp4"))])
+        client = _client(post=AsyncMock(return_value=_resp(_submit())), get=get)
+        with (
+            patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.minimax.download_video", new=AsyncMock()),
+        ):
+            result = await _h3().generate(_request(tmp_path))
+        assert get.await_count == 2
+        assert result.video_uri == "https://x/o.mp4"
+
+    @pytest.mark.parametrize("status", ["failed", "cancelled"])
+    async def test_terminal_failure_statuses_raise(self, tmp_path, status):
+        client = _client(
+            post=AsyncMock(return_value=_resp(_submit())),
+            get=AsyncMock(return_value=_resp(_v2_query(status, error="quota exhausted"))),
+        )
+        with (
+            patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.minimax.download_video", new=AsyncMock()),
+        ):
+            with pytest.raises(RuntimeError, match="quota exhausted"):
+                await _h3().generate(_request(tmp_path))
+
+    async def test_resume_polls_v2_endpoint(self, tmp_path):
+        post = AsyncMock()  # must NOT be called
+        get = AsyncMock(return_value=_resp(_v2_query("succeeded", url="https://x/r2.mp4")))
+        client = _client(post=post, get=get)
+        with (
+            patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.minimax.download_video", new=AsyncMock()),
+        ):
+            result = await _h3().resume_video("h3-resume", _request(tmp_path))
+
+        post.assert_not_called()
+        assert get.await_args is not None
+        assert get.await_args.args[0].endswith("/v2/query/video_generation/h3-resume")
+        assert result.video_uri == "https://x/r2.mp4"
 
 
 class TestResume:

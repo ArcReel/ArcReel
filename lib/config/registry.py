@@ -343,6 +343,20 @@ def _minimax_video_pricing(model_id: str, buckets: dict[tuple[str, int], float])
     return PerVideoBucket(rates={model_id: buckets}, default_model=model_id, currency="CNY")
 
 
+# MiniMax 视频按秒 × 分辨率计费（元/秒，CNY）。H3 时长连续取 4–15 秒，离散档表达会退化成
+# 逐秒枚举，故与海螺系列的 (分辨率, 时长) 档价分开走每秒矩阵。
+def _minimax_video_per_second_pricing(model_id: str, rates: dict[str, float]) -> PerSecondMatrix:
+    return PerSecondMatrix(
+        rates={model_id: {(res, None): rate for res, rate in rates.items()}},
+        default_model=model_id,
+        dimensions="resolution_only",
+        currency="CNY",
+        # H3 未显式指定分辨率（Auto）时，_build_v2_payload 实际下发 768P（无 720P 档位），
+        # 结算须跟随同一默认，否则回落 720P 会因该档不存在而落空至 0。
+        default_resolution="768p",
+    )
+
+
 # 可灵 Kling 视频「质量档 × 是否有声」¥/s 矩阵（官方一手核实，CNY，1 积分 = ¥1）。
 # 全部 video 模型共享同一档位矩阵（官方按维度组合定价、不分模型）：4K 档仅 v3/v3-omni 可达、
 # 有声档仅 v2-6 / v3 / v3-omni 可达；turbo 与 video-o1 仅触达 std/pro 无声档。
@@ -1214,13 +1228,30 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_minimax_image_pricing("image-01", 0.025),
             ),
             # --- video ---
+            # H3：多模态 v2 端点（content[] 数组），768P/2K × 4–15 秒任意整数，两档分辨率
+            # 时长范围一致故无 duration_resolution_constraints。原生立体声、请求无音轨开关，
+            # 故 audio_always_on。能力与取值出处：
+            # https://platform.minimaxi.com/docs/api-reference/video-generation-v2-create.md
+            # 定价出处：https://platform.minimaxi.com/docs/guides/pricing-paygo.md
+            # （768P 0.50 元/秒、2K 0.80 元/秒）。同页另有输入素材附加费——参考图前 5 张免费、
+            # 第 6 张起 0.20 元/张——未计入本策略：附加费按输入张数而非输出秒数计，
+            # PerSecondMatrix 无该维度，估价会低于实际账单。
+            "MiniMax-H3": ModelInfo(
+                display_name="MiniMax H3",
+                media_type="video",
+                capabilities=[],
+                audio_always_on=True,
+                default=True,
+                supported_durations=list(range(4, 16)),
+                resolutions=["768p", "2k"],
+                pricing=_minimax_video_per_second_pricing("MiniMax-H3", {"768p": 0.50, "2k": 0.80}),
+            ),
             # 1080P 仅 6s（10s 仅 768P）；细粒度越界由 MiniMaxVideoBackend 抛 VideoCapabilityError，
             # duration_resolution_constraints 同步给前端做下拉门控。
             "MiniMax-Hailuo-2.3": ModelInfo(
                 display_name="MiniMax Hailuo 2.3",
                 media_type="video",
                 capabilities=[],
-                default=True,
                 supported_durations=[6, 10],
                 resolutions=["768p", "1080p"],
                 duration_resolution_constraints={"1080p": [6]},

@@ -566,10 +566,11 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     if "wan2." in lowered and not is_image:
         return "dashscope-async-video"
 
-    # MiniMax 原生 token 二级路由：海螺（含 minimax-hailuo）/ S2V → 两步 file_id 视频端点；
-    # image-01 → 单步图像端点。先于通用 is_video/is_image：s2v 不被 _VIDEO_PATTERN 覆盖，
-    # image-01 含 "image" 否则会被通用图像家族抢走。
-    if "hailuo" in lowered or "s2v" in lowered:
+    # MiniMax 原生 token 二级路由：海螺（含 minimax-hailuo）/ S2V / H3 → 两步或单步取回的视频端点；
+    # image-01 → 单步图像端点。先于通用 is_video/is_image：s2v 与 h3 均不被 _VIDEO_PATTERN 覆盖，
+    # image-01 含 "image" 否则会被通用图像家族抢走。匹配 "minimax-h3" 而非裸 "h3"——后者过短，
+    # 容易撞上其它厂商恰好含 h3 子串的型号 id。
+    if "hailuo" in lowered or "s2v" in lowered or "minimax-h3" in lowered:
         return "minimax-video"
     if "image-01" in lowered:
         return "minimax-image"

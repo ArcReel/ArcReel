@@ -154,6 +154,20 @@ class TestLookupPricing:
         assert cur == "CNY"
         assert amount == pytest.approx(expected)
 
+    @pytest.mark.parametrize(
+        ("resolution", "duration", "expected"),
+        [("768p", 4, 2.0), ("768p", 15, 7.5), ("2k", 5, 4.0), ("2k", 15, 12.0)],
+    )
+    def test_h3_per_second_by_resolution(self, resolution, duration, expected):
+        # H3 按秒 × 分辨率计价（768P 0.50、2K 0.80 元/秒）；键写错会静默回落到 0，故两档都钉死。
+        p = lookup_pricing(PROVIDER_MINIMAX, "MiniMax-H3", "video")
+        amount, cur = calculate_pricing(
+            p,
+            PricingParams(call_type="video", model="MiniMax-H3", resolution=resolution, duration_seconds=duration),
+        )
+        assert cur == "CNY"
+        assert amount == pytest.approx(expected)
+
     def test_video_unmet_bucket_falls_back_nearest_cny(self):
         # 1080p 仅 6s 档；请求 1080p 10s 未命中 → 同分辨率最近档 (1080p,6)=3.5
         p = lookup_pricing(PROVIDER_MINIMAX, "MiniMax-Hailuo-2.3", "video")
@@ -178,6 +192,17 @@ class TestVideoRegistry:
         from lib.config.registry import PROVIDER_REGISTRY
 
         models = PROVIDER_REGISTRY[PROVIDER_MINIMAX].models
+        h3 = models["MiniMax-H3"]
+        assert h3.media_type == "video"
+        # H3 是 minimax 视频默认，海螺 2.3 仍可选回。
+        assert h3.default is True
+        assert models["MiniMax-Hailuo-2.3"].default is False
+        assert h3.supported_durations == list(range(4, 16))
+        assert h3.resolutions == ["768p", "2k"]
+        # 两档分辨率共用同一段时长，无需 duration_resolution_constraints 门控。
+        assert h3.duration_resolution_constraints == {}
+        assert h3.audio_always_on is True
+
         hailuo = models["MiniMax-Hailuo-2.3"]
         assert hailuo.media_type == "video"
         assert hailuo.supported_durations == [6, 10]
