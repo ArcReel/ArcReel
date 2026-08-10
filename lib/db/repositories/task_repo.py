@@ -704,9 +704,10 @@ class TaskRepository(BaseRepository):
     async def persist_provider_job_id(self, task_id: str, job_id: str, *, endpoint: str | None = None) -> None:
         """单独事务持久化 provider_job_id；不带 WHERE 状态守卫（worker 内调用，确定是 running）。
 
-        ``endpoint`` 是自定义供应商提交本 job 时模型行的 endpoint（内置供应商传 None）。与
-        job_id 同一次 UPDATE 落地：两者必须同时可见，否则续跑会拿到 job_id 却判不出协议是否
-        已被换掉。None 时不写该列——保留既有值比清空更安全（清空等于放弃比对）。
+        ``endpoint`` 是提交本 job 时实际使用的执行端点，按供应商类型有两种取值：自定义供应商
+        传模型行的 endpoint 标识，提交域名随用户配置变化的内置供应商传实际请求域名。与 job_id
+        同一次 UPDATE 落地：两者必须同时可见，否则续跑会拿到 job_id 却判不出协议是否已被换掉、
+        也无从回放原域名。None 时不写该列——保留既有值比清空更安全（清空等于放弃比对）。
 
         失败抛异常，由 worker finally 兜底 mark_failed（ADR 0007 fail-fast：未持久化的
         submit 视为整笔失败，避免「幽灵任务」继续在 provider 端跑而 DB 已忘）。

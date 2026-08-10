@@ -53,11 +53,12 @@ def _submitted_base_url(task: dict[str, Any], current_endpoint: str | None) -> s
     """内置供应商提交本 job 时的请求域名，供 backend 回放轮询；无从判定时 None。
 
     ``provider_endpoint`` 一列按供应商类型承载两种取值，此处只取内置那种：``current_endpoint``
-    非空即当下是自定义供应商，其持久化值是 endpoint 标识、归比对闸消费。域名形态再确认一次，
-    是为了拦住「任务由自定义供应商提交、在途把模型行改成内置供应商」这类跨类切换——此时列里
-    躺着的是 endpoint 标识，拿它拼 URL 只会把 404（可归因为任务过期）换成更难归因的连接错误。
+    非空即当下是自定义供应商，其持久化值是 endpoint 标识、归比对闸消费。空值口径与
+    ``_ensure_endpoint_unchanged`` 一致取 falsy，否则空串会让两条分支都不生效。域名形态再确认
+    一次，是为了拦住「任务由自定义供应商提交、在途把模型行改成内置供应商」这类跨类切换——此时
+    列里躺着的是 endpoint 标识，拿它拼 URL 只会把 404（可归因为任务过期）换成更难归因的连接错误。
     """
-    if current_endpoint is not None:
+    if current_endpoint:
         return None
     submitted = task.get("provider_endpoint")
     if isinstance(submitted, str) and submitted.startswith(("http://", "https://")):

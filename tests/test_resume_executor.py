@@ -438,3 +438,23 @@ async def test_resume_ignores_endpoint_id_left_by_provider_switch(monkeypatch, f
     await execute_resume_video_task(task, job_id="dashscope-job-1")
 
     assert fake_gen.resume_calls[0]["submitted_base_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_resume_fails_when_builtin_task_switched_to_custom_provider(monkeypatch, fake_pm, video_task):
+    """任务由内置供应商提交（列里是域名）、模型行在途被改成自定义供应商：比对闸拦下。
+
+    域名与 endpoint 标识必然不等，闸门据此判定协议已被换掉。内置任务的该列有值后这条路径
+    才可达，语义上也确实换了协议——宁可显式失败，也不拿新协议 backend 轮旧 job。
+    """
+    from lib.video_backends.base import ResumeEndpointChangedError
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="dashscope-async-video")
+
+    task = {**video_task, "provider_id": "dashscope", "provider_endpoint": "https://maas-a.example.com/ws-1/api/v1"}
+    with pytest.raises(ResumeEndpointChangedError):
+        await execute_resume_video_task(task, job_id="dashscope-job-1")
+
+    assert fake_gen.resume_calls == []
