@@ -44,7 +44,9 @@
 #     "walkthrough": {                                  # CR's first comment (auto-edited each review)
 #       "id":                    <int>,                 # REST issue comment id — stable across rewrites
 #       "created_at", "updated_at",
-#       "reviewed_current_head": <bool>,                # updated_at > last_push_at AND not rate-limited
+#       "reviewed_current_head": <bool>,                # updated_at > last_push_at AND not rate-limited AND the
+#                                                       # latest CR review's commit (if any) matches the head
+#       "latest_review_commit":  "<sha>" | null,        # commit anchor of the latest CR review (contradiction check)
 #       "is_ok":                 <bool>,                # CR explicit pass marker
 #       "is_paused":             <bool>,                # CR paused for this PR
 #       "is_rate_limited":       <bool>,                # walkthrough body IS CR's rate-limit banner — not a review
@@ -100,9 +102,11 @@
 # FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name)
 #   is_new                 new this round: created_at/submittedAt > last_push_at, OR id absent from the
 #                          seen ledger (straggler catch, see PITFALL 6; timestamp rule see PITFALL 2)
-#   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false. CR rewrites its
-#                          first comment each review — but a rate-limit banner rewrite also advances updated_at
-#                          without reviewing anything, so it must not read as "reviewed". On gemini review rows:
+#   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false AND the latest CR
+#                          review's commit anchor (when present) matches the head. CR rewrites its first comment
+#                          each review — but a rate-limit banner rewrite also advances updated_at without
+#                          reviewing anything, and a slow review of an older HEAD rewrites it after the next
+#                          push, so neither must read as "reviewed". On gemini review rows:
 #                          the REST review's commit_id vs headRefOid (submittedAt > last_push_at only as fallback
 #                          when the mapping is unavailable) — a straggler or slow review of an older HEAD
 #                          surfaces as is_new but must not read as current-HEAD (see PITFALL 6)
@@ -461,11 +465,23 @@ jq -n \
     | if . == null then null else
         (.body // "") as $wb
         | ($wb | cr_rate_limited_body) as $rate_limited
+        # The walkthrough itself carries no commit anchor, so its freshness is timestamp-based —
+        # but a slow review of an older HEAD rewrites it after the next push, faking freshness.
+        # The REST commit_id of the latest CR review is the contradiction check: when it disagrees
+        # with the current HEAD, the timestamp claim is a straggler rewrite (null = no reviews,
+        # no evidence either way).
+        | ([$main.reviews[] | select(.author.login == "coderabbitai")] | sort_by(.submittedAt)
+           | last | if . == null then null else ($review_commit_by_id[.id] // null) end)
+          as $latest_review_commit
         | {
           id,
           created_at,
           updated_at,
-          reviewed_current_head: ((.updated_at > $last_push) and ($rate_limited | not)),
+          reviewed_current_head:
+            ((.updated_at > $last_push) and ($rate_limited | not)
+             and (if $latest_review_commit == null then true
+                  else ($latest_review_commit | codex_commit_is_current_head) end)),
+          latest_review_commit: $latest_review_commit,
           is_rate_limited: $rate_limited,
           is_ok:          ($wb | test("No actionable comments were generated in the recent review")),
           is_paused:      ($wb | test("(review[s]?\\s+paused|paused\\s+by\\s+coderabbit|automatic reviews are paused|paused\\s+for\\s+this\\s+PR)"; "i")),
