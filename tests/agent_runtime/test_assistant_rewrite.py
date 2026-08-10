@@ -19,7 +19,7 @@ from server.agent_runtime.event_log import EventLogService, EventLogStore
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.service import (
     AssistantService,
-    InterruptSettleTimeout,
+    InterruptSettleTimeoutError,
     PendingQuestionError,
     RewriteAnchorError,
     RewriteUnavailableError,
@@ -27,23 +27,13 @@ from server.agent_runtime.service import (
 )
 from server.agent_runtime.session_branch import SessionBranchService
 from server.agent_runtime.session_store import SessionMetaStore
+from tests.agent_runtime.conftest import make_transcript_entry
 
 pytestmark = pytest.mark.integration
 
 PROJECT_NAME = "demo"
 FIRST_USER_ENTRY = "user-first"
 SECOND_USER_ENTRY = "user-second"
-
-
-def _transcript_entry(uuid: str, parent: str | None, entry_type: str, session_id: str, text: str) -> dict[str, Any]:
-    return {
-        "uuid": uuid,
-        "parentUuid": parent,
-        "sessionId": session_id,
-        "type": entry_type,
-        "timestamp": "2026-01-01T00:00:00Z",
-        "message": {"role": entry_type, "content": text},
-    }
 
 
 class FakeSessionManager:
@@ -148,10 +138,10 @@ async def rewriting(session_factory, tmp_path):
     await store.append(
         {"project_key": make_project_key(project_cwd), "session_id": session_id},
         [
-            _transcript_entry(u1, None, "user", session_id, "逐集改"),
-            _transcript_entry(a1, u1, "assistant", session_id, "好的"),
-            _transcript_entry(u2, a1, "user", session_id, "再改一下"),
-            _transcript_entry(a2, u2, "assistant", session_id, "批量改好了"),
+            make_transcript_entry(u1, None, "user", session_id, "逐集改"),
+            make_transcript_entry(a1, u1, "assistant", session_id, "好的"),
+            make_transcript_entry(u2, a1, "user", session_id, "再改一下"),
+            make_transcript_entry(a2, u2, "assistant", session_id, "批量改好了"),
         ],
     )
     await log_store.record_user_message_link(session_id, FIRST_USER_ENTRY, u1)
@@ -280,6 +270,26 @@ class TestRewriteRejections:
         assert origin is not None and origin.superseded_by is None
         assert runtime.interrupted == [], "被拒的请求不该已经打断用户的轮次"
 
+    async def test_anchor_without_a_transcript_copy_is_refused_as_a_bad_anchor(self, rewriting):
+        """锚点已在事件日志里、transcript 副本却还没落成：切片拒绝，理由仍是「锚点非法」。
+
+        改写一条刚受理、SDK 尚未回放的用户消息就会走到这里——身份映射还没落表，
+        恒等回退给出一个 transcript 查无此条的 uuid。这条路径过了编排层的预检，
+        必须在分叉那一步保住可辨识性，而不是退化成一句「请稍后重试」。
+        """
+        service, runtime, session_id, project_cwd = rewriting
+        await service.event_log.ensure_backfilled(session_id, project_cwd)
+        pending, _created = await service.event_log_store.append_user_entry(
+            session_id, service._build_user_log_entry("刚受理还没回放", None)
+        )
+
+        with pytest.raises(RewriteAnchorError):
+            await _rewrite(service, session_id, pending["uuid"])
+
+        assert runtime.interrupted == [session_id], "锚点过了预检，拒绝确实来自分叉那一步"
+        origin = await service.meta_store.get(session_id)
+        assert origin is not None and origin.superseded_by is None
+
     async def test_pending_question_blocks_the_rewrite(self, rewriting):
         """AC：未决问答卡片存在 → 拒绝且错误可辨识（问答优先）。"""
         service, runtime, session_id, _ = rewriting
@@ -323,7 +333,7 @@ class TestRewriteRejections:
         runtime.settle_after_interrupt = False
         service._INTERRUPT_SETTLE_TIMEOUT = 0.05  # type: ignore[misc]
 
-        with pytest.raises(InterruptSettleTimeout):
+        with pytest.raises(InterruptSettleTimeoutError):
             await _rewrite(service, session_id, SECOND_USER_ENTRY)
 
         origin = await service.meta_store.get(session_id)

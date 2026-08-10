@@ -19,7 +19,7 @@ from server.agent_runtime.failure_observation import build_startup_failure_obser
 from server.agent_runtime.models import SessionMeta
 from server.agent_runtime.service import (
     AssistantService,
-    InterruptSettleTimeout,
+    InterruptSettleTimeoutError,
     PendingQuestionError,
     RewriteAnchorError,
     RewriteUnavailableError,
@@ -185,7 +185,7 @@ async def rewrite_message(
         raise ConflictError("session_already_superseded") from exc
     except RewriteUnavailableError as exc:
         raise ServiceUnavailableError("rewrite_unavailable") from exc
-    except InterruptSettleTimeout:
+    except InterruptSettleTimeoutError:
         raise HTTPException(status_code=504, detail=_t("rewrite_interrupt_timeout"))
     except SessionBranchError as exc:
         logger.warning("分支会话建立失败: %s", exc)

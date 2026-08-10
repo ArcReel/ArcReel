@@ -45,7 +45,12 @@ from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.models import Heartbeat, LiveMessage, SessionMeta, SessionStatus, SubscriptionReady
 from server.agent_runtime.result_status import resolve_result_status
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
-from server.agent_runtime.session_branch import BranchedSession, SessionBranchError, SessionBranchService
+from server.agent_runtime.session_branch import (
+    BranchAnchorError,
+    BranchedSession,
+    SessionBranchError,
+    SessionBranchService,
+)
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
@@ -70,7 +75,7 @@ class RewriteUnavailableError(MessageRewriteError):
     """当前部署形态下无法改写（transcript 镜像未开启）。"""
 
 
-class InterruptSettleTimeout(MessageRewriteError):
+class InterruptSettleTimeoutError(MessageRewriteError):
     """等待运行中轮次中断到终态超时。"""
 
 
@@ -558,14 +563,21 @@ class AssistantService:
         deadline = asyncio.get_running_loop().time() + self._INTERRUPT_SETTLE_TIMEOUT
         while status == "running":
             if asyncio.get_running_loop().time() >= deadline:
-                raise InterruptSettleTimeout(f"session {session_id} did not settle after interrupt")
+                raise InterruptSettleTimeoutError(f"session {session_id} did not settle after interrupt")
             await asyncio.sleep(self._INTERRUPT_SETTLE_POLL)
             status = await self.session_manager.get_status(session_id) or "idle"
 
     async def _branch_or_reject(self, session_id: str, anchor_entry_uuid: str) -> BranchedSession:
-        """分叉，并把分支服务的单一异常类型翻译回编排层能分辨的拒绝理由。"""
+        """分叉，并把分支服务的异常翻译回编排层能分辨的拒绝理由。"""
         try:
             return await self.session_branch.branch(session_id, anchor_entry_uuid)
+        except BranchAnchorError as exc:
+            # 编排层的预检放行了、切片却拒绝：解析出的 uuid 在 transcript 里查无
+            # 此条（锚点是运行中轮次刚发出、SDK 尚未回放的那条），或该条目载有
+            # tool_result。都是调用方能改正的坏请求，与「分叉失败」区分开。
+            raise RewriteAnchorError(
+                f"anchor {anchor_entry_uuid} is not a forkable user message of session {session_id}"
+            ) from exc
         except SessionBranchError as exc:
             meta = await self.meta_store.get(session_id)
             if meta is not None and meta.superseded_by is not None:

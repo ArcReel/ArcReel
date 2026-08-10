@@ -17,23 +17,13 @@ from server.agent_runtime.event_log import EventLogService, EventLogStore
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.session_branch import BranchedSession, SessionBranchError, SessionBranchService
 from server.agent_runtime.session_store import SessionMetaStore
+from tests.agent_runtime.conftest import make_transcript_entry
 
 pytestmark = pytest.mark.integration
 
 PROJECT_NAME = "demo"
 FIRST_USER_ENTRY = "user-first"
 SECOND_USER_ENTRY = "user-second"
-
-
-def _entry(uuid: str, parent: str | None, entry_type: str, session_id: str, text: str) -> dict:
-    return {
-        "uuid": uuid,
-        "parentUuid": parent,
-        "sessionId": session_id,
-        "type": entry_type,
-        "timestamp": "2026-01-01T00:00:00Z",
-        "message": {"role": entry_type, "content": text},
-    }
 
 
 @pytest.fixture
@@ -57,10 +47,10 @@ async def branching(session_factory, tmp_path):
     await store.append(
         {"project_key": make_project_key(tmp_path), "session_id": session_id},
         [
-            _entry(u1, None, "user", session_id, "你好"),
-            _entry(a1, u1, "assistant", session_id, "在"),
-            _entry(u2, a1, "user", session_id, "再改一下"),
-            _entry(a2, u2, "assistant", session_id, "改好了"),
+            make_transcript_entry(u1, None, "user", session_id, "你好"),
+            make_transcript_entry(a1, u1, "assistant", session_id, "在"),
+            make_transcript_entry(u2, a1, "user", session_id, "再改一下"),
+            make_transcript_entry(a2, u2, "assistant", session_id, "改好了"),
         ],
     )
     await log_store.record_user_message_link(session_id, FIRST_USER_ENTRY, u1)
@@ -224,7 +214,7 @@ async def test_deleting_a_middle_branch_keeps_the_origin_pointing_at_the_live_en
     continued = f"m-cont-{uuid4().hex[:8]}"
     await store.append(
         {"project_key": project_key, "session_id": middle.session_id},
-        [_entry(continued, copied[-1]["uuid"], "user", middle.session_id, "继续")],
+        [make_transcript_entry(continued, copied[-1]["uuid"], "user", middle.session_id, "继续")],
     )
     await log_store.record_user_message_link(middle.session_id, "user-in-branch", continued)
     tail = await service.branch(middle.session_id, "user-in-branch")
@@ -277,10 +267,10 @@ async def _seed_session_with_a_subagent(store, meta_store, log_store, project_ke
     await store.append(
         {"project_key": project_key, "session_id": session_id},
         [
-            _entry(u1, None, "user", session_id, "查一下"),
-            _entry(a1, u1, "assistant", session_id, "好"),
-            {**_entry(r1, a1, "user", session_id, "done"), "toolUseResult": {"agentId": "abc123"}},
-            _entry(u2, r1, "user", session_id, "再改一下"),
+            make_transcript_entry(u1, None, "user", session_id, "查一下"),
+            make_transcript_entry(a1, u1, "assistant", session_id, "好"),
+            {**make_transcript_entry(r1, a1, "user", session_id, "done"), "toolUseResult": {"agentId": "abc123"}},
+            make_transcript_entry(u2, r1, "user", session_id, "再改一下"),
         ],
     )
     await log_store.record_user_message_link(session_id, SECOND_USER_ENTRY, u2)
@@ -362,7 +352,7 @@ async def _seed_three_rounds(store, meta_store, project_key):
     await store.append(
         {"project_key": project_key, "session_id": session_id},
         [
-            _entry(uuid, parent, "user" if index % 2 == 0 else "assistant", session_id, f"第{index}条")
+            make_transcript_entry(uuid, parent, "user" if index % 2 == 0 else "assistant", session_id, f"第{index}条")
             for index, (uuid, parent) in enumerate(zip(uuids, parents, strict=True))
         ],
     )
@@ -412,7 +402,7 @@ async def test_a_continued_branch_message_is_anchored_through_the_mapping(branch
     continued = f"m-cont-{uuid4().hex[:8]}"
     await store.append(
         {"project_key": project_key, "session_id": branched.session_id},
-        [_entry(continued, copied[-1]["uuid"], "user", branched.session_id, "继续")],
+        [make_transcript_entry(continued, copied[-1]["uuid"], "user", branched.session_id, "继续")],
     )
     await log_store.record_user_message_link(branched.session_id, "user-in-branch", continued)
 
@@ -449,10 +439,10 @@ async def test_a_tool_result_carrying_entry_is_refused_as_an_anchor(branching):
     await store.append(
         {"project_key": project_key, "session_id": session_id},
         [
-            _entry(u1, None, "user", session_id, "跑一下"),
-            _entry(a1, u1, "assistant", session_id, "好"),
+            make_transcript_entry(u1, None, "user", session_id, "跑一下"),
+            make_transcript_entry(a1, u1, "assistant", session_id, "好"),
             {
-                **_entry(mixed, a1, "user", session_id, ""),
+                **make_transcript_entry(mixed, a1, "user", session_id, ""),
                 "message": {
                     "role": "user",
                     "content": [
@@ -482,8 +472,8 @@ async def test_an_identity_anchor_that_transcript_never_saw_fails_loud(branching
     await store.append(
         {"project_key": project_key, "session_id": session_id},
         [
-            _entry(u1, None, "user", session_id, "你好"),
-            _entry(a1, u1, "assistant", session_id, "在"),
+            make_transcript_entry(u1, None, "user", session_id, "你好"),
+            make_transcript_entry(a1, u1, "assistant", session_id, "在"),
         ],
     )
     # 事件日志里有这条主线用户条目，transcript 里没有——mint 出来的 id 本该由

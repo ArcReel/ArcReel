@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from lib.i18n import get_translator
 from server.agent_runtime.service import (
-    InterruptSettleTimeout,
+    InterruptSettleTimeoutError,
     PendingQuestionError,
     RewriteAnchorError,
     RewriteUnavailableError,
@@ -118,7 +118,7 @@ class TestRewriteRejections:
             (PendingQuestionError("pending"), 409, "rewrite_blocked_by_question"),
             (SessionSupersededError("superseded"), 409, "session_already_superseded"),
             (RewriteUnavailableError("no store"), 503, "rewrite_unavailable"),
-            (InterruptSettleTimeout("stuck"), 504, "rewrite_interrupt_timeout"),
+            (InterruptSettleTimeoutError("stuck"), 504, "rewrite_interrupt_timeout"),
             (SessionBranchError("copy failed"), 500, "rewrite_failed"),
             (SessionCapacityError("full"), 503, "session_capacity_exceeded"),
             (SessionBusyError("busy"), 409, "session_busy"),
