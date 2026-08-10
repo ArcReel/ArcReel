@@ -22,6 +22,7 @@ from lib.path_safety import PathTraversalError, safe_join
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.entry_pipeline import SessionEntryPipeline
 from server.agent_runtime.event_log import (
+    REPLAYED_USER_ECHO_ENTRY_UUID_KEY,
     REPLAYED_USER_ECHO_KEY,
     EventLogStore,
 )
@@ -31,7 +32,8 @@ from server.agent_runtime.failure_observation import (
 )
 from server.agent_runtime.message_serialization import (
     IMAGE_ONLY_SENTINEL,
-    is_duplicate_user_echo,
+    PendingUserEcho,
+    match_user_echo,
     message_to_dict,
     utc_now_iso,
 )
@@ -209,7 +211,7 @@ class ManagedSession:
     resolved_sdk_id: str | None = None  # consumer 设置，send_new_session 读取
     channel: SseChannel = field(default_factory=_make_session_channel)
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
-    pending_user_echoes: list[str] = field(default_factory=list)
+    pending_user_echoes: list[PendingUserEcho] = field(default_factory=list)
     # 事件日志写入点管道（UI 时间线唯一读源的 live 写侧）。
     entry_pipeline: SessionEntryPipeline | None = None
     # 新会话首条用户消息：sdk_session_id 就绪后由 inbox 任务写入日志（seq 0），
@@ -508,10 +510,14 @@ class SessionManager:
             msg_dict = message_to_dict(raw_msg)
             if not isinstance(msg_dict, dict):
                 return
-            if is_duplicate_user_echo(managed.pending_user_echoes, msg_dict):
+            echo = match_user_echo(managed.pending_user_echoes, msg_dict)
+            if echo is not None:
                 # SDK 回放的用户消息副本：POST 受理时已写日志分配身份，
-                # 打标让事件日志写入点跳过，不产生重复条目。
+                # 打标让事件日志写入点跳过，不产生重复条目。副本携带的
+                # transcript uuid 与捎带的条目身份在写入点配成映射落库。
                 msg_dict[REPLAYED_USER_ECHO_KEY] = True
+                if echo.entry_uuid:
+                    msg_dict[REPLAYED_USER_ECHO_ENTRY_UUID_KEY] = echo.entry_uuid
                 managed._inbox.put_nowait(msg_dict)
                 return
             self._handle_special_message(managed, msg_dict)
@@ -665,7 +671,10 @@ class SessionManager:
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
         dedup_key = display_text or (IMAGE_ONLY_SENTINEL if echo_content else "")
         if dedup_key:
-            managed.pending_user_echoes.append(dedup_key)
+            entry_uuid = user_entry.get("uuid") if user_entry is not None else None
+            managed.pending_user_echoes.append(
+                PendingUserEcho(dedup_key, entry_uuid=str(entry_uuid) if entry_uuid else None)
+            )
         managed.last_user_prompt = display_text
 
         try:
@@ -1004,7 +1013,10 @@ class SessionManager:
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
         dedup_key = display_text or (IMAGE_ONLY_SENTINEL if echo_content else "")
         if dedup_key:
-            managed.pending_user_echoes.append(dedup_key)
+            entry_uuid = log_entry.get("uuid") if log_entry is not None else None
+            managed.pending_user_echoes.append(
+                PendingUserEcho(dedup_key, entry_uuid=str(entry_uuid) if entry_uuid else None)
+            )
             if len(managed.pending_user_echoes) > 20:
                 managed.pending_user_echoes.pop(0)
         managed.last_user_prompt = display_text

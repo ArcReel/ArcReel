@@ -280,6 +280,9 @@ class OptionsAssembler:
                 append=self._build_append_prompt(project_name, locale=locale),
             ),
             include_partial_messages=True,
+            # CLI 只在该开关下把 stdin 收到的用户消息带 uuid 回放到 stdout。
+            # 不开则回放副本根本不出现：echo 去重与用户消息身份映射都不会触发。
+            extra_args={"replay-user-messages": None},
             resume=resume_id,
             can_use_tool=can_use_tool,
             hooks=hooks,  # type: ignore[arg-type]
