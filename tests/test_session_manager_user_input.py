@@ -181,6 +181,20 @@ class TestSessionManagerUserInput:
         finally:
             await _finish(managed)
 
+    async def test_closing_a_running_session_reports_echo_residue(self, session_manager, meta_store, caplog):
+        """关停打断进行中的轮次也是轮次终结点，残留照样记账，不因关停路径而漏报。"""
+        meta, managed, _client = await _seed(session_manager, meta_store, status="running", block_forever=True)
+        managed.status = "running"
+        managed.pending_user_echoes.append(PendingUserEcho(dedup_key="没等到回放", entry_uuid="user-a"))
+
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
+            await session_manager.close_session(meta.id)
+
+        assert session_manager.unclaimed_user_echoes == 1
+        unclaimed = [r for r in caplog.records if "unclaimed" in r.getMessage()]
+        assert len(unclaimed) == 1
+        assert getattr(unclaimed[0], "reason") == "session evicted"
+
     async def test_failed_new_session_startup_does_not_count_as_unclaimed(
         self, session_manager, meta_store, monkeypatch, caplog
     ):

@@ -1297,6 +1297,11 @@ class SessionManager:
             # send_message 已把 DB 写成 running；缺少此步 get_or_connect 恢复
             # 后会拒绝新消息（SessionStatus == "running"）。
             if managed.resolved_sdk_id is not None:
+                # 关停同样终结轮次：inbox 已排空，此刻还在队列里的登记不会再被认领，
+                # 与 _mark_session_terminal 同口径记账，否则同一种中断会因走关停路径
+                # 还是走 inbox 取消路径而报或不报。限定在 SDK 已就绪的会话上，启动
+                # 失败与投递失败那两条路径此前已各自清空，不会流到这里。
+                self._drain_pending_user_echoes(managed, "session evicted")
                 if managed.status == "running":
                     managed.status = "interrupted"
                 if managed.status in ("interrupted", "error"):
