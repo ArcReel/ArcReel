@@ -300,6 +300,8 @@ class TestInferEndpoint:
             ),  # 海螺 token → minimax-video（前 minimax endpoint 时代默认 openai-video）
             ("S2V-01", "openai", "minimax-video"),  # s2v 不在通用视频 pattern，须显式路由
             ("minimax-s2v-01", "openai", "minimax-video"),
+            ("MiniMax-H3", "openai", "minimax-video"),  # H3 同样不在通用视频 pattern，须显式路由
+            ("minimax-h3", "openai", "minimax-video"),
             ("image-01", "openai", "minimax-image"),  # image-01 含 "image" 否则会被推到通用图像家族
             ("minimax/image-01", "openai", "minimax-image"),
             ("S2V-01", "google", "minimax-video"),  # minimax 路由不分 discovery_format

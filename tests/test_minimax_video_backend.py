@@ -352,15 +352,18 @@ class TestH3V2Payload:
             )
         assert exc.value.code == "video_reference_images_with_frames_unsupported"
 
-    def test_frames_and_reference_audio_are_mutually_exclusive(self, tmp_path):
-        # 参考音频同属参考生视频维度，与首/尾帧混合同样应在本地被拒，而非发出注定被上游
-        # 拒绝的请求（官方口径：图生视频与多模态参考生视频互斥）。
+    @pytest.mark.parametrize("frame_field", ["start_image", "end_image"])
+    def test_frames_and_reference_audio_are_mutually_exclusive(self, tmp_path, frame_field):
+        # 参考音频同属参考生视频维度，与首/尾帧（任一）混合同样应在本地被拒，而非发出注定
+        # 被上游拒绝的请求（官方口径：图生视频与多模态参考生视频互斥）。end_image 单独给出时
+        # 互斥校验先于「尾帧须配首帧」校验命中，两个帧字段都要覆盖，回归才捕得到。
+        frame = _png(tmp_path / f"{frame_field}.png")
         with pytest.raises(VideoCapabilityError) as exc:
             _h3()._build_payload(
                 _request(
                     tmp_path,
-                    start_image=_png(tmp_path / "f.png"),
                     reference_audio_files=[_wav(tmp_path / "a.wav")],
+                    **{frame_field: frame},
                 )
             )
         assert exc.value.code == "video_reference_images_with_frames_unsupported"
