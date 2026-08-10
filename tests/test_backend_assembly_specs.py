@@ -101,6 +101,24 @@ class TestMediaRegistryRouting:
             "dashscope", api_key="sk-test", model="wan2.7-r2v", base_url="https://dashscope.aliyuncs.com"
         )
 
+    @patch("lib.video_backends.registry.create_backend")
+    def test_dashscope_video_passes_wan3_base_url(self, mock_create):
+        # wan3 专用 maas 域名单列一键，仅 video lane 消费；未填时不写入 kwargs
+        spec = get_provider_spec("dashscope", "video")
+        config = _loaded(
+            credentials={"api_key": "sk-test", "wan3_base_url": "https://maas.example.com/ws-1/api/v1"},
+            provider_id="dashscope",
+        )
+        spec.build_backend(config, "wan3.0-video")
+        assert mock_create.call_args.kwargs["wan3_base_url"] == "https://maas.example.com/ws-1/api/v1"
+
+    @patch("lib.video_backends.registry.create_backend")
+    def test_dashscope_video_omits_unset_wan3_base_url(self, mock_create):
+        spec = get_provider_spec("dashscope", "video")
+        config = _loaded(credentials={"api_key": "sk-test"}, provider_id="dashscope")
+        spec.build_backend(config, "wan3.0-video")
+        assert "wan3_base_url" not in mock_create.call_args.kwargs
+
     @patch("lib.audio_backends.registry.create_backend")
     def test_dashscope_audio_uses_audio_registry(self, mock_create):
         spec = get_provider_spec("dashscope", "audio")

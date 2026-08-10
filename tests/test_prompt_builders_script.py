@@ -519,6 +519,33 @@ class TestStep2PromptGuards:
         assert "- 庙宇：Y" in text
         assert "- 玉佩" in text
 
+    @pytest.mark.parametrize("builder", ["drama", "narration", "ad"])
+    def test_step2_warns_off_task_type_trigger_words(self, builder: str):
+        """三条 step2 路径都须把任务类型触发词避讳带给真正落笔 video_prompt 的文案模型。
+
+        编排层 CLAUDE.*.md 里的同名约束进不了这次调用，故此处锁的是 prompt 正文本身。
+        """
+        if builder == "drama":
+            text = self._drama_prompt()
+        elif builder == "narration":
+            text = self._narration_prompt()
+        else:
+            text = build_ad_prompt(
+                project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+                style="动漫",
+                style_description="cinematic",
+                characters={"角色甲": {}},
+                scenes={},
+                props={},
+                products={},
+                brief="卖点",
+                target_duration=30,
+                generation_mode="image",
+                supported_durations=[4, 6, 8],
+            )
+        assert "任务类型触发词" in text
+        assert "改成" in text and "延长" in text
+
     def test_drama_omits_asset_block_without_assets(self):
         """兼容旧调用：不传资产参数时 drama step2 不渲染资产块与取材注记。"""
         text = self._drama_prompt()
