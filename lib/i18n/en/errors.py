@@ -73,7 +73,7 @@ MESSAGES = {
     "tts_novel_text_missing": "Shot '{segment_id}' has no novel text to narrate",
     "audio_provider_not_configured": "Please configure an audio provider first: add a text-to-speech capable provider in Settings → Providers",
     "narration_speed_must_be_positive": "Narration speed must be a positive number",
-    "speech_rate_out_of_range": "Spoken pace (for estimates) must be greater than 0 and at most {max} reading units per second",
+    "speech_rate_out_of_range": "Spoken pace (for estimates) must be between {min} and {max} reading units per second",
     "character_not_found": "Character '{name}' does not exist",
     "character_task_submitted": "Character design generation task for '{name}' submitted",
     "voice_sample_voice_required": "Please select a voice first",

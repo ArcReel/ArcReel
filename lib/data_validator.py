@@ -41,6 +41,7 @@ from lib.script_models import (
 from lib.script_skeleton import SkeletonRouteMismatchError, ensure_route_skeleton, resolve_declared_kind
 from lib.speech_rate import (
     MAX_SPEECH_RATE_UPS,
+    MIN_SPEECH_RATE_UPS,
     SPEECH_RATE_FIELD,
     estimate_spoken_seconds,
     is_valid_speech_rate,
@@ -395,6 +396,7 @@ class DataValidator:
                         "val_speech_rate_out_of_range",
                         field=SPEECH_RATE_FIELD,
                         value=speech_rate,
+                        min=MIN_SPEECH_RATE_UPS,
                         max=MAX_SPEECH_RATE_UPS,
                     )
                 )

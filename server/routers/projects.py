@@ -39,7 +39,7 @@ from lib.json_io import domain_error_on_value_error
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
 from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
-from lib.speech_rate import MAX_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
+from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from server.auth import CurrentUser, create_download_token, verify_download_token
@@ -110,7 +110,9 @@ def _validated_speech_rate(value: float, _t: Translator) -> float:
     """
     rate = float(value)
     if not is_valid_speech_rate(rate):
-        raise HTTPException(status_code=422, detail=_t("speech_rate_out_of_range", max=MAX_SPEECH_RATE_UPS))
+        raise HTTPException(
+            status_code=422, detail=_t("speech_rate_out_of_range", min=MIN_SPEECH_RATE_UPS, max=MAX_SPEECH_RATE_UPS)
+        )
     return rate
 
 

@@ -13,7 +13,7 @@ MESSAGES = {
     "val_field_type_string": "字段类型错误: {field} 应为字符串",
     "val_field_type_bool": "字段类型错误: {field} 应为布尔值",
     "val_field_type_number": "字段类型错误: {field} 应为数字",
-    "val_speech_rate_out_of_range": "{field} 超出合法范围: {value}，须大于 0 且不超过 {max}",
+    "val_speech_rate_out_of_range": "{field} 超出合法范围: {value}，须介于 {min} 与 {max} 之间",
     "val_field_must_be_string": "{field} 必须是字符串",
     "val_field_must_be_string_typed": "{field} 必须是字符串，当前为 {actual}",
     "val_field_must_be_array": "{field} 必须是数组",

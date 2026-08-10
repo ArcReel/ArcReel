@@ -53,12 +53,11 @@ describe("SpeechRateField", () => {
     expect(isValidSpeechRate(20.5)).toBe(false);
   });
 
-  it("rejects rates that overflow the duration estimate", () => {
-    // 与后端 is_valid_speech_rate 同步：1e-308 的倒数仍有限，但整段文本的估算时长会溢出
-    expect(isValidSpeechRate(5e-324)).toBe(false);
-    expect(isValidSpeechRate(1e-320)).toBe(false);
+  it("rejects rates below the lower bound", () => {
+    // 与后端 is_valid_speech_rate 同一把尺：下界之下的语速会让下游时长换算溢出
+    expect(isValidSpeechRate(0.001)).toBe(true);
+    expect(isValidSpeechRate(0.0009)).toBe(false);
     expect(isValidSpeechRate(1e-308)).toBe(false);
-    // 探针不影响正常取值：有效下限在 1e-302 量级
-    expect(isValidSpeechRate(1e-6)).toBe(true);
+    expect(isValidSpeechRate(5e-324)).toBe(false);
   });
 });

@@ -73,7 +73,7 @@ MESSAGES = {
     "tts_novel_text_missing": "Phân cảnh '{segment_id}' không có văn bản tiểu thuyết để thuyết minh",
     "audio_provider_not_configured": "Vui lòng cấu hình nhà cung cấp âm thanh trước: thêm nhà cung cấp hỗ trợ chuyển văn bản thành giọng nói trong Cài đặt → Nhà cung cấp",
     "narration_speed_must_be_positive": "Tốc độ thuyết minh phải là số dương",
-    "speech_rate_out_of_range": "Nhịp đọc lời thoại (dùng để ước tính) phải lớn hơn 0 và không quá {max} đơn vị đọc mỗi giây",
+    "speech_rate_out_of_range": "Nhịp đọc lời thoại (dùng để ước tính) phải nằm trong khoảng {min} đến {max} đơn vị đọc mỗi giây",
     "character_not_found": "Nhân vật '{name}' không tồn tại",
     "character_task_submitted": "Đã gửi tác vụ tạo thiết kế nhân vật cho '{name}'",
     "voice_sample_voice_required": "Vui lòng chọn giọng đọc trước",

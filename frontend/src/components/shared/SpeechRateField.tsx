@@ -13,20 +13,17 @@ import { FieldLabel } from "@/components/ui/FieldLabel";
  * 的裁剪口径同源。创建项目时项目尚无语言事实，按未知语言（计字）呈现。
  */
 
-/** 硬区间：与后端 lib.speech_rate 的 is_valid_speech_rate 同一把尺。 */
-export const SPEECH_RATE_MIN_EXCLUSIVE = 0;
+/**
+ * 硬区间（闭区间）：与后端 lib.speech_rate 的 is_valid_speech_rate 同一把尺。
+ * 下界取值依据（下游时长换算的余量）见后端 MIN_SPEECH_RATE_UPS 的注释。
+ */
+export const SPEECH_RATE_MIN = 0.001;
 export const SPEECH_RATE_MAX = 20;
-
-/** 溢出探针长度（阅读单位）：与后端 _OVERFLOW_PROBE_UNITS 同一个数。 */
-const SPEECH_RATE_OVERFLOW_PROBE_UNITS = 1e6;
 
 /** 该值是否可提交（null = 未填，合法）。 */
 export function isValidSpeechRate(value: number | null): boolean {
   if (value === null) return true;
-  if (!(Number.isFinite(value) && value > SPEECH_RATE_MIN_EXCLUSIVE && value <= SPEECH_RATE_MAX)) return false;
-  // 极小的正语速（如 1e-308）会让估算时长溢出成 Infinity。校验时文本尚不存在，故以远超
-  // 真实文本的探针长度取上界——与后端 _OVERFLOW_PROBE_UNITS 同一个数。
-  return Number.isFinite(SPEECH_RATE_OVERFLOW_PROBE_UNITS / value);
+  return value >= SPEECH_RATE_MIN && value <= SPEECH_RATE_MAX;
 }
 
 /** 阅读单位名词的 i18n key：按词计的语言用「词」，其余（含未知 / 未定）按「字」。 */
@@ -58,8 +55,8 @@ export function SpeechRateField({ value, onChange, sourceLanguage }: SpeechRateF
           type="number"
           inputMode="decimal"
           // 原生约束不比 isValidSpeechRate 更严，否则同一个值会同时呈现自定义有效与浏览器无效
-          // 两种状态：min 取闭下界 0（开下界 >0 由 isValidSpeechRate 判），step 放开步长限制。
-          min={SPEECH_RATE_MIN_EXCLUSIVE}
+          // 两种状态：min 取 0（真实下界由 isValidSpeechRate 判），step 放开步长限制。
+          min={0}
           max={SPEECH_RATE_MAX}
           step="any"
           value={value ?? ""}
@@ -82,7 +79,7 @@ export function SpeechRateField({ value, onChange, sourceLanguage }: SpeechRateF
       </div>
       {invalid ? (
         <p id={errorId} role="alert" className="mt-1 text-[11px] text-warm-bright">
-          {t("speech_rate_out_of_range", { max: SPEECH_RATE_MAX })}
+          {t("speech_rate_out_of_range", { min: SPEECH_RATE_MIN, max: SPEECH_RATE_MAX })}
         </p>
       ) : (
         <p className="mt-1 text-[11px] text-text-4">{t("speech_rate_hint")}</p>

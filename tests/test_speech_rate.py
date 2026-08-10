@@ -9,6 +9,7 @@ import pytest
 from lib.speech_rate import (
     DEFAULT_SPEECH_RATE_UPS,
     MAX_SPEECH_RATE_UPS,
+    MIN_SPEECH_RATE_UPS,
     SPEECH_RATE_FIELD,
     estimate_spoken_seconds,
     is_valid_speech_rate,
@@ -83,18 +84,26 @@ class TestSpeechRateOverride:
         assert estimate_spoken_seconds("一二三四五", "zh", 2.0) == pytest.approx(2.5)
 
     def test_boundary_values(self):
+        assert is_valid_speech_rate(MIN_SPEECH_RATE_UPS)
         assert is_valid_speech_rate(MAX_SPEECH_RATE_UPS)
         assert not is_valid_speech_rate(0.0)
+        assert not is_valid_speech_rate(0.0009)
         assert not is_valid_speech_rate(MAX_SPEECH_RATE_UPS + 0.001)
 
-    def test_rate_overflowing_the_estimate_is_out_of_range(self):
-        # 极小语速大于 0 却让估算时长溢出成 inf，下游微秒换算会抛 OverflowError；在入口拒掉。
-        # 1e-308 的倒数仍是有限数，只有按整段文本长度衡量才暴露溢出
-        assert not is_valid_speech_rate(5e-324)
-        assert not is_valid_speech_rate(1e-320)
+    def test_rate_below_the_lower_bound_is_out_of_range(self):
+        # 下界之下的语速会让估算时长逼近双精度上限，下游微秒换算随之溢出；在入口一律拒掉，
+        # 不逐个下游乘数追补有限性检查
+        assert not is_valid_speech_rate(1e-302)
         assert not is_valid_speech_rate(1e-308)
+        assert not is_valid_speech_rate(5e-324)
         # 被拒的覆盖按无覆盖处理，多个阅读单位照常按语言默认语速估算
         assert estimate_spoken_seconds("你好世界", "zh", 1e-308) == pytest.approx(0.8)
+
+    def test_lower_bound_keeps_downstream_microseconds_within_int64(self):
+        # 下界的取值依据：探针长度的假想文本按下界估算，换算成微秒仍远在 int64 上限内
+        probe_units = 1e6
+        seconds = probe_units / MIN_SPEECH_RATE_UPS
+        assert int(seconds * 1_000_000) < 2**63 - 1
 
     def test_bool_is_not_a_rate(self):
         # bool 是 int 子类，float(True) 落在合法区间内；谓词的入参域含 project.json 解析值，故自行拒

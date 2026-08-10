@@ -317,7 +317,7 @@ export default {
   'narration_speed_hint': 'Leave empty for the provider default; some models do not support rate control',
   'speech_rate_label': 'Spoken pace for estimates (optional)',
   'speech_rate_hint': 'Turns dialogue length into seconds for duration suggestions, speech-load notices and subtitle timing. Leave empty to estimate at the default pace for the project language. Unrelated to voice speed.',
-  'speech_rate_out_of_range': 'Must be greater than 0 and at most {{max}}',
+  'speech_rate_out_of_range': 'Must be between {{min}} and {{max}}',
   'reading_unit_char_per_second': 'chars/sec',
   'reading_unit_word_per_second': 'words/sec',
   'no_audio_providers_hint': 'No audio providers available, please configure API keys in "Providers" first.',

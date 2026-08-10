@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -39,30 +38,27 @@ SPEECH_RATE_UPS_BY_LANGUAGE: dict[str, float] = {
 #: 与 TTS 供应商配音倍率 ``narration_speed`` 是两码事：后者是倍率、前者是绝对速度。
 SPEECH_RATE_FIELD: str = "speech_rate_units_per_second"
 
-#: 项目级语速覆盖的硬区间（开下界 / 闭上界，阅读单位 / 秒）。宽松区间只拦下 ≤0 与
-#: 明显误输入（如把 TTS 倍率或毫秒数填进来），区间内不做任何倾向性提示。
-MIN_SPEECH_RATE_UPS: float = 0.0
+#: 项目级语速覆盖的硬区间（闭区间，阅读单位 / 秒）。宽松区间只拦明显误输入（如把 TTS
+#: 倍率或毫秒数填进来），区间内不做任何倾向性提示。
+#:
+#: 下界不止于拦掉 ≤0，它同时给下游时间表示留出余量：取 1e6 阅读单位（远超任何真实口播
+#: 文本）的假想单段文本，按 0.001 阅读单位 / 秒估算得 1e9 秒，换算成剪映草稿的微秒是 1e15，
+#: 离 int64 上限仍有三个数量级。若下界改为只要求「估算结果是有限数」，可接受语速会低到
+#: 1e-302 量级，此时任何下游乘数（微秒换算即是其一）都能把有限值重新推成 inf 或撑破整数
+#: 类型——要守的是余量而非有限性。0.001 意味着每个阅读单位读满 1000 秒，真实口播远在其上。
+MIN_SPEECH_RATE_UPS: float = 0.001
 MAX_SPEECH_RATE_UPS: float = 20.0
-
-#: 溢出探针：判定语速可用性时假想的单段口播阅读单位数，取值远超任何真实文本。
-#: 语速越小时长越大，只要探针长度除以它仍是有限数，真实文本的估算就不会溢出。
-_OVERFLOW_PROBE_UNITS: float = 1e6
 
 
 def is_valid_speech_rate(value: float) -> bool:
-    """该数值是否落在项目级语速覆盖的硬区间内（``0 < value <= 20``，且能算出有限时长）。
+    """该数值是否落在项目级语速覆盖的硬区间内（``0.001 <= value <= 20``）。
 
     前端输入校验、请求模型校验与持久化后的读时守卫共用这一把尺，避免三处各写一套边界。
     入参允许是 project.json 直接解析出的值，故两类输入病理在这里收掉，调用方不必各自处理：
     JSON 整数字面量没有位宽上限，``float()`` 对超出双精度表示范围的整数抛 ``OverflowError``；
     JSON 布尔解析出的 ``bool`` 是 ``int`` 子类，``float(True)`` 得 ``1.0`` 会落进合法区间。
-    两者一律判为「不可用」。
-
-    区间下界之外还要求探针长度除以该语速仍为有限数：极小的正语速（如 ``1e-308``）虽然
-    大于 0，却让 ``estimate_spoken_seconds`` 得出 ``inf``，成片字幕的微秒换算会直接抛
-    ``OverflowError``。校验发生在写入时、文本尚不存在，故以 ``_OVERFLOW_PROBE_UNITS``
-    代替真实长度取上界，下游拿到的估算值因此恒为有限数。该约束的有效下限在 1e-302
-    量级，正常取值不受影响。
+    两者一律判为「不可用」。区间本身同时排除 ``inf`` 与 ``nan``（两者与边界的比较均为假），
+    区间内的值则保证下游时长换算不溢出，依据见 ``MIN_SPEECH_RATE_UPS``。
     """
     if isinstance(value, bool):
         return False
@@ -70,9 +66,7 @@ def is_valid_speech_rate(value: float) -> bool:
         rate = float(value)
     except OverflowError:
         return False
-    if not (math.isfinite(rate) and MIN_SPEECH_RATE_UPS < rate <= MAX_SPEECH_RATE_UPS):
-        return False
-    return math.isfinite(_OVERFLOW_PROBE_UNITS / rate)
+    return MIN_SPEECH_RATE_UPS <= rate <= MAX_SPEECH_RATE_UPS
 
 
 def project_speech_rate_override(project: Mapping[str, Any] | None) -> float | None:

@@ -317,7 +317,7 @@ export default {
   'narration_speed_hint': '留空使用供应商默认语速；部分模型不支持调速',
   'speech_rate_label': '口播语速估算（可选）',
   'speech_rate_hint': '把台词长度折算成秒数，用于时长建议、说话量提示与字幕定时；留空按项目语言的默认速度估算。与配音语速无关。',
-  'speech_rate_out_of_range': '须大于 0 且不超过 {{max}}',
+  'speech_rate_out_of_range': '须介于 {{min}} 与 {{max}} 之间',
   'reading_unit_char_per_second': '字/秒',
   'reading_unit_word_per_second': '词/秒',
   'no_audio_providers_hint': '暂无可用音频供应商，请先在「供应商」页面配置 API 密钥',
