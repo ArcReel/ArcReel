@@ -2,10 +2,15 @@
 
 走原生 video-generation/video-synthesis 异步端点：submit 取 task_id → 轮询
 GET /tasks/{id} 至 SUCCEEDED → 下载 video_url。覆盖 happyhorse-1.0 / happyhorse-1.1
-与 wan2.7 系列的 t2v / i2v / r2v。schema 依据 docs/dashscope-docs/ 一手核实快照。
+与 wan2.7 系列的 t2v / i2v / r2v，以及单模型通吃三条路径的 wan3.0。
+
+schema 的确权程度按型号分两档，改动前先看清落在哪一档：happyhorse 与 wan2.7 依据
+docs/dashscope-docs/ 一手核实快照；wan3.0 无一手快照可依（官方文档站的万相章节仅到
+2.7），其请求形态系按 2.7 类推，出处与类推范围见 _WAN3_* 常量处的说明。
 
 注：t2v/i2v 起始帧用 media[{type:"first_frame"}]（first_frame type 在 r2v media
-枚举中确权）；尾帧 / 续写字段在一手 docs 未确权，不臆造，故 i2v 仅声明首帧能力。
+枚举中确权）；尾帧 / 续写字段在一手 docs 未确权，故 happyhorse 与 wan2.7 的 i2v 仅
+声明首帧能力，不臆造。wan3.0 的尾帧是上述类推档的一部分，不受这条约束。
 """
 
 from __future__ import annotations
