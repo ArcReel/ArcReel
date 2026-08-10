@@ -15,8 +15,8 @@ class AgentSessionUserMessageLink(TimestampMixin, UserOwnedMixin, Base):
     是两套独立的 id 体系，同一条用户消息在两边各有身份。本表把二者的对应关系
     固化下来，供分支会话按事件日志条目定位 transcript 中的截断位置。
 
-    映射在 SDK 回放用户消息副本时写入，缺失即视为不可定位：映射行不存在的会话
-    （本表落地之前的历史会话）读取路径照常工作。
+    映射在 SDK 回放用户消息副本时写入，缺失即视为不可定位：没有映射行的会话
+    读取路径照常工作。
     """
 
     __tablename__ = "agent_session_user_message_links"

@@ -960,7 +960,7 @@ class TestUserMessageLink:
         assert await log_store.find_user_message_link("s1", appended["uuid"]) == "sdk-entry-1"
 
     async def test_missing_mapping_returns_none(self, log_store: EventLogStore):
-        """映射落地前的历史会话：查不到即返回 None，不抛错。"""
+        """没有映射行的会话：查不到即返回 None，不抛错。"""
         assert await log_store.find_user_message_link("s1", "user-unknown") is None
 
     async def test_repeat_record_keeps_first_mapping(self, log_store: EventLogStore):
@@ -1063,7 +1063,7 @@ class TestLazyBackfill:
         assert len(await log_store.list_after("old")) == 1
 
     async def test_backfilled_session_works_without_mapping(self, log_store: EventLogStore):
-        """映射落地前的会话没有身份映射行：懒生成照常重建，只是条目不可作改写锚点。"""
+        """没有身份映射行的会话：懒生成照常重建，只是条目不可作改写锚点。"""
         adapter = _FakeAdapter([{"type": "user", "content": "hi", "uuid": "t1"}])
         service = EventLogService(log_store, adapter)
 
