@@ -10,7 +10,9 @@ import { FieldLabel } from "@/components/ui/FieldLabel";
  * 措辞也各自独立，避免同名混淆。
  *
  * 单位名词随项目源语言：zh 计「字」、en / vi 计「词」——与后端 ``count_reading_units``
- * 的裁剪口径同源。创建项目时项目尚无语言事实，按未知语言（计字）呈现。
+ * 的裁剪口径同源。语言未定时（创建向导阶段项目还没有 source_language）用中性的「阅读单位」
+ * 并提示单位待定：具体名词在这里是错误承诺——按「字/秒」填入的数值，在语言被检测为 en / vi
+ * 后会被同一个估算器按「词/秒」解释，数字不变而含义变了。
  */
 
 /**
@@ -26,10 +28,17 @@ export function isValidSpeechRate(value: number | null): boolean {
   return value >= SPEECH_RATE_MIN && value <= SPEECH_RATE_MAX;
 }
 
-/** 阅读单位名词的 i18n key：按词计的语言用「词」，其余（含未知 / 未定）按「字」。 */
+/** 阅读单位名词的 i18n key：en / vi 计「词」、zh 计「字」，语言未定时用中性的「阅读单位」。 */
 export function readingUnitKey(sourceLanguage?: string | null): string {
   const code = (sourceLanguage ?? "").trim().toLowerCase();
-  return code === "en" || code === "vi" ? "reading_unit_word" : "reading_unit_char";
+  if (code === "en" || code === "vi") return "reading_unit_word";
+  if (code === "zh") return "reading_unit_char";
+  return "reading_unit_generic";
+}
+
+/** 语言未定时单位名词无法确定，判据与 readingUnitKey 同源。 */
+function isLanguagePending(sourceLanguage?: string | null): boolean {
+  return readingUnitKey(sourceLanguage) === "reading_unit_generic";
 }
 
 export interface SpeechRateFieldProps {
@@ -82,7 +91,10 @@ export function SpeechRateField({ value, onChange, sourceLanguage }: SpeechRateF
           {t("speech_rate_out_of_range", { min: SPEECH_RATE_MIN, max: SPEECH_RATE_MAX })}
         </p>
       ) : (
-        <p className="mt-1 text-[11px] text-text-4">{t("speech_rate_hint")}</p>
+        <p className="mt-1 text-[11px] text-text-4">
+          {t("speech_rate_hint")}
+          {isLanguagePending(sourceLanguage) ? ` ${t("speech_rate_hint_language_pending")}` : ""}
+        </p>
       )}
     </div>
   );

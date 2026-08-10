@@ -4,11 +4,8 @@ import "@/i18n";
 import { SpeechRateField, isValidSpeechRate } from "./SpeechRateField";
 
 describe("SpeechRateField", () => {
-  it("shows 字/秒 for zh and unknown languages, 词/秒 for en / vi", () => {
+  it("shows 字/秒 for zh, 词/秒 for en / vi", () => {
     const { rerender } = render(<SpeechRateField value={null} onChange={() => {}} sourceLanguage="zh" />);
-    expect(screen.getByText("字/秒")).toBeInTheDocument();
-
-    rerender(<SpeechRateField value={null} onChange={() => {}} sourceLanguage={null} />);
     expect(screen.getByText("字/秒")).toBeInTheDocument();
 
     rerender(<SpeechRateField value={null} onChange={() => {}} sourceLanguage="en" />);
@@ -16,6 +13,16 @@ describe("SpeechRateField", () => {
 
     rerender(<SpeechRateField value={null} onChange={() => {}} sourceLanguage="VI" />);
     expect(screen.getByText("词/秒")).toBeInTheDocument();
+  });
+
+  it("stays unit-neutral and flags the pending unit while the language is unknown", () => {
+    // 语言未定时给出具体单位是错误承诺：按「字/秒」填的数会在语言检测为 en / vi 后被按「词/秒」解释
+    const { rerender } = render(<SpeechRateField value={null} onChange={() => {}} sourceLanguage={null} />);
+    expect(screen.getByText("阅读单位/秒")).toBeInTheDocument();
+    expect(screen.getByText(/项目语言尚未确定/)).toBeInTheDocument();
+
+    rerender(<SpeechRateField value={null} onChange={() => {}} sourceLanguage="zh" />);
+    expect(screen.queryByText(/项目语言尚未确定/)).not.toBeInTheDocument();
   });
 
   it("reports empty input as cleared (null), not 0", () => {
