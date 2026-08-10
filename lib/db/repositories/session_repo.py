@@ -21,6 +21,8 @@ def _row_to_dict(row: AgentSession) -> dict[str, Any]:
         "title": row.title or "",
         "status": row.status,
         "superseded_by": row.superseded_by,
+        "fork_parent_session_id": row.fork_parent_session_id,
+        "fork_anchor_uuid": row.fork_anchor_uuid,
         "created_at": dt_to_iso(row.created_at),
         "updated_at": dt_to_iso(row.updated_at),
     }
@@ -28,7 +30,14 @@ def _row_to_dict(row: AgentSession) -> dict[str, Any]:
 
 class SessionRepository(BaseRepository):
     async def create(
-        self, project_name: str, sdk_session_id: str, title: str = "", user_id: str = DEFAULT_USER_ID
+        self,
+        project_name: str,
+        sdk_session_id: str,
+        title: str = "",
+        user_id: str = DEFAULT_USER_ID,
+        *,
+        fork_parent_session_id: str | None = None,
+        fork_anchor_uuid: str | None = None,
     ) -> dict[str, Any]:
         now = utc_now()
         row = AgentSession(
@@ -37,6 +46,8 @@ class SessionRepository(BaseRepository):
             project_name=project_name,
             title=title,
             status="idle",
+            fork_parent_session_id=fork_parent_session_id,
+            fork_anchor_uuid=fork_anchor_uuid,
             created_at=now,
             updated_at=now,
             user_id=user_id,

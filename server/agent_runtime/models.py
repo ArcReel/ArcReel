@@ -51,5 +51,9 @@ class SessionMeta(BaseModel):
     status: SessionStatus = "idle"
     superseded_by: str | None = None
     """非空表示本会话已被分支会话取代，值为新会话的 sdk_session_id。"""
+    fork_parent_session_id: str | None = None
+    """非空表示本会话由分叉产生，值为被分叉会话的 sdk_session_id。"""
+    fork_anchor_uuid: str | None = None
+    """分叉锚点在 transcript 域的 entry uuid，与 fork_parent_session_id 同时写入。"""
     created_at: datetime
     updated_at: datetime

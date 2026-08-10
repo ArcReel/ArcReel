@@ -104,8 +104,23 @@ def _prefix_before_anchor(entries: list[dict], anchor_uuid: str) -> list[dict]:
             continue
         if _entry_type(entry) != "user":
             raise InvalidAnchorError(f"anchor {anchor_uuid} is a {_entry_type(entry)!r} entry, not a user message")
+        if _carries_tool_result(entry):
+            # transcript 把工具回执也写成 type:"user" 的条目，其中混排文本的那种
+            # 从条目类型上与真用户消息无从区分。以它作锚点会把配对的 tool_use
+            # 留在前缀末尾悬空，因此按非法锚点拒绝。
+            raise InvalidAnchorError(f"anchor {anchor_uuid} carries tool results, not a plain user message")
         return entries[:index]
     raise InvalidAnchorError(f"anchor {anchor_uuid} is not on the main timeline of session")
+
+
+def _carries_tool_result(entry: dict[str, Any]) -> bool:
+    message = entry.get("message")
+    if not isinstance(message, dict):
+        return False
+    content = message.get("content")
+    if not isinstance(content, list):
+        return False
+    return any(isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
 
 
 def _matches_subagent(subpath: str, wanted_leaves: set[str]) -> bool:

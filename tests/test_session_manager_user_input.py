@@ -1,12 +1,14 @@
 """Unit tests for SessionManager user-input and user-echo behavior."""
 
 import asyncio
+import logging
+from unittest.mock import AsyncMock
 
 import pytest
 
 from server.agent_runtime.event_log import REPLAYED_USER_ECHO_ENTRY_UUID_KEY, REPLAYED_USER_ECHO_KEY
-from server.agent_runtime.message_serialization import match_user_echo, message_to_dict
-from server.agent_runtime.session_manager import SDK_AVAILABLE
+from server.agent_runtime.message_serialization import PendingUserEcho, match_user_echo, message_to_dict
+from server.agent_runtime.session_manager import SDK_AVAILABLE, AgentStartupError
 from tests.fakes import build_managed_with_actor
 
 pytestmark = pytest.mark.unit
@@ -136,6 +138,108 @@ class TestSessionManagerUserInput:
             assert managed.status == "completed"
         finally:
             await _finish(managed)
+
+    async def test_unclaimed_echo_replays_are_reported_once_at_turn_end(self, session_manager, meta_store, caplog):
+        """回显没被认领 = 该消息会重复落库且缺身份映射；轮次终结时一次性报出残留数。"""
+        messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
+        meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
+        try:
+            managed.pending_user_echoes.extend([PendingUserEcho(dedup_key="从未被回放", entry_uuid="user-a")] * 2)
+
+            with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
+                await session_manager._finalize_turn(managed, {"type": "result", "subtype": "success"})
+
+            assert managed.pending_user_echoes == []
+            assert session_manager.unclaimed_user_echoes == 2
+            unclaimed = [r for r in caplog.records if "unclaimed" in r.getMessage()]
+            assert len(unclaimed) == 1, "一次 drain 只报一条，不逐条刷屏"
+            record = unclaimed[0]
+            assert getattr(record, "residue") == 2
+            assert getattr(record, "session_id") == managed.session_id
+            assert getattr(record, "unclaimed_total") == 2
+            assert getattr(record, "reason") == "turn finalized"
+        finally:
+            await _finish(managed)
+
+    async def test_a_fully_claimed_turn_reports_nothing(self, session_manager, meta_store, caplog):
+        """登记被回放副本认领后队列自然排空，终结时无残留可报。"""
+        messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
+        meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
+        try:
+            managed.pending_user_echoes.append(PendingUserEcho(dedup_key="你好", entry_uuid="user-a"))
+            claimed = match_user_echo(
+                managed.pending_user_echoes,
+                {"type": "user", "content": "你好"},
+            )
+            assert claimed is not None and managed.pending_user_echoes == []
+
+            with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
+                await session_manager._mark_session_terminal(managed, "interrupted", "user interrupt")
+
+            assert session_manager.unclaimed_user_echoes == 0
+            assert not [r for r in caplog.records if "unclaimed" in r.getMessage()]
+        finally:
+            await _finish(managed)
+
+    async def test_closing_a_running_session_reports_echo_residue(self, session_manager, meta_store, caplog):
+        """关停打断进行中的轮次也是轮次终结点，残留照样记账，不因关停路径而漏报。"""
+        meta, managed, _client = await _seed(session_manager, meta_store, status="running", block_forever=True)
+        managed.status = "running"
+        managed.pending_user_echoes.append(PendingUserEcho(dedup_key="没等到回放", entry_uuid="user-a"))
+
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
+            await session_manager.close_session(meta.id)
+
+        assert session_manager.unclaimed_user_echoes == 1
+        assert managed.pending_user_echoes == [], "记账之后队列要排空，不能只计数"
+        unclaimed = [r for r in caplog.records if "unclaimed" in r.getMessage()]
+        assert len(unclaimed) == 1
+        assert getattr(unclaimed[0], "reason") == "session evicted"
+
+    async def test_failed_new_session_startup_does_not_count_as_unclaimed(
+        self, session_manager, meta_store, monkeypatch, caplog, tmp_path
+    ):
+        """新会话没建起来，回放副本不会抵达：启动失败不计入认领失败、不产生告警。"""
+        proj_dir = tmp_path / "projects" / "demo"
+        proj_dir.mkdir(parents=True)
+        (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
+
+        seen_commands: list[str] = []
+
+        class _FakeActor:
+            def __init__(self, *_, on_message=None, client_factory=None):
+                self.task = None
+
+            async def start(self):
+                return None
+
+            def add_done_callback(self, _cb):
+                pass
+
+            async def enqueue(self, cmd):
+                seen_commands.append(cmd.type)
+                if cmd.type == "query":
+                    cmd.error = RuntimeError("SDK 拒绝了这次投递")
+                cmd.sent.set()
+                cmd.done.set()
+
+            async def wait(self):
+                return None
+
+        async def fake_env():
+            return {"ANTHROPIC_API_KEY": "sk"}
+
+        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+        monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
+        monkeypatch.setattr(type(session_manager), "_ensure_capacity", AsyncMock(return_value=None))
+
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
+            with pytest.raises(AgentStartupError, match="SDK 拒绝了这次投递"):
+                await session_manager.send_new_session("demo", "你好")
+
+        assert "query" in seen_commands, "投递失败要发生在 query 命令上，而非更早的装配阶段"
+        assert session_manager.unclaimed_user_echoes == 0
+        assert not [r for r in caplog.records if "unclaimed" in r.getMessage()]
 
     async def test_ask_user_question_waits_for_answer_and_merges_answers(self, session_manager, meta_store):
         if not SDK_AVAILABLE:

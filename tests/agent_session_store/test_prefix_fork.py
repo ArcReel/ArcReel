@@ -288,3 +288,32 @@ async def test_assistant_entry_is_not_a_valid_anchor(seeded):
 
     with pytest.raises(InvalidAnchorError):
         await _copy(seeded, anchor=assistant_uuid)
+
+
+async def test_an_entry_carrying_tool_results_is_not_a_valid_anchor(seeded):
+    """工具回执也写成 type:"user"；以它作锚点会把配对的 tool_use 留在前缀末尾悬空。"""
+    store, project_key, session_id, _, _ = seeded
+    main = await store.load({"project_key": project_key, "session_id": session_id})
+    assert main is not None
+    mixed_uuid = f"mixed-{uuid4().hex[:8]}"
+    await store.append(
+        {"project_key": project_key, "session_id": session_id},
+        [
+            _entry(
+                mixed_uuid,
+                main[-1]["uuid"],
+                "user",
+                session_id,
+                message={
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "toolu_x", "content": "ok"},
+                        {"type": "text", "text": "顺带说一句"},
+                    ],
+                },
+            )
+        ],
+    )
+
+    with pytest.raises(InvalidAnchorError):
+        await _copy(seeded, anchor=mixed_uuid)

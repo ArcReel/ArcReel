@@ -19,6 +19,8 @@ def _dict_to_session(d: dict) -> SessionMeta:
         title=d.get("title") or "",
         status=d["status"],
         superseded_by=d.get("superseded_by"),
+        fork_parent_session_id=d.get("fork_parent_session_id"),
+        fork_anchor_uuid=d.get("fork_anchor_uuid"),
         created_at=d["created_at"],
         updated_at=d["updated_at"],
     )
@@ -30,11 +32,23 @@ class SessionMetaStore:
     def __init__(self, *, session_factory=None):
         self._session_factory = session_factory or safe_session_factory
 
-    async def create(self, project_name: str, sdk_session_id: str) -> SessionMeta:
+    async def create(
+        self,
+        project_name: str,
+        sdk_session_id: str,
+        *,
+        fork_parent_session_id: str | None = None,
+        fork_anchor_uuid: str | None = None,
+    ) -> SessionMeta:
 
         async with self._session_factory() as session:
             repo = SessionRepository(session)
-            d = await repo.create(project_name=project_name, sdk_session_id=sdk_session_id)
+            d = await repo.create(
+                project_name=project_name,
+                sdk_session_id=sdk_session_id,
+                fork_parent_session_id=fork_parent_session_id,
+                fork_anchor_uuid=fork_anchor_uuid,
+            )
         return _dict_to_session(d)
 
     async def get(self, session_id: str) -> SessionMeta | None:

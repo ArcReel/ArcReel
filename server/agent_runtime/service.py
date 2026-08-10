@@ -75,7 +75,7 @@ class AssistantService:
         self.session_branch = SessionBranchService(
             store=self._session_store,
             meta_store=self.meta_store,
-            event_log_store=self.event_log_store,
+            event_log=self.event_log,
             resolve_project_cwd=self._resolve_project_cwd_safe,
         )
         self._startup_lock = asyncio.Lock()
