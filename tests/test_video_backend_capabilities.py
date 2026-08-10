@@ -14,6 +14,12 @@ class TestVideoCapabilities:
         assert caps.max_reference_images == 0
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
         assert caps.max_reference_audio_count == 0
+        assert caps.first_frame_ratio_adaptive_only is False
+
+    @pytest.mark.unit
+    def test_first_frame_ratio_adaptive_only_declared(self):
+        caps = VideoCapabilities(first_frame_ratio_adaptive_only=True)
+        assert caps.first_frame_ratio_adaptive_only is True
 
     @pytest.mark.unit
     def test_first_last(self):

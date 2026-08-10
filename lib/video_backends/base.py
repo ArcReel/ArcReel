@@ -445,6 +445,21 @@ class VideoCapabilities:
     为字符数（中英文同权），与各家文档一致。超限的典型失败模式是静默截断而非报错：供应商照常
     扣费、成片与意图不符、用户无从知情，正是 :func:`lib.video_frame_slots.gate_video_request`
     要在付费前堵住的降级。
+
+    ``first_frame_ratio_adaptive_only``：该模型的首帧（image-to-video）任务是否只接受
+    "adaptive" 比例。声明为 True 时，:func:`lib.video_frame_slots.resolve_first_frame_aspect_ratio`
+    把带首帧的生成请求的 ``VideoGenerationRequest.aspect_ratio`` 改写为字面量 ``"adaptive"``；
+    不带首帧的请求（纯文生 / 仅参考图）与续接已发起 job 的 resume 路径不受影响。该字面量是供应商
+    侧的取值，只对认得它的 backend 有意义，故本位只由这类 backend 声明——别处（如
+    :func:`lib.aspect_size.parse_aspect_ratio`）解析不了它，会按非法值回退默认比例。
+
+    「首帧在场时用户比例不适用」这一情形另有 backend 各自的表达方式：dashscope 与 vidu 在
+    payload 组装期直接不下发 ratio（上游忽略或拒收）。三者形状相近而取值策略不同（省略 vs 改写
+    为 adaptive），未收敛到同一开关；本位表达的是"改写为 adaptive"这一支。
+
+    用户的比例意图仍完整作用于分镜图生成——首帧图本就按该比例生成，"跟随首帧"与用户所选比例
+    等价；改写只影响视频请求实际下发的值，不改调用方持有的原始 ``aspect_ratio``（记账、版本
+    元数据沿用后者）。
     """
 
     first_frame: bool = True
@@ -455,6 +470,7 @@ class VideoCapabilities:
     max_reference_audio_total_seconds: float | None = None
     reference_audio_per_image: bool = False
     max_prompt_chars: int | None = None
+    first_frame_ratio_adaptive_only: bool = False
 
 
 @dataclass

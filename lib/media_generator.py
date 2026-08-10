@@ -608,7 +608,12 @@ class MediaGenerator:
 
         # 能力校验与槽位组装先于记账括号：能力不被支持时硬失败要"不扣费"，
         # 在括号内抛虽也不结算，却会留一条 failed ApiCall 行；两者均无副作用，前置最干净。
-        from lib.video_frame_slots import gate_video_request, plan_frame_slots, resolve_video_capabilities
+        from lib.video_frame_slots import (
+            gate_video_request,
+            plan_frame_slots,
+            resolve_first_frame_aspect_ratio,
+            resolve_video_capabilities,
+        )
 
         # prompt 长度校验对每个请求都适用（不像尾帧/参考图/参考音频那样可选），故能力查询不再
         # 按可选路径惰性触发。查询是纯读后端声明的同步调用，没有 I/O 开销。
@@ -642,6 +647,13 @@ class MediaGenerator:
             start_image=start_image,
             end_image=end_image,
             reference_images=reference_images,
+        )
+        # 仅声明 first_frame_ratio_adaptive_only 的后端受影响；下发值与调用方持有的原始
+        # aspect_ratio（记账、分镜图生成沿用）分离，不回写覆盖上游变量。
+        request_aspect_ratio = resolve_first_frame_aspect_ratio(
+            caps=video_caps,
+            aspect_ratio=aspect_ratio,
+            has_first_frame=slot_plan.start_index is not None,
         )
 
         if self._config is not None:
@@ -703,7 +715,7 @@ class MediaGenerator:
                     VideoGenerationRequest(
                         prompt=prompt,
                         output_path=output_path,
-                        aspect_ratio=aspect_ratio,
+                        aspect_ratio=request_aspect_ratio,
                         duration_seconds=duration_int,
                         resolution=resolution,
                         start_image=start_arg,

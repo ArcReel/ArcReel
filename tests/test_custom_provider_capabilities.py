@@ -30,6 +30,7 @@ class TestOverrideFieldSchema:
             "max_reference_audio_total_seconds",
             "reference_audio_per_image",
             "max_prompt_chars",
+            "first_frame_ratio_adaptive_only",
         }
         assert CAPABILITY_OVERRIDE_FIELDS["last_frame"] is bool
         assert CAPABILITY_OVERRIDE_FIELDS["max_reference_images"] is int
@@ -38,6 +39,7 @@ class TestOverrideFieldSchema:
         assert CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_total_seconds"] == (float | None)
         assert CAPABILITY_OVERRIDE_FIELDS["max_prompt_chars"] == (int | None)
         assert CAPABILITY_OVERRIDE_FIELDS["reference_audio_per_image"] is bool
+        assert CAPABILITY_OVERRIDE_FIELDS["first_frame_ratio_adaptive_only"] is bool
 
 
 class TestOptionalDimensionSchema:
