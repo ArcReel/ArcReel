@@ -357,6 +357,15 @@ class TestH3V2Payload:
             _h3()._build_payload(_request(tmp_path, resolution=resolution, duration_seconds=duration))
         assert exc.value.code == "video_resolution_duration_unsupported"
 
+    def test_output_specs_follow_registry_declaration(self, tmp_path):
+        # 分辨率档与时长的真相源在 registry：改声明即改放行范围，backend 不另存一份。
+        stub = MagicMock(resolutions=["4k"], supported_durations=[7])
+        with patch("lib.video_backends.minimax.model_info_for", return_value=stub):
+            assert _h3()._build_payload(_request(tmp_path, resolution="4k", duration_seconds=7))["duration"] == 7
+            with pytest.raises(VideoCapabilityError) as exc:
+                _h3()._build_payload(_request(tmp_path, resolution="768p", duration_seconds=6))
+        assert exc.value.code == "video_resolution_duration_unsupported"
+
     def test_unreadable_first_frame_raises(self, tmp_path):
         with pytest.raises(VideoCapabilityError) as exc:
             _h3()._build_payload(_request(tmp_path, start_image=tmp_path / "nope.png"))

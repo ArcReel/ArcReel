@@ -26,6 +26,7 @@ from typing import Any
 
 import httpx
 
+from lib.config.registry import model_info_for
 from lib.logging_utils import format_kwargs_for_log
 from lib.minimax_shared import (
     MINIMAX_VIDEO_POLL_INTERVAL_SECONDS,
@@ -92,13 +93,15 @@ _POLL_TIMEOUT_PER_SECOND = 60.0
 _NO_TEXT_TO_VIDEO_MODELS: frozenset[str] = frozenset({_HAILUO_FAST, _S2V})
 
 # (分辨率小写 → 允许的时长集合)：1080P 仅 6s，768P 支持 6s/10s（两代 Hailuo 同此矩阵）。
-# 仅 v1 分支适用——H3 两档分辨率共用同一段连续时长，见 _H3_RESOLUTIONS / _H3_DURATIONS。
+# 仅 v1 分支适用——H3 无跨维约束，两档分辨率共用同一段连续时长，直接读 registry 声明。
 _RESOLUTION_DURATIONS: dict[str, set[int]] = {"768p": {6, 10}, "1080p": {6}}
 
-# H3 输出规格与输入上限，出处均为官方《创建视频生成任务 (V2)》
+# H3 输入上限，出处为官方《创建视频生成任务 (V2)》
 # https://platform.minimaxi.com/docs/api-reference/video-generation-v2-create.md
-_H3_RESOLUTIONS: frozenset[str] = frozenset({"768p", "2k"})
-_H3_DURATIONS: frozenset[int] = frozenset(range(4, 16))
+# 输出规格（分辨率档、时长）不在此处声明：registry 的 resolutions / supported_durations 是其
+# 真相源，下方兜底常量（同一出处：768P/2K、4–15 秒任意整数）仅在型号未登记时生效。
+_H3_FALLBACK_RESOLUTIONS: frozenset[str] = frozenset({"768p", "2k"})
+_H3_FALLBACK_DURATIONS: frozenset[int] = frozenset(range(4, 16))
 _H3_MAX_REFERENCE_IMAGES = 9
 _H3_MAX_REFERENCE_AUDIO = 3
 _H3_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 15.0
@@ -173,7 +176,7 @@ def _reference_audio_to_data_uri(path: Path, *, model: str) -> str:
 
 
 class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
-    """MiniMax 海螺视频后端（异步两步取 URL，轮询）。"""
+    """MiniMax 视频后端（异步轮询）；走 v1 还是 v2 在构造期按 model 定下，各步据此派发。"""
 
     def __init__(
         self,
@@ -329,13 +332,14 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         """
         resolution = (request.resolution or "768p").lower()
         duration = request.duration_seconds
-        if resolution not in _H3_RESOLUTIONS or duration not in _H3_DURATIONS:
+        resolutions, durations = self._v2_output_specs()
+        if resolution not in resolutions or duration not in durations:
             raise VideoCapabilityError(
                 "video_resolution_duration_unsupported",
                 model=self._model,
                 resolution=resolution.upper(),
                 duration=duration,
-                supported=", ".join(f"{d}s" for d in sorted(_H3_DURATIONS)),
+                supported=", ".join(f"{d}s" for d in sorted(durations)),
             )
 
         start_image = self._existing_path(request.start_image)
@@ -380,6 +384,18 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
             "duration": duration,
             "ratio": request.aspect_ratio,
         }
+
+    def _v2_output_specs(self) -> tuple[frozenset[str], frozenset[int]]:
+        """本模型允许的（分辨率档，时长集合），取自 registry 声明。
+
+        registry 是这两项的真相源，前端下拉门控读的也是它——两处若各写一份，改档位时必然漂移。
+        只有型号未登记（中转站自定义命名）才回落兜底常量；已登记但声明为空即视为不放行，
+        与 gemini backend 同口径：空声明是配置事实，不该被兜底悄悄补全。
+        """
+        info = model_info_for(PROVIDER_MINIMAX, self._model)
+        if info is None:
+            return _H3_FALLBACK_RESOLUTIONS, _H3_FALLBACK_DURATIONS
+        return frozenset(r.lower() for r in info.resolutions), frozenset(info.supported_durations)
 
     @staticmethod
     def _existing_path(value: Path | str | None) -> Path | None:
