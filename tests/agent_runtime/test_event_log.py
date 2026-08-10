@@ -1358,6 +1358,23 @@ class TestResolveUserMessageAnchor:
         assert await service.resolve_user_message_anchor("s1", "u-ans-tr0", None) is None
         assert await service.resolve_user_message_anchor("s1", "u-ans", None) is None
 
+    async def test_system_shaped_pseudo_user_entries_are_refused(self, log_store: EventLogStore):
+        """transcript 侧的 interrupt 回显与 skill 注入都是 type:"user"，定型后成
+        system 条目：前者原样留用 uuid、后者带 -skill 后缀，两种形状都不作锚点。"""
+        adapter = _FakeAdapter(
+            [
+                {"type": "user", "content": "开始", "uuid": "u1"},
+                {"type": "user", "content": "[Request interrupted by user]", "uuid": "i1"},
+                {"type": "user", "content": "Base directory for this skill: /x/skills/demo", "uuid": "k1"},
+            ]
+        )
+        service = EventLogService(log_store, adapter)
+
+        assert await service.resolve_user_message_anchor("s1", "i1", None) is None
+        assert await service.resolve_user_message_anchor("s1", "k1", None) is None
+        assert await service.resolve_user_message_anchor("s1", "k1-skill0", None) is None
+        assert await service.resolve_user_message_anchor("s1", "u1", None) == "u1"
+
     async def test_subagent_entry_is_refused(self, log_store: EventLogStore):
         """子时间线里的用户条目带 parent_tool_use_id，不在主线上。"""
         adapter = _FakeAdapter(

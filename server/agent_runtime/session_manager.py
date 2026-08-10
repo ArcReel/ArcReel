@@ -747,7 +747,9 @@ class SessionManager:
             # seq 0 缺失的会话开头永远无法呈现。与常规受理路径同语义——
             # 失败显式回报（调用方收到异常）、状态回写 error、会话不再后台
             # 续跑。先清理再回写状态：inbox 处理 result 时 _finalize_turn
-            # 会写终态，清理完成后写入的 error 才不会被并发覆盖。
+            # 会写终态，清理完成后写入的 error 才不会被并发覆盖。直接清空而不走
+            # _drain_pending_user_echoes：受理失败的消息不会有回放副本抵达，
+            # 这里的残留不是认领失败。
             managed.pending_user_echoes.clear()
             managed.cancel_pending_questions("initial user entry persist failed")
             # 提前置内存态为 error：_cleanup_on_error 取消 _process_task 时，
@@ -1031,6 +1033,8 @@ class SessionManager:
             await managed.send_query(prompt, sdk_session_id=session_id)
         except Exception as exc:
             logger.error("会话消息处理失败: %s", redact_diagnostic_text(exc))
+            # 同受理失败路径：投递没成功，回放副本不会来，残留不算认领失败，
+            # 因此不走 _drain_pending_user_echoes。
             managed.pending_user_echoes.clear()
             if log_entry is not None:
                 # 补偿删除受理条目：投递失败即受理失败，条目残留会让同幂等键
