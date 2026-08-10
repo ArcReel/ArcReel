@@ -23,7 +23,7 @@ from lib.agent_session_store.prefix_fork import (
 )
 from lib.agent_session_store.store import DbSessionStore
 
-pytestmark = pytest.mark.unit
+pytestmark = pytest.mark.integration
 
 AGENT_ID = "abc123"
 SUBAGENT_SUBPATH = f"subagents/agent-{AGENT_ID}"

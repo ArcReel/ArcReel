@@ -17,7 +17,7 @@ from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.session_branch import BranchedSession, SessionBranchError, SessionBranchService
 from server.agent_runtime.session_store import SessionMetaStore
 
-pytestmark = pytest.mark.unit
+pytestmark = pytest.mark.integration
 
 PROJECT_NAME = "demo"
 FIRST_USER_ENTRY = "user-first"
@@ -181,17 +181,21 @@ async def test_rejection_leaves_no_new_session_behind(branching):
 
 
 async def test_second_branch_of_the_same_origin_is_refused(branching):
-    """已被取代的会话再分叉即冲突：首个指针不被覆盖，冲突分支也不留下会话行。"""
-    service, meta_store, _, _, session_id, _ = branching
+    """已被取代的会话再分叉即冲突：首个指针不被覆盖，冲突分支的元数据与 transcript 都不留。"""
+    service, meta_store, store, _, session_id, tmp_path = branching
+    project_key = make_project_key(tmp_path)
     first = await service.branch(session_id, SECOND_USER_ENTRY)
+    sessions_before = {row["session_id"] for row in await store.list_sessions(project_key)}
 
+    # 同一个非空锚点：第二次分叉会先把前缀复制到新 session_id 下，冲突后须整个撤回。
     with pytest.raises(SessionBranchError):
-        await service.branch(session_id, FIRST_USER_ENTRY)
+        await service.branch(session_id, SECOND_USER_ENTRY)
 
     origin = await meta_store.get(session_id)
     assert origin is not None
     assert origin.superseded_by == first.session_id
     assert {meta.id for meta in await meta_store.list(project_name=PROJECT_NAME)} == {first.session_id}
+    assert {row["session_id"] for row in await store.list_sessions(project_key)} == sessions_before
 
 
 async def test_branching_requires_the_db_transcript_store(session_factory, tmp_path):

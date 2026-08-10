@@ -35,6 +35,8 @@ class SessionStoreLike(Protocol):
 
     async def list_subkeys(self, key: dict) -> list[str]: ...
 
+    async def delete(self, key: dict) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class PrefixCopyResult:

@@ -61,7 +61,8 @@ class SessionBranchService:
         transcript 条目的映射由身份映射表给出，查不到即拒绝——锚点必须是本会话
         自己的用户消息。
         """
-        if self._store is None:
+        store = self._store
+        if store is None:
             raise SessionBranchError(
                 "session branching requires the DB transcript store (ARCREEL_SDK_SESSION_STORE=db)"
             )
@@ -81,10 +82,11 @@ class SessionBranchService:
         # SDK 以 session_id 作路径分量并校验 UUID 形态，非 UUID 会被静默当作
         # 无此会话；新 id 必须是规范 uuid4 字符串。
         new_session_id = str(uuid4())
+        project_key = make_project_key(project_cwd)
         try:
             copied = await copy_session_prefix(
-                self._store,
-                project_key=make_project_key(project_cwd),
+                store,
+                project_key=project_key,
                 session_id=session_id,
                 anchor_uuid=anchor_uuid,
                 new_session_id=new_session_id,
@@ -94,12 +96,16 @@ class SessionBranchService:
                 f"anchor {anchor_user_entry_uuid} is not a user message of session {session_id}: {exc}"
             ) from exc
 
-        # 先建新会话行再落指针，指针任何时刻都指向已存在的会话；落指针失败
-        # （原会话已被另一次分叉取代）时撤回新会话行，不留孤立会话。
-        await self._meta_store.create(meta.project_name, new_session_id)
-        if not await self._meta_store.mark_superseded(session_id, new_session_id):
-            await self._meta_store.delete(new_session_id)
-            raise SessionBranchError(f"session {session_id} has already been superseded by another branch")
+        # 复制已落库，此后任何失败都要把新会话整个撤回：transcript 行不依赖
+        # 元数据行就能被 store 的会话枚举看见，只删元数据会留下半个会话。
+        try:
+            # 先建新会话行再落指针，指针任何时刻都指向已存在的会话。
+            await self._meta_store.create(meta.project_name, new_session_id)
+            if not await self._meta_store.mark_superseded(session_id, new_session_id):
+                raise SessionBranchError(f"session {session_id} has already been superseded by another branch")
+        except BaseException:
+            await self._discard(store, project_key, new_session_id)
+            raise
 
         logger.info(
             "branch session: origin=%s new=%s entries=%d subagents=%d",
@@ -109,3 +115,15 @@ class SessionBranchService:
             len(copied.subagent_subpaths),
         )
         return BranchedSession(session_id=new_session_id, resumable=copied.entries_copied > 0)
+
+    async def _discard(self, store: SessionStoreLike, project_key: str, new_session_id: str) -> None:
+        """撤回半成品分支：transcript 与元数据行都清掉，清理失败不掩盖原始错误。"""
+        try:
+            # 不带 subpath 的 delete 连子代理子路径与 summary 一并清除。
+            await store.delete({"project_key": project_key, "session_id": new_session_id})
+        except Exception:
+            logger.exception("failed to discard transcript of incomplete branch %s", new_session_id)
+        try:
+            await self._meta_store.delete(new_session_id)
+        except Exception:
+            logger.exception("failed to discard metadata of incomplete branch %s", new_session_id)
