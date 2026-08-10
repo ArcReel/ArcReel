@@ -538,7 +538,7 @@ class AssistantService:
         }
 
     async def _replay_rewrite(self, new_session_id: str, client_key: str | None) -> dict[str, Any] | None:
-        """幂等重放：本次 client_key 的改写是否已由 ``new_session_id`` 承接。"""
+        """幂等重放：给定 client_key 的改写是否已由 ``new_session_id`` 承接。"""
         if not client_key:
             return None
         entry = await self.event_log_store.find_by_client_key(new_session_id, client_key)
