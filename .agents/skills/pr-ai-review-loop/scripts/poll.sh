@@ -102,7 +102,9 @@
 #                          seen ledger (straggler catch, see PITFALL 6; timestamp rule see PITFALL 2)
 #   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false. CR rewrites its
 #                          first comment each review — but a rate-limit banner rewrite also advances updated_at
-#                          without reviewing anything, so it must not read as "reviewed"
+#                          without reviewing anything, so it must not read as "reviewed". On gemini review rows:
+#                          submittedAt > last_push_at, timestamp-only — a straggler review of an older HEAD
+#                          surfaces as is_new but must not read as current-HEAD (see PITFALL 6)
 #   is_rate_limited        walkthrough body carries CR's dedicated rate-limit banner marker (same match as
 #                          quota_alerts) — the current walkthrough is a rate-limit notice, not a review
 #   is_ack                 reviewer acknowledgment of a fix or inline reply (never actionable): body carries a
@@ -167,7 +169,11 @@
 #    new. The seen ledger closes that window: an id no earlier poll has observed is new
 #    regardless of timestamp. First poll of a PR (no ledger yet) uses the timestamp rule
 #    alone so pre-loop history stays folded; reactions have no stable identity across
-#    replacement and stay timestamp-only. The ledger only ever grows within a PR.
+#    replacement and stay timestamp-only. The ledger only ever grows within a PR, and is
+#    advanced only after the index has been stored and printed — an id acknowledged before
+#    a successful emission would fold the straggler into history unseen. is_new therefore
+#    means "surface this content", not "reviewed the current HEAD" — head-freshness stays
+#    timestamp/commit-based (reviewed_current_head).
 #    (This shrinks the miss window; the final-gate `unacked` sweep remains the backstop.)
 #
 # 7. security_alerts.open_introduced subtracts default-branch open alerts by alert number.
@@ -332,7 +338,7 @@ GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # Seen ledger (PITFALL 6). Stage the previous poll's ledger for pass 1; a missing or
 # unparsable ledger stages as null, which switches fresh() to the timestamp-only rule.
 SEEN_FILE="${SNAPSHOT_FILE%.json}.seen.json"
-if [[ -f "$SEEN_FILE" ]] && jq -e 'type == "array"' "$SEEN_FILE" >/dev/null 2>&1; then
+if [[ -f "$SEEN_FILE" ]] && jq -e -s 'length == 1 and (.[0] | type == "array")' "$SEEN_FILE" >/dev/null 2>&1; then
   cp "$SEEN_FILE" "$WORKDIR/seen.json"
 else
   printf 'null' > "$WORKDIR/seen.json"
@@ -381,7 +387,7 @@ jq -n \
   def fresh($ts; $id):
     ($ts > $last_push)
     or ($seen_ids != null and $id != null
-        and (($seen_ids | index($id | tostring)) | not));
+        and (any($seen_ids[]; . == ($id | tostring)) | not));
 
   def mk_preview:
     (. // "")
@@ -571,6 +577,7 @@ jq -n \
       reviews:
         [$main.reviews[] | select(.author.login == "gemini-code-assist")
          | {id, submittedAt, state, is_new: fresh(.submittedAt; .id),
+            reviewed_current_head: (.submittedAt > $last_push),
             has_pass_marker: (.body | has_pass_marker_body), body}],
       comments:
         [$main.comments[] | select(.author.login == "gemini-code-assist")
@@ -640,20 +647,6 @@ jq -n \
 
 # Atomic overwrite: same-filesystem rename keeps concurrent query.sh reads consistent.
 mv "$WORKDIR/snapshot.json" "$SNAPSHOT_FILE"
-
-# ---- Seen ledger update (PITFALL 6) ----
-# Union with the staged previous ledger: a transiently missing id (partial API response)
-# must not resurface as new on a later poll. Reactions carry no stable identity and stay out.
-jq -c --slurpfile prev "$WORKDIR/seen.json" '
-  [.coderabbit.other_comments[]?.id, .coderabbit.reviews[]?.id,
-   .gemini.reviews[]?.id, .gemini.comments[]?.id,
-   .codex.reviews[]?.id, .codex.comments[]?.id,
-   ((.inline_comments_by_user // {})[]?[]?.id)]
-  | map(select(. != null) | tostring)
-  | . + ($prev[0] // [])
-  | unique
-' "$SNAPSHOT_FILE" > "$WORKDIR/seen_next.json"
-mv "$WORKDIR/seen_next.json" "$SEEN_FILE"
 
 # ---- Pass 2: project the MINIMAL INDEX from the snapshot ----
 # New rows carry flags + preview; older rows collapse to per-bot counts. Bodies never
@@ -802,3 +795,21 @@ else
     render("")
   ' "$WORKDIR/index.json"
 fi
+
+# ---- Seen ledger update (PITFALL 6) ----
+# Last step on purpose: a straggler is new solely because its id is unseen, so the id must
+# not be acknowledged until the index that surfaces it has been stored and printed —
+# a ledger advanced before a failed/interrupted emission would fold the item into history
+# unseen. Union with the staged previous ledger: a transiently missing id (partial API
+# response) must not resurface as new on a later poll. Reactions carry no stable identity
+# and stay out.
+jq -c --slurpfile prev "$WORKDIR/seen.json" '
+  [.coderabbit.other_comments[]?.id, .coderabbit.reviews[]?.id,
+   .gemini.reviews[]?.id, .gemini.comments[]?.id,
+   .codex.reviews[]?.id, .codex.comments[]?.id,
+   ((.inline_comments_by_user // {})[]?[]?.id)]
+  | map(select(. != null) | tostring)
+  | . + ($prev[0] // [])
+  | unique
+' "$SNAPSHOT_FILE" > "$WORKDIR/seen_next.json"
+mv "$WORKDIR/seen_next.json" "$SEEN_FILE"
