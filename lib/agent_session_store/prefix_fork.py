@@ -14,7 +14,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-SUBAGENT_SUBPATH_PREFIX = "subagents/agent-"
+SUBAGENT_SUBPATH_ROOT = "subagents/"
+SUBAGENT_LEAF_PREFIX = "agent-"
 
 # 会话条目类型：前缀里没有任何一条即视为空前缀。transcript 开头常有
 # file-history-snapshot 之类的非会话元数据行，行数非零不等于有对话。
@@ -58,8 +59,9 @@ async def copy_session_prefix(
     收尾，tool_use / tool_result 配对与 subagent 子时间线的完整性由此保证。
 
     命中前缀的 subagent 子时间线整段随行：从前缀内 tool_result 的
-    ``toolUseResult.agentId`` 收集 agent id，对应 ``subagents/agent-<id>``
-    子路径全量复制。
+    ``toolUseResult.agentId`` 收集 agent id，对应子路径全量复制。子路径按末段
+    ``agent-<id>`` 匹配，SDK 自身也这么找——它既可能是 ``subagents/agent-<id>``，
+    也可能嵌套在 ``subagents/workflows/<runId>/`` 下。
     """
     main_entries = await store.load({"project_key": project_key, "session_id": session_id}) or []
     prefix = _prefix_before_anchor(main_entries, anchor_uuid)
@@ -76,10 +78,10 @@ async def copy_session_prefix(
     copied = len(rebound)
 
     carried: list[str] = []
-    wanted = {f"{SUBAGENT_SUBPATH_PREFIX}{agent_id}" for agent_id in _prefix_agent_ids(prefix)}
+    wanted = {f"{SUBAGENT_LEAF_PREFIX}{agent_id}" for agent_id in _prefix_agent_ids(prefix)}
     if wanted:
         for subpath in await store.list_subkeys({"project_key": project_key, "session_id": session_id}):
-            if subpath not in wanted:
+            if not _matches_subagent(subpath, wanted):
                 continue
             sub_entries = await store.load({"project_key": project_key, "session_id": session_id, "subpath": subpath})
             if not sub_entries:
@@ -102,6 +104,10 @@ def _prefix_before_anchor(entries: list[dict], anchor_uuid: str) -> list[dict]:
             raise InvalidAnchorError(f"anchor {anchor_uuid} is a {_entry_type(entry)!r} entry, not a user message")
         return entries[:index]
     raise InvalidAnchorError(f"anchor {anchor_uuid} is not on the main timeline of session")
+
+
+def _matches_subagent(subpath: str, wanted_leaves: set[str]) -> bool:
+    return subpath.startswith(SUBAGENT_SUBPATH_ROOT) and subpath.rsplit("/", 1)[-1] in wanted_leaves
 
 
 def _prefix_agent_ids(prefix: list[dict]) -> set[str]:

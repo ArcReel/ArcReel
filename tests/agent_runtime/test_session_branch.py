@@ -16,7 +16,6 @@ from server.agent_runtime.event_log import EventLogService, EventLogStore
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.session_branch import BranchedSession, SessionBranchError, SessionBranchService
 from server.agent_runtime.session_store import SessionMetaStore
-from tests.agent_session_store.conftest import session_factory  # noqa: F401
 
 pytestmark = pytest.mark.unit
 
@@ -37,7 +36,7 @@ def _entry(uuid: str, parent: str | None, entry_type: str, session_id: str, text
 
 
 @pytest.fixture
-async def branching(session_factory, tmp_path):  # noqa: F811
+async def branching(session_factory, tmp_path):
     """一个有两轮对话、两条用户消息都已建立身份映射的原会话。"""
     store = DbSessionStore(session_factory)
     meta_store = SessionMetaStore(session_factory=session_factory)
@@ -181,7 +180,7 @@ async def test_rejection_leaves_no_new_session_behind(branching):
     assert origin.superseded_by is None
 
 
-async def test_branching_requires_the_db_transcript_store(session_factory, tmp_path):  # noqa: F811
+async def test_branching_requires_the_db_transcript_store(session_factory, tmp_path):
     """ARCREEL_SDK_SESSION_STORE=off 时没有可复制的镜像，拒绝而非静默产出空会话。"""
     service = SessionBranchService(
         store=None,

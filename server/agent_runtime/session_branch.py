@@ -14,7 +14,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from lib.agent_session_store import make_project_key
-from lib.agent_session_store.prefix_fork import InvalidAnchorError, copy_session_prefix
+from lib.agent_session_store.prefix_fork import InvalidAnchorError, SessionStoreLike, copy_session_prefix
+from server.agent_runtime.event_log import EventLogStore
+from server.agent_runtime.session_store import SessionMetaStore
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +44,9 @@ class SessionBranchService:
     def __init__(
         self,
         *,
-        store,
-        meta_store,
-        event_log_store,
+        store: SessionStoreLike | None,
+        meta_store: SessionMetaStore,
+        event_log_store: EventLogStore,
         resolve_project_cwd: Callable[[str], Path | None],
     ) -> None:
         self._store = store

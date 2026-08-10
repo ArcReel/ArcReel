@@ -251,6 +251,30 @@ async def test_subagent_started_after_the_anchor_is_not_carried(seeded):
     assert await store.load({"project_key": project_key, "session_id": new_id, "subpath": SUBAGENT_SUBPATH}) is None
 
 
+async def test_nested_subagent_subpath_is_carried(session_factory, tmp_path):
+    """SDK 的 subagent 子路径可嵌套在 ``subagents/workflows/<runId>/`` 下，同样随行。"""
+    store = DbSessionStore(session_factory)
+    project_key = project_key_for_directory(str(tmp_path))
+    session_id = str(uuid4())
+    main, subagent, anchor = _build_transcript(session_id)
+    nested_subpath = f"subagents/workflows/run-1/agent-{AGENT_ID}"
+    await store.append({"project_key": project_key, "session_id": session_id}, main)
+    await store.append({"project_key": project_key, "session_id": session_id, "subpath": nested_subpath}, subagent)
+
+    new_id = str(uuid4())
+    result = await copy_session_prefix(
+        store,
+        project_key=project_key,
+        session_id=session_id,
+        anchor_uuid=anchor,
+        new_session_id=new_id,
+    )
+
+    assert result.subagent_subpaths == (nested_subpath,)
+    sub_messages = await get_subagent_messages_from_store(store, new_id, AGENT_ID, directory=str(tmp_path))
+    assert [m.type for m in sub_messages] == ["user", "assistant"]
+
+
 async def test_unknown_anchor_is_rejected(seeded):
     with pytest.raises(InvalidAnchorError):
         await _copy(seeded, anchor="not-in-this-session")
