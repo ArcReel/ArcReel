@@ -30,7 +30,8 @@ __all__ = [
     "resolve_video_capabilities",
 ]
 
-# 供应商 SDK 接受的字面量，表示"跟随首帧图片自身比例"而非用户指定的固定比例。
+# 供应商侧字面量，表示"跟随首帧图片自身比例"而非用户指定的固定比例。仅对声明
+# ``first_frame_ratio_adaptive_only`` 的 backend 有意义，通用比例解析器认不得它。
 FIRST_FRAME_ADAPTIVE_RATIO = "adaptive"
 
 
@@ -76,6 +77,10 @@ def resolve_first_frame_aspect_ratio(
     :data:`FIRST_FRAME_ADAPTIVE_RATIO`——调用方原始持有的 ``aspect_ratio``（用户比例意图，仍
     完整作用于分镜图生成）不受影响，本函数只决定实际下发给该次视频请求的值。``caps`` 为 None
     或未声明该约束、或本次请求不带首帧（纯文生 / 仅参考图）时原样返回 ``aspect_ratio``。
+
+    ``has_first_frame`` 由调用方按"本次请求实际会不会带首帧"传入，而不是按入参是否非空——
+    :func:`plan_frame_slots` 只让 ``str`` / ``Path`` 文件源进槽位，判定须与真正下发的
+    ``VideoGenerationRequest.start_image`` 一致，否则约束会与实际请求脱节。
     """
     if caps is not None and caps.first_frame_ratio_adaptive_only and has_first_frame:
         return FIRST_FRAME_ADAPTIVE_RATIO

@@ -974,8 +974,8 @@ class TestFirstFrameRatioAdaptiveOnly:
     """VideoCapabilities.first_frame_ratio_adaptive_only 的共享施加逻辑。
 
     覆盖点见 lib.video_frame_slots.resolve_first_frame_aspect_ratio 的调用点
-    （lib.media_generator.MediaGenerator.generate_video_async）：本仓库现无消费方声明该约束，
-    这里用能力白名单测试缝（伪造 backend 声明）覆盖首个消费方接入前的施加逻辑正确性。
+    （lib.media_generator.MediaGenerator.generate_video_async）。本仓库无 backend 声明该约束，
+    故用能力白名单测试缝（伪造 backend 声明）覆盖施加逻辑。
     """
 
     async def test_first_frame_task_forced_to_adaptive(self, tmp_path):
