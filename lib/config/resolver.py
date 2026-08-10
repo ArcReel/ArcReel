@@ -412,7 +412,7 @@ def derive_voice_consistency(
 
     native 蕴含有音轨：generation_mode 非参考生视频时一律降格 soft，不降到 none。soft/none
     之分不看 ``generate_audio`` token 是否声明——该 token 语义是「开关可控」而非「有无音轨」，
-    恒有声但开关不可控的 provider 经 ``model_has_audio_track`` 单独识别为有音轨。
+    恒有声但开关不可控的型号经 ``model_has_audio_track`` 单独识别为有音轨。
     """
     if reference_audio_mode == "direct" and generation_mode == "reference_video":
         return "native"
