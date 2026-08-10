@@ -56,12 +56,12 @@
 **actionable**(两条路径,任一命中即算):
 
 - **inline 路径**:`inline_new_by_user["gemini-code-assist[bot]"]` 中 `severity_alt` 为 `high` / `medium` / `critical`;`low` / `nit` / `style` 不算
-- **summary 路径**:最新一条 `gemini.reviews` 的 `has_pass_marker == false`(通过判定见 poll.sh header——按 summary 的 "no feedback" 语法结构判,未命中即视为仍有 actionable)
+- **summary 路径**:最新一条 `reviewed_current_head == true` 的 review 的 `has_pass_marker == false`(通过判定见 poll.sh header——按 summary 的 "no feedback" 语法结构判,未命中即视为仍有 actionable)
 
 **通过**:前置条件——已审当前 HEAD(避免误用上一轮的通过标记)。前置之上需**同时**满足:
 
 1. 本轮无新 inline,或本轮新 inline 全部为 `low/nit/style` 或全部 `is_ack`
-2. 最新一条 `gemini.reviews` 的 `has_pass_marker == true`
+2. 最新一条 `reviewed_current_head == true` 的 review 的 `has_pass_marker == true`(straggler 携带的 pass marker 不作数——它与更早到的当前 HEAD review 并存时,后者的 summary 才是判定对象)
 
 **pushback 例外**:存在 pushback 时 pass marker 不可达,按「本轮非 ack inline 均已处置」判通过。
 
