@@ -1188,8 +1188,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_dashscope_video_pricing("wan2.7-r2v", {"720p": 0.6, "1080p": 1.0}),
             ),
             # 万相 3.0：单模型覆盖文生/图生/参考生三条路径，480P ¥0.3/s，720P ¥0.6/s，
-            # 1080P ¥1.2/s，单次最长 30 秒（出处：万相 3.0 发布说明的分辨率与计费档位；官方
-            # API 参考文档站的万相章节止于 2.7，本条无一手 schema 可引）。与 2.7 及
+            # 1080P ¥1.2/s，单次最长 30 秒（出处：万相 3.0 发布说明所列的分辨率与计费档位，
+            # 非 API 参考 schema）。与 2.7 及
             # HappyHorse 不同，音轨由请求参数控制，故声明 generate_audio token 而非
             # audio_always_on。
             "wan3.0-video": ModelInfo(

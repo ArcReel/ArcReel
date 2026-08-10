@@ -4,9 +4,9 @@
 GET /tasks/{id} 至 SUCCEEDED → 下载 video_url。覆盖 happyhorse-1.0 / happyhorse-1.1
 与 wan2.7 系列的 t2v / i2v / r2v，以及单模型通吃三条路径的 wan3.0。
 
-schema 的确权程度按型号分两档，改动前先看清落在哪一档：happyhorse 与 wan2.7 依据
-docs/dashscope-docs/ 一手核实快照；wan3.0 无一手快照可依（官方文档站的万相章节仅到
-2.7），其请求形态系按 2.7 类推，出处与类推范围见 _WAN3_* 常量处的说明。
+schema 的确权程度按型号分两档：happyhorse 与 wan2.7 依据 docs/dashscope-docs/ 一手
+核实快照；wan3.0 无对应快照，其请求形态按 2.7 形状类推，出处与类推范围见 _WAN3_*
+常量处的说明。
 
 注：t2v/i2v 起始帧用 media[{type:"first_frame"}]（first_frame type 在 r2v media
 枚举中确权）；尾帧 / 续写字段在一手 docs 未确权，故 happyhorse 与 wan2.7 的 i2v 仅
@@ -109,10 +109,9 @@ _WAN27_MAX_PROMPT_CHARS = 5000
 # wan3.0 单模型覆盖文生/图生/参考生三条路径：首帧 + 尾帧，参考图 10 张，参考音频 5 段、
 # 总时长 15 秒，prompt 上限 20000 字符。prompt 超限与 2.7 同为静默截断且照常计费，同样由
 # gate_video_request 前置拒绝。
-# 出处：万相 3.0 公测说明所列能力上限。与其余型号不同，官方 API 参考文档站的万相章节当前
-# 仅到 2.7，wan3.0 无可引的一手 schema——下方 media 条目类型（last_frame / reference_audio）
-# 与 parameters["audio"] 的字面量均按 2.7 形状类推，未经真实响应验证，对端如报参数错误应以
-# 此处为首查点。
+# 出处：万相 3.0 发布说明所列能力上限。与其余型号不同，wan3.0 没有可引的一手 API schema——
+# 下方 media 条目类型（last_frame / reference_audio）与 parameters["audio"] 的字面量均按 2.7
+# 形状类推，对端如报参数错误应以此处为首查点。
 _WAN3_MAX_REFERENCE_IMAGES = 10
 _WAN3_MAX_REFERENCE_AUDIO = 5
 _WAN3_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 15.0
@@ -205,7 +204,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
     ) -> None:
         self._api_key = resolve_dashscope_api_key(api_key)
         self._base_url = dashscope_native_base_url(base_url)
-        # wan3.0 公测期的 maas 域名含地域与 workspace，推不出也归一化不了，故按用户填写的
+        # wan3.0 专用 maas 域名含地域与 workspace，推不出也归一化不了，故按用户填写的
         # 完整 URL 原样使用（仅去掉尾部斜杠），未填则回落通用域名、由对端如实报错。
         self._wan3_base_url = (wan3_base_url or "").strip().rstrip("/") or None
         self._model = model or DEFAULT_MODEL
