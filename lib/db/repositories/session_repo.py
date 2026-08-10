@@ -105,12 +105,16 @@ class SessionRepository(BaseRepository):
         return rowcount(result) > 0
 
     async def delete(self, session_id: str) -> bool:
-        # 指向被删会话的取代指针一并解除：否则它的前身会带着一个指向不存在会话的
-        # 指针，永久留在会话列表之外。
+        # 指向被删会话的取代指针改指它自己的后继：删的是链中间时前身继续指向仍然
+        # 活着的末端，删的是链尾时后继为空、前身随之回到会话列表。不接手则前身会
+        # 带着一个指向不存在会话的指针，永久留在列表之外。
+        successor = await self.session.scalar(
+            select(AgentSession.superseded_by).where(AgentSession.sdk_session_id == session_id)
+        )
         await self.session.execute(
             update(AgentSession)
             .where(AgentSession.superseded_by == session_id)
-            .values(superseded_by=None, updated_at=utc_now())
+            .values(superseded_by=successor, updated_at=utc_now())
         )
         result = await self.session.execute(sa_delete(AgentSession).where(AgentSession.sdk_session_id == session_id))
         await self.session.commit()
