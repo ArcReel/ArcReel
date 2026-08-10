@@ -53,9 +53,10 @@ def is_valid_speech_rate(value: float) -> bool:
     """该数值是否落在项目级语速覆盖的硬区间内（``0 < value <= 20``，且能算出有限时长）。
 
     前端输入校验、请求模型校验与持久化后的读时守卫共用这一把尺，避免三处各写一套边界。
-    入参允许是 project.json 直接解析出的 ``int``：JSON 整数字面量没有位宽上限，
-    ``float()`` 对超出双精度表示范围的整数抛 ``OverflowError``，在这里收成「越界」，
-    调用方因此不必在转换外围各自包一层 try。
+    入参允许是 project.json 直接解析出的值，故两类输入病理在这里收掉，调用方不必各自处理：
+    JSON 整数字面量没有位宽上限，``float()`` 对超出双精度表示范围的整数抛 ``OverflowError``；
+    JSON 布尔解析出的 ``bool`` 是 ``int`` 子类，``float(True)`` 得 ``1.0`` 会落进合法区间。
+    两者一律判为「不可用」。
 
     区间下界之外还要求探针长度除以该语速仍为有限数：极小的正语速（如 ``1e-308``）虽然
     大于 0，却让 ``estimate_spoken_seconds`` 得出 ``inf``，成片字幕的微秒换算会直接抛
@@ -63,6 +64,8 @@ def is_valid_speech_rate(value: float) -> bool:
     代替真实长度取上界，下游拿到的估算值因此恒为有限数。该约束的有效下限在 1e-302
     量级，正常取值不受影响。
     """
+    if isinstance(value, bool):
+        return False
     try:
         rate = float(value)
     except OverflowError:

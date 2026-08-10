@@ -96,6 +96,11 @@ class TestSpeechRateOverride:
         # 被拒的覆盖按无覆盖处理，多个阅读单位照常按语言默认语速估算
         assert estimate_spoken_seconds("你好世界", "zh", 1e-308) == pytest.approx(0.8)
 
+    def test_bool_is_not_a_rate(self):
+        # bool 是 int 子类，float(True) 落在合法区间内；谓词的入参域含 project.json 解析值，故自行拒
+        assert not is_valid_speech_rate(True)
+        assert not is_valid_speech_rate(False)
+
     def test_integer_beyond_float_range_is_out_of_range(self):
         # JSON 整数字面量无位宽上限，超出双精度表示范围的整数按越界收掉而非抛 OverflowError
         assert not is_valid_speech_rate(10**400)
