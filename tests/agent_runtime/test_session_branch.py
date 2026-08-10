@@ -218,9 +218,15 @@ async def test_deleting_a_middle_branch_keeps_the_origin_pointing_at_the_live_en
     service, meta_store, store, log_store, session_id, tmp_path = branching
     middle = await service.branch(session_id, SECOND_USER_ENTRY)
     # 分支会话被续写后，新消息才有身份映射、才能再被分叉——链由此形成。
-    copied = await store.load({"project_key": make_project_key(tmp_path), "session_id": middle.session_id})
+    project_key = make_project_key(tmp_path)
+    copied = await store.load({"project_key": project_key, "session_id": middle.session_id})
     assert copied is not None
-    await log_store.record_user_message_link(middle.session_id, "user-in-branch", copied[0]["uuid"])
+    continued = f"m-cont-{uuid4().hex[:8]}"
+    await store.append(
+        {"project_key": project_key, "session_id": middle.session_id},
+        [_entry(continued, copied[-1]["uuid"], "user", middle.session_id, "继续")],
+    )
+    await log_store.record_user_message_link(middle.session_id, "user-in-branch", continued)
     tail = await service.branch(middle.session_id, "user-in-branch")
 
     deleted = await meta_store.delete(middle.session_id)
