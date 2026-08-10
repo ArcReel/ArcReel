@@ -329,9 +329,16 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                 }
             )
 
-        if request.end_image and Path(request.end_image).exists():
+        if request.end_image:
             from lib.image_backends.base import image_to_base64_data_uri
 
+            end_path = Path(request.end_image)
+            if not end_path.is_file():
+                # 尾帧缺失不静默跳过：跳过后任务照常提交并计费，用户拿到一段没有尾帧、
+                # 与分镜衔接不上的视频却无从知道原因。
+                raise VideoCapabilityError(
+                    "video_end_image_unreadable", model=self._model, name=end_path.name or str(end_path)
+                )
             data_uri = image_to_base64_data_uri(request.end_image)
             content.append(
                 {
@@ -344,17 +351,23 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         if request.reference_images:
             from lib.image_backends.base import image_to_base64_data_uri
 
+            missing = [p for r in request.reference_images if not (p := Path(r)).is_file()]
+            if missing:
+                # 与尾帧同理：少一张参考图仍会出片并计费，成片里的角色/场景却已跑偏。
+                raise VideoCapabilityError(
+                    "video_reference_images_unreadable",
+                    model=self._model,
+                    names=", ".join(p.name or str(p) for p in missing),
+                )
             for ref_path in request.reference_images:
-                p = Path(ref_path) if not isinstance(ref_path, Path) else ref_path
-                if p.exists():
-                    data_uri = image_to_base64_data_uri(p)
-                    content.append(
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": data_uri},
-                            "role": "reference_image",
-                        }
-                    )
+                data_uri = image_to_base64_data_uri(Path(ref_path))
+                content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": data_uri},
+                        "role": "reference_image",
+                    }
+                )
 
         if request.reference_audio_files:
             # 音频条目与图片条目同列 content 数组，各自按类型独立编号：prompt 里的「音频N」

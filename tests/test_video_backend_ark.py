@@ -225,6 +225,38 @@ class TestArkGenerate:
         assert all(item["role"] == "reference_image" for item in image_items)
 
     @pytest.mark.unit
+    async def test_missing_end_image_fails_loud(self, backend, tmp_path):
+        """尾帧文件不存在时中止提交：静默跳过会照常计费并产出没有尾帧的成片。"""
+        backend._client.content_generation.tasks.create = MagicMock()
+
+        request = VideoGenerationRequest(
+            prompt="morph",
+            output_path=tmp_path / "out.mp4",
+            end_image=tmp_path / "gone.png",
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            await backend.generate(request)
+        assert exc.value.code == "video_end_image_unreadable"
+        backend._client.content_generation.tasks.create.assert_not_called()
+
+    @pytest.mark.unit
+    async def test_missing_reference_image_fails_loud(self, backend, tmp_path):
+        """参考图缺失时中止提交，理由同尾帧：少一张仍会出片，成片却与意图不符。"""
+        present = tmp_path / "ref1.jpg"
+        present.write_bytes(b"fake-ref-1")
+        backend._client.content_generation.tasks.create = MagicMock()
+
+        request = VideoGenerationRequest(
+            prompt="[图1] 与 [图2] 对话",
+            output_path=tmp_path / "out.mp4",
+            reference_images=[present, tmp_path / "gone.jpg"],
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            await backend.generate(request)
+        assert exc.value.code == "video_reference_images_unreadable"
+        backend._client.content_generation.tasks.create.assert_not_called()
+
+    @pytest.mark.unit
     async def test_failed_task_raises(self, backend, tmp_path):
         output = tmp_path / "out.mp4"
 
