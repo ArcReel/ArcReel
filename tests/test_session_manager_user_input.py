@@ -4,7 +4,8 @@ import asyncio
 
 import pytest
 
-from server.agent_runtime.message_serialization import is_duplicate_user_echo, message_to_dict
+from server.agent_runtime.event_log import REPLAYED_USER_ECHO_ENTRY_UUID_KEY, REPLAYED_USER_ECHO_KEY
+from server.agent_runtime.message_serialization import match_user_echo, message_to_dict
 from server.agent_runtime.session_manager import SDK_AVAILABLE
 from tests.fakes import build_managed_with_actor
 
@@ -52,7 +53,11 @@ def _on_actor_message_full(session_manager, managed, raw_msg):
     msg_dict = message_to_dict(raw_msg)
     if not isinstance(msg_dict, dict):
         return
-    if is_duplicate_user_echo(managed.pending_user_echoes, msg_dict):
+    echo = match_user_echo(managed.pending_user_echoes, msg_dict)
+    if echo is not None:
+        msg_dict[REPLAYED_USER_ECHO_KEY] = True
+        if echo.entry_uuid:
+            msg_dict[REPLAYED_USER_ECHO_ENTRY_UUID_KEY] = echo.entry_uuid
         managed._inbox.put_nowait(msg_dict)
         return
     session_manager._handle_special_message(managed, msg_dict)

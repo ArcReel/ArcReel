@@ -948,6 +948,42 @@ class TestEventLogStore:
         assert again["seq"] == 0
 
 
+class TestUserMessageLink:
+    """用户消息身份映射：服务端条目 id ↔ SDK transcript entry uuid。"""
+
+    async def test_records_and_finds_mapping(self, log_store: EventLogStore):
+        entry = build_user_entry([{"type": "text", "text": "hi"}])
+        appended, _created = await log_store.append_user_entry("s1", entry)
+
+        await log_store.record_user_message_link("s1", appended["uuid"], "sdk-entry-1")
+
+        assert await log_store.find_user_message_link("s1", appended["uuid"]) == "sdk-entry-1"
+
+    async def test_missing_mapping_returns_none(self, log_store: EventLogStore):
+        """映射落地前的历史会话：查不到即返回 None，不抛错。"""
+        assert await log_store.find_user_message_link("s1", "user-unknown") is None
+
+    async def test_repeat_record_keeps_first_mapping(self, log_store: EventLogStore):
+        await log_store.record_user_message_link("s1", "user-1", "sdk-entry-1")
+        await log_store.record_user_message_link("s1", "user-1", "sdk-entry-2")
+
+        assert await log_store.find_user_message_link("s1", "user-1") == "sdk-entry-1"
+
+    async def test_mapping_is_scoped_per_session(self, log_store: EventLogStore):
+        await log_store.record_user_message_link("s1", "user-1", "sdk-entry-1")
+        await log_store.record_user_message_link("s2", "user-1", "sdk-entry-2")
+
+        assert await log_store.find_user_message_link("s2", "user-1") == "sdk-entry-2"
+
+    async def test_delete_session_drops_mapping(self, log_store: EventLogStore):
+        await log_store.append("s1", [{"type": "user", "uuid": "user-1"}])
+        await log_store.record_user_message_link("s1", "user-1", "sdk-entry-1")
+
+        await log_store.delete_session("s1")
+
+        assert await log_store.find_user_message_link("s1", "user-1") is None
+
+
 # ---------------------------------------------------------------------------
 # EventLogService — 懒生成
 # ---------------------------------------------------------------------------
@@ -1025,6 +1061,16 @@ class TestLazyBackfill:
         results = await asyncio.gather(*[service.list_entries("old", None) for _ in range(5)])
         assert all(len(r) == 1 for r in results)
         assert len(await log_store.list_after("old")) == 1
+
+    async def test_backfilled_session_works_without_mapping(self, log_store: EventLogStore):
+        """映射落地前的会话没有身份映射行：懒生成照常重建，只是条目不可作改写锚点。"""
+        adapter = _FakeAdapter([{"type": "user", "content": "hi", "uuid": "t1"}])
+        service = EventLogService(log_store, adapter)
+
+        entries = await service.list_entries("old", None)
+
+        assert len(entries) == 1
+        assert await log_store.find_user_message_link("old", entries[0]["uuid"]) is None
 
     async def test_no_backfill_when_log_already_has_entries(self, log_store: EventLogStore):
         adapter = _FakeAdapter([{"type": "user", "content": "transcript", "uuid": "t1"}])
