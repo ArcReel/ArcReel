@@ -103,7 +103,8 @@
 #   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false. CR rewrites its
 #                          first comment each review — but a rate-limit banner rewrite also advances updated_at
 #                          without reviewing anything, so it must not read as "reviewed". On gemini review rows:
-#                          submittedAt > last_push_at, timestamp-only — a straggler review of an older HEAD
+#                          the REST review's commit_id vs headRefOid (submittedAt > last_push_at only as fallback
+#                          when the mapping is unavailable) — a straggler or slow review of an older HEAD
 #                          surfaces as is_new but must not read as current-HEAD (see PITFALL 6)
 #   is_rate_limited        walkthrough body carries CR's dedicated rate-limit banner marker (same match as
 #                          quota_alerts) — the current walkthrough is a rate-limit notice, not a review
@@ -576,8 +577,13 @@ jq -n \
     gemini: {
       reviews:
         [$main.reviews[] | select(.author.login == "gemini-code-assist")
+         | ($review_commit_by_id[.id] // null) as $reviewed_commit
          | {id, submittedAt, state, is_new: fresh(.submittedAt; .id),
-            reviewed_current_head: (.submittedAt > $last_push),
+            reviewed_current_head:
+              (if $reviewed_commit == null
+               then (.submittedAt > $last_push)
+               else ($reviewed_commit | codex_commit_is_current_head)
+               end),
             has_pass_marker: (.body | has_pass_marker_body), body}],
       comments:
         [$main.comments[] | select(.author.login == "gemini-code-assist")
