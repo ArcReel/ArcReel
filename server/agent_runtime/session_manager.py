@@ -452,6 +452,7 @@ class SessionManager:
         can_use_tool: Callable[[str, dict[str, Any], Any], Any] | None = None,
         locale: str = DEFAULT_LOCALE,
         stderr: Callable[[str], None] | None = None,
+        session_id: str | None = None,
     ) -> Any:
         """委派给 ``OptionsAssembler.build``——SessionManager 不再直接构建 options 与
         hook，仅调用装配器；凭证注入、prompt 装配、hook 工厂均由装配器持有。"""
@@ -461,6 +462,7 @@ class SessionManager:
             can_use_tool=can_use_tool,
             locale=locale,
             stderr=stderr,
+            session_id=session_id,
         )
 
     def _build_session_store(self):
@@ -856,7 +858,12 @@ class SessionManager:
             raise
 
     async def get_or_connect(
-        self, session_id: str, *, meta: SessionMeta | None = None, locale: str = DEFAULT_LOCALE
+        self,
+        session_id: str,
+        *,
+        meta: SessionMeta | None = None,
+        locale: str = DEFAULT_LOCALE,
+        resumable: bool = True,
     ) -> ManagedSession:
         """Get existing managed session or spin up an actor for resumed session.
 
@@ -865,6 +872,10 @@ class SessionManager:
         language regulation segment must reflect the caller's request locale. An
         already-resident session returns from cache and ``locale`` is ignored —
         the session-fixed system prompt stays unchanged.
+
+        ``resumable=False`` 用于元数据行已建、transcript 却是空的会话（改写第一条
+        消息分叉出的分支）：这类会话没有历史可 resume，改以 ``session_id=`` 预指定
+        身份开一个全新会话。首轮跑完 transcript 即存在，之后照常按 resume 复活。
         """
         if session_id in self.sessions and session_id not in self._disconnecting:
             return self.sessions[session_id]
@@ -897,10 +908,11 @@ class SessionManager:
             try:
                 options = await self._build_options(
                     meta.project_name,
-                    meta.id,  # SessionMeta.id 就是 sdk_session_id
+                    meta.id if resumable else None,  # SessionMeta.id 就是 sdk_session_id
                     can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
                     locale=locale,
                     stderr=startup_stderr,
+                    session_id=None if resumable else meta.id,
                 )
             except Exception as exc:
                 sdk_stderr = startup_stderr.render()
@@ -972,6 +984,7 @@ class SessionManager:
         locale: str = DEFAULT_LOCALE,
         user_entry: dict[str, Any] | None = None,
         client_key: str | None = None,
+        resumable: bool = True,
     ) -> dict[str, Any] | None:
         """Send a message via the session actor.
 
@@ -982,8 +995,10 @@ class SessionManager:
         ``user_entry`` 是本条用户消息的事件日志条目：先写日志分配身份（并发
         与容量校验之后、送入 SDK 之前），返回权威条目供受理响应回传；同一
         ``client_key`` 重试命中既有条目时不再重复送 SDK。
+
+        ``resumable`` 透传给 ``get_or_connect``，见其文档。
         """
-        managed = await self.get_or_connect(session_id, meta=meta, locale=locale)
+        managed = await self.get_or_connect(session_id, meta=meta, locale=locale, resumable=resumable)
         managed.last_activity = time.monotonic()
 
         # 幂等预检先于 running 拦截：受理已成功（响应在网络层丢失）的重试
