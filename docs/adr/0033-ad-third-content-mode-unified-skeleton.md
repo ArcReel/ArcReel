@@ -4,6 +4,8 @@ status: accepted
 
 # 广告/短片为第三内容类型：剧本骨架唯一、生成路径正交
 
+> 凡涉及 `ad + reference_video` 的剧本骨架、`reference_units` 派生分组、时长规则及其后果，均已由 `docs/adr/0058` 替代；`ad` 作为第三内容类型、`ad + storyboard` 使用 `shots` 及其他不依赖参考路线旧结构的决定继续有效。
+
 广告/短片模式（带货短视频为主场景）产出单个视频而非多集系列，需要进入类型系统。此前 reference_video 作为 generation_mode 取值却整体更换剧本骨架（video_units 取代 segments/scenes，content_mode 不参与结构选择），两个维度并不真正正交；若广告模式也以「换骨架」方式落地，口播文案、字幕导出、费用预估、状态计算将在两种结构里各活一份。决定：`ad` 作为 content_mode 第三值落地，且 ad 的剧本骨架唯一、不随生成路径更换。
 
 ## 决定

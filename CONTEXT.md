@@ -183,7 +183,7 @@ _Avoid_: 把它与上传保存时压缩（`normalize_uploaded_image`，针对用
 _Avoid_: 实时计费、读时重算成本。
 
 **费用归属（cost attribution）**：
-把一笔写了记账 key 的 image / video / audio 成本快照归到集与剧本条目的过程（text 调用、资产图与回填前的历史 video/audio 不写 key：text 只进用量统计，资产图按产物路径落项目级资产类型明细、拆不出类型的并入项目级未归属，历史 video/audio 直接进项目级未归属）。强证据是记账时冻结在调用记录 `segment_id` 列上的资源 ID，三种形态：剧本条目 ID（随骨架为 `segment_id` / `scene_id` / `shot_id` / `unit_id`，含 `_{子序号}` 后缀的子条目）、ad 参考生视频的派生 unit ID（认领后按成员镜头均摊）、宫格图 ID（`grid_*`，按 `generated_assets.grid_id` 反查认领后在覆盖的条目间均摊）。同一 (记账 key, 费用类型) 下的多条成本快照先按币种汇总成一份金额（币种各自分列），该份金额在一次估算内只被整份认领一次（去重防重复计入，不丢记录）；剧本认领不到的历史记账统一以「未归属（unassigned）」单列：项目级是全量汇总桶（收下每一笔未认领金额），能按 ID 前缀解析集号、且该集仍在 `project.json` 中的另在对应集展示同一份（无前缀的宫格 ID、集已删除的等只有项目级这份）——集级是按集视图不是新增支出，项目合计读项目级桶、不叠加集级。这些 ID 不保证唯一、不保证与所在集一致，属已知限制（见 `docs/adr/0053`）。
+把一笔写了记账 key 的 image / video / audio 成本快照归到集与剧本条目的过程（text 调用、资产图与回填前的历史 video/audio 不写 key：text 只进用量统计，资产图按产物路径落项目级资产类型明细、拆不出类型的并入项目级未归属，历史 video/audio 直接进项目级未归属）。强证据是记账时冻结在调用记录 `segment_id` 列上的资源 ID，两种形态：剧本条目 ID（随骨架为 `segment_id` / `scene_id` / `shot_id` / `unit_id`，含 `_{子序号}` 后缀的子条目）、宫格图 ID（`grid_*`，按 `generated_assets.grid_id` 反查认领后在覆盖的条目间均摊）。同一 (记账 key, 费用类型) 下的多条成本快照先按币种汇总成一份金额（币种各自分列），该份金额在一次估算内只被整份认领一次（去重防重复计入，不丢记录）；剧本认领不到的历史记账统一以「未归属（unassigned）」单列：项目级是全量汇总桶（收下每一笔未认领金额），能按 ID 前缀解析集号、且该集仍在 `project.json` 中的另在对应集展示同一份（无前缀的宫格 ID、集已删除的等只有项目级这份）——集级是按集视图不是新增支出，项目合计读项目级桶、不叠加集级。这些 ID 不保证唯一、不保证与所在集一致，属已知限制（见 `docs/adr/0053`）。
 _Avoid_: 按 ID 唯一性/前缀一致性校验后归属（会把真实支出误判为未归属）。
 
 ### 媒体类型与配音（TTS）
@@ -193,31 +193,39 @@ _Avoid_: 按 ID 唯一性/前缀一致性校验后归属（会把真实支出误
 _Avoid_: modality（太泛）、media kind。
 
 **audio（媒体类型）**：
-第 4 个 media_type，承载文本转语音（TTS）。与 image/video/text 平级，**经 GenerationQueue/Worker 调度**（像 image/video，不像同步内联的 text 生成）——因为旁白音频按 segment 一段、每集 N 段、可批量重生，其生成基数与 image/video 一致，而非 text 的"每集一次"。注意一个非对称：audio 的 **backend 调用本身是同步一次性**（仿 text_backends，秒回，无提交-轮询），但**任务编排仍走队列**（worker claim → 调同步 backend → 标终态），因此 audio 既进任务面板（进度/取消/续传），又不需要 video 那套 resume/`provider_job_id` 机制（见 `docs/adr/0010`）。
+第 4 个 media_type，承载文本转语音（TTS）。与 image/video/text 平级，**经 GenerationQueue/Worker 调度**（像 image/video，不像同步内联的 text 生成）——叙述旁白配音按视频生成单元逐条生成、可批量重生，其生成基数与 image/video 一致，而非 text 的“每集一次”。注意一个非对称：audio 的 **backend 调用本身是同步一次性**（仿 text_backends，秒回，无提交-轮询），但**任务编排仍走队列**（worker claim → 调同步 backend → 标终态），因此 audio 既进任务面板（进度/取消/续传），又不需要 video 那套 submit-poll-resume/`provider_job_id` 机制（见 `docs/adr/0010`）。
 _Avoid_: tts（留给 capability）、voice、speech。
 
 **text_to_speech（capability）**：
 audio 媒体类型的能力标识，表示"把文本合成为语音"。在 audio 模型的 `ModelInfo.capabilities` 里声明，与图片的 t2i/i2i 同属 capability 维度。
 _Avoid_: tts、voice_synthesis。
 
-**旁白配音（narration voiceover / narration_audio）**：
-对说书模式每个 NarrationSegment 的 `novel_text`（小说原文）生成的一段语音，是 audio 媒体类型在本期的唯一产物。按 segment 一段，落地为音频文件，路径记在该 segment 的 `GeneratedAssets.narration_audio`。
-_Avoid_: dub（易与影视译制混淆）、TTS 音频（太泛）。
+**叙述旁白配音（narrator voiceover audio）**：
+从叙述旁白文本合成、归属于一个叙述旁白视频生成单元的独立 TTS 音轨；它先于对应视频请求显式生成并供用户试听，实际音频时长是该视频申请时长的下限。只有当前旁白配音存在且未失效时，用户才能发起对应视频生成；点击生成视频即表示接受当前旁白，不另持久化“旁白已确认”状态。旁白音轨不得跨出所属视频生成单元；实际时长超出当前档位时须重新确认更高档位的时长与费用，超过供应商最大值则返回规划层修改，不跨单元泄漏、不截断或静默加速。说书模式的全文口播也属于叙述旁白配音。
+_Avoid_: 人物配音、dub（易与影视译制混淆）、用 `narration_audio` 把它限定为说书模式。
+
+**旁白视频批量门禁**：
+一次批量视频生成只有在所有叙述旁白单元的配音都存在、未失效且能落入供应商时长上限时才整体入队；任一单元不满足则整批不入队，并按单元返回缺失、生成中、已失效、需要更高档确认或超过最大时长等明确原因及下一步动作。
+_Avoid_: 静默跳过问题单元后部分入队；只返回笼统的“生成失败”。
+
+**机械字幕草稿**：
+没有可信逐句时间码时，按实际媒体总时长和各条发声文本长度机械排列的可编辑字幕初稿；人物发声以实际视频时长为外边界，叙述旁白以实际 TTS 时长为外边界。它只为人工调时提供起点，不代表真实发声区间，也不承担音频质量判定。
+_Avoid_: 强制对齐结果、ASR 时间码、把机械时序当成成片准确字幕。
 
 **音色（voice）**：
 TTS 供应商内置的一组预设发音人，合成请求以 `voice` 参数携带其 id（如 DashScope 的 `Cherry`、OpenAI 的 `alloy`）。各 audio backend 以 `list_voices()` 交付自己的音色目录，目录内容一律取自供应商官方文档并在 `docs/` 下留有出处快照，不凭印象填写。解析产物随 audio lane 的 `voices` 交付（值，非 backend 实例，见 `docs/adr/0049`）。
 _Avoid_: 用 voice 指代 audio 媒体类型本身；把音色与「声音复刻（voice cloning）」混为一谈——前者选供应商预设，后者用参考音频克隆。
 
 **语音试听样本（voice sample）**：
-创作者手上没有现成音频时，用已配置的 TTS 后端合成的一段短音频，供试听后确认为角色的参考音频。独立 task_type `voice_sample`，落在 `audio/` 目录但用 `voice_sample__` 前缀与旁白 segment 隔离命名空间。它是**预览件**：确认前不写入角色资产，取消或关闭弹窗即不产生任何资产变更。
-_Avoid_: 与「旁白配音」混为一谈——旁白是成片素材，试听样本只是选音色的中间产物。
+创作者手上没有现成音频时，用已配置的 TTS 后端合成的一段短音频，供试听后确认为角色的参考音频。独立 task_type `voice_sample`，落在 `audio/` 目录但用 `voice_sample__` 前缀与叙述旁白配音产物隔离命名空间。它是**预览件**：确认前不写入角色资产，取消或关闭弹窗即不产生任何资产变更。
+_Avoid_: 与「叙述旁白配音」混为一谈——旁白是成片素材，试听样本只是选音色的中间产物。
 
 **声音一致性档位（voice consistency）**：
 视频模型在跨片段保持人物音色上能做到什么程度的三级标识，由「模型有无音轨」×「项目生成路线」二维派生，全仓库唯一派生点是 `lib/config/resolver.py::derive_voice_consistency`。路线创建即定不可变，同一项目内档位不随剧集或剧本变化。`native`＝参考路线直传参考音频、音色由音频本身锁定；`soft`＝有音轨但只能靠文字描述引导音色；`none`＝真无声，不承载任何声音语义。soft/none 之分不看 `generate_audio` token 是否声明——该 token 语义是「开关可控」而非「有无音轨」，恒有声但开关不可控的供应商（AI Studio Veo、Grok）经 `model_has_audio_track` 单独识别为有音轨。音轨的另一位描述是**开关可控性**（`model_audio_switch_controllable`，即 token 的字面语义）：设置界面按它决定音频开关是否可交互，恒有声与恒无声两类模型的开关置灰并展示成片的实际音轨状态；存量配置里的「关闭」由入队前预检显式拒绝（判据单一真相源 `server/services/video_caps.py::resolve_audio_switch_conflict`，WebUI 与智能体两条提交路径各自包一层出口），保证无声判据只在开关真正可控时才可能为假。
 _Avoid_: 用 `generate_audio` 的真假直接代指有无音轨；把「开关可控」与「有音轨」当同一位读。
 
 **声音描述声明段（Voice_Profiles）**：
-drama 视频提示词 YAML 顶部的集中声明段，形如 `Voice_Profiles: [{Speaker, Voice_Style}]`，由编排层从角色资产的 `voice_style` 机械派生——收录集合为「本场景 dialogue 的 speaker」∩「角色资产 `voice_style` 非空」，只出场不开口的角色不收录。剧本 JSON 与 step2 LLM 零承载：编排层是它唯一的来源（`lib/prompt_utils.py::build_drama_video_prompt`），故角色 `voice_style` 改动下次生成即生效。无声时不注入——`none`（模型不产音）与本集关闭音频（`requested_generate_audio` 为假）同口径，入队前判据收在 `server/services/video_caps.py::resolve_project_is_silent`、执行期收在 `VideoLaneResult.is_silent`；台词不看这一位，无声成片里照常下发供口型参考。
+drama 视频提示词 YAML 顶部的集中声明段，形如 `Voice_Profiles: [{Speaker, Voice_Style}]`，由编排层从角色资产的 `voice_style` 机械派生——收录集合为「本视频生成单元全部人物发声的 speaker」∩「角色资产 `voice_style` 非空」，只出场不开口的角色不收录。剧本 JSON 与 step2 LLM 零承载：编排层是它唯一的来源（`lib/prompt_utils.py::build_drama_video_prompt`），故角色 `voice_style` 改动下次生成即生效。无声时不注入——`none`（模型不产音）与本集关闭音频（`requested_generate_audio` 为假）同口径，入队前判据收在 `server/services/video_caps.py::resolve_project_is_silent`、执行期收在 `VideoLaneResult.is_silent`；人物发声不看这一位，无声成片里照常下发供画面表演参考。
 _Avoid_: 与既有 `Dialogue` 条目混为一谈——前者声明音色、每 speaker 一条，后者是台词、按时序逐条。
 
 **"audio" 的三种含义（歧义警示）**：
@@ -259,7 +267,7 @@ _Avoid_: 在新代码/文档里用 clue/线索 指代场景或道具——规范
 ### 剧本与分镜
 
 **骨架（skeleton / 骨架种类 skeleton kind）**：
-剧本条目数组的结构种类，四值：`segments`（说书片段）/ `scenes`（剧集场景）/ `shots`（广告镜头）/ `video_units`（参考生视频单元）。骨架是由 content_mode 与生成路线两轴**派生**的概念，本身不是第三条轴：narration/drama/ad 各对应前三种骨架；narration/drama 在参考路线下整体换用 video_units 骨架，ad 骨架恒为 shots、不随路线变（见 `docs/adr/0033`）。路线一轴恒取项目字段，剧本自身不承载路线信息。对骨架有两种合法提问——**规范性**（按项目的 content_mode 与生成路线，这份剧本*应该*是什么骨架）与**取证性**（这份剧本数据*实际*是什么骨架）；两者在存量失配剧本（骨架与项目路线不符的历史集）上可能不一致，取证以数据形状优先。骨架知识收归零依赖叶子模块 `lib/script_skeleton.py`：以骨架种类为键的窄表 `SKELETONS`（键即条目数组键，行 `Skeleton(id_field, chars_field)`，`video_units` 无逐条角色名单故 `chars_field=None`）+ **规范解析** `resolve_declared_kind(content_mode, generation_mode)`（服务手持项目配置的消费方，未知/缺失 content_mode 抛 `ValueError`）+ **取证解析** `resolve_script_kind(script)`（服务手持剧本数据的消费方，保留数据形状优先的容忍阶梯）；两个解析器是全体消费方分派骨架的单一入口，设计依据见 `docs/adr/0045`。智能体的生成入队工具与数据校验另过**路线闸门** `ensure_route_skeleton(script, content_mode, generation_mode)`：剧本骨架与项目路线跨族（分镜族 ⟷ `video_units`）时抛 `SkeletonRouteMismatchError`，给结构结论与重拆指引，杜绝静默降档与悄悄换路径；族内形态差异与残留的另一族数组均放行。查看 / 编辑 / 项目归档导出不经闸门，失配剧本仍可读可改可归档；剪映草稿导出按剧本 content_mode 的规范骨架取片段，失配剧本取不到已完成片段。
+剧本条目数组的结构种类，四值：`segments`（说书片段）/ `scenes`（剧集场景）/ `shots`（广告镜头）/ `video_units`（参考视频单元）。骨架由 content_mode 与生成路线两轴**派生**，本身不是第三条轴：分镜路线按内容模式分别使用前三种骨架，参考路线三种内容模式统一使用 `video_units`（见 `docs/adr/0058`；它局部替代 `docs/adr/0033` 的“广告骨架恒为 shots”决定）。路线一轴恒取项目字段，剧本自身不承载路线信息。对骨架有两种合法提问——**规范性**（按项目的 content_mode 与生成路线，这份剧本*应该*是什么骨架）与**取证性**（这份剧本数据*实际*是什么骨架）；两者在存量失配剧本（骨架与项目路线不符的历史集）上可能不一致，取证以数据形状优先。骨架知识收归零依赖叶子模块 `lib/script_skeleton.py`：以骨架种类为键的窄表 `SKELETONS`（键即条目数组键，行 `Skeleton(id_field, chars_field)`，`video_units` 无逐条角色名单故 `chars_field=None`）+ **规范解析** `resolve_declared_kind(content_mode, generation_mode)`（服务手持项目配置的消费方，未知/缺失 content_mode 抛 `ValueError`）+ **取证解析** `resolve_script_kind(script)`（服务手持剧本数据的消费方，保留数据形状优先的容忍阶梯）；两个解析器是全体消费方分派骨架的单一入口，设计依据见 `docs/adr/0045`。智能体的生成入队工具与数据校验另过**路线闸门** `ensure_route_skeleton(script, content_mode, generation_mode)`：剧本骨架与项目路线跨族（分镜族 ⟷ `video_units`）时抛 `SkeletonRouteMismatchError`，给结构结论与重拆指引，杜绝静默降档与悄悄换路径；族内形态差异与残留的另一族数组均放行。查看 / 编辑 / 项目归档导出不经闸门，失配剧本仍可读可改可归档；剪映草稿导出按剧本 content_mode 的规范骨架取片段，失配剧本取不到已完成片段。
 _Avoid_: 把骨架当第四个 content_mode 或 content_mode 的同义词（三值轴推不出四种骨架）；把规范性与取证性两问混同（存量失配集的骨架与项目路线不符时，编辑要跟数据走、生成要跟路线走）；对未知模式做「非 narration 即 drama」式二值兜底（`docs/adr/0033` 禁令）。
 
 **生成路线（generation route / generation_mode）**：
@@ -279,29 +287,86 @@ _Avoid_: 把它并进 generation_mode 当第三个取值；交给 agent 改—�
 _Avoid_: 与宫格产出字段 `storyboard_last_image`（运行时产出，已不再作尾帧消费）混为一谈；把整集剧本重生成后字段丢失当 bug——与 note/transition_to_next 同口径，「重生成沿用」仅指视频重生成；用它做全自动场景衔接（正常成片切镜是合理且应该的）。
 
 **广告/短片模式（ad）**：
-content_mode 第三值，产出单个约 `target_duration` 秒的短视频而非多集系列。剧本骨架为平铺 `shots[]`（`shot_id` 格式 E1S{n}），每镜头携带 `section`（带货框架段落标签，八值引导不硬枚举）与一等口播文案 `voiceover_text`；项目恒单集（episodes 恒为第 1 集单条），项目级新字段 `target_duration`（正整数秒）与 `brief`（创作诉求短文本，不走 source_loader），不持有 `default_duration`；两条生成路线都可选，但不支持宫格（`grid_storyboard` 恒拒置真，见 `docs/adr/0033`）。剧本一键生成不走 step1 中间文件：prompt 直接来自 brief + 产品信息（含 selling_points）+ 审定的带货八段框架配比表（15/30/60/90 取最近档位，依据见 `docs/research/arcreel-ad-section-timing-research.md`），products 为空自动分流通用短片 prompt；镜头时长约束随生成路线切换——storyboard 为 supported_durations 硬枚举、reference_video 为 1-15 秒自由整数；剧本总时长偏离 `target_duration` 超阈值仅 warn 不阻塞。
-_Avoid_: 让 ad 落入「非 narration 即 drama」的二值兜底——所有按 content_mode 分派的机制必须显式处理第三值；把 AdShot 与 video_unit 内的 shot（参考生视频子镜头）混为一谈——前者是剧本骨架的平铺镜头、后者是 unit 内时间编排；把 ad 未接入 step1→step2 审核 gate 当作待补缺口——单发生成、无 step1 中间态是有意契约，重访条件见 `.out-of-scope/ad-step1-step2-review-gate.md`。
+content_mode 第三值，产出单个约 `target_duration` 秒的短视频而非多集系列。分镜路线剧本为平铺 `shots[]`（`shot_id` 格式 E1S{n}），每镜头携带 `section`（带货框架段落标签）与一等口播文案 `voiceover_text`；参考路线改用自包含 `video_units[]`，不持久化 `section`，八段框架只作为生成提示约束（见 `docs/adr/0058`）。项目恒单集（episodes 恒为第 1 集单条），项目级字段 `target_duration`（正整数秒）与 `brief`（创作诉求短文本，不走 source_loader），不持有 `default_duration`；两条生成路线都可选，但不支持宫格（`grid_storyboard` 恒拒置真）。广告剧本一键生成不走 step1 中间文件，products 为空自动分流通用短片 prompt；分镜路线时长按 supported_durations 硬枚举，参考路线由单元编排时长投影到申请时长档位。
+_Avoid_: 让 ad 落入「非 narration 即 drama」的二值兜底；把分镜路线的 AdShot 与参考视频单元内的 shot 混为一谈；把 ad 未接入 step1→step2 审核 gate 当作待补缺口——单发生成、无 step1 中间态是有意契约，重访条件见 `.out-of-scope/ad-step1-step2-review-gate.md`。
 
-**video_unit / shot（参考生视频单元）**：
-参考生视频模式下的生成单元：一个 video_unit 含 1–4 个 shot（子镜头），整 unit 共享一组按顺序编号的参考图，跳过分镜直接由资产图生成。narration/drama 下剧本用 `video_units[]` 而非 `segments[]` / `scenes[]` 组织（unit 内容自包含）；ad 下骨架不变，unit 是从 `shots[]` **派生分组**的轻量索引（剧本 `reference_units[]`，仅引用 shot_id + 继承的参考集，产品参考绝对优先）——连续镜头、每 unit ≤4 shot、总长受供应商时长上限约束，分组为纯函数（`lib/reference_video/ad_units.py`）、可复现，重派生一律沿用旧 unit 的产物指针、从不清空。成片是否已偏离当前编排（**stale**）是读时派生属性、不落盘：finalize 把产物依据的编排签名（成员 shot_id 序列 + NFC 归一参考集，镜头正文与时长不进签名）写进 `generated_assets.source_signature`，读取侧比较当前编排签名与该值得出 stale，故剧本一保存即反映、编排回改即自动回清。无签名的存量产物视为非 stale，随下一次生成补齐。**产物口径以 unit 为准**：ad+参考路径的成片（`generated_assets.video_clip` 等）挂在 `reference_units[]` 各 unit 上，`shots` 不承载该路径产物；所有消费方（计分 `StatusCalculator`、剪映导出、项目事件差分）按项目声明的 generation_mode 分派后一律读 unit 产物，不读 shots、不嗅探数据形状（残留索引不得污染 storyboard 路径行为）。
+**视频生成单元（video generation unit）**：
+一次视频生成请求、一次视频计费和一条视频片段共同归属的最小创作单元；分镜路线分别以说书片段、剧集场景、广告镜头承载，参考路线以参考视频单元承载。
+_Avoid_: 把 TTS 音频任务称为视频生成单元；把参考视频单元内的子镜头当成独立视频生成单元。
+
+**参考视频单元（video_unit）/ shot**：
+参考路线下一次视频生成、计费和成片归属的最小领域单元，以 `unit_id` 区分；正文、编排时长、声明参考集与产物关联由自身承载。shot 是单元内时间编排的子镜头，不是独立产物单位；一个参考视频单元含 1–4 个 shot，整 unit 共享一组按顺序编号的参考图，跳过分镜直接由资产图生成。三种内容模式的参考路线统一使用 `video_units[]`，不再让广告维持 `shots + reference_units` 两层真相。
 参考图列表从 shot 正文的 `@mention` 机械派生（首现顺序即参考图编号），但规范台词行 `@[角色]：{台词}` 整行不计入：speaker 位只驱动音色声明与 utterance 派生，给画外说话的角色附参考图会诱导模型把他画进画面，故纯画外角色有台词而无参考图。
-_Avoid_: 把 shot 与 segment（说书片段）/ DramaScene（剧集场景）混为一谈；「scene」在参考模式下三义须分辨——场景资产（scene_sheet）、剧本分镜场景（DramaScene）、镜头（shot）；手工增删改 ad 的 reference_units——它是派生物，shots 才是内容唯一真相；把 stale 当剧本里存着的字段读写——剧本条目不承载它，只有对外透出的副本上才有。
+_Avoid_: 用 `reference_unit` 泛指任何存储对象；把 shot 与 segment（说书片段）/ DramaScene（剧集场景）混为一谈；运行时继续读取广告的存量 `reference_units` 派生索引。
+
+**存量广告参考分组**：
+ad 参考路线曾从广告镜头派生的轻量 `reference_units` 索引，是启动迁移的输入而不是运行时领域单元。已有分组迁移时保留原边界、顺序、`unit_id`、产物与任务身份；缺失分组时按原镜头顺序一镜头一单元机械转换，不从磁盘文件猜测产物归属。
+_Avoid_: 运行时双读旧索引与新 `video_units`；迁移时重新装箱、改 ID 或把混合发声当迁移失败。
+
+**声明参考集**：
+当前创作内容声明的有序资产身份集合，只表达生成意图，不保证对应文件可用或最终进入供应商请求。
+_Avoid_: 实际参考图、resolved refs。
+
+**请求参考集**：
+执行时经过资产解析、缺失处置、归一去重和模型上限裁剪后，实际进入视频请求的有序图片集合。
+_Avoid_: 用声明参考集判断执行能力桶；把裁剪前的候选图片称为请求参考集。
+
+**生成意图**：
+任务开始执行时读取的最新参考视频单元事实，包括目标单元、正文、声明参考集和编排时长；它与供应商请求及队列载荷不是同一概念。
+_Avoid_: TaskSpec、请求体。
+
+**请求投影**：
+基于当前生成意图、声明参考集和配置得到的执行前近似，用于费用估算、时长确认、入队身份锁定与限流路由；它允许与执行时的可执行请求分叉。
+_Avoid_: 请求计划（plan 已用于分集规划）；把投影当执行承诺。
+
+**可执行请求**：
+任务开始执行时以最新生成意图为基础一次物化、并在本次运行中保持不变的供应商提交事实；执行期判据只能读取它或复用与它相同的变换。
+_Avoid_: 在一次运行中继续重读内容并改变已物化请求；用请求投影代替可执行请求。
+
+**参考单元请求规划（reference unit request planning）**：
+把参考视频单元转成请求投影与可执行请求的深模块；前者服务费用、确认、批量准入、入队与限流，后者在任务执行开始时一次物化请求参考集、执行身份、申请时长、渲染提示与来源事实。Web、智能体、费用、队列和执行层只做适配，不自行重演其中规则。
+_Avoid_: 把请求投影和可执行请求压成一个时点；让调用方分别计算能力桶、时长或参考裁剪。
+
+**编排时长 / 申请时长**：
+编排时长表达创作节奏；申请时长是供应商模型真正收到并据以计费的离散档位，两者可以不同但不得共用同一术语。
+_Avoid_: 用裸称 duration 同时指代两者；按编排时长估算视频费用。
 
 **三段论渲染（参考生视频路径）**：
-narration/drama 与 ad 共用同一套渲染管线，发给视频模型前的机器渲染形态，三段各有归属：第一段是参考来源声明区——主体绑定 + 声音声明（`<X>的台词音色参考 @音频N，声音特征：…`）；第二段是镜头分镜段，台词行渲染 `<X>说 {台词}` / `画外音说 {台词}`；第三段是风格锚定与画质/稳定/字幕/水印约束包。第一、三段由渲染期机械生成，不依赖 LLM 自觉；渲染是纯函数、结果不落盘。narration/drama 的整段文本不含绝对秒数（时长走请求字段）；ad 的第二段例外——`Shot N (Xs)` 逐镜头秒数保留在文本里，剪映导出与字幕对齐依赖它，不随对齐折叠进请求字段。两条路径第一、三段实现共用（`lib/reference_video/prompt_render.py` 的 `_render_voice_declarations` / `_render_segment_three`），第二段各自成文：narration/drama 的输入是书写层自由文本（`render_unit_prompt`，书写层只写 `镜头N：` 分镜段，主体绑定 `<X>@图片N` 简式记号——编号即随请求发出的参考图顺序，经 `parse_prompt` / `@[X]` mention 解析派生），ad 的输入是结构化镜头字段（`render_ad_backend_prompt`，无书写层、不引入 mention 语法，主体记号直接取参考条目的展示 label——产品区分 sheet/原图两态、资产统一「设计图」态；`Shot N (Xs): ...` 镜头段与 per-shot duration 不动，dialogue 取 `video_prompt.dialogue` 结构化列表而非文本行解析）。声音注入按 `voice_consistency` 分档：`native` 才绑参考音频，`native`/`soft` 均注入 `voice_style` 声音特征。无声路径不注入声音声明但保留台词渲染（供口型与表演）——`none`（模型不产音）与本集关闭音频（`requested_generate_audio` 为假）同口径，判据收在 `VoiceRenderSettings.is_silent`；渲染层的整组声音入参同样以该值对象为单一载体。音频编号 = dialogue speaker 首现顺序、受 `max_reference_audio_count` 截断，**该顺序即 `reference_audio_files` 请求字段顺序**——这是 prompt 文本与请求字段之间唯一的绑定契约，哪个角色对应哪段音频不进请求。要求音频逐段挂在具体参考素材项上的 backend（`VideoCapabilities.reference_audio_per_image`，如 wan2.7-r2v）例外：这类 backend 额外需要 `VideoGenerationRequest.reference_audio_targets`——每段音频对应的 `reference_images` 下标，由渲染层 `audio_speaker_reference_index` 派生，纯画外角色（无参考图）不落入该字段。
-_Avoid_: 让 LLM 书写第一段或第三段——narration/drama 书写层只写第二段，其余机器补；给 ad 镜头字段引入 mention 语法——ad 已结构化枚举画面主体，无需从自由文本解析；把角色与音频的对应关系塞进请求字段——绑定只由第一段文本表达，请求侧只有顺序（`reference_audio_per_image` backend 的下标对齐字段除外，见上）；解析预览与生成各自重算声音绑定——两者共用 `derive_voice_bindings`，否则面板承诺的绑定与实际发出的绑定会分叉。
+三种内容模式的参考路线共用、发给视频模型前的纯函数渲染形态：第一段是参考来源声明区（主体绑定 + 人物声音声明），第二段是镜头分镜段（视觉描述 + 人物发声），第三段是风格锚定与画质、稳定、字幕、水印约束包。第一、三段由机器机械生成，第二段来自书写层文稿；叙述旁白不进入视频提示，由独立 TTS 音轨承载。整段文本不写绝对秒数，申请时长走请求字段。人物声音注入仍按 `voice_consistency` 分档：`native` 才绑定参考音频，`native` / `soft` 均可注入声音特征；音频顺序与 `reference_audio_files` 严格一致，需要逐图片挂音频的 backend 另携带对应图片下标。
+_Avoid_: 让 LLM 书写第一段或第三段；把叙述旁白渲染成视频供应商人声；解析预览与生成各自重算主体、参考图或声音绑定。
 
 **书写层文稿（参考生视频）**：
-参考路径上「一个 unit 的正文」的统一表达——按行书写的扁平文本，只有镜头行（`镜头N：`）、规范台词行（`@[角色]：{台词}`）、画外音行（`{台词}`）三种，资产统一写 `@[名称]`。人在编辑器里写的、step1 拆分产出的、step2 展开产出的是同一种格式，故语法只有一份真相源（`lib/reference_video/writing_syntax.py`，与解析器同域），两级 prompt 注入同一份、agent 侧文档只留概览。**LLM 只写内容，机器写结构**：unit_id 按序编号、shots 按 `镜头N：` 切分、references 与 utterances 从正文派生，都不进 LLM 输出——schema 因此退化为一层扁平（step1 `{duration, source_text, text}`、step2 `{text}`），只承担枚举与外层结构约束，文本内的语法交 parser 后校验。两级职责切分：**step1 是结构与内容契约**（unit 边界、时长即计费、台词落位、核心资产指认，用户在审阅 gate 上确认的正是这份契约），**step2 只做视觉展开**（描述行自由扩写，unit 数、unit 时长、台词规范行逐字保结构，改动任一项即整份产出被拒）。同一 parser 两套严格度：编辑器侧（人写）出 warning、照常落盘，机器产物侧一律拒——按「产物来源是否有作者意图可保护」分流；**派生本身不分流**，两侧共用同一个 references 派生入口（`shot_parser.derive_references_from_text`），否则同一份正文会在编辑器与生成侧派生出不同的 `[图N]` 编号。
-_Avoid_: 让 step2 改台词以迁就画面——台词配不上画面时的出路是回 step1 重拆；把语法规范再抄一份到 agent 文档或 prompt 里；把机器可派生的字段（unit_id / references / utterances）交给 LLM 写再去校验它写得对不对。
+参考路线「一个 unit 的正文」的统一表达——按行书写的扁平文本，只有镜头行（`镜头N：`）、人物发声行（`@[角色]：{台词}`）、叙述旁白行（`{台词}`）三种，资产统一写 `@[名称]`。同一 unit 可含多条人物发声或多条叙述旁白，但不得同时包含两种发声模式；规划阶段决定 unit 边界，下游只校验和执行，不自动拆分。人物、场景、道具与产品共用 mention 语法；广告参考路线同名时按 product → character → scene → prop 解析并显式展示类型。人在编辑器里写的、narration/drama 两级产出的、ad 单次产出的是同一种格式，语法与解析器同域且只有一份真相源。
+**LLM 只写内容，机器写结构**：unit_id 按序编号、shots 按镜头行切分、references 与发声条目从正文派生，都不进 LLM 输出。narration/drama 的 step1 决定单元边界与编排时长，step2 只做视觉展开；ad 仍无 step1 审阅 gate，但直接产出相同书写层。机器混合发声产物进入隔离草稿，人工编辑则阻断提交；引用派生本身不按来源分流。
+_Avoid_: 让 step2 改发声内容或单元边界；下游自动修复混合发声 unit；给 ad 保留正文外产品引用副本；把语法规范抄成多个真相源。
 
 **隔离草稿（参考生视频违约产物）**：
 机器产物违约时的处置形态——正式文件一步不动，违约产出连同逐条违约报告落到同目录的 `*.invalid.json`（step1 / step2 各一份），由在场 agent 修复后晋升，不丢弃重抽。生成一次即计费，重抽既烧钱又不收敛（同一模型对同一份输入大概率再犯同一类错）。信封是 `{kind, episode, meta, violations[], content}`：`content` 装**扁平书写层产物**（LLM 面的形状），结构字段仍由机器派生——让 agent 编辑派生物等于给漂移开口子；`violations[]` 每条带违约类（`code`）与 unit 定位（`label`），只是上一轮判定的快照，晋升时一律按 `content` 现值重判。晋升走的是产出时那套校验器本身而非它的副本，杜绝「晋升放行、下次生成被拒」的分叉；仍违约则报告刷新、草稿留在原地继续改，**无收敛轮次上限**（每轮都带着具体定位在改，不是碰运气）。隔离草稿在场期间审阅 gate 拒绝确认、step2 拒绝生成——它与「正式文件的内容指纹」是两件事：重拆分违约时正式文件原封不动，只看指纹会把该集判成已确认并放行上一版内容。schema 层（JSON 不合法 / 外层形状不符）不进此机制，仍由 backend 重试兜底——但草稿是 agent 手改的，晋升时 schema 与内容约束一并重判，改坏字段同样只回报告。正式 step1 一旦重新落盘（重拆或晋升），在场的 step2 隔离草稿随之清除：它的保结构 diff 以旧 step1 为基底，留着既晋升不了又会一直阻塞生成。声音降级的三类提示（角色未设参考音频、参考音频段数超上限、无声模型知会）不是违约：照常落盘，随产物一并呈现。
 _Avoid_: 把违约产物丢弃后重抽；让 agent 在隔离草稿里手写 unit_id / shots / references；给晋升加轮次上限或「超过 N 轮就重抽」的兜底；把隔离态与审阅 gate 的 pending 混为一条出路——前者要 agent 改草稿再晋升，后者要用户去 Web 端确认。
 
+**发声模式（speech mode）**：
+视频生成单元对可听人声的排他分类：人物发声由视频原生音轨承载，叙述旁白由独立 TTS 音轨承载，无人声则不承载语音。人物发声包括人物对白、人物内心独白和人物画外解说；模式由单元内发声条目机械派生、不独立持久化。同一视频生成单元不得同时包含人物发声与叙述旁白，规划阶段必须直接产出发声模式同质的单元。叙述旁白与无人声单元都原样保留视频供应商原音，不静音、不自动压低或做语音分离；叙述旁白作为独立音轨直接叠加，规划负责避免其中出现人物发声。
+_Avoid_: 按是否出镜或是否需要口型同步区分音频归属；把人物画外发声改交 TTS；下游黑盒拆分混合发声单元；依赖视频模型为 TTS 自动留白；用静音、压低或语音分离掩盖规划违约。
+
+**发声编排（SpeechComposition）**：
+全产品唯一的发声领域模块：把不同内容骨架的视频生成单元适配为统一发声条目；说书剧本仍以 `novel_text` 持久化口播，输入适配器在模块边界将其物化为叙述旁白发声条目。准备阶段统一派生发声模式、违约、TTS 前置条件、实际时长下限与产物来源，呈现阶段再以实际媒体生成机械字幕草稿和音轨放置。内容模式与生成路线的结构差异止于输入适配器，调用方不得在模块外重新决定谁发声、何时可生成视频或哪些产物失效。
+_Avoid_: 按内容模式各建一套声音策略；让发声编排拥有任务队列、项目迁移或供应商调用；只抽一个返回若干布尔旗标的浅 helper。
+
 **发声条目（utterance）**：
-drama 场景里「说出来的话」的统一单元——每条要么是角色台词（有说话人），要么是画外音 / 旁白（无说话人）。一个 `DramaScene` 持有一条**有序**发声序列（`utterances`），插入顺序即幕内先后（台词与画外音交错的先后由此表达）。类型决定下游去向：台词进视频生成、由供应商生成口型音轨；画外音不进视频，留给成片字幕与日后 TTS。drama 的口播内容以此为单一真相源；narration 的口播不走 utterances，仍是被朗读的 `novel_text`。参考生视频路径复用同一类型但不落盘：分镜文稿是唯一真相，utterances 按行读时派生（规范台词行 → 台词、裸 `{…}` 行 → 画外音、混写在描述行的花括号不派生只出提示），归属镜头级，存量文稿无台词符号时自然为空。
-_Avoid_: 把台词与画外音当两个独立无序字段（先后会丢、下游要拼两源）；把 utterance 与说书 `novel_text` 混为一谈——后者是整段被朗读的原文（基数为一）、前者是场景内逐条发声（基数为多）；把画外音塞给视频供应商音轨——供应商音轨只承载口型台词，画外音走字幕 / TTS。
+发声编排内部「说出来的话」的统一内容单元——每条要么是归属于明确人物的人物发声，要么是不归属于人物的叙述旁白；人物发声是否表现为画内对白、内心独白或人物画外解说由镜头描述表达，不另加一份发声分类字段，也不改变音频归属。同一视频生成单元内可有多条同模式发声条目，其顺序即该单元内的发声顺序。人物发声交给视频原生音轨，叙述旁白交给独立 TTS。说书剧本不持久化 utterance，仍以被朗读的 `novel_text` 为真相源，由输入适配器在模块边界物化为一条叙述旁白发声条目。
+_Avoid_: 用 dialogue 泛指全部人物发声；用 voiceover 同时指人物画外解说与叙述者旁白；在同一视频生成单元内交错两种发声模式；把 utterance 与说书 `novel_text` 混为一谈。
+
+**混合发声违约**：
+一个规划候选同时包含人物发声与叙述旁白。机器候选进入带定位的隔离草稿供规划层修复，人工编辑则在提交时显式拒绝；任何下游都不得自动拆分或带病生成视频。
+_Avoid_: 运行期自动切单元、静默删除其中一种发声、把混合单元当可降级警告。
+
+**需要重新规划（needs replan）**：
+存量剧本无法在不臆造内容或单元边界的前提下满足当前规划不变量时的显式状态。迁移保留原剧本备份与历史产物，但该剧本在重新规划前不得发起新的媒体生成；它是成功迁移后的可修复业务状态，不是项目迁移失败。
+_Avoid_: 运行时继续解释旧结构；迁移器自动拆分混合单元；把需要重新规划的项目隔离或隐藏。
+
+**产物失效（stale）**：
+已有媒体产物不再匹配当前生成意图或其依赖。失效只改变匹配状态，不删除、清空或覆盖已经付费产生的文件；旧产物继续保留为可查看、下载、恢复或选用的历史版本。
+_Avoid_: 删除失效产物；用新版本覆盖旧文件；把 stale 等同于不存在。
 
 **场景原文锚（source_text）**：
 drama 场景级 / 参考路径 unit 级的逐字原文摘录——记录该条目所源自的原文片段，供人工审阅对照、单条目重生成与失真定位。本身不被朗读、不出音，与作为口播的发声条目分属两事。角色上类比说书 `novel_text`，但 `novel_text` 身兼原文与被朗读的口播，`source_text` 纯作原文锚。**两条路径的严格度不同**：drama 是 best-effort（由 LLM 复制、可能轻微漂移，保真由提取流水线保证）；参考路径 step1 的锚经机械校验——空白归一后须是源文逐字子串，否则整份拆分被拒。只判子串、不判完整覆盖：unit 是画面单元不是朗读单元，原文里的转述段落可以不进任何锚（与说书 `novel_text` 的按序完整覆盖校验区分）。
@@ -309,7 +374,7 @@ _Avoid_: 把 source_text 当会被配音 / 朗读的内容；与 episode 级 `so
 
 **源文件性质（source_kind）/ 剧本源（screenplay source）**：
 project.json 顶层字段，取值 `novel`（小说，默认——现状行为）/ `screenplay`（用户上传的成品剧本）。标记源文件**已是作者写好的成品剧本**而非待改编的小说。`screenplay` 时整条 drama 链路从「创作」翻为「提取优先」：分集边界、场景、台词、集尾钩子按剧本**原样提取**（作者即权威），LLM 只补剧本未写的视觉生产层（image_prompt / video_prompt）。是与 content_mode（narration/drama/ad）/ generation_mode 都正交的第三条轴——「源文件性质」，不是内容类型也不是视频来源。
-**逐字保真只锚「可听见的内容」**——角色台词文字与画外音文字（`DramaScene.utterances` 内的发声条目，台词带说话人、画外音无说话人）不改写、不丢、不润色；排版/标签（`△`/`【画外音】`/markdown）、运镜与舞台提示（`（航拍，全景）`/`（压低声音）`）、视觉描述、泛指群演（`老人甲`/空镜）一律由 LLM 裁量转写或剥离，泛指 speaker 不进资产（见 `docs/adr/0036`）。
+**逐字保真只锚「可听见的内容」**——人物发声文字（有人物归属，包括对白、内心独白与人物画外解说）和叙述旁白文字（无人物归属）不改写、不丢、不润色；排版/标签（`△`/`【画外音】`/markdown）、运镜与舞台提示（`（航拍，全景）`/`（压低声音）`）、视觉描述、泛指群演（`老人甲`/空镜）一律由 LLM 裁量转写或剥离，泛指 speaker 不进资产（见 `docs/adr/0036`）。
 _Avoid_: 用「剧本」同时指上传源与生成产物——上传源是「剧本源（screenplay）」、产物是「剧本（script JSON）」，两个概念；把 screenplay 当新 content_mode；对 screenplay 仍跑「改编式 step1」或「重规划式 plan_episodes」——那正是要消除的二次改写（台词丢失、作者分集被篡改）；把「逐字」理解为连排版/舞台提示/群演都原样照搬——逐字只约束「说出来的话」，不约束「看见的制作」与「纸面排版」。
 
 **分集账本（episode ledger）**：
@@ -429,7 +494,7 @@ _Avoid_: 与公开端点混为一谈——自带认证端点拦得住匿名请�
 > **Dev**：那 project.json 里要是写着 `seedance` 呢？
 > **Expert**：那是 legacy provider 名，迁移后不该再出现。系统只认规范 id `ark`。
 >
-> **Dev**：旁白配音的 TTS 后端是同步一次性 POST，跟 text 生成一样不异步——那它也像 text 那样不入队、直接调？
-> **Expert**：不。是否入队看**生成基数**，不看 backend 同不同步。text 每集生成一次，同步内联就够；旁白音频每 segment 一段、每集 N 段、要批量，基数和 image/video 一样，所以走队列、进任务面板（见 `docs/adr/0010`）。
+> **Dev**：叙述旁白配音的 TTS 后端是同步一次性 POST，跟 text 生成一样不异步——那它也像 text 那样不入队、直接调？
+> **Expert**：不。是否入队看**生成基数**，不看 backend 同不同步。text 每集生成一次，同步内联就够；叙述旁白配音按视频生成单元逐条生成、还要批量，基数和 image/video 一样，所以走队列、进任务面板（见 `docs/adr/0010`）。
 > **Dev**：backend 同步又入队，不矛盾吗？
 > **Expert**：不矛盾。worker claim 到 audio 任务后调那个同步 backend，秒回就标终态——只是省掉了 video 那套 submit-poll-resume。它占该 provider 的 audio pool，与 image/video pool 并列；TTS 便宜，`AUDIO_MAX_WORKERS` 默认放宽，一般不是瓶颈。
