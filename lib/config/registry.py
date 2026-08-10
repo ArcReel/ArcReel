@@ -73,10 +73,12 @@ def model_has_audio_track(provider_id: str, model_info: ModelInfo) -> bool:
     """该视频 model 生成的成片是否带音轨（不等于「音轨开关可控」，见 generate_audio token 语义注）。
 
     两个来源合成：`generate_audio` token 表达「开关可控」，故声明了 token 即有音轨；恒有声型号
-    （请求参数无法关闭音轨）不声明 token——声明了会误导调用方以为开关生效——改由 `audio_always_on`
-    表达。voice_consistency 派生与前端能力线渲染共用本函数，不各自维护一份漂移的判断。
+    （请求参数无法关闭音轨）不声明 token——声明了会误导调用方以为开关生效——其有音轨由
+    `audio_always_on` 表达。voice_consistency 派生与前端能力线渲染共用本函数，不各自维护一份
+    漂移的判断。
 
-    `provider_id` 保留在签名里供调用方按 (provider, model) 定位模型，当前判定不读它。
+    `provider_id` 不参与判定，保留在签名里与 :func:`model_audio_always_on` 对齐——两者同为
+    (provider, model) 对上的音轨查询，签名一致省得调用方逐个记哪个要传 provider。
     """
     if model_info.media_type != "video":
         return False
@@ -897,7 +899,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
             # --- video ---
             # Sora 2 原生含对话音轨，但请求参数里没有音轨开关，故不声明 generate_audio token，
-            # 有音轨改由 audio_always_on 表达。
+            # 有音轨由 audio_always_on 表达。
             "sora-2": ModelInfo(
                 display_name="Sora 2",
                 media_type="video",
