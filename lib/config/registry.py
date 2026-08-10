@@ -46,6 +46,11 @@ class ModelInfo:
     # 补一份视频输入模式或参考图上限声明即引入第二份手写来源，由
     # tests/test_video_backend_capabilities.py::TestVideoCapabilitySingleSourceOfTruth 拦下。
     capabilities: list[ModelCapability]
+    # 视频模型恒有声：成片必然带音轨，且请求参数里没有可下发的音轨开关。与 generate_audio
+    # token 互斥——token 表达「开关可控」，本位表达「不可控且恒开」，两者同时声明自相矛盾。
+    # 恒有声按型号声明而非按供应商：同一供应商名下可以部分型号恒有声、部分型号可开关或无声。
+    # 仅视频模型可置 True；两条约束由 tests/test_config_registry.py 的注册表守卫锁定。
+    audio_always_on: bool = False
     default: bool = False
     supported_durations: list[int] = field(default_factory=list)
     duration_resolution_constraints: dict[str, list[int]] = field(default_factory=dict)
@@ -64,19 +69,18 @@ class ModelInfo:
     api_model_name: str | None = None
 
 
-#: `generate_audio` token 语义是「音轨开关可控」，不是「有无音轨」——AI Studio 的 Veo、
-#: Grok Imagine、DashScope 视频全家族与 OpenAI 的 Sora 恒有声但请求参数无法关闭该开关，故
-#: registry 不为其声明该 token（声明了会误导调用方以为开关生效）。`model_has_audio_track`
-#: 据此在 token 判定之外单列这几家例外，供 voice_consistency 派生与前端能力线渲染共用，
-#: 防止两处各自维护一份漂移的判断。
-_ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS = frozenset({"gemini-aistudio", "grok", "dashscope", "openai"})
-
-
 def model_has_audio_track(provider_id: str, model_info: ModelInfo) -> bool:
-    """该视频 model 生成的成片是否带音轨（不等于「音轨开关可控」，见上方 token 语义注）。"""
+    """该视频 model 生成的成片是否带音轨（不等于「音轨开关可控」，见 generate_audio token 语义注）。
+
+    两个来源合成：`generate_audio` token 表达「开关可控」，故声明了 token 即有音轨；恒有声型号
+    （请求参数无法关闭音轨）不声明 token——声明了会误导调用方以为开关生效——改由 `audio_always_on`
+    表达。voice_consistency 派生与前端能力线渲染共用本函数，不各自维护一份漂移的判断。
+
+    `provider_id` 保留在签名里供调用方按 (provider, model) 定位模型，当前判定不读它。
+    """
     if model_info.media_type != "video":
         return False
-    return "generate_audio" in model_info.capabilities or provider_id in _ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS
+    return "generate_audio" in model_info.capabilities or model_info.audio_always_on
 
 
 def model_audio_switch_controllable(model_info: ModelInfo) -> bool:
@@ -444,6 +448,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Veo 3.1",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8], "4k": [8]},
                 reference_image_durations=[8],
@@ -454,6 +459,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Veo 3.1 Fast",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8], "4k": [8]},
                 reference_image_durations=[8],
@@ -464,6 +470,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Veo 3.1 Lite",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 default=True,
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8]},
@@ -811,6 +818,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Grok Imagine Video",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 default=True,
                 supported_durations=list(range(1, 16)),
                 resolutions=["480p", "720p"],
@@ -889,11 +897,12 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
             # --- video ---
             # Sora 2 原生含对话音轨，但请求参数里没有音轨开关，故不声明 generate_audio token，
-            # 有音轨改由 _ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS 表达。
+            # 有音轨改由 audio_always_on 表达。
             "sora-2": ModelInfo(
                 display_name="Sora 2",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 default=True,
                 supported_durations=[4, 8, 12],
                 resolutions=["720p"],
@@ -903,6 +912,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Sora 2 Pro",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=[4, 8, 12],
                 resolutions=["720p", "1080p"],
                 pricing=_sora_video_pricing("sora-2-pro", {"720p": 0.30, "1024p": 0.50, "1080p": 0.70}),
@@ -1077,6 +1087,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="HappyHorse 1.1 图生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 default=True,
                 supported_durations=list(range(3, 16)),
                 resolutions=["480p", "720p", "1080p"],
@@ -1086,6 +1097,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="HappyHorse 1.1 文生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=list(range(3, 16)),
                 resolutions=["480p", "720p", "1080p"],
                 pricing=_dashscope_video_pricing("happyhorse-1.1-t2v", {"480p": 0.45, "720p": 0.9, "1080p": 1.2}),
@@ -1094,6 +1106,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="HappyHorse 1.1 参考生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=list(range(3, 16)),
                 resolutions=["480p", "720p", "1080p"],
                 pricing=_dashscope_video_pricing("happyhorse-1.1-r2v", {"480p": 0.45, "720p": 0.9, "1080p": 1.2}),
@@ -1103,6 +1116,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="HappyHorse 1.0 图生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("happyhorse-1.0-i2v", {"720p": 0.9, "1080p": 1.6}),
@@ -1111,6 +1125,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="HappyHorse 1.0 文生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("happyhorse-1.0-t2v", {"720p": 0.9, "1080p": 1.6}),
@@ -1119,6 +1134,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="HappyHorse 1.0 参考生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("happyhorse-1.0-r2v", {"720p": 0.9, "1080p": 1.6}),
@@ -1128,6 +1144,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="万相 2.7 图生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=list(range(2, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("wan2.7-i2v", {"720p": 0.6, "1080p": 1.0}),
@@ -1136,6 +1153,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="万相 2.7 文生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=list(range(2, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("wan2.7-t2v", {"720p": 0.6, "1080p": 1.0}),
@@ -1144,6 +1162,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="万相 2.7 参考生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=list(range(2, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("wan2.7-r2v", {"720p": 0.6, "1080p": 1.0}),

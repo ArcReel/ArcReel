@@ -299,7 +299,7 @@ class TestModelHasAudioTrack:
 
     def test_dashscope_video_always_audible_without_token(self):
         """DashScope 视频全家族恒有声：_build_payload 不下传音频开关，故不声明 token，
-        由恒有声例外表判定有音轨。"""
+        由各型号的 audio_always_on 判定有音轨。"""
         for model_id in (
             "happyhorse-1.1-i2v",
             "happyhorse-1.1-t2v",
@@ -316,13 +316,13 @@ class TestModelHasAudioTrack:
             assert model_has_audio_track("dashscope", model) is True
 
     def test_dashscope_image_model_not_audible(self):
-        """恒有声例外表是 provider 级，但图像 model 仍恒 False——不因同 provider 被误判。"""
+        """同一供应商名下的图像 model 恒 False——不因同门视频型号恒有声被误判。"""
         model = self._model("dashscope", "wan2.7-image")
         assert model.media_type != "video"
         assert model_has_audio_track("dashscope", model) is False
 
     def test_sora_always_audible_without_token(self):
-        """Sora 原生含对话音轨，但请求参数里没有音轨开关：不声明 token，由恒有声例外表判定有音轨。"""
+        """Sora 原生含对话音轨，但请求参数里没有音轨开关：不声明 token，由 audio_always_on 判定有音轨。"""
         for model_id in ("sora-2", "sora-2-pro"):
             model = self._model("openai", model_id)
             assert "generate_audio" not in model.capabilities
@@ -345,7 +345,7 @@ class TestModelHasAudioTrack:
             assert model_has_audio_track("kling", model) is False
 
     def test_minimax_true_silent(self):
-        """MiniMax 未声明 token 且不在恒有声例外表内——真无声模型。"""
+        """MiniMax 既未声明 token 也未声明 audio_always_on——真无声模型。"""
         model = self._model("minimax", "MiniMax-Hailuo-2.3")
         assert model_has_audio_track("minimax", model) is False
 
@@ -355,7 +355,7 @@ class TestModelHasAudioTrack:
         assert model_has_audio_track("agnes", model) is False
 
     def test_non_video_model_always_false(self):
-        """非视频 model（如文本模型）音轨判定无意义，恒 False，即便所属 provider 在恒有声例外表内。"""
+        """非视频 model（如文本模型）音轨判定无意义，恒 False，即便同门视频型号恒有声。"""
         model = self._model("gemini-aistudio", "gemini-3-flash-preview")
         assert model.media_type != "video"
         assert model_has_audio_track("gemini-aistudio", model) is False
@@ -398,3 +398,88 @@ class TestAudioSwitchControllable:
         model = self._model("dashscope", "wan2.7-image")
         assert model_audio_switch_controllable(model) is False
         assert model_audio_always_on("dashscope", model) is False
+
+
+#: 全部内置视频 model 的音轨立场逐条钉死：controllable = 开关可控；always_on = 恒有声、开关不可控；
+#: silent = 无音轨。新增视频型号必须在此登记，登记时即被迫表态其音轨立场——漏声明 audio_always_on
+#: 的恒有声新型号会以 silent 落到这张表上，与作者的登记意图对不上而在 CI 暴露。
+_VIDEO_AUDIO_STANCES: dict[tuple[str, str], str] = {
+    ("agnes", "agnes-video-v2.0"): "silent",
+    ("ark", "doubao-seedance-1-5-pro-251215"): "controllable",
+    ("ark", "doubao-seedance-2-0-260128"): "controllable",
+    ("ark", "doubao-seedance-2-0-fast-260128"): "controllable",
+    ("ark", "doubao-seedance-2-0-mini-260615"): "controllable",
+    ("ark-agent-plan", "doubao-seedance-1.5-pro"): "controllable",
+    ("ark-agent-plan", "doubao-seedance-2.0"): "controllable",
+    ("ark-agent-plan", "doubao-seedance-2.0-fast"): "controllable",
+    ("ark-agent-plan", "doubao-seedance-2.0-mini"): "controllable",
+    ("dashscope", "happyhorse-1.0-i2v"): "always_on",
+    ("dashscope", "happyhorse-1.0-r2v"): "always_on",
+    ("dashscope", "happyhorse-1.0-t2v"): "always_on",
+    ("dashscope", "happyhorse-1.1-i2v"): "always_on",
+    ("dashscope", "happyhorse-1.1-r2v"): "always_on",
+    ("dashscope", "happyhorse-1.1-t2v"): "always_on",
+    ("dashscope", "wan2.7-i2v"): "always_on",
+    ("dashscope", "wan2.7-r2v"): "always_on",
+    ("dashscope", "wan2.7-t2v"): "always_on",
+    ("gemini-aistudio", "veo-3.1-fast-generate-preview"): "always_on",
+    ("gemini-aistudio", "veo-3.1-generate-preview"): "always_on",
+    ("gemini-aistudio", "veo-3.1-lite-generate-preview"): "always_on",
+    ("gemini-vertex", "veo-3.1-fast-generate-001"): "controllable",
+    ("gemini-vertex", "veo-3.1-generate-001"): "controllable",
+    ("grok", "grok-imagine-video"): "always_on",
+    ("kling", "kling-v2-5-turbo"): "silent",
+    ("kling", "kling-v2-6"): "controllable",
+    ("kling", "kling-v3"): "controllable",
+    ("kling", "kling-v3-omni"): "controllable",
+    ("kling", "kling-video-o1"): "silent",
+    ("minimax", "MiniMax-Hailuo-2.3"): "silent",
+    ("minimax", "MiniMax-Hailuo-2.3-Fast"): "silent",
+    ("minimax", "S2V-01"): "silent",
+    ("openai", "sora-2"): "always_on",
+    ("openai", "sora-2-pro"): "always_on",
+    ("vidu", "vidu2.0"): "silent",
+    ("vidu", "viduq3"): "controllable",
+    ("vidu", "viduq3-pro"): "controllable",
+    ("vidu", "viduq3-turbo"): "controllable",
+}
+
+
+@pytest.mark.unit
+class TestVideoAudioStanceRegistry:
+    """注册表级守卫：音轨声明的形态一致性，与三个派生查询在全部视频 model 上的取值。"""
+
+    def test_every_video_model_matches_declared_stance(self):
+        """派生查询在全部内置视频 model 上的取值逐条与上表相等（整表相等，非子集）。"""
+        actual: dict[tuple[str, str], str] = {}
+        for provider_id, meta in PROVIDER_REGISTRY.items():
+            for model_id, model in meta.models.items():
+                if model.media_type != "video":
+                    continue
+                if model_audio_always_on(provider_id, model):
+                    stance = "always_on"
+                elif model_audio_switch_controllable(model):
+                    stance = "controllable"
+                else:
+                    stance = "silent"
+                assert model_has_audio_track(provider_id, model) is (stance != "silent")
+                actual[(provider_id, model_id)] = stance
+        assert actual == _VIDEO_AUDIO_STANCES
+
+    def test_always_on_declared_only_on_video_models(self):
+        """audio_always_on 只对视频 model 有意义；图像 / 文本 / 音频 model 上的声明无消费方。"""
+        for provider_id, meta in PROVIDER_REGISTRY.items():
+            for model_id, model in meta.models.items():
+                if model.media_type == "video":
+                    continue
+                assert not model.audio_always_on, f"{provider_id}/{model_id} 非视频 model 不得声明 audio_always_on"
+
+    def test_always_on_never_coexists_with_generate_audio_token(self):
+        """两位声明互斥：token 表达开关可控，audio_always_on 表达不可控且恒开，同时声明自相矛盾。"""
+        for provider_id, meta in PROVIDER_REGISTRY.items():
+            for model_id, model in meta.models.items():
+                if not model.audio_always_on:
+                    continue
+                assert "generate_audio" not in model.capabilities, (
+                    f"{provider_id}/{model_id} 同时声明了 generate_audio 与 audio_always_on"
+                )
