@@ -56,7 +56,7 @@
 #     "comments_history": {total, last_created_at}      # older ones collapsed to counts ({total: 0} when empty)
 #   },
 #   "gemini": {
-#     "reviews":          [{id, submittedAt, state, has_pass_marker, is_new}],
+#     "reviews":          [{id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new}],
 #                                                       # body NEVER inlined — query.sh gemini-latest-body
 #     "comments_new":     [{id, createdAt, preview}],
 #     "comments_history": {total, last_created_at}
@@ -677,7 +677,7 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
       },
 
       gemini: {
-        reviews: [$s.gemini.reviews[] | {id, submittedAt, state, has_pass_marker, is_new}],
+        reviews: [$s.gemini.reviews[] | {id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new}],
         comments_new:
           [$s.gemini.comments[] | select(.is_new) | {id, createdAt, preview}],
         comments_history:
