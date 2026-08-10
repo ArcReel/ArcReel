@@ -163,6 +163,7 @@ class TestModelListExposesCapabilities:
             "max_reference_audio_total_seconds": expected.max_reference_audio_total_seconds,
             "reference_audio_per_image": expected.reference_audio_per_image,
             "max_prompt_chars": expected.max_prompt_chars,
+            "first_frame_ratio_adaptive_only": expected.first_frame_ratio_adaptive_only,
         }
 
     @pytest.mark.integration
