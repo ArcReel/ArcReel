@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -152,14 +153,26 @@ class TestSessionManagerUserInput:
             assert session_manager.unclaimed_user_echoes == 2
             unclaimed = [r for r in caplog.records if "unclaimed" in r.getMessage()]
             assert len(unclaimed) == 1, "一次 drain 只报一条，不逐条刷屏"
-            assert getattr(unclaimed[0], "residue") == 2
+            record = unclaimed[0]
+            assert getattr(record, "residue") == 2
+            assert getattr(record, "session_id") == managed.session_id
+            assert getattr(record, "unclaimed_total") == 2
+            assert getattr(record, "reason") == "turn finalized"
         finally:
             await _finish(managed)
 
     async def test_a_fully_claimed_turn_reports_nothing(self, session_manager, meta_store, caplog):
+        """登记被回放副本认领后队列自然排空，终结时无残留可报。"""
         messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
         meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
         try:
+            managed.pending_user_echoes.append(PendingUserEcho(dedup_key="你好", entry_uuid="user-a"))
+            claimed = match_user_echo(
+                managed.pending_user_echoes,
+                {"type": "user", "content": "你好"},
+            )
+            assert claimed is not None and managed.pending_user_echoes == []
+
             with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
                 await session_manager._mark_session_terminal(managed, "interrupted", "user interrupt")
 
@@ -167,6 +180,43 @@ class TestSessionManagerUserInput:
             assert not [r for r in caplog.records if "unclaimed" in r.getMessage()]
         finally:
             await _finish(managed)
+
+    async def test_failed_new_session_startup_does_not_count_as_unclaimed(
+        self, session_manager, meta_store, monkeypatch, caplog
+    ):
+        """新会话没建起来，回放副本不会抵达：启动失败不计入认领失败、不产生告警。"""
+
+        class _FakeActor:
+            def __init__(self, *_, on_message=None, client_factory=None):
+                self.task = None
+
+            async def start(self):
+                return None
+
+            def add_done_callback(self, _cb):
+                pass
+
+            async def enqueue(self, cmd):
+                cmd.error = RuntimeError("SDK 拒绝了这次投递")
+                cmd.sent.set()
+                cmd.done.set()
+
+            async def wait(self):
+                return None
+
+        async def fake_env():
+            return {"ANTHROPIC_API_KEY": "sk"}
+
+        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+        monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
+        monkeypatch.setattr(type(session_manager), "_ensure_capacity", AsyncMock(return_value=None))
+
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
+            with pytest.raises(Exception):
+                await session_manager.send_new_session("demo", "你好")
+
+        assert session_manager.unclaimed_user_echoes == 0
+        assert not [r for r in caplog.records if "unclaimed" in r.getMessage()]
 
     async def test_ask_user_question_waits_for_answer_and_merges_answers(self, session_manager, meta_store):
         if not SDK_AVAILABLE:

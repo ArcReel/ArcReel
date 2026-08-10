@@ -653,6 +653,10 @@ class SessionManager:
             finish naturally), then belt-and-suspenders cancels the processor
             in case it is stuck elsewhere.
             """
+            # 新会话没建起来，SDK 不会回放刚登记的那条用户消息，登记不是认领
+            # 失败。在漏斗里清掉，_drain_pending_user_echoes 的告警语义便按构造
+            # 成立，不依赖拆解途中各处状态写入的先后。
+            managed.pending_user_echoes.clear()
             self.sessions.pop(temp_id, None)
             # sdk_session_id 就绪后 key swap 已把会话挂到正式 id 下，两个键都清。
             self.sessions.pop(managed.session_id, None)
