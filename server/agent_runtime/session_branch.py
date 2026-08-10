@@ -83,6 +83,9 @@ class SessionBranchService:
         # 无此会话；新 id 必须是规范 uuid4 字符串。
         new_session_id = str(uuid4())
         project_key = make_project_key(project_cwd)
+        # 从这里到落指针为止是一次要么整体成立、要么整体撤回的转换：store 的每次
+        # append 各自提交，中途失败会留下半份 transcript，而 transcript 行不依赖
+        # 元数据行就能被 store 的会话枚举看见。
         try:
             copied = await copy_session_prefix(
                 store,
@@ -91,20 +94,17 @@ class SessionBranchService:
                 anchor_uuid=anchor_uuid,
                 new_session_id=new_session_id,
             )
-        except InvalidAnchorError as exc:
-            raise SessionBranchError(
-                f"anchor {anchor_user_entry_uuid} is not a user message of session {session_id}: {exc}"
-            ) from exc
-
-        # 复制已落库，此后任何失败都要把新会话整个撤回：transcript 行不依赖
-        # 元数据行就能被 store 的会话枚举看见，只删元数据会留下半个会话。
-        try:
             # 先建新会话行再落指针，指针任何时刻都指向已存在的会话。
             await self._meta_store.create(meta.project_name, new_session_id)
             if not await self._meta_store.mark_superseded(session_id, new_session_id):
                 raise SessionBranchError(f"session {session_id} has already been superseded by another branch")
+        except InvalidAnchorError as exc:
+            # 锚点校验在任何写入之前，没有可撤回的东西。
+            raise SessionBranchError(
+                f"anchor {anchor_user_entry_uuid} is not a user message of session {session_id}: {exc}"
+            ) from exc
         except BaseException:
-            await self._discard(store, project_key, new_session_id)
+            await self._discard(store, project_key, session_id, new_session_id)
             raise
 
         logger.info(
@@ -116,8 +116,19 @@ class SessionBranchService:
         )
         return BranchedSession(session_id=new_session_id, resumable=copied.entries_copied > 0)
 
-    async def _discard(self, store: SessionStoreLike, project_key: str, new_session_id: str) -> None:
-        """撤回半成品分支：transcript 与元数据行都清掉，清理失败不掩盖原始错误。"""
+    async def _discard(
+        self, store: SessionStoreLike, project_key: str, origin_session_id: str, new_session_id: str
+    ) -> None:
+        """撤回半成品分支：原会话的指针、新会话的 transcript 与元数据行都清掉。
+
+        清理自身的失败只记日志，不掩盖触发撤回的原始错误。先撤指针再删数据：
+        指针若已落库（例如提交后当场被取消），留着会让原会话指向一个即将不存在
+        的会话，且自己也从会话列表里消失。
+        """
+        try:
+            await self._meta_store.clear_superseded(origin_session_id, new_session_id)
+        except Exception:
+            logger.exception("failed to discard superseded pointer of session %s", origin_session_id)
         try:
             # 不带 subpath 的 delete 连子代理子路径与 summary 一并清除。
             await store.delete({"project_key": project_key, "session_id": new_session_id})

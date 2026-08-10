@@ -76,6 +76,12 @@ class SessionMetaStore:
             repo = SessionRepository(session)
             return await repo.mark_superseded(session_id, superseded_by)
 
+    async def clear_superseded(self, session_id: str, superseded_by: str) -> bool:
+
+        async with self._session_factory() as session:
+            repo = SessionRepository(session)
+            return await repo.clear_superseded(session_id, superseded_by)
+
     async def interrupt_running_sessions(self) -> int:
 
         async with self._session_factory() as session:

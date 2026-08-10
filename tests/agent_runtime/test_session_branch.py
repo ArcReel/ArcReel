@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -195,6 +196,104 @@ async def test_second_branch_of_the_same_origin_is_refused(branching):
     assert origin is not None
     assert origin.superseded_by == first.session_id
     assert {meta.id for meta in await meta_store.list(project_name=PROJECT_NAME)} == {first.session_id}
+    assert {row["session_id"] for row in await store.list_sessions(project_key)} == sessions_before
+
+
+class _StoreGone(Exception):
+    """store 在复制途中失联。"""
+
+
+class _StoreFailingAfterMainWrite:
+    """主 transcript 已写入、收集子代理子路径时失败的 store。"""
+
+    def __init__(self, inner: DbSessionStore) -> None:
+        self._inner = inner
+
+    async def load(self, key: dict) -> list[dict] | None:
+        return await self._inner.load(key)
+
+    async def append(self, key: dict, entries: list[dict]) -> None:
+        await self._inner.append(key, entries)
+
+    async def list_subkeys(self, key: dict) -> list[str]:
+        raise _StoreGone
+
+    async def delete(self, key: dict) -> None:
+        await self._inner.delete(key)
+
+
+class _MetaStoreLosingTheCallerAfterCommit(SessionMetaStore):
+    """指针已提交、调用方在拿到结果前被取消。"""
+
+    async def mark_superseded(self, session_id: str, superseded_by: str) -> bool:
+        await super().mark_superseded(session_id, superseded_by)
+        raise asyncio.CancelledError
+
+
+async def _seed_session_with_a_subagent(store, meta_store, log_store, project_key, tmp_path):
+    """一个前缀里派出过 subagent 的原会话，锚点是末轮用户消息。"""
+    session_id = str(uuid4())
+    await meta_store.create(PROJECT_NAME, session_id)
+    u1, a1, r1, u2 = (f"m{i}-{uuid4().hex[:8]}" for i in range(4))
+    await store.append(
+        {"project_key": project_key, "session_id": session_id},
+        [
+            _entry(u1, None, "user", session_id, "查一下"),
+            _entry(a1, u1, "assistant", session_id, "好"),
+            {**_entry(r1, a1, "user", session_id, "done"), "toolUseResult": {"agentId": "abc123"}},
+            _entry(u2, r1, "user", session_id, "再改一下"),
+        ],
+    )
+    await log_store.record_user_message_link(session_id, SECOND_USER_ENTRY, u2)
+    return session_id
+
+
+async def test_failure_midway_through_copying_leaves_no_trace_of_the_new_session(session_factory, tmp_path):
+    """store 的每次 append 各自提交，半份 transcript 会被会话枚举看见——中途失败须整体撤回。"""
+    store = DbSessionStore(session_factory)
+    meta_store = SessionMetaStore(session_factory=session_factory)
+    log_store = EventLogStore(session_factory=session_factory)
+    project_key = make_project_key(tmp_path)
+    session_id = await _seed_session_with_a_subagent(store, meta_store, log_store, project_key, tmp_path)
+    sessions_before = {row["session_id"] for row in await store.list_sessions(project_key)}
+
+    service = SessionBranchService(
+        store=_StoreFailingAfterMainWrite(store),
+        meta_store=meta_store,
+        event_log_store=log_store,
+        resolve_project_cwd=lambda _name: tmp_path,
+    )
+
+    with pytest.raises(_StoreGone):
+        await service.branch(session_id, SECOND_USER_ENTRY)
+
+    assert {row["session_id"] for row in await store.list_sessions(project_key)} == sessions_before
+    assert {meta.id for meta in await meta_store.list(project_name=PROJECT_NAME)} == {session_id}
+
+
+async def test_pointer_is_withdrawn_when_the_caller_is_cancelled_after_it_commits(session_factory, tmp_path):
+    """指针提交后当场被取消：撤回不能只删新会话，否则原会话指向一个不存在的会话且自己也从列表消失。"""
+    store = DbSessionStore(session_factory)
+    meta_store = _MetaStoreLosingTheCallerAfterCommit(session_factory=session_factory)
+    log_store = EventLogStore(session_factory=session_factory)
+    project_key = make_project_key(tmp_path)
+    session_id = await _seed_session_with_a_subagent(store, meta_store, log_store, project_key, tmp_path)
+    sessions_before = {row["session_id"] for row in await store.list_sessions(project_key)}
+
+    service = SessionBranchService(
+        store=store,
+        meta_store=meta_store,
+        event_log_store=log_store,
+        resolve_project_cwd=lambda _name: tmp_path,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await service.branch(session_id, SECOND_USER_ENTRY)
+
+    origin = await meta_store.get(session_id)
+    assert origin is not None
+    assert origin.superseded_by is None, "原会话须回到未被取代的状态"
+    assert {meta.id for meta in await meta_store.list(project_name=PROJECT_NAME)} == {session_id}
     assert {row["session_id"] for row in await store.list_sessions(project_key)} == sessions_before
 
 

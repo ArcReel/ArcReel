@@ -93,6 +93,17 @@ class SessionRepository(BaseRepository):
         await self.session.commit()
         return rowcount(result) > 0
 
+    async def clear_superseded(self, session_id: str, superseded_by: str) -> bool:
+        """撤回指向 ``superseded_by`` 的取代指针；指针已指向别的会话时不动。"""
+        now = utc_now()
+        result = await self.session.execute(
+            update(AgentSession)
+            .where(AgentSession.sdk_session_id == session_id, AgentSession.superseded_by == superseded_by)
+            .values(superseded_by=None, updated_at=now)
+        )
+        await self.session.commit()
+        return rowcount(result) > 0
+
     async def delete(self, session_id: str) -> bool:
         result = await self.session.execute(sa_delete(AgentSession).where(AgentSession.sdk_session_id == session_id))
         await self.session.commit()
