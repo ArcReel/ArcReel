@@ -55,6 +55,12 @@ interface AssistantState {
   skills: SkillInfo[];
   skillsLoading: boolean;
 
+  /**
+   * 正处于原地编辑态的用户消息（条目 uuid）；同一时刻至多一条。
+   * 收在 store 而非组件本地 state，才能让「至多一条」这条约束在整个时间线上成立。
+   */
+  editingTurnUuid: string | null;
+
   // Scope
   currentProject: string | null;
 
@@ -88,6 +94,7 @@ interface AssistantState {
   setAnsweringQuestion: (answering: boolean) => void;
   setSkills: (skills: SkillInfo[]) => void;
   setSkillsLoading: (loading: boolean) => void;
+  setEditingTurnUuid: (uuid: string | null) => void;
   setCurrentProject: (project: string | null) => void;
   setIsDraftSession: (draft: boolean) => void;
 }
@@ -154,6 +161,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     answeringQuestion: false,
     skills: [],
     skillsLoading: false,
+    editingTurnUuid: null,
     currentProject: null,
     isDraftSession: false,
 
@@ -232,6 +240,8 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
         turns: [],
         draftTurn: null,
         startupFailure: null,
+        // 编辑态锚在被清空的那条时间线上，重建后锚点不再存在
+        editingTurnUuid: null,
       });
     },
 
@@ -247,6 +257,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     setAnsweringQuestion: (answering) => set({ answeringQuestion: answering }),
     setSkills: (skills) => set({ skills }),
     setSkillsLoading: (loading) => set({ skillsLoading: loading }),
+    setEditingTurnUuid: (uuid) => set({ editingTurnUuid: uuid }),
     setCurrentProject: (project) => set({ currentProject: project }),
     setIsDraftSession: (draft) => set({ isDraftSession: draft }),
   };

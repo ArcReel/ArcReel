@@ -15,9 +15,9 @@ import { PendingQuestionWizard } from "./PendingQuestionWizard";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import type { SlashCommandMenuHandle } from "./SlashCommandMenu";
 import { TodoListPanel } from "./TodoListPanel";
-import { ChatMessage } from "./chat/ChatMessage";
+import { MessageRow } from "./chat/MessageRow";
 import { AgentFailureCard } from "./chat/AgentFailureCard";
-import { composeAllTurns } from "./chat/utils";
+import { canEditUserTurn, composeAllTurns } from "./chat/utils";
 import { uid } from "@/utils/id";
 import { formatShortDateTime } from "@/utils/date-format";
 
@@ -172,13 +172,13 @@ function formatTime(isoStr: string | undefined, t: TFunction): string {
 export function AgentCopilot() {
   const { t } = useTranslation(["dashboard", "common"]);
   const {
-    turns, draftTurn, messagesLoading,
+    turns, draftTurn, messagesLoading, editingTurnUuid, setEditingTurnUuid,
     sending, sessionStatus, pendingQuestion, answeringQuestion, error, startupFailure,
   } = useAssistantStore();
 
   const { currentProjectName } = useProjectsStore();
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
-  const { sendMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession } =
+  const { sendMessage, rewriteMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession } =
     useAssistantSession(currentProjectName);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -283,6 +283,12 @@ export function AgentCopilot() {
       ),
     );
   }, [inputDisabled, localInput, attachedImages, sendMessage]);
+
+  // 改写成功后由会话切换重建时间线（编辑态随 resetTimeline 清空）；失败保留编辑态，
+  // 用户可以改完再试，错误经消息区上方的错误条呈现
+  const handleSubmitEdit = useCallback((turnUuid: string, text: string) => {
+    voidCall(rewriteMessage(turnUuid, text));
+  }, [rewriteMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Delegate to slash menu when open
@@ -503,7 +509,17 @@ export function AgentCopilot() {
           </div>
         )}
         {allTurns.map((turn, i) => (
-          <ChatMessage key={turn.uuid || `turn-${i}`} message={turn} streaming={turn === draftTurn} />
+          <MessageRow
+            key={turn.uuid || `turn-${i}`}
+            turn={turn}
+            streaming={turn === draftTurn}
+            editable={canEditUserTurn(turn, { sessionStatus, hasPendingQuestion: Boolean(pendingQuestion) })}
+            editing={Boolean(turn.uuid) && turn.uuid === editingTurnUuid}
+            submitting={sending}
+            onStartEdit={setEditingTurnUuid}
+            onCancelEdit={() => setEditingTurnUuid(null)}
+            onSubmitEdit={handleSubmitEdit}
+          />
         ))}
         {startupFailure && (
           <AgentFailureCard failure={startupFailure} onRetry={handleSend} />

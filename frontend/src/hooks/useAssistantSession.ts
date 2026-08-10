@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { errMsg, voidCall } from "@/utils/async";
 import { AgentFailureError, API } from "@/api";
 import { uid } from "@/utils/id";
@@ -73,6 +74,7 @@ function saveLastSessionId(projectName: string, sessionId: string): void {
  *   client_key 幂等，重试不产生重复；不渲染本地合成消息
  */
 export function useAssistantSession(projectName: string | null) {
+  const { t } = useTranslation("dashboard");
   const store = useAssistantStore;
   const streamRef = useRef<EventSource | null>(null);
   const streamSessionRef = useRef<string | null>(null);
@@ -81,6 +83,7 @@ export function useAssistantSession(projectName: string | null) {
   const pendingSendVersionRef = useRef(0);
   // 失败重试复用同一幂等键（同内容签名），成功后清除
   const failedSendRef = useRef<{ clientKey: string; signature: string } | null>(null);
+  const failedRewriteRef = useRef<{ clientKey: string; signature: string } | null>(null);
 
   const syncPendingQuestion = useCallback((question: PendingQuestion | null) => {
     store.getState().setPendingQuestion(question);
@@ -536,6 +539,74 @@ export function useAssistantSession(projectName: string | null) {
     }
   }, [projectName, beginSessionLoad, clearPendingQuestion, closeStream, invalidatePendingSend, loadSession, store]);
 
+  // 改写历史用户消息。返回是否受理成功——失败时调用方保留编辑态与草稿内容。
+  //
+  // 受理成功前不动任何视图状态：改写会被服务端拒绝（锚点失效 400、未决问答或
+  // 原会话已被取代 409），被拒时用户仍留在原会话，时间线原样。受理之后才整体
+  // 切换到承接改写的新会话——时间线重建、SSE 重连，不做增量缝合。
+  const rewriteMessage = useCallback(
+    async (anchorEntryUuid: string, content: string): Promise<boolean> => {
+      const originSessionId = store.getState().currentSessionId;
+      if (!projectName || !originSessionId || !content.trim()) return false;
+      // sending 同时是发送与改写的在途锁：两者都会开启新一轮，不能并发
+      if (store.getState().sending) return false;
+
+      store.getState().setSending(true);
+      store.getState().setError(null);
+      store.getState().setStartupFailure(null);
+
+      // 幂等键：响应丢失后的重试由服务端在新分支里认领同一条权威条目，
+      // 不会再分叉一次。签名含锚点与改写后内容，改了内容即换新键。
+      const signature = JSON.stringify([projectName, originSessionId, anchorEntryUuid, content.trim()]);
+      const clientKey =
+        failedRewriteRef.current?.signature === signature
+          ? failedRewriteRef.current.clientKey
+          : uid();
+
+      try {
+        const result = await API.rewriteAssistantMessage(
+          projectName,
+          originSessionId,
+          anchorEntryUuid,
+          content,
+          clientKey,
+        );
+        failedRewriteRef.current = null;
+
+        const newSessionId = result.session_id;
+        // 原会话已被取代，服务端列表不再返回它；本地列表同步剔除，由新分支接位。
+        // 标题沿用原会话（分支是同一段对话的续写），轮次结束时的列表刷新会用
+        // SDK summary 校正。
+        const sessions = store.getState().sessions;
+        const origin = sessions.find((s) => s.id === originSessionId);
+        const branch: SessionMeta = {
+          id: newSessionId,
+          project_name: projectName,
+          title: origin?.title ?? "",
+          status: "running",
+          created_at: origin?.created_at ?? new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        store.getState().setSessions([
+          branch,
+          ...sessions.filter((s) => s.id !== originSessionId && s.id !== newSessionId),
+        ]);
+        store.getState().setSending(false);
+
+        // 整体切到新分支：重置时间线（编辑态随之清空）、冷读/建流、记住选择，
+        // 刷新与断线重连后都停在新分支
+        await switchSession(newSessionId);
+        return true;
+      } catch (err) {
+        failedRewriteRef.current = { clientKey, signature };
+        store.getState().setError(errMsg(err, t("message_rewrite_failed")));
+        store.getState().setSending(false);
+        return false;
+      }
+    },
+    [projectName, switchSession, store, t],
+  );
+
   // 删除会话
   const deleteSession = useCallback(async (sessionId: string) => {
     if (!projectName) return;
@@ -566,7 +637,7 @@ export function useAssistantSession(projectName: string | null) {
     }
   }, [projectName, abortSessionLoad, clearPendingQuestion, closeStream, invalidatePendingSend, switchSession, store]);
 
-  return { sendMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession };
+  return { sendMessage, rewriteMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession };
 }
 
 function getPendingQuestionFromEvent(payload: Record<string, unknown>): PendingQuestion | null {

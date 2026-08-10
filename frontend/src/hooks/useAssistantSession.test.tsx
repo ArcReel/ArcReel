@@ -1336,4 +1336,80 @@ describe("useAssistantSession", () => {
     });
     expect(useAssistantStore.getState().messagesLoading).toBe(false);
   });
+
+  it("switches to the branch session after a rewrite: timeline rebuilt, stream reconnected, origin gone from the list", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "idle")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, sessionId === "session-2" ? "running" : "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(
+      makeEntriesResponse({ entries: [userEntry(0, "原始消息")] }),
+    );
+    const rewriteSpy = vi.spyOn(API, "rewriteAssistantMessage").mockResolvedValue({
+      status: "accepted",
+      session_id: "session-2",
+      origin_session_id: "session-1",
+      entry: userEntry(1, "改写后的消息"),
+    });
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().turns).toHaveLength(1);
+    });
+    useAssistantStore.getState().setEditingTurnUuid("u-0");
+
+    await act(async () => {
+      await result.current.rewriteMessage("u-0", "改写后的消息");
+    });
+
+    expect(rewriteSpy).toHaveBeenCalledWith("demo", "session-1", "u-0", "改写后的消息", expect.any(String));
+
+    const state = useAssistantStore.getState();
+    expect(state.currentSessionId).toBe("session-2");
+    // 旧会话不再出现在列表；改写后的时间线由新会话整体重建，编辑态随之清空
+    expect(state.sessions.map((s) => s.id)).toEqual(["session-2"]);
+    expect(state.editingTurnUuid).toBeNull();
+    expect(state.sending).toBe(false);
+    // running 的新会话由 entry 流从头回放，游标不带上一条时间线的残留
+    expect(MockEventSource.instances).toHaveLength(1);
+    expect(MockEventSource.instances[0].url).toContain("session-2");
+    expect(MockEventSource.instances[0].url).not.toContain("after=");
+    // 刷新后仍停在新分支
+    expect(JSON.parse(localStorage.getItem("arcreel:lastSessionByProject") ?? "{}")).toEqual({ demo: "session-2" });
+  });
+
+  it("keeps the user on the origin session when a rewrite is rejected, and reuses the idempotency key on retry", async () => {
+    mockIdleSession([userEntry(0, "原始消息")]);
+    const rewriteSpy = vi
+      .spyOn(API, "rewriteAssistantMessage")
+      .mockRejectedValue(new Error("请先回答对话中的提问卡片，再改写消息"));
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+    useAssistantStore.getState().setEditingTurnUuid("u-0");
+
+    await act(async () => {
+      await result.current.rewriteMessage("u-0", "改写后的消息");
+    });
+
+    const state = useAssistantStore.getState();
+    expect(state.currentSessionId).toBe("session-1");
+    expect(state.turns).toHaveLength(1);
+    // 编辑态保留，用户可以改完再试
+    expect(state.editingTurnUuid).toBe("u-0");
+    expect(state.error).toBe("请先回答对话中的提问卡片，再改写消息");
+    expect(state.sending).toBe(false);
+
+    // 同内容重试复用同一幂等键：服务端据此在新分支里认领已受理的那一条
+    await act(async () => {
+      await result.current.rewriteMessage("u-0", "改写后的消息");
+    });
+    expect(rewriteSpy.mock.calls[0][4]).toBe(rewriteSpy.mock.calls[1][4]);
+  });
 });
