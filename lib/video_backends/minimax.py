@@ -100,9 +100,7 @@ _RESOLUTION_DURATIONS: dict[str, set[int]] = {"768p": {6, 10}, "1080p": {6}}
 # H3 输入上限，出处为官方《创建视频生成任务 (V2)》
 # https://platform.minimaxi.com/docs/api-reference/video-generation-v2-create.md
 # 输出规格（分辨率档、时长）不在此处声明：registry 的 resolutions / supported_durations 是其
-# 真相源，下方兜底常量（同一出处：768P/2K、4–15 秒任意整数）仅在型号未登记时生效。
-_H3_FALLBACK_RESOLUTIONS: frozenset[str] = frozenset({"768p", "2k"})
-_H3_FALLBACK_DURATIONS: frozenset[int] = frozenset(range(4, 16))
+# 唯一真相源，_v2_output_specs 缺失该条目时 fail loud，不设兜底常量。
 _H3_MAX_REFERENCE_IMAGES = 9
 _H3_MAX_REFERENCE_AUDIO = 3
 _H3_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 15.0
@@ -407,13 +405,15 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         registry 是这两项的真相源，前端下拉门控读的也是它——两处若各写一份，改档位时必然漂移。
         本方法只在 `_is_v2`（即 `_is_h3_model` 判真）时被调用，故一律按 canonical 名 `_H3`
         查 registry——self._model 可能是中转站发现的大小写/命名空间变体，字面值不一定与
-        registry key 一致，用它直接查会把已注册的 H3 误判成未登记而回落兜底常量，让变体悄悄
-        脱离 registry 声明的时长/分辨率范围（与 `_is_h3_model` 判定和 `video_capabilities_for_model`
-        走同一枚 canonical 名，避免第三处再长出不一致）。回落只在 registry 意外缺失该条目时触发。
+        registry key 一致，用它直接查会把已注册的 H3 误判成未登记（与 `_is_h3_model` 判定和
+        `video_capabilities_for_model` 走同一枚 canonical 名，避免第三处再长出不一致）。
+        查询的是固定的 canonical 名而非可变的型号名，缺失只可能是 registry 条目被误删/改名，
+        不是「型号未登记」的正常场景，故 fail loud 而非回落兜底常量——静默兜底会让这类配置
+        错误在越界请求实际打到供应商前都不可见。
         """
         info = model_info_for(PROVIDER_MINIMAX, _H3)
         if info is None:
-            return _H3_FALLBACK_RESOLUTIONS, _H3_FALLBACK_DURATIONS
+            raise RuntimeError(f"registry 缺少 {PROVIDER_MINIMAX}/{_H3} 条目，无法确定 H3 输出规格")
         return frozenset(r.lower() for r in info.resolutions), frozenset(info.supported_durations)
 
     @staticmethod

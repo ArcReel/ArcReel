@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from lib.config.registry import model_info_for
 from lib.providers import PROVIDER_MINIMAX
 from lib.video_backends.base import ReferenceAudioMode, VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.minimax import MiniMaxVideoBackend, _safe_body_for_log
@@ -118,14 +119,32 @@ class TestConstructionAndCapabilities:
     @pytest.mark.parametrize("model", ["minimax-h3", "MINIMAX-H3", "proxy/minimax-h3"])
     def test_h3_output_specs_use_canonical_registry_lookup(self, model):
         # self._model 可能是大小写/命名空间变体，字面值查 registry 会 miss；_v2_output_specs
-        # 须归一化到 canonical "MiniMax-H3" 再查，否则变体会悄悄回落到硬编码兜底常量，脱离
-        # registry 声明的时长/分辨率范围（即便当前兜底常量与 registry 声明恰好同值，也不能
-        # 依赖这种巧合——registry 改动时兜底不会跟着变）。
+        # 须归一化到 canonical "MiniMax-H3" 再查，返回值须与 registry 实际声明一致（正向断言，
+        # 不止是"没崩"）。
+        b = _backend(model)
+        resolutions, durations = b._v2_output_specs()
+        registry_info = model_info_for(PROVIDER_MINIMAX, "MiniMax-H3")
+        assert registry_info is not None
+        assert resolutions == frozenset(r.lower() for r in registry_info.resolutions)
+        assert durations == frozenset(registry_info.supported_durations)
+
+    @pytest.mark.parametrize("model", ["minimax-h3", "MINIMAX-H3", "proxy/minimax-h3"])
+    def test_h3_output_specs_query_uses_canonical_name(self, model):
+        # 直接断言查询参数已归一化为 canonical 名，不依赖兜底值与 registry 声明恰好相等这种
+        # 巧合。
         with patch("lib.video_backends.minimax.model_info_for") as mock_lookup:
-            mock_lookup.return_value = None
+            mock_lookup.return_value = MagicMock(resolutions=["768p"], supported_durations=[6])
             b = _backend(model)
             b._v2_output_specs()
         assert mock_lookup.call_args.args[1] == "MiniMax-H3"
+
+    def test_h3_output_specs_missing_registry_entry_fails_loud(self):
+        # 本方法只查固定的 canonical 名，缺失只可能是 registry 条目被误删/改名——这类配置
+        # 错误必须 fail loud，不能悄悄回落到硬编码常量掩盖过去。
+        with patch("lib.video_backends.minimax.model_info_for", return_value=None):
+            b = _backend("MiniMax-H3")
+            with pytest.raises(RuntimeError, match="registry"):
+                b._v2_output_specs()
 
 
 class TestPayloadAndCapabilityGating:
