@@ -316,7 +316,7 @@ export default {
   'narration_speed_label': 'Voice speed (optional)',
   'narration_speed_hint': 'Leave empty for the provider default; some models do not support rate control',
   'speech_rate_label': 'Spoken pace for estimates (optional)',
-  'speech_rate_hint': 'Turns dialogue length into seconds for duration suggestions, speech-load notices and subtitle timing. Leave empty to estimate at the default pace for the project language. Unrelated to voice speed.',
+  'speech_rate_hint': 'Turns spoken-content length (dialogue and voiceover) into seconds for duration suggestions, speech-load notices and subtitle timing. Leave empty to estimate at the default pace for the project language. Unrelated to voice speed.',
   'speech_rate_out_of_range': 'Must be between {{min}} and {{max}}',
   'reading_unit_char_per_second': 'chars/sec',
   'reading_unit_word_per_second': 'words/sec',

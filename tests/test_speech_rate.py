@@ -84,6 +84,9 @@ class TestSpeechRateOverride:
         assert estimate_spoken_seconds("一二三四五", "zh", 2.0) == pytest.approx(2.5)
 
     def test_boundary_values(self):
+        # 钉住区间字面量：断言全从常量推导时，常量被误改成 0.00095 / 20.0005 也照样通过
+        assert MIN_SPEECH_RATE_UPS == 0.001
+        assert MAX_SPEECH_RATE_UPS == 20.0
         assert is_valid_speech_rate(MIN_SPEECH_RATE_UPS)
         assert is_valid_speech_rate(MAX_SPEECH_RATE_UPS)
         assert not is_valid_speech_rate(0.0)
