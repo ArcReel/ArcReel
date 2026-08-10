@@ -7,9 +7,16 @@
 （zh 计汉字 / CJK 标点，en / vi 计词）——因此单位换算天然随语言切换，不必为
 中英文各写一套字符规则。语速值可调、按 ``source_language`` 覆盖、缺省回退默认；
 新增语言只在 ``SPEECH_RATE_UPS_BY_LANGUAGE`` 登记，调用点不写死任何数值。
+
+取值优先级：项目级覆盖（``project.json`` 顶层 ``speech_rate_units_per_second``，经
+``project_speech_rate_override`` 解析）> 语言默认 > 全局默认。覆盖只在这里叠加，
+消费方仍只经本模块两个函数取值，不各自读 project.json 字段。
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
 
 from lib.text_metrics import count_reading_units
 
@@ -27,26 +34,83 @@ SPEECH_RATE_UPS_BY_LANGUAGE: dict[str, float] = {
 }
 
 
-def speech_rate_units_per_second(language: str | None = None) -> float:
-    """返回该语言的语速（阅读单位 / 秒）。
+#: 项目级语速覆盖在 ``project.json`` 的顶层字段名（阅读单位 / 秒）。
+#: 与 TTS 供应商配音倍率 ``narration_speed`` 是两码事：后者是倍率、前者是绝对速度。
+SPEECH_RATE_FIELD: str = "speech_rate_units_per_second"
 
-    语言代码大小写不敏感；``None`` / 空 / 未登记语言回退 ``DEFAULT_SPEECH_RATE_UPS``。
+#: 项目级语速覆盖的硬区间（闭区间，阅读单位 / 秒）。宽松区间只拦明显误输入（如把 TTS
+#: 倍率或毫秒数填进来），区间内不做任何倾向性提示。
+#:
+#: 下界不止于拦掉 ≤0，它同时给下游时间表示留出余量：取 1e6 阅读单位（远超任何真实口播
+#: 文本）的假想单段文本，按 0.001 阅读单位 / 秒估算得 1e9 秒，换算成剪映草稿的微秒是 1e15，
+#: 离 int64 上限仍有三个数量级。若下界改为只要求「估算结果是有限数」，可接受语速会低到
+#: 1e-302 量级，此时任何下游乘数（微秒换算即是其一）都能把有限值重新推成 inf 或撑破整数
+#: 类型——要守的是余量而非有限性。0.001 意味着每个阅读单位读满 1000 秒，真实口播远在其上。
+MIN_SPEECH_RATE_UPS: float = 0.001
+MAX_SPEECH_RATE_UPS: float = 20.0
+
+
+def is_valid_speech_rate(value: float) -> bool:
+    """该数值是否落在项目级语速覆盖的硬区间内（``0.001 <= value <= 20``）。
+
+    前端输入校验、请求模型校验与持久化后的读时守卫共用这一把尺，避免三处各写一套边界。
+    入参允许是 project.json 直接解析出的值，故两类输入病理在这里收掉，调用方不必各自处理：
+    JSON 整数字面量没有位宽上限，``float()`` 对超出双精度表示范围的整数抛 ``OverflowError``；
+    JSON 布尔解析出的 ``bool`` 是 ``int`` 子类，``float(True)`` 得 ``1.0`` 会落进合法区间。
+    两者一律判为「不可用」。区间本身同时排除 ``inf`` 与 ``nan``（两者与边界的比较均为假），
+    区间内的值则保证下游时长换算不溢出，依据见 ``MIN_SPEECH_RATE_UPS``。
     """
+    if isinstance(value, bool):
+        return False
+    try:
+        rate = float(value)
+    except OverflowError:
+        return False
+    return MIN_SPEECH_RATE_UPS <= rate <= MAX_SPEECH_RATE_UPS
+
+
+def project_speech_rate_override(project: Mapping[str, Any] | None) -> float | None:
+    """从 project.json 解析项目级语速覆盖，未填 / 脏值 / 越界一律返回 ``None``。
+
+    返回 ``None`` 即「无覆盖」，调用方把它原样交给下面两个函数即回退语言默认——未填该
+    字段的项目一律按语言默认估算。写入侧（创建 / PATCH 请求模型）已
+    按同一把尺拒绝越界值，这里的守卫是对手改 project.json 与历史脏数据的读时兜底：估算
+    语速不值得让一次已付费的生成崩在脏字段上。
+    """
+    if not isinstance(project, Mapping):
+        return None
+    raw = project.get(SPEECH_RATE_FIELD)
+    # bool 是 int 的子类，True 会被当成 1.0；显式排除，避免脏数据把语速压到 1 单位 / 秒。
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    # 先过区间再转 float：区间内的值必然可安全转换，超大整数在 is_valid_speech_rate 内按越界收掉。
+    return float(raw) if is_valid_speech_rate(raw) else None
+
+
+def speech_rate_units_per_second(language: str | None = None, override: float | None = None) -> float:
+    """返回生效语速（阅读单位 / 秒）：``override`` 优先，否则按语言取默认。
+
+    ``override`` 是项目级覆盖（由 ``project_speech_rate_override`` 解析），越界 / 非有限数
+    按无覆盖处理。语言代码大小写不敏感；``None`` / 空 / 未登记语言回退 ``DEFAULT_SPEECH_RATE_UPS``。
+    """
+    if override is not None and is_valid_speech_rate(override):
+        return float(override)
     if not language:
         return DEFAULT_SPEECH_RATE_UPS
     return SPEECH_RATE_UPS_BY_LANGUAGE.get(language.strip().lower(), DEFAULT_SPEECH_RATE_UPS)
 
 
-def estimate_spoken_seconds(text: str | None, language: str | None = None) -> float:
+def estimate_spoken_seconds(text: str | None, language: str | None = None, override: float | None = None) -> float:
     """估算 ``text`` 以 ``language`` 朗读所需秒数。
 
-    口径：阅读单位数 ÷ 语速（阅读单位计法见 ``lib.text_metrics.count_reading_units``）。
-    None / 空串 / 纯空白 / 纯标点（无阅读单位）一律计 0 秒——既是字幕单条定时的输入，
-    也是说话量求和的单项，两处共用同一换算、不在调用点重复。
+    口径：阅读单位数 ÷ 语速（阅读单位计法见 ``lib.text_metrics.count_reading_units``；
+    语速取值优先级见 ``speech_rate_units_per_second``）。None / 空串 / 纯空白 / 纯标点
+    （无阅读单位）一律计 0 秒——既是字幕单条定时的输入，也是说话量求和的单项，两处共用
+    同一换算、不在调用点重复。
     """
     if not text:
         return 0.0
     units = count_reading_units(text, language)
     if units <= 0:
         return 0.0
-    return units / speech_rate_units_per_second(language)
+    return units / speech_rate_units_per_second(language, override)

@@ -171,6 +171,37 @@ describe("CreateProjectModal", () => {
     );
   });
 
+  it("omits the speech rate when left empty and submits it when filled", async () => {
+    const { unmount } = render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+    // 未填不带该键：服务端不落盘，估算回退语言默认
+    expect(vi.mocked(API.createProject).mock.calls[0][0]).not.toHaveProperty(
+      "speech_rate_units_per_second",
+    );
+    unmount();
+
+    vi.mocked(API.createProject).mockClear();
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
+    fireEvent.change(screen.getByLabelText(/^语速（可选）$/), { target: { value: "6" } });
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
+    await waitFor(() =>
+      expect(API.createProject).toHaveBeenCalledWith(
+        expect.objectContaining({ speech_rate_units_per_second: 6 }),
+      ),
+    );
+  });
+
   it("goes back from step 2 to step 1 preserving title", async () => {
     render(<CreateProjectModal />);
     const titleInput = screen.getByRole("textbox");

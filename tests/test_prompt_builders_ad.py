@@ -87,6 +87,11 @@ class TestProductsInjection:
         assert en_rate != default_rate
         assert f"约 {en_rate:g} 词/秒" in _build(target_language="en")
 
+    def test_project_override_wins_over_language_default(self):
+        """项目级语速覆盖生效时注入覆盖值；量词仍随语言。"""
+        assert "约 7.5 字/秒" in _build(speech_rate_override=7.5)
+        assert "约 7.5 词/秒" in _build(target_language="en", speech_rate_override=7.5)
+
 
 class TestGenericFallback:
     """products 为空 → 通用短片 prompt 自动分流（无带货框架，不设显式子模式开关）。"""

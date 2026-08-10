@@ -8,6 +8,8 @@ MESSAGES = {
     "val_missing_field_at": "{prefix}: missing required field {field}",
     "val_field_type_string": "Field type error: {field} must be a string",
     "val_field_type_bool": "Field type error: {field} must be a boolean",
+    "val_field_type_number": "Field type error: {field} must be a number",
+    "val_speech_rate_out_of_range": "{field} value {value} is out of range; it must be between {min} and {max}",
     "val_field_must_be_string": "{field} must be a string",
     "val_field_must_be_string_typed": "{field} must be a string, got {actual}",
     "val_field_must_be_array": "{field} must be an array",

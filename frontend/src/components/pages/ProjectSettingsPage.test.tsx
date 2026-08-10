@@ -563,4 +563,53 @@ describe("ProjectSettingsPage – 按用途指定模型", () => {
       );
     });
   });
+
+  it("shows the reading unit of the project source language and saves the speech rate", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        source_language: "en",
+        speech_rate_units_per_second: 3,
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    const input = await screen.findByLabelText(/^(语速（可选）|Pace \(optional\))$/);
+    expect(input).toHaveValue(3);
+    // en 项目按词计
+    expect(screen.getByText("词/秒")).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "4.5" } });
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        "demo",
+        expect.objectContaining({ speech_rate_units_per_second: 4.5 }),
+      );
+    });
+  });
+
+  it("blocks saving while the speech rate is out of range", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: { title: "Demo", episodes: [], characters: {}, clues: {} },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+
+    renderAt("/app/projects/demo/settings");
+
+    const input = await screen.findByLabelText(/^(语速（可选）|Pace \(optional\))$/);
+    fireEvent.change(input, { target: { value: "25" } });
+
+    expect(screen.getByRole("button", { name: /^(保存|Save)$/i })).toBeDisabled();
+  });
 });

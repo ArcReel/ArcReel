@@ -79,6 +79,7 @@ def build_reference_units_split_prompt(
     episode: int,
     target_language: str = "中文",
     source_language: str | None = None,
+    speech_rate_override: float | None = None,
     episode_outline: dict | None = None,
     next_episode_outline: dict | None = None,
 ) -> str:
@@ -100,6 +101,8 @@ def build_reference_units_split_prompt(
         max_reference_images: 单 unit 参考图上限；None 时不写入硬性数量约束。
         default_duration: 用户项目偏好的默认秒数；须为 supported_durations 成员或 None。
         source_language: 项目源文语言码（zh / en / vi 或 None），供台词口播时长下界取语速。
+        speech_rate_override: 项目级语速覆盖（阅读单位 / 秒，由调用方经
+            ``project_speech_rate_override`` 解析）；None 即无覆盖、回退语言默认。
         episode_outline / next_episode_outline: 分集账本大纲（``episode_outline_context``
             的返回值），用于约束本集内容边界；为 None 时不插入该段。
     """
@@ -159,10 +162,10 @@ def build_reference_units_split_prompt(
         if max_reference_images is not None
         else ""
     )
-    # 语速从 lib.speech_rate 单一真相源按 source_language 注入、不写死；与工具侧的台词
-    # 超载后校验同一套换算，prompt 给的下界和校验器判的上界因此是同一把尺。
+    # 语速从 lib.speech_rate 单一真相源取（项目级覆盖优先、否则按 source_language 的语言默认）、
+    # 不写死；与工具侧的台词超载后校验同一套换算，prompt 给的下界和校验器判的上界因此是同一把尺。
     source_language = source_language if isinstance(source_language, str) else None
-    speech_rate = speech_rate_units_per_second(source_language)
+    speech_rate = speech_rate_units_per_second(source_language, speech_rate_override)
     unit_label = reading_unit_noun(source_language)
 
     return f"""# 角色与任务

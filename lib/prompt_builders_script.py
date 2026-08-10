@@ -527,6 +527,7 @@ def build_normalize_prompt(
     source_kind: str = "novel",
     target_language: str = "中文",
     source_language: str | None = None,
+    speech_rate_override: float | None = None,
     episode_outline: dict | None = None,
     next_episode_outline: dict | None = None,
 ) -> str:
@@ -542,6 +543,8 @@ def build_normalize_prompt(
 
     ``source_language`` 供时长指引的「台词口播时长」单向下界软指引取语速（阅读单位 / 秒，来自
     ``lib.speech_rate`` 单一真相源，与保存期上界 warning、字幕派生同口径）；缺省 / 未登记回退默认语速。
+    ``speech_rate_override`` 是项目级语速覆盖（由调用方经 ``project_speech_rate_override`` 解析），
+    ``None`` 即无覆盖、回退语言默认。
     """
     char_list = _format_names(characters)
     scene_list = _format_names(scenes)
@@ -599,12 +602,13 @@ def build_normalize_prompt(
             f"从支持的秒数档位（{durations_str}）中按画面内容复杂度匹配合适时长（最长 {max_dur} 秒），不强制默认值"
         )
     # 台词口播时长单向下界软指引：模型为某场选 duration 时，不应选到装不下该场 utterances 口播的短档。
-    # 语速（阅读单位 / 秒）从 lib.speech_rate 单一真相源按 source_language 注入、不写死，与保存期上界
-    # warning、字幕派生同口径。纯软约束：只在 prompt 里下发靠模型遵守，不加生成后机械改写、不加硬阻塞。
-    # source_language 来自 project.json，可能是非字符串脏数据；非字符串回退 None，避免下游
-    # speech_rate / reading_unit_noun 的 .strip() 触发 AttributeError（与保存期上界 warning 同口径守卫）。
+    # 语速（阅读单位 / 秒）从 lib.speech_rate 单一真相源取（项目级覆盖优先、否则按 source_language 的
+    # 语言默认）、不写死，与保存期上界 warning、字幕派生同口径。纯软约束：只在 prompt 里下发靠模型遵守，
+    # 不加生成后机械改写、不加硬阻塞。source_language 来自 project.json，可能是非字符串脏数据；非字符串
+    # 回退 None，避免下游 speech_rate / reading_unit_noun 的 .strip() 触发 AttributeError
+    # （与保存期上界 warning 同口径守卫）。
     source_language = source_language if isinstance(source_language, str) else None
-    speech_rate = speech_rate_units_per_second(source_language)
+    speech_rate = speech_rate_units_per_second(source_language, speech_rate_override)
     unit_label = reading_unit_noun(source_language)
     duration_lower_bound_rule = (
         "再按台词口播长度设下界：先估算该场 utterances（台词 + 画外音）念完约需的秒数"

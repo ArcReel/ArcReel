@@ -123,6 +123,33 @@ class TestCollectVideoClips:
             assert span["offset_seconds"] == pytest.approx(offset)
             offset += dur
 
+    def test_drama_subtitle_spans_use_project_speech_rate(self, tmp_path):
+        """项目级语速覆盖生效：span 时长按覆盖值估算，而非语言默认。"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        project_dir = tmp_path / "projects" / "demo"
+        videos_dir = project_dir / "videos"
+        videos_dir.mkdir(parents=True)
+        (videos_dir / "scene_E1S01.mp4").write_bytes(b"fake")
+
+        script = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 30,
+                    "utterances": [{"kind": "dialogue", "speaker": "小明", "text": "一二三四五"}],
+                    "generated_assets": {"video_clip": "videos/scene_E1S01.mp4", "status": "completed"},
+                },
+            ],
+        }
+
+        svc = JianyingDraftService.__new__(JianyingDraftService)
+        clips = svc._collect_video_clips(script, project_dir, speech_rate_override=2.0)
+
+        # 5 个阅读单位 ÷ 2 单位/秒 = 2.5 秒（默认 zh 语速 5 时应为 1 秒）
+        assert clips[0]["subtitle_spans"][0]["duration_seconds"] == pytest.approx(2.5)
+
     def test_drama_subtitle_spans_allow_gap_not_filling_scene(self, tmp_path):
         """drama：短台词按语速估时长，不撑满长场景，余下留白。"""
         from server.services.jianying_draft_service import JianyingDraftService

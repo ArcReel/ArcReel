@@ -3,6 +3,7 @@ import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { GenerationRouteCards } from "@/components/shared/GenerationRouteCards";
 import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
+import { SpeechRateField, isValidSpeechRate } from "@/components/shared/SpeechRateField";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
 import type { GenerationRoute } from "@/utils/generation-mode";
@@ -19,6 +20,8 @@ export interface WizardStep1Value {
   gridStoryboard: boolean;
   /** 仅 ad：目标总时长（秒）。UI 四档 15/30/60/90，默认 60。 */
   targetDuration: number;
+  /** 口播语速估算（阅读单位 / 秒）；null = 未填，按项目语言的默认速度估算。 */
+  speechRate: number | null;
 }
 
 /** 广告/短片目标总时长的 UI 档位（数据层不硬枚举，任意正整数秒合法）。 */
@@ -55,6 +58,8 @@ export function WizardStep1Basics({
     }
     // 路线必选：无预选、未选不放行
     if (!value.generationRoute) return;
+    // 口播语速越界不放行（区间与后端同一把尺）；未填合法
+    if (!isValidSpeechRate(value.speechRate)) return;
     onNext();
   };
 
@@ -216,6 +221,12 @@ export function WizardStep1Basics({
           </div>
         </div>
       )}
+
+      {/* 口播语速估算：项目还没有语言事实（source_language 由内容分析写入），单位按未知语言呈现 */}
+      <SpeechRateField
+        value={value.speechRate}
+        onChange={(next) => onChange({ ...value, speechRate: next })}
+      />
 
       {/* Aspect Ratio */}
       <div>
