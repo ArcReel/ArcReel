@@ -302,6 +302,8 @@ class TestInferEndpoint:
             ("minimax-s2v-01", "openai", "minimax-video"),
             ("MiniMax-H3", "openai", "minimax-video"),  # H3 同样不在通用视频 pattern，须显式路由
             ("minimax-h3", "openai", "minimax-video"),
+            ("h3", "openai", "openai-chat"),  # 裸 "h3" 不应匹配——防止退化成过于宽松的子串
+            ("other-vendor-h3", "openai", "openai-chat"),  # 其它厂商恰好含 h3 子串同样不应误路由
             ("image-01", "openai", "minimax-image"),  # image-01 含 "image" 否则会被推到通用图像家族
             ("minimax/image-01", "openai", "minimax-image"),
             ("S2V-01", "google", "minimax-video"),  # minimax 路由不分 discovery_format

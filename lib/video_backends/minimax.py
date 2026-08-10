@@ -121,6 +121,17 @@ def _supports_text_to_video(model: str | None) -> bool:
     return (model or "").strip() not in _NO_TEXT_TO_VIDEO_MODELS
 
 
+def _is_h3_model(model: str | None) -> bool:
+    """H3 判定：大小写不敏感、容忍命名空间前缀（如中转站可能把型号存成 "proxy/minimax-h3"）。
+
+    与 ``lib.custom_provider.endpoints.infer_endpoint`` 发现 H3 原生 token 时用的
+    ``"minimax-h3" in lowered`` 同一判定口径（不能互相 import，两处各存一份字面量，改
+    其一须同改另一处）。发现与派发若用不同谓词，会出现"发现路由到 minimax-video，
+    派发却因大小写/命名空间不匹配落回 v1"的裂缝。
+    """
+    return "minimax-h3" in (model or "").lower()
+
+
 def _safe_body_for_log(body: dict) -> dict:
     """安全日志视图：白名单标量 + prompt 截断；素材字段一律折叠，不展开 base64。
 
@@ -191,7 +202,7 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         self._model = model or DEFAULT_MODEL
         # v2 是整条链路的分支（base、提交体、轮询响应形状、取件方式全不同），不是单点差异，
         # 故在构造期定好走哪一代，后续各步按此派发。
-        self._is_v2 = self._model == _H3
+        self._is_v2 = _is_h3_model(self._model)
         self._base_url = minimax_video_v2_base_url(base_url) if self._is_v2 else minimax_video_base_url(base_url)
         self._http_timeout = http_timeout
         self._supports_text_to_video = _supports_text_to_video(self._model)
@@ -217,7 +228,7 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         """
         if model == _S2V:
             return VideoCapabilities(first_frame=False, max_reference_images=1)
-        if model == _H3:
+        if _is_h3_model(model):
             return VideoCapabilities(
                 first_frame=True,
                 last_frame=True,

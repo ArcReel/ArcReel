@@ -105,6 +105,16 @@ class TestConstructionAndCapabilities:
         with pytest.raises(ValueError):
             MiniMaxVideoBackend(api_key=None)
 
+    @pytest.mark.parametrize("model", ["minimax-h3", "MINIMAX-H3", "proxy/minimax-h3"])
+    def test_h3_dispatch_case_and_namespace_insensitive(self, tmp_path, model):
+        # 中转站发现层（infer_endpoint）按大小写不敏感的 "minimax-h3" 子串把这些变体路由到
+        # minimax-video；派发/能力声明须用同一判定，否则会出现"发现路由对了，派发却落回
+        # v1"的裂缝——本用例锁定两处用的是同一谓词。
+        b = _backend(model)
+        payload = b._build_payload(_request(tmp_path))
+        assert "content" in payload  # v2 payload 形态，v1 是扁平 dict 无此键
+        assert b.video_capabilities.max_reference_images == 9
+
 
 class TestPayloadAndCapabilityGating:
     def test_fast_t2v_rejected(self, tmp_path):
