@@ -120,8 +120,10 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         # service_tier 参数仅 seedance-1.x 等老模型支持；2.0 上游在 r2v 下会 400 拒绝该参数，
         # 必须不下传。2.5 按同代口径一并剔除，该口径系从 2.0 的拒绝行为推断，收窄判定
         # 只影响 2.5 一支。判定见 _is_seedance_2 / _is_seedance_2_5：用
-        # `in` 子串兼容多套前缀命名（doubao-/dreamina-），版本号逐个收窄到已登记的世代：未
-        # 登记的型号名不落入该判定。这是 backend 内部的运输细节，不进 VideoCapabilities——后者只
+        # `in` 子串兼容多套前缀命名（doubao-/dreamina-），版本号逐个收窄到已登记的世代——收窄
+        # 的粒度是世代而非具体型号：同代的未知后缀照样按族群剔除 service_tier，这正是要的，
+        # 该参数是整代都不接受。逐型号的严格判定另走 _matches_known_model 白名单（尾帧与参考
+        # 音频用），两者不可互换。这是 backend 内部的运输细节，不进 VideoCapabilities——后者只
         # 声明调用方需要据以取舍的输入路径。
         self._supports_service_tier = not (self._is_seedance_2(self._model) or self._is_seedance_2_5(self._model))
 
