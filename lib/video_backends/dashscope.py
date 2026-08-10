@@ -104,6 +104,10 @@ _WAN27_MAX_PROMPT_CHARS = 5000
 # wan3.0 单模型覆盖文生/图生/参考生三条路径：首帧 + 尾帧，参考图 10 张，参考音频 5 段、
 # 总时长 15 秒，prompt 上限 20000 字符。prompt 超限与 2.7 同为静默截断且照常计费，同样由
 # gate_video_request 前置拒绝。
+# 出处：万相 3.0 公测说明所列能力上限。与其余型号不同，官方 API 参考文档站的万相章节当前
+# 仅到 2.7，wan3.0 无可引的一手 schema——下方 media 条目类型（last_frame / reference_audio）
+# 与 parameters["audio"] 的字面量均按 2.7 形状类推，未经真实响应验证，对端如报参数错误应以
+# 此处为首查点。
 _WAN3_MAX_REFERENCE_IMAGES = 10
 _WAN3_MAX_REFERENCE_AUDIO = 5
 _WAN3_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 15.0
@@ -350,18 +354,27 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         return media
 
     def _build_reference_audio_items(self, request: VideoGenerationRequest) -> list[dict]:
-        """把参考音频转成 media 数组里的独立 ``reference_audio`` 条目。
+        """把参考音频转成 media 数组里的独立 ``reference_audio`` 条目（wan3.0 形态）。
 
-        顺序即 prompt 中「音频N」的指认契约，故不排序也不跳过任何一段：读不出来的直接报错
-        中止，静默少发一段会让该角色的音色声明无声失效。段数与总时长上限由
-        ``gate_video_request`` 在付费前校验，此处只负责运输。
+        与逐段挂载形态的差别只在落点：这里每段音频自成一个 media 条目，不占参考素材槽位，
+        因而没有 slots 对齐一说。解码与 fail-loud 口径见 :meth:`_decode_reference_audio_uris`。
+        """
+        return [{"type": "reference_audio", "url": uri} for uri in self._decode_reference_audio_uris(request)]
+
+    def _decode_reference_audio_uris(self, request: VideoGenerationRequest) -> list[str]:
+        """把请求里的参考音频逐段读成 data URI，顺序与入参一一对应。
+
+        两种挂载形态（独立 media 条目与逐段 ``reference_voice``）共用本方法，解码口径因而只有
+        一处：能力档不支持音频、扩展名不在受支持格式内、任一段读不出来，都在此 fail-loud。
+        不跳过任何一段——顺序即 prompt 中「音频N」的指认契约，静默少发一段会让该角色的音色
+        声明无声失效且照常计费。段数与总时长上限由 ``gate_video_request`` 在付费前校验。
         """
         audio_files = list(request.reference_audio_files or [])
         if not audio_files:
             return []
         if self._video_capabilities.reference_audio_mode == ReferenceAudioMode.NONE:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
-        items: list[dict] = []
+        uris: list[str] = []
         unreadable: list[str] = []
         for audio in audio_files:
             path = Path(audio)
@@ -375,12 +388,12 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             if uri is None:
                 unreadable.append(path.name)
             else:
-                items.append({"type": "reference_audio", "url": uri})
+                uris.append(uri)
         if unreadable:
             raise VideoCapabilityError(
                 "video_reference_audio_unreadable", model=self._model, names=", ".join(unreadable)
             )
-        return items
+        return uris
 
     def _attach_reference_voices(self, reference_items: list[dict], request: VideoGenerationRequest) -> None:
         """把参考音频逐段挂到参考素材项的 ``reference_voice`` 字段上（就地修改）。
@@ -425,25 +438,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
                 slots=len(reference_items),
                 count=len(audio_files),
             )
-        unreadable: list[str] = []
-        uris: list[str] = []
-        for audio in audio_files:
-            path = Path(audio)
-            if path.suffix.lower() not in _REFERENCE_AUDIO_MIME_TYPES:
-                raise VideoCapabilityError(
-                    "video_reference_audio_format_unsupported",
-                    name=path.name,
-                    supported=", ".join(sorted(_REFERENCE_AUDIO_MIME_TYPES)),
-                )
-            uri = _read_reference_audio_or_none(path)
-            if uri is None:
-                unreadable.append(path.name)
-            else:
-                uris.append(uri)
-        if unreadable:
-            raise VideoCapabilityError(
-                "video_reference_audio_unreadable", model=self._model, names=", ".join(unreadable)
-            )
+        # 解码放在槽位校验之后：槽位不足是「这次请求的参考图不够挂」，比某段文件读不出来更靠前
+        # 地说明卡点，先报它能让用户一次看到真正要改的东西。
+        uris = self._decode_reference_audio_uris(request)
         if targets is not None:
             for idx, uri in zip(targets, uris, strict=True):
                 reference_items[idx]["reference_voice"] = uri

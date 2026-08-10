@@ -13,6 +13,7 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
 )
+from lib.video_frame_slots import FIRST_FRAME_ADAPTIVE_RATIO, resolve_first_frame_aspect_ratio
 
 
 @pytest.fixture
@@ -482,6 +483,23 @@ class TestArkModelCapabilities:
         """有首帧时比例交给上游按首帧自适应：下发固定 ratio 会与首帧尺寸冲突。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-5-260628")
         assert caps.first_frame_ratio_adaptive_only is True
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("aspect_ratio", ["16:9", "9:16"])
+    def test_seedance_2_5_first_frame_request_ratio_resolves_to_adaptive(self, aspect_ratio: str):
+        """能力声明经共享解析器落到实际下发值：带首帧时任何用户比例都被覆盖成 adaptive。
+
+        单测 caps 标志位只锁住声明，锁不住「首帧任务 ratio 恒为 adaptive」这条对外承诺——
+        承诺是声明与 resolve_first_frame_aspect_ratio 合起来才成立的，故在此合测。
+        """
+        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-5-260628")
+        resolved = resolve_first_frame_aspect_ratio(caps=caps, aspect_ratio=aspect_ratio, has_first_frame=True)
+        assert resolved == FIRST_FRAME_ADAPTIVE_RATIO
+        # 无首帧的纯文生 / 仅参考图请求不受影响，用户比例原样下发
+        assert (
+            resolve_first_frame_aspect_ratio(caps=caps, aspect_ratio=aspect_ratio, has_first_frame=False)
+            == aspect_ratio
+        )
 
     @pytest.mark.unit
     def test_seedance_2_0_keeps_passthrough_first_frame_ratio(self):
