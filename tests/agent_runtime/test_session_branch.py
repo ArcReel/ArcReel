@@ -204,7 +204,8 @@ async def test_deleting_the_branch_brings_the_origin_back_to_the_list(branching)
     service, meta_store, _, _, session_id, _ = branching
     branched = await service.branch(session_id, SECOND_USER_ENTRY)
 
-    assert await meta_store.delete(branched.session_id)
+    deleted = await meta_store.delete(branched.session_id)
+    assert deleted
 
     origin = await meta_store.get(session_id)
     assert origin is not None
