@@ -20,6 +20,7 @@ def _row_to_dict(row: AgentSession) -> dict[str, Any]:
         "project_name": row.project_name,
         "title": row.title or "",
         "status": row.status,
+        "superseded_by": row.superseded_by,
         "created_at": dt_to_iso(row.created_at),
         "updated_at": dt_to_iso(row.updated_at),
     }
@@ -60,7 +61,8 @@ class SessionRepository(BaseRepository):
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        stmt = select(AgentSession)
+        # 被分叉取代的会话不进列表；数据整行保留，按 sdk_session_id 仍可 get 到。
+        stmt = select(AgentSession).where(AgentSession.superseded_by.is_(None))
         if project_name:
             stmt = stmt.where(AgentSession.project_name == project_name)
         if status:
@@ -76,6 +78,16 @@ class SessionRepository(BaseRepository):
         now = utc_now()
         result = await self.session.execute(
             update(AgentSession).where(AgentSession.sdk_session_id == session_id).values(status=status, updated_at=now)
+        )
+        await self.session.commit()
+        return rowcount(result) > 0
+
+    async def mark_superseded(self, session_id: str, superseded_by: str) -> bool:
+        now = utc_now()
+        result = await self.session.execute(
+            update(AgentSession)
+            .where(AgentSession.sdk_session_id == session_id)
+            .values(superseded_by=superseded_by, updated_at=now)
         )
         await self.session.commit()
         return rowcount(result) > 0

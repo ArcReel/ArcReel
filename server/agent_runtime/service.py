@@ -45,6 +45,7 @@ from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.models import Heartbeat, LiveMessage, SessionMeta, SessionStatus, SubscriptionReady
 from server.agent_runtime.result_status import resolve_result_status
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
+from server.agent_runtime.session_branch import SessionBranchService
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
@@ -71,6 +72,12 @@ class AssistantService:
         self._session_store = self.session_manager._build_session_store()
         self.transcript_adapter = SdkTranscriptAdapter(store=self._session_store)
         self.event_log = EventLogService(self.event_log_store, self.transcript_adapter)
+        self.session_branch = SessionBranchService(
+            store=self._session_store,
+            meta_store=self.meta_store,
+            event_log_store=self.event_log_store,
+            resolve_project_cwd=self._resolve_project_cwd_safe,
+        )
         self._startup_lock = asyncio.Lock()
         self._startup_done = False
         # 新会话幂等映射：client_key 唯一索引按 (session_id, client_key) 分区，
