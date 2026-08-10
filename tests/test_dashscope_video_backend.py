@@ -1005,10 +1005,20 @@ class TestWan3:
         assert exc.value.code == "video_prompt_too_long"
 
     @pytest.mark.unit
-    def test_dedicated_base_url_used_for_submit_and_poll(self):
+    async def test_dedicated_base_url_used_for_submit_and_poll(self):
         b = self._backend(wan3_base_url="https://maas-cn-hangzhou.example.com/ws-123/api/v1/")
         # 尾部斜杠归一，提交与轮询同域名（任务 id 只在创建它的 endpoint 上可查）
         assert b._request_base_url == "https://maas-cn-hangzhou.example.com/ws-123/api/v1"
+        # 断言实际发出的 POST/GET URL，而非只读属性——两处若改回固定 base_url，属性断言仍会绿
+        post = AsyncMock(return_value=_resp(_submit("t-wan3")))
+        get = AsyncMock(return_value=_resp(_succeeded()))
+        client = _client(post=post, get=get)
+        assert await b._create_task(client, {}) == "t-wan3"
+        await b._poll_once(client, "t-wan3")
+        from lib.video_backends.dashscope import _VIDEO_ENDPOINT
+
+        assert post.await_args.args[0] == f"https://maas-cn-hangzhou.example.com/ws-123/api/v1{_VIDEO_ENDPOINT}"
+        assert get.await_args.args[0] == "https://maas-cn-hangzhou.example.com/ws-123/api/v1/tasks/t-wan3"
 
     @pytest.mark.unit
     def test_falls_back_to_shared_base_url(self):

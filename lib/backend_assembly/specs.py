@@ -359,7 +359,7 @@ PROVIDER_SPEC_REGISTRY.update(
 PROVIDER_SPEC_REGISTRY.update(
     {(_KLING_REGISTRY_BACKEND, media_type): _kling_spec(media_type) for media_type in ("image", "video")}
 )
-# dashscope video 比简单族多一个 wan3_base_url：万相 3.0 公测期走独立 maas 域名（含地域与
+# dashscope video 比简单族多一个 wan3_base_url：万相 3.0 走独立 maas 域名（含地域与
 # workspace，推不出），未配置时 backend 自行回落通用 base_url。image/audio 两条 lane 不消费它，
 # 仍走简单族。
 PROVIDER_SPEC_REGISTRY[("dashscope", "video")] = _simple_spec("dashscope", "video", extra_keys=("wan3_base_url",))

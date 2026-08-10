@@ -118,8 +118,8 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         self._client = create_ark_client(api_key=api_key, base_url=base_url)
         self._model = model or self.DEFAULT_MODEL
         # service_tier 参数仅 seedance-1.x 等老模型支持；2.0 上游在 r2v 下会 400 拒绝该参数，
-        # 必须不下传。2.5 按同代口径一并剔除，但其拒绝行为尚未在真实响应上核实过——若日后确认
-        # 2.5 接受该参数，收窄这里的判定即可，不影响 2.0。判定见 _is_seedance_2 / _is_seedance_2_5：用
+        # 必须不下传。2.5 按同代口径一并剔除，该剔除是推断而非核实过的真实响应行为，收窄判定
+        # 只影响 2.5 一支。判定见 _is_seedance_2 / _is_seedance_2_5：用
         # `in` 子串兼容多套前缀命名（doubao-/dreamina-），版本号逐个收窄到已登记的世代，不对
         # 未发布版本过早假设。这是 backend 内部的运输细节，不进 VideoCapabilities——后者只
         # 声明调用方需要据以取舍的输入路径。

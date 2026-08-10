@@ -503,7 +503,7 @@ class TestArkModelCapabilities:
 
     @pytest.mark.unit
     def test_seedance_2_0_keeps_passthrough_first_frame_ratio(self):
-        """2.0 未声明 adaptive：新增 2.5 分支不得顺带改动既有型号的比例语义。"""
+        """2.0 未声明 adaptive：比例语义与素材上限按 2.0 自己的档位，不随 2.5 分支走。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-260128")
         assert caps.first_frame_ratio_adaptive_only is False
         assert caps.max_reference_images == 9

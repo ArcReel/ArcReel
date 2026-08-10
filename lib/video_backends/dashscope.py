@@ -350,12 +350,13 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         # reference_audio_mode 覆盖成 direct，而 delegate 的 model profile 仍是真相源，故这条
         # 路径实际可达。两种挂载形态：per_image 的挂在参考素材项上（wan2.7-r2v），其余走 media
         # 数组里的独立 reference_audio 条目（wan3.0）。
+        standalone_audio_items: list[dict] = []
         if caps.reference_audio_per_image:
             self._attach_reference_voices(reference_items, request)
-            media.extend(reference_items)
         else:
-            media.extend(reference_items)
-            media.extend(self._build_reference_audio_items(request))
+            standalone_audio_items = self._build_reference_audio_items(request)
+        media.extend(reference_items)
+        media.extend(standalone_audio_items)
         return media
 
     def _build_reference_audio_items(self, request: VideoGenerationRequest) -> list[dict]:
