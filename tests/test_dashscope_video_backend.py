@@ -1014,7 +1014,7 @@ class TestWan3:
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
         assert await b._create_task(client, {}) == "t-wan3"
-        await b._poll_once(client, "t-wan3")
+        await b._poll_once(client, "t-wan3", b._request_base_url)
         from lib.video_backends.dashscope import _VIDEO_ENDPOINT
 
         assert post.await_args.args[0] == f"https://maas-cn-hangzhou.example.com/ws-123/api/v1{_VIDEO_ENDPOINT}"
@@ -1032,3 +1032,42 @@ class TestWan3:
 
         b = DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v", wan3_base_url="https://maas.example.com/api/v1")
         assert b._request_base_url == b._base_url
+
+    @pytest.mark.unit
+    async def test_submit_persists_actual_base_url(self, tmp_path: Path):
+        """提交时把实际使用的域名与 job_id 一并落库——续跑要靠它回放。"""
+        post = AsyncMock(return_value=_resp(_submit("t-wan3")))
+        get = AsyncMock(return_value=_resp(_succeeded()))
+        client = _client(post=post, get=get)
+        persist = AsyncMock()
+        p1, p2, p3 = _patches(client, AsyncMock())
+        with p1, p2, p3, patch("lib.video_backends.base.persist_provider_job_id", persist):
+            b = self._backend(wan3_base_url="https://maas-a.example.com/ws-1/api/v1")
+            await b.generate(
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "o.mp4", resolution="720p", task_id="db-task-1"
+                )
+            )
+
+        assert persist.call_args.kwargs["endpoint"] == "https://maas-a.example.com/ws-1/api/v1"
+
+    @pytest.mark.unit
+    async def test_resume_polls_submitted_base_url_after_config_change(self, tmp_path: Path):
+        """在途改 wan3_base_url 后续跑：轮询仍打提交时的域名，而非当下配置解析出的域名。"""
+        get = AsyncMock(return_value=_resp(_succeeded()))
+        client = _client(post=AsyncMock(), get=get)
+        p1, p2, p3 = _patches(client, AsyncMock())
+        with p1, p2, p3:
+            # 配置已被改成 B，提交时用的是 A
+            b = self._backend(wan3_base_url="https://maas-b.example.com/ws-2/api/v1")
+            await b.resume_video(
+                "t-wan3",
+                VideoGenerationRequest(
+                    prompt="p",
+                    output_path=tmp_path / "o.mp4",
+                    resolution="720p",
+                    submitted_base_url="https://maas-a.example.com/ws-1/api/v1",
+                ),
+            )
+
+        assert get.await_args.args[0] == "https://maas-a.example.com/ws-1/api/v1/tasks/t-wan3"

@@ -34,7 +34,8 @@ def _ensure_endpoint_unchanged(task: dict[str, Any], current_endpoint: str | Non
     新协议 backend 拿到旧协议下创建的 job id：轻则报错指向新协议、用户无法归因，重则轮询
     响应被误读、任务被标失败而远端 job 仍在跑仍在计费。
 
-    两侧任一为空即跳过：内置供应商无 endpoint 维度，本列未持久化的存量任务同样无从比对，
+    两侧任一为空即跳过：内置供应商无 endpoint 维度（其持久化值是请求域名，走
+    ``_submitted_base_url`` 那条消费分支），本列未持久化的存量任务同样无从比对，
     行为与现状一致。
     """
     submitted_endpoint = task.get("provider_endpoint")
@@ -46,6 +47,22 @@ def _ensure_endpoint_unchanged(task: dict[str, Any], current_endpoint: str | Non
         submitted_endpoint=str(submitted_endpoint),
         current_endpoint=current_endpoint,
     )
+
+
+def _submitted_base_url(task: dict[str, Any], current_endpoint: str | None) -> str | None:
+    """内置供应商提交本 job 时的请求域名，供 backend 回放轮询；无从判定时 None。
+
+    ``provider_endpoint`` 一列按供应商类型承载两种取值，此处只取内置那种：``current_endpoint``
+    非空即当下是自定义供应商，其持久化值是 endpoint 标识、归比对闸消费。域名形态再确认一次，
+    是为了拦住「任务由自定义供应商提交、在途把模型行改成内置供应商」这类跨类切换——此时列里
+    躺着的是 endpoint 标识，拿它拼 URL 只会把 404（可归因为任务过期）换成更难归因的连接错误。
+    """
+    if current_endpoint is not None:
+        return None
+    submitted = task.get("provider_endpoint")
+    if isinstance(submitted, str) and submitted.startswith(("http://", "https://")):
+        return submitted
+    return None
 
 
 async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dict[str, Any]:
@@ -138,6 +155,7 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
             resolution=resolution,
             task_id=task_id,
             api_call_id=api_call_id,
+            submitted_base_url=_submitted_base_url(task, ctx.video.endpoint),
             seed=seed,
             service_tier=service_tier,
             **optional_kwargs,
