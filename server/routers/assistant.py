@@ -17,7 +17,15 @@ from lib.api_errors import BadRequestError, ConflictError, NotFoundError, Servic
 from lib.i18n import Translator, get_locale
 from server.agent_runtime.failure_observation import build_startup_failure_observation
 from server.agent_runtime.models import SessionMeta
-from server.agent_runtime.service import AssistantService
+from server.agent_runtime.service import (
+    AssistantService,
+    InterruptSettleTimeout,
+    PendingQuestionError,
+    RewriteAnchorError,
+    RewriteUnavailableError,
+    SessionSupersededError,
+)
+from server.agent_runtime.session_branch import SessionBranchError
 from server.agent_runtime.session_manager import AgentStartupError, SessionBusyError, SessionCapacityError
 from server.auth import CurrentUserFlexible
 
@@ -87,6 +95,14 @@ class SendRequest(BaseModel):
     client_key: str | None = Field(default=None, max_length=128)
 
 
+class RewriteRequest(BaseModel):
+    # 锚点：被改写的那条用户消息在事件日志里的条目 uuid。
+    anchor_entry_uuid: str = Field(min_length=1, max_length=256)
+    content: str = ""
+    images: list[ImageAttachment] = Field(default_factory=list, max_length=5)
+    client_key: str | None = Field(default=None, max_length=128)
+
+
 class AnswerQuestionRequest(BaseModel):
     answers: dict[str, str] = Field(default_factory=dict)
 
@@ -129,6 +145,70 @@ async def send_message(
                 exc,
                 project_name=project_name,
                 session_id=req.session_id,
+                title=_t("agent_startup_failed_title"),
+            ),
+        )
+    except Exception:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
+@router.post("/sessions/{session_id}/rewrite")
+async def rewrite_message(
+    project_name: str,
+    session_id: str,
+    req: RewriteRequest,
+    request: Request,
+    _t: Translator,
+):
+    """改写会话中某条历史用户消息：分叉出新会话并在其上重跑。
+
+    ``session_id`` 是被改写的原会话；响应里的 ``session_id`` 是承接改写的新会话，
+    前端据此整体切换过去。运行中的会话由端点自动中断，调用方不必先停止。
+    """
+    try:
+        service = get_assistant_service()
+        return await service.rewrite_message(
+            project_name,
+            session_id,
+            anchor_entry_uuid=req.anchor_entry_uuid,
+            content=req.content,
+            images=req.images,
+            locale=get_locale(request),
+            client_key=req.client_key,
+        )
+    except RewriteAnchorError as exc:
+        raise BadRequestError("rewrite_anchor_invalid") from exc
+    except PendingQuestionError as exc:
+        raise ConflictError("rewrite_blocked_by_question") from exc
+    except SessionSupersededError as exc:
+        raise ConflictError("session_already_superseded") from exc
+    except RewriteUnavailableError as exc:
+        raise ServiceUnavailableError("rewrite_unavailable") from exc
+    except InterruptSettleTimeout:
+        raise HTTPException(status_code=504, detail=_t("rewrite_interrupt_timeout"))
+    except SessionBranchError as exc:
+        logger.warning("分支会话建立失败: %s", exc)
+        raise HTTPException(status_code=500, detail=_t("rewrite_failed"))
+    except SessionCapacityError as exc:
+        raise ServiceUnavailableError("session_capacity_exceeded") from exc
+    except FileNotFoundError as exc:
+        raise NotFoundError("session_or_project_not_found") from exc
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail=_t("sdk_session_timeout"))
+    except SessionBusyError as exc:
+        logger.warning("会话改写请求冲突: %s", exc)
+        raise ConflictError("session_busy") from exc
+    except ValueError as exc:
+        logger.warning("会话改写请求非法: %s", exc)
+        raise BadRequestError("request_invalid") from exc
+    except AgentStartupError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=agent_startup_failure_detail(
+                exc,
+                project_name=project_name,
+                session_id=session_id,
                 title=_t("agent_startup_failed_title"),
             ),
         )

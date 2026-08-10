@@ -123,8 +123,23 @@ class SessionBranchService:
         )
         return BranchedSession(session_id=new_session_id, resumable=copied.entries_copied > 0)
 
+    async def discard(self, origin_session_id: str, new_session_id: str) -> None:
+        """撤回一次已发布的分支，让原会话回到可再次改写的状态。
+
+        供编排层在「分支已建好、改写后的消息却没能派发出去」时收尾：那一步失败
+        即整次改写失败，分支不该留下——原会话的 superseded 指针不撤，用户就再也
+        改写不了它，而那个空转的新会话会顶替它出现在会话列表里。
+        """
+        store = self._store
+        if store is None:
+            return
+        meta = await self._meta_store.get(new_session_id)
+        project_cwd = self._resolve_project_cwd(meta.project_name) if meta is not None else None
+        project_key = make_project_key(project_cwd) if project_cwd is not None else None
+        await self._discard(store, project_key, origin_session_id, new_session_id)
+
     async def _discard(
-        self, store: SessionStoreLike, project_key: str, origin_session_id: str, new_session_id: str
+        self, store: SessionStoreLike, project_key: str | None, origin_session_id: str, new_session_id: str
     ) -> None:
         """撤回半成品分支：原会话的指针、新会话的 transcript 与元数据行都清掉。
 
@@ -136,11 +151,12 @@ class SessionBranchService:
             await self._meta_store.clear_superseded(origin_session_id, new_session_id)
         except Exception:
             logger.exception("failed to discard superseded pointer of session %s", origin_session_id)
-        try:
-            # 不带 subpath 的 delete 连子代理子路径与 summary 一并清除。
-            await store.delete({"project_key": project_key, "session_id": new_session_id})
-        except Exception:
-            logger.exception("failed to discard transcript of incomplete branch %s", new_session_id)
+        if project_key is not None:
+            try:
+                # 不带 subpath 的 delete 连子代理子路径与 summary 一并清除。
+                await store.delete({"project_key": project_key, "session_id": new_session_id})
+            except Exception:
+                logger.exception("failed to discard transcript of incomplete branch %s", new_session_id)
         try:
             await self._meta_store.delete(new_session_id)
         except Exception:
