@@ -49,7 +49,7 @@ async def _persist_with_retry(task_id: str, job_id: str, endpoint: str | None) -
 async def persist_provider_job_id(task_id: str, job_id: str, *, provider: str, endpoint: str | None = None) -> None:
     """Submit 之后立即调：把 job_id 持久化到 DB 让重启可接续。
 
-    Caller 显式传 task_id；``endpoint`` 记本次提交实际使用的执行端点，与 job_id 同一次写入
+    Caller 显式传 task_id；``endpoint`` 记提交该 job 实际使用的执行端点，与 job_id 同一次写入
     落地供续跑消费，按供应商类型有两种取值：自定义供应商记 endpoint 标识（协议维度，续跑据
     此判定协议是否已被换掉），内置供应商记实际请求域名（连接维度，续跑据此回放原域名轮询）。
     DB 瞬态错误最多重试 3 次，业务异常立即抛。重试用尽抛异常，由 worker finally 兜底
@@ -92,7 +92,7 @@ class ProviderJobIdPersistenceMixin:
     ) -> None:
         """submit 成功后立即调：worker 路径写回 job_id，非 worker 路径（task_id=None）跳过。
 
-        同时写回本次执行所用的端点：``request.execution_endpoint`` 优先——自定义供应商的包装层
+        同时写回该 job 执行所用的端点：``request.execution_endpoint`` 优先——自定义供应商的包装层
         在转发前注入 endpoint 标识，该标识是续跑比对协议的依据，不能被下游 backend 的域名顶掉；
         它缺席（内置供应商路径）时落到 ``endpoint``，由提交域名随用户配置变化的 backend 传入实际
         请求域名，供续跑回放。持久化失败抛出（DB 瞬态错误已在 ``persist_provider_job_id`` 内重试

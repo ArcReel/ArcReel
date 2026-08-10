@@ -778,7 +778,7 @@ class MediaGenerator:
           / resume_failed 按 call_id 精准翻 pending → success/failed；不透传则 logger.warning 不阻断。
         - resume 成功后总是 add_version 记录新版本：无论 versions.json 是否已有历史版本，
           backend.resume_video 都会下载新视频并覆盖 output_path，必须 bump 一个新版本号
-          让 versions.json 与磁盘文件一致；否则会漏记本次重新生成的视频，回滚记录失真。
+          让 versions.json 与磁盘文件一致；否则会漏记该次 resume 产出的视频，回滚记录失真。
         - prompt / start_image / reference_images 仅用于日志/版本元数据，不影响 provider 端结果。
         - ``submitted_base_url`` 是具名参数而非 version_metadata：它是提交时域名的回放值、
           只喂给 backend 轮询，落进版本元数据会污染 versions.json。

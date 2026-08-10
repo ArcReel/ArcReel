@@ -121,7 +121,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
 class TaskRepository(BaseRepository):
     def __init__(self, session: AsyncSession):
         super().__init__(session)
-        # 本次会话内落地的任务终态，供上层（GenerationQueue）在事务提交后发布项目事件。
+        # 该 session 内落地的任务终态，供上层（GenerationQueue）在事务提交后发布项目事件。
         # 在此收集而非各终态方法各自记账：所有终态迁移（含级联失败/级联取消、批量取消
         # 队列）都经 _record_terminal_event 收口，一处挂钩即全覆盖。
         self.terminal_events: list[dict[str, Any]] = []
@@ -763,8 +763,8 @@ class TaskRepository(BaseRepository):
 
         参考视频执行层按 model 能力取档后申请的秒数可能偏离入队时的剧本原值；
         resume 路径读的正是这个字段（见 ``server.services.resume_executor``），
-        不写回会让 resume 时按剧本原值重新申请，与本次执行实际申请的秒数不一致。
-        task 不存在时静默跳过（不影响本次生成结果，仅是 resume 元数据，不必 fail-fast
+        不写回会让 resume 时按剧本原值重新申请，与该任务执行时实际申请的秒数不一致。
+        task 不存在时静默跳过（不影响该任务的生成结果，仅是 resume 元数据，不必 fail-fast
         阻断执行）。
         """
         await self._merge_payload_field(task_id, "duration_seconds", duration_seconds, raise_if_missing=False)

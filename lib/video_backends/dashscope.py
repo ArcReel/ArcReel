@@ -438,7 +438,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             valid = len(audio_files) <= len(reference_items)
         if not valid:
             # 与 gate 的 video_reference_audio_exceeded 分成两个 code：那条的 limit 是模型的
-            # 能力上限（减角色数就能过），这条的上限是本次请求实际有几个可挂载的参考素材
+            # 能力上限（减角色数就能过），这条的上限是该请求实际有几个可挂载的参考素材
             # （加参考图也能过）。共用一个 code 会让文案给出与实际卡点不符的处置建议。
             raise VideoCapabilityError(
                 "video_reference_audio_slots_insufficient",
