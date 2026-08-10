@@ -21,6 +21,8 @@
 #              rebuilt by re-running poll.sh. query.sh is its only intended reader.
 #   index    — last fully-printed index plus its printed_at, at <snapshot>.index.json;
 #              backs the no_change comparison, the round_estimate ratchet, and `query.sh index`.
+#   seen     — per-PR ledger of every comment/review id observed by any earlier poll, at
+#              <snapshot>.seen.json; backs the straggler half of is_new (see PITFALL 6).
 #
 # INDEX SCHEMA (stdout)
 # {
@@ -83,7 +85,7 @@
 #                                                       # the failing set: failure/timed_out/cancelled/action_required/
 #                                                       # startup_failure (single source of truth for "failed check");
 #                                                       # red CI can block reviewers, so fix it before waiting on them
-#   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 6
+#   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 7
 #     "available": <bool>,                              # false = alerts API unreachable; gate must degrade.
 #     "unavailable_hint": "<str>" | null,               # first lines of the gh errors when available=false (GitHub
 #                                                       # returns 404 for missing permissions too — hint, not proof);
@@ -96,7 +98,8 @@
 # }
 #
 # FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name)
-#   is_new                 new this round: created_at/submittedAt > last_push_at (see PITFALL 2)
+#   is_new                 new this round: created_at/submittedAt > last_push_at, OR id absent from the
+#                          seen ledger (straggler catch, see PITFALL 6; timestamp rule see PITFALL 2)
 #   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false. CR rewrites its
 #                          first comment each review — but a rate-limit banner rewrite also advances updated_at
 #                          without reviewing anything, so it must not read as "reviewed"
@@ -159,7 +162,15 @@
 #    The PR reaction is mutable: a new review replaces the previous +1 with eyes, naturally
 #    invalidating the previous pass while the current HEAD is under review.
 #
-# 6. security_alerts.open_introduced subtracts default-branch open alerts by alert number.
+# 6. Timestamp alone misses stragglers: a comment created between a poll and the looper's
+#    next push sorts before the refreshed last_push_at and would otherwise never surface as
+#    new. The seen ledger closes that window: an id no earlier poll has observed is new
+#    regardless of timestamp. First poll of a PR (no ledger yet) uses the timestamp rule
+#    alone so pre-loop history stays folded; reactions have no stable identity across
+#    replacement and stay timestamp-only. The ledger only ever grows within a PR.
+#    (This shrinks the miss window; the final-gate `unacked` sweep remains the backstop.)
+#
+# 7. security_alerts.open_introduced subtracts default-branch open alerts by alert number.
 #    The merge-ref analysis covers the whole codebase, so pre-existing alerts (e.g. scheduled
 #    Trivy scans on main) would otherwise block the exit gate forever. Alert numbers are
 #    repo-global and identical across refs, so a set difference on number is exact.
@@ -318,6 +329,15 @@ fi
 
 GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
+# Seen ledger (PITFALL 6). Stage the previous poll's ledger for pass 1; a missing or
+# unparsable ledger stages as null, which switches fresh() to the timestamp-only rule.
+SEEN_FILE="${SNAPSHOT_FILE%.json}.seen.json"
+if [[ -f "$SEEN_FILE" ]] && jq -e 'type == "array"' "$SEEN_FILE" >/dev/null 2>&1; then
+  cp "$SEEN_FILE" "$WORKDIR/seen.json"
+else
+  printf 'null' > "$WORKDIR/seen.json"
+fi
+
 # ---- Pass 1: build the FULL SNAPSHOT (full bodies + every flag) ----
 # Flags are computed once, here, so the index and every query.sh consumer see identical
 # judgments. Bot login normalization happens here so consumers see consistent keys.
@@ -334,6 +354,7 @@ jq -n \
   --slurpfile sub_d_w "$WORKDIR/sub_d.json" \
   --slurpfile sub_e_pr_w "$WORKDIR/sub_e_pr.json" \
   --slurpfile sub_e_base_w "$WORKDIR/sub_e_base.json" \
+  --slurpfile seen_w "$WORKDIR/seen.json" \
   --argjson security_available "$SECURITY_ALERTS_AVAILABLE" \
   --arg security_hint "$SECURITY_ALERTS_HINT" \
   --arg repo "$OWNER_REPO" \
@@ -348,12 +369,20 @@ jq -n \
   | ($sub_c2 | map(select(.node_id != null))
      | map({key: .node_id, value: .commit_id}) | from_entries) as $review_commit_by_id
   | ($main.commits | last | .committedDate) as $last_push
+  | ($seen_w[0]) as $seen_ids
   # Check-suite reruns leave same-name duplicates; keep only the latest run per name so a
   # superseded failure cannot pin codeql_checks / checks_failing red forever.
   | ((($sub_d_w | add) // []) | group_by(.name) | map(max_by(.started_at))) as $check_runs |
   # ---- shared helpers ----
   # Every body-consuming helper opens with (. // "") — jq string functions (gsub/test/
   # contains/capture) raise fatal errors on null input, and a null body must not kill a poll.
+  # is_new with the straggler catch (PITFALL 6): newer than the last push, or an id no
+  # earlier poll has observed. $seen_ids == null (first poll) keeps the timestamp rule alone.
+  def fresh($ts; $id):
+    ($ts > $last_push)
+    or ($seen_ids != null and $id != null
+        and (($seen_ids | index($id | tostring)) | not));
+
   def mk_preview:
     (. // "")
     | gsub("<!--[\\s\\S]*?-->"; "")
@@ -453,12 +482,12 @@ jq -n \
        end) as $reviewed_current_head
     | {id, submittedAt, state, reviewed_commit: $reviewed_commit,
        reviewed_current_head: $reviewed_current_head,
-       is_new: (.submittedAt > $last_push), body};
+       is_new: fresh(.submittedAt; .id), body};
 
   def codex_comment_row:
     (.body // "") as $cb
     | ($cb | codex_reviewed_commit_from_body) as $reviewed_commit
-    | {id, createdAt, is_new: (.createdAt > $last_push),
+    | {id, createdAt, is_new: fresh(.createdAt; .id),
        reviewed_commit: $reviewed_commit,
        reviewed_current_head:
          (if $reviewed_commit == null
@@ -478,7 +507,7 @@ jq -n \
           path,
           commit_id,
           created_at,
-          is_new:       (.created_at > $last_push),
+          is_new:       fresh(.created_at; .id),
           severity_alt: ([(.body // "") | capture("!\\[(?<s>[^\\]]+)\\]")] | .[0].s // null),
           cr_markers:   (.body | cr_markers_of),
           is_ack:       (.body | is_ack_body),
@@ -532,20 +561,20 @@ jq -n \
       other_comments:
         ([$main.comments[] | select(.author.login == "coderabbitai")]
          | sort_by(.createdAt) | .[1:]
-         | map({id, createdAt, is_new: (.createdAt > $last_push), preview: (.body | mk_preview), body})),
+         | map({id, createdAt, is_new: fresh(.createdAt; .id), preview: (.body | mk_preview), body})),
       reviews:
         [$main.reviews[] | select(.author.login == "coderabbitai")
-         | {id, submittedAt, state, is_new: (.submittedAt > $last_push), body}]
+         | {id, submittedAt, state, is_new: fresh(.submittedAt; .id), body}]
     },
 
     gemini: {
       reviews:
         [$main.reviews[] | select(.author.login == "gemini-code-assist")
-         | {id, submittedAt, state, is_new: (.submittedAt > $last_push),
+         | {id, submittedAt, state, is_new: fresh(.submittedAt; .id),
             has_pass_marker: (.body | has_pass_marker_body), body}],
       comments:
         [$main.comments[] | select(.author.login == "gemini-code-assist")
-         | {id, createdAt, is_new: (.createdAt > $last_push), preview: (.body | mk_preview), body}]
+         | {id, createdAt, is_new: fresh(.createdAt; .id), preview: (.body | mk_preview), body}]
     },
 
     codex: {
@@ -611,6 +640,20 @@ jq -n \
 
 # Atomic overwrite: same-filesystem rename keeps concurrent query.sh reads consistent.
 mv "$WORKDIR/snapshot.json" "$SNAPSHOT_FILE"
+
+# ---- Seen ledger update (PITFALL 6) ----
+# Union with the staged previous ledger: a transiently missing id (partial API response)
+# must not resurface as new on a later poll. Reactions carry no stable identity and stay out.
+jq -c --slurpfile prev "$WORKDIR/seen.json" '
+  [.coderabbit.other_comments[]?.id, .coderabbit.reviews[]?.id,
+   .gemini.reviews[]?.id, .gemini.comments[]?.id,
+   .codex.reviews[]?.id, .codex.comments[]?.id,
+   ((.inline_comments_by_user // {})[]?[]?.id)]
+  | map(select(. != null) | tostring)
+  | . + ($prev[0] // [])
+  | unique
+' "$SNAPSHOT_FILE" > "$WORKDIR/seen_next.json"
+mv "$WORKDIR/seen_next.json" "$SEEN_FILE"
 
 # ---- Pass 2: project the MINIMAL INDEX from the snapshot ----
 # New rows carry flags + preview; older rows collapse to per-bot counts. Bodies never
