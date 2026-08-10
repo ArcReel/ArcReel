@@ -467,11 +467,77 @@ class TestArkModelCapabilities:
         assert caps.last_frame is True
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["doubao-seedance-2-5-260628", "doubao-seedance-2.5", "dreamina-seedance-2-5"])
+    def test_seedance_2_5_declares_own_material_limits(self, model: str):
+        """2.5 的素材上限比 2.0 宽（参考图 30 / 音频 10 段 30 秒），不得沿用 2.0 的一档。"""
+        caps = ArkVideoBackend.video_capabilities_for_model(model)
+        assert caps.last_frame is True
+        assert caps.max_reference_images == 30
+        assert caps.reference_audio_mode == ReferenceAudioMode.DIRECT
+        assert caps.max_reference_audio_count == 10
+        assert caps.max_reference_audio_total_seconds == 30.0
+
+    @pytest.mark.unit
+    def test_seedance_2_5_requires_adaptive_first_frame_ratio(self):
+        """有首帧时比例交给上游按首帧自适应：下发固定 ratio 会与首帧尺寸冲突。"""
+        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-5-260628")
+        assert caps.first_frame_ratio_adaptive_only is True
+
+    @pytest.mark.unit
+    def test_seedance_2_0_keeps_passthrough_first_frame_ratio(self):
+        """2.0 未声明 adaptive：新增 2.5 分支不得顺带改动既有型号的比例语义。"""
+        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-260128")
+        assert caps.first_frame_ratio_adaptive_only is False
+        assert caps.max_reference_images == 9
+        assert caps.max_reference_audio_count == 3
+
+    @pytest.mark.unit
+    def test_seedance_2_5_unknown_suffix_does_not_inherit_verified_caps(self):
+        """未验证的 2.5 变体只保留族群级的参考图容量，尾帧与参考音频不继承。"""
+        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-5-future")
+        assert caps.last_frame is False
+        assert caps.reference_audio_mode == ReferenceAudioMode.NONE
+        assert caps.max_reference_audio_count == 0
+        assert caps.max_reference_audio_total_seconds is None
+
+    @pytest.mark.unit
     def test_seedance_2_unknown_suffix_does_not_inherit_last_frame(self):
         """白名单命中要求边界匹配：型号名包含已验证前缀 "seedance-2-0" 但带未知后缀
         （非已验证的 fast/mini/日期戳形态）时，不能因子串包含关系继承 2.0 系列的尾帧能力。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-future")
         assert caps.last_frame is False
+
+
+class TestArkPollBudget:
+    """长时长任务的轮询上限：固定 600s 只够到 10 秒档。"""
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("duration", "expected_max_wait"),
+        [(5, 600), (10, 600), (15, 900), (30, 1800)],
+    )
+    async def test_default_tier_max_wait_scales_with_duration(self, backend, tmp_path, duration, expected_max_wait):
+        request = VideoGenerationRequest(
+            prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=duration, service_tier="default"
+        )
+        with patch("lib.video_backends.ark.poll_with_retry", new_callable=AsyncMock) as poll:
+            poll.side_effect = RuntimeError("stop")
+            with pytest.raises(RuntimeError):
+                await backend._poll_until_done("task-1", request)
+        assert poll.call_args.kwargs["max_wait"] == expected_max_wait
+        assert poll.call_args.kwargs["poll_interval"] == 10
+
+    @pytest.mark.unit
+    async def test_flex_tier_keeps_hour_long_budget(self, backend, tmp_path):
+        """flex 队列本就按小时级排队，不随时长缩放。"""
+        request = VideoGenerationRequest(
+            prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=30, service_tier="flex"
+        )
+        with patch("lib.video_backends.ark.poll_with_retry", new_callable=AsyncMock) as poll:
+            poll.side_effect = RuntimeError("stop")
+            with pytest.raises(RuntimeError):
+                await backend._poll_until_done("task-1", request)
+        assert poll.call_args.kwargs["max_wait"] == 3600
 
 
 class TestArkServiceTierParam:
@@ -488,6 +554,9 @@ class TestArkServiceTierParam:
             "doubao-seedance-2.0-fast",
             "dreamina-seedance-2-0-260128",
             "dreamina-seedance-2-0-fast-260128",
+            # 2.5 与 2.0 同样拒收 service_tier，但走独立判定，需各自锁定
+            "doubao-seedance-2-5-260628",
+            "doubao-seedance-2.5",
         ],
     )
     async def test_seedance_2_does_not_send_service_tier(self, tmp_path, model):

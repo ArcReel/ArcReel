@@ -40,6 +40,13 @@ _SEEDANCE_2_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 15.0
 # Seedance 1.5 pro 的参考图上限，唯一声明处（编排层裁剪与请求期校验同读 VideoCapabilities）。
 _SEEDANCE_1_5_MAX_REFERENCE_IMAGES = 9
 
+# Seedance 2.5 的多模态素材上限：参考图 30 张，参考音频 10 段、总时长 30 秒（官方《视频生成
+# API》素材章节）。三项都比 2.0 宽，故与 2.0 各存一组常量而非共享——共享会在其中一档调整时
+# 静默改动另一档的放行范围。
+_SEEDANCE_2_5_MAX_REFERENCE_IMAGES = 30
+_SEEDANCE_2_5_MAX_REFERENCE_AUDIO = 10
+_SEEDANCE_2_5_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 30.0
+
 # 参考音频的 data URI MIME：官方接受 wav / mp3 两种格式，要求 `data:audio/<格式>;base64,<内容>`
 # 且格式小写。资产上传期已按同一组格式收窄，此处按扩展名回填，未知扩展名不猜测直接拒绝。
 # 与 dashscope 侧的同名表刻意各存一份：mp3 在这里按官方示例写 audio/mp3，dashscope 走标准
@@ -110,12 +117,12 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     ):
         self._client = create_ark_client(api_key=api_key, base_url=base_url)
         self._model = model or self.DEFAULT_MODEL
-        # service_tier 参数仅 seedance-1.x 等老模型支持；seedance-2-0/2.0 系列上游在 r2v 下会
-        # 400 拒绝该参数，必须不下传。判定见 _is_seedance_2：用 `in` 子串兼容多套前缀命名
-        # （doubao-/dreamina-），但版本号收窄到已验证的 2-0/2.0，不对未发布版本（如
-        # seedance-2.5）过早假设。这是 backend 内部的运输细节，不进 VideoCapabilities——
-        # 后者只声明调用方需要据以取舍的输入路径。
-        self._supports_service_tier = not self._is_seedance_2(self._model)
+        # service_tier 参数仅 seedance-1.x 等老模型支持；seedance-2 系列（2.0 与 2.5）上游在
+        # r2v 下会 400 拒绝该参数，必须不下传。判定见 _is_seedance_2 / _is_seedance_2_5：用
+        # `in` 子串兼容多套前缀命名（doubao-/dreamina-），版本号逐个收窄到已登记的世代，不对
+        # 未发布版本过早假设。这是 backend 内部的运输细节，不进 VideoCapabilities——后者只
+        # 声明调用方需要据以取舍的输入路径。
+        self._supports_service_tier = not (self._is_seedance_2(self._model) or self._is_seedance_2_5(self._model))
 
     @property
     def name(self) -> str:
@@ -129,13 +136,23 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     def _is_seedance_2(model: str) -> bool:
         """按 model_id 子串识别已验证的 seedance-2-0 / seedance-2.0 系列（含 fast 变体）。
 
-        只匹配已验证不支持 service_tier 的版本号（2-0 与 2.0 两种写法），不对未发布的未来版本
-        （如 seedance-2.5）过早假设。用 `in` 子串而非前缀匹配，以兼容上游多套前缀命名
-        （doubao- 火山国内站 / dreamina- BytePlus 国际站）。service_tier 剔除与参考图能力共用
-        本判定，避免两条路径口径漂移。
+        只匹配 2-0 与 2.0 两种写法，2.5 由 _is_seedance_2_5 单独识别——两代的素材上限与
+        尾帧口径都不同，合成一个族群判定会让 2.5 继承 2.0 的上限。用 `in` 子串而非前缀匹配，
+        以兼容上游多套前缀命名（doubao- 火山国内站 / dreamina- BytePlus 国际站）。
+        service_tier 剔除与参考图能力共用本判定，避免两条路径口径漂移。
         """
         model_lower = model.lower()
         return "seedance-2-0" in model_lower or "seedance-2.0" in model_lower
+
+    @staticmethod
+    def _is_seedance_2_5(model: str) -> bool:
+        """按 model_id 子串识别 seedance-2-5 / seedance-2.5 系列。
+
+        与 _is_seedance_2 同为宽松族群识别（供 service_tier 剔除与参考图能力复用），已验证
+        型号的尾帧与参考音频另走 _SEEDANCE_2_5_ALLOW_SUBSTRINGS 边界白名单。
+        """
+        model_lower = model.lower()
+        return "seedance-2-5" in model_lower or "seedance-2.5" in model_lower
 
     # docs/ark-docs/seedance2.0.md 能力表中，非 seedance-2.0 系列里明确支持首尾帧的仅这三个
     # 1.x 型号（1.0 pro fast 与 1.0 lite t2v 标 "-"，其余未上表的型号未经验证）。改用白名单
@@ -181,6 +198,10 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         "seedance-2.0",
     )
 
+    # Seedance 2.5 已验证支持首尾帧与参考音频的型号（内建 doubao-seedance-2-5-260628 及无日期
+    # 戳的 doubao-seedance-2.5）。同走边界匹配，未知后缀不得因子串包含而继承这两项能力。
+    _SEEDANCE_2_5_ALLOW_SUBSTRINGS = ("seedance-2-5", "seedance-2.5")
+
     @staticmethod
     def _matches_known_model(model_lower: str, prefixes: tuple[str, ...]) -> bool:
         for prefix in prefixes:
@@ -198,6 +219,23 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
         保持 backend 为单一真相源。
         """
+        if ArkVideoBackend._is_seedance_2_5(model):
+            # 2.5 与 2.0 的差别不止数值：素材上限放宽到参考图 30 / 音频 10 段、总时长 30 秒，
+            # 且首帧在场时比例必须交给上游按首帧自适应（见 first_frame_ratio_adaptive_only），
+            # 下发固定 ratio 会与首帧尺寸冲突。故独立分支，不复用面向 2.0 的判定。
+            on_verified_allowlist = ArkVideoBackend._matches_known_model(
+                model.lower(), ArkVideoBackend._SEEDANCE_2_5_ALLOW_SUBSTRINGS
+            )
+            return VideoCapabilities(
+                last_frame=on_verified_allowlist,
+                max_reference_images=_SEEDANCE_2_5_MAX_REFERENCE_IMAGES,
+                reference_audio_mode=(ReferenceAudioMode.DIRECT if on_verified_allowlist else ReferenceAudioMode.NONE),
+                max_reference_audio_count=_SEEDANCE_2_5_MAX_REFERENCE_AUDIO if on_verified_allowlist else 0,
+                max_reference_audio_total_seconds=(
+                    _SEEDANCE_2_5_MAX_REFERENCE_AUDIO_TOTAL_SECONDS if on_verified_allowlist else None
+                ),
+                first_frame_ratio_adaptive_only=True,
+            )
         if ArkVideoBackend._is_seedance_2(model):
             # API 拒绝首帧/尾帧与参考素材混合请求（InvalidParameter: first/last frame content
             # cannot be mixed with reference media content，实测）——参考图是与首尾帧互斥的
@@ -380,7 +418,10 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     async def _poll_until_done(self, task_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """轮询任务状态直到完成，瞬态错误仅重试当次轮询请求。"""
         poll_interval = 10 if request.service_tier == "default" else 60
-        max_wait_time = 600 if request.service_tier == "default" else 3600
+        # 生成耗时大体随输出时长线性增长：固定 600s 上限只够到 10 秒档，30 秒档会在任务仍在
+        # 排队时被判超时（视频已在生成且照常计费）。按 60s/输出秒 取下限兜底，与 dashscope 侧
+        # 同口径；flex 队列本就按小时级排队，保持 3600 不变。
+        max_wait_time = max(600, 60 * request.duration_seconds) if request.service_tier == "default" else 3600
 
         result = await poll_with_retry(
             poll_fn=lambda: asyncio.to_thread(self._client.content_generation.tasks.get, task_id=task_id),

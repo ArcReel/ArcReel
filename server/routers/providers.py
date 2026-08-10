@@ -54,6 +54,7 @@ _FIELD_META: dict[str, dict[str, str]] = {
     "access_key": {"label": "Access Key", "type": "secret"},
     "secret_key": {"label": "Secret Key", "type": "secret"},
     "base_url": {"label": "Base URL", "type": "url", "placeholder": "Default"},
+    "wan3_base_url": {"label": "Wan 3.0 Base URL", "type": "url", "placeholder": "Default"},
     "credentials_path": {"label": "Vertex Credentials Path", "type": "text"},
     "gcs_bucket": {"label": "GCS Bucket", "type": "text"},
     "image_rpm": {"label": "Image RPM", "type": "number"},

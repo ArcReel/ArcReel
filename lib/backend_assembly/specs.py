@@ -65,13 +65,21 @@ def _resolve_base_url(config: LoadedConfig) -> str | None:
     return config.credentials.get("base_url") or default
 
 
-def _build_simple(config: LoadedConfig, model_id: str | None, *, media_type: str, registry_backend: str) -> Any:
-    """简单族通用构造：api_key + model + base_url。
+def _build_simple(
+    config: LoadedConfig,
+    model_id: str | None,
+    *,
+    media_type: str,
+    registry_backend: str,
+    extra_keys: tuple[str, ...] = (),
+) -> Any:
+    """简单族通用构造：api_key + model + base_url，外加 extra_keys 声明的 db_config 直传键。
 
     api_key 与 base_url 同遵「仅非空才写入 kwargs」：显式传 None 可能覆盖底层 SDK 的环境变量兜底
     （如 OpenAI SDK 读 OPENAI_API_KEY），缺省由 backend 各自处理（要么读环境变量、要么 fail-loud）。
     base_url 优先级见 _resolve_base_url —— grok 等无 default 且用户未配的 provider 不接受 base_url
-    参数，传 None 会触发 TypeError，故仅非空才写入。
+    参数，传 None 会触发 TypeError，故仅非空才写入。extra_keys 同规则：键名即 backend 构造参数名，
+    供个别 provider 的专属 endpoint 配置（如 dashscope 的 wan3_base_url）复用同一条构造缝。
     """
     kwargs: dict[str, Any] = {"model": model_id}
     api_key = config.credentials.get("api_key")
@@ -80,16 +88,22 @@ def _build_simple(config: LoadedConfig, model_id: str | None, *, media_type: str
     base_url = _resolve_base_url(config)
     if base_url:
         kwargs["base_url"] = base_url
+    for key in extra_keys:
+        value = config.credentials.get(key)
+        if value:
+            kwargs[key] = value
     return _media_create_backend(media_type)(registry_backend, **kwargs)
 
 
-def _simple_spec(provider_id: str, media_type: str) -> ProviderSpec:
+def _simple_spec(provider_id: str, media_type: str, *, extra_keys: tuple[str, ...] = ()) -> ProviderSpec:
     """登记一条简单族 spec：registry_backend 即 provider_id 自身（媒体侧无别名映射）。"""
     return ProviderSpec(
         provider_id=provider_id,
         media_type=media_type,
         registry_backend=provider_id,
-        build_backend=partial(_build_simple, media_type=media_type, registry_backend=provider_id),
+        build_backend=partial(
+            _build_simple, media_type=media_type, registry_backend=provider_id, extra_keys=extra_keys
+        ),
     )
 
 
@@ -325,7 +339,7 @@ def _text_openai_compat_spec(
 _SIMPLE_IMAGE_VIDEO_PROVIDERS = ("ark", "ark-agent-plan", "grok", "openai", "vidu", "dashscope", "minimax")
 _SIMPLE_MEDIA_PAIRS: list[tuple[str, str]] = [
     *((p, "image") for p in _SIMPLE_IMAGE_VIDEO_PROVIDERS),
-    *((p, "video") for p in _SIMPLE_IMAGE_VIDEO_PROVIDERS),
+    *((p, "video") for p in _SIMPLE_IMAGE_VIDEO_PROVIDERS if p != "dashscope"),
     ("dashscope", "audio"),
 ]
 
@@ -345,6 +359,11 @@ PROVIDER_SPEC_REGISTRY.update(
 PROVIDER_SPEC_REGISTRY.update(
     {(_KLING_REGISTRY_BACKEND, media_type): _kling_spec(media_type) for media_type in ("image", "video")}
 )
+# dashscope video 比简单族多一个 wan3_base_url：万相 3.0 公测期走独立 maas 域名（含地域与
+# workspace，推不出），未配置时 backend 自行回落通用 base_url。image/audio 两条 lane 不消费它，
+# 仍走简单族。
+PROVIDER_SPEC_REGISTRY[("dashscope", "video")] = _simple_spec("dashscope", "video", extra_keys=("wan3_base_url",))
+
 # agnes 简单族 image + video 显式登记（文本族在下方文本区随 _TEXT_SIMPLE_PROVIDERS 登记）；
 # 与 kling 同走独立显式登记，不并入 _SIMPLE_IMAGE_VIDEO_PROVIDERS 元组。
 PROVIDER_SPEC_REGISTRY[("agnes", "image")] = _simple_spec("agnes", "image")

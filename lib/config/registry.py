@@ -309,7 +309,7 @@ def _dashscope_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
     return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="CNY")
 
 
-# DashScope 视频费率（元/秒），按分辨率（音频恒开，不入计费维度）。
+# DashScope 视频费率（元/秒），按分辨率——秒价不随音轨变化，故音频不入计费维度。
 def _dashscope_video_pricing(model_id: str, rates: dict[str, float]) -> PerSecondMatrix:
     return PerSecondMatrix(
         rates={model_id: {(res, None): rate for res, rate in rates.items()}},
@@ -668,6 +668,21 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                     {("default", True): 23.00, ("default", False): 23.00},
                 ),
             ),
+            # Seedance 2.5：官方《视频生成 API》声明 480p/720p 两档、原生 30 秒直出。时长在此
+            # 全展开为 4–30 秒离散值；官方另有 -1（模型自选时长）不登记——它会让请求时长与剧本
+            # 时长指引脱钩，编排层按分镜时长排片的前提不成立。计费 ¥70/百万 token，视频输入档
+            # （参考视频转 token）另有单价，不计入本表：本表只覆盖 PerTokenVideo 消费的输出 usage。
+            "doubao-seedance-2-5-260628": ModelInfo(
+                display_name="Seedance 2.5",
+                media_type="video",
+                capabilities=["generate_audio"],
+                supported_durations=list(range(4, 31)),
+                resolutions=["480p", "720p"],
+                pricing=_ark_video_pricing(
+                    "doubao-seedance-2-5-260628",
+                    {("default", True): 70.00, ("default", False): 70.00},
+                ),
+            ),
         },
         default_base_url=ARK_BASE_URL,
     ),
@@ -994,7 +1009,10 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         display_name="阿里百炼",
         description="阿里云百炼（Model Studio）全模态平台，支持 Qwen 文本、Qwen-Image / 万相图像与 HappyHorse / 万相视频（含参考生视频）。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],
+        # wan3_base_url：万相 3.0 公测期走独立 maas 域名，且域名里含地域与 workspace，
+        # 无法由通用 base_url 派生，故单列一键。仅 wan3.0-video 的请求消费它（见
+        # lib/video_backends/dashscope.py），留空则该模型回落通用 base_url。
+        optional_keys=["base_url", "wan3_base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -1168,6 +1186,17 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=list(range(2, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("wan2.7-r2v", {"720p": 0.6, "1080p": 1.0}),
+            ),
+            # 万相 3.0：单模型覆盖文生/图生/参考生三条路径，480P ¥0.3/s，720P ¥0.6/s，
+            # 1080P ¥1.2/s，单次最长 30 秒。与 2.7 及 HappyHorse 不同，音轨由请求参数控制，
+            # 故声明 generate_audio token 而非 audio_always_on。
+            "wan3.0-video": ModelInfo(
+                display_name="万相 3.0 视频",
+                media_type="video",
+                capabilities=["generate_audio"],
+                supported_durations=list(range(2, 31)),
+                resolutions=["480p", "720p", "1080p"],
+                pricing=_dashscope_video_pricing("wan3.0-video", {"480p": 0.3, "720p": 0.6, "1080p": 1.2}),
             ),
             # --- audio ---
             # qwen3-tts-flash：同步 HTTP 语音合成，按字符计费（¥0.8/万字符）。
