@@ -967,3 +967,87 @@ class TestReferenceCompressionSeam:
         await gen.generate_video_async(prompt="x" * 10, resource_type="videos", resource_id="E1S01")
 
         assert gen.ledger.outcomes
+
+
+@pytest.mark.unit
+class TestFirstFrameRatioAdaptiveOnly:
+    """VideoCapabilities.first_frame_ratio_adaptive_only 的共享施加逻辑。
+
+    覆盖点见 lib.video_frame_slots.resolve_first_frame_aspect_ratio 的调用点
+    （lib.media_generator.MediaGenerator.generate_video_async）：本仓库现无消费方声明该约束，
+    这里用能力白名单测试缝（伪造 backend 声明）覆盖首个消费方接入前的施加逻辑正确性。
+    """
+
+    async def test_first_frame_task_forced_to_adaptive(self, tmp_path):
+        from lib.video_backends.base import VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+        backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(first_frame_ratio_adaptive_only=True))
+        gen._video_backend = backend
+
+        start = _solid_png(tmp_path, "start.png", 100, 100)
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            start_image=str(start),
+            aspect_ratio="16:9",
+        )
+
+        assert backend.calls[-1].aspect_ratio == "adaptive"
+
+    async def test_no_first_frame_task_keeps_user_ratio(self, tmp_path):
+        """未带首帧（纯文生 / 仅参考图）不受该约束影响，原样透传用户比例。"""
+        from lib.video_backends.base import VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+        backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(first_frame_ratio_adaptive_only=True))
+        gen._video_backend = backend
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            aspect_ratio="16:9",
+        )
+
+        assert backend.calls[-1].aspect_ratio == "16:9"
+
+    async def test_default_capability_leaves_existing_model_payload_unchanged(self, tmp_path):
+        """默认 False（现有模型未声明该约束）：首帧任务的请求 payload 保持原样。"""
+        gen = _build_generator(tmp_path)
+        backend = _FakeVideoBackend()  # video_capabilities=None，等同未声明
+        gen._video_backend = backend
+
+        start = _solid_png(tmp_path, "start.png", 100, 100)
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            start_image=str(start),
+            aspect_ratio="16:9",
+        )
+
+        assert backend.calls[-1].aspect_ratio == "16:9"
+
+    async def test_ledger_records_user_intent_not_adaptive_override(self, tmp_path):
+        """记账沿用用户原始比例意图，与下发给 backend 的实际值分离。"""
+        from lib.video_backends.base import VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+        backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(first_frame_ratio_adaptive_only=True))
+        gen._video_backend = backend
+
+        start = _solid_png(tmp_path, "start.png", 100, 100)
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            start_image=str(start),
+            aspect_ratio="16:9",
+        )
+
+        assert gen.ledger.started[-1]["aspect_ratio"] == "16:9"

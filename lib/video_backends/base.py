@@ -445,6 +445,13 @@ class VideoCapabilities:
     为字符数（中英文同权），与各家文档一致。超限的典型失败模式是静默截断而非报错：供应商照常
     扣费、成片与意图不符、用户无从知情，正是 :func:`lib.video_frame_slots.gate_video_request`
     要在付费前堵住的降级。
+
+    ``first_frame_ratio_adaptive_only``：该模型的首帧（image-to-video）任务是否只接受
+    "adaptive" 比例——声明为 True 时，实际下发给该后端的 ``VideoGenerationRequest.aspect_ratio``
+    在带首帧的请求上恒为字面量 ``"adaptive"``，由
+    :func:`lib.video_frame_slots.resolve_first_frame_aspect_ratio` 统一施加，不进各 backend
+    的 payload 组装各写一套。不带首帧的请求（纯文生 / 仅参考图）不受影响。用户的比例意图仍完整
+    作用于分镜图生成——这里改写的只是视频请求实际下发的值，不改调用方持有的原始 ``aspect_ratio``。
     """
 
     first_frame: bool = True
@@ -455,6 +462,7 @@ class VideoCapabilities:
     max_reference_audio_total_seconds: float | None = None
     reference_audio_per_image: bool = False
     max_prompt_chars: int | None = None
+    first_frame_ratio_adaptive_only: bool = False
 
 
 @dataclass

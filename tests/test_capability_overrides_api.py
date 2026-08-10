@@ -143,6 +143,7 @@ class TestModelListExposesCapabilities:
             "max_reference_audio_total_seconds": None,
             "reference_audio_per_image": False,
             "max_prompt_chars": None,
+            "first_frame_ratio_adaptive_only": False,
         }
         assert models[0]["capability_overrides"] is None
 

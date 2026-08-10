@@ -21,12 +21,17 @@ if TYPE_CHECKING:
     from lib.reference_compression import ReferenceSpec
 
 __all__ = [
+    "FIRST_FRAME_ADAPTIVE_RATIO",
     "FrameSlotPlan",
     "VideoCapabilityProbe",
     "gate_video_request",
     "plan_frame_slots",
+    "resolve_first_frame_aspect_ratio",
     "resolve_video_capabilities",
 ]
+
+# 供应商 SDK 接受的字面量，表示"跟随首帧图片自身比例"而非用户指定的固定比例。
+FIRST_FRAME_ADAPTIVE_RATIO = "adaptive"
 
 
 class VideoCapabilityProbe(Protocol):
@@ -57,6 +62,24 @@ def resolve_video_capabilities(
     if tier_aware is not None:
         return tier_aware(service_tier, resolution=resolution)
     return backend.video_capabilities
+
+
+def resolve_first_frame_aspect_ratio(
+    *,
+    caps: VideoCapabilities | None,
+    aspect_ratio: str,
+    has_first_frame: bool,
+) -> str:
+    """按 ``caps.first_frame_ratio_adaptive_only`` 施加首帧任务的 ratio 覆盖。
+
+    声明该约束的后端在带首帧（image-to-video）的请求上只接受
+    :data:`FIRST_FRAME_ADAPTIVE_RATIO`——调用方原始持有的 ``aspect_ratio``（用户比例意图，仍
+    完整作用于分镜图生成）不受影响，本函数只决定实际下发给该次视频请求的值。``caps`` 为 None
+    或未声明该约束、或本次请求不带首帧（纯文生 / 仅参考图）时原样返回 ``aspect_ratio``。
+    """
+    if caps is not None and caps.first_frame_ratio_adaptive_only and has_first_frame:
+        return FIRST_FRAME_ADAPTIVE_RATIO
+    return aspect_ratio
 
 
 @dataclass(frozen=True)
