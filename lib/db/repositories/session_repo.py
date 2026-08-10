@@ -20,6 +20,7 @@ def _row_to_dict(row: AgentSession) -> dict[str, Any]:
         "project_name": row.project_name,
         "title": row.title or "",
         "status": row.status,
+        "superseded_by": row.superseded_by,
         "created_at": dt_to_iso(row.created_at),
         "updated_at": dt_to_iso(row.updated_at),
     }
@@ -60,7 +61,8 @@ class SessionRepository(BaseRepository):
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        stmt = select(AgentSession)
+        # 被分叉取代的会话不进列表；数据整行保留，按 sdk_session_id 仍可 get 到。
+        stmt = select(AgentSession).where(AgentSession.superseded_by.is_(None))
         if project_name:
             stmt = stmt.where(AgentSession.project_name == project_name)
         if status:
@@ -80,7 +82,40 @@ class SessionRepository(BaseRepository):
         await self.session.commit()
         return rowcount(result) > 0
 
+    async def mark_superseded(self, session_id: str, superseded_by: str) -> bool:
+        """标记会话已被取代；已有指针时不改写，返回 False 让调用方按分叉冲突处理。"""
+        now = utc_now()
+        result = await self.session.execute(
+            update(AgentSession)
+            .where(AgentSession.sdk_session_id == session_id, AgentSession.superseded_by.is_(None))
+            .values(superseded_by=superseded_by, updated_at=now)
+        )
+        await self.session.commit()
+        return rowcount(result) > 0
+
+    async def clear_superseded(self, session_id: str, superseded_by: str) -> bool:
+        """撤回指向 ``superseded_by`` 的取代指针；指针已指向别的会话时不动。"""
+        now = utc_now()
+        result = await self.session.execute(
+            update(AgentSession)
+            .where(AgentSession.sdk_session_id == session_id, AgentSession.superseded_by == superseded_by)
+            .values(superseded_by=None, updated_at=now)
+        )
+        await self.session.commit()
+        return rowcount(result) > 0
+
     async def delete(self, session_id: str) -> bool:
+        # 指向被删会话的取代指针改指它自己的后继：删的是链中间时前身继续指向仍然
+        # 活着的末端，删的是链尾时后继为空、前身随之回到会话列表。不接手则前身会
+        # 带着一个指向不存在会话的指针，永久留在列表之外。
+        successor = await self.session.scalar(
+            select(AgentSession.superseded_by).where(AgentSession.sdk_session_id == session_id)
+        )
+        await self.session.execute(
+            update(AgentSession)
+            .where(AgentSession.superseded_by == session_id)
+            .values(superseded_by=successor, updated_at=utc_now())
+        )
         result = await self.session.execute(sa_delete(AgentSession).where(AgentSession.sdk_session_id == session_id))
         await self.session.commit()
         return rowcount(result) > 0

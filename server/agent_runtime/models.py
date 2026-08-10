@@ -49,5 +49,7 @@ class SessionMeta(BaseModel):
     project_name: str
     title: str = ""
     status: SessionStatus = "idle"
+    superseded_by: str | None = None
+    """非空表示本会话已被分支会话取代，值为新会话的 sdk_session_id。"""
     created_at: datetime
     updated_at: datetime
