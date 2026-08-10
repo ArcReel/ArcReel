@@ -46,13 +46,17 @@ _TERMINAL_V2_VIDEO_STATES = frozenset(
 # 轮询间隔（秒）：海螺视频生成通常数十秒至数分钟，10s 一次平衡时延与请求量。
 MINIMAX_VIDEO_POLL_INTERVAL_SECONDS = 10.0
 
-# 图片后缀 → MIME（first_frame_image 接受 data URI）。
+# 图片后缀 → MIME（first_frame_image 接受 data URI）。本表为 MiniMax 视频系列共用，取各型号
+# 受理格式的并集，heic/heif 仅 H3 受理（出处：
+# https://platform.minimaxi.com/docs/api-reference/video-generation-v2-create.md）。
 _IMAGE_MIME_TYPES: dict[str, str] = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".gif": "image/gif",
     ".webp": "image/webp",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
 }
 
 

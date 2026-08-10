@@ -540,9 +540,10 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     列表常夹带 gemini-*/imagen-* 原生 id，必须按内容纠偏到 Google 端点，否则被错推到
     openai-chat/openai-images，每次都要手动改回。
 
-    1) 阿里百炼视频 → happyhorse / wan2.x（非 image）走 "dashscope-async-video"（原生异步端点）。
-       happyhorse 不在 _VIDEO_PATTERN 须显式；wan2.x 视频抢在通用 is_video 前拦截。图像不自动推
-       dashscope（中转可能是 OpenAI 兼容），qwen-image / wan2.x-image 落到既有图像家族推断。
+    1) 阿里百炼视频 → happyhorse / wan2.x / wan3.0（非 image）走 "dashscope-async-video"（原生异步
+       端点）。happyhorse 不在 _VIDEO_PATTERN 须显式；wan2.x / wan3.0 视频抢在通用 is_video 前拦截。
+       图像不自动推 dashscope（中转可能是 OpenAI 兼容），qwen-image / wan2.x-image / wan3.0-video-image
+       落到既有图像家族推断。
     2) MiniMax 原生 token → 海螺 / S2V 走 "minimax-video"，image-01 走 "minimax-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
     2.5) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
@@ -559,11 +560,13 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     """
     lowered = model_id.lower()
     is_image = bool(_IMAGE_PATTERN.search(model_id))
+    # 万相带版本号的 id（视频与图像变体都含该 token），下面路由与 is_video 排除各用一次
+    is_wan_versioned = "wan2." in lowered or "wan3." in lowered
 
     # 阿里百炼视频先于通用 is_video 拦截到原生异步端点
     if "happyhorse" in lowered:
         return "dashscope-async-video"
-    if "wan2." in lowered and not is_image:
+    if is_wan_versioned and not is_image:
         return "dashscope-async-video"
 
     # MiniMax 原生 token 二级路由：海螺（含 minimax-hailuo）/ S2V / H3 → 两步或单步取回的视频端点；
@@ -586,8 +589,9 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
             return "kling-video"
         return "kling-image" if is_image else "kling-video"
 
-    # wan2.x-image 含 "wan" 会被 _VIDEO_PATTERN 误判为视频；显式排除让它落到图像家族推断
-    is_video = bool(_VIDEO_PATTERN.search(model_id)) and not ("wan2." in lowered and is_image)
+    # wan2.x-image / wan3.0-video-image 含 "wan" 会被 _VIDEO_PATTERN 误判为视频；显式排除让它落到
+    # 图像家族推断
+    is_video = bool(_VIDEO_PATTERN.search(model_id)) and not (is_wan_versioned and is_image)
 
     if "imagen" in lowered:
         return "gemini-image"

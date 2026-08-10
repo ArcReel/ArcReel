@@ -39,9 +39,15 @@ PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
     (re.compile(r"vidu", re.I), list(range(1, 17))),
     # PixVerse V5/V5.5/V5.6/V6（1-15 任意）
     (re.compile(r"pixverse|^v[56](\.\d+)?$", re.I), list(range(1, 16))),
+    # MiniMax H3（4-15 任意；与下面的 hailuo 条目无 token 重叠，按 MiniMax 家族就近排列）。
+    # 出处：lib/config/registry.py MiniMax-H3 的 supported_durations。
+    (re.compile(r"minimax-h3", re.I), list(range(4, 16))),
     # MiniMax Hailuo（固定 6）
     (re.compile(r"hailuo", re.I), [6]),
-    # Wan
+    # 万相 3.0（2-30 任意；须先于通用 Wan 判断，否则会落入 [4, 5]）。
+    # 出处：lib/config/registry.py wan3.0-video 的 supported_durations。
+    (re.compile(r"wan-?3", re.I), list(range(2, 31))),
+    # Wan（其余系列）
     (re.compile(r"wan-?\d", re.I), [4, 5]),
     # Pika
     (re.compile(r"pika", re.I), [3, 5, 10]),

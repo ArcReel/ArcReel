@@ -279,6 +279,14 @@ class TestInferEndpoint:
             ("viduq3-turbo", "openai", "vidu-video"),
             ("viduq3-i2v", "openai", "vidu-video"),
             ("proxy/viduq3-turbo", "openai", "vidu-video"),
+            # ── 阿里百炼 wan2.x / wan3.0 → dashscope-async-video（image 变体不受影响）──
+            ("wan2.7-i2v", "openai", "dashscope-async-video"),
+            ("wan2.7-t2v", "openai", "dashscope-async-video"),
+            ("wan3.0-video", "openai", "dashscope-async-video"),
+            ("Wan3.0-Video", "openai", "dashscope-async-video"),  # 大小写不敏感
+            ("proxy/wan3.0-video", "openai", "dashscope-async-video"),
+            ("wan2.7-image", "openai", "openai-images"),  # image 变体不受影响
+            ("wan3.0-video-image", "openai", "openai-images"),  # 含 image 语义不受影响
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),
