@@ -274,7 +274,7 @@ MESSAGES = {
     "video_reference_images_unreadable": "模型 {model} 有参考图缺失或无法读取，已中止生成：{names}；请检查参考图路径",
     "video_reference_images_unsupported": "模型 {model} 不支持多图主体参考；请移除参考图，或换一个支持参考生视频的模型",
     "video_reference_images_exceeded": "模型 {model} 最多支持 {limit} 张参考图，收到 {count} 张；请减少参考图数量",
-    "video_reference_images_with_frames_unsupported": "模型 {model} 的参考图不能与首帧/尾帧叠加使用；请二选一",
+    "video_reference_images_with_frames_unsupported": "模型 {model} 的参考图/参考音频不能与首帧/尾帧叠加使用；请二选一",
     "video_start_image_unreadable": "模型 {model} 的首帧图无法读取，已中止生成：{name}；请检查首帧图路径",
     "video_end_image_unreadable": "模型 {model} 的尾帧图无法读取，已中止生成：{name}；请检查尾帧图路径",
     "video_end_image_requires_start_image": "模型 {model} 不支持单独的尾帧；请同时提供首帧（首尾帧模式），或移除尾帧",

@@ -350,9 +350,9 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         start_image = self._existing_path(request.start_image)
         end_image = self._existing_path(request.end_image)
         references = [Path(r) for r in (request.reference_images or []) if r]
-        # 官方口径：图生视频与多模态参考生视频互斥。混合请求会被上游 400 拒绝，
-        # 在此提前拦下，避免把一次注定失败的请求发出去。
-        if references and (start_image is not None or end_image is not None):
+        # 官方口径：图生视频与多模态参考生视频互斥，参考音频同属参考生视频维度。混合请求会
+        # 被上游 400 拒绝，在此提前拦下，避免把一次注定失败的请求发出去。
+        if (references or request.reference_audio_files) and (start_image is not None or end_image is not None):
             raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
         if end_image is not None and start_image is None:
             raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
