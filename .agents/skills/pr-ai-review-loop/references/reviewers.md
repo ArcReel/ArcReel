@@ -61,6 +61,8 @@
 1. 本轮无新 inline,或本轮新 inline 全部为 `low/nit/style` 或全部 `is_ack`
 2. 最新一条 `gemini.reviews` 的 `has_pass_marker == true`
 
+**pushback 例外**:存在 pushback 时 pass marker 不可达,按「本轮非 ack inline 均已处置」判通过。
+
 ## OpenAI Codex
 
 首次 PR 自动审查;修复 push 后自动续审,直到当前 HEAD 不再产生 finding。Codex 已参审或 `codex.has_started == true` 后,后续动作固定为等待自动续审。
