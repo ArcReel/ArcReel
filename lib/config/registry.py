@@ -562,7 +562,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         display_name="火山方舟",
         description="字节跳动火山方舟 AI 平台，支持 Seedance 视频生成和 Seedream 图片生成，具备音频生成和种子控制能力。",
         required_keys=["api_key"],
-        optional_keys=["video_max_workers", "image_max_workers"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
