@@ -557,6 +557,24 @@ class TestArkPollBudget:
                 await backend._poll_until_done("task-1", request)
         assert poll.call_args.kwargs["max_wait"] == 3600
 
+    @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["doubao-seedance-2-0-260128", "doubao-seedance-2-5-260628"])
+    async def test_tier_stripped_model_polls_on_default_cadence(self, mock_ark_client, tmp_path, model):
+        """不下传 service_tier 的型号按默认档建任务，轮询节奏须跟着走默认档而非请求里残留的 flex。"""
+        with patch("lib.video_backends.ark.create_ark_client", return_value=mock_ark_client):
+            b = ArkVideoBackend(api_key="test-ark-key", model=model)
+        b._client = mock_ark_client
+        assert b._supports_service_tier is False
+        request = VideoGenerationRequest(
+            prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=30, service_tier="flex"
+        )
+        with patch("lib.video_backends.ark.poll_with_retry", new_callable=AsyncMock) as poll:
+            poll.side_effect = RuntimeError("stop")
+            with pytest.raises(RuntimeError):
+                await b._poll_until_done("task-1", request)
+        assert poll.call_args.kwargs["poll_interval"] == 10
+        assert poll.call_args.kwargs["max_wait"] == 1800
+
 
 class TestArkServiceTierParam:
     """service_tier 只对支持该参数的模型传入，否则 API 会报错。"""

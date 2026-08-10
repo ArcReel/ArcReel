@@ -418,11 +418,15 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def _poll_until_done(self, task_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """轮询任务状态直到完成，瞬态错误仅重试当次轮询请求。"""
-        poll_interval = 10 if request.service_tier == "default" else 60
+        # 轮询节奏按**实际提交的**档位定，不按请求里写的档位：_supports_service_tier 为假的
+        # 型号根本不下传 service_tier，方舟按默认档建任务，此时若照 request 里残留的 flex 值
+        # 走 60s 节奏，已完成的任务要多空等近一分钟才被发现。
+        effective_tier = request.service_tier if self._supports_service_tier else "default"
+        poll_interval = 10 if effective_tier == "default" else 60
         # 生成耗时大体随输出时长线性增长：固定 600s 上限只够到 10 秒档，30 秒档会在任务仍在
         # 排队时被判超时（视频已在生成且照常计费）。按 60s/输出秒 取下限兜底，与 dashscope 侧
         # 同口径；flex 队列本就按小时级排队，保持 3600 不变。
-        max_wait_time = max(600, 60 * request.duration_seconds) if request.service_tier == "default" else 3600
+        max_wait_time = max(600, 60 * request.duration_seconds) if effective_tier == "default" else 3600
 
         result = await poll_with_retry(
             poll_fn=lambda: asyncio.to_thread(self._client.content_generation.tasks.get, task_id=task_id),
