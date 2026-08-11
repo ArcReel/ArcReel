@@ -1653,6 +1653,65 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().sessions.map((s) => s.id)).not.toContain("session-2");
   });
 
+  it("keeps a pending deletion in one project from suppressing another project's rewrite reconciliation", async () => {
+    const listCalls: Record<string, number> = { "project-a": 0, "project-b": 0 };
+    vi.spyOn(API, "listAssistantSessions").mockImplementation((projectName) => {
+      listCalls[projectName] = (listCalls[projectName] ?? 0) + 1;
+      if (projectName === "project-a") return Promise.resolve({ sessions: [makeSession("a-s1", "idle")] });
+      return Promise.resolve({ sessions: [makeSession("b-s1", "idle"), makeSession("b-s2", "idle")] });
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockImplementation(async (_projectName, sessionId) =>
+      makeEntriesResponse({ session_id: sessionId, entries: [userEntry(0, sessionId)] }),
+    );
+    // 项目 A 的删除一直挂着，模拟慢请求
+    vi.spyOn(API, "deleteAssistantSession").mockReturnValue(createDeferred<void>().promise as never);
+    const rewriteDeferred = createDeferred<{
+      status: string;
+      session_id: string;
+      origin_session_id: string | null;
+      entry: TimelineEntry | null;
+    }>();
+    vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(rewriteDeferred.promise);
+
+    const { result, rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+      initialProps: { projectName: "project-a" as string | null },
+    });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("a-s1");
+    });
+    act(() => {
+      void result.current.deleteSession("a-s1");
+    });
+
+    rerender({ projectName: "project-b" });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("b-s1");
+    });
+    const callsBefore = listCalls["project-b"];
+
+    // B 里的改写被切会话作废：A 那次仍在途的删除不该连带压掉 B 的补拉
+    act(() => {
+      void result.current.rewriteMessage("u-0", "改写后的消息");
+    });
+    await act(async () => {
+      await result.current.switchSession("b-s2");
+      rewriteDeferred.resolve({
+        status: "accepted",
+        session_id: "b-s3",
+        origin_session_id: "b-s1",
+        entry: null,
+      });
+      await rewriteDeferred.promise;
+    });
+
+    await waitFor(() => {
+      expect(listCalls["project-b"]).toBeGreaterThan(callsBefore);
+    });
+  });
+
   it("does not compensate a failed deletion into the project switched to meanwhile", async () => {
     vi.spyOn(API, "listAssistantSessions").mockImplementation((projectName) =>
       Promise.resolve({ sessions: [makeSession(`${projectName}-s1`, "idle")] }),
