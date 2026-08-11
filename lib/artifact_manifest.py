@@ -298,12 +298,25 @@ class ProjectArtifactManifestAdapter:
             cursor = self._project_dir
             for part in parts[:-1]:
                 cursor /= part
+                expected_parent_identity: tuple[int, int] | None = None
                 if not _O_NOFOLLOW and _is_linkish(cursor):
                     return self._artifact_blocked(
                         normalized,
                         "artifact_symlink",
                         f"artifact path contains a symlink or junction: {normalized}",
                     )
+                if not _O_NOFOLLOW:
+                    try:
+                        parent_stat = cursor.stat(follow_symlinks=False)
+                    except FileNotFoundError:
+                        return ArtifactObservation(artifact_path=normalized, present=False)
+                    except OSError as exc:
+                        return self._artifact_blocked(
+                            normalized,
+                            "artifact_unreadable",
+                            f"artifact parent cannot be inspected safely: {normalized}: {exc}",
+                        )
+                    expected_parent_identity = (parent_stat.st_dev, parent_stat.st_ino)
                 try:
                     next_fd = os.open(part, directory_flags, dir_fd=directory_fd)
                 except FileNotFoundError:
@@ -315,14 +328,41 @@ class ProjectArtifactManifestAdapter:
                         f"artifact parent cannot be opened safely: {normalized}: {exc}",
                     )
                 stack.callback(os.close, next_fd)
+                if expected_parent_identity is not None:
+                    opened_parent_stat = os.fstat(next_fd)
+                    current_parent_stat = cursor.stat(follow_symlinks=False)
+                    if (
+                        _is_linkish(cursor)
+                        or not stat.S_ISDIR(opened_parent_stat.st_mode)
+                        or (opened_parent_stat.st_dev, opened_parent_stat.st_ino) != expected_parent_identity
+                        or (current_parent_stat.st_dev, current_parent_stat.st_ino) != expected_parent_identity
+                    ):
+                        return self._artifact_blocked(
+                            normalized,
+                            "artifact_symlink",
+                            f"artifact parent changed while it was being opened: {normalized}",
+                        )
                 directory_fd = next_fd
             final_path = cursor / parts[-1]
+            expected_file_identity: tuple[int, int] | None = None
             if not _O_NOFOLLOW and _is_linkish(final_path):
                 return self._artifact_blocked(
                     normalized,
                     "artifact_symlink",
                     f"artifact path contains a symlink or junction: {normalized}",
                 )
+            if not _O_NOFOLLOW:
+                try:
+                    file_stat = final_path.stat(follow_symlinks=False)
+                except FileNotFoundError:
+                    return ArtifactObservation(artifact_path=normalized, present=False)
+                except OSError as exc:
+                    return self._artifact_blocked(
+                        normalized,
+                        "artifact_unreadable",
+                        f"artifact cannot be inspected safely: {normalized}: {exc}",
+                    )
+                expected_file_identity = (file_stat.st_dev, file_stat.st_ino)
             try:
                 fd = os.open(parts[-1], file_flags, dir_fd=directory_fd)
             except FileNotFoundError:
@@ -335,13 +375,26 @@ class ProjectArtifactManifestAdapter:
                 )
             stack.callback(os.close, fd)
             try:
-                if not stat.S_ISREG(os.fstat(fd).st_mode):
+                opened_file_stat = os.fstat(fd)
+                if not stat.S_ISREG(opened_file_stat.st_mode):
                     return self._artifact_blocked(
                         normalized,
                         "artifact_not_regular_file",
                         f"artifact path is not a regular file: {normalized}",
                     )
                 os.read(fd, 1)
+                if expected_file_identity is not None:
+                    current_file_stat = final_path.stat(follow_symlinks=False)
+                    if (
+                        _is_linkish(final_path)
+                        or (opened_file_stat.st_dev, opened_file_stat.st_ino) != expected_file_identity
+                        or (current_file_stat.st_dev, current_file_stat.st_ino) != expected_file_identity
+                    ):
+                        return self._artifact_blocked(
+                            normalized,
+                            "artifact_symlink",
+                            f"artifact changed while it was being opened: {normalized}",
+                        )
             except OSError as exc:
                 return self._artifact_blocked(
                     normalized,
@@ -483,7 +536,7 @@ class ProjectArtifactManifestAdapter:
                     self._assert_open_project_root_identity(root_fd)
                 else:
                     root_stack.enter_context(self._guard_portable_project_root())
-                    portable_lock_identity = self._portable_runtime_file_identity(lock_path, "manifest lock")
+                    portable_lock_identity = self._runtime_file_identity(lock_path, "manifest lock")
                 if root_fd is not None and not _O_NOFOLLOW and _is_linkish(lock_path):
                     raise ArtifactManifestError(f"manifest lock is a symlink or junction: {lock_path}")
                 flags = os.O_WRONLY | _O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
@@ -501,7 +554,7 @@ class ProjectArtifactManifestAdapter:
                     raise ArtifactManifestError(f"cannot open manifest lock: {lock_path}: {exc}") from exc
                 try:
                     if root_fd is None:
-                        self._assert_open_portable_runtime_file_identity(
+                        self._assert_open_runtime_file_identity(
                             lock_path,
                             fd,
                             portable_lock_identity,
@@ -564,7 +617,7 @@ class ProjectArtifactManifestAdapter:
             raise ArtifactManifestError(f"project directory changed after adapter initialization: {self._project_dir}")
 
     @staticmethod
-    def _portable_runtime_file_identity(path: Path, label: str) -> tuple[int, int] | None:
+    def _runtime_file_identity(path: Path, label: str) -> tuple[int, int] | None:
         if _is_linkish(path):
             raise ArtifactManifestError(f"{label} is a symlink or junction: {path}")
         try:
@@ -577,7 +630,7 @@ class ProjectArtifactManifestAdapter:
             raise ArtifactManifestError(f"{label} is not a regular file: {path}")
         return file_stat.st_dev, file_stat.st_ino
 
-    def _assert_open_portable_runtime_file_identity(
+    def _assert_open_runtime_file_identity(
         self,
         path: Path,
         fd: int,
@@ -588,7 +641,7 @@ class ProjectArtifactManifestAdapter:
             opened_stat = os.fstat(fd)
         except OSError as exc:
             raise ArtifactManifestError(f"opened {label} is unavailable: {path}: {exc}") from exc
-        current_identity = self._portable_runtime_file_identity(path, label)
+        current_identity = self._runtime_file_identity(path, label)
         opened_identity = (opened_stat.st_dev, opened_stat.st_ino)
         if (
             not stat.S_ISREG(opened_stat.st_mode)
@@ -600,13 +653,11 @@ class ProjectArtifactManifestAdapter:
 
     def _load_unlocked(self, root_fd: int | None) -> tuple[dict[str, ArtifactManifestEntry], bytes | None]:
         path = self._project_dir / MANIFEST_FILENAME
-        portable_manifest_identity: tuple[int, int] | None = None
-        if root_fd is None:
-            portable_manifest_identity = self._portable_runtime_file_identity(path, "artifact manifest")
-            if portable_manifest_identity is None:
+        checked_manifest_identity: tuple[int, int] | None = None
+        if root_fd is None or not _O_NOFOLLOW:
+            checked_manifest_identity = self._runtime_file_identity(path, "artifact manifest")
+            if checked_manifest_identity is None:
                 return {}, None
-        elif not _O_NOFOLLOW and _is_linkish(path):
-            raise ArtifactManifestError(f"artifact manifest is a symlink or junction: {path}")
         flags = os.O_RDONLY | _O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
         try:
             fd = os.open(MANIFEST_FILENAME, flags, dir_fd=root_fd) if root_fd is not None else os.open(path, flags)
@@ -617,11 +668,11 @@ class ProjectArtifactManifestAdapter:
                 raise ArtifactManifestError(f"artifact manifest is a symlink: {path}") from exc
             raise ArtifactManifestError(f"cannot open artifact manifest: {path}: {exc}") from exc
         try:
-            if root_fd is None:
-                self._assert_open_portable_runtime_file_identity(
+            if root_fd is None or not _O_NOFOLLOW:
+                self._assert_open_runtime_file_identity(
                     path,
                     fd,
-                    portable_manifest_identity,
+                    checked_manifest_identity,
                     "artifact manifest",
                 )
             elif not stat.S_ISREG(os.fstat(fd).st_mode):

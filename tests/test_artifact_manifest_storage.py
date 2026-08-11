@@ -300,6 +300,45 @@ def test_project_adapter_blocks_parent_replaced_by_symlink_during_open(
     assert (outside / "episode.json").read_text(encoding="utf-8") == "outside"
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Python identity checks backstop platforms without O_NOFOLLOW")
+def test_project_adapter_blocks_file_symlink_swap_without_no_follow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    artifact = project / "episode.json"
+    artifact.write_text("inside", encoding="utf-8")
+    outside = tmp_path / "outside.json"
+    outside.write_text("outside", encoding="utf-8")
+    adapter = ProjectArtifactManifestAdapter(project)
+    original_open = os.open
+    swapped = False
+
+    def swap_file_then_open(
+        path: str | bytes | Path,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal swapped
+        if not swapped and dir_fd is not None and os.fsdecode(path) == "episode.json":
+            artifact.rename(project / "original-episode.json")
+            artifact.symlink_to(outside)
+            swapped = True
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr("lib.artifact_manifest._O_NOFOLLOW", 0)
+    monkeypatch.setattr("lib.artifact_manifest.os.open", swap_file_then_open)
+
+    observation = adapter.inspect_artifact("episode.json")
+
+    assert swapped
+    assert not observation.present
+    assert observation.blocker is not None and observation.blocker.code == "artifact_symlink"
+
+
 @pytest.mark.skipif(os.name != "posix", reason="FIFO inspection uses POSIX nonblocking file flags")
 def test_project_adapter_rejects_fifo_without_blocking(tmp_path: Path) -> None:
     project = tmp_path / "project"
@@ -659,6 +698,49 @@ def test_project_adapter_rejects_portable_manifest_symlink_swap(
         adapter._load_unlocked(None)
 
     assert swapped
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Python identity checks backstop platforms without O_NOFOLLOW")
+def test_project_adapter_rejects_manifest_symlink_swap_without_no_follow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "episode.json").write_text("{}", encoding="utf-8")
+    adapter = ProjectArtifactManifestAdapter(project)
+    manifest = ArtifactManifest(adapter)
+    key = ArtifactKey.episode_script(1)
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={})
+    assert manifest.register(key, artifact_path="episode.json", basis=basis)
+    manifest_path = project / MANIFEST_FILENAME
+    outside = tmp_path / "outside.json"
+    outside.write_bytes(manifest_path.read_bytes())
+    original_open = os.open
+    swapped = False
+
+    def swap_manifest_then_open(
+        path: str | bytes | Path,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal swapped
+        if not swapped and dir_fd is not None and os.fsdecode(path) == MANIFEST_FILENAME:
+            manifest_path.rename(project / "original-manifest.json")
+            manifest_path.symlink_to(outside)
+            swapped = True
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr("lib.artifact_manifest._O_NOFOLLOW", 0)
+    monkeypatch.setattr("lib.artifact_manifest.os.open", swap_manifest_then_open)
+
+    comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
+
+    assert swapped
+    assert comparison.status is ArtifactStatus.BLOCKED
+    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
 
 
 def test_project_adapter_revalidates_portable_manifest_identity(tmp_path: Path) -> None:
