@@ -7,7 +7,7 @@ import unicodedata
 from collections.abc import Collection, Iterator
 from typing import Any
 
-from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket, normalize_asset_name
+from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.script_models import ReferenceResource, Shot
 
 #: 镜头行 header：``镜头N：``（中英冒号均可）。时长已收编到 unit 级，header 不带秒数——
@@ -365,13 +365,14 @@ def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
     登记的同一个名字判不相等，该 mention 会被当成未登记而原样保留，``@[名称]`` 这个书写层
     记号就直接漏进了供应商请求。
     """
-    normalized_names = {normalize_asset_name(name) for name in names}
+    normalized_names = {asset_name_comparison_key(name) for name in names}
     text = _normalize_source(text)
     parts: list[str] = []
     last = 0
     for start, end, name in _iter_mentions(text):
         parts.append(text[last:start])
-        parts.append(f"<{name}>" if name in normalized_names else text[start:end])
+        canonical = asset_name_comparison_key(name)
+        parts.append(f"<{canonical}>" if canonical in normalized_names else text[start:end])
         last = end
 
     parts.append(text[last:])
@@ -445,8 +446,12 @@ def resolve_references(
     }
     refs: list[ReferenceResource] = []
     missing: list[str] = []
+    seen: set[str] = set()
     for raw_name in names:
         name = asset_name_comparison_key(raw_name)
+        if name in seen:
+            continue
+        seen.add(name)
         matches = [rtype for rtype, bucket in buckets.items() if name in bucket]
         if len(matches) == 1:
             refs.append(ReferenceResource(type=matches[0], name=name))  # type: ignore[arg-type]

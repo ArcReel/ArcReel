@@ -85,6 +85,9 @@ def test_migration_assigns_stable_safe_names_and_cascades_everywhere(tmp_path: P
         project_dir / "drafts" / "episode_1" / "quarantine.json",
         {"units": [{"text": "@[Hero]", "references": [{"type": "product", "name": "Hero"}]}]},
     )
+    for name in ("step1_normalized_script.md", "step1_segments.md", "step1_reference_units.md"):
+        path = project_dir / "drafts" / "episode_1" / name
+        path.write_text("镜头1：@[ Trim ] 入场", encoding="utf-8")
     for relative in (
         "characters/Hero.png",
         "characters/ Trim .png",
@@ -152,6 +155,8 @@ def test_migration_assigns_stable_safe_names_and_cascades_everywhere(tmp_path: P
     assert draft["units"][0]["references"] == [{"type": "product", "name": "Hero_product"}]
     # 同容器唯一 typed reference 可判定归属，mention 随 product 级联。
     assert draft["units"][0]["text"] == "@[Hero_product]"
+    for name in ("step1_normalized_script.md", "step1_segments.md", "step1_reference_units.md"):
+        assert (project_dir / "drafts" / "episode_1" / name).read_text(encoding="utf-8") == "镜头1：@[Trim] 入场"
 
     versions = _read_json(project_dir / "versions" / "versions.json")
     assert list(versions["scenes"]) == ["Hero_scene"]
@@ -170,6 +175,84 @@ def test_migration_is_idempotent(tmp_path: Path) -> None:
     first = (project_dir / "project.json").read_bytes()
     migrate_v5_to_v6(project_dir)
     assert (project_dir / "project.json").read_bytes() == first
+
+
+def test_migration_reserves_retained_history_names(tmp_path: Path) -> None:
+    project_dir = tmp_path / "demo"
+    _write_json(
+        project_dir / "project.json",
+        {
+            "schema_version": 5,
+            "characters": {"Hero": _asset("character", "character_sheet")},
+            "scenes": {"Hero": _asset("scene", "scene_sheet")},
+            "props": {},
+            "products": {},
+        },
+    )
+    _write_json(
+        project_dir / "versions" / "versions.json",
+        {
+            "scenes": {
+                "Hero": {
+                    "current_version": 1,
+                    "versions": [{"version": 1, "file": "versions/scenes/Hero_v1_active.png"}],
+                },
+                "Hero_scene": {
+                    "current_version": 1,
+                    "versions": [{"version": 1, "file": "versions/scenes/Hero_scene_v1_retained.png"}],
+                },
+            }
+        },
+    )
+    for name in ("Hero_v1_active.png", "Hero_scene_v1_retained.png"):
+        path = project_dir / "versions" / "scenes" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(name.encode())
+
+    migrate_v5_to_v6(project_dir)
+
+    project = _read_json(project_dir / "project.json")
+    assert list(project["scenes"]) == ["Hero_scene_2"]
+    versions = _read_json(project_dir / "versions" / "versions.json")["scenes"]
+    assert set(versions) == {"Hero_scene", "Hero_scene_2"}
+    assert versions["Hero_scene_2"]["versions"][0]["file"] == "versions/scenes/Hero_scene_2_v1_active.png"
+    assert (project_dir / "versions" / "scenes" / "Hero_scene_2_v1_active.png").is_file()
+    assert (project_dir / "versions" / "scenes" / "Hero_scene_v1_retained.png").is_file()
+
+
+def test_migration_uses_declared_owner_for_ambiguous_product_reference(tmp_path: Path) -> None:
+    project_dir = tmp_path / "demo"
+    _write_json(
+        project_dir / "project.json",
+        {
+            "schema_version": 5,
+            "characters": {"Hero": _asset("character", "character_sheet")},
+            "scenes": {},
+            "props": {},
+            "products": {
+                "Hero": {
+                    **_asset("product", "product_sheet"),
+                    "reference_images": ["products/refs/Hero_1.jpg"],
+                },
+                "Hero_1": {
+                    **_asset("second product", "product_sheet"),
+                    "reference_images": ["products/refs/Hero_1_1.jpg"],
+                },
+            },
+        },
+    )
+    refs = project_dir / "products" / "refs"
+    refs.mkdir(parents=True)
+    (refs / "Hero_1.jpg").write_bytes(b"hero")
+    (refs / "Hero_1_1.jpg").write_bytes(b"hero-1")
+
+    migrate_v5_to_v6(project_dir)
+
+    project = _read_json(project_dir / "project.json")
+    assert project["products"]["Hero_product"]["reference_images"] == ["products/refs/Hero_product_1.jpg"]
+    assert project["products"]["Hero_1"]["reference_images"] == ["products/refs/Hero_1_1.jpg"]
+    assert (refs / "Hero_product_1.jpg").read_bytes() == b"hero"
+    assert (refs / "Hero_1_1.jpg").read_bytes() == b"hero-1"
 
 
 def test_migration_failure_leaves_original_tree_untouched(tmp_path: Path, monkeypatch) -> None:
@@ -233,3 +316,21 @@ def test_directory_swap_failure_restores_original_tree(tmp_path: Path, monkeypat
     assert failed is True
     assert (project_dir / "project.json").read_bytes() == original
     assert not list(tmp_path.glob(".demo.v6-*"))
+
+
+def test_migration_preserves_broken_symlinks(tmp_path: Path) -> None:
+    project_dir = tmp_path / "demo"
+    _write_json(
+        project_dir / "project.json",
+        {"schema_version": 5, "characters": {}, "scenes": {}, "props": {}, "products": {}},
+    )
+    link = project_dir / "CLAUDE.md"
+    try:
+        link.symlink_to("missing-runtime-profile.md")
+    except OSError as exc:
+        pytest.skip(f"当前平台不允许创建符号链接: {exc}")
+
+    migrate_v5_to_v6(project_dir)
+
+    assert link.is_symlink()
+    assert os.readlink(link) == "missing-runtime-profile.md"

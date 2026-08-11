@@ -1604,6 +1604,82 @@ class ProjectManager:
 
         return project
 
+    def update_project_with_file_copies(
+        self,
+        project_name: str,
+        mutate_fn: Callable[[dict], None],
+        copies: list[tuple[Path, Path]],
+    ) -> dict:
+        """在项目锁内把文件替换与 project.json 写回作为一个可回滚事务提交。"""
+        project_file = self._get_project_file_path(project_name)
+        destinations = [destination for _source, destination in copies]
+        if len(set(destinations)) != len(destinations):
+            raise ValueError("项目文件事务包含重复目标路径")
+
+        token = secrets.token_hex(8)
+        staged: list[tuple[Path, Path]] = []
+        installed: list[tuple[Path, Path | None]] = []
+        committed = False
+        with self._project_lock(project_name):
+            try:
+                with open(project_file, encoding="utf-8") as f:
+                    project = json.load(f)
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
+                mutate_fn(project)
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
+                self._migrate_legacy_resolution_on_save(project)
+                self._migrate_legacy_style(project)
+                self._touch_metadata(project)
+
+                for index, (source, destination) in enumerate(copies):
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = destination.with_name(f".{destination.name}.{token}-{index}.tmp")
+                    shutil.copyfile(source, temporary)
+                    staged.append((temporary, destination))
+
+                for index, (temporary, destination) in enumerate(staged):
+                    backup: Path | None = None
+                    if destination.exists() or destination.is_symlink():
+                        backup = destination.with_name(f".{destination.name}.{token}-{index}.bak")
+                        os.replace(destination, backup)
+                    installed.append((destination, backup))
+                    os.replace(temporary, destination)
+
+                atomic_write_json(project_file, project)
+                committed = True
+            except BaseException:
+                for destination, backup in reversed(installed):
+                    try:
+                        if destination.exists() or destination.is_symlink():
+                            destination.unlink()
+                        if backup is not None:
+                            os.replace(backup, destination)
+                    except OSError:
+                        logger.exception("恢复项目文件事务失败: %s", destination)
+                raise
+            finally:
+                for temporary, _destination in staged:
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError:
+                        logger.warning("清理项目文件事务暂存失败: %s", temporary)
+                if committed:
+                    for _destination, backup in installed:
+                        if backup is None:
+                            continue
+                        try:
+                            backup.unlink(missing_ok=True)
+                        except OSError:
+                            logger.warning("清理项目文件事务备份失败: %s", backup)
+
+        emit_project_change_hint(
+            project_name,
+            changed_paths=[self.PROJECT_FILE],
+        )
+        return project
+
     @staticmethod
     def _touch_metadata(project: dict) -> None:
         now = datetime.now(UTC).isoformat()

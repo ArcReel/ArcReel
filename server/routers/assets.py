@@ -578,25 +578,12 @@ async def apply_to_project(
             }
         )
 
-    # 5) 文件与 project.json 都在 update_project 的项目锁内提交；先完整复核名称空间，
-    #    避免规划后发生的并发写让文件先落盘、项目写回才因跨类型冲突失败。
-    def _copy_all() -> None:
-        for plan in plans:
-            for src_key, dst_key in (("copy_src", "copy_dst"), ("copy_audio_src", "copy_audio_dst")):
-                src = plan[src_key]
-                dst = plan[dst_key]
-                if src is None or dst is None:
-                    continue
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(src, dst)
-
-    # 6) 单次 update_project 把所有 bucket 变更一次性写回
+    # 5) 单次事务把所有文件替换与 bucket 变更一次性写回。
     def _apply_all(data: dict) -> None:
         for plan in plans:
             match = find_project_asset_name(data, plan["desired_name"])
             if match is not None and match.asset_type != plan["asset"].type:
                 raise ProjectAssetNameConflictError(plan["desired_name"], match, plan["asset"].type)
-        _copy_all()
         for plan in plans:
             a_ = plan["asset"]
             bk = plan["bucket_key"]
@@ -628,8 +615,22 @@ async def apply_to_project(
             data[bk][key] = payload
 
     if plans:
+        file_copies = [
+            (src, dst)
+            for plan in plans
+            for src, dst in (
+                (plan["copy_src"], plan["copy_dst"]),
+                (plan["copy_audio_src"], plan["copy_audio_dst"]),
+            )
+            if src is not None and dst is not None
+        ]
         try:
-            await asyncio.to_thread(project_manager.update_project, req.target_project, _apply_all)
+            await asyncio.to_thread(
+                project_manager.update_project_with_file_copies,
+                req.target_project,
+                _apply_all,
+                file_copies,
+            )
         except ProjectAssetNameConflictError as exc:
             raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
 

@@ -184,6 +184,13 @@ def test_resolve_references_preserves_order():
     assert [r.name for r in refs] == ["A", "B", "C"]
 
 
+def test_resolve_references_deduplicates_shared_comparison_key():
+    refs, missing = resolve_references(["Hero", " Hero "], _proj(characters={"Hero": {}}))
+
+    assert [(ref.type, ref.name) for ref in refs] == [("character", "Hero")]
+    assert missing == []
+
+
 def test_resolve_references_empty_input():
     refs, missing = resolve_references([], _proj())
     assert refs == []
@@ -220,6 +227,10 @@ def test_resolve_references_matches_across_encoding_forms(registered: str, writt
 def test_render_mentions_as_subjects_matches_across_encoding_forms(registered: str, written: str):
     """两侧编码形式不同也要替换成主体记号：漏替换时 ``@[名称]`` 会原样进供应商请求。"""
     assert render_mentions_as_subjects(f"@[{written}] 推门而入", [registered]) == f"<{_NAME_NFC}> 推门而入"
+
+
+def test_render_mentions_as_subjects_strips_comparison_whitespace():
+    assert render_mentions_as_subjects("@[ Hero ] 推门而入", ["Hero"]) == "<Hero> 推门而入"
 
 
 def test_parse_multi_shot_preserves_pre_header_text():

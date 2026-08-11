@@ -644,9 +644,10 @@ class TestApplyToProject:
         pm.create_project_metadata("target", "Target")
         created = client.post("/api/v1/assets", data={"type": "scene", "name": "Shared"})
         original_update = pm.update_project
+        original_transaction = pm.update_project_with_file_copies
         injected = False
 
-        def racing_update(project_name, mutate):
+        def racing_transaction(project_name, mutate, copies):
             nonlocal injected
             if not injected:
                 injected = True
@@ -654,9 +655,9 @@ class TestApplyToProject:
                     project_name,
                     lambda project: project["characters"].update({"Shared": {"description": "character"}}),
                 )
-            return original_update(project_name, mutate)
+            return original_transaction(project_name, mutate, copies)
 
-        monkeypatch.setattr(pm, "update_project", racing_update)
+        monkeypatch.setattr(pm, "update_project_with_file_copies", racing_transaction)
 
         response = client.post(
             "/api/v1/assets/apply-to-project",
@@ -869,3 +870,88 @@ class TestApplyToProject:
         assert (pm.projects_root / "target" / "scenes" / "A.png").exists()
         data = pm.load_project("target")
         assert data["scenes"]["A"]["scene_sheet"] == "scenes/A.png"
+
+    @pytest.mark.unit
+    def test_multi_file_copy_failure_rolls_back_batch(self, _assets_env, monkeypatch):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        asset_ids = []
+        for name, content in (("A", b"image-a"), ("B", b"image-b")):
+            response = client.post(
+                "/api/v1/assets",
+                data={"type": "scene", "name": name},
+                files={"image": (f"{name}.png", content, "image/png")},
+            )
+            asset_ids.append(response.json()["asset"]["id"])
+
+        real_copyfile = assets.shutil.copyfile
+        calls = 0
+
+        def fail_second_copy(source, destination):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("injected second copy failure")
+            return real_copyfile(source, destination)
+
+        monkeypatch.setattr("lib.project_manager.shutil.copyfile", fail_second_copy)
+
+        with pytest.raises(OSError, match="injected second copy failure"):
+            client.post(
+                "/api/v1/assets/apply-to-project",
+                json={"asset_ids": asset_ids, "target_project": "target", "conflict_policy": "skip"},
+            )
+
+        assert pm.load_project("target")["scenes"] == {}
+        target_dir = pm.projects_root / "target" / "scenes"
+        assert not (target_dir / "A.png").exists()
+        assert not (target_dir / "B.png").exists()
+        assert not list(target_dir.glob(".*.tmp"))
+        assert not list(target_dir.glob(".*.bak"))
+
+    @pytest.mark.unit
+    def test_project_json_failure_restores_overwritten_media(self, _assets_env, monkeypatch):
+        from lib import project_manager as project_manager_module
+
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "A", "description": "new"},
+            files={"image": ("A.png", b"new-image", "image/png")},
+        )
+        asset_id = created.json()["asset"]["id"]
+
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        target_image = pm.projects_root / "target" / "scenes" / "A.png"
+        target_image.parent.mkdir(parents=True, exist_ok=True)
+        target_image.write_bytes(b"old-image")
+        pm.update_project(
+            "target",
+            lambda project: project["scenes"].update({"A": {"description": "old", "scene_sheet": "scenes/A.png"}}),
+        )
+        project_file = pm.projects_root / "target" / "project.json"
+        real_atomic_write = project_manager_module.atomic_write_json
+
+        def fail_project_write(path, data):
+            if path == project_file:
+                raise OSError("injected project write failure")
+            return real_atomic_write(path, data)
+
+        monkeypatch.setattr(project_manager_module, "atomic_write_json", fail_project_write)
+
+        with pytest.raises(OSError, match="injected project write failure"):
+            client.post(
+                "/api/v1/assets/apply-to-project",
+                json={"asset_ids": [asset_id], "target_project": "target", "conflict_policy": "overwrite"},
+            )
+
+        project = pm.load_project("target")
+        assert project["scenes"]["A"]["description"] == "old"
+        assert project["scenes"]["A"]["scene_sheet"] == "scenes/A.png"
+        assert target_image.read_bytes() == b"old-image"
+        assert not list(target_image.parent.glob(".*.tmp"))
+        assert not list(target_image.parent.glob(".*.bak"))

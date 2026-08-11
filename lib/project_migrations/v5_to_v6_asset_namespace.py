@@ -18,12 +18,19 @@ from lib.asset_types import (
     AssetSpec,
     asset_name_comparison_key,
     ensure_project_asset_namespace,
+    normalize_asset_name,
     validate_asset_name,
 )
+from lib.episode_paths import REFERENCE_VIDEO_STEP1_LEGACY_FILENAME, STEP1_LEGACY_FILENAMES
 from lib.json_io import atomic_write_json, load_json
 from lib.reference_video.shot_parser import match_dialogue_line, rewrite_mentions, strip_shot_header
 
 logger = logging.getLogger(__name__)
+
+_LEGACY_MARKDOWN_DRAFTS = {
+    REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
+    *(name for names in STEP1_LEGACY_FILENAMES.values() for name in names),
+}
 
 
 @dataclass
@@ -41,7 +48,9 @@ def _ordered_specs() -> list[AssetSpec]:
     return sorted(ASSET_SPECS.values(), key=lambda spec: spec.namespace_priority)
 
 
-def _plan_occurrences(project: dict[str, Any]) -> list[_AssetOccurrence]:
+def _plan_occurrences(
+    project: dict[str, Any], retained_history_keys: dict[str, set[str]] | None = None
+) -> list[_AssetOccurrence]:
     occurrences: list[_AssetOccurrence] = []
     ordinal = 0
     for spec in _ordered_specs():
@@ -87,7 +96,11 @@ def _plan_occurrences(project: dict[str, Any]) -> list[_AssetOccurrence]:
             base = f"{validate_asset_name(item.old_name)}_{item.asset_type}"
             index = suffix_counters.get(base, 1)
             candidate = base if index == 1 else f"{base}_{index}"
-            while asset_name_comparison_key(candidate) in occupied:
+            reserved_for_type = (retained_history_keys or {}).get(item.asset_type, set())
+            while (
+                asset_name_comparison_key(candidate) in occupied
+                or asset_name_comparison_key(candidate) in reserved_for_type
+            ):
                 index += 1
                 candidate = f"{base}_{index}"
             suffix_counters[base] = index + 1
@@ -233,6 +246,21 @@ def _rewrite_payload(
     walk(payload)
 
 
+def _rewrite_legacy_markdown_drafts(project_dir: Path, occurrences: list[_AssetOccurrence]) -> None:
+    drafts_dir = project_dir / "drafts"
+    if not drafts_dir.is_dir():
+        return
+    typed = _typed_owner_map(occurrences)
+    mention_owners = _mention_owner_map(occurrences)
+    for path in sorted(drafts_dir.rglob("*.md")):
+        if path.name not in _LEGACY_MARKDOWN_DRAFTS:
+            continue
+        text = path.read_text(encoding="utf-8")
+        rewritten = _rewrite_text(text, {}, typed, mention_owners)
+        if rewritten != text:
+            path.write_text(rewritten, encoding="utf-8")
+
+
 def _record_for_stem(
     records: list[_AssetOccurrence], stem: str, *, allow_sequence: bool
 ) -> tuple[_AssetOccurrence, str] | None:
@@ -251,8 +279,44 @@ def _record_for_stem(
     return None
 
 
+def _media_path_key(relative: PurePosixPath) -> tuple[PurePosixPath, str]:
+    return relative.parent, normalize_asset_name(relative.name)
+
+
+def _declared_media_owners(
+    occurrences: list[_AssetOccurrence],
+) -> dict[tuple[PurePosixPath, str], _AssetOccurrence]:
+    owners: dict[tuple[PurePosixPath, str], _AssetOccurrence] = {}
+    for item in occurrences:
+        if not isinstance(item.entry, dict):
+            continue
+        base = PurePosixPath(item.spec.subdir)
+        migrated_dirs = {base, base / "refs", base / "refs_audio"}
+        values = [
+            item.entry.get(item.spec.sheet_field),
+            item.entry.get("reference_image"),
+            item.entry.get("reference_audio"),
+        ]
+        images = item.entry.get("reference_images")
+        if isinstance(images, list):
+            values.extend(images)
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            relative = PurePosixPath(value.replace("\\", "/"))
+            if relative.parent not in migrated_dirs:
+                continue
+            key = _media_path_key(relative)
+            previous = owners.get(key)
+            if previous is not None and previous is not item:
+                raise ValueError(f"资产迁移媒体路径被多个条目引用: {relative}")
+            owners[key] = item
+    return owners
+
+
 def _plan_media_moves(project_dir: Path, occurrences: list[_AssetOccurrence]) -> list[tuple[Path, Path]]:
     moves: list[tuple[Path, Path]] = []
+    declared_owners = _declared_media_owners(occurrences)
     for spec in _ordered_specs():
         records = [item for item in occurrences if item.asset_type == spec.asset_type]
         base = project_dir / spec.subdir
@@ -267,7 +331,13 @@ def _plan_media_moves(project_dir: Path, occurrences: list[_AssetOccurrence]) ->
             for source in sorted(directory.iterdir()):
                 if not source.is_file():
                     continue
-                match = _record_for_stem(records, source.stem, allow_sequence=allow_sequence)
+                relative = PurePosixPath(source.relative_to(project_dir).as_posix())
+                declared_owner = declared_owners.get(_media_path_key(relative))
+                match = _record_for_stem(
+                    [declared_owner] if declared_owner is not None else records,
+                    source.stem,
+                    allow_sequence=allow_sequence,
+                )
                 if match is None:
                     continue
                 item, sequence = match
@@ -275,6 +345,29 @@ def _plan_media_moves(project_dir: Path, occurrences: list[_AssetOccurrence]) ->
                 if source != destination:
                     moves.append((source, destination))
     return moves
+
+
+def _retained_history_keys(project_dir: Path, project: dict[str, Any]) -> dict[str, set[str]]:
+    versions_file = project_dir / "versions" / "versions.json"
+    if not versions_file.is_file():
+        return {}
+    payload = load_json(versions_file)
+    if not isinstance(payload, dict):
+        raise ValueError("versions/versions.json 必须是对象")
+    retained: dict[str, set[str]] = {}
+    for spec in _ordered_specs():
+        current_bucket = project.get(spec.bucket_key)
+        active_keys = (
+            {asset_name_comparison_key(str(name)) for name in current_bucket}
+            if isinstance(current_bucket, dict)
+            else set()
+        )
+        history_bucket = payload.get(spec.bucket_key)
+        if isinstance(history_bucket, dict):
+            retained[spec.asset_type] = {
+                key for name in history_bucket if (key := asset_name_comparison_key(str(name))) not in active_keys
+            }
+    return retained
 
 
 def _rewrite_versions(project_dir: Path, occurrences: list[_AssetOccurrence]) -> list[tuple[Path, Path]]:
@@ -337,7 +430,7 @@ def _execute_moves(moves: list[tuple[Path, Path]]) -> None:
                 if destination.samefile(source):
                     continue
             except OSError:
-                pass
+                logger.debug("无法确认迁移目标与源文件是否相同，继续按独立路径检查冲突", exc_info=True)
         if destination in destinations:
             raise ValueError(f"资产迁移目标重复: {destination}")
         if destination.exists() and destination not in sources:
@@ -362,7 +455,8 @@ def _migrate_staged_tree(project_dir: Path) -> None:
     project = load_json(project_file)
     if int(project.get("schema_version") or 0) >= 6:
         return
-    occurrences = _plan_occurrences(project)
+    occurrences = _plan_occurrences(project, _retained_history_keys(project_dir, project))
+    moves = _plan_media_moves(project_dir, occurrences)
 
     for item in occurrences:
         if isinstance(item.entry, dict):
@@ -382,8 +476,8 @@ def _migrate_staged_tree(project_dir: Path) -> None:
         if isinstance(payload, dict):
             _rewrite_payload(payload, occurrences)
             atomic_write_json(path, payload)
+    _rewrite_legacy_markdown_drafts(project_dir, occurrences)
 
-    moves = _plan_media_moves(project_dir, occurrences)
     moves.extend(_rewrite_versions(project_dir, occurrences))
     _execute_moves(moves)
     project["schema_version"] = 6
@@ -404,7 +498,7 @@ def migrate_v5_to_v6(project_dir: Path) -> None:
     staging = Path(tempfile.mkdtemp(prefix=f".{project_dir.name}.v6-", dir=project_dir.parent))
     rollback = project_dir.parent / f".{project_dir.name}.v6-rollback-{uuid.uuid4().hex}"
     try:
-        shutil.copytree(project_dir, staging, dirs_exist_ok=True)
+        shutil.copytree(project_dir, staging, symlinks=True, dirs_exist_ok=True)
         _migrate_staged_tree(staging)
         os.replace(project_dir, rollback)
         try:

@@ -1018,6 +1018,10 @@ class TestProjectArchiveService:
 
         imported = pm.load_project(result.project_name)
         assert character_nfd not in imported["characters"]  # 不补重复占位角色
+        assert scene_nfd not in imported["scenes"]
+        assert prop_nfd not in imported["props"]
+        assert scene_nfc in imported["scenes"]
+        assert prop_nfc in imported["props"]
         assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
 
     @pytest.mark.unit

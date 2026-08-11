@@ -207,7 +207,8 @@ def find_project_asset_name(
     if not isinstance(project, dict):
         return None
     target = asset_name_comparison_key(name)
-    for asset_type, spec in ASSET_SPECS.items():
+    for spec in sorted(ASSET_SPECS.values(), key=lambda item: item.namespace_priority):
+        asset_type = spec.asset_type
         bucket = project.get(spec.bucket_key)
         if not isinstance(bucket, dict):
             continue
