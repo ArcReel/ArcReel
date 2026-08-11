@@ -17,6 +17,7 @@ from typing import Any
 from claude_agent_sdk import create_sdk_mcp_server
 
 from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
     list_pending_assets_tool,
@@ -54,6 +55,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     split_reference_video_units_tool,
     validate_and_promote_reference_draft_tool,
 )
+from server.agent_runtime.sdk_tools.workflow_status import get_workflow_status_tool
 
 __all__ = ["build_arcreel_mcp_server", "ToolContext", "ARCREEL_MCP_TOOL_IDS"]
 
@@ -65,6 +67,8 @@ __all__ = ["build_arcreel_mcp_server", "ToolContext", "ARCREEL_MCP_TOOL_IDS"]
 # here has a translation in all locales, so adding a tool without wiring up
 # i18n fails CI.
 ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
+    "complete_asset_inventory",
+    "get_workflow_status",
     "list_pending_assets",
     "generate_assets",
     "generate_storyboards",
@@ -102,6 +106,8 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
         name="arcreel",
         version="1.0.0",
         tools=[
+            complete_asset_inventory_tool(ctx),
+            get_workflow_status_tool(ctx),
             list_pending_assets_tool(ctx),
             generate_assets_tool(ctx),
             generate_storyboards_tool(ctx),

@@ -1,0 +1,102 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from lib.source_revision import SourceScope, compute_source_revision
+
+
+def _project() -> dict[str, object]:
+    return {"source_kind": "novel", "source_language": "zh"}
+
+
+@pytest.mark.unit
+def test_all_source_revision_is_stable_and_excludes_planned_episode_files(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "novel.txt").write_bytes("原文\r\n第二行".encode())
+
+    first = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    (source / "episode_1.txt").write_bytes(b"derived planning output")
+    second = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+
+    assert first.blockers == []
+    assert first.files == ["source/novel.txt"]
+    assert first.revision is not None
+    assert first.revision.startswith("sha256-v1:")
+    assert second == first
+
+
+@pytest.mark.unit
+def test_revision_changes_with_raw_bytes_path_and_source_semantics(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    original = source / "a.txt"
+    original.write_bytes(b"same text\r\n")
+    baseline = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+
+    original.write_bytes(b"same text\n")
+    changed_bytes = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    original.rename(source / "b.txt")
+    changed_path = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    changed_semantics = compute_source_revision(
+        tmp_path,
+        {"source_kind": "screenplay", "source_language": "zh"},
+        SourceScope(kind="all"),
+    )
+
+    assert len({baseline.revision, changed_bytes.revision, changed_path.revision, changed_semantics.revision}) == 4
+
+
+@pytest.mark.unit
+def test_scoped_revision_rejects_escape_symlink_unreadable_and_invalid_scope(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    (source / "linked.txt").symlink_to(outside)
+    unreadable = source / "unreadable.txt"
+    unreadable.write_text("secret", encoding="utf-8")
+    unreadable.chmod(0)
+
+    try:
+        escape = compute_source_revision(
+            tmp_path,
+            _project(),
+            {"kind": "files", "files": ["../outside.txt"]},
+        )
+        linked = compute_source_revision(
+            tmp_path,
+            _project(),
+            SourceScope(kind="files", files=["source/linked.txt"]),
+        )
+        denied = compute_source_revision(
+            tmp_path,
+            _project(),
+            SourceScope(kind="files", files=["source/unreadable.txt"]),
+        )
+        malformed = compute_source_revision(tmp_path, _project(), {"kind": "all", "files": ["source/a.txt"]})
+    finally:
+        unreadable.chmod(0o600)
+        outside.unlink()
+
+    assert escape.revision is None
+    assert escape.blockers[0].code == "source_path_escape"
+    assert linked.blockers[0].code == "source_symlink"
+    assert denied.blockers[0].code == "source_unreadable"
+    assert malformed.blockers[0].code == "invalid_source_scope"
+
+
+@pytest.mark.unit
+def test_all_scope_reports_candidate_symlink_instead_of_skipping_it(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    target = tmp_path / "target.txt"
+    target.write_text("outside source", encoding="utf-8")
+    (source / "novel.txt").symlink_to(target)
+
+    result = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+
+    assert result.revision is None
+    assert [(b.code, b.path) for b in result.blockers] == [("source_symlink", "source/novel.txt")]

@@ -42,6 +42,7 @@ from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, Sou
 from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
+from lib.workflow_state import WorkflowStateService, WorkflowStatus
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.routers._reorder import full_permutation_error
 from server.routers._validators import validate_backend_value
@@ -659,6 +660,21 @@ async def get_video_capabilities(
             status_code=422,
             detail=_t("video_capabilities_unresolved", name=name),
         ) from exc
+
+
+@router.get("/projects/{name}/workflow-status", response_model=WorkflowStatus)
+async def get_workflow_status(
+    name: str,
+    episode: Annotated[int | None, Query(ge=1)] = None,
+):
+    """Return the authenticated, server-authoritative project workflow status."""
+
+    try:
+        return await asyncio.to_thread(WorkflowStateService(get_project_manager()).get_status, name, episode)
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
+    except ValueError as exc:
+        raise BadRequestError("request_invalid") from exc
 
 
 @router.get("/projects/{name}")

@@ -1543,6 +1543,8 @@ export default {
   // server/agent_runtime/sdk_tools/__init__.py; tests/test_frontend_mcp_tool_i18n.py
   // sẽ kiểm tra các ngôn ngữ đồng bộ, thêm tool backend mà thiếu zh/en/vi sẽ fail CI)
   'tool_name_list_pending_assets': 'Liệt kê tài sản chờ tạo',
+  'tool_name_complete_asset_inventory': 'Hoàn tất kiểm kê tài sản',
+  'tool_name_get_workflow_status': 'Xem trạng thái quy trình',
   'tool_name_generate_assets': 'Tạo tài sản',
   'tool_name_generate_storyboards': 'Tạo storyboard',
   'tool_name_edit_images': 'Chỉnh sửa ảnh',
