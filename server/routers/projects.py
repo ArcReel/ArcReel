@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 from lib.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.asset_fingerprints import compute_asset_fingerprints
+from lib.asset_types import asset_name_comparison_key
 from lib.config.registry import default_model_for_provider
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 from lib.db import async_session_factory
@@ -1026,6 +1027,11 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
                                 ]:
                                     if value is None and key != "note":
                                         continue
+                                    if key in {"characters_in_scene", "scenes", "props"} and isinstance(value, list):
+                                        value = [
+                                            asset_name_comparison_key(name) if isinstance(name, str) else name
+                                            for name in value
+                                        ]
                                     scene[key] = value
                             break
 
@@ -1251,7 +1257,9 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                                 segment["note"] = req.note
                             for field in ("characters_in_segment", "scenes", "props"):
                                 if field in req.model_fields_set:
-                                    segment[field] = getattr(req, field) or []
+                                    segment[field] = [
+                                        asset_name_comparison_key(name) for name in (getattr(req, field) or [])
+                                    ]
                             break
 
                     if matched_segment is None:

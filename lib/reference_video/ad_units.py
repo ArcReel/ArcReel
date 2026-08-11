@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from lib.asset_types import normalize_asset_name
+from lib.asset_types import asset_name_comparison_key
 from lib.script_models import GeneratedAssets, ad_shot_duration_seconds, get_generated_assets
 
 #: 单个 video_unit 最多容纳的镜头数，与 ``ReferenceVideoUnit.shots`` 的
@@ -39,10 +39,10 @@ def ad_unit_references(shots: list[dict]) -> list[dict]:
     三处同源——索引里持久化的 ``references`` 只是展示用缓存，镜头参考字段被编辑后
     未重新派生时它会落后于镜头，拿它送生成会让产物依据的参考与签名记录的不一致。
 
-    去重按归一名（:func:`lib.asset_types.normalize_asset_name`）而非裸字符串：同一资产在不同
-    镜头里可能以 NFC/NFD 两种等价编码写入，裸比对判不相等会让它派生出两条 reference——画布
-    上重复显示同一资产，并各占一个参考图槽位挤掉真正不同的参考。条目本身保留镜头里的原始
-    形式，判等交给读取侧的归一（与 ``_resolve_unit_references`` 的去重同构）。
+    去重按归一名（:func:`lib.asset_types.asset_name_comparison_key`）而非裸字符串：同一资产在不同
+    镜头里可能以两端空白或 NFC/NFD 两种等价形式写入，裸比对判不相等会让它派生出两条
+    reference——画布上重复显示同一资产，并各占一个参考图槽位挤掉真正不同的参考。条目落盘
+    同样使用规范名，读取侧仍按同一坐标系防御存量数据。
     """
     references: list[dict] = []
     for field, ref_type in _REFERENCE_FIELDS:
@@ -54,11 +54,13 @@ def ad_unit_references(shots: list[dict]) -> list[dict]:
             for name in names:
                 if not isinstance(name, str) or not name:
                     continue
-                canonical = normalize_asset_name(name)
+                canonical = asset_name_comparison_key(name)
+                if not canonical:
+                    continue
                 if canonical in seen:
                     continue
                 seen.add(canonical)
-                references.append({"type": ref_type, "name": name})
+                references.append({"type": ref_type, "name": canonical})
     return references
 
 
@@ -134,7 +136,9 @@ def _reference_signature(entries: object) -> list[tuple[str, str]]:
         if not isinstance(entry, dict):
             continue
         name = entry.get("name")
-        signature.append((str(entry.get("type")), normalize_asset_name(name) if isinstance(name, str) else str(name)))
+        signature.append(
+            (str(entry.get("type")), asset_name_comparison_key(name) if isinstance(name, str) else str(name))
+        )
     return signature
 
 
@@ -333,10 +337,10 @@ def _shot_prompt_text(shot: dict) -> str:
             if not isinstance(entry, dict):
                 continue
             speaker = _text(entry.get("speaker"))
-            # 归一到与 derive_voice_bindings 相同的坐标系（NFC）：该函数对说话人名归一后
+            # 归一到与 derive_voice_bindings 相同的坐标系（strip + NFC）：该函数对说话人名归一后
             # 产出音色绑定声明 `<X>的台词音色参考 @音频N`，这里的台词句式若仍用未归一的
             # 原始字节形式，两处的 `<X>` 会字节不同，供应商侧无法把参考音色与这句台词对上。
-            speaker = normalize_asset_name(speaker) if speaker else speaker
+            speaker = asset_name_comparison_key(speaker) if speaker else speaker
             line = _text(entry.get("line"))
             if line:
                 # 台词句式与 narration/drama 参考路径的第二段统一（<X>说 {台词}），无 speaker

@@ -16,7 +16,7 @@ from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from lib.api_errors import ApiError, NotFoundError
-from lib.asset_types import BUCKET_KEY, normalize_asset_bucket, normalize_asset_name
+from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
@@ -185,7 +185,7 @@ def _validate_references_exist(project: dict, refs: list[dict], _t: Translator) 
     missing: list[str] = []
     for r in refs:
         bucket = normalize_asset_bucket(project.get(BUCKET_KEY.get(r["type"], "")))
-        if normalize_asset_name(r["name"]) not in bucket:
+        if asset_name_comparison_key(r["name"]) not in bucket:
             missing.append(f"{r['type']}:{r['name']}")
     if missing:
         raise HTTPException(status_code=400, detail=_t("ref_not_registered", missing=", ".join(missing)))
@@ -265,12 +265,12 @@ async def derive_units(
 
 
 def _normalized_refs(references: list[Any]) -> list[dict]:
-    """把请求里的 reference 条目转成落盘 dict，资产名统一归一到 NFC。
+    """把请求里的 reference 条目转成落盘 dict，资产名统一归一到比对坐标系。
 
-    请求可能携带 NFD 形态的资产名（macOS 输入法/拖放），持久化前归一，与镜头正文
-    （parse_prompt 内 NFC）及前端 mergeReferences 的写回口径一致。
+    请求可能携带两端空白或 NFD 形态的资产名，持久化前收敛到 strip + NFC，
+    与镜头正文及前端 mergeReferences 的写回口径一致。
     """
-    return [{**r.model_dump(), "name": normalize_asset_name(r.name)} for r in references]
+    return [{**r.model_dump(), "name": asset_name_comparison_key(r.name)} for r in references]
 
 
 @router.post("/episodes/{episode}/units", status_code=status.HTTP_201_CREATED)

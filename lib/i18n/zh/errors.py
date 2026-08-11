@@ -188,6 +188,7 @@ MESSAGES = {
     "product_already_exists": "产品「{name}」已存在",
     "product_not_found": "产品「{name}」不存在",
     "product_deleted": "产品「{name}」已删除",
+    "project_asset_name_conflict": "{requested_type}名称「{name}」已被{existing_type}「{existing_name}」使用，项目内角色、场景、道具和产品不能同名",
     # API Keys
     "jwt_auth_required": "API Key 无权执行此操作，请使用 JWT 认证",
     "api_key_name_exists": "名称 '{name}' 已存在",

@@ -17,10 +17,11 @@ from lib.project_migrations.v1_to_v2_normalize_providers import migrate_v1_to_v2
 from lib.project_migrations.v2_to_v3_episode_ledger import migrate_v2_to_v3
 from lib.project_migrations.v3_to_v4_text_tiers import migrate_v3_to_v4
 from lib.project_migrations.v4_to_v5_generation_route import migrate_v4_to_v5
+from lib.project_migrations.v5_to_v6_asset_namespace import migrate_v5_to_v6
 
 logger = logging.getLogger(__name__)
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
 
@@ -185,3 +186,4 @@ MIGRATORS[1] = migrate_v1_to_v2
 MIGRATORS[2] = migrate_v2_to_v3
 MIGRATORS[3] = migrate_v3_to_v4
 MIGRATORS[4] = migrate_v4_to_v5
+MIGRATORS[5] = migrate_v5_to_v6

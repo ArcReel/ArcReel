@@ -84,7 +84,7 @@ function deriveDisplayReferences(text: string, lookup: MentionLookup): Reference
   // extract_mentions 同口径——tokenizePrompt 是给高亮用的，不做这条跳过。
   for (const name of extractMentions(text)) {
     const assetKind = lookup[name];
-    if (!assetKind) continue;
+    if (!assetKind || assetKind === "product") continue;
     out.push({ type: assetKind, name });
   }
   return out;
@@ -162,7 +162,10 @@ function unitDurationTiers(
   tiers: NonNullable<ScriptReviewState["duration_tiers"]> | null,
 ): number[] | null {
   if (!tiers) return null;
-  const hasReferences = extractMentions(unit.scriptText).some((name) => Boolean(lookup[name]));
+  const hasReferences = extractMentions(unit.scriptText).some((name) => {
+    const kind = lookup[name];
+    return Boolean(kind && kind !== "product");
+  });
   return hasReferences ? tiers.with_references : tiers.without_references;
 }
 

@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY, normalize_asset_bucket, normalize_asset_name
+from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.config.resolver import (
     ConfigResolver,
     ProviderModel,
@@ -89,7 +89,7 @@ def _dedupe_typed_references(references: list[dict]) -> list[dict]:
     seen: set[tuple[str, str]] = set()
     deduped: list[dict] = []
     for ref in references:
-        key = (str(ref.get("type")), normalize_asset_name(str(ref.get("name"))))
+        key = (str(ref.get("type")), asset_name_comparison_key(str(ref.get("name"))))
         if key in seen:
             continue
         seen.add(key)
@@ -116,7 +116,7 @@ def _resolve_unit_references(
             missing.append((str(rtype), str(rname)))
             continue
         bucket = normalize_asset_bucket(project.get(BUCKET_KEY[rtype]))
-        item = bucket.get(normalize_asset_name(str(rname)))
+        item = bucket.get(asset_name_comparison_key(str(rname)))
         sheet_rel = item.get(SHEET_KEY[rtype]) if isinstance(item, dict) else None
         if not sheet_rel:
             missing.append((rtype, rname))
@@ -418,9 +418,8 @@ def _resolve_ad_unit_reference_entries(
     各自 sheet。条目形如 ``{"image": Path, "label": str, "name": str, "kind":
     "sheet"|"original"|"asset"}``，label 供三段论第一段 ``<label>@图片N`` 主体绑定渲染
     （见 ``lib.reference_video.prompt_render.render_ad_backend_prompt``）；
-    ``kind == "asset"`` 的条目另带 ``"asset_type": "character"|"scene"|"prop"``——
-    三类资产允许重名，只有类型能把「角色的设计图」与同名场景/道具的设计图分开，
-    参考音频的图号对齐依赖该区分（见 ``render_ad_backend_prompt``）。
+    ``kind == "asset"`` 的条目另带 ``"asset_type": "character"|"scene"|"prop"``，
+    参考音频只对齐到 character 条目（见 ``render_ad_backend_prompt``）。
     """
     warnings: list[dict] = []
     product_names: list[str] = []
@@ -436,7 +435,7 @@ def _resolve_ad_unit_reference_entries(
             continue
         # 同一 unit 内两个镜头可能以不同编码形式（NFC/NFD）引用同一资产：按归一形式去重，
         # 否则下面的归一化查找会把两者解析到同一张图，参考图槽位被同一张图占两份。
-        canonical = normalize_asset_name(rname)
+        canonical = asset_name_comparison_key(rname)
         if rtype == "product":
             if canonical not in seen_products:
                 seen_products.add(canonical)
@@ -452,7 +451,7 @@ def _resolve_ad_unit_reference_entries(
     # product_names 仍保留原始编码形式（供 warning params 回显用户输入），比较前须归一。
     injected_products = {e["name"] for e in entries}
     for name in product_names:
-        if normalize_asset_name(name) not in injected_products:
+        if asset_name_comparison_key(name) not in injected_products:
             warnings.append({"key": "ref_ad_reference_skipped", "params": {"type": "product", "name": name}})
 
     # 条目的名字写归一形式，与产品条目同口径（``collect_product_references_for_names``

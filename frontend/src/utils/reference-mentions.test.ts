@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildMentionLookup,
   extractMentions,
   matchDialogueLine,
   matchVoiceoverLine,
+  normalizeAssetName,
   resolveMentionType,
   mergeReferences,
   splitScriptLines,
@@ -10,11 +12,12 @@ import {
 import type { ProjectData } from "@/types";
 import type { ReferenceResource } from "@/types/reference-video";
 
-function mkProject(): Pick<ProjectData, "characters" | "scenes" | "props"> {
+function mkProject(): Pick<ProjectData, "characters" | "scenes" | "props" | "products"> {
   return {
     characters: { 主角: { description: "" }, 张三: { description: "" }, "角色甲（成年）": { description: "" }, 角色乙: { description: "" } },
     scenes: { 酒馆: { description: "" }, "地点甲·版本A": { description: "" } },
     props: { 长剑: { description: "" }, 载具甲: { description: "" }, 道具甲: { description: "" } },
+    products: { 水杯: { description: "", brand: "" } },
   };
 }
 
@@ -75,6 +78,10 @@ describe("parser output is normalized", () => {
     expect(extractMentions(`@[${nameNfc}] 与 @[${nameNfd}]`)).toEqual([nameNfc]);
   });
 
+  it("strips wrapped names before lookup and deduplication", () => {
+    expect(extractMentions("@[ Hero ] 与 @[Hero] @Hero")).toEqual(["Hero"]);
+  });
+
   it("strips BOM from inside a mention name", () => {
     // `@[名<BOM>称]` 类粘贴产物：后端解析入口去 BOM，前端不去就会判未登记，预览与生成结果不一致
     expect(extractMentions(`镜头1：@[张${BOM}三] 抬眼`)).toEqual(["张三"]);
@@ -114,14 +121,20 @@ describe("parser output is normalized", () => {
 describe("resolveMentionType", () => {
   const project = mkProject();
 
-  it("prefers character → scene → prop", () => {
+  it("resolves every registered asset type", () => {
     expect(resolveMentionType(project, "主角")).toBe("character");
     expect(resolveMentionType(project, "酒馆")).toBe("scene");
     expect(resolveMentionType(project, "长剑")).toBe("prop");
+    expect(resolveMentionType(project, "水杯")).toBe("product");
   });
 
   it("returns undefined for unknown names", () => {
     expect(resolveMentionType(project, "路人")).toBeUndefined();
+  });
+
+  it("does not disambiguate a corrupt duplicate namespace at runtime", () => {
+    const corrupt = { characters: { Shared: {} }, scenes: { Shared: {} }, props: {}, products: {} };
+    expect(resolveMentionType(corrupt as never, "Shared")).toBeUndefined();
   });
 
   // toString / constructor / __proto__ 都通得过 validate_asset_name，用 `in` 查会命中
@@ -135,6 +148,51 @@ describe("resolveMentionType", () => {
   it("resolves an asset actually named like a prototype property", () => {
     const withOddName = { characters: { toString: { description: "" } }, scenes: {}, props: {} };
     expect(resolveMentionType(withOddName as never, "toString")).toBe("character");
+  });
+});
+
+describe("buildMentionLookup", () => {
+  it("normalizes keys and removes corrupt cross-bucket duplicates", () => {
+    const lookup = buildMentionLookup({
+      characters: Object.fromEntries([[" café ", {}], ["__proto__", {}]]),
+      scenes: { "cafe\u0301": {} },
+      props: { toString: {} },
+      products: { Product: {} },
+    } as never);
+
+    expect(Object.getPrototypeOf(lookup)).toBeNull();
+    expect(Object.hasOwn(lookup, "café")).toBe(false);
+    expect(lookup.__proto__).toBe("character");
+    expect(lookup.toString).toBe("prop");
+    expect(lookup.Product).toBe("product");
+  });
+
+  it("does not select a runtime owner when a product duplicates another bucket", () => {
+    const lookup = buildMentionLookup({
+      characters: { Shared: {} },
+      scenes: {},
+      props: {},
+      products: { Shared: {} },
+    } as never);
+
+    expect(Object.hasOwn(lookup, "Shared")).toBe(false);
+  });
+});
+
+describe("normalizeAssetName", () => {
+  it("uses Python strip whitespace without removing U+FEFF", () => {
+    expect(normalizeAssetName("\u001c\u3000Hero\u00a0")).toBe("Hero");
+    expect(normalizeAssetName("\uFEFFHero")).toBe("\uFEFFHero");
+  });
+
+  it("does not conflate an asset starting with U+FEFF with the visible name", () => {
+    const project = {
+      characters: { "\uFEFFHero": { description: "" } },
+      scenes: {},
+      props: {},
+    };
+    expect(resolveMentionType(project as never, "Hero")).toBeUndefined();
+    expect(resolveMentionType(project as never, "\uFEFFHero")).toBe("character");
   });
 });
 
@@ -164,6 +222,15 @@ describe("mergeReferences", () => {
   it("skips unknown mentions (not resolvable to any bucket)", () => {
     const merged = mergeReferences("镜头1：@路人 @主角", [], project);
     expect(merged).toEqual([{ type: "character", name: "主角" }]);
+  });
+
+  it("canonicalizes padded wrapped mentions before emitting references", () => {
+    const merged = mergeReferences("镜头1：@[ 主角 ] 入场", [], project);
+    expect(merged).toEqual([{ type: "character", name: "主角" }]);
+  });
+
+  it("does not emit products into the generic reference-video schema", () => {
+    expect(mergeReferences("镜头1：@水杯 特写", [], project)).toEqual([]);
   });
 
   it("deduplicates repeated mentions", () => {
@@ -246,6 +313,7 @@ describe("normative dialogue lines", () => {
       speaker: "角色甲（成年）",
       text: "我来了",
     });
+    expect(matchDialogueLine("@[ 张三 ]：{我来了}")).toEqual({ speaker: "张三", text: "我来了" });
   });
 
   it("rejects dialogue mixed into a description line", () => {
@@ -285,7 +353,7 @@ describe("normative dialogue lines", () => {
   it("does not treat a blank speaker slot as a normative line", () => {
     // 同后端 match_dialogue_line：speaker 位全为空白不算规范行，否则会派生出非法 utterance
     expect(matchDialogueLine("@[ ]：{我来了}")).toBeNull();
-    expect(extractMentions("@[ ]：{我来了}")).toEqual([" "]);
+    expect(extractMentions("@[ ]：{我来了}")).toEqual([""]);
   });
 
   it("does not treat blank braces as an utterance", () => {

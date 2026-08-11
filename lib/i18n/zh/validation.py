@@ -67,6 +67,10 @@ MESSAGES = {
     "val_asset_field_bad_timestamp": "{asset_type} '{name}'.{field} 不是合法的 ISO8601 时间戳: {value}",
     "val_asset_field_must_be_string_list": "{asset_type} '{name}'.{field} 必须是字符串列表，当前为 {actual}",
     "val_asset_field_item_must_be_string": "{asset_type} '{name}'.{field}[{index}] 必须是字符串，当前为 {actual}",
+    "val_asset_name_duplicate": (
+        "项目资产名称重复：{duplicate_type}「{duplicate_name}」与{first_type}「{first_name}」"
+        "按 strip + Unicode NFC 判定同名"
+    ),
     # ---- 条目级引用 ----
     "val_refs_unregistered": "{prefix}: {field} 引用了不存在于 project.json 的{asset_type}: {names}",
     "val_missing_defaults_empty_array": "{prefix}: 缺少 {field}，将使用默认空数组",

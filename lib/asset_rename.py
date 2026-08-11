@@ -6,8 +6,9 @@
 （就地改 dict、返回改写数）与文件迁移规划（返回 (src, dst) 列表）——供 ProjectManager 的
 编排入口在锁内先扫描（dry-run 预览与执行共用同一套扫描）再落盘。
 
-名字判等一律走比对坐标系（NFC，见 :func:`lib.asset_types.normalize_asset_name`）：正文、
-引用数组与文件名都可能以 NFD 形式存量落盘，按字节比对会漏改视觉同名的引用。
+名字引用判等一律走比对坐标系（strip + NFC，见
+:func:`lib.asset_types.asset_name_comparison_key`）：正文与引用数组可能带两端空白或以 NFD
+形式存量落盘，按字节比对会漏改同一资产的引用。文件 stem 仍只做 NFC，避免改变路径语义。
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from pathlib import Path, PurePosixPath
 from lib.asset_types import (
     ASSET_SPECS,
     AssetSpec,
+    asset_name_comparison_key,
     normalize_asset_name,
     rekey_equivalent_entries,
 )
@@ -77,10 +79,7 @@ class AssetRenameReport:
 #: drama 顶层 ``scenes`` 是场景 dict 列表，与 narration 分段里的场景名列表同 key 不同形，
 #: 按元素类型即可区分，无需骨架特例。
 _LIST_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
-    "character": frozenset({"characters_in_segment", "characters_in_scene", "characters_in_shot"}),
-    "scene": frozenset({"scenes"}),
-    "prop": frozenset({"props"}),
-    "product": frozenset({"products_in_shot"}),
+    asset_type: frozenset(spec.reference_list_fields) for asset_type, spec in ASSET_SPECS.items()
 }
 
 
@@ -97,12 +96,12 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
 
     只识别骨架结构、不校验语义：结构校验由写盘统一入口的「不更坏」守卫兜底。
     """
-    target = normalize_asset_name(old_name)
+    target = asset_name_comparison_key(old_name)
     list_fields = _LIST_FIELDS_BY_TYPE[asset_type]
     count = 0
 
     def _matches(value: object) -> bool:
-        return isinstance(value, str) and normalize_asset_name(value) == target and value != new_name
+        return isinstance(value, str) and asset_name_comparison_key(value) == target and value != new_name
 
     def _walk(node: object) -> None:
         nonlocal count

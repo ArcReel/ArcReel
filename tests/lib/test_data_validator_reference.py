@@ -90,7 +90,7 @@ def test_validator_accepts_nfc_reference_for_nfd_registered_character(tmp_path: 
     project["characters"][name_nfd] = {"description": "x"}
     script = _valid_reference_script()
     script["video_units"][0]["shots"] = [{"text": f"Shot 1 (3s): @{name_nfc} 推门"}]
-    script["video_units"][0]["references"] = [{"type": "character", "name": name_nfc}]
+    script["video_units"][0]["references"] = [{"type": "character", "name": f" {name_nfc} "}]
 
     _write(tmp_path, "project.json", project)
     _write(tmp_path, "scripts/episode_1.json", script)

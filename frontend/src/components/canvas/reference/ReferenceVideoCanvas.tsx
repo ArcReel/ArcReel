@@ -36,7 +36,11 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { errMsg } from "@/utils/async";
-import { mergeReferences, normalizeAssetName } from "@/utils/reference-mentions";
+import {
+  buildMentionLookup,
+  mergeReferences,
+  normalizeAssetName,
+} from "@/utils/reference-mentions";
 import type {
   ReferenceResource,
   ReferenceVideoUnit,
@@ -454,28 +458,8 @@ export function ReferenceVideoCanvas({
   // 编辑器列内的两种视图：写文稿 / 看解析结果。解析预览是只读派生视图，与正文同一份
   // 文本，故共用编辑器列的空间而非再占一栏（右栏留给成片预览）。
   const [editorView, setEditorView] = useState<"script" | "parse">("script");
-  // 同名可以同时落在多个 bucket；优先级与后端 `resolve_references` 一致
-  // （character → scene → prop），先到先得、后面的不覆盖。
-  const mentionLookup = useMemo(() => {
-    // 无原型字典：`out["__proto__"] = kind` 在普通对象上会走继承的 setter、不落自有属性，
-    // 登记过的 `__proto__` 资产因此在高亮里显示为未登记，而后端照常解析。
-    const out: Record<string, "character" | "scene" | "prop"> = Object.create(null) as Record<
-      string,
-      "character" | "scene" | "prop"
-    >;
-    const claim = (name: string, kind: "character" | "scene" | "prop") => {
-      // hasOwn 而非 `in`：`toString` / `constructor` 等是合法资产名，`in` 命中原型链会让
-      // 真正登记的资产拿不到类型，前端高亮判它未登记、后端预览正常解析，两侧当场矛盾。
-      // key 归一到 NFC：bucket 原始 key 可能是 NFD，查询侧（pushMentionTokens/toScriptLines）
-      // 统一按归一坐标系查，两侧不归一就会出现「已登记却判未登记」。
-      const key = normalizeAssetName(name);
-      if (!Object.hasOwn(out, key)) out[key] = kind;
-    };
-    for (const name of Object.keys(project?.characters ?? {})) claim(name, "character");
-    for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");
-    for (const name of Object.keys(project?.props ?? {})) claim(name, "prop");
-    return out;
-  }, [project?.characters, project?.scenes, project?.props]);
+  // schema v6 起各 bucket 共用名称空间，每个名字只会声明一次。
+  const mentionLookup = useMemo(() => buildMentionLookup(project), [project]);
 
   const hasAnyDraft = Object.keys(drafts).length > 0;
 

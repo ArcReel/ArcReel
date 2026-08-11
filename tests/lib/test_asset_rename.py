@@ -171,6 +171,20 @@ class TestRewritePayloadReferences:
         assert scene["utterances"][1]["speaker"] is None
         assert count == 2
 
+    def test_padded_typed_references_share_the_asset_comparison_key(self) -> None:
+        payload = _drama_script()
+        scene = payload["scenes"][0]
+        scene["characters_in_scene"] = [" 角色A "]
+        scene["utterances"][0]["speaker"] = " 角色A "
+        scene["references"] = [{"type": "character", "name": " 角色A "}]
+
+        count = rewrite_payload_references(payload, "character", "角色A", "新角色")
+
+        assert scene["characters_in_scene"] == ["新角色"]
+        assert scene["utterances"][0]["speaker"] == "新角色"
+        assert scene["references"] == [{"type": "character", "name": "新角色"}]
+        assert count == 3
+
     def test_ad_dialogue_speaker_and_products(self) -> None:
         payload = _ad_script()
         assert rewrite_payload_references(payload, "product", "产品A", "新产品") == 1

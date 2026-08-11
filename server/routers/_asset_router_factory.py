@@ -28,7 +28,13 @@ from lib.asset_rename import (
     AssetRenameHistoryCollisionError,
     AssetRenameNotFoundError,
 )
-from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
+from lib.asset_types import (
+    ASSET_SPECS,
+    ProjectAssetNameConflictError,
+    localize_asset_type,
+    resolve_asset_key,
+    validate_asset_name,
+)
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
@@ -86,6 +92,16 @@ class _CreateRequest(BaseModel):
 
     name: str
     description: str = ""
+
+
+def localize_project_asset_name_conflict(exc: ProjectAssetNameConflictError, translate: Translator) -> str:
+    return translate(
+        "project_asset_name_conflict",
+        name=exc.name,
+        requested_type=localize_asset_type(exc.requested_asset_type or exc.existing.asset_type, translate),
+        existing_type=localize_asset_type(exc.existing.asset_type, translate),
+        existing_name=exc.existing.name,
+    )
 
 
 def build_asset_router(
@@ -169,6 +185,8 @@ def build_asset_router(
                 return {"success": True, result_key: data[spec.bucket_key][name]}
 
             return await asyncio.to_thread(_sync)
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
         except HTTPException:
@@ -228,6 +246,8 @@ def build_asset_router(
                 return {"success": True, result_key: result}
 
             return await asyncio.to_thread(_sync)
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
         except KeyError:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
         except _InvalidFieldValue as exc:
@@ -278,6 +298,8 @@ def build_asset_router(
             return await asyncio.to_thread(_sync)
         except AssetRenameNotFoundError:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
         except AssetRenameConflictError as exc:
             raise HTTPException(status_code=409, detail=_t(keys["exists"], name=exc.conflict_name))
         except AssetRenameFileCollisionError as exc:
@@ -315,6 +337,8 @@ def build_asset_router(
                 return {"success": True, "message": _t(keys["deleted"], name=entry_name)}
 
             return await asyncio.to_thread(_sync)
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
         except KeyError:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
         except FileNotFoundError as exc:
