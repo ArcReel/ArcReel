@@ -151,10 +151,16 @@ def _new_source_precedes_cursor(project: Mapping[str, Any], sources: tuple[Sourc
     canonical_recorded = {
         unicodedata.normalize("NFC", recorded_path) for recorded_path in recorded if isinstance(recorded_path, str)
     }
+    cursor_indexes = [
+        index
+        for index, source in enumerate(sources)
+        if unicodedata.normalize("NFC", source.rel_path) == canonical_cursor
+    ]
+    if len(cursor_indexes) != 1:
+        return False
     return any(
-        (canonical := unicodedata.normalize("NFC", source.rel_path)) not in canonical_recorded
-        and canonical <= canonical_cursor
-        for source in sources
+        unicodedata.normalize("NFC", source.rel_path) not in canonical_recorded
+        for source in sources[: cursor_indexes[0] + 1]
     )
 
 
@@ -587,11 +593,11 @@ class WorkflowStateService:
         mode = project.get("content_mode")
         generation_mode = project.get("generation_mode")
         blockers: list[WorkflowBlocker] = []
-        if mode not in {"narration", "drama", "ad"}:
+        if not isinstance(mode, str) or mode not in {"narration", "drama", "ad"}:
             blockers.append(
                 WorkflowBlocker(code="invalid_content_mode", path="content_mode", reason="unsupported mode")
             )
-        if generation_mode not in {"storyboard", "reference_video"}:
+        if not isinstance(generation_mode, str) or generation_mode not in {"storyboard", "reference_video"}:
             blockers.append(
                 WorkflowBlocker(code="invalid_generation_mode", path="generation_mode", reason="unsupported route")
             )

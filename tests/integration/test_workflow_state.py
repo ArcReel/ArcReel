@@ -576,6 +576,35 @@ def test_decomposed_recorded_source_does_not_trigger_repeated_planning_reset(tmp
 
 
 @pytest.mark.integration
+def test_later_raw_sorted_source_does_not_trigger_planning_reset(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_dir = project_path / "source"
+    decomposed_name = unicodedata.normalize("NFD", "á.txt")
+    (source_dir / decomposed_name).write_text("已规划", encoding="utf-8")
+    scope = SourceScope(kind="all")
+    project = pm.load_project("demo")
+    revision = compute_source_revision(project_path, project, scope).revision
+    assert revision is not None
+    complete_asset_inventory(pm, "demo", scope, revision)
+    pm.update_project(
+        "demo",
+        lambda data: data.update(
+            planning_cursor={"source_file": f"source/{decomposed_name}", "offset": 3},
+            **{SOURCE_FINGERPRINTS_KEY: compute_source_fingerprints(discover_sources(project_path))},
+        ),
+    )
+    (source_dir / "b.txt").write_text("后续", encoding="utf-8")
+    refreshed = compute_source_revision(project_path, pm.load_project("demo"), scope).revision
+    assert refreshed is not None
+    complete_asset_inventory(pm, "demo", scope, refreshed)
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "EPISODE_PLAN"
+    assert status.next_action.type == "plan_episodes"
+
+
+@pytest.mark.integration
 def test_whitespace_only_source_is_missing_project_input(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     _write_source_and_complete(pm, project_path, " \n\t ")
@@ -596,6 +625,25 @@ def test_non_boolean_grid_storyboard_blocks_route_dispatch(tmp_path: Path) -> No
     assert status.state == "PROJECT_INPUT"
     assert status.project.grid_storyboard is False
     assert status.blockers[0].code == "invalid_grid_storyboard"
+    assert status.next_action.type == "none"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("field", "value", "blocker_code"),
+    [
+        ("content_mode", [], "invalid_content_mode"),
+        ("generation_mode", {}, "invalid_generation_mode"),
+    ],
+)
+def test_non_string_project_mode_returns_blocker(tmp_path: Path, field: str, value: object, blocker_code: str) -> None:
+    pm, _project_path = _make_project(tmp_path, "ad")
+    pm.update_project("demo", lambda project: project.update({field: value}))
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "PROJECT_INPUT"
+    assert status.blockers[0].code == blocker_code
     assert status.next_action.type == "none"
 
 

@@ -367,14 +367,14 @@ class DataValidator:
         content_mode = project.get("content_mode")
         if not content_mode:
             errors.append(_m("val_missing_field", field="content_mode"))
-        elif content_mode not in self.VALID_CONTENT_MODES:
+        elif not isinstance(content_mode, str) or content_mode not in self.VALID_CONTENT_MODES:
             errors.append(
                 _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
             )
 
         # source_kind 缺省 novel：缺失字段（存量项目）放行，仅拦截非法值（如 screen_play）。
         source_kind = project.get("source_kind")
-        if source_kind is not None and source_kind not in self.VALID_SOURCE_KINDS:
+        if source_kind is not None and (not isinstance(source_kind, str) or source_kind not in self.VALID_SOURCE_KINDS):
             errors.append(_m("val_source_kind_invalid", value=source_kind, allowed=_allowed(self.VALID_SOURCE_KINDS)))
 
         # 生成路线必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
