@@ -432,6 +432,7 @@ class ProjectArtifactManifestAdapter:
         lock_path = self._project_dir / LOCK_FILENAME
         with contextlib.ExitStack() as root_stack:
             root_fd: int | None = None
+            portable_lock_identity: tuple[int, int] | None = None
             try:
                 if os.name == "posix":
                     root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | _O_NOFOLLOW
@@ -446,7 +447,8 @@ class ProjectArtifactManifestAdapter:
                     self._assert_open_project_root_identity(root_fd)
                 else:
                     root_stack.enter_context(self._guard_portable_project_root())
-                if (root_fd is None or not _O_NOFOLLOW) and _is_linkish(lock_path):
+                    portable_lock_identity = self._portable_runtime_file_identity(lock_path, "manifest lock")
+                if root_fd is not None and not _O_NOFOLLOW and _is_linkish(lock_path):
                     raise ArtifactManifestError(f"manifest lock is a symlink or junction: {lock_path}")
                 flags = os.O_WRONLY | _O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
                 try:
@@ -462,7 +464,14 @@ class ProjectArtifactManifestAdapter:
                         raise ArtifactManifestError(f"manifest lock is a symlink: {lock_path}") from exc
                     raise ArtifactManifestError(f"cannot open manifest lock: {lock_path}: {exc}") from exc
                 try:
-                    if not stat.S_ISREG(os.fstat(fd).st_mode):
+                    if root_fd is None:
+                        self._assert_open_portable_runtime_file_identity(
+                            lock_path,
+                            fd,
+                            portable_lock_identity,
+                            "manifest lock",
+                        )
+                    elif not stat.S_ISREG(os.fstat(fd).st_mode):
                         raise ArtifactManifestError(f"manifest lock is not a regular file: {lock_path}")
                     handle = os.fdopen(fd, "wb")
                 except BaseException:
@@ -518,9 +527,49 @@ class ProjectArtifactManifestAdapter:
         if not stat.S_ISDIR(root_stat.st_mode) or (root_stat.st_dev, root_stat.st_ino) != self._project_identity:
             raise ArtifactManifestError(f"project directory changed after adapter initialization: {self._project_dir}")
 
+    @staticmethod
+    def _portable_runtime_file_identity(path: Path, label: str) -> tuple[int, int] | None:
+        if _is_linkish(path):
+            raise ArtifactManifestError(f"{label} is a symlink or junction: {path}")
+        try:
+            file_stat = path.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise ArtifactManifestError(f"{label} is unavailable: {path}: {exc}") from exc
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise ArtifactManifestError(f"{label} is not a regular file: {path}")
+        return file_stat.st_dev, file_stat.st_ino
+
+    def _assert_open_portable_runtime_file_identity(
+        self,
+        path: Path,
+        fd: int,
+        expected_identity: tuple[int, int] | None,
+        label: str,
+    ) -> None:
+        try:
+            opened_stat = os.fstat(fd)
+        except OSError as exc:
+            raise ArtifactManifestError(f"opened {label} is unavailable: {path}: {exc}") from exc
+        current_identity = self._portable_runtime_file_identity(path, label)
+        opened_identity = (opened_stat.st_dev, opened_stat.st_ino)
+        if (
+            not stat.S_ISREG(opened_stat.st_mode)
+            or current_identity is None
+            or current_identity != opened_identity
+            or (expected_identity is not None and current_identity != expected_identity)
+        ):
+            raise ArtifactManifestError(f"{label} changed while it was being opened: {path}")
+
     def _load_unlocked(self, root_fd: int | None) -> tuple[dict[str, ArtifactManifestEntry], bytes | None]:
         path = self._project_dir / MANIFEST_FILENAME
-        if (root_fd is None or not _O_NOFOLLOW) and _is_linkish(path):
+        portable_manifest_identity: tuple[int, int] | None = None
+        if root_fd is None:
+            portable_manifest_identity = self._portable_runtime_file_identity(path, "artifact manifest")
+            if portable_manifest_identity is None:
+                return {}, None
+        elif not _O_NOFOLLOW and _is_linkish(path):
             raise ArtifactManifestError(f"artifact manifest is a symlink or junction: {path}")
         flags = os.O_RDONLY | _O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
         try:
@@ -532,7 +581,14 @@ class ProjectArtifactManifestAdapter:
                 raise ArtifactManifestError(f"artifact manifest is a symlink: {path}") from exc
             raise ArtifactManifestError(f"cannot open artifact manifest: {path}: {exc}") from exc
         try:
-            if not stat.S_ISREG(os.fstat(fd).st_mode):
+            if root_fd is None:
+                self._assert_open_portable_runtime_file_identity(
+                    path,
+                    fd,
+                    portable_manifest_identity,
+                    "artifact manifest",
+                )
+            elif not stat.S_ISREG(os.fstat(fd).st_mode):
                 raise ArtifactManifestError(f"artifact manifest is not a regular file: {path}")
             handle = os.fdopen(fd, "rb")
         except BaseException:
@@ -717,7 +773,7 @@ class ArtifactKey:
         try:
             raw = base64.b64decode(token + "=" * (-len(token) % 4), altchars=b"-_", validate=True)
             payload = json.loads(raw.decode("utf-8"))
-        except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except (binascii.Error, UnicodeDecodeError, ValueError, RecursionError) as exc:
             raise ValueError("artifact key is malformed") from exc
         if not isinstance(payload, list) or not payload or not isinstance(payload[0], str):
             raise ValueError("artifact key payload is malformed")
@@ -782,6 +838,7 @@ def _normalize_relative_path(value: object) -> str:
         or windows_path.drive
         or windows_path.is_absolute()
         or any(part in {"", ".", ".."} for part in raw_parts)
+        or any(part.rstrip(" .") != part for part in raw_parts)
     ):
         raise ValueError(f"artifact path must be a canonical project-relative POSIX path: {value!r}")
     normalized = path.as_posix()
@@ -813,7 +870,7 @@ def _serialize_manifest(entries: Mapping[str, ArtifactManifestEntry]) -> bytes:
 def _parse_manifest(raw: bytes) -> dict[str, ArtifactManifestEntry]:
     try:
         payload = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, ValueError) as exc:
         raise ArtifactManifestError(f"artifact manifest is not valid UTF-8 JSON: {exc}") from exc
     except RecursionError as exc:
         raise ArtifactManifestError("artifact manifest exceeds the JSON nesting limit") from exc

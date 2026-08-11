@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -586,6 +587,61 @@ def test_project_adapter_refuses_runtime_file_symlinks(
     assert outside.read_text(encoding="utf-8") == "do not touch"
 
 
+def test_project_adapter_rejects_portable_manifest_symlink_swap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "episode.json").write_text("{}", encoding="utf-8")
+    adapter = ProjectArtifactManifestAdapter(project)
+    manifest = ArtifactManifest(adapter)
+    key = ArtifactKey.episode_script(1)
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={})
+    assert manifest.register(key, artifact_path="episode.json", basis=basis)
+    manifest_path = project / MANIFEST_FILENAME
+    outside = tmp_path / "outside.json"
+    outside.write_bytes(manifest_path.read_bytes())
+    original_open = os.open
+    swapped = False
+
+    def swap_manifest_then_open(
+        path: str | bytes | Path,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal swapped
+        if not swapped and dir_fd is None and Path(os.fsdecode(path)) == manifest_path:
+            manifest_path.rename(project / "original-manifest.json")
+            manifest_path.symlink_to(outside)
+            swapped = True
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr("lib.artifact_manifest.os.open", swap_manifest_then_open)
+
+    with pytest.raises(ArtifactManifestError, match="artifact manifest is a symlink"):
+        adapter._load_unlocked(None)
+
+    assert swapped
+
+
+def test_project_adapter_revalidates_portable_manifest_identity(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "episode.json").write_text("{}", encoding="utf-8")
+    adapter = ProjectArtifactManifestAdapter(project)
+    key = ArtifactKey.episode_script(1)
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={})
+    assert ArtifactManifest(adapter).register(key, artifact_path="episode.json", basis=basis)
+
+    entries, raw = adapter._load_unlocked(None)
+
+    assert raw is not None
+    assert entries[key.encode()].basis_digest == basis.digest
+
+
 @pytest.mark.parametrize("schema_version", [999, True, 1.0])
 def test_project_adapter_reports_invalid_manifest_schema_version_as_blocked_without_reset(
     tmp_path: Path,
@@ -610,6 +666,62 @@ def test_project_adapter_reports_invalid_manifest_schema_version_as_blocked_with
     assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
     with pytest.raises(ArtifactManifestError):
         manifest.register(key, artifact_path="episode.json", basis=basis)
+    assert manifest_path.read_bytes() == malformed
+
+
+def test_project_adapter_reports_oversized_manifest_integer_as_blocked_without_reset(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "episode.json").write_text("{}", encoding="utf-8")
+    malformed = (
+        b'{"entries":{},"hash_algorithm":"' + HASH_ALGORITHM.encode() + b'","schema_version":' + b"9" * 5000 + b"}"
+    )
+    manifest_path = project / MANIFEST_FILENAME
+    manifest_path.write_bytes(malformed)
+    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
+
+    comparison = manifest.compare(
+        ArtifactKey.episode_script(1),
+        artifact_path="episode.json",
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={}),
+    )
+
+    assert comparison.status is ArtifactStatus.BLOCKED
+    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
+    assert manifest_path.read_bytes() == malformed
+
+
+def test_project_adapter_reports_recursive_encoded_key_as_blocked_without_reset(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "episode.json").write_text("{}", encoding="utf-8")
+    nested_payload = ('["episode-script",' + "[" * 2000 + "0" + "]" * 2000 + "]").encode()
+    encoded_key = "artifact-key-v1:" + base64.urlsafe_b64encode(nested_payload).decode().rstrip("=")
+    malformed = json.dumps(
+        {
+            "entries": {
+                encoded_key: {
+                    "artifact_path": "episode.json",
+                    "basis_digest": ArtifactBasis.build("test/script", kind_version=1, inputs={}).digest,
+                }
+            },
+            "hash_algorithm": HASH_ALGORITHM,
+            "schema_version": 1,
+        },
+        separators=(",", ":"),
+    ).encode()
+    manifest_path = project / MANIFEST_FILENAME
+    manifest_path.write_bytes(malformed)
+    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
+
+    comparison = manifest.compare(
+        ArtifactKey.episode_script(1),
+        artifact_path="episode.json",
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={}),
+    )
+
+    assert comparison.status is ArtifactStatus.BLOCKED
+    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
     assert manifest_path.read_bytes() == malformed
 
 
