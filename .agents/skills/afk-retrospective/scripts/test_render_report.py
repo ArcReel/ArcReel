@@ -121,6 +121,18 @@ class RenderReportTest(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.ReportError, "sources must not be empty"):
             MODULE.build_report_data(self.root, "batch-one", self.analysis)
 
+        data = analysis_fixture()
+        data["batch"]["summary"] = float("nan")
+        self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ReportError, "non-finite JSON constant"):
+            MODULE.build_report_data(self.root, "batch-one", self.analysis)
+
+        data = analysis_fixture()
+        data["followups"][0]["id"] = "EV-0001"
+        self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ReportError, "collides with a ledger event"):
+            MODULE.build_report_data(self.root, "batch-one", self.analysis)
+
 
 if __name__ == "__main__":
     unittest.main()

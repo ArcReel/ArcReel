@@ -121,15 +121,21 @@ def validate_source_references(analysis: dict[str, Any], available: set[str]) ->
     items = list(analysis["followups"]) + list(analysis["pending"])
     for key in KNOWLEDGE_KEYS:
         items.extend(analysis["knowledge"][key])
+    event_ids = {source for source in available if source.startswith("EV-")}
     for item in items:
+        if item["id"] in event_ids:
+            fail(f"report id collides with a ledger event id: {item['id']}")
         for source in item.get("sources", []):
             if source not in available:
                 fail(f"source does not resolve to this batch: {source}")
 
 
 def load_json(path: Path) -> Any:
+    def reject_constant(value: str) -> Never:
+        fail(f"analysis contains a non-finite JSON constant: {value}")
+
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"), parse_constant=reject_constant)
     except FileNotFoundError:
         fail(f"analysis file not found: {path}")
     except json.JSONDecodeError as exc:
