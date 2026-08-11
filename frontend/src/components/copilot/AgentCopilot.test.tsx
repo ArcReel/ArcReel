@@ -48,6 +48,7 @@ describe("AgentCopilot", () => {
   // Mocks whose callers wrap them with voidPromise must return a Promise
   // so the .catch(...) chain in voidPromise resolves instead of crashing.
   const sendMessage = vi.fn().mockResolvedValue(undefined);
+  const rewriteMessage = vi.fn().mockResolvedValue(true);
   const answerQuestion = vi.fn().mockResolvedValue(undefined);
   const interrupt = vi.fn().mockResolvedValue(undefined);
   const createNewSession = vi.fn();
@@ -63,6 +64,7 @@ describe("AgentCopilot", () => {
     useProjectsStore.getState().setCurrentProject("demo", null);
     mockedUseAssistantSession.mockReturnValue({
       sendMessage,
+      rewriteMessage,
       answerQuestion,
       interrupt,
       createNewSession,
