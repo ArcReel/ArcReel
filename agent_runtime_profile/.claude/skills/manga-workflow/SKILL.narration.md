@@ -34,34 +34,39 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 ### 现有项目
 
 1. session cwd 已经绑定到目标项目根
-2. 通过 Read `project.json` + Glob 文件系统判定状态摘要
-3. 从上次未完成的阶段继续
+2. 调用 `mcp__arcreel__get_workflow_status({})` 取得服务端权威状态
+3. 按返回的 `next_action` 从上次未完成的阶段继续
 
 ---
 
 ## 状态检测
 
-进入工作流后，使用 Read 读取 `project.json`，使用 Glob 检查文件系统。按顺序检查，遇到第一个缺失项即确定当前阶段：
+进入工作流、用户说“继续/下一步/查看进度”、以及每次工具或 subagent 完成后，都调用
+`mcp__arcreel__get_workflow_status({})`。用户指定集数时传 `{"episode": N}`。返回的
+`project`、`target`、`state`、`blockers`、`gates`、`artifacts` 与 `next_action` 是阶段判断的唯一真相源；
+Read / Glob 只用于执行已选定动作所需的内容，不用于另建状态机。
 
-1. characters / scenes / props 中**任一**为空（定义缺失）？ → **阶段 1**
-2. 目标集在账本（project.json `episodes[]`）中没有条目？ → **阶段 2**。分集接续状态**只读账本**：条目的 `ledger_status` 标记每集状态（planned 已规划 / consumed 已消费 / stale 已有下游产物待重做），顶层 `planning_cursor` 标记下一批规划起点；**不要用 Glob 文件名推断集数**（`source/episode_{N}.txt` 只是账本的派生物）
-3. 目标集 `ledger_status` 为 `stale`（该集号重新规划前已有下游产物——旧 step1/剧本/媒体一律视为失效，即使文件还在也从本阶段起重做，产物沿版本机制替换），或目标集**当前组合对应的** step1 中间文件不存在？ → **阶段 3**。按项目 `generation_mode` × `content_mode` 检查对应文件（generation_mode 由项目唯一决定，创建后不可变，不存在集级覆盖）：
-   - generation_mode == reference_video（任一 content_mode）: `drafts/episode_{N}/step1_reference_units.json`
-   - generation_mode == storyboard 且 content_mode == narration: `drafts/episode_{N}/step1_segments.json`
-   - generation_mode == storyboard 且 content_mode == drama: `drafts/episode_{N}/step1_normalized_script.json`（结构化内容）
+按 `next_action.type` 路由：
 
-   本项目 content_mode 固定为 narration（创建后不可变），故只会命中第 1 或第 2 分支，取决于项目的 generation_mode。只认当前组合对应的那一个文件：目录中出现**其他模式的 `step1_*` 文件**属残留，不作为阶段 3 已完成的依据。
-4. scripts/episode_{N}.json 不存在？ → **阶段 4**（另见阶段 4 触发条件：本次会话中阶段 3 中间文件被修改/重拆时，即使 JSON 存在也须重生）
-5. 任一类资产仍有缺 sheet 项（character 缺 character_sheet / scene 缺 scene_sheet / prop 缺 prop_sheet）？ → **阶段 5**（三类并行）
-6. **storyboard 模式**（含 grid_storyboard）：有片段缺少分镜图？ → **阶段 6**（reference_video 模式跳过）
-7. 有片段/unit 缺少视频？ → **阶段 7**
-8. **storyboard 模式**（含 grid_storyboard）：有段缺 `narration_audio`？ → **阶段 8（旁白配音）**（reference_video 模式无 segments，跳过）
-9. 全部完成 → 工作流结束，引导用户在 Web 端导出剪映草稿
+| next_action.type | 阶段 |
+|---|---|
+| `collect_project_input` | 阶段 0 |
+| `analyze_assets` | 阶段 1 |
+| `plan_episodes` | 阶段 2 |
+| `prepare_step1` | 阶段 3 |
+| `confirm_step1` / `generate_script` | 阶段 4 |
+| `generate_asset_sheets` | 阶段 5 |
+| `generate_storyboards` / `generate_grid` | 阶段 6 |
+| `generate_videos` | 阶段 7 |
+| `generate_narration_audio` | 阶段 8 |
+| `export` | 工作流完成 |
+| `none` | 展示 `blockers` 并停止变更 |
+
+调用后把 `target.episode` 作为目标集，把 `next_action.args` 与 `requested_ids` 原样带入对应阶段。
+不得根据空资产 bucket、文件名、旧文件存在性或对话记忆覆盖服务端结论。
 
 > 阶段 8 只依赖剧本各段的 `novel_text`，独立于分镜图/视频——阶段 4 剧本生成后即可推进。
 > 用户提前要求配音时直接进入阶段 8，不必等分镜/视频完成。
-
-**确定目标集数**：如果用户未指定，读账本确定——`ledger_status` 为 `planned`（或 `stale`）的最小集号即下一个待制作集；账本中所有集均已消费且源文尚未规划完时，进入阶段 2 规划下一批。
 
 ---
 
@@ -80,13 +85,15 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 ## 阶段 1：全局角色/场景/道具提取
 
-**触发**：project.json 中 characters / scenes / props 中**任一**为空（定义缺失）
+**触发**：`next_action.type == "analyze_assets"`。空 bucket 是合法分析结果，不得凭空 bucket 重跑。
 
 **dispatch `analyze-assets` subagent**：
 
 ```text
 项目名称：{project_name}
 分析范围：{整部小说 / 用户指定的范围}
+分析 scope：{next_action.args.scope}
+expected source revision：{next_action.args.source_revision}
 已有角色：{已有角色名列表，或"无"}
 已有场景：{已有场景名列表，或"无"}
 已有道具：{已有道具名列表，或"无"}

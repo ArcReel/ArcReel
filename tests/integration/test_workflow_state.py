@@ -341,6 +341,107 @@ def test_malformed_script_collection_is_a_blocker_not_an_exception(tmp_path: Pat
 
 
 @pytest.mark.integration
+def test_empty_script_collection_is_a_blocker_not_completed_work(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {"episode": 1, "content_mode": "ad", "shots": []},
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "FINAL_SCRIPT"
+    assert status.artifacts["script"]["state"] == "blocked"
+    assert status.blockers[0].code == "invalid_script_collection"
+
+
+@pytest.mark.integration
+def test_ad_reference_video_reads_completion_from_reference_units(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad", generation_mode="reference_video")
+    video_path = "reference_videos/E1U1.mp4"
+    _write_artifact(project_path, video_path)
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "content_mode": "ad",
+            "shots": [{"shot_id": "E1S01", "duration_seconds": 4}],
+            "reference_units": [
+                {
+                    "unit_id": "E1U1",
+                    "shot_ids": ["E1S01"],
+                    "references": [],
+                    "generated_assets": {"video_clip": video_path},
+                }
+            ],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "EXPORT_READY"
+    assert status.artifacts["videos"] == {
+        "state": "current",
+        "current_ids": ["E1U1"],
+        "missing_ids": [],
+        "stale_ids": [],
+    }
+
+
+@pytest.mark.integration
+def test_ad_reference_video_without_derived_units_requires_video_generation(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad", generation_mode="reference_video")
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "content_mode": "ad",
+            "shots": [{"shot_id": "E1S01", "duration_seconds": 4}],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "VIDEO"
+    assert status.artifacts["videos"]["state"] == "missing"
+    assert status.next_action.type == "generate_videos"
+
+
+@pytest.mark.integration
+def test_stale_episode_requires_step1_even_when_old_artifacts_exist(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source_and_complete(pm, project_path)
+
+    def _plan(project: dict) -> None:
+        project["episodes"] = [
+            {
+                "episode": 1,
+                "script_file": "scripts/episode_1.json",
+                "ledger_status": "stale",
+            }
+        ]
+
+    pm.update_project("demo", _plan)
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    atomic_write_json(draft_dir / "step1_segments.json", {"episode": 1, "segments": []})
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "generated_assets": {}}],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "STEP1_CONTENT"
+    assert status.artifacts["step1"]["state"] == "stale"
+    assert status.next_action.type == "prepare_step1"
+
+
+@pytest.mark.integration
 def test_reference_video_route_skips_storyboards_and_audio(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     source_text = "原文"

@@ -10,6 +10,7 @@ description: 从剧本中提取角色 / 场景 / 道具三类资产定义，分�
 **输入**：主 agent 会在 prompt 中提供以下信息：
 - 项目名称（如 `my_project`）
 - 分析范围（整部小说 / 指定章节 / 指定文件）
+- workflow-status 给出的 `scope` 与 `expected_source_revision`
 - 已有角色/场景/道具名称列表（如有）
 
 **输出**：完成角色/场景/道具写入后，返回精炼的结构化摘要（不包含原始小说文本）
@@ -105,7 +106,20 @@ mcp__arcreel__patch_project({"table": "props", "entries": {"玉佩": {"descripti
 
 ### Step 5: 返回结构化摘要
 
-完成后向主 agent 返回以下格式的摘要：
+资产写入全部完成后，先调用：
+
+```text
+mcp__arcreel__complete_asset_inventory({
+  "scope": {主 agent 传入的 scope},
+  "expected_source_revision": "{主 agent 传入的 expected_source_revision}"
+})
+```
+
+三个 bucket 全空也是合法完成结果，仍须调用。若工具返回 `source_revision_conflict` 或 source blocker，
+停止追加写入并把错误原样返回主 agent；由主 agent 刷新 workflow-status 后重新决定动作。只有 completion fact
+写入成功才返回“资产提取完成”。
+
+随后向主 agent 返回以下格式的摘要：
 
 ```
 ## 资产提取完成

@@ -10,7 +10,13 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 
 ## 工作流步骤
 
-1. **确认项目状态**：Read `project.json`，确认 `title`、`content_mode`（固定 `ad`）、`target_duration`（目标总时长，秒）、`brief`（创作诉求，可为空）、`generation_mode`（`storyboard` / `reference_video`，创建后不可更改；宫格装配 `grid_storyboard` 对 ad 不开放）、`products`（产品资产）。用户要求更改生成模式时明确告知路线创建后不可更改，agent 无对应写入权限，也无绕过方式
+每次进入工作流、用户说“继续/下一步/查看进度”、以及每次工具或 subagent 完成后，先调用
+`mcp__arcreel__get_workflow_status({})`。其 `project`、`target`、`state`、`blockers`、`gates`、
+`artifacts` 与 `next_action` 是已实现阶段的唯一状态真相；Read 只补充创作输入与产品 soft gate 信息，
+不根据文件存在性重建阶段。`next_action.type == "none"` 时展示 blockers 并停止变更；其余动作按下列步骤执行，
+完成后再次刷新状态。产品 sheet 过目等明确标注的 soft gate 继续叠加在服务端状态之上。
+
+1. **确认项目状态**：按 workflow-status 返回的 `project` 确认 `content_mode`（固定 `ad`）与 `generation_mode`；Read `project.json` 补充 `title`、`target_duration`、`brief` 与 `products`。用户要求更改生成模式时明确告知路线创建后不可更改，agent 无对应写入权限，也无绕过方式
 2. **创作输入**：带货项目而产品未登记或缺原图（`reference_images` 为空）时，引导用户在 WebUI 初始化页或产品资产页上传产品图——原图是产品保真的验收锚点，agent 不能代传图片；产品描述/品牌可经 `mcp__arcreel__patch_project` 代写。`brief` 为空时引导用户补充创作诉求（产品/主题、目标人群、期望风格——卖点留给下一步起草，不在此重复索要），同样经 `patch_project` 写入
 3. **起草卖点（selling_points）**：产品已登记但 `selling_points` 为空时，先从 `brief`、产品描述与产品原图（`reference_images`）中起草卖点列表，与用户确认后经 `mcp__arcreel__patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
 4. **资产定义与设计图**：角色/场景/道具定义写入 `project.json` 后 dispatch `generate-assets` subagent 生成设计图；产品 sheet 在产品资产页生成
