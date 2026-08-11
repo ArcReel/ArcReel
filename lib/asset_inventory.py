@@ -51,11 +51,11 @@ def complete_asset_inventory(
     pm: ProjectManager,
     project_name: str,
     scope: SourceScope,
-    expected_source_revision: str,
+    expected_source_revision: object,
 ) -> AssetInventoryCompletion:
     """Validate and persist an inventory fact within one project lock."""
 
-    if not expected_source_revision.startswith("sha256-v1:"):
+    if not isinstance(expected_source_revision, str) or not expected_source_revision.startswith("sha256-v1:"):
         raise AssetInventoryInvalidRequest("expected_source_revision must be a sha256-v1 revision")
 
     result: AssetInventoryCompletion | None = None

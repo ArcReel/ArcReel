@@ -111,6 +111,20 @@ def _all_source_paths(
 def _scoped_source_paths(
     project_dir: Path, scope: SourceScope
 ) -> tuple[list[tuple[str, Path]], SourceRevisionResult | None]:
+    source_dir = project_dir / "source"
+    if source_dir.is_symlink():
+        return [], _blocked(scope, "source_symlink", "source", "source directory must not be a symbolic link")
+    if source_dir.exists() and not source_dir.is_dir():
+        return [], _blocked(scope, "source_not_directory", "source", "source path is not a directory")
+    try:
+        entries = list(source_dir.iterdir()) if source_dir.exists() else []
+    except OSError as exc:
+        return [], _blocked(scope, "source_unreadable", "source", f"source directory cannot be read: {exc}")
+    by_canonical_path: dict[str, list[Path]] = {}
+    for entry in entries:
+        rel = unicodedata.normalize("NFC", f"source/{entry.name}")
+        by_canonical_path.setdefault(rel, []).append(entry)
+
     paths: list[tuple[str, Path]] = []
     seen: set[str] = set()
     for requested in scope.files:
@@ -125,7 +139,11 @@ def _scoped_source_paths(
         if rel in seen:
             continue
         seen.add(rel)
-        paths.append((rel, project_dir.joinpath(*pure.parts)))
+        candidates = by_canonical_path.get(rel, [])
+        if len(candidates) > 1:
+            return [], _blocked(scope, "source_path_collision", rel, "source paths collide after Unicode normalization")
+        path = candidates[0] if candidates else project_dir.joinpath(*pure.parts)
+        paths.append((rel, path))
     paths.sort(key=lambda item: item[0])
     return paths, None
 
@@ -163,6 +181,10 @@ def _read_sources(
             content = path.read_bytes()
         except OSError as exc:
             return [], _blocked(scope, "source_unreadable", rel, f"source file cannot be read: {exc}")
+        try:
+            content.decode("utf-8")
+        except UnicodeDecodeError:
+            return [], _blocked(scope, "source_unreadable", rel, "source file is not valid UTF-8")
         fingerprints.append((rel, hashlib.sha256(content).hexdigest()))
     return fingerprints, None
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.asset_inventory import AssetInventoryRevisionConflict, complete_asset_inventory
+from lib.asset_inventory import AssetInventoryInvalidRequest, AssetInventoryRevisionConflict, complete_asset_inventory
 from lib.project_manager import ProjectManager
 from lib.source_revision import SourceScope, compute_source_revision
 from server.agent_runtime.sdk_tools._context import ToolContext
@@ -64,6 +64,14 @@ def test_scoped_completion_keeps_explicit_partial_scope(tmp_path: Path) -> None:
 
     marker = pm.load_project("demo")["workflow"]["asset_inventory"]
     assert marker["scope"] == {"kind": "files", "files": ["source/novel.txt"]}
+
+
+@pytest.mark.integration
+def test_complete_inventory_rejects_non_string_expected_revision(tmp_path: Path) -> None:
+    pm, _project_path = _make_project(tmp_path)
+
+    with pytest.raises(AssetInventoryInvalidRequest):
+        complete_asset_inventory(pm, "demo", SourceScope(kind="all"), None)
 
 
 @pytest.mark.integration

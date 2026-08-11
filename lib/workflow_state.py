@@ -26,7 +26,7 @@ from lib.path_safety import safe_exists
 from lib.project_manager import ProjectManager
 from lib.reference_video.ad_units import ad_stale_unit_ids
 from lib.script_models import get_generated_assets
-from lib.script_skeleton import SKELETONS, resolve_declared_kind
+from lib.script_skeleton import SKELETONS, ensure_route_skeleton
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
 
 WorkflowStateName = Literal[
@@ -324,14 +324,17 @@ class WorkflowStateService:
     ) -> tuple[dict[str, Any], list[dict[str, Any]], str | None, dict[str, Any]]:
         path = target.script
         try:
-            script = self.pm.load_script(project_name, path)
+            script: Any = self.pm.load_script(project_name, path)
         except FileNotFoundError:
             return {"state": "missing", "path": path}, [], None, {}
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             blockers.append(WorkflowBlocker(code="invalid_script", path=path, reason=str(exc)))
             return {"state": "blocked", "path": path}, [], None, {}
+        if not isinstance(script, dict):
+            blockers.append(WorkflowBlocker(code="invalid_script", path=path, reason="script must be an object"))
+            return {"state": "blocked", "path": path}, [], None, {}
         try:
-            kind = resolve_declared_kind(project.get("content_mode"), project.get("generation_mode"))
+            kind = ensure_route_skeleton(script, project.get("content_mode"), project.get("generation_mode"))
         except ValueError as exc:
             blockers.append(WorkflowBlocker(code="invalid_project_mode", path="content_mode", reason=str(exc)))
             return {"state": "blocked", "path": path}, [], None, script
@@ -675,9 +678,6 @@ class WorkflowStateService:
                                 args={"episode": target.episode},
                                 ids=missing,
                             )
-                        elif mode != "ad" and not self._planning_complete(project_path, project, source):
-                            state = "EPISODE_PLAN"
-                            next_action = _action("plan_episodes", "source text remains unplanned")
                         elif episode is None and mode != "ad":
                             later_status = next(
                                 (
@@ -687,14 +687,21 @@ class WorkflowStateService:
                                     and (
                                         status := self._get_status(project_name, project, project_path, number, shared)
                                     ).state
-                                    != "EXPORT_READY"
+                                    not in {"EPISODE_PLAN", "EXPORT_READY"}
                                 ),
                                 None,
                             )
                             if later_status is not None:
                                 return later_status
-                            state = "EXPORT_READY"
-                            next_action = _action("export", "all required artifacts are usable")
+                            if not self._planning_complete(project_path, project, source):
+                                state = "EPISODE_PLAN"
+                                next_action = _action("plan_episodes", "source text remains unplanned")
+                            else:
+                                state = "EXPORT_READY"
+                                next_action = _action("export", "all required artifacts are usable")
+                        elif mode != "ad" and not self._planning_complete(project_path, project, source):
+                            state = "EPISODE_PLAN"
+                            next_action = _action("plan_episodes", "source text remains unplanned")
                         else:
                             state = "EXPORT_READY"
                             next_action = _action("export", "all required artifacts are usable")

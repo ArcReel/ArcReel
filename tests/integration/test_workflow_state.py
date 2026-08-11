@@ -285,7 +285,7 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
             }
             for episode in (1, 2)
         ]
-        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": len(source_text)}
+        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": 1}
 
     pm.update_project("demo", _plan)
     draft_dir = project_path / "drafts" / "episode_1"
@@ -357,6 +357,53 @@ def test_malformed_script_collection_is_a_blocker_not_an_exception(tmp_path: Pat
     assert status.artifacts["script"]["state"] == "blocked"
     assert status.blockers[0].code == "invalid_script_collection"
     assert status.next_action.type == "none"
+
+
+@pytest.mark.integration
+def test_non_object_script_is_a_blocker_not_an_exception(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    atomic_write_json(project_path / "scripts" / "episode_1.json", [])
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "FINAL_SCRIPT"
+    assert status.artifacts["script"]["state"] == "blocked"
+    assert status.blockers[0].code == "invalid_script"
+
+
+@pytest.mark.integration
+def test_legacy_narration_scenes_skeleton_remains_resumable(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+
+    def _plan(project: dict) -> None:
+        project["episodes"] = [
+            {
+                "episode": 1,
+                "script_file": "scripts/episode_1.json",
+                "ledger_status": "planned",
+            }
+        ]
+
+    pm.update_project("demo", _plan)
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    atomic_write_json(draft_dir / "step1_segments.json", {"episode": 1, "segments": []})
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "content_mode": "narration",
+            "scenes": [{"scene_id": "E1S01", "duration_seconds": 4, "generated_assets": {}}],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "STORYBOARD"
+    assert status.artifacts["script"]["state"] == "current"
+    assert status.next_action.requested_ids == ["E1S01"]
 
 
 @pytest.mark.integration

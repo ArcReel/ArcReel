@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -43,6 +44,38 @@ def test_scoped_revision_rejects_planned_episode_files(tmp_path: Path) -> None:
 
     assert result.revision is None
     assert result.blockers[0].code == "invalid_source_scope"
+
+
+@pytest.mark.integration
+def test_scoped_revision_resolves_canonical_unicode_path_to_filesystem_spelling(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    disk_name = unicodedata.normalize("NFD", "truyện.txt")
+    (source / disk_name).write_text("nội dung", encoding="utf-8")
+    all_result = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    assert all_result.files == ["source/truyện.txt"]
+
+    scoped_result = compute_source_revision(
+        tmp_path,
+        _project(),
+        SourceScope(kind="files", files=all_result.files),
+    )
+
+    assert scoped_result.blockers == []
+    assert scoped_result.revision == all_result.revision
+    assert scoped_result.files == ["source/truyện.txt"]
+
+
+@pytest.mark.integration
+def test_revision_rejects_source_that_is_not_valid_utf8(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "broken.txt").write_bytes(b"\xff\xfe")
+
+    result = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+
+    assert result.revision is None
+    assert result.blockers[0].code == "source_unreadable"
 
 
 @pytest.mark.integration
