@@ -1,0 +1,6 @@
+### 💡 Codex Review
+
+https://github.com/ArcReel/ArcReel/blob/example/server/agent_runtime/sdk_tools/enqueue_grid.py#L219-L222
+**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub> Split SDK grids as each generation completes**
+
+Run each wait-and-split sequence independently so completed grids are finalized immediately.

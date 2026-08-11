@@ -1,0 +1,10 @@
+> [!CAUTION]
+> Some comments are outside the diff and can’t be posted inline due to platform limitations.
+>
+> <details>
+> <summary>⚠️ Outside diff range comments (2)</summary>
+> </details>
+
+Outside diff comments:
+In `@lib/config/registry.py`:
+- Around line 1012-1014: Remove time-sensitive wording.
