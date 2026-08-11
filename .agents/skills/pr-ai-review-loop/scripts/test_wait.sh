@@ -14,6 +14,9 @@ trap 'rm -rf "$TMP_ROOT"' EXIT
 
 mkdir "$TMP_ROOT/bin"
 mkdir "$TMP_ROOT/tmp"
+mkdir "$TMP_ROOT/repo"
+git -C "$TMP_ROOT/repo" init -q
+REPO_ARGS=(--repo-root "$TMP_ROOT/repo")
 export TMPDIR="$TMP_ROOT/tmp"
 cat > "$TMP_ROOT/bin/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -60,7 +63,7 @@ printf '%s\n' "$1" >> "$WAIT_TEST_ROOT/sleeps"
 EOF
 chmod +x "$TMP_ROOT/bin/sleep"
 
-WAIT_TEST_ROOT="$TMP_ROOT" PATH="$TMP_ROOT/bin:$PATH" bash "$WAIT_SH" 1767 --max 180
+WAIT_TEST_ROOT="$TMP_ROOT" PATH="$TMP_ROOT/bin:$PATH" bash "$WAIT_SH" "${REPO_ARGS[@]}" 1767 --max 180
 
 [[ "$(<"$TMP_ROOT/review-count")" == "2" ]] || fail "expected baseline plus one changed probe"
 [[ "$(<"$TMP_ROOT/sleeps")" == "60" ]] || fail "expected one 60-second probe interval"
@@ -72,27 +75,31 @@ echo "PASS: wait exits early when a probe signal changes"
 
 rm -f "$TMP_ROOT/review-count" "$TMP_ROOT/reaction-count" "$TMP_ROOT/sleeps"
 WAIT_TEST_MODE=reaction_change WAIT_TEST_ROOT="$TMP_ROOT" PATH="$TMP_ROOT/bin:$PATH" \
-  bash "$WAIT_SH" 1767 --max 180
+  bash "$WAIT_SH" "${REPO_ARGS[@]}" 1767 --max 180
 [[ "$(<"$TMP_ROOT/reaction-count")" == "2" ]] || fail "expected two Codex reaction probes"
 [[ "$(<"$TMP_ROOT/sleeps")" == "60" ]] || fail "expected reaction-only completion after one interval"
 echo "PASS: wait exits early when the Codex PR reaction changes"
 
 rm -f "$TMP_ROOT/review-count" "$TMP_ROOT/reaction-count" "$TMP_ROOT/sleeps"
-WAIT_TEST_MODE=flat WAIT_TEST_ROOT="$TMP_ROOT" PATH="$TMP_ROOT/bin:$PATH" bash "$WAIT_SH" 1767 --max 125
+WAIT_TEST_MODE=flat WAIT_TEST_ROOT="$TMP_ROOT" PATH="$TMP_ROOT/bin:$PATH" \
+  bash "$WAIT_SH" "${REPO_ARGS[@]}" 1767 --max 125
 [[ "$(paste -sd, "$TMP_ROOT/sleeps")" == "60,60,5" ]] || fail "expected 60-second probes capped at --max"
 echo "PASS: wait respects the maximum delay"
 
 rm -f "$TMP_ROOT/review-count" "$TMP_ROOT/reaction-count" "$TMP_ROOT/sleeps"
 rm -f "$TMP_ROOT/tmp/pr-ai-review-loop-$(id -u)/wait-ArcReel-ArcReel-1767.head"
-WAIT_TEST_MODE=flat WAIT_TEST_ROOT="$TMP_ROOT" PATH="$TMP_ROOT/bin:$PATH" bash "$WAIT_SH" 1767
+WAIT_TEST_MODE=flat WAIT_TEST_ROOT="$TMP_ROOT" PATH="$TMP_ROOT/bin:$PATH" \
+  bash "$WAIT_SH" "${REPO_ARGS[@]}" 1767
 [[ "$(paste -sd, "$TMP_ROOT/sleeps")" == "60,60,60,60,60,60" ]] \
   || fail "expected the first wait on a head to default to 360 seconds"
 rm -f "$TMP_ROOT/review-count" "$TMP_ROOT/reaction-count" "$TMP_ROOT/sleeps"
-WAIT_TEST_MODE=flat WAIT_TEST_ROOT="$TMP_ROOT" PATH="$TMP_ROOT/bin:$PATH" bash "$WAIT_SH" 1767
+WAIT_TEST_MODE=flat WAIT_TEST_ROOT="$TMP_ROOT" PATH="$TMP_ROOT/bin:$PATH" \
+  bash "$WAIT_SH" "${REPO_ARGS[@]}" 1767
 [[ "$(paste -sd, "$TMP_ROOT/sleeps")" == "60,60,60" ]] \
   || fail "expected later waits on the same head to default to 180 seconds"
 rm -f "$TMP_ROOT/review-count" "$TMP_ROOT/reaction-count" "$TMP_ROOT/sleeps"
-WAIT_TEST_MODE=flat WAIT_TEST_HEAD=def WAIT_TEST_ROOT="$TMP_ROOT" PATH="$TMP_ROOT/bin:$PATH" bash "$WAIT_SH" 1767
+WAIT_TEST_MODE=flat WAIT_TEST_HEAD=def WAIT_TEST_ROOT="$TMP_ROOT" PATH="$TMP_ROOT/bin:$PATH" \
+  bash "$WAIT_SH" "${REPO_ARGS[@]}" 1767
 [[ "$(paste -sd, "$TMP_ROOT/sleeps")" == "60,60,60,60,60,60" ]] \
   || fail "expected a changed head to restore the 360-second default"
 echo "PASS: wait defaults to 360 seconds on a new head and 180 seconds thereafter"
@@ -100,7 +107,7 @@ echo "PASS: wait defaults to 360 seconds on a new head and 180 seconds thereafte
 for code in 403 429; do
   rm -f "$TMP_ROOT/review-count" "$TMP_ROOT/reaction-count" "$TMP_ROOT/sleeps"
   WAIT_TEST_MODE=http_error WAIT_TEST_HTTP_CODE="$code" WAIT_TEST_ROOT="$TMP_ROOT" \
-    PATH="$TMP_ROOT/bin:$PATH" bash "$WAIT_SH" 1767 --max 180
+    PATH="$TMP_ROOT/bin:$PATH" bash "$WAIT_SH" "${REPO_ARGS[@]}" 1767 --max 180
   [[ "$(paste -sd, "$TMP_ROOT/sleeps")" == "60,120" ]] \
     || fail "expected HTTP $code to degrade to sleep-only mode"
 done
@@ -108,7 +115,8 @@ echo "PASS: rate-limit responses degrade to sleep-only mode"
 
 rm -f "$TMP_ROOT/review-count" "$TMP_ROOT/reaction-count" "$TMP_ROOT/sleeps"
 if WAIT_TEST_MODE=http_error WAIT_TEST_HTTP_CODE=500 WAIT_TEST_ROOT="$TMP_ROOT" \
-  PATH="$TMP_ROOT/bin:$PATH" bash "$WAIT_SH" 1767 --max 180 >"$TMP_ROOT/error.out" 2>"$TMP_ROOT/error.err"; then
+  PATH="$TMP_ROOT/bin:$PATH" bash "$WAIT_SH" "${REPO_ARGS[@]}" 1767 --max 180 \
+  >"$TMP_ROOT/error.out" 2>"$TMP_ROOT/error.err"; then
   fail "expected a non-rate-limit GitHub error to fail"
 fi
 grep -q '^WAIT_ERROR:' "$TMP_ROOT/error.err" || fail "expected a loud WAIT_ERROR prefix"

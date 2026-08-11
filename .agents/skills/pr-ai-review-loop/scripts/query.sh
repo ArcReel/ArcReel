@@ -2,12 +2,12 @@
 # query.sh — layer-2 detail lookups against the snapshot staged by poll.sh.
 #
 # USAGE
-#   bash query.sh <PR_NUMBER> details <id>...      # full bodies by comment/review id, any collection
-#   bash query.sh <PR_NUMBER> gemini-latest-body   # latest Gemini review summary body (raw markdown)
-#   bash query.sh <PR_NUMBER> quality-all          # ALL github-code-quality[bot] inline comments, full body
-#   bash query.sh <PR_NUMBER> history              # every comment/review as {source,author,id,created_at,head(400)}
-#   bash query.sh <PR_NUMBER> unacked <bot[bot]>   # OLD (is_new==false) inline comments of <bot> with is_ack==false
-#   bash query.sh <PR_NUMBER> index                # re-print the last fully-printed poll index (recovers the
+#   bash query.sh --repo-root <path> <PR_NUMBER> details <id>...      # full bodies by id
+#   bash query.sh --repo-root <path> <PR_NUMBER> gemini-latest-body   # latest Gemini summary
+#   bash query.sh --repo-root <path> <PR_NUMBER> quality-all          # all quality inline comments
+#   bash query.sh --repo-root <path> <PR_NUMBER> history              # review/comment history
+#   bash query.sh --repo-root <path> <PR_NUMBER> unacked <bot[bot]>   # old unacked inline comments
+#   bash query.sh --repo-root <path> <PR_NUMBER> index                # re-print the last poll index
 #                                                  # decision facts a no_change line stands in for, e.g. after
 #                                                  # context compaction)
 #
@@ -22,8 +22,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/repo-context.sh"
+enter_repo_root "QUERY_ERROR" "$@"
+shift "$REPO_CONTEXT_SHIFT"
+
 usage() {
-  echo "QUERY_ERROR: usage: bash query.sh <PR_NUMBER> {details <id>...|gemini-latest-body|quality-all|history|unacked <bot[bot]>|index}" >&2
+  echo "QUERY_ERROR: usage: bash query.sh [--repo-root <path>] <PR_NUMBER> {details <id>...|gemini-latest-body|quality-all|history|unacked <bot[bot]>|index}" >&2
   exit 2
 }
 

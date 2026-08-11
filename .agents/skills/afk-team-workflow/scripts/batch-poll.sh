@@ -8,8 +8,8 @@
 # plans, runs a health check, or recovers a crashed batch.
 #
 # USAGE
-#   bash batch-poll.sh --spec <N>           # expand a Spec's GitHub sub-issues
-#   bash batch-poll.sh --issues 1,2,3       # an explicit cross-Spec issue set
+#   bash batch-poll.sh --repo-root <path> --spec <N>      # expand a Spec's GitHub sub-issues
+#   bash batch-poll.sh --repo-root <path> --issues 1,2,3  # an explicit cross-Spec issue set
 #
 # OUTPUT: single JSON object to stdout (fatal errors to stderr prefixed
 # `BATCH_POLL_ERROR:`; per-issue degradations prefixed `BATCH_POLL_WARN:`).
@@ -89,8 +89,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/repo-context.sh"
+enter_repo_root "BATCH_POLL_ERROR" "$@"
+shift "$REPO_CONTEXT_SHIFT"
+
 usage() {
-  echo "BATCH_POLL_ERROR: usage: bash batch-poll.sh --spec <N> | --issues 1,2,3" >&2
+  echo "BATCH_POLL_ERROR: usage: bash batch-poll.sh [--repo-root <path>] (--spec <N> | --issues 1,2,3)" >&2
 }
 
 SPEC=""

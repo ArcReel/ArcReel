@@ -2,7 +2,7 @@
 # wait.sh — wait for one lightweight PR-state change, or until the polling delay expires.
 #
 # USAGE
-#   bash wait.sh <PR_NUMBER> [--max <seconds>]
+#   bash wait.sh --repo-root <path> <PR_NUMBER> [--max <seconds>]
 #
 # Without --max, the first wait observed for a HEAD is 360 seconds and later waits on the
 # same HEAD are 180 seconds.
@@ -14,8 +14,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/repo-context.sh"
+enter_repo_root "WAIT_ERROR" "$@"
+shift "$REPO_CONTEXT_SHIFT"
+
 usage() {
-  echo "WAIT_ERROR: Usage: bash wait.sh <PR_NUMBER> [--max <seconds>]" >&2
+  echo "WAIT_ERROR: Usage: bash wait.sh [--repo-root <path>] <PR_NUMBER> [--max <seconds>]" >&2
   exit 2
 }
 

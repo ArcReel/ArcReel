@@ -2,7 +2,7 @@
 # classify_commits.sh — emit metadata for each PR commit so the orchestrating agent can judge "nit-only vs feature".
 #
 # USAGE
-#   bash classify_commits.sh <PR_NUMBER> [SINCE_SHA]
+#   bash classify_commits.sh --repo-root <path> <PR_NUMBER> [SINCE_SHA]
 #
 # If SINCE_SHA omitted, returns all commits on the PR. With SINCE_SHA, returns commits AFTER that SHA
 # (use to inspect just the latest push: pass the previous round's head).
@@ -37,8 +37,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/repo-context.sh"
+enter_repo_root "POLL_ERROR" "$@"
+shift "$REPO_CONTEXT_SHIFT"
+
 if [[ $# -lt 1 ]]; then
-  echo "POLL_ERROR: missing PR_NUMBER. Usage: bash classify_commits.sh <PR_NUMBER> [SINCE_SHA]" >&2
+  echo "POLL_ERROR: missing PR_NUMBER. Usage: bash classify_commits.sh [--repo-root <path>] <PR_NUMBER> [SINCE_SHA]" >&2
   exit 2
 fi
 

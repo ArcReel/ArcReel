@@ -14,7 +14,7 @@
 # and the kind is validated so a typo can't silently drop an event from a recovery scan.
 #
 # USAGE
-#   bash ledger.sh <batch-id> <kind> [--issue N] [--pr M] \
+#   bash ledger.sh --repo-root <path> <batch-id> <kind> [--issue N] [--pr M] \
 #                  [--scope-spec N | --scope-issues "1,2,3"] [--detail "free text"]
 #
 #   <batch-id>  spec-<N> for a Spec batch, or a slug for an explicit-issue batch (e.g.
@@ -54,12 +54,18 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/repo-context.sh"
+enter_repo_root "LEDGER_ERROR" "$@"
+shift "$REPO_CONTEXT_SHIFT"
+
 VALID_KINDS="decision authorization fault gap shelve merge retrospective closed"
 
 die() { echo "LEDGER_ERROR: $*" >&2; exit 1; }
 
 if [[ $# -lt 2 ]]; then
-  die "usage: bash ledger.sh <batch-id> <kind> [--issue N] [--pr M] [--detail TEXT]"
+  die "usage: bash ledger.sh [--repo-root <path>] <batch-id> <kind> [--issue N] [--pr M] [--detail TEXT]"
 fi
 
 BATCH_ID="$1"; shift
