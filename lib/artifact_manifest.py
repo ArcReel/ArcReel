@@ -5,6 +5,8 @@ from __future__ import annotations
 import base64
 import binascii
 import contextlib
+import ctypes
+import ctypes.wintypes as wintypes
 import errno
 import hashlib
 import json
@@ -417,13 +419,15 @@ class ProjectArtifactManifestAdapter:
                     root_stack.enter_context(self._guard_portable_project_root())
                 if root_fd is None and _is_linkish(lock_path):
                     raise ArtifactManifestError(f"manifest lock is a symlink or junction: {lock_path}")
-                flags = os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+                flags = os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
                 try:
-                    fd = (
-                        os.open(LOCK_FILENAME, flags, 0o600, dir_fd=root_fd)
-                        if root_fd is not None
-                        else os.open(lock_path, flags, 0o600)
-                    )
+                    if root_fd is not None:
+                        try:
+                            fd = os.open(LOCK_FILENAME, flags | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=root_fd)
+                        except FileExistsError:
+                            fd = os.open(LOCK_FILENAME, flags, dir_fd=root_fd)
+                    else:
+                        fd = os.open(lock_path, flags | os.O_CREAT, 0o600)
                 except OSError as exc:
                     if exc.errno == errno.ELOOP:
                         raise ArtifactManifestError(f"manifest lock is a symlink: {lock_path}") from exc
@@ -826,9 +830,6 @@ def _is_linkish(path: Path) -> bool:
 
 
 def _open_windows_directory_handle(path: Path) -> int:
-    import ctypes
-    from ctypes import wintypes
-
     kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
     create_file = kernel32.CreateFileW
     create_file.argtypes = [
@@ -857,9 +858,6 @@ def _open_windows_directory_handle(path: Path) -> int:
 
 
 def _close_windows_handle(handle: int) -> None:
-    import ctypes
-    from ctypes import wintypes
-
     kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
     close_handle = kernel32.CloseHandle
     close_handle.argtypes = [wintypes.HANDLE]

@@ -125,6 +125,45 @@ def test_project_adapter_serializes_concurrent_manifest_updates(tmp_path: Path) 
     assert len(stored["entries"]) == len(episodes)
 
 
+@pytest.mark.skipif(os.name != "posix", reason="exclusive lock-file creation protects concurrent openat calls")
+def test_project_adapter_creates_lock_file_exclusively(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    artifact = project / "episode.json"
+    artifact.write_text("{}", encoding="utf-8")
+    original_open = os.open
+    lock_open_flags: list[int] = []
+
+    def record_lock_open(
+        path: str | bytes | Path,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        if dir_fd is not None and os.fsdecode(path) == LOCK_FILENAME:
+            lock_open_flags.append(flags)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr("lib.artifact_manifest.os.open", record_lock_open)
+
+    key = ArtifactKey.episode_script(1)
+    adapter = ProjectArtifactManifestAdapter(project)
+    assert ArtifactManifest(adapter).register(
+        key,
+        artifact_path="episode.json",
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={}),
+    )
+    assert lock_open_flags[0] & os.O_CREAT
+    assert lock_open_flags[0] & os.O_EXCL
+
+    lock_open_flags.clear()
+    assert adapter.get_entry(key) is not None
+    assert len(lock_open_flags) == 2
+    assert lock_open_flags[0] & os.O_EXCL
+    assert not lock_open_flags[1] & os.O_CREAT
+
+
 def test_project_adapter_replace_failure_preserves_manifest_and_cleans_temp_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
