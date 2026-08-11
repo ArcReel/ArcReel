@@ -48,6 +48,34 @@ def _ordered_specs() -> list[AssetSpec]:
     return sorted(ASSET_SPECS.values(), key=lambda spec: spec.namespace_priority)
 
 
+def _migration_write_roots() -> tuple[PurePosixPath, ...]:
+    """Return every subtree in which this migration may replace or rename files."""
+    roots = {PurePosixPath("scripts"), PurePosixPath("drafts"), PurePosixPath("versions")}
+    for spec in _ordered_specs():
+        base = PurePosixPath(spec.subdir)
+        roots.update((base, base / "refs", base / "refs_audio"))
+    return tuple(sorted(roots, key=str))
+
+
+def _assert_migration_write_target(project_dir: Path, target: Path) -> None:
+    """Reject a write target whose own path or any project-relative parent is a symlink."""
+    try:
+        relative = target.relative_to(project_dir)
+    except ValueError as exc:
+        raise ValueError(f"迁移写入路径越出项目目录: {target}") from exc
+    current = project_dir
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            raise ValueError(f"迁移写入路径不得为符号链接: {current.relative_to(project_dir)}")
+
+
+def _assert_migration_write_roots(project_dir: Path) -> None:
+    """Fail before transformation when any declared migration write root is a symlink."""
+    for relative in _migration_write_roots():
+        _assert_migration_write_target(project_dir, project_dir.joinpath(*relative.parts))
+
+
 def _plan_occurrences(
     project: dict[str, Any], retained_history_keys: dict[str, set[str]] | None = None
 ) -> list[_AssetOccurrence]:
@@ -256,6 +284,7 @@ def _rewrite_legacy_markdown_drafts(project_dir: Path, occurrences: list[_AssetO
     for path in sorted(drafts_dir.rglob("*.md")):
         if path.name not in _LEGACY_MARKDOWN_DRAFTS:
             continue
+        _assert_migration_write_target(project_dir, path)
         text = path.read_text(encoding="utf-8")
         rewritten = _rewrite_text(text, {}, typed, mention_owners)
         if rewritten != text:
@@ -327,8 +356,6 @@ def _plan_media_moves(project_dir: Path, occurrences: list[_AssetOccurrence]) ->
             (base / "refs", sequenced_refs),
             (base / "refs_audio", False),
         ):
-            if directory.is_symlink():
-                raise ValueError(f"资产迁移目录不得为符号链接: {directory.relative_to(project_dir)}")
             if not directory.is_dir():
                 continue
             for source in sorted(directory.iterdir()):
@@ -346,6 +373,8 @@ def _plan_media_moves(project_dir: Path, occurrences: list[_AssetOccurrence]) ->
                 item, sequence = match
                 destination = source.with_name(f"{item.new_name}{sequence}{source.suffix}")
                 if source != destination:
+                    _assert_migration_write_target(project_dir, source)
+                    _assert_migration_write_target(project_dir, destination)
                     moves.append((source, destination))
     return moves
 
@@ -389,6 +418,7 @@ def _confined_version_path(project_dir: Path, spec: AssetSpec, relative: PurePos
     resolved_candidate = candidate.resolve(strict=False)
     if not resolved_root.is_relative_to(project_root) or not resolved_candidate.is_relative_to(resolved_root):
         raise ValueError(f"版本快照路径越出项目目录: {relative}")
+    _assert_migration_write_target(project_dir, candidate)
     return candidate
 
 
@@ -396,6 +426,7 @@ def _rewrite_versions(project_dir: Path, occurrences: list[_AssetOccurrence]) ->
     versions_file = project_dir / "versions" / "versions.json"
     if not versions_file.is_file():
         return []
+    _assert_migration_write_target(project_dir, versions_file)
     payload = load_json(versions_file)
     if not isinstance(payload, dict):
         raise ValueError("versions/versions.json 必须是对象")
@@ -474,9 +505,11 @@ def _execute_moves(moves: list[tuple[Path, Path]]) -> None:
 
 def _migrate_staged_tree(project_dir: Path) -> None:
     project_file = project_dir / "project.json"
+    _assert_migration_write_target(project_dir, project_file)
     project = load_json(project_file)
     if int(project.get("schema_version") or 0) >= 6:
         return
+    _assert_migration_write_roots(project_dir)
     occurrences = _plan_occurrences(project, _retained_history_keys(project_dir, project))
     moves = _plan_media_moves(project_dir, occurrences)
 
@@ -489,11 +522,13 @@ def _migrate_staged_tree(project_dir: Path) -> None:
         project[spec.bucket_key] = {item.new_name: item.entry for item in items} if isinstance(bucket, dict) else bucket
 
     for path in sorted((project_dir / "scripts").rglob("*.json")) if (project_dir / "scripts").is_dir() else []:
+        _assert_migration_write_target(project_dir, path)
         payload = load_json(path)
         if isinstance(payload, dict):
             _rewrite_payload(payload, occurrences)
             atomic_write_json(path, payload)
     for path in sorted((project_dir / "drafts").rglob("*.json")) if (project_dir / "drafts").is_dir() else []:
+        _assert_migration_write_target(project_dir, path)
         payload = load_json(path)
         if isinstance(payload, dict):
             _rewrite_payload(payload, occurrences)

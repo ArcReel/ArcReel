@@ -409,11 +409,75 @@ def test_migration_rejects_symlinked_asset_directory_without_touching_target(tmp
         pytest.skip(f"当前平台不允许创建目录符号链接: {exc}")
     original_project = (project_dir / "project.json").read_bytes()
 
-    with pytest.raises(ValueError, match="资产迁移目录不得为符号链接"):
+    with pytest.raises(ValueError, match="迁移写入路径不得为符号链接"):
         migrate_v5_to_v6(project_dir)
 
     assert external_sheet.read_bytes() == b"external-scene"
     assert not (outside / "Hero_scene.png").exists()
     assert scenes_link.is_symlink()
+    assert (project_dir / "project.json").read_bytes() == original_project
+    assert not list(tmp_path.glob(".demo.v6-*"))
+
+
+@pytest.mark.parametrize("write_root", ["scripts", "drafts", "versions"])
+def test_migration_rejects_symlinked_non_asset_write_roots(tmp_path: Path, write_root: str) -> None:
+    project_dir = tmp_path / "demo"
+    _write_json(
+        project_dir / "project.json",
+        {
+            "schema_version": 5,
+            "characters": {"Hero": _asset("character", "character_sheet")},
+            "scenes": {"Hero": _asset("scene", "scene_sheet")},
+            "props": {},
+            "products": {},
+        },
+    )
+    outside = tmp_path / f"outside-{write_root}"
+    outside.mkdir()
+    marker = outside / "marker.txt"
+    marker.write_text("external", encoding="utf-8")
+    link = project_dir / write_root
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"当前平台不允许创建目录符号链接: {exc}")
+    original_project = (project_dir / "project.json").read_bytes()
+
+    with pytest.raises(ValueError, match="迁移写入路径不得为符号链接"):
+        migrate_v5_to_v6(project_dir)
+
+    assert marker.read_text(encoding="utf-8") == "external"
+    assert link.is_symlink()
+    assert (project_dir / "project.json").read_bytes() == original_project
+    assert not list(tmp_path.glob(".demo.v6-*"))
+
+
+def test_migration_rejects_symlinked_draft_write_target(tmp_path: Path) -> None:
+    project_dir = tmp_path / "demo"
+    _write_json(
+        project_dir / "project.json",
+        {
+            "schema_version": 5,
+            "characters": {" Trim ": _asset("character", "character_sheet")},
+            "scenes": {},
+            "props": {},
+            "products": {},
+        },
+    )
+    outside = tmp_path / "outside-draft.md"
+    outside.write_text("镜头1：@[ Trim ] 入场", encoding="utf-8")
+    draft = project_dir / "drafts" / "episode_1" / "step1_normalized_script.md"
+    draft.parent.mkdir(parents=True)
+    try:
+        draft.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"当前平台不允许创建符号链接: {exc}")
+    original_project = (project_dir / "project.json").read_bytes()
+
+    with pytest.raises(ValueError, match="迁移写入路径不得为符号链接"):
+        migrate_v5_to_v6(project_dir)
+
+    assert outside.read_text(encoding="utf-8") == "镜头1：@[ Trim ] 入场"
+    assert draft.is_symlink()
     assert (project_dir / "project.json").read_bytes() == original_project
     assert not list(tmp_path.glob(".demo.v6-*"))
