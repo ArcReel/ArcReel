@@ -47,6 +47,10 @@ function deriveStyleValue(project: Record<string, unknown>, projectName: string)
   };
 }
 
+function sameProfileFiles(left: string[], right: string[]) {
+  return left.length === right.length && left.every((file, index) => file === right[index]);
+}
+
 // ─── Section card primitive ─────────────────────────────────────────────────
 
 interface SectionCardProps {
@@ -539,6 +543,13 @@ export function ProjectSettingsPage() {
     const resetProject = profileResetProject;
     setProfileResetting(true);
     try {
+      const currentStatus = await API.getAgentProfileStatus(resetProject);
+      const displayedStatus = loadedAgentProfile?.projectName === resetProject ? loadedAgentProfile.status : null;
+      if (!displayedStatus || !sameProfileFiles(displayedStatus.customized_files, currentStatus.customized_files)) {
+        setLoadedAgentProfile({ projectName: resetProject, status: currentStatus });
+        if (!currentStatus.customized) setProfileResetProject(null);
+        return;
+      }
       const status = await API.resetAgentProfile(resetProject);
       setLoadedAgentProfile((current) => (
         current?.projectName === resetProject ? { projectName: resetProject, status } : current
@@ -550,7 +561,18 @@ export function ProjectSettingsPage() {
     } finally {
       setProfileResetting(false);
     }
-  }, [profileResetProject, projectName, t]);
+  }, [loadedAgentProfile, profileResetProject, projectName, t]);
+
+  const handleOpenAgentProfileReset = useCallback(async () => {
+    const resetProject = projectName;
+    try {
+      const status = await API.getAgentProfileStatus(resetProject);
+      setLoadedAgentProfile({ projectName: resetProject, status });
+      setProfileResetProject(status.customized ? resetProject : null);
+    } catch (error: unknown) {
+      useAppStore.getState().pushToast(t("agent_profile_reset_failed", { message: errMsg(error) }), "error");
+    }
+  }, [projectName, t]);
 
   return (
     <div
@@ -629,7 +651,7 @@ export function ProjectSettingsPage() {
               footer={agentProfile.customized ? (
                 <button
                   type="button"
-                  onClick={() => setProfileResetProject(projectName)}
+                  onClick={() => voidCall(handleOpenAgentProfileReset())}
                   className={GHOST_BTN_LG_CLS}
                 >
                   {t("agent_profile_reset")}

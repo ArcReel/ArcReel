@@ -16,7 +16,15 @@ from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 
 _MCP_RE = re.compile(r"mcp__arcreel__([a-zA-Z0-9_*.-]+)")
 _ROOT_POINTER_RE = re.compile(r"(?<![\w/])(\.claude/[A-Za-z0-9_./-]+\.md)")
-_MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+\.md)(?:#[^)]+)?\)")
+_MARKDOWN_INLINE_LINK_RE = re.compile(
+    r"\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|([^\s)\n]+))"
+    r"(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^()\n]*\)))?\s*\)"
+)
+_MARKDOWN_REFERENCE_LINK_RE = re.compile(
+    r"^\s{0,3}\[[^\]\n]+\]:\s*(?:<([^>\n]+)>|([^\s\n]+))"
+    r"(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^()\n]*\)))?\s*$",
+    re.MULTILINE,
+)
 _TARGET_DEPRECATED_STRINGS = (
     "--scene-ids",
     "--music-volume",
@@ -61,6 +69,17 @@ def _projected_pointer(source_logical: str, pointer: str) -> str | None:
     return posixpath.normpath(posixpath.join(posixpath.dirname(source_logical), pointer))
 
 
+def _markdown_link_pointers(text: str) -> set[str]:
+    pointers: set[str] = set()
+    for pattern in (_MARKDOWN_INLINE_LINK_RE, _MARKDOWN_REFERENCE_LINK_RE):
+        for match in pattern.finditer(text):
+            destination = match.group(1) or match.group(2)
+            path = destination.split("#", 1)[0]
+            if path.lower().endswith(".md"):
+                pointers.add(path)
+    return pointers
+
+
 def _validate_projection(
     profile_dir: Path,
     mode: str,
@@ -86,7 +105,7 @@ def _validate_projection(
         except (OSError, UnicodeError) as exc:
             errors.append(f"{mode}:{source_rel}: cannot read projected file: {exc}")
             continue
-        pointers = set(_ROOT_POINTER_RE.findall(text)) | set(_MARKDOWN_LINK_RE.findall(text))
+        pointers = set(_ROOT_POINTER_RE.findall(text)) | _markdown_link_pointers(text)
         for pointer in sorted(pointers):
             target = _projected_pointer(logical, pointer)
             if target is not None and target not in projected:
