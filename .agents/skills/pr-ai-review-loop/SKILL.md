@@ -29,16 +29,16 @@ description: 无人值守驱动 PR 的 review → 修复 → push → 再 review
 
 ### 步骤 1:拉取当前状态
 
-以下命令均从本 skill 目录运行：
+以下命令均保持目标 PR checkout 根目录为工作目录，并用当前 skill 目录的绝对路径替换 `<skill-dir>`：
 
 ```bash
-bash scripts/poll.sh <PR_NUMBER>
+bash <skill-dir>/scripts/poll.sh <PR_NUMBER>
 ```
 
 stdout 是最小索引:本轮新评论带索引行(id / 判定 flags / 120 字符预览),旧评论折叠为 per-bot 计数,正文一律不内联;字段语义见 poll.sh header。索引与上一轮无差异时,stdout 折叠为单行 `no_change`(`unchanged_since` 即上次全量打印时刻)——决策沿用上下文中已有的索引,上下文已丢失(如压缩后)时用 `index` 子命令重印。完整快照(含全文)落盘在 `snapshot_file`,正文详情按需查询:
 
 ```bash
-bash scripts/query.sh <PR_NUMBER> <子命令>
+bash <skill-dir>/scripts/query.sh <PR_NUMBER> <子命令>
 ```
 
 子命令:`details <id>...`(按 id 批量取全文)/ `gemini-latest-body` / `quality-all`(终核)/ `history`(主题重复及终核枚举 review / 顶层评论)/ `unacked <bot[bot]>`(终核或 fix-up 顺延时核对历史 inline;bot 名带 `[bot]` 后缀,如 `chatgpt-codex-connector[bot]`)/ `index`(重印上轮全量索引)。查询异常一律以 `QUERY_ERROR` 响亮失败——空结果因此可以放心当作确无数据。
@@ -57,7 +57,7 @@ bash scripts/query.sh <PR_NUMBER> <子命令>
 | 以上缺口均消失 | 做目标状态**终核**(含 CodeQL 门槛与 `unacked` 兜底逐条);全过则按「收敛兜底」#4 正常退出;发现遗留则按对应缺口处理 |
 | 未全部达成且无可执行动作(reviewer 响应中) | 按「轮询节奏」表等待下一轮 |
 
-**fix-up 顺延**:仅在决定是否重触发 Gemini 前,对最近的 push 批次跑 `classify_commits.sh`(SINCE_SHA 取上一批次末 commit 的 `oid`;批次边界从索引 `commits_since_pr_created` 的间隔看,首批次以 `base_oid` 为界),按 reviewers.md「通用约定」判定是否沿用 Gemini 结论。
+**fix-up 顺延**:仅在决定是否重触发 Gemini 前,对最近的 push 批次跑 `bash <skill-dir>/scripts/classify_commits.sh <PR_NUMBER> [SINCE_SHA]`(SINCE_SHA 取上一批次末 commit 的 `oid`;批次边界从索引 `commits_since_pr_created` 的间隔看,首批次以 `base_oid` 为界),按 reviewers.md「通用约定」判定是否沿用 Gemini 结论。
 
 脚本在 stderr 报 `WARNING: SINCE_SHA ... is not on PR`(典型成因 rebase 改写了全部 SHA)时锚点已失效,拿到的是全量提交而非最近一批,不得按该输出判形状——rebase 同时刷新了 `committedDate`,批次边界也无从重建。此时保守处置:不顺延,按 reviewers.md 的触发规则重审 Gemini,并把锚点重设为索引 `commits_since_pr_created` 末条 `oid` 供下轮使用。「收敛兜底」#2 用本脚本取证时同样适用该告警的处置。
 
@@ -80,7 +80,7 @@ GitHub code scanning 两家(quality / security)的评论并入同一批,处置�
 
 ## 轮询节奏
 
-每轮 poll 与决策完成后,立即从本 skill 目录运行 `bash scripts/wait.sh <PR_NUMBER> --max <延迟秒数>`,允许命令执行至少比 `--max` 多 30 秒;命令返回后继续步骤 1。每轮都由 `wait.sh` 保持主动等待,不得结束回合被动等待外部探活。延迟取值:
+每轮 poll 与决策完成后,立即从目标 PR checkout 根目录运行 `bash <skill-dir>/scripts/wait.sh <PR_NUMBER> --max <延迟秒数>`,允许命令执行至少比 `--max` 多 30 秒;命令返回后继续步骤 1。每轮都由 `wait.sh` 保持主动等待,不得结束回合被动等待外部探活。延迟取值:
 
 | 场景 | 延迟 | 备注 |
 |---|---|---|
