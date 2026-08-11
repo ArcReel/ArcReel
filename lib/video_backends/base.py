@@ -387,7 +387,7 @@ async def download_video(url: str, output_path: Path, *, timeout: int = 120) -> 
                 await resp.aread()
             resp.raise_for_status()
             # 异步流式读取所有 chunk，然后一次 to_thread 完成整段写入，
-            # 避免对每个 64KB 分片调度一次线程池任务（评审反馈 #279）。
+            # 避免对每个 64KB 分片调度一次线程池任务。
             chunks: list[bytes] = []
             async for chunk in resp.aiter_bytes(chunk_size=65536):
                 chunks.append(chunk)
