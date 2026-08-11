@@ -38,6 +38,7 @@ LOCK_TIMEOUT_SECONDS = 10.0
 _DIGEST_RE = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
 _RESERVED_ARTIFACT_PATHS = frozenset({MANIFEST_FILENAME, LOCK_FILENAME})
 _WINDOWS_RESERVED_ARTIFACT_PATHS = frozenset(path.casefold() for path in _RESERVED_ARTIFACT_PATHS)
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
 
 class ArtifactKind(StrEnum):
@@ -242,9 +243,15 @@ class ProjectArtifactManifestAdapter:
 
     def _inspect_artifact_posix(self, normalized: str) -> ArtifactObservation:
         parts = PurePosixPath(normalized).parts
-        directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | _O_NOFOLLOW
+        file_flags = os.O_RDONLY | _O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
         with contextlib.ExitStack() as stack:
+            if not _O_NOFOLLOW and _is_linkish(self._project_dir):
+                return self._artifact_blocked(
+                    normalized,
+                    "artifact_symlink",
+                    f"project directory is a symlink or junction: {self._project_dir}",
+                )
             try:
                 root_fd = os.open(self._project_dir, directory_flags)
             except OSError as exc:
@@ -254,8 +261,20 @@ class ProjectArtifactManifestAdapter:
                     f"project directory is unreadable: {exc}",
                 )
             stack.callback(os.close, root_fd)
+            try:
+                self._assert_open_project_root_identity(root_fd)
+            except ArtifactManifestError as exc:
+                return self._artifact_blocked(normalized, "artifact_unreadable", str(exc))
             directory_fd = root_fd
+            cursor = self._project_dir
             for part in parts[:-1]:
+                cursor /= part
+                if not _O_NOFOLLOW and _is_linkish(cursor):
+                    return self._artifact_blocked(
+                        normalized,
+                        "artifact_symlink",
+                        f"artifact path contains a symlink or junction: {normalized}",
+                    )
                 try:
                     next_fd = os.open(part, directory_flags, dir_fd=directory_fd)
                 except FileNotFoundError:
@@ -268,6 +287,13 @@ class ProjectArtifactManifestAdapter:
                     )
                 stack.callback(os.close, next_fd)
                 directory_fd = next_fd
+            final_path = cursor / parts[-1]
+            if not _O_NOFOLLOW and _is_linkish(final_path):
+                return self._artifact_blocked(
+                    normalized,
+                    "artifact_symlink",
+                    f"artifact path contains a symlink or junction: {normalized}",
+                )
             try:
                 fd = os.open(parts[-1], file_flags, dir_fd=directory_fd)
             except FileNotFoundError:
@@ -332,7 +358,7 @@ class ProjectArtifactManifestAdapter:
                 detail=f"artifact path is not a regular file: {normalized}",
             )
             return ArtifactObservation(artifact_path=normalized, present=False, blocker=blocker)
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        flags = os.O_RDONLY | _O_NOFOLLOW
         try:
             fd = os.open(path, flags)
             try:
@@ -408,18 +434,21 @@ class ProjectArtifactManifestAdapter:
             root_fd: int | None = None
             try:
                 if os.name == "posix":
-                    root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                    root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | _O_NOFOLLOW
+                    if not _O_NOFOLLOW and _is_linkish(self._project_dir):
+                        raise ArtifactManifestError(f"project directory is a symlink or junction: {self._project_dir}")
                     try:
                         root_fd = os.open(self._project_dir, root_flags)
                     except OSError as exc:
                         raise ArtifactManifestError(
                             f"project directory cannot be opened safely: {self._project_dir}: {exc}"
                         ) from exc
+                    self._assert_open_project_root_identity(root_fd)
                 else:
                     root_stack.enter_context(self._guard_portable_project_root())
-                if root_fd is None and _is_linkish(lock_path):
+                if (root_fd is None or not _O_NOFOLLOW) and _is_linkish(lock_path):
                     raise ArtifactManifestError(f"manifest lock is a symlink or junction: {lock_path}")
-                flags = os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+                flags = os.O_WRONLY | _O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
                 try:
                     if root_fd is not None:
                         try:
@@ -481,11 +510,19 @@ class ProjectArtifactManifestAdapter:
         if not stat.S_ISDIR(root_stat.st_mode) or (root_stat.st_dev, root_stat.st_ino) != self._project_identity:
             raise ArtifactManifestError(f"project directory changed after adapter initialization: {self._project_dir}")
 
+    def _assert_open_project_root_identity(self, root_fd: int) -> None:
+        try:
+            root_stat = os.fstat(root_fd)
+        except OSError as exc:
+            raise ArtifactManifestError(f"opened project directory is unavailable: {self._project_dir}: {exc}") from exc
+        if not stat.S_ISDIR(root_stat.st_mode) or (root_stat.st_dev, root_stat.st_ino) != self._project_identity:
+            raise ArtifactManifestError(f"project directory changed after adapter initialization: {self._project_dir}")
+
     def _load_unlocked(self, root_fd: int | None) -> tuple[dict[str, ArtifactManifestEntry], bytes | None]:
         path = self._project_dir / MANIFEST_FILENAME
-        if root_fd is None and _is_linkish(path):
+        if (root_fd is None or not _O_NOFOLLOW) and _is_linkish(path):
             raise ArtifactManifestError(f"artifact manifest is a symlink or junction: {path}")
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        flags = os.O_RDONLY | _O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
         try:
             fd = os.open(MANIFEST_FILENAME, flags, dir_fd=root_fd) if root_fd is not None else os.open(path, flags)
         except FileNotFoundError:
@@ -866,7 +903,7 @@ def _close_windows_handle(handle: int) -> None:
 
 
 def _create_temporary_file(root_fd: int) -> tuple[int, str]:
-    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | _O_NOFOLLOW
     for _ in range(100):
         tmp_name = f"{MANIFEST_FILENAME}.{secrets.token_hex(8)}.tmp"
         try:

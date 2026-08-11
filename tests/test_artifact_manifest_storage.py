@@ -216,7 +216,14 @@ def test_project_adapter_replace_failure_preserves_manifest_and_cleans_temp_file
     )
 
 
-def test_project_adapter_blocks_escape_and_symlink_artifact_paths(tmp_path: Path) -> None:
+@pytest.mark.parametrize("force_python_link_fallback", [False, True])
+def test_project_adapter_blocks_escape_and_symlink_artifact_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    force_python_link_fallback: bool,
+) -> None:
+    if force_python_link_fallback:
+        monkeypatch.setattr("lib.artifact_manifest._O_NOFOLLOW", 0)
     project = tmp_path / "project"
     project.mkdir()
     outside = tmp_path / "outside.json"
@@ -309,6 +316,37 @@ def test_project_adapter_rejects_fifo_without_blocking(tmp_path: Path) -> None:
     assert comparison.blocker is not None and comparison.blocker.code == "artifact_not_regular_file"
 
 
+@pytest.mark.skipif(os.name != "posix", reason="descriptor traversal is the POSIX storage path")
+def test_project_adapter_reports_missing_posix_artifact_components(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    adapter = ProjectArtifactManifestAdapter(project)
+
+    assert not adapter.inspect_artifact("missing/episode.json").present
+    assert not adapter.inspect_artifact("episode.json").present
+
+
+@pytest.mark.skipif(os.name != "posix", reason="descriptor reads are the POSIX artifact inspection path")
+def test_project_adapter_reports_posix_artifact_read_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "episode.json").write_text("{}", encoding="utf-8")
+    adapter = ProjectArtifactManifestAdapter(project)
+
+    def fail_read(_fd: int, _length: int) -> bytes:
+        raise OSError("read failed")
+
+    monkeypatch.setattr("lib.artifact_manifest.os.read", fail_read)
+
+    observation = adapter.inspect_artifact("episode.json")
+
+    assert not observation.present
+    assert observation.blocker is not None and observation.blocker.code == "artifact_unreadable"
+
+
 @pytest.mark.skipif(os.name != "posix", reason="runtime FIFO inspection uses POSIX nonblocking file flags")
 @pytest.mark.parametrize("runtime_path", [MANIFEST_FILENAME, LOCK_FILENAME])
 def test_project_adapter_rejects_runtime_fifo_without_blocking(tmp_path: Path, runtime_path: str) -> None:
@@ -369,6 +407,63 @@ def test_project_adapter_rejects_replaced_portable_project_root_identity(tmp_pat
 
     with pytest.raises(ArtifactManifestError, match="changed after adapter initialization"):
         adapter._assert_portable_project_root_identity()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="opened directory identity is the POSIX replacement defense")
+def test_project_adapter_rejects_replaced_posix_project_root_identity(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "episode.json").write_text("inside", encoding="utf-8")
+    adapter = ProjectArtifactManifestAdapter(project)
+    project.rename(tmp_path / "original-project")
+    project.mkdir()
+    (project / "episode.json").write_text("replacement", encoding="utf-8")
+
+    observation = adapter.inspect_artifact("episode.json")
+
+    assert not observation.present
+    assert observation.blocker is not None and observation.blocker.code == "artifact_unreadable"
+    with pytest.raises(ArtifactManifestError, match="changed after adapter initialization"):
+        adapter.put_entry(
+            ArtifactKey.episode_script(1),
+            ArtifactManifestEntry(
+                artifact_path="episode.json",
+                basis_digest=ArtifactBasis.build("test/script", kind_version=1, inputs={}).digest,
+            ),
+        )
+    assert not (project / MANIFEST_FILENAME).exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="opened directory identity is the POSIX replacement defense")
+def test_project_adapter_reports_unavailable_opened_posix_root(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    adapter = ProjectArtifactManifestAdapter(project)
+
+    with pytest.raises(ArtifactManifestError, match="opened project directory is unavailable"):
+        adapter._assert_open_project_root_identity(-1)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Python link checks backstop platforms without O_NOFOLLOW")
+def test_project_adapter_rejects_replaced_posix_project_root_symlink_without_no_follow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "episode.json").write_text("inside", encoding="utf-8")
+    adapter = ProjectArtifactManifestAdapter(project)
+    original_project = tmp_path / "original-project"
+    project.rename(original_project)
+    project.symlink_to(original_project, target_is_directory=True)
+    monkeypatch.setattr("lib.artifact_manifest._O_NOFOLLOW", 0)
+
+    observation = adapter.inspect_artifact("episode.json")
+
+    assert not observation.present
+    assert observation.blocker is not None and observation.blocker.code == "artifact_symlink"
+    with pytest.raises(ArtifactManifestError, match="project directory is a symlink"):
+        adapter.get_entry(ArtifactKey.episode_script(1))
 
 
 def test_project_adapter_rejects_swapped_portable_parent(
@@ -462,7 +557,15 @@ def test_project_adapter_keeps_manifest_write_on_opened_root_during_swap(
 
 
 @pytest.mark.parametrize("runtime_path", [MANIFEST_FILENAME, LOCK_FILENAME])
-def test_project_adapter_refuses_runtime_file_symlinks(tmp_path: Path, runtime_path: str) -> None:
+@pytest.mark.parametrize("force_python_link_fallback", [False, True])
+def test_project_adapter_refuses_runtime_file_symlinks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_path: str,
+    force_python_link_fallback: bool,
+) -> None:
+    if force_python_link_fallback:
+        monkeypatch.setattr("lib.artifact_manifest._O_NOFOLLOW", 0)
     project = tmp_path / "project"
     project.mkdir()
     artifact = project / "episode.json"
