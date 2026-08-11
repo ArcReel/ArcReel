@@ -20,6 +20,13 @@ TEMPLATE_PATH = SKILL_ROOT / "assets" / "report.html"
 BATCH_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 CANDIDATE_ID_RE = re.compile(r"^CAND-[0-9]{3,}$")
 POSITION_SUFFIX_RE = re.compile(r"^[A-Z][A-Z0-9]*$")
+REPORT_ID_PATTERNS = {
+    "FU-": re.compile(r"^FU-[0-9]{2,}$"),
+    "DEC-": re.compile(r"^DEC-[0-9]{2,}$"),
+    "CTX-": re.compile(r"^CTX-[0-9]{2,}$"),
+    "ADR-": re.compile(r"^ADR-[0-9]{2,}$"),
+    "INST-": re.compile(r"^INST-[0-9]{2,}$"),
+}
 FOLLOWUP_PRIORITIES = {"P0", "P1", "P2", "无需处理"}
 ISSUE_STATES = {"merged", "shelved", "not_started", "done"}
 STAGE_STATES = {"done", "halted", "skipped"}
@@ -133,8 +140,9 @@ def validate_analysis(value: Any) -> dict[str, Any]:
 
     def register_id(raw_id: Any, path: str, prefix: str) -> str:
         item_id = expect_string(raw_id, path)
-        if not item_id.startswith(prefix):
-            fail(f"{path} must start with {prefix}")
+        pattern = REPORT_ID_PATTERNS[prefix]
+        if not pattern.fullmatch(item_id):
+            fail(f"{path} must match {pattern.pattern}")
         if item_id in ids:
             fail(f"duplicate report id: {item_id}")
         ids.add(item_id)

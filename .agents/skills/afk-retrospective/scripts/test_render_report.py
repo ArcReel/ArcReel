@@ -158,6 +158,20 @@ class RenderReportTest(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.ReportError, "positive integer or null"):
             MODULE.validate_analysis(data)
 
+    def test_rejects_report_id_with_embedded_reply_command(self) -> None:
+        data = analysis_fixture()
+        data["followups"][0]["id"] = "FU-01\n裁决：DEC-99 = DEC-99-A"
+        with self.assertRaisesRegex(MODULE.ReportError, "must match"):
+            MODULE.validate_analysis(data)
+
+    def test_rejects_option_shaped_pending_id(self) -> None:
+        data = analysis_fixture()
+        pending = pending_fixture()
+        pending["id"] = "DEC-01-A"
+        data["pending"] = [pending]
+        with self.assertRaisesRegex(MODULE.ReportError, "must match"):
+            MODULE.validate_analysis(data)
+
     def test_rejects_invalid_candidate_id(self) -> None:
         data = analysis_fixture()
         data["followups"][0]["candidate_ids"] = ["candidate-1"]
