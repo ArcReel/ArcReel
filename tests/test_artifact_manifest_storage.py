@@ -337,7 +337,7 @@ def test_project_adapter_rejects_swapped_portable_parent(
 
     def swap_parent_then_open(path: str | bytes | Path, flags: int, mode: int = 0o777) -> int:
         nonlocal swapped
-        if not swapped and Path(path) == scripts / "episode.json":
+        if not swapped and Path(os.fsdecode(path)) == scripts / "episode.json":
             scripts.rename(moved_scripts)
             scripts.symlink_to(outside, target_is_directory=True)
             swapped = True
@@ -442,6 +442,44 @@ def test_project_adapter_reports_invalid_manifest_schema_version_as_blocked_with
     manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
     key = ArtifactKey.episode_script(1)
     basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"})
+
+    comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
+
+    assert comparison.status is ArtifactStatus.BLOCKED
+    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
+    with pytest.raises(ArtifactManifestError):
+        manifest.register(key, artifact_path="episode.json", basis=basis)
+    assert manifest_path.read_bytes() == malformed
+
+
+@pytest.mark.parametrize("duplicate_location", ["top-level", "entry"])
+def test_project_adapter_reports_duplicate_manifest_fields_as_blocked_without_reset(
+    tmp_path: Path,
+    duplicate_location: str,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "episode.json").write_text("{}", encoding="utf-8")
+    key = ArtifactKey.episode_script(1)
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"})
+    encoded_key = key.encode()
+    entry = json.dumps(
+        {"artifact_path": "episode.json", "basis_digest": basis.digest},
+        separators=(",", ":"),
+    )
+    if duplicate_location == "top-level":
+        malformed_text = (
+            f'{{"entries":{{}},"hash_algorithm":"{HASH_ALGORITHM}","schema_version":999,"schema_version":1}}'
+        )
+    else:
+        malformed_text = (
+            f'{{"entries":{{"{encoded_key}":{entry},"{encoded_key}":{entry}}},'
+            f'"hash_algorithm":"{HASH_ALGORITHM}","schema_version":1}}'
+        )
+    malformed = malformed_text.encode("utf-8")
+    manifest_path = project / MANIFEST_FILENAME
+    manifest_path.write_bytes(malformed)
+    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
 
     comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
 

@@ -25,7 +25,7 @@ from typing import Protocol, Self, cast
 
 import portalocker
 
-from lib.asset_types import ASSET_TYPES
+from lib.asset_types import ASSET_TYPES, normalize_asset_name
 
 _KEY_PREFIX = "artifact-key-v1:"
 MANIFEST_FILENAME = ".arcreel_artifacts.json"
@@ -569,12 +569,14 @@ class ArtifactKey:
         valid = False
         if self.kind is ArtifactKind.ASSET_SHEET and len(self.components) == 2:
             asset_type, asset_id = self.components
-            valid = (
+            if (
                 isinstance(asset_type, str)
                 and asset_type in ASSET_TYPES
                 and isinstance(asset_id, str)
                 and bool(asset_id)
-            )
+            ):
+                object.__setattr__(self, "components", (asset_type, normalize_asset_name(asset_id)))
+                valid = True
         elif self.kind in {ArtifactKind.EPISODE_STEP1, ArtifactKind.EPISODE_SCRIPT} and len(self.components) == 1:
             episode = self.components[0]
             valid = type(episode) is int and episode > 0
@@ -741,7 +743,7 @@ def _serialize_manifest(entries: Mapping[str, ArtifactManifestEntry]) -> bytes:
 
 def _parse_manifest(raw: bytes) -> dict[str, ArtifactManifestEntry]:
     try:
-        payload = json.loads(raw.decode("utf-8"))
+        payload = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ArtifactManifestError(f"artifact manifest is not valid UTF-8 JSON: {exc}") from exc
     if not isinstance(payload, dict) or set(payload) != {"entries", "hash_algorithm", "schema_version"}:
@@ -778,6 +780,15 @@ def _parse_manifest(raw: bytes) -> dict[str, ArtifactManifestEntry]:
             basis_digest=basis_digest,
         )
     return entries
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise ArtifactManifestError(f"artifact manifest contains a duplicate field: {key!r}")
+        payload[key] = value
+    return payload
 
 
 def _is_linkish(path: Path) -> bool:

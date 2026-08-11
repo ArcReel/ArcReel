@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import unicodedata
+
 import pytest
 
 from lib.artifact_manifest import (
@@ -39,6 +41,20 @@ def test_artifact_key_round_trips_without_display_string_parsing(key: ArtifactKe
 def test_artifact_key_rejects_direct_construction_that_cannot_round_trip() -> None:
     with pytest.raises(ValueError, match="components"):
         ArtifactKey(ArtifactKind.EPISODE_SCRIPT, ("localized episode label",))
+
+
+def test_asset_sheet_key_uses_the_asset_name_equality_coordinate() -> None:
+    nfc_name = unicodedata.normalize("NFC", "Hiếu")
+    nfd_name = unicodedata.normalize("NFD", nfc_name)
+
+    canonical = ArtifactKey.asset_sheet("character", nfc_name)
+    from_nfd_factory = ArtifactKey.asset_sheet("character", nfd_name)
+    from_nfd_constructor = ArtifactKey(ArtifactKind.ASSET_SHEET, ("character", nfd_name))
+
+    assert nfc_name != nfd_name
+    assert from_nfd_factory == canonical
+    assert from_nfd_constructor == canonical
+    assert ArtifactKey.decode(canonical.encode()) == canonical
 
 
 def test_manifest_compares_registered_basis_without_mutating_the_artifact() -> None:
