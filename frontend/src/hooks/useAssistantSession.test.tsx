@@ -1413,6 +1413,53 @@ describe("useAssistantSession", () => {
     expect(rewriteSpy.mock.calls[0][4]).toBe(rewriteSpy.mock.calls[1][4]);
   });
 
+  it("does not let a session-list refresh started before the fork resurrect the superseded origin", async () => {
+    const listDeferred = createDeferred<{ sessions: SessionMeta[] }>();
+    let listCalls = 0;
+    vi.spyOn(API, "listAssistantSessions").mockImplementation(() => {
+      listCalls += 1;
+      // 首次（init）立即给出改写前的列表；第二次（轮次结束的补拉）挂起到改写返回之后
+      if (listCalls === 1) return Promise.resolve({ sessions: [makeSession("session-1", "running")] });
+      return listDeferred.promise;
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(
+      makeEntriesResponse({ session_id: "session-1", entries: [userEntry(0, "原始消息")] }),
+    );
+    vi.spyOn(API, "rewriteAssistantMessage").mockResolvedValue({
+      status: "accepted",
+      session_id: "session-2",
+      origin_session_id: "session-1",
+      entry: null,
+    });
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1);
+    });
+
+    // 轮次结束触发补拉，该请求在服务端分叉之前就已发出
+    await act(async () => {
+      MockEventSource.instances[0].emit("status", { status: "completed" });
+    });
+    await waitFor(() => {
+      expect(listCalls).toBe(2);
+    });
+
+    await act(async () => {
+      expect(await result.current.rewriteMessage("u-0", "改写后的消息")).toBe(true);
+    });
+    expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-2"]);
+
+    // 补拉这才返回，带回的是分叉前的列表——已被本地权威写入取代，不得写回
+    await act(async () => {
+      listDeferred.resolve({ sessions: [makeSession("session-1", "idle")] });
+      await listDeferred.promise;
+    });
+
+    expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-2"]);
+  });
+
   it("marks a rewrite startup failure by origin so the card does not replay the composer", async () => {
     mockIdleSession([userEntry(0, "原始消息")]);
     const failure = {

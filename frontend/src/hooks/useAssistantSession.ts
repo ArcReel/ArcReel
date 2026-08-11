@@ -119,15 +119,28 @@ export function useAssistantSession(projectName: string | null) {
     return controller.signal;
   }, [abortSessionLoad]);
 
+  // 会话列表的本地权威写入代数。新建/改写分叉/删除都在本地即时改写列表，这类写入
+  // 表达的是「服务端已经这么做了」，比任何更早开始的读都新；代数在写入时递增，读到
+  // 的旧列表据此作废，不会把已消失的会话写回来、把新分支挤掉。
+  const sessionsWriteVersionRef = useRef(0);
+
+  const writeSessions = useCallback((sessions: SessionMeta[]) => {
+    sessionsWriteVersionRef.current += 1;
+    store.getState().setSessions(sessions);
+  }, [store]);
+
   // 补拉会话列表。纳入项目级取消域，挂起期间切换项目时迟到响应不得覆盖已切到的
   // 新项目会话列表；空列表不写入，避免一次失败的读把列表清空。
   const refreshSessions = useCallback(() => {
     if (!projectName) return;
     const signal = projectAbortRef.current?.signal;
     if (!signal) return;
+    const writeVersion = sessionsWriteVersionRef.current;
     API.listAssistantSessions(projectName, null, { signal })
       .then((res) => {
         if (signal.aborted) return;
+        // 本次读开始之后发生过本地权威写入：这份列表已经过期
+        if (sessionsWriteVersionRef.current !== writeVersion) return;
         const fresh = res.sessions ?? [];
         if (fresh.length > 0) store.getState().setSessions(fresh);
       })
@@ -356,6 +369,7 @@ export function useAssistantSession(projectName: string | null) {
     invalidatePendingSend,
     loadSession,
     store,
+    writeSessions,
   ]);
 
   // 发送消息。返回是否受理成功——失败时调用方保留输入内容。
@@ -418,7 +432,7 @@ export function useAssistantSession(projectName: string | null) {
             updated_at: new Date().toISOString(),
           };
           store.getState().setCurrentSessionId(returnedSessionId);
-          store.getState().setSessions([newSession, ...store.getState().sessions]);
+          writeSessions([newSession, ...store.getState().sessions]);
           store.getState().setIsDraftSession(false);
           saveLastSessionId(projectName!, returnedSessionId);
           sessionId = returnedSessionId;
@@ -461,7 +475,7 @@ export function useAssistantSession(projectName: string | null) {
         return false;
       }
     },
-    [projectName, abortSessionLoad, connectStream, store],
+    [projectName, abortSessionLoad, connectStream, store, writeSessions],
   );
 
   const answerQuestion = useCallback(
@@ -604,7 +618,7 @@ export function useAssistantSession(projectName: string | null) {
           created_at: origin?.created_at ?? new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
-        store.getState().setSessions([
+        writeSessions([
           branch,
           ...sessions.filter((s) => s.id !== originSessionId && s.id !== newSessionId),
         ]);
@@ -628,7 +642,7 @@ export function useAssistantSession(projectName: string | null) {
         return false;
       }
     },
-    [projectName, refreshSessions, switchSession, store, t],
+    [projectName, refreshSessions, switchSession, store, t, writeSessions],
   );
 
   // 删除会话
@@ -637,7 +651,7 @@ export function useAssistantSession(projectName: string | null) {
     try {
       await API.deleteAssistantSession(projectName, sessionId);
       const sessions = store.getState().sessions.filter((s) => s.id !== sessionId);
-      store.getState().setSessions(sessions);
+      writeSessions(sessions);
 
       // 如果删除的是当前会话，切换到下一个
       if (store.getState().currentSessionId === sessionId) {
@@ -659,7 +673,16 @@ export function useAssistantSession(projectName: string | null) {
     } catch {
       // 静默失败
     }
-  }, [projectName, abortSessionLoad, clearPendingQuestion, closeStream, invalidatePendingSend, switchSession, store]);
+  }, [
+    projectName,
+    abortSessionLoad,
+    clearPendingQuestion,
+    closeStream,
+    invalidatePendingSend,
+    switchSession,
+    store,
+    writeSessions,
+  ]);
 
   return { sendMessage, rewriteMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession };
 }
