@@ -1,6 +1,5 @@
 interface:
   display_name: "AFK 复盘"
   short_description: "为刚完成的 AFK 批次生成中文 HTML 报告"
-  default_prompt: "使用 $afk-retrospective 复盘刚完成的 AFK 批次。"
 policy:
   allow_implicit_invocation: false
