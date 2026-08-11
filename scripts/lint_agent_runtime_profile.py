@@ -18,6 +18,7 @@ from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 
 _MCP_RE = re.compile(r"mcp__arcreel__([a-zA-Z0-9_*.-]+)")
 _MCP_SENTENCE_PUNCTUATION = ".,;:!?"
+_URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 _ROOT_POINTER_RE = re.compile(r"(?<![\w/])(\.claude/[A-Za-z0-9_./-]+\.md)")
 _MARKDOWN_INLINE_LINK_RE = re.compile(
     r"\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|([^\s)\n]+))"
@@ -71,7 +72,7 @@ def _validate_metadata(profile_dir: Path, errors: list[str]) -> None:
 def _projected_pointer(source_logical: str, pointer: str) -> str | None:
     if pointer.startswith(".claude/"):
         return posixpath.normpath(pointer)
-    if pointer.startswith(("http://", "https://", "/", "#")):
+    if pointer.startswith(("/", "#")) or _URI_SCHEME_RE.match(pointer):
         return None
     return posixpath.normpath(posixpath.join(posixpath.dirname(source_logical), pointer))
 

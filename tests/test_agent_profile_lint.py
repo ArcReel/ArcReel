@@ -152,6 +152,17 @@ def test_decodes_url_escaped_markdown_pointers(tmp_path: Path) -> None:
     assert any("missing Markdown pointer 'missing guide.md'" in error for error in errors)
 
 
+def test_ignores_external_markdown_uri_schemes(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    skill = profile / ".claude" / "skills" / "demo" / "SKILL.md"
+    skill.write_text(
+        skill.read_text(encoding="utf-8") + "See [docs](HTTPS://example.com/guide.md) or [mail](mailto:guide.md).\n",
+        encoding="utf-8",
+    )
+
+    assert lint_profile(profile, registered_tools={"patch_project"}) == []
+
+
 def test_target_deprecation_rules_are_explicit_for_variant_profile(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     skill = profile / ".claude" / "skills" / "demo" / "SKILL.md"
