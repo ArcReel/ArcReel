@@ -137,6 +137,11 @@ expected source revision：{next_action.args.expected_source_revision}
 
 dispatch prompt 通用参数：项目名称、项目路径、集数、本集小说文件路径；可选附加说明（用户对本次生成的意见等任何需带给 subagent 的临时上下文，原文透传）。
 
+若 `next_action.args` 含 `expected_stale_step1_revision`，subagent 成功产出正式 step1 后必须调用
+`mcp__arcreel__complete_step1_rebuild({"episode": N, "expected_stale_step1_revision": next_action.args.expected_stale_step1_revision})`。
+该完成事实不可用“文件内容是否变化”推断：确定性重建可能产出完全相同的 JSON。工具报冲突时刷新 workflow-status，
+不得用旧参数重试。
+
 （两个预处理 subagent 会自行读 project.json + 调用
 `mcp__arcreel__get_video_capabilities({})`
 拿到模型能力与用户偏好；主 agent 不需要预先注入角色/场景/道具列表或

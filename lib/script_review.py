@@ -58,6 +58,9 @@ REVIEW_FIELD = "step1_review"
 #: stale 账本条目记录重规划提交时旧 step1 的内容指纹；live 指纹变化即证明 step1 已按新账本重建。
 STALE_STEP1_REVISION_FIELD = "stale_step1_revision"
 
+#: stale 分集的 step1 重建完成事实。指纹可能与旧内容相同，不能仅以内容变化推断是否执行过重建。
+STALE_STEP1_REBUILT_REVISION_FIELD = "stale_step1_rebuilt_revision"
+
 #: 最终剧本 metadata 记录其实际消费的 step1 内容指纹；workflow status 用它识别 step1
 #: 重新确认后仍残留的旧剧本，避免仅凭「文件存在」误判 step2 已完成。
 SCRIPT_STEP1_REVISION_FIELD = "step1_revision"
@@ -174,6 +177,48 @@ class Step1WriteConflict(Exception):
         self.expected = expected
         self.actual = actual
         self.current_content = current_content
+
+
+class Step1RebuildCompletionError(ValueError):
+    """A stale step1 rebuild cannot be recorded against the current ledger state."""
+
+    def __init__(self, code: str, detail: str):
+        super().__init__(detail)
+        self.code = code
+
+
+def complete_stale_step1_rebuild(
+    pm: ProjectManager,
+    project_name: str,
+    episode: int,
+    expected_stale_revision: str | None,
+) -> str:
+    """Record preprocessing completion for a stale entry, including byte-identical rebuilds."""
+    if isinstance(episode, bool) or episode < 1:
+        raise Step1RebuildCompletionError("invalid_episode", "episode must be a positive integer")
+
+    project_path = pm.get_project_path(project_name)
+    committed: dict[str, str] = {}
+
+    def _commit(project: dict[str, Any]) -> None:
+        entry = find_episode(project, episode)
+        if entry is None or entry.get("ledger_status") != "stale":
+            raise Step1RebuildCompletionError("not_stale", "episode is not awaiting a stale step1 rebuild")
+        if STALE_STEP1_REVISION_FIELD not in entry:
+            raise Step1RebuildCompletionError("missing_baseline", "stale episode has no rebuild baseline")
+        if entry.get(STALE_STEP1_REVISION_FIELD) != expected_stale_revision:
+            raise Step1RebuildCompletionError(
+                "baseline_conflict", "stale step1 baseline changed; refresh workflow status"
+            )
+        path = step1_path(project_path, project, episode)
+        revision = content_fingerprint(path) if path is not None else None
+        if revision is None:
+            raise Step1RebuildCompletionError("step1_missing", "rebuilt step1 file is missing")
+        entry[STALE_STEP1_REBUILT_REVISION_FIELD] = revision
+        committed["revision"] = revision
+
+    pm.update_project(project_name, _commit)
+    return committed["revision"]
 
 
 def assert_base_fingerprint(path: Path, expected: str | None | _UncheckedFingerprint) -> None:

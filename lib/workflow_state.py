@@ -24,7 +24,6 @@ from lib.episode_ledger import (
     normalize_source_text,
     parse_positive_episode_num,
 )
-from lib.episode_paths import episode_script_relpath
 from lib.path_safety import safe_exists
 from lib.project_manager import ProjectManager
 from lib.reference_video.ad_units import ad_stale_unit_ids
@@ -391,6 +390,16 @@ class WorkflowStateService:
         if not isinstance(script, dict):
             blockers.append(WorkflowBlocker(code="invalid_script", path=path, reason="script must be an object"))
             return {"state": "blocked", "path": path}, [], None, {}
+        script_episode = script.get("episode")
+        if script_episode != target.episode or isinstance(script_episode, bool):
+            blockers.append(
+                WorkflowBlocker(
+                    code="script_episode_mismatch",
+                    path=f"{path}.episode",
+                    reason=f"script episode must equal target episode {target.episode}",
+                )
+            )
+            return {"state": "blocked", "path": path}, [], None, script
         try:
             kind = ensure_route_skeleton(script, project.get("content_mode"), project.get("generation_mode"))
         except ValueError as exc:
@@ -677,22 +686,29 @@ class WorkflowStateService:
             number, entry = selected
             script_path = entry.get("script_file")
             if not isinstance(script_path, str) or not script_path:
-                script_path = episode_script_relpath(number)
-            script_filename = ProjectManager.normalize_script_filename(script_path)
-            if "/" in script_filename or "\\" in script_filename:
                 blockers.append(
                     WorkflowBlocker(
-                        code="invalid_script_path",
+                        code="invalid_script_binding",
                         path=f"episodes.{number}.script_file",
-                        reason="script_file must resolve to a bare filename under scripts/",
+                        reason="script_file must be a non-empty string",
                     )
                 )
-            target = WorkflowTarget(
-                episode=number,
-                script=script_path,
-                script_filename=script_filename,
-                source=f"source/episode_{number}.txt",
-            )
+            else:
+                script_filename = ProjectManager.normalize_script_filename(script_path)
+                if "/" in script_filename or "\\" in script_filename:
+                    blockers.append(
+                        WorkflowBlocker(
+                            code="invalid_script_path",
+                            path=f"episodes.{number}.script_file",
+                            reason="script_file must resolve to a bare filename under scripts/",
+                        )
+                    )
+                target = WorkflowTarget(
+                    episode=number,
+                    script=script_path,
+                    script_filename=script_filename,
+                    source=f"source/episode_{number}.txt",
+                )
 
         state: WorkflowStateName
         next_action: WorkflowNextAction
@@ -702,6 +718,9 @@ class WorkflowStateService:
         elif mode != "ad" and (source is None or not source.files):
             state = "PROJECT_INPUT"
             next_action = _action("collect_project_input", "source text is required")
+        elif mode != "ad" and not any(doc.text.strip() for doc in shared.planning_sources):
+            state = "PROJECT_INPUT"
+            next_action = _action("collect_project_input", "non-blank source text is required")
         elif mode != "ad" and inventory.get("state") != "current":
             state = "ASSET_INVENTORY"
             next_action = _action(
@@ -757,6 +776,7 @@ class WorkflowStateService:
                     stale_entry = selected[1]
                     baseline_is_recorded = script_review.STALE_STEP1_REVISION_FIELD in stale_entry
                     stale_revision = stale_entry.get(script_review.STALE_STEP1_REVISION_FIELD)
+                    rebuilt_revision = stale_entry.get(script_review.STALE_STEP1_REBUILT_REVISION_FIELD)
                     if not baseline_is_recorded:
                         artifacts["step1"] = {"state": "stale"}
                         state = "EPISODE_PLAN"
@@ -766,13 +786,19 @@ class WorkflowStateService:
                             args={"from_episode": target.episode},
                         )
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
-                    if live_revision is None or (baseline_is_recorded and live_revision == stale_revision):
+                    if live_revision is None or (
+                        baseline_is_recorded and live_revision == stale_revision and rebuilt_revision != live_revision
+                    ):
                         artifacts["step1"] = {"state": "stale"}
                         state = "STEP1_CONTENT"
                         next_action = _action(
                             "prepare_step1",
                             "target episode was replanned and its downstream artifacts are stale",
-                            args={"episode": target.episode, "preprocessor": preprocessor},
+                            args={
+                                "episode": target.episode,
+                                "preprocessor": preprocessor,
+                                "expected_stale_step1_revision": stale_revision,
+                            },
                         )
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
                 if mode == "ad":

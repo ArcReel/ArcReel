@@ -109,3 +109,13 @@ def test_workflow_reset_route_executes_recovery_and_refreshes_status(filename: s
     assert "next_action.args" in content
     assert "confirm_consumed: true" in content
     assert "重置成功后刷新 workflow-status" in content
+
+
+@pytest.mark.parametrize("filename", ("SKILL.narration.md", "SKILL.drama.md"))
+def test_workflow_stale_step1_records_explicit_rebuild_completion(filename: str) -> None:
+    path = REPO / "agent_runtime_profile" / ".claude" / "skills" / "manga-workflow" / filename
+    content = path.read_text(encoding="utf-8")
+
+    assert "mcp__arcreel__complete_step1_rebuild" in content
+    assert "expected_stale_step1_revision" in content
+    assert "确定性重建可能产出完全相同的 JSON" in content

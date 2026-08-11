@@ -576,6 +576,17 @@ def test_decomposed_recorded_source_does_not_trigger_repeated_planning_reset(tmp
 
 
 @pytest.mark.integration
+def test_whitespace_only_source_is_missing_project_input(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source_and_complete(pm, project_path, " \n\t ")
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "PROJECT_INPUT"
+    assert status.next_action.type == "collect_project_input"
+
+
+@pytest.mark.integration
 def test_non_boolean_grid_storyboard_blocks_route_dispatch(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad")
     pm.update_project("demo", lambda project: project.update(grid_storyboard="false"))
@@ -615,6 +626,67 @@ def test_invalid_asset_definition_blocks_existing_sheet(tmp_path: Path) -> None:
 
     assert status.state == "PROJECT_INPUT"
     assert status.blockers[0].code == "invalid_asset_definitions"
+    assert status.next_action.type == "none"
+
+
+@pytest.mark.integration
+def test_missing_ledger_script_binding_is_a_blocker(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source_and_complete(pm, project_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(episodes=[{"episode": 1, "ledger_status": "planned"}]),
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "PROJECT_INPUT"
+    assert status.target is None
+    assert status.blockers[0].code == "invalid_script_binding"
+    assert status.next_action.type == "none"
+
+
+@pytest.mark.integration
+def test_script_episode_must_match_ledger_target(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source_and_complete(pm, project_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[
+                {
+                    "episode": 2,
+                    "script_file": "scripts/episode_1.json",
+                    "ledger_status": "planned",
+                }
+            ]
+        ),
+    )
+    draft_dir = project_path / "drafts" / "episode_2"
+    draft_dir.mkdir(parents=True)
+    step1_path = draft_dir / "step1_segments.json"
+    atomic_write_json(step1_path, {"episode": 2, "segments": [{"segment_id": "E2S01"}]})
+    revision = script_review.content_fingerprint(step1_path)
+    assert revision is not None
+
+    def _confirm(project: dict) -> None:
+        script_review.apply_confirmation(project, 2, revision, "now")
+
+    pm.update_project("demo", _confirm)
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "segments": [_valid_narration_segment(segment_id="E2S01")],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "FINAL_SCRIPT"
+    assert status.blockers[0].code == "script_episode_mismatch"
     assert status.next_action.type == "none"
 
 
@@ -926,6 +998,45 @@ def test_stale_episode_advances_after_step1_is_rebuilt(tmp_path: Path) -> None:
     assert rebuilt.state == "STEP1_REVIEW"
     assert rebuilt.next_action.type == "confirm_step1"
     assert rebuilt.next_action.requires_confirmation is True
+
+
+@pytest.mark.integration
+def test_identical_stale_step1_rebuild_advances_after_explicit_completion(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source_and_complete(pm, project_path)
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    step1_path = draft_dir / "step1_segments.json"
+    content = {"episode": 1, "segments": [{"segment_id": "E1S01"}]}
+    atomic_write_json(step1_path, content)
+    baseline = script_review.content_fingerprint(step1_path)
+    assert baseline is not None
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[
+                {
+                    "episode": 1,
+                    "script_file": "scripts/episode_1.json",
+                    "ledger_status": "stale",
+                    script_review.STALE_STEP1_REVISION_FIELD: baseline,
+                }
+            ]
+        ),
+    )
+    service = WorkflowStateService(pm)
+    before = service.get_status("demo")
+    assert before.next_action.type == "prepare_step1"
+    assert before.next_action.args["expected_stale_step1_revision"] == baseline
+
+    atomic_write_json(step1_path, content)
+    still_pending = service.get_status("demo")
+    assert still_pending.next_action.type == "prepare_step1"
+    script_review.complete_stale_step1_rebuild(pm, "demo", 1, baseline)
+
+    completed = service.get_status("demo")
+    assert completed.state == "STEP1_REVIEW"
+    assert completed.next_action.type == "confirm_step1"
 
 
 @pytest.mark.integration

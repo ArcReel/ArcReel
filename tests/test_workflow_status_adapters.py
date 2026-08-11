@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from lib.project_manager import ProjectManager
 from lib.workflow_state import WorkflowStateService
 from server.agent_runtime.sdk_tools._context import ToolContext
-from server.agent_runtime.sdk_tools.workflow_status import get_workflow_status_tool
+from server.agent_runtime.sdk_tools.workflow_status import complete_step1_rebuild_tool, get_workflow_status_tool
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import projects
 
@@ -60,6 +60,41 @@ async def test_workflow_status_mcp_rejects_invalid_episode_without_calling_servi
     assert result["is_error"] is True
     assert json.loads(result["content"][0]["text"])["error"] == "invalid_episode"
     assert calls == []
+
+
+@pytest.mark.integration
+async def test_complete_step1_rebuild_mcp_forwards_explicit_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pm = _project(tmp_path)
+    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    calls: list[tuple[object, ...]] = []
+
+    def _complete(*args: object) -> str:
+        calls.append(args)
+        return "rebuilt-revision"
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.workflow_status.complete_stale_step1_rebuild", _complete)
+
+    result = await complete_step1_rebuild_tool(ctx).handler({"episode": 2, "expected_stale_step1_revision": "baseline"})
+
+    assert result.get("is_error") is not True
+    assert json.loads(result["content"][0]["text"]) == {
+        "episode": 2,
+        "step1_revision": "rebuilt-revision",
+    }
+    assert calls == [(pm, "demo", 2, "baseline")]
+
+
+@pytest.mark.integration
+async def test_complete_step1_rebuild_mcp_requires_explicit_baseline(tmp_path: Path) -> None:
+    pm = _project(tmp_path)
+    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+
+    result = await complete_step1_rebuild_tool(ctx).handler({"episode": 1})
+
+    assert result["is_error"] is True
+    assert json.loads(result["content"][0]["text"])["error"] == "invalid_request"
 
 
 @pytest.mark.integration
