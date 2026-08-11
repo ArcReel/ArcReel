@@ -186,7 +186,6 @@ def test_media_paths_must_resolve_to_project_files_before_becoming_current(tmp_p
             ],
         },
     )
-
     status = WorkflowStateService(pm).get_status("demo")
 
     assert status.state == "STORYBOARD"
@@ -418,6 +417,54 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     assert status.target.episode == 2
     assert status.state == "STEP1_CONTENT"
     assert status.next_action.type == "prepare_step1"
+
+
+@pytest.mark.integration
+def test_legacy_stale_episode_without_baseline_advances_existing_step1_to_review(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source_and_complete(pm, project_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[
+                {
+                    "episode": 1,
+                    "script_file": "scripts/episode_1.json",
+                    "ledger_status": "stale",
+                }
+            ]
+        ),
+    )
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    atomic_write_json(draft_dir / "step1_segments.json", {"episode": 1, "segments": [{"segment_id": "E1S01"}]})
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "STEP1_REVIEW"
+    assert status.next_action.type == "confirm_step1"
+
+
+@pytest.mark.integration
+def test_requested_missing_episode_is_blocked_when_source_is_fully_planned(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"}],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(source_text)},
+            **{SOURCE_FINGERPRINTS_KEY: compute_source_fingerprints(discover_sources(project_path))},
+        ),
+    )
+
+    status = WorkflowStateService(pm).get_status("demo", 2)
+
+    assert status.state == "EPISODE_PLAN"
+    assert status.target is None
+    assert status.blockers[0].code == "episode_unavailable"
+    assert status.next_action.type == "none"
 
 
 @pytest.mark.integration
@@ -682,6 +729,13 @@ def test_stale_episode_requires_step1_even_when_old_artifacts_exist(tmp_path: Pa
             "content_mode": "narration",
             "segments": [{"segment_id": "E1S01", "generated_assets": {}}],
         },
+    )
+    step1_path = draft_dir / "step1_segments.json"
+    pm.update_project(
+        "demo",
+        lambda project: project["episodes"][0].update(
+            {script_review.STALE_STEP1_REVISION_FIELD: script_review.content_fingerprint(step1_path)}
+        ),
     )
 
     status = WorkflowStateService(pm).get_status("demo")

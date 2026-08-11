@@ -660,7 +660,17 @@ class WorkflowStateService:
             )
         elif mode != "ad" and selected is None:
             state = "EPISODE_PLAN"
-            next_action = _action("plan_episodes", "episode ledger has no target episode")
+            if episode is not None and shared.planning_complete:
+                blockers.append(
+                    WorkflowBlocker(
+                        code="episode_unavailable",
+                        path=f"episodes.{episode}",
+                        reason="requested episode is absent and all source text is already planned",
+                    )
+                )
+                next_action = _action("none", "requested episode is unavailable")
+            else:
+                next_action = _action("plan_episodes", "episode ledger has no target episode")
         else:
             if target is None:  # defensive; ad always supplies episode 1
                 state = "EPISODE_PLAN"
@@ -678,9 +688,11 @@ class WorkflowStateService:
                     live_revision = script_review.content_fingerprint(step1_path) if step1_path is not None else None
                     stale_entry = selected[1]
                     baseline_is_recorded = script_review.STALE_STEP1_REVISION_FIELD in stale_entry
-                    if not baseline_is_recorded or live_revision == stale_entry.get(
-                        script_review.STALE_STEP1_REVISION_FIELD
-                    ):
+                    stale_revision = stale_entry.get(script_review.STALE_STEP1_REVISION_FIELD)
+                    if not baseline_is_recorded:
+                        stale_revision = script_review.stored_review(project, target.episode).get("fingerprint")
+                        baseline_is_recorded = isinstance(stale_revision, str)
+                    if live_revision is None or (baseline_is_recorded and live_revision == stale_revision):
                         artifacts["step1"] = {"state": "stale"}
                         state = "STEP1_CONTENT"
                         next_action = _action(
