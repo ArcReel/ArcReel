@@ -14,6 +14,7 @@ from lib.artifact_manifest import ArtifactBasis
 _STRUCTURED_CONTENT_MODES = frozenset({"narration", "drama"})
 _GENERATION_MODES = frozenset({"storyboard", "reference_video"})
 _SOURCE_KINDS = frozenset({"novel", "screenplay"})
+_DEFAULT_SOURCE_LANGUAGE = "中文"
 
 
 def build_step1_basis(source_content: object, *, project: Mapping[str, object]) -> ArtifactBasis:
@@ -24,8 +25,11 @@ def build_step1_basis(source_content: object, *, project: Mapping[str, object]) 
     source_kind = "novel" if raw_source_kind is None else raw_source_kind
     if not isinstance(source_kind, str) or source_kind not in _SOURCE_KINDS:
         raise ValueError(f"unsupported source_kind: {source_kind!r}")
-    source_language = project.get("source_language")
-    if source_language is not None and (not isinstance(source_language, str) or not source_language):
+    raw_source_language = project.get("source_language")
+    source_language = (
+        _DEFAULT_SOURCE_LANGUAGE if raw_source_language is None or raw_source_language == "" else raw_source_language
+    )
+    if not isinstance(source_language, str):
         raise ValueError(f"source_language must be a non-empty string or null, got {source_language!r}")
     return ArtifactBasis.build(
         "structured-content/step1",

@@ -239,11 +239,15 @@ class ProjectArtifactManifestAdapter:
         parts = PurePosixPath(normalized).parts
         directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
         file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-        try:
-            root_fd = os.open(self._project_dir, directory_flags)
-        except OSError as exc:
-            return self._artifact_blocked(normalized, "artifact_unreadable", f"project directory is unreadable: {exc}")
         with contextlib.ExitStack() as stack:
+            try:
+                root_fd = os.open(self._project_dir, directory_flags)
+            except OSError as exc:
+                return self._artifact_blocked(
+                    normalized,
+                    "artifact_unreadable",
+                    f"project directory is unreadable: {exc}",
+                )
             stack.callback(os.close, root_fd)
             directory_fd = root_fd
             for part in parts[:-1]:
@@ -295,6 +299,7 @@ class ProjectArtifactManifestAdapter:
             )
         path = self._project_dir.joinpath(*PurePosixPath(normalized).parts)
         cursor = self._project_dir
+        checked_components: list[tuple[Path, tuple[int, int], int]] = []
         for part in PurePosixPath(normalized).parts:
             cursor = cursor / part
             if _is_linkish(cursor):
@@ -304,9 +309,18 @@ class ProjectArtifactManifestAdapter:
                     detail=f"artifact path contains a symlink or junction: {normalized}",
                 )
                 return ArtifactObservation(artifact_path=normalized, present=False, blocker=blocker)
-            if not cursor.exists():
+            try:
+                component_stat = cursor.stat(follow_symlinks=False)
+            except FileNotFoundError:
                 return ArtifactObservation(artifact_path=normalized, present=False)
-        if not path.is_file():
+            except OSError as exc:
+                return self._artifact_blocked(
+                    normalized,
+                    "artifact_unreadable",
+                    f"artifact path cannot be inspected safely: {normalized}: {exc}",
+                )
+            checked_components.append((cursor, (component_stat.st_dev, component_stat.st_ino), component_stat.st_mode))
+        if not stat.S_ISREG(checked_components[-1][2]):
             blocker = ArtifactBlocker(
                 code="artifact_not_regular_file",
                 path=normalized,
@@ -317,7 +331,34 @@ class ProjectArtifactManifestAdapter:
         try:
             fd = os.open(path, flags)
             try:
+                opened_stat = os.fstat(fd)
+                if not stat.S_ISREG(opened_stat.st_mode):
+                    return self._artifact_blocked(
+                        normalized,
+                        "artifact_not_regular_file",
+                        f"artifact path is not a regular file: {normalized}",
+                    )
                 os.read(fd, 1)
+                if (opened_stat.st_dev, opened_stat.st_ino) != checked_components[-1][1]:
+                    return self._artifact_blocked(
+                        normalized,
+                        "artifact_symlink",
+                        f"artifact path changed while it was being inspected: {normalized}",
+                    )
+                for checked_path, expected_identity, _ in checked_components:
+                    if _is_linkish(checked_path):
+                        return self._artifact_blocked(
+                            normalized,
+                            "artifact_symlink",
+                            f"artifact path contains a symlink or junction: {normalized}",
+                        )
+                    current_stat = checked_path.stat(follow_symlinks=False)
+                    if (current_stat.st_dev, current_stat.st_ino) != expected_identity:
+                        return self._artifact_blocked(
+                            normalized,
+                            "artifact_symlink",
+                            f"artifact path changed while it was being inspected: {normalized}",
+                        )
             finally:
                 os.close(fd)
         except OSError as exc:
@@ -357,19 +398,19 @@ class ProjectArtifactManifestAdapter:
 
     @contextmanager
     def _locked(self) -> Iterator[int | None]:
-        root_fd: int | None = None
-        if os.name == "posix":
-            root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-            try:
-                root_fd = os.open(self._project_dir, root_flags)
-            except OSError as exc:
-                raise ArtifactManifestError(
-                    f"project directory cannot be opened safely: {self._project_dir}: {exc}"
-                ) from exc
-        elif _is_linkish(self._project_dir):
-            raise ArtifactManifestError(f"project directory is a symlink or junction: {self._project_dir}")
         lock_path = self._project_dir / LOCK_FILENAME
+        root_fd: int | None = None
         try:
+            if os.name == "posix":
+                root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                try:
+                    root_fd = os.open(self._project_dir, root_flags)
+                except OSError as exc:
+                    raise ArtifactManifestError(
+                        f"project directory cannot be opened safely: {self._project_dir}: {exc}"
+                    ) from exc
+            elif _is_linkish(self._project_dir):
+                raise ArtifactManifestError(f"project directory is a symlink or junction: {self._project_dir}")
             if root_fd is None and _is_linkish(lock_path):
                 raise ArtifactManifestError(f"manifest lock is a symlink or junction: {lock_path}")
             flags = os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
@@ -705,7 +746,7 @@ def _parse_manifest(raw: bytes) -> dict[str, ArtifactManifestEntry]:
         raise ArtifactManifestError(f"artifact manifest is not valid UTF-8 JSON: {exc}") from exc
     if not isinstance(payload, dict) or set(payload) != {"entries", "hash_algorithm", "schema_version"}:
         raise ArtifactManifestError("artifact manifest has an invalid top-level schema")
-    if payload["schema_version"] != MANIFEST_SCHEMA_VERSION:
+    if type(payload["schema_version"]) is not int or payload["schema_version"] != MANIFEST_SCHEMA_VERSION:
         raise ArtifactManifestError(f"unsupported artifact manifest schema_version: {payload['schema_version']!r}")
     if payload["hash_algorithm"] != HASH_ALGORITHM:
         raise ArtifactManifestError(f"unsupported artifact manifest hash_algorithm: {payload['hash_algorithm']!r}")

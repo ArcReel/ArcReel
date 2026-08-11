@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -22,6 +24,25 @@ from lib.artifact_manifest import (
 )
 
 pytestmark = pytest.mark.integration
+
+_RUNTIME_FIFO_COMPARISON = """
+import json
+import sys
+from pathlib import Path
+
+from lib.artifact_manifest import ArtifactBasis, ArtifactKey, ArtifactManifest, ProjectArtifactManifestAdapter
+
+project = Path(sys.argv[1])
+comparison = ArtifactManifest(ProjectArtifactManifestAdapter(project)).compare(
+    ArtifactKey.episode_script(1),
+    artifact_path="episode.json",
+    basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"}),
+)
+print(json.dumps({
+    "status": comparison.status.value,
+    "blocker": comparison.blocker.code if comparison.blocker is not None else None,
+}))
+"""
 
 
 def test_project_adapter_persists_deterministic_utf8_and_skips_unchanged_write(tmp_path: Path) -> None:
@@ -254,16 +275,20 @@ def test_project_adapter_rejects_runtime_fifo_without_blocking(tmp_path: Path, r
     project.mkdir()
     (project / "episode.json").write_text("{}", encoding="utf-8")
     os.mkfifo(project / runtime_path)
-    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", _RUNTIME_FIFO_COMPARISON, str(project)],
+            cwd=Path(__file__).resolve().parents[1],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"manifest comparison blocked on runtime FIFO: {runtime_path}")
 
-    comparison = manifest.compare(
-        ArtifactKey.episode_script(1),
-        artifact_path="episode.json",
-        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"}),
-    )
-
-    assert comparison.status is ArtifactStatus.BLOCKED
-    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"status": "blocked", "blocker": "manifest_unreadable"}
 
 
 def test_project_adapter_rejects_replaced_portable_project_root(tmp_path: Path) -> None:
@@ -292,6 +317,40 @@ def test_project_adapter_rejects_replaced_portable_project_root(tmp_path: Path) 
         )
     assert (outside / "episode.json").read_text(encoding="utf-8") == "outside"
     assert not (outside / MANIFEST_FILENAME).exists()
+
+
+def test_project_adapter_rejects_swapped_portable_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    scripts = project / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "episode.json").write_text("inside", encoding="utf-8")
+    adapter = ProjectArtifactManifestAdapter(project)
+    moved_scripts = project / "original-scripts"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "episode.json").write_text("outside", encoding="utf-8")
+    original_open = os.open
+    swapped = False
+
+    def swap_parent_then_open(path: str | bytes | Path, flags: int, mode: int = 0o777) -> int:
+        nonlocal swapped
+        if not swapped and Path(path) == scripts / "episode.json":
+            scripts.rename(moved_scripts)
+            scripts.symlink_to(outside, target_is_directory=True)
+            swapped = True
+        return original_open(path, flags, mode)
+
+    monkeypatch.setattr("lib.artifact_manifest.os.open", swap_parent_then_open)
+
+    observation = adapter._inspect_artifact_portable("scripts/episode.json")
+
+    assert swapped
+    assert not observation.present
+    assert observation.blocker is not None and observation.blocker.code == "artifact_symlink"
+    assert (outside / "episode.json").read_text(encoding="utf-8") == "outside"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="dir_fd anchors manifest storage to the opened POSIX root")
@@ -366,12 +425,16 @@ def test_project_adapter_refuses_runtime_file_symlinks(tmp_path: Path, runtime_p
     assert outside.read_text(encoding="utf-8") == "do not touch"
 
 
-def test_project_adapter_reports_malformed_manifest_as_blocked_without_reset(tmp_path: Path) -> None:
+@pytest.mark.parametrize("schema_version", [999, True, 1.0])
+def test_project_adapter_reports_invalid_manifest_schema_version_as_blocked_without_reset(
+    tmp_path: Path,
+    schema_version: object,
+) -> None:
     project = tmp_path / "project"
     project.mkdir()
     (project / "episode.json").write_text("{}", encoding="utf-8")
     malformed = json.dumps(
-        {"entries": {}, "hash_algorithm": HASH_ALGORITHM, "schema_version": 999},
+        {"entries": {}, "hash_algorithm": HASH_ALGORITHM, "schema_version": schema_version},
         separators=(",", ":"),
     ).encode()
     manifest_path = project / MANIFEST_FILENAME
