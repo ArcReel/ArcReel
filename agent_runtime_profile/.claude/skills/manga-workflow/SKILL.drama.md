@@ -139,8 +139,10 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 ## 阶段 4：JSON 剧本生成
 
-**触发**：`next_action.type` 为 `"confirm_step1"` 或 `"generate_script"`。前者先完成下述审核 gate，
-刷新 workflow-status 后再按新的 `next_action` 路由；后者 dispatch 剧本生成。
+**触发**：
+
+- `next_action.type == "confirm_step1"` → 先完成下述审核 gate，刷新 workflow-status 后再路由
+- `next_action.type == "generate_script"` → dispatch 剧本生成
 
 **step1→step2 审核 gate（阻塞）**：阶段 3 的结构化 step1 中间态须经**显式确认**才放行本阶段（三种结构化 step1 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `step1_reference_units.json` 同样须确认，不要跳过。ad 无 step1，不纳入 gate）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。未确认（或确认后 step1 又被改）时 `generate_episode_script` 会被 gate 拒绝；**存量项目**（升级前已生成过本集剧本）已 grandfather 放行、无需再确认。
 
@@ -229,34 +231,6 @@ reference_video 模式返回这两个动作。
 两条路径都把 `next_action.args` 与 `requested_ids` 原样传给 subagent，由 subagent 按上面映射调用工具。
 
 > **切换 `grid_storyboard` 后的重做**：本阶段的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的场景范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": "episode_{N}.json", "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": "episode_{N}.json", "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑阶段 7 对应场景。
-
-### storyboard 模式（grid_storyboard=false）
-
-**dispatch `generate-assets` subagent**：
-
-```text
-dispatch `generate-assets` subagent：
-  任务类型：storyboard
-  项目名称：{project_name}
-  工具调用：
-    mcp__arcreel__generate_storyboards({"script": "episode_{N}.json"})
-  验证方式：重新读取 scripts/episode_{N}.json，检查各场景的 storyboard_image 字段
-```
-
-### storyboard 模式，grid_storyboard=true
-
-**dispatch `generate-assets` subagent**：
-
-```text
-dispatch `generate-assets` subagent：
-  任务类型：storyboard
-  项目名称：{project_name}
-  工具调用：
-    mcp__arcreel__generate_grid({"script": "episode_{N}.json"})
-  验证方式：重新读取 scripts/episode_{N}.json，检查各场景的 storyboard_image 字段
-```
-
----
 
 ## 阶段 7：视频生成
 
