@@ -29,7 +29,7 @@ from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, val
 
 # 改了这些顶层字段路径的分镜须紧接着重新生成对应图/视频（工具不自动作废旧资产）。
 _REGEN_TRIGGER_FIELDS = ("image_prompt", "video_prompt")
-_UNIT_PLANNING_FIELDS = frozenset({"shots", "references", "duration_seconds"})
+_UNIT_REPLAN_FIELDS = frozenset({"shots"})
 
 
 def _item_ids(script: dict[str, Any]) -> list[str]:
@@ -88,6 +88,15 @@ def patch_episode_script_tool(ctx: ToolContext):
                     scene_id = str(raw_id)
                     if not isinstance(field_map, dict) or not field_map:
                         raise ScriptEditError(f"分镜 {scene_id} 的编辑必须是非空 {{ 字段路径: 值 }} 映射")
+                    unit = (
+                        next(
+                            (item for item in items if isinstance(item, dict) and str(item.get(id_field)) == scene_id),
+                            None,
+                        )
+                        if kind == "video_units"
+                        else None
+                    )
+                    previous_shots = unit.get("shots") if unit is not None else None
                     fields: list[str] = []
                     for raw_field, value in field_map.items():
                         field = str(raw_field)
@@ -98,12 +107,12 @@ def patch_episode_script_tool(ctx: ToolContext):
                         fields.append(field)
                         if field.split(".", 1)[0] in _REGEN_TRIGGER_FIELDS and scene_id not in regen_ids:
                             regen_ids.append(scene_id)
-                    if kind == "video_units":
-                        unit = next(
-                            item for item in items if isinstance(item, dict) and str(item.get(id_field)) == scene_id
+                    if unit is not None:
+                        body_changed = (
+                            any(field.split(".", 1)[0] in _UNIT_REPLAN_FIELDS for field in fields)
+                            and unit.get("shots") != previous_shots
                         )
-                        planning_changed = any(field.split(".", 1)[0] in _UNIT_PLANNING_FIELDS for field in fields)
-                        refresh_video_unit_replan_state(unit, allow_clear=planning_changed)
+                        refresh_video_unit_replan_state(unit, allow_clear=body_changed)
                     applied.append((scene_id, fields))
 
             lines = [f"✅ 已更新 {len(applied)} 个分镜的字段："]

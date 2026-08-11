@@ -157,6 +157,20 @@ def test_non_planning_patch_keeps_replan_marker_until_content_is_repaired(ad_cli
     assert noted.status_code == 200, noted.text
     assert noted.json()["unit"]["needs_replan"] is True
 
+    resized = ad_client.patch(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
+        json={"duration_seconds": 12},
+    )
+    assert resized.status_code == 200, resized.text
+    assert resized.json()["unit"]["needs_replan"] is True
+
+    resubmitted = ad_client.patch(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
+        json={"prompt": "@[按摩仪] 放在桌面上"},
+    )
+    assert resubmitted.status_code == 200, resubmitted.text
+    assert resubmitted.json()["unit"]["needs_replan"] is True
+
     repaired = ad_client.patch(
         "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
         json={"prompt": "@[按摩仪] 正面朝向镜头"},

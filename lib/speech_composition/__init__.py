@@ -452,9 +452,9 @@ def video_unit_replan_problems(
 def refresh_video_unit_replan_state(unit: dict[str, object], *, allow_clear: bool = True) -> None:
     """Refresh ``needs_replan`` after a planning edit.
 
-    A non-planning edit may discover a problem but cannot clear a durable migration marker.
-    This prevents note or transition changes from silently approving a partially hydrated
-    legacy unit.
+    An edit may discover a problem, but only a rewritten unit body may clear a durable
+    migration marker. Duration, reference, note, and transition changes cannot prove that
+    ambiguous or missing legacy shot membership has been repaired.
     """
     duration = unit.get("duration_seconds")
     if not unit.get("shots") or not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:

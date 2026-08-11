@@ -299,6 +299,7 @@ async def patch_unit(
 
     with _locked_episode_script(project_name, _episode_script_resolver(episode, _t, refs), _t) as script:
         unit = _find_unit(script, unit_id, _t)  # 未找到 raise 404 → 跳过写回
+        previous_shots = unit.get("shots")
 
         if refs is not None:
             unit["references"] = refs
@@ -314,8 +315,10 @@ async def patch_unit(
             unit["transition_to_next"] = req.transition_to_next
         if req.note is not None:
             unit["note"] = req.note
-        planning_changed = req.prompt is not None or refs is not None or req.duration_seconds is not None
-        refresh_video_unit_replan_state(unit, allow_clear=planning_changed)
+        # 只有正文重写能证明迁移留下的镜头归属问题已被重新规划；仅改时长或引用
+        # 不能解除 overlapping / dangling legacy shot 对应的 durable marker。
+        body_changed = req.prompt is not None and unit.get("shots") != previous_shots
+        refresh_video_unit_replan_state(unit, allow_clear=body_changed)
 
     return {"unit": unit}
 

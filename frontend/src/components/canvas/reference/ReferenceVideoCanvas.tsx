@@ -179,6 +179,7 @@ export function ReferenceVideoCanvas({
 
   // Drafts persist across unit switches; entry is dropped when text matches server value.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [durationDrafts, setDurationDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   // resource（=unit）→ 最新任务行。「最新行胜出」下沉到 store selector：
@@ -199,6 +200,12 @@ export function ReferenceVideoCanvas({
     () => units.find((u) => u.unit_id === selectedUnitId) ?? null,
     [units, selectedUnitId],
   );
+  const selectedDurationKey = selected
+    ? draftKey(projectName, episode, selected.unit_id)
+    : null;
+  const selectedDurationValue = selectedDurationKey
+    ? (durationDrafts[selectedDurationKey] ?? String(selected?.duration_seconds ?? ""))
+    : "";
 
   // 参考图约束按 unit 而非按集生效（同 lib.reference_video.precheck_unit 的
   // bool(unit.references) 判据）：不带 references 的 unit 用不叠加该约束的档位，
@@ -217,23 +224,26 @@ export function ReferenceVideoCanvas({
   // 让位，故「请求发出 → 任务行落库」全程都被覆盖，画布无须自备请求在途标记。
   const busyUnitIds = useActiveResourceIds("reference_video", projectName);
 
-  // 成片上传与版本恢复都不产生任务行，进不了 tasks-store 占用集，故在画布层按 unit 记录。
+  // 成片上传、版本恢复与时长保存都不产生任务行，进不了 tasks-store 占用集，故在画布层按 unit 记录。
   // 存在这里而非 UnitPreviewPanel 内：该面板有窄屏 sub-tab 与宽屏右栏两处挂载点，切换子页
   // 或跨越 STACK_PREVIEW_BREAKPOINT 都会卸载它（在途请求不会因此取消），且它随选中项切换
   // 复用，面板内的单个布尔量还会把 A 的占用态串到 B 上。
   const uploading = useUnitFlagSet();
   const restoring = useUnitFlagSet();
+  const durationSaving = useUnitFlagSet();
 
   const setUploading = uploading.set;
   const handleRestoringChange = restoring.set;
+  const setDurationSaving = durationSaving.set;
 
-  /** 该 unit 是否被任一写入路径占用：生成（tasks-store 占用集）、成片上传或版本恢复。 */
+  /** 该 unit 是否被任一写入路径占用：生成（tasks-store 占用集）、成片上传、版本恢复或时长保存。 */
   const isUnitLocked = useCallback(
     (unitId: string) =>
       isUnitBusy(projectName, unitId) ||
       uploading.ref.current.has(unitId) ||
-      restoring.ref.current.has(unitId),
-    [projectName, uploading.ref, restoring.ref],
+      restoring.ref.current.has(unitId) ||
+      durationSaving.ref.current.has(unitId),
+    [projectName, uploading.ref, restoring.ref, durationSaving.ref],
   );
 
   const statusMap = useMemo<Record<string, UnitStatus>>(() => {
@@ -438,21 +448,70 @@ export function ReferenceVideoCanvas({
 
   // 时长与正文分开提交：时长不是文本的一部分，改档位立即落盘，不牵连未保存的正文草稿。
   const handleDurationChange = useCallback(
-    (unitId: string, seconds: number) => {
+    async (unitId: string, seconds: number): Promise<boolean> => {
       // 渲染期的禁用态未必最新（SSE / Agent 入队可能刚占用），提交时刻再复核一次
-      if (isUnitBusy(projectName, unitId)) {
+      if (isUnitLocked(unitId)) {
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
+        return false;
+      }
+      setDurationSaving(unitId, true);
+      try {
+        await patchUnit(projectName, episode, unitId, { duration_seconds: seconds });
+        // 参考视频按申请秒数计价，SSE 的 unit 失效负责最终同步列表；费用面板仍需
+        // 在本地写成功时主动刷新，给当前浏览器即时反馈。
+        useCostStore.getState().debouncedFetch(projectName);
+        return true;
+      } catch (e) {
+        toastError(e);
+        return false;
+      } finally {
+        setDurationSaving(unitId, false);
+      }
+    },
+    [patchUnit, projectName, episode, isUnitLocked, setDurationSaving, t],
+  );
+
+  const clearDurationDraft = useCallback((key: string, expected: string) => {
+    setDurationDrafts((current) => {
+      if (current[key] !== expected) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const handleFreeDurationChange = useCallback(
+    (unitId: string, value: string) => {
+      const key = draftKey(projectName, episode, unitId);
+      setDurationDrafts((current) => ({ ...current, [key]: value }));
+    },
+    [projectName, episode],
+  );
+
+  const commitFreeDuration = useCallback(
+    (unitId: string, rawValue: string) => {
+      const key = draftKey(projectName, episode, unitId);
+      const seconds = Number(rawValue);
+      const fresh = useReferenceVideoStore
+        .getState()
+        .unitsByEpisode[referenceVideoCacheKey(projectName, episode)]?.find(
+          (unit) => unit.unit_id === unitId,
+        );
+      if (
+        !Number.isInteger(seconds) ||
+        seconds < 1 ||
+        seconds > 300 ||
+        !fresh ||
+        fresh.duration_seconds === seconds
+      ) {
+        clearDurationDraft(key, rawValue);
         return;
       }
-      void patchUnit(projectName, episode, unitId, { duration_seconds: seconds })
-        .then(() => {
-          // 参考视频按申请秒数计价，改档位即改估价。落盘广播的是 reference_unit:updated，
-          // 不在 SSE 的生成动作白名单内、不会触发重拉，费用面板要在此处自行刷新。
-          useCostStore.getState().debouncedFetch(projectName);
-        })
-        .catch(toastError);
+      void handleDurationChange(unitId, seconds).then((saved) => {
+        if (saved) clearDurationDraft(key, rawValue);
+      });
     },
-    [patchUnit, projectName, episode, t],
+    [projectName, episode, handleDurationChange, clearDurationDraft],
   );
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
 
@@ -849,13 +908,16 @@ export function ReferenceVideoCanvas({
                           max={300}
                           step={1}
                           aria-label={t("duration_selector_aria")}
-                          value={selected.duration_seconds}
+                          value={selectedDurationValue}
                           disabled={isUnitLocked(selected.unit_id)}
-                          onChange={(e) => {
-                            const seconds = Number(e.target.value);
-                            if (Number.isInteger(seconds) && seconds >= 1 && seconds <= 300) {
-                              handleDurationChange(selected.unit_id, seconds);
-                            }
+                          onChange={(e) =>
+                            handleFreeDurationChange(selected.unit_id, e.currentTarget.value)
+                          }
+                          onBlur={(e) =>
+                            commitFreeDuration(selected.unit_id, e.currentTarget.value)
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
                           }}
                           className="focus-ring w-14 bg-transparent font-mono tabular-nums text-[var(--color-text-2)] disabled:cursor-not-allowed disabled:opacity-60"
                         />
@@ -868,7 +930,7 @@ export function ReferenceVideoCanvas({
                             isUnitLocked(selected.unit_id) ? t("duration_locked_generating") : undefined
                           }
                           onChange={(e) =>
-                            handleDurationChange(selected.unit_id, Number(e.target.value))
+                            void handleDurationChange(selected.unit_id, Number(e.target.value))
                           }
                           className="focus-ring cursor-pointer bg-transparent font-mono tabular-nums text-[var(--color-text-2)] disabled:cursor-not-allowed disabled:opacity-60"
                         >

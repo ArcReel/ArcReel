@@ -380,6 +380,20 @@ class TestPatchEpisodeScript:
         assert noted.get("is_error") is not True
         assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
 
+        resized = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"duration_seconds": 12}}},
+        )
+        assert resized.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
+        resubmitted = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": _unit("E1U1")["shots"]}}},
+        )
+        assert resubmitted.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
         repaired = await _call(
             patch_episode_script_tool(ref_ctx),
             {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "修复后的无声镜头"}]}}},

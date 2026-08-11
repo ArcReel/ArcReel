@@ -329,8 +329,10 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             void useTasksStore.getState().refreshTasks();
           }
 
-          // 参考生视频生成完成：两个参考生视频画布据此重拉分组展示成片。
+          // Unit 增删改可能来自 Agent 或另一浏览器；生成完成则改变成片。两类事件都要
+          // 作废 reference-video-store 的独立列表缓存，同一批只自增一次。
           if (
+            entityChanges.some((c) => c.entity_type === "reference_unit") ||
             taskChanges.some(
               (c) => c.action === "task_succeeded" && c.task_type === "reference_video",
             )
