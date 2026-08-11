@@ -1,66 +1,50 @@
-# Spawn prompt 模板
+# 委派 prompt 模板
 
 按阶段取用，填入变量。
 
-## 实现（Claude teammate 路线）
+## 实现
 
 ```text
-你是 afk-team-workflow 批次中 issue #<N> 的实现者。先读 <主仓库绝对路径>/.agents/skills/afk-team-workflow/references/implementer.md，按契约工作。
-变量：issue=#<N>；handoff=<主仓库绝对路径>/.afk/<batch-id>/handoff-<N>.md。
-Read/Edit/Write 按绝对路径字面执行、不随 EnterWorktree 切换：除契约与 handoff 文件外，一切文件读写用 worktree 内的绝对路径，主仓库路径写得进去、误写即破坏隔离。契约文件的例外只覆盖「读取当前生效契约」；本批次任务恰是修改 implementer.md / local-reviewer.md / review-looper.md 这几份契约本身时，改动仍须走 worktree、经分支与 PR，不得字面套用此例外直接写主仓库路径。
-交付或遇到契约规定的请示场景时，SendMessage 给 team-lead（to 一律填 team-lead，不要用 main）。
+你是 afk-team-workflow 批次中 issue #<N> 的实现者。先读 <skill 目录绝对路径>/references/implementer.md，按契约工作。
+变量：issue=#<N>；worktree=<路径>；分支=issue/<N>；handoff=<主仓库绝对路径>/.afk/<batch-id>/handoff-<N>.md。
+所有路径按绝对路径字面解释：除读取契约与追加 handoff 外，一切文件读写都限定在 worktree；任务若要修改契约文件本身，也必须修改 worktree 内的副本，经分支与 PR 交付。
+交付或遇到契约规定的请示场景时，联系 team-lead。
 ```
 
-> spawn 时显式指定批次计划定下的 model。
+> 委派时使用批次计划按 [model-selection.md](model-selection.md) 定下的模型。
 
 改动面大的 issue，附加：
 
 ```text
-开工先派 Explore 子代理勘察。
-```
-
-## 实现（codex 后台任务路线）
-
-task 文本模板（启动命令与前置的 worktree 建法见 SKILL.md「实现路线与模型」；文本较长或含引号时用 `--prompt-file` 传入）：
-
-```text
-先读 <主仓库绝对路径>/.agents/skills/afk-team-workflow/references/implementer.md，按契约完成 issue #<N> 的实现。
-变量：issue=#<N>。
-与契约的差异（以本段为准）：
-- worktree 已建好：<worktree 绝对路径>（分支 issue/<N>，基于最新 main），直接在其中工作，不要自建
-- 你不在团队消息协议中：契约中的请示场景改为把问题与你的处置写进「实现」段后继续，由 team-lead 复核裁决
-- 不写 handoff 文件（沙箱写不到主仓库 `.afk/`）：把按 handoff.md 应追加的「实现」段全文放进最终输出，由 team-lead 代写
-- 不 git add/commit（沙箱下 `.git` 只读）：改动留在工作区，由 team-lead 核验后代为 commit
-- 交付即最终输出：worktree 路径、分支名、改动概要、质量门结果、「实现」段全文
-- 不 push、不建 PR、不合并
+开工先委派独立探索 agent 勘察。
 ```
 
 ## 本地审查+建 PR
 
 ```text
-你是 afk-team-workflow 批次中 issue #<N> 的本地审查者。先读 <主仓库绝对路径>/.agents/skills/afk-team-workflow/references/local-reviewer.md，按契约工作。
+你是 afk-team-workflow 批次中 issue #<N> 的本地审查者。先读 <skill 目录绝对路径>/references/local-reviewer.md，按契约工作。
 变量：issue=#<N>；worktree=<路径>；分支=issue/<N>；handoff=<主仓库绝对路径>/.afk/<batch-id>/handoff-<N>.md。
-Read/Edit/Write 按绝对路径字面执行、不随 EnterWorktree 切换：除契约与 handoff 文件外，一切文件读写用 worktree 内的绝对路径，主仓库路径写得进去、误写即破坏隔离。契约文件的例外只覆盖「读取当前生效契约」；本批次任务恰是修改 implementer.md / local-reviewer.md / review-looper.md 这几份契约本身时，改动仍须走 worktree、经分支与 PR，不得字面套用此例外直接写主仓库路径。
-交付或遇到契约规定的请示场景时，SendMessage 给 team-lead（to 一律填 team-lead，不要用 main）。
+所有路径按绝对路径字面解释：除读取契约与追加 handoff 外，一切文件读写都限定在 worktree；任务若要修改契约文件本身，也必须修改 worktree 内的副本，经分支与 PR 交付。
+交付或遇到契约规定的请示场景时，联系 team-lead。
 ```
 
-> spawn 该阶段 teammate 时指定 `model=opus`。
+> 按 [model-selection.md](model-selection.md) 选择本阶段模型。
 
 ## AI 审查循环
 
 ```text
-你是 afk-team-workflow 批次中 issue #<N> 的审查循环负责人。先读 <主仓库绝对路径>/.agents/skills/afk-team-workflow/references/review-looper.md，按契约工作。
+你是 afk-team-workflow 批次中 issue #<N> 的审查循环负责人。先读 <skill 目录绝对路径>/references/review-looper.md，按契约工作。
 变量：issue=#<N>；PR=#<M>；worktree=<路径>；handoff=<主仓库绝对路径>/.afk/<batch-id>/handoff-<N>.md。
-Read/Edit/Write 按绝对路径字面执行、不随 EnterWorktree 切换：除契约与 handoff 文件外，一切文件读写用 worktree 内的绝对路径，主仓库路径写得进去、误写即破坏隔离。契约文件的例外只覆盖「读取当前生效契约」；本批次任务恰是修改 implementer.md / local-reviewer.md / review-looper.md 这几份契约本身时，改动仍须走 worktree、经分支与 PR，不得字面套用此例外直接写主仓库路径。
-达标或遇到契约规定的请示场景时，SendMessage 给 team-lead（to 一律填 team-lead，不要用 main）。
+所有路径按绝对路径字面解释：除读取契约与追加 handoff 外，一切文件读写都限定在 worktree；任务若要修改契约文件本身，也必须修改 worktree 内的副本，经分支与 PR 交付。
+达标或遇到契约规定的请示场景时，联系 team-lead。
 ```
 
-> model 在 spawn 时按本 PR 的实际情况选定——此时 PR、diff 与 handoff 的两段都已具备，比批次计划阶段的信息更完整；选择理由 append 账本 `decision`。
+> 按 [model-selection.md](model-selection.md) 在委派时选择本阶段模型；选择理由 append 账本 `decision`。
 
 ## 替补接管附言
 
-teammate 失效需要替补时，沿用对应阶段的模板，并附加：
+负责 agent 失效需要替补时，沿用对应阶段的模板，并附加：
 
 ```text
-前任 teammate 已失效。接管前先核查现场：worktree 状态、PR 与分支状态、handoff 文件中已写的段、前任最后一次留痕的动作；不要假设前任完成了任何未留痕的步骤。
+前任 agent 已失效。接管前先核查现场：worktree 状态、PR 与分支状态、handoff 文件中已写的段、前任最后一次留痕的动作；不要假设前任完成了任何未留痕的步骤。
 ```

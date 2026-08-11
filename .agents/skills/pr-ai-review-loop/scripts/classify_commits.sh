@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# classify_commits.sh — emit metadata for each PR commit so Claude can judge "nit-only vs feature".
+# classify_commits.sh — emit metadata for each PR commit so the orchestrating agent can judge "nit-only vs feature".
 #
 # USAGE
 #   bash classify_commits.sh <PR_NUMBER> [SINCE_SHA]
@@ -31,7 +31,7 @@
 #   (a) skip burning Gemini quota on a manual re-trigger (the conservative-trigger gate), and
 #   (b) judge whether a round produced substantive value — user-facing behaviour or lower cost of
 #       future change — for the convergence exit. Metadata only; read the diff by SHA when unclear.
-# Output is raw metadata (file count, line stats, message text); Claude makes the final call —
+# Output is raw metadata (file count, line stats, message text); the orchestrating agent makes the final call —
 # scripting "is this nit?" would miss semantic cues like "fix typo in error message
 # (1 line, 1 file)" being clearly nit vs "fix race in lock release (1 line, 1 file)" being NOT nit.
 
