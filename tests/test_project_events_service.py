@@ -1316,12 +1316,21 @@ class TestProjectEventService:
         assert prev_meta["items"]["E1U01"]["generated_assets"]["video_clip"] == ""
 
         script = pm.load_script("ad-ref", "episode_1.json")
+        script["video_units"][0]["references"].append({"type": "product", "name": "咖啡"})
+        with project_change_source("filesystem"):
+            pm.save_script("ad-ref", script, "episode_1.json", validate=False)
+        after_product = service._build_snapshot("ad-ref")
+        assert after_product["scripts"]["episode_1.json"]["items"]["E1U01"]["products"] == ["咖啡"]
+        product_changes = service._diff_snapshots(previous, after_product)
+        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in product_changes)
+
+        script = pm.load_script("ad-ref", "episode_1.json")
         script["video_units"][0]["generated_assets"]["video_clip"] = "videos/E1U01.mp4"
         with project_change_source("filesystem"):
             pm.save_script("ad-ref", script, "episode_1.json", validate=False)
         current = service._build_snapshot("ad-ref")
 
-        changes = service._diff_snapshots(previous, current)
+        changes = service._diff_snapshots(after_product, current)
         unit_ready = [c for c in changes if c["action"] == "video_ready" and c["entity_id"] == "E1U01"]
         assert len(unit_ready) == 1
         change = unit_ready[0]

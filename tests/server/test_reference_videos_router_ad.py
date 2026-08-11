@@ -118,7 +118,8 @@ def test_ad_units_support_crud_and_product_references(ad_client: TestClient) -> 
     assert reordered.status_code == 200
     assert [unit["unit_id"] for unit in _script(ad_client)["video_units"]] == ["E1U2", "E1U1"]
 
-    assert ad_client.delete("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U2").status_code == 204
+    deleted = ad_client.delete("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U2")
+    assert deleted.status_code == 204, deleted.text
 
 
 @pytest.mark.integration

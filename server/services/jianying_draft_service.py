@@ -217,7 +217,7 @@ class JianyingDraftService:
                     "video_clip": video_clip,
                     "abs_path": abs_path,
                     "subtitle_text": "",
-                    "transition_to_next": "cut",
+                    "transition_to_next": unit.get("transition_to_next", "cut"),
                     "narration_audio_abs": None,
                 }
             )

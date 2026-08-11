@@ -26,6 +26,7 @@ from lib.reference_video import assemble_shots_text
 from lib.reference_video.units import reference_unit_video_bucket
 from lib.script_editor import ScriptEditError
 from lib.script_models import get_generated_assets
+from lib.speech_composition import video_unit_replan_problems
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.services.grid_resolution import resolve_image_resolution
 from server.services.reference_video_tasks import (
@@ -601,13 +602,13 @@ class CostEstimationService:
         与本函数的输出 identity 一致。切换模式前按分镜 ID（``E1S1`` 等）记的历史支出不在此
         呈现：unit 与分镜之间没有映射关系，无处归属。
 
-        没有 shots 或拼接文本为空的 unit 不产生预估：这类 unit 不可入队（``enqueue_videos.py::_reference_unit_spec``
-        对没有 shots 的 unit 直接拒绝、``TaskSpec.from_request`` 对空提示词同样拒绝），估值给出
-        非零金额会展示一笔查无实据的费用；判空标准与入队侧同一份 ``assemble_shots_text``，
-        不能自行另起一套字符串处理否则两处会漂移。但该 unit 仍要整条保留、纳入汇总——不可入队
-        只影响能否产生新预估，不影响该 unit 是否曾经成功生成过（``actual_by_segment[unit_id]``
-        记的是历史实付，与 unit 当前编辑状态无关）：unit 曾成功生成、随后剧本被编辑成空 shots，
-        其历史支出不能因此从段级/集级/项目级合计里消失。
+        没有 shots、拼接文本为空或命中 ``video_unit_replan_problems`` 的 unit 不产生预估：这些 unit
+        会被 ``enqueue_videos.py::_reference_unit_spec`` 拒绝，估值给出非零金额会展示一笔查无实据的
+        费用；判据与入队侧共用 ``assemble_shots_text`` 和重规划问题模型，不能自行另起一套处理否则
+        两处会漂移。但该 unit 仍要整条保留、纳入汇总——不可入队只影响能否产生新预估，不影响该
+        unit 是否曾经成功生成过（``actual_by_segment[unit_id]`` 记的是历史实付，与 unit 当前编辑状态
+        无关）：unit 曾成功生成、随后剧本被编辑成不可入队状态，其历史支出不能因此从段级/集级/项目级
+        合计里消失。
         """
         segments_result: list[dict[str, Any]] = []
         ep_est: dict[str, CostBreakdown] = {}
@@ -628,7 +629,12 @@ class CostEstimationService:
             # TypeError；先做类型检查再拼接，与下方 duration 解析同样不能让单条脏数据中断
             # 整次估算。
             shots = unit.get("shots")
-            enqueueable = isinstance(shots, list) and bool(shots) and bool(assemble_shots_text(shots).strip())
+            enqueueable = (
+                isinstance(shots, list)
+                and bool(shots)
+                and bool(assemble_shots_text(shots).strip())
+                and not video_unit_replan_problems(unit)
+            )
 
             est_video: CostBreakdown = {}
             if enqueueable:

@@ -1342,6 +1342,36 @@ class TestCostEstimationService:
         assert result["project_totals"]["actual"]["video"] == {"USD": 1.23}
 
     @pytest.mark.integration
+    async def test_reference_video_estimate_skips_replan_unit_but_keeps_actual(self, db_factory):
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+        project_data = {
+            "title": "Ad",
+            "content_mode": "ad",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        script = _make_reference_video_script(1, "ad", [("E1U1", 6)])
+        script["video_units"][0]["needs_replan"] = True
+        await _seed_call(
+            db_factory,
+            "ad-replan-cost",
+            "video",
+            "veo-3.1-lite-generate-preview",
+            segment_id="E1U1",
+            cost_amount=1.23,
+            currency="USD",
+        )
+
+        result = await service.compute(project_data, {"ep1.json": script}, project_name="ad-replan-cost")
+
+        segment = result["episodes"][0]["segments"][0]
+        assert segment["estimate"]["video"] == {}
+        assert segment["actual"]["video"] == {"USD": 1.23}
+        assert result["project_totals"]["actual"]["video"] == {"USD": 1.23}
+
+    @pytest.mark.integration
     async def test_narration_reference_video_estimate_skips_unit_with_malformed_duration(self, db_factory):
         """agent/外部编辑过的剧本可能写入非数值 ``duration_seconds``（字符串、list、dict 等）。
         SDK 侧入队预检（``enqueue_videos.py``）对每个 unit 单独 catch ``ValueError`` 跳过，

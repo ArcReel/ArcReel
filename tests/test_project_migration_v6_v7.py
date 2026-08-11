@@ -44,7 +44,7 @@ def _project(tmp_path: Path, *, mode: str = "reference_video", episodes: int = 1
     return project_dir
 
 
-def _shot(shot_id: str, *, duration: object = 4, voiceover: str = "") -> dict:
+def _shot(shot_id: str, *, duration: object = 4, voiceover: str = "", transition: str = "cut") -> dict:
     return {
         "shot_id": shot_id,
         "section": "hook",
@@ -68,6 +68,7 @@ def _shot(shot_id: str, *, duration: object = 4, voiceover: str = "") -> dict:
             "ambiance_audio": "轻柔音乐",
             "dialogue": [],
         },
+        "transition_to_next": transition,
         "generated_assets": {"status": "pending"},
     }
 
@@ -167,6 +168,33 @@ def test_empty_index_creates_one_unit_per_shot_without_data_loss(tmp_path: Path)
     assert sum(len(unit["shots"]) for unit in migrated["video_units"]) == 2
 
 
+def test_partial_index_preserves_uncovered_shots_as_replan_units(tmp_path: Path) -> None:
+    project_dir = _project(tmp_path)
+    script = _script(units=[{"unit_id": "E1U1", "shot_ids": ["E1S1"], "generated_assets": {}}])
+    script["shots"][1]["image_prompt"]["scene"] = "未索引镜头仍须保留"
+    _write_json(project_dir / "scripts/episode_1.json", script)
+
+    migrate_v6_to_v7(project_dir)
+
+    existing, recovered = _read_json(project_dir / "scripts/episode_1.json")["video_units"]
+    assert existing["unit_id"] == "E1U1"
+    assert recovered["unit_id"] == "E1U2"
+    assert recovered["needs_replan"] is True
+    assert "未索引镜头仍须保留" in recovered["shots"][0]["text"]
+
+
+def test_existing_index_preserves_final_member_transition(tmp_path: Path) -> None:
+    project_dir = _project(tmp_path)
+    script = _script(units=[{"unit_id": "E1U1", "shot_ids": ["E1S1", "E1S2"], "generated_assets": {}}])
+    script["shots"][1]["transition_to_next"] = "dissolve"
+    _write_json(project_dir / "scripts/episode_1.json", script)
+
+    migrate_v6_to_v7(project_dir)
+
+    unit = _read_json(project_dir / "scripts/episode_1.json")["video_units"][0]
+    assert unit["transition_to_next"] == "dissolve"
+
+
 def test_dangling_and_mixed_speech_preserve_unit_as_replan_shell(tmp_path: Path) -> None:
     project_dir = _project(tmp_path)
     script = _script(
@@ -190,7 +218,7 @@ def test_dangling_and_mixed_speech_preserve_unit_as_replan_shell(tmp_path: Path)
 
     migrate_v6_to_v7(project_dir)
 
-    first, second = _read_json(project_dir / "scripts/episode_1.json")["video_units"]
+    first, second = _read_json(project_dir / "scripts/episode_1.json")["video_units"][:2]
     assert (first["unit_id"], first["shots"], first["duration_seconds"], first["needs_replan"]) == (
         "E1U7",
         [],
@@ -218,7 +246,7 @@ def test_empty_legacy_members_become_replan_shell_and_same_name_uses_product_pri
 
     migrate_v6_to_v7(project_dir)
 
-    empty, collision = _read_json(project_dir / "scripts/episode_1.json")["video_units"]
+    empty, collision = _read_json(project_dir / "scripts/episode_1.json")["video_units"][:2]
     assert (empty["shots"], empty["duration_seconds"], empty["needs_replan"]) == ([], 0, True)
     assert empty["generated_assets"] == {"video_uri": "provider://job"}
     assert collision["references"][0] == {"type": "product", "name": "同名"}

@@ -1340,6 +1340,7 @@ class TestReferenceUnitClips:
                     "duration_seconds": 5,
                     "shots": [{"text": "镜头1：产品特写"}],
                     "references": [],
+                    "transition_to_next": "fade",
                     "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
                 },
                 {
@@ -1367,7 +1368,7 @@ class TestReferenceUnitClips:
         clip = clips[0]
         assert clip["id"] == "E1U1"
         assert clip["duration_seconds"] == 5
-        assert clip["transition_to_next"] == "cut"
+        assert clip["transition_to_next"] == "fade"
         assert clip["subtitle_text"] == ""
         assert "subtitle_spans" not in clip
 

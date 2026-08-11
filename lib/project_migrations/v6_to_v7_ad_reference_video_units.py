@@ -21,6 +21,7 @@ _REFERENCE_TYPES = (
     ("scene", "scenes"),
     ("prop", "props"),
 )
+_TRANSITIONS = frozenset({"cut", "fade", "dissolve"})
 
 
 def _positive_seconds(value: object) -> int:
@@ -102,25 +103,33 @@ def _shot_text(shot: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _unit_transition(shots: list[dict[str, Any]]) -> str:
+    """沿用旧导出语义：unit 间转场取最后一个有效成员镜头。"""
+    if not shots:
+        return "cut"
+    value = shots[-1].get("transition_to_next")
+    return value if isinstance(value, str) and value in _TRANSITIONS else "cut"
+
+
 def _unit_from_shots(
     *,
     unit_id: str,
     shots: list[dict[str, Any]],
     generated_assets: object,
-    dangling: bool,
+    requires_replan: bool,
 ) -> dict[str, Any]:
     unit: dict[str, Any] = {
         "unit_id": unit_id,
         "shots": [{"text": _shot_text(shot)} for shot in shots],
         "references": _shot_references(shots),
         "duration_seconds": sum(_positive_seconds(shot.get("duration_seconds")) for shot in shots),
-        "transition_to_next": "cut",
+        "transition_to_next": _unit_transition(shots),
         "note": None,
         # 付费产物、URI 与旧来源签名均是历史事实，迁移必须逐键原样保留。
         "generated_assets": copy.deepcopy(generated_assets) if isinstance(generated_assets, dict) else {},
     }
     preparation = SpeechComposition.prepare(adapt_video_unit(unit))
-    needs_replan = dangling or any(
+    needs_replan = requires_replan or any(
         problem.code
         in {
             SpeechProblemCode.MIXED_SPEECH,
@@ -165,18 +174,21 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
                     unit_id=f"E{episode}U{ordinal}",
                     shots=[shot],
                     generated_assets={},
-                    dangling=False,
+                    requires_replan=False,
                 )
             )
     else:
         if not isinstance(raw_units, list):
             raise ValueError("reference_units 必须是数组或 null")
+        covered_shot_ids: set[str] = set()
+        used_unit_ids: set[str] = set()
         for index, raw_unit in enumerate(raw_units):
             if not isinstance(raw_unit, dict):
                 raise ValueError(f"reference_units[{index}] 必须是对象")
             unit_id = raw_unit.get("unit_id")
             if not isinstance(unit_id, str) or not unit_id:
                 raise ValueError(f"reference_units[{index}].unit_id 必须是非空字符串")
+            used_unit_ids.add(unit_id)
             shot_ids = raw_unit.get("shot_ids")
             if not isinstance(shot_ids, list):
                 raise ValueError(f"reference_units[{index}].shot_ids 必须是数组")
@@ -185,6 +197,7 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
             for shot_id in shot_ids:
                 if isinstance(shot_id, str) and shot_id in shot_by_id:
                     members.append(shot_by_id[shot_id])
+                    covered_shot_ids.add(shot_id)
                 else:
                     dangling = True
             units.append(
@@ -192,7 +205,28 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
                     unit_id=unit_id,
                     shots=members,
                     generated_assets=raw_unit.get("generated_assets"),
-                    dangling=dangling,
+                    requires_replan=dangling,
+                )
+            )
+
+        # 非空旧索引也可能已落后于权威 shots。保留索引内可证明的 unit 身份与付费产物，
+        # 再把未覆盖镜头逐条收进新问题单元；用户确认编排前禁止误生成，也不因删除 shots 丢内容。
+        next_ordinal = 1
+        for shot in shots:
+            shot_id = shot.get("shot_id")
+            if isinstance(shot_id, str) and shot_id and shot_id in covered_shot_ids:
+                continue
+            while f"E{episode}U{next_ordinal}" in used_unit_ids:
+                next_ordinal += 1
+            unit_id = f"E{episode}U{next_ordinal}"
+            used_unit_ids.add(unit_id)
+            next_ordinal += 1
+            units.append(
+                _unit_from_shots(
+                    unit_id=unit_id,
+                    shots=[shot],
+                    generated_assets={},
+                    requires_replan=True,
                 )
             )
 

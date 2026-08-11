@@ -742,13 +742,14 @@ class ProjectEventService:
             if not item_id:
                 continue
             assets = get_generated_assets(item)
-            characters, scenes, props = self._item_entities(item, skeleton.chars_field)
+            characters, scenes, props, products = self._item_entities(item, skeleton.chars_field)
             items[item_id] = {
                 "duration_seconds": item.get("duration_seconds"),
                 "segment_break": bool(item.get("segment_break")),
                 "characters": characters,
                 "scenes": scenes,
                 "props": props,
+                "products": products,
                 "shots": self._item_member_shots(item.get("shots")),
                 "image_prompt": item.get("image_prompt"),
                 "video_prompt": item.get("video_prompt"),
@@ -769,23 +770,27 @@ class ProjectEventService:
         }
 
     @staticmethod
-    def _item_entities(item: dict[str, Any], chars_field: str | None) -> tuple[list[str], list[str], list[str]]:
-        """条目出场的 (角色, 场景, 道具) 名单（各自排序、去重）。
+    def _item_entities(
+        item: dict[str, Any], chars_field: str | None
+    ) -> tuple[list[str], list[str], list[str], list[str]]:
+        """条目出场的 (角色, 场景, 道具, 产品) 名单（各自排序、去重）。
 
         ``chars_field`` 非 ``None`` 时角色读逐条字段、场景/道具读顶层 ``scenes`` / ``props``；为
         ``None``（video_units 无逐条实体字段的显式缺位，见 ``SKELETONS``）时三者均从条目
-        ``references`` 按 ``type == character/scene/prop`` 派生（与 ``status_calculator`` 同规则，
-        使 video_unit 的场景/道具引用编辑也能进入差分）。
+        ``references`` 按引用类型派生（与 ``status_calculator`` 同规则，使 video_unit 的
+        场景/道具/产品引用编辑也能进入差分）。
         """
         if chars_field is not None:
             chars_raw = item.get(chars_field)
             scenes_raw = item.get("scenes")
             props_raw = item.get("props")
+            products_raw = item.get("products_in_shot")
             characters = sorted({str(name) for name in chars_raw}) if isinstance(chars_raw, list) else []
             scenes = sorted({str(name) for name in scenes_raw}) if isinstance(scenes_raw, list) else []
             props = sorted({str(name) for name in props_raw}) if isinstance(props_raw, list) else []
-            return characters, scenes, props
-        buckets: dict[str, set[str]] = {"character": set(), "scene": set(), "prop": set()}
+            products = sorted({str(name) for name in products_raw}) if isinstance(products_raw, list) else []
+            return characters, scenes, props, products
+        buckets: dict[str, set[str]] = {"character": set(), "scene": set(), "prop": set(), "product": set()}
         references = item.get("references")
         if isinstance(references, list):
             for ref in references:
@@ -798,7 +803,12 @@ class ProjectEventService:
                 target = buckets.get(ref_type) if isinstance(ref_type, str) else None
                 if target is not None:
                     target.add(str(name))
-        return sorted(buckets["character"]), sorted(buckets["scene"]), sorted(buckets["prop"])
+        return (
+            sorted(buckets["character"]),
+            sorted(buckets["scene"]),
+            sorted(buckets["prop"]),
+            sorted(buckets["product"]),
+        )
 
     @staticmethod
     def _item_member_shots(shots: Any) -> list[dict[str, Any]]:
