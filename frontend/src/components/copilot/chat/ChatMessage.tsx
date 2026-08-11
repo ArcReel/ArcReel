@@ -4,6 +4,13 @@ import { cn } from "./utils";
 import { getRoleLabel } from "./utils";
 import { ContentBlockRenderer } from "./ContentBlockRenderer";
 import { AgentFailureCard } from "./AgentFailureCard";
+import {
+  BUBBLE_LABEL_CLASS,
+  BUBBLE_LABEL_STYLE,
+  BUBBLE_SHELL_CLASS,
+  USER_BUBBLE_LAYOUT_CLASS,
+  USER_BUBBLE_STYLE,
+} from "./bubble";
 
 // ---------------------------------------------------------------------------
 // ChatMessage – renders a full conversation turn (user, assistant, or system).
@@ -49,13 +56,7 @@ export function ChatMessage({ message, streaming }: ChatMessageProps) {
   const isSystem = messageType === "system";
 
   const containerStyle: React.CSSProperties = isUser
-    ? {
-        marginLeft: "auto",
-        maxWidth: "85%",
-        background:
-          "linear-gradient(180deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.06))",
-        border: "1px solid var(--color-accent-soft)",
-      }
+    ? USER_BUBBLE_STYLE
     : isSystem
       ? {
           background: "oklch(0.22 0.011 265 / 0.5)",
@@ -67,19 +68,16 @@ export function ChatMessage({ message, streaming }: ChatMessageProps) {
         };
 
   const labelStyle: React.CSSProperties = {
+    ...BUBBLE_LABEL_STYLE,
     color: isUser ? "var(--color-accent-2)" : "var(--color-text-4)",
-    letterSpacing: "0.06em",
   };
 
   return (
     <article
-      className={cn("rounded-xl px-2.5 py-1.5 min-w-0")}
+      className={cn(BUBBLE_SHELL_CLASS, "min-w-0", isUser && USER_BUBBLE_LAYOUT_CLASS)}
       style={containerStyle}
     >
-      <div
-        className="mb-1 text-[10px] font-semibold uppercase"
-        style={labelStyle}
-      >
+      <div className={BUBBLE_LABEL_CLASS} style={labelStyle}>
         {getRoleLabel(messageType, t)}
       </div>
       <div

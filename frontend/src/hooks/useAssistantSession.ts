@@ -551,6 +551,10 @@ export function useAssistantSession(projectName: string | null) {
       // sending 同时是发送与改写的在途锁：两者都会开启新一轮，不能并发
       if (store.getState().sending) return false;
 
+      // 与发送共用一轮版本号：任何接管会话选择权的入口都会 invalidatePendingSend，
+      // 在途改写随之作废，迟到的响应不再把用户从他已切去的会话拽回分支
+      const rewriteVersion = pendingSendVersionRef.current + 1;
+      pendingSendVersionRef.current = rewriteVersion;
       store.getState().setSending(true);
       store.getState().setError(null);
       store.getState().setStartupFailure(null);
@@ -571,6 +575,9 @@ export function useAssistantSession(projectName: string | null) {
           content,
           clientKey,
         );
+
+        // 本轮已被作废：sending 由作废方复位，此处不动任何共享状态
+        if (pendingSendVersionRef.current !== rewriteVersion) return false;
         failedRewriteRef.current = null;
 
         const newSessionId = result.session_id;
@@ -598,8 +605,14 @@ export function useAssistantSession(projectName: string | null) {
         await switchSession(newSessionId);
         return true;
       } catch (err) {
+        if (pendingSendVersionRef.current !== rewriteVersion) return false;
         failedRewriteRef.current = { clientKey, signature };
-        store.getState().setError(errMsg(err, t("message_rewrite_failed")));
+        // 启动失败与发送路径同口径，落故障卡片而非一行错误条
+        if (err instanceof AgentFailureError) {
+          store.getState().setStartupFailure(err.failure);
+        } else {
+          store.getState().setError(errMsg(err, t("message_rewrite_failed")));
+        }
         store.getState().setSending(false);
         return false;
       }

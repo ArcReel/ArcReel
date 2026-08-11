@@ -2,8 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, Pencil, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Turn } from "@/types";
+import { copyText } from "@/utils/clipboard";
 import { formatClockTime } from "@/utils/date-format";
 import { ChatMessage } from "./ChatMessage";
+import {
+  BUBBLE_LABEL_CLASS,
+  BUBBLE_LABEL_STYLE,
+  BUBBLE_SHELL_CLASS,
+  USER_BUBBLE_LAYOUT_CLASS,
+  USER_BUBBLE_STYLE,
+} from "./bubble";
 import { turnPlainText } from "./utils";
 
 // ---------------------------------------------------------------------------
@@ -120,8 +128,11 @@ function CopyButton({ text }: { text: string }) {
     <button
       type="button"
       onClick={() => {
-        void navigator.clipboard?.writeText(text);
-        setCopied(true);
+        // 复制成功才给对勾：非安全上下文走 execCommand 兜底，兜底也失败时不假报成功
+        void copyText(text).then(
+          () => setCopied(true),
+          () => undefined,
+        );
       }}
       title={label}
       aria-label={label}
@@ -168,16 +179,10 @@ function MessageEditor({
   }, [draft, submitting, onSubmit]);
 
   return (
-    <div
-      className="ml-auto max-w-[85%] rounded-xl px-2.5 py-1.5"
-      style={{
-        background: "linear-gradient(180deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.06))",
-        border: "1px solid var(--color-accent-soft)",
-      }}
-    >
+    <div className={`${USER_BUBBLE_LAYOUT_CLASS} ${BUBBLE_SHELL_CLASS}`} style={USER_BUBBLE_STYLE}>
       <div
-        className="mb-1 text-[10px] font-semibold uppercase"
-        style={{ color: "var(--color-accent-2)", letterSpacing: "0.06em" }}
+        className={BUBBLE_LABEL_CLASS}
+        style={{ ...BUBBLE_LABEL_STYLE, color: "var(--color-accent-2)" }}
       >
         {t("message_edit_title")}
       </div>

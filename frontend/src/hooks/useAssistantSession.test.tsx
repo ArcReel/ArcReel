@@ -1412,4 +1412,58 @@ describe("useAssistantSession", () => {
     });
     expect(rewriteSpy.mock.calls[0][4]).toBe(rewriteSpy.mock.calls[1][4]);
   });
+
+  it("ignores a delayed rewrite completion after switching sessions (no yank to the branch)", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "idle"), makeSession("session-3", "idle")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockImplementation(async (_projectName, sessionId) =>
+      makeEntriesResponse({ session_id: sessionId, entries: [userEntry(0, sessionId)] }),
+    );
+    const deferred = createDeferred<{
+      status: string;
+      session_id: string;
+      origin_session_id: string | null;
+      entry: TimelineEntry | null;
+    }>();
+    vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(deferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    act(() => {
+      void result.current.rewriteMessage("u-0", "改写后的消息");
+    });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().sending).toBe(true);
+    });
+
+    // 用户不等改写返回就切走：本轮作废，sending 由切换方复位
+    await act(async () => {
+      await result.current.switchSession("session-3");
+    });
+    expect(useAssistantStore.getState().sending).toBe(false);
+
+    await act(async () => {
+      deferred.resolve({
+        status: "accepted",
+        session_id: "session-2",
+        origin_session_id: "session-1",
+        entry: userEntry(1, "改写后的消息"),
+      });
+      await deferred.promise;
+    });
+
+    // 迟到的受理不得把用户从他已切去的会话拽到分支，会话列表也不被改写
+    const state = useAssistantStore.getState();
+    expect(state.currentSessionId).toBe("session-3");
+    expect(state.sessions.map((s) => s.id)).toEqual(["session-1", "session-3"]);
+    expect(MockEventSource.instances).toHaveLength(0);
+  });
 });
