@@ -1653,6 +1653,62 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().sessions.map((s) => s.id)).not.toContain("session-2");
   });
 
+  it("keeps a pending deletion of one session from suppressing another session's rewrite reconciliation", async () => {
+    // 同项目内删 session-1 挂起期间改写 session-2：保护只针对被删的那条源会话，
+    // 否则 session-2 的分支既不进列表也不建 SSE，刷新页面前一直找不回来。
+    let listCalls = 0;
+    vi.spyOn(API, "listAssistantSessions").mockImplementation(() => {
+      listCalls += 1;
+      return Promise.resolve({ sessions: [makeSession("session-1", "idle"), makeSession("session-2", "idle")] });
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockImplementation(async (_projectName, sessionId) =>
+      makeEntriesResponse({ session_id: sessionId, entries: [userEntry(0, sessionId)] }),
+    );
+    // session-1 的删除一直挂着
+    vi.spyOn(API, "deleteAssistantSession").mockReturnValue(createDeferred<void>().promise as never);
+    const rewriteDeferred = createDeferred<{
+      status: string;
+      session_id: string;
+      origin_session_id: string | null;
+      entry: TimelineEntry | null;
+    }>();
+    vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(rewriteDeferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+    act(() => {
+      void result.current.deleteSession("session-1");
+    });
+
+    await act(async () => {
+      await result.current.switchSession("session-2");
+    });
+    const callsBefore = listCalls;
+
+    act(() => {
+      void result.current.rewriteMessage("u-0", "改写后的消息");
+    });
+    await act(async () => {
+      await result.current.switchSession("session-1");
+      rewriteDeferred.resolve({
+        status: "accepted",
+        session_id: "session-3",
+        origin_session_id: "session-2",
+        entry: null,
+      });
+      await rewriteDeferred.promise;
+    });
+
+    await waitFor(() => {
+      expect(listCalls).toBeGreaterThan(callsBefore);
+    });
+  });
+
   it("keeps a pending deletion in one project from suppressing another project's rewrite reconciliation", async () => {
     const listCalls: Record<string, number> = { "project-a": 0, "project-b": 0 };
     vi.spyOn(API, "listAssistantSessions").mockImplementation((projectName) => {

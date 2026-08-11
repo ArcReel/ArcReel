@@ -36,6 +36,10 @@ function lastEntrySeq(entries: TimelineEntry[]): number {
   return entries.length > 0 ? entries[entries.length - 1].seq : -1;
 }
 
+function deletingKey(projectName: string, sessionId: string): string {
+  return `${projectName}\n${sessionId}`;
+}
+
 // ---------------------------------------------------------------------------
 // localStorage helpers — 记住每个项目最后使用的会话
 // ---------------------------------------------------------------------------
@@ -128,10 +132,11 @@ export function useAssistantSession(projectName: string | null) {
   const sessionsWriteVersionRef = useRef(0);
   // 最近一次成功加载完成的会话；加载失败后为 null，用于放行对同一会话的重试
   const loadedSessionRef = useRef<string | null>(null);
-  // 各项目在途的「删除当前会话」计数。这期间不做改写的列表补拉：把分支拉进列表，
-  // 删除收尾就会顺手切到它，正是进入时那次作废要避免的结果。按项目分桶计数，而非
-  // 一个共享布尔：并行的另一次删除收尾会替这一次把保护摘掉，上一个项目迟迟不返回的
-  // 删除则会一直压着新项目的补拉。
+  // 在途的「删除当前会话」计数，按项目 + 会话分桶。改写的列表补拉只在它的源会话
+  // 正被删除时跳过：补拉会把分支拉进列表，那次删除收尾就顺手切到它，正是进入时
+  // 那次作废要避免的结果。分桶到会话、且计数而非布尔，别处的删除才不会连坐——
+  // 共享一个格子时，并行的另一次删除收尾会替这一次把保护摘掉，别的项目/会话上
+  // 迟迟不返回的删除则会一直压着本该发生的补拉，新分支不刷新页面就找不回来。
   const deletingCurrentRef = useRef<Record<string, number>>({});
 
   const writeSessions = useCallback((sessions: SessionMeta[]) => {
@@ -640,7 +645,7 @@ export function useAssistantSession(projectName: string | null) {
         // 但服务端此刻确已取代原会话并开出新分支，本地列表仍指向已消失的原会话——
         // 补拉一次列表，否则新分支要等到刷新页面才出现。
         if (pendingSendVersionRef.current !== rewriteVersion) {
-          if ((deletingCurrentRef.current[projectName] ?? 0) === 0) refreshSessions();
+          if ((deletingCurrentRef.current[deletingKey(projectName, originSessionId)] ?? 0) === 0) refreshSessions();
           return false;
         }
         failedRewriteRef.current = null;
@@ -692,9 +697,10 @@ export function useAssistantSession(projectName: string | null) {
     // 删除当前会话即刻接管会话选择权，作废不能等到 DELETE 返回：在途的发送/改写
     // 若在这期间被受理，会把用户装到一个分支上，而删除收尾此时已看不出该切换
     const invalidatedForDelete = store.getState().currentSessionId === sessionId;
+    const deleteKey = deletingKey(projectName, sessionId);
     if (invalidatedForDelete) {
       invalidatePendingSend();
-      deletingCurrentRef.current[projectName] = (deletingCurrentRef.current[projectName] ?? 0) + 1;
+      deletingCurrentRef.current[deleteKey] = (deletingCurrentRef.current[deleteKey] ?? 0) + 1;
     }
     try {
       await API.deleteAssistantSession(projectName, sessionId);
@@ -730,7 +736,7 @@ export function useAssistantSession(projectName: string | null) {
         await switchSession(sessionId);
       }
     } finally {
-      if (invalidatedForDelete) deletingCurrentRef.current[projectName] -= 1;
+      if (invalidatedForDelete) deletingCurrentRef.current[deleteKey] -= 1;
     }
   }, [
     projectName,
