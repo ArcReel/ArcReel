@@ -20,7 +20,8 @@ def build_step1_basis(source_content: object, *, project: Mapping[str, object]) 
     """Describe the formal source inputs consumed by one episode's step1 artifact."""
 
     content_mode, generation_mode = _content_axes(project)
-    source_kind = project.get("source_kind", "novel")
+    raw_source_kind = project.get("source_kind")
+    source_kind = "novel" if raw_source_kind is None else raw_source_kind
     if not isinstance(source_kind, str) or source_kind not in _SOURCE_KINDS:
         raise ValueError(f"unsupported source_kind: {source_kind!r}")
     source_language = project.get("source_language")

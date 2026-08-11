@@ -99,11 +99,14 @@ class ArtifactObservation:
 class ArtifactManifestAdapter(Protocol):
     """Storage seam used by the artifact manifest domain module."""
 
-    def inspect_artifact(self, artifact_path: str) -> ArtifactObservation: ...
+    def inspect_artifact(self, artifact_path: str) -> ArtifactObservation:
+        raise NotImplementedError
 
-    def get_entry(self, key: ArtifactKey) -> ArtifactManifestEntry | None: ...
+    def get_entry(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
+        raise NotImplementedError
 
-    def put_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> bool: ...
+    def put_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> bool:
+        raise NotImplementedError
 
 
 class ArtifactManifest:
@@ -234,7 +237,7 @@ class ProjectArtifactManifestAdapter:
     def _inspect_artifact_posix(self, normalized: str) -> ArtifactObservation:
         parts = PurePosixPath(normalized).parts
         directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         try:
             root_fd = os.open(self._project_dir, directory_flags)
         except OSError as exc:
@@ -283,6 +286,12 @@ class ProjectArtifactManifestAdapter:
         return ArtifactObservation(artifact_path=normalized, present=True)
 
     def _inspect_artifact_portable(self, normalized: str) -> ArtifactObservation:
+        if _is_linkish(self._project_dir):
+            return self._artifact_blocked(
+                normalized,
+                "artifact_symlink",
+                f"project directory is a symlink or junction: {self._project_dir}",
+            )
         path = self._project_dir.joinpath(*PurePosixPath(normalized).parts)
         cursor = self._project_dir
         for part in PurePosixPath(normalized).parts:
@@ -347,6 +356,8 @@ class ProjectArtifactManifestAdapter:
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
+        if _is_linkish(self._project_dir):
+            raise ArtifactManifestError(f"project directory is a symlink or junction: {self._project_dir}")
         lock_path = self._project_dir / LOCK_FILENAME
         if _is_linkish(lock_path):
             raise ArtifactManifestError(f"manifest lock is a symlink or junction: {lock_path}")
@@ -402,22 +413,26 @@ class ProjectArtifactManifestAdapter:
             dir=self._project_dir,
         )
         try:
-            if os.name == "posix":
-                os.fchmod(fd, 0o600)
-            with os.fdopen(fd, "wb") as handle:
+            handle = os.fdopen(fd, "wb")
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_name)
+            raise
+        try:
+            with handle:
+                if os.name == "posix":
+                    os.fchmod(handle.fileno(), 0o600)
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp_name, self._project_dir / MANIFEST_FILENAME)
         except OSError as exc:
             with contextlib.suppress(OSError):
-                os.close(fd)
-            with contextlib.suppress(OSError):
                 os.unlink(tmp_name)
             raise ArtifactManifestError(f"cannot replace artifact manifest: {exc}") from exc
         except BaseException:
-            with contextlib.suppress(OSError):
-                os.close(fd)
             with contextlib.suppress(OSError):
                 os.unlink(tmp_name)
             raise

@@ -87,3 +87,16 @@ def test_structured_basis_rejects_malformed_formal_inputs() -> None:
             {"duration": float("nan")},
             project={"content_mode": "narration", "generation_mode": "storyboard"},
         )
+
+
+def test_step1_basis_treats_null_source_kind_as_default() -> None:
+    project = {
+        "content_mode": "narration",
+        "generation_mode": "storyboard",
+        "source_kind": None,
+    }
+
+    defaulted = build_step1_basis("source", project=project)
+    explicit = build_step1_basis("source", project={**project, "source_kind": "novel"})
+
+    assert defaulted.digest == explicit.digest

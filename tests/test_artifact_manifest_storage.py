@@ -8,10 +8,13 @@ from pathlib import Path
 import pytest
 
 from lib.artifact_manifest import (
+    HASH_ALGORITHM,
+    LOCK_FILENAME,
     MANIFEST_FILENAME,
     ArtifactBasis,
     ArtifactKey,
     ArtifactManifest,
+    ArtifactManifestEntry,
     ArtifactManifestError,
     ArtifactRegistrationError,
     ArtifactStatus,
@@ -212,7 +215,52 @@ def test_project_adapter_blocks_parent_replaced_by_symlink_during_open(
     assert (outside / "episode.json").read_text(encoding="utf-8") == "outside"
 
 
-@pytest.mark.parametrize("runtime_path", [MANIFEST_FILENAME, ".artifact_manifest.lock"])
+@pytest.mark.skipif(os.name != "posix", reason="FIFO inspection uses POSIX nonblocking file flags")
+def test_project_adapter_rejects_fifo_without_blocking(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    os.mkfifo(project / "artifact.fifo")
+    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
+
+    comparison = manifest.compare(
+        ArtifactKey.episode_script(1),
+        artifact_path="artifact.fifo",
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"}),
+    )
+
+    assert comparison.status is ArtifactStatus.BLOCKED
+    assert comparison.blocker is not None and comparison.blocker.code == "artifact_not_regular_file"
+
+
+def test_project_adapter_rejects_replaced_portable_project_root(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "episode.json").write_text("inside", encoding="utf-8")
+    adapter = ProjectArtifactManifestAdapter(project)
+    moved_project = tmp_path / "moved-project"
+    project.rename(moved_project)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "episode.json").write_text("outside", encoding="utf-8")
+    project.symlink_to(outside, target_is_directory=True)
+
+    observation = adapter._inspect_artifact_portable("episode.json")
+
+    assert not observation.present
+    assert observation.blocker is not None and observation.blocker.code == "artifact_symlink"
+    with pytest.raises(ArtifactManifestError, match="project directory is a symlink or junction"):
+        adapter.put_entry(
+            ArtifactKey.episode_script(1),
+            ArtifactManifestEntry(
+                artifact_path="episode.json",
+                basis_digest=ArtifactBasis.build("test/script", kind_version=1, inputs={}).digest,
+            ),
+        )
+    assert (outside / "episode.json").read_text(encoding="utf-8") == "outside"
+    assert not (outside / MANIFEST_FILENAME).exists()
+
+
+@pytest.mark.parametrize("runtime_path", [MANIFEST_FILENAME, LOCK_FILENAME])
 def test_project_adapter_refuses_runtime_file_symlinks(tmp_path: Path, runtime_path: str) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -238,7 +286,10 @@ def test_project_adapter_reports_malformed_manifest_as_blocked_without_reset(tmp
     project = tmp_path / "project"
     project.mkdir()
     (project / "episode.json").write_text("{}", encoding="utf-8")
-    malformed = b'{"schema_version":999,"entries":{}}'
+    malformed = json.dumps(
+        {"entries": {}, "hash_algorithm": HASH_ALGORITHM, "schema_version": 999},
+        separators=(",", ":"),
+    ).encode()
     manifest_path = project / MANIFEST_FILENAME
     manifest_path.write_bytes(malformed)
     manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
