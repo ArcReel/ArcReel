@@ -40,9 +40,9 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 6. **sheet 过目（软门禁）**：产品生成了 `product_sheet` 时，分镜开工前（参考直出路径为首次视频生成前——sheet 直接进 unit 参考集）先请用户到产品资产页确认 sheet 与真品一致（不一致就重新生成 sheet），确认后才继续；无 sheet（仅原图）时直接开工。这是工作流约定，没有系统状态强制
 7. **镜头编排与生成**：每镜头口播文案/时长/section 可经 `patch_episode_script` 调整；镜头**顺序**调整只在 WebUI 剧本页提供（agent 侧没有重排工具，用户要求调顺序时引导其到剧本页操作，不要用逐字段互换内容模拟）。两条生成路径：
    - `next_action.type == "generate_storyboards"` → 调
-     `mcp__arcreel__generate_storyboards({"script": "episode_{target.episode}.json", "segment_ids": requested_ids})`
+     `mcp__arcreel__generate_storyboards({"script": target.script, "segment_ids": requested_ids})`
    - `next_action.type == "generate_grid"` → 调
-     `mcp__arcreel__generate_grid({"script": "episode_{target.episode}.json", "scene_ids": requested_ids})`
+     `mcp__arcreel__generate_grid({"script": target.script, "scene_ids": requested_ids})`
    - **storyboard 路径**：分镜生成后引导用户审核产品形象，不合格的点名重生成分镜，在产生视频费用前拦截
    - **reference_video 路径（参考直出）**：直接调 `mcp__arcreel__generate_video_episode` 一键直出——工具自动把连续镜头派生分组为 video_unit（每 unit ≤4 镜头、总长受供应商上限约束）、把产品参考与资产 sheet 注入各 unit 并入队生成，跳过分镜步骤。镜头编辑后再次调用即自动重新派生，未变化的 unit 不重复生成；编排变了（stale）或用户对成片不满意的 unit 按 `unit_id` 点名重做，见 `generate-video` skill 的「点名重新生成 unit」
 

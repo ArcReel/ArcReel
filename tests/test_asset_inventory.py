@@ -53,6 +53,53 @@ def test_revision_conflict_does_not_partially_write_inventory_marker(tmp_path: P
 
 
 @pytest.mark.integration
+def test_revision_conflict_does_not_partially_write_extracted_assets(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path)
+    project = pm.load_project("demo")
+    stale = compute_source_revision(project_path, project, SourceScope(kind="all")).revision
+    assert stale is not None
+    (project_path / "source" / "novel.txt").write_text("修改后的原文", encoding="utf-8")
+
+    with pytest.raises(AssetInventoryRevisionConflict):
+        complete_asset_inventory(
+            pm,
+            "demo",
+            SourceScope(kind="all"),
+            stale,
+            {"characters": {"阿青": {"description": "青衣少女", "voice_style": "清亮"}}},
+        )
+
+    saved = pm.load_project("demo")
+    assert "阿青" not in saved["characters"]
+    assert "workflow" not in saved
+
+
+@pytest.mark.integration
+def test_extracted_assets_and_marker_commit_together(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path)
+    expected = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
+    assert expected is not None
+
+    completed = complete_asset_inventory(
+        pm,
+        "demo",
+        SourceScope(kind="all"),
+        expected,
+        {
+            "characters": {"阿青": {"description": "青衣少女", "voice_style": "清亮"}},
+            "scenes": {"竹林": {"description": "雨后竹林"}},
+            "props": {},
+        },
+    )
+
+    saved = pm.load_project("demo")
+    assert saved["characters"]["阿青"]["voice_style"] == "清亮"
+    assert saved["scenes"]["竹林"]["description"] == "雨后竹林"
+    assert saved["workflow"]["asset_inventory"]["source_revision"] == expected
+    assert completed.counts == {"characters": 1, "scenes": 1, "props": 0}
+
+
+@pytest.mark.integration
 def test_scoped_completion_keeps_explicit_partial_scope(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path)
     project = pm.load_project("demo")

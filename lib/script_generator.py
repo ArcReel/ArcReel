@@ -79,7 +79,12 @@ from lib.script_models import (
     merge_drama_visual_into_scenes,
     script_duration_total,
 )
-from lib.script_review import gate_blocks_step2, migrate_step1_draft_in_place
+from lib.script_review import (
+    SCRIPT_STEP1_REVISION_FIELD,
+    content_fingerprint_of_data,
+    gate_blocks_step2,
+    migrate_step1_draft_in_place,
+)
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.speech_rate import project_speech_rate_override
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
@@ -164,6 +169,7 @@ class ScriptGenerator:
         """
         self.project_path = Path(project_path)
         self.generator = generator
+        self._step1_revision: str | None = None
 
         # 加载 project.json
         self.project_json = self._load_project_json()
@@ -233,6 +239,7 @@ class ScriptGenerator:
         ):
             raise ValueError(f"output_filename 只接受纯文件名，不允许目录或路径分隔符: {output_filename!r}")
 
+        self._step1_revision = None
         gen_mode = self.generation_mode
 
         # ad 剧本骨架唯一（平铺 shots[]），先于 generation_mode 分派：即使
@@ -908,6 +915,7 @@ class ScriptGenerator:
                 update_project=lambda mutate: pm.update_project(self.project_path.name, mutate),
                 supported_durations=supported_durations,
             )
+            self._step1_revision = content_fingerprint_of_data(raw)
 
         # 迁移带 warnings 说明 clamp 改写了实际秒数，那是内容变更、审阅确认随之失效。而 gate
         # 放行据的是改写前的状态：不在此处补判，生成就会拿着用户从未过目的秒数走完付费的
@@ -978,6 +986,7 @@ class ScriptGenerator:
             raw = json.loads(step1_json.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
             raise ValueError(f"step1_segments.json 解析失败: {e}")
+        self._step1_revision = content_fingerprint_of_data(raw)
 
         try:
             draft = NarrationStep1Draft.model_validate(raw)
@@ -1024,6 +1033,7 @@ class ScriptGenerator:
             raise ValueError(f"Step 1 内容文件不是合法 JSON（drama step1 应为结构化内容）: {e}")
         if not isinstance(data, dict):
             raise ValueError("Step 1 内容文件结构异常：顶层应为对象 {title, scenes}")
+        self._step1_revision = content_fingerprint_of_data(data)
         scenes = data.get("scenes")
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("Step 1 内容文件结构异常：scenes 必须是非空的场景对象数组")
@@ -1525,6 +1535,9 @@ class ScriptGenerator:
         script_data["metadata"]["created_at"] = now
         script_data["metadata"]["updated_at"] = now
         script_data["metadata"]["generator"] = self.generator.model if self.generator else "unknown"
+        step1_revision = getattr(self, "_step1_revision", None)
+        if step1_revision is not None:
+            script_data["metadata"][SCRIPT_STEP1_REVISION_FIELD] = step1_revision
 
         # 计算统计信息（episode 级角色/场景/道具聚合由 StatusCalculator 读时计算）。
         # 数组键经上方规范解析所得 kind 查表；计数键名为业务附着、随 kind 显式保留。

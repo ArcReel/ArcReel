@@ -587,6 +587,71 @@ def test_stale_episode_advances_after_step1_is_rebuilt(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+def test_quarantined_step1_is_a_blocker_not_a_confirmation_loop(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
+    _write_source_and_complete(pm, project_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"}]
+        ),
+    )
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    atomic_write_json(draft_dir / "step1_reference_units.json", {"units": []})
+    quarantine = script_review.step1_quarantine_path(project_path, pm.load_project("demo"), 1)
+    assert quarantine is not None
+    atomic_write_json(quarantine, {})
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "STEP1_REVIEW"
+    assert status.artifacts["step1"]["state"] == "blocked"
+    assert status.blockers[0].code == "step1_quarantined"
+    assert status.next_action.type == "none"
+
+
+@pytest.mark.integration
+def test_confirmed_step1_change_marks_old_final_script_stale(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source_and_complete(pm, project_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"}]
+        ),
+    )
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    step1_path = draft_dir / "step1_segments.json"
+    atomic_write_json(step1_path, {"segments": [{"segment_id": "E1S01", "novel_text": "旧内容"}]})
+    old_revision = script_review.content_fingerprint(step1_path)
+    assert old_revision is not None
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "duration_seconds": 4, "generated_assets": {}}],
+            "metadata": {script_review.SCRIPT_STEP1_REVISION_FIELD: old_revision},
+        },
+    )
+
+    atomic_write_json(step1_path, {"segments": [{"segment_id": "E1S01", "novel_text": "新内容"}]})
+    new_revision = script_review.content_fingerprint(step1_path)
+    assert new_revision is not None
+    pm.update_project(
+        "demo", lambda project: script_review.apply_confirmation(project, 1, new_revision, "2026-08-11T00:00:00Z")
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "FINAL_SCRIPT"
+    assert status.artifacts["script"]["state"] == "stale"
+    assert status.next_action.type == "generate_script"
+
+
+@pytest.mark.integration
 def test_script_id_must_match_the_shared_storyboard_pattern(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad")
     atomic_write_json(

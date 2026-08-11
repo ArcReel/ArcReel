@@ -71,6 +71,7 @@ def test_workflow_asset_and_storyboard_routes_forward_authoritative_arguments(fi
     assert '"scene_ids": requested_ids' in content
     assert "不二次检查 `generation_mode` 或 `grid_storyboard`" in content
     assert "target.episode" in content
+    assert '"script": target.script' in content
     assert "next_action.args" in content
 
 
@@ -80,3 +81,4 @@ def test_asset_analysis_records_completion_fact() -> None:
 
     assert "mcp__arcreel__complete_asset_inventory" in content
     assert "expected_source_revision" in content
+    assert "不要调用 `patch_project`" in content

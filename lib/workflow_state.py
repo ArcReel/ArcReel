@@ -620,6 +620,20 @@ class WorkflowStateService:
                         "path": str(step1_path.relative_to(project_path)) if step1_path is not None else None,
                         "revision": revision,
                     }
+                    if script_review.step1_quarantined(project_path, project, target.episode):
+                        quarantine = script_review.step1_quarantine_path(project_path, project, target.episode)
+                        assert quarantine is not None
+                        artifacts["step1"]["state"] = "blocked"
+                        blockers.append(
+                            WorkflowBlocker(
+                                code="step1_quarantined",
+                                path=str(quarantine.relative_to(project_path)),
+                                reason="step1 has a quarantined draft that must be repaired and promoted",
+                            )
+                        )
+                        state = "STEP1_REVIEW"
+                        next_action = _action("none", "quarantined step1 must be repaired before confirmation")
+                        return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
                     if revision is None:
                         state = "STEP1_CONTENT"
                         next_action = _action(
@@ -646,13 +660,28 @@ class WorkflowStateService:
                     project_path, project_name, project, target, blockers
                 )
                 artifacts["script"] = script_artifact
+                if (
+                    mode != "ad"
+                    and script_artifact["state"] != "missing"
+                    and script_review.stored_review(project, target.episode).get("fingerprint") is not None
+                ):
+                    metadata = script.get("metadata")
+                    generated_from = (
+                        metadata.get(script_review.SCRIPT_STEP1_REVISION_FIELD)
+                        if isinstance(metadata, Mapping)
+                        else None
+                    )
+                    if generated_from != artifacts["step1"].get("revision"):
+                        artifacts["script"]["state"] = "stale"
                 if blockers:
                     state = "FINAL_SCRIPT"
                     next_action = _action("none", "script is blocked")
-                elif script_artifact["state"] == "missing":
+                elif script_artifact["state"] in {"missing", "stale"}:
                     state = "FINAL_SCRIPT"
                     next_action = _action(
-                        "generate_script", "target episode has no final script", args={"episode": target.episode}
+                        "generate_script",
+                        "target episode has no current final script",
+                        args={"episode": target.episode},
                     )
                 else:
                     missing_sheets = [

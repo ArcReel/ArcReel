@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import lib.script_review as script_review
 from lib.config.resolver import ConfigResolver
 from lib.script_generator import ScriptGenerator, _units_use_references
 from lib.script_structure_validator import ScriptStructureValidationError
@@ -555,6 +556,10 @@ class TestScriptGenerator:
         assert seg["characters_in_segment"] == ["姜月茴"]
         assert seg["image_prompt"]["scene"] == "画面"
         assert payload["metadata"]["generator"] == "fake-model"
+        step1_path = project_path / "drafts" / "episode_1" / "step1_segments.json"
+        assert payload["metadata"][script_review.SCRIPT_STEP1_REVISION_FIELD] == script_review.content_fingerprint(
+            step1_path
+        )
         assert "created_at" in payload["metadata"]
 
     @pytest.mark.unit

@@ -228,13 +228,13 @@ reference_video 模式返回这两个动作。
 按动作直接选择工具，不二次检查 `generation_mode` 或 `grid_storyboard`：
 
 - `next_action.type == "generate_storyboards"` → dispatch `generate-assets`，调
-  `mcp__arcreel__generate_storyboards({"script": "episode_{target.episode}.json", "segment_ids": requested_ids})`
+  `mcp__arcreel__generate_storyboards({"script": target.script, "segment_ids": requested_ids})`
 - `next_action.type == "generate_grid"` → dispatch `generate-assets`，调
-  `mcp__arcreel__generate_grid({"script": "episode_{target.episode}.json", "scene_ids": requested_ids})`
+  `mcp__arcreel__generate_grid({"script": target.script, "scene_ids": requested_ids})`
 
 两条路径都把 `next_action.args` 与 `requested_ids` 原样传给 subagent，由 subagent 按上面映射调用工具。
 
-> **切换 `grid_storyboard` 后的重做**：本阶段的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的片段范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": "episode_{N}.json", "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": "episode_{N}.json", "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑阶段 7 对应片段。
+> **切换 `grid_storyboard` 后的重做**：本阶段的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的片段范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": target.script, "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": target.script, "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑阶段 7 对应片段。
 
 ## 阶段 7：视频生成
 
@@ -247,8 +247,8 @@ dispatch `generate-assets` subagent：
   任务类型：video
   项目名称：{project_name}
   工具调用：
-    mcp__arcreel__generate_video_episode({"script": "episode_{N}.json"})
-  验证方式：重新读取 scripts/episode_{N}.json，检查各场景的 video_clip 字段
+    mcp__arcreel__generate_video_episode({"script": target.script})
+  验证方式：重新读取 target.script，检查各场景的 video_clip 字段
 ```
 
 ---
@@ -267,8 +267,8 @@ dispatch `generate-assets` subagent：
   任务类型：narration_audio
   项目名称：{project_name}
   工具调用：
-    mcp__arcreel__generate_narration_audio({"script": "episode_{N}.json"})
-  验证方式：重新读取 scripts/episode_{N}.json，检查各段 generated_assets.narration_audio 字段
+    mcp__arcreel__generate_narration_audio({"script": target.script})
+  验证方式：重新读取 target.script，检查各段 generated_assets.narration_audio 字段
 ```
 
 中断后重新 dispatch 同一工具调用即可断点续传——已有音频的段自动跳过，只补缺失段。

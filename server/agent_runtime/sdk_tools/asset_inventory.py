@@ -31,7 +31,7 @@ def _json_response(payload: dict[str, Any], *, is_error: bool = False) -> dict[s
 def complete_asset_inventory_tool(ctx: ToolContext):
     @tool(
         "complete_asset_inventory",
-        "在分析完成后记录资产清单事实。工具会在项目锁内重算 source revision；"
+        "原子提交分析提取出的资产和资产清单事实。工具会在项目锁内重算 source revision；"
         "与 expected_source_revision 不一致时整笔拒绝，不修改 project.json。空角色/场景/道具清单是合法结果。",
         {
             "type": "object",
@@ -45,6 +45,10 @@ def complete_asset_inventory_tool(ctx: ToolContext):
                     "required": ["kind"],
                 },
                 "expected_source_revision": {"type": "string"},
+                "entries": {
+                    "type": "object",
+                    "description": "本次新增资产：{characters/scenes/props: {名称: {description, voice_style?}}}",
+                },
             },
             "required": ["scope", "expected_source_revision"],
         },
@@ -53,7 +57,7 @@ def complete_asset_inventory_tool(ctx: ToolContext):
         try:
             scope = SourceScope.model_validate(args.get("scope"))
             expected = args["expected_source_revision"]
-            completed = complete_asset_inventory(ctx.pm, ctx.project_name, scope, expected)
+            completed = complete_asset_inventory(ctx.pm, ctx.project_name, scope, expected, args.get("entries"))
             return _json_response(
                 {
                     "scope": completed.scope.model_dump(mode="json"),

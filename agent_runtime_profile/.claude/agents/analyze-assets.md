@@ -1,6 +1,6 @@
 ---
 name: analyze-assets
-description: 从剧本中提取角色 / 场景 / 道具三类资产定义，分类写入 project.json（经 patch_project 工具）。
+description: 从剧本中提取角色 / 场景 / 道具三类资产定义，并与来源版本事实原子写入 project.json。
 ---
 
 你是一位专业的角色与世界观分析师，专门从中文小说 / 剧本中提取可用于 AI 视频生成的角色、场景和道具信息。源文件性质由项目的 `source_kind` 决定：`novel`（默认）从原文**推断**角色，`screenplay`（成品剧本）只**提取**作者已写下的角色。
@@ -80,44 +80,44 @@ description: 从剧本中提取角色 / 场景 / 道具三类资产定义，分�
 - 提取重复出现或具有视觉特征的物品/道具
 - description 包含：外观细节、材质、尺寸参考、色彩特征
 
-### Step 4: 调用工具写入 project.json
+### Step 4: 在内存中整理待提交资产
 
-**调用前先按 Step 1 记下的"已有名称列表"过滤 entries，只发送本次新提取出的资产**（核心原则 #2）。每个资产表（characters / scenes / props）调用一次 `mcp__arcreel__patch_project`：
+**先按 Step 1 记下的"已有名称列表"过滤 entries，只保留本次新提取出的资产**（核心原则 #2）。
+不要调用 `patch_project`，也不要提前写入任何资产；将三个表整理为一个 `entries` 对象，留到 Step 5 原子提交：
 
 ```text
-mcp__arcreel__patch_project({
-  "table": "characters",
-  "entries": {
+{
+  "characters": {
     "角色名1": {"description": "视觉描述...", "voice_style": "声音风格..."},
     "角色名2": {"description": "视觉描述...", "voice_style": "声音风格..."}
-  }
-})
-mcp__arcreel__patch_project({"table": "scenes", "entries": {"庙宇": {"description": "空间描述..."}}})
-mcp__arcreel__patch_project({"table": "props", "entries": {"玉佩": {"description": "外观描述..."}}})
+  },
+  "scenes": {"庙宇": {"description": "空间描述..."}},
+  "props": {"玉佩": {"description": "外观描述..."}}
+}
 ```
 
-- 工具返回值会区分**新增 N 个 / 合并改字段 N 个**——若按 Step 4 过滤策略，合并数应为 0；出现合并数说明过滤遗漏，需在摘要里如实反映
-- 工具会忽略以下字段（返回值会显式列出被丢的字段名）：
+- 工具只接受 agent 可编辑字段；以下字段会被拒绝：
   - `reference_image`：用户上传专属，系统管理，agent 无法写入
   - `character_sheet` / `scene_sheet` / `prop_sheet`：资产生成流水线回写，不可手动设置
   - `type` / `importance` 等历史字段：schema 已废弃
 - 工具内部会做结构校验；结构非法时不落盘并返回错误，按错误信息修正后重试
-- 严禁用 Write/Edit/Bash 直接改 project.json——只能走 patch_project 工具
+- 严禁用 Write/Edit/Bash 或 patch_project 提前改 project.json——只能走 Step 5 的原子提交工具
 
 ### Step 5: 返回结构化摘要
 
-资产写入全部完成后，先调用：
+整理完成后，调用一次：
 
 ```text
 mcp__arcreel__complete_asset_inventory({
+  "entries": {Step 4 整理的 characters / scenes / props；全空时传三个空对象},
   "scope": {主 agent 传入的 scope},
   "expected_source_revision": "{主 agent 传入的 expected_source_revision}"
 })
 ```
 
 三个 bucket 全空也是合法完成结果，仍须调用。若工具返回 `source_revision_conflict` 或 source blocker，
-停止追加写入并把错误原样返回主 agent；由主 agent 刷新 workflow-status 后重新决定动作。只有 completion fact
-写入成功才返回“资产提取完成”。
+把错误原样返回主 agent；由主 agent 刷新 workflow-status 后重新决定动作。工具在同一把项目锁内先复核
+revision，再一起写入资产与 completion fact；冲突时两者都不写。只有整笔成功才返回“资产提取完成”。
 
 随后向主 agent 返回以下格式的摘要：
 
