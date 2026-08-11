@@ -1432,6 +1432,9 @@ export default {
   // server/agent_runtime/sdk_tools/__init__.py; tests/test_frontend_mcp_tool_i18n.py
   // 会校验缺漏，新增 backend tool 必须同步补全 zh/en/vi)
   'tool_name_list_pending_assets': '查询待生成资产',
+  'tool_name_complete_asset_inventory': '完成资产清单分析',
+  'tool_name_complete_step1_rebuild': '完成第一阶段重建',
+  'tool_name_get_workflow_status': '查询工作流状态',
   'tool_name_generate_assets': '生成资产',
   'tool_name_generate_storyboards': '生成分镜图',
   'tool_name_edit_images': '编辑图片',

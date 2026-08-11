@@ -10,15 +10,47 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 
 ## 工作流步骤
 
-1. **确认项目状态**：Read `project.json`，确认 `title`、`content_mode`（固定 `ad`）、`target_duration`（目标总时长，秒）、`brief`（创作诉求，可为空）、`generation_mode`（`storyboard` / `reference_video`，创建后不可更改；宫格装配 `grid_storyboard` 对 ad 不开放）、`products`（产品资产）。用户要求更改生成模式时明确告知路线创建后不可更改，agent 无对应写入权限，也无绕过方式
+每次进入工作流、用户说“继续/下一步/查看进度”、以及每次工具或 subagent 完成后，先调用
+`mcp__arcreel__get_workflow_status({})`。其 `project`、`target`、`state`、`blockers`、`gates`、
+`artifacts` 与 `next_action` 是阶段判断的唯一真相源；Read 只补充创作输入与产品 soft gate 信息，
+不根据文件存在性重建阶段。`next_action.type == "none"` 时展示 blockers 并停止变更；其余动作按下列步骤执行，
+完成后再次刷新状态。产品 sheet 过目等明确标注的 soft gate 继续叠加在服务端状态之上。
+
+按 `next_action.type` 直接进入对应步骤：
+
+- `next_action.type == "draft_selling_points"` → 步骤 3
+- `next_action.type == "generate_script"` → 步骤 5
+- `next_action.type == "generate_asset_sheets"` → 步骤 4
+- `next_action.type == "generate_storyboards"` → 步骤 7 的 storyboard 单图路径
+- `next_action.type == "generate_grid"` → 步骤 7 的 storyboard 宫格路径
+- `next_action.type == "generate_videos"` → 步骤 7 的视频生成
+- `next_action.type == "export"` → 步骤 8
+
+调用工具或 dispatch subagent 时，把 `target.episode`、`next_action.args` 和 `requested_ids` 原样带入；
+不得再按 products、sheet、剧本或媒体文件的存在性改选另一个阶段。步骤内的产品原图与 sheet 过目规则仅是
+执行已选动作前的 soft gate。
+
+1. **确认项目状态**：按 workflow-status 返回的 `project` 确认 `content_mode`（固定 `ad`）与 `generation_mode`；Read `project.json` 补充 `title`、`target_duration`、`brief` 与 `products`。用户要求更改生成模式时明确告知路线创建后不可更改，agent 无对应写入权限，也无绕过方式
 2. **创作输入**：带货项目而产品未登记或缺原图（`reference_images` 为空）时，引导用户在 WebUI 初始化页或产品资产页上传产品图——原图是产品保真的验收锚点，agent 不能代传图片；产品描述/品牌可经 `mcp__arcreel__patch_project` 代写。`brief` 为空时引导用户补充创作诉求（产品/主题、目标人群、期望风格——卖点留给下一步起草，不在此重复索要），同样经 `patch_project` 写入
 3. **起草卖点（selling_points）**：产品已登记但 `selling_points` 为空时，先从 `brief`、产品描述与产品原图（`reference_images`）中起草卖点列表，与用户确认后经 `mcp__arcreel__patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
-4. **资产定义与设计图**：角色/场景/道具定义写入 `project.json` 后 dispatch `generate-assets` subagent 生成设计图；产品 sheet 在产品资产页生成
+4. **资产定义与设计图**：角色/场景/道具定义写入 `project.json` 后，对每个类型取
+   `artifacts.asset_sheets[type].missing_ids` 与 `requested_ids` 的交集，调
+   `mcp__arcreel__generate_assets({"type": type, "names": [该类型 requested_ids]})`；产品 sheet 在产品资产页生成
 5. **一键生成剧本**：调 `mcp__arcreel__generate_episode_script({"episode": 1})`。ad 不需要 step1 中间文件，prompt 直接来自 brief + 产品信息 + 审定的带货八段框架配比表（按 `target_duration` 选档）；`products` 为空时自动分流为通用短片脚本。生成后剧本总时长偏离 `target_duration` 过大只会记日志提醒，不阻塞
 6. **sheet 过目（软门禁）**：产品生成了 `product_sheet` 时，分镜开工前（参考直出路径为首次视频生成前——sheet 直接进 unit 参考集）先请用户到产品资产页确认 sheet 与真品一致（不一致就重新生成 sheet），确认后才继续；无 sheet（仅原图）时直接开工。这是工作流约定，没有系统状态强制
 7. **镜头编排与生成**：每镜头口播文案/时长/section 可经 `patch_episode_script` 调整；镜头**顺序**调整只在 WebUI 剧本页提供（agent 侧没有重排工具，用户要求调顺序时引导其到剧本页操作，不要用逐字段互换内容模拟）。两条生成路径：
-   - **storyboard 路径**：用 `generate-storyboard` / `generate-video` 逐镜头出图出视频；分镜生成后引导用户审核产品形象，不合格的重生成分镜，在产生视频费用前拦截
-   - **reference_video 路径（参考直出）**：直接调 `mcp__arcreel__generate_video_episode` 一键直出——工具自动把连续镜头派生分组为 video_unit（每 unit ≤4 镜头、总长受供应商上限约束）、把产品参考与资产 sheet 注入各 unit 并入队生成，跳过分镜步骤。镜头编辑后再次调用即自动重新派生，未变化的 unit 不重复生成；编排变了（stale）或用户对成片不满意的 unit 按 `unit_id` 点名重做，见 `generate-video` skill 的「点名重新生成 unit」
+   - `next_action.type == "generate_storyboards"` → 调
+     `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
+   - `next_action.type == "generate_grid"` → 调
+     `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": requested_ids})`
+   - `next_action.type == "generate_videos"` → `requested_ids` 非空时调
+     `mcp__arcreel__generate_video_selected({"script": target.script_filename, "scene_ids": requested_ids})`；
+     `requested_ids` 为空时才调 `mcp__arcreel__generate_video_episode({"script": target.script_filename})`
+   - **storyboard 路径**：分镜生成后引导用户审核产品形象，不合格的点名重生成分镜，在产生视频费用前拦截
+   - **reference_video 路径（参考直出）**：视频动作会自动把连续镜头派生分组为 video_unit（每 unit ≤4 镜头、总长受供应商上限约束）、把产品参考与资产 sheet 注入各 unit 并入队生成，跳过分镜步骤。镜头编辑后再次调用即自动重新派生，未变化的 unit 不重复生成；编排变了（stale）或用户对成片不满意的 unit 按 `unit_id` 点名重做，见 `generate-video` skill 的「点名重新生成 unit」
+
+   以上工具选择只看 `next_action.type`，不二次检查 `generation_mode` 或 `grid_storyboard`；dispatch 时把
+   `target.episode`、`next_action.args` 与 `requested_ids` 原样传递。
 
    产品镜头（`products_in_shot` 非空）的分镜与视频生成会自动注入产品参考并附高保真指令，prompt 不必复述产品外观
 

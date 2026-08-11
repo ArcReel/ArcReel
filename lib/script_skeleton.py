@@ -22,10 +22,13 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
 from lib.validation_messages import MessageRef, ValidationMessage
+
+STORYBOARD_ITEM_ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
 
 
 @dataclass(frozen=True)

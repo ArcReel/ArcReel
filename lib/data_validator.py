@@ -38,7 +38,12 @@ from lib.script_models import (
     ad_script_total_duration,
     resolve_content_mode,
 )
-from lib.script_skeleton import SkeletonRouteMismatchError, ensure_route_skeleton, resolve_declared_kind
+from lib.script_skeleton import (
+    STORYBOARD_ITEM_ID_PATTERN,
+    SkeletonRouteMismatchError,
+    ensure_route_skeleton,
+    resolve_declared_kind,
+)
 from lib.speech_rate import (
     MAX_SPEECH_RATE_UPS,
     MIN_SPEECH_RATE_UPS,
@@ -137,7 +142,7 @@ class DataValidator:
     # 参考生视频 unit 时长的结构合理性区间，真相源同上（档位成员校验依赖运行时模型能力，
     # 不在归档层做）。
     VALID_UNIT_DURATION_RANGE = REFERENCE_UNIT_DURATION_RANGE
-    ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
+    ID_PATTERN = STORYBOARD_ITEM_ID_PATTERN
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
     ALLOWED_ROOT_ENTRIES = {
         "project.json",
@@ -362,14 +367,14 @@ class DataValidator:
         content_mode = project.get("content_mode")
         if not content_mode:
             errors.append(_m("val_missing_field", field="content_mode"))
-        elif content_mode not in self.VALID_CONTENT_MODES:
+        elif not isinstance(content_mode, str) or content_mode not in self.VALID_CONTENT_MODES:
             errors.append(
                 _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
             )
 
         # source_kind 缺省 novel：缺失字段（存量项目）放行，仅拦截非法值（如 screen_play）。
         source_kind = project.get("source_kind")
-        if source_kind is not None and source_kind not in self.VALID_SOURCE_KINDS:
+        if source_kind is not None and (not isinstance(source_kind, str) or source_kind not in self.VALID_SOURCE_KINDS):
             errors.append(_m("val_source_kind_invalid", value=source_kind, allowed=_allowed(self.VALID_SOURCE_KINDS)))
 
         # 生成路线必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
@@ -627,6 +632,12 @@ class DataValidator:
         warnings: list[ValidationMessage] = []
         self._validate_project_payload(project, errors, warnings)
         return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
+
+    def validate_asset_definitions(self, project: dict[str, Any]) -> ValidationResult:
+        """Validate the asset-entry subset of an in-memory project payload."""
+        result = self.validate_project_payload(project)
+        errors = [message for message in result.error_messages if message.key.startswith("val_asset_")]
+        return ValidationResult(valid=not errors, error_messages=errors)
 
     def validate_project(self, project_name: str) -> ValidationResult:
         """验证 project.json"""
@@ -1350,6 +1361,8 @@ class DataValidator:
         episode: dict[str, Any],
         errors: list[ValidationMessage],
         warnings: list[ValidationMessage],
+        *,
+        validate_artifacts: bool = True,
     ) -> None:
         project_characters = set(project.get("characters", {}).keys())
         project_scenes = set(project.get("scenes", {}).keys())
@@ -1402,6 +1415,7 @@ class DataValidator:
             # 按骨架的检查。同一闸门在生成入口拒绝生成，此处只是把同一事实报告出来。
             errors.append(exc.to_validation_message())
             return
+        artifact_root = project_dir if validate_artifacts else None
         if kind == "video_units":
             self._validate_reference_video_script(
                 episode.get("video_units", []),
@@ -1410,7 +1424,7 @@ class DataValidator:
                 project_props,
                 errors,
                 warnings,
-                project_dir=project_dir,
+                project_dir=artifact_root,
             )
         elif kind == "segments":
             self._validate_segments(
@@ -1420,7 +1434,7 @@ class DataValidator:
                 project_props,
                 errors,
                 warnings,
-                project_dir=project_dir,
+                project_dir=artifact_root,
             )
         elif kind == "shots":
             raw_products = project.get("products")
@@ -1433,7 +1447,7 @@ class DataValidator:
                 set(raw_products.keys()) if isinstance(raw_products, dict) else set(),
                 errors,
                 warnings,
-                project_dir=project_dir,
+                project_dir=artifact_root,
                 reference_mode=gen_mode == "reference_video",
             )
             self._warn_ad_target_duration_drift(project, shots, warnings)
@@ -1457,7 +1471,7 @@ class DataValidator:
                 project_props,
                 errors,
                 warnings,
-                project_dir=project_dir,
+                project_dir=artifact_root,
                 language=scene_language,
                 speech_rate_override=scene_speech_rate,
             )
@@ -1468,15 +1482,37 @@ class DataValidator:
         """验证 episode JSON"""
         return self.validate_episode_file(self.projects_root / project_name, episode_file)
 
+    def validate_episode_payload(
+        self,
+        project_dir: Path,
+        project: dict[str, Any],
+        episode: dict[str, Any],
+        *,
+        validate_artifacts: bool = True,
+    ) -> ValidationResult:
+        """Validate an already loaded episode without reading or rewriting project files.
+
+        Callers that classify artifact readiness separately can disable filesystem artifact
+        checks while retaining the shared episode structure and reference validation.
+        """
+        errors: list[ValidationMessage] = []
+        warnings: list[ValidationMessage] = []
+        self._validate_episode_payload(
+            Path(project_dir),
+            project,
+            episode,
+            errors,
+            warnings,
+            validate_artifacts=validate_artifacts,
+        )
+        return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
+
     def validate_episode_file(
         self,
         project_dir: Path,
         episode_file: str | Path,
     ) -> ValidationResult:
         """验证指定目录中的剧本文件。"""
-        errors: list[ValidationMessage] = []
-        warnings: list[ValidationMessage] = []
-
         project_dir = Path(project_dir)
         project_path = project_dir / "project.json"
         project = load_json_or_none(project_path)
@@ -1505,8 +1541,7 @@ class DataValidator:
                 error_messages=[_m("val_cannot_load_script", path=episode_path)],
             )
 
-        self._validate_episode_payload(project_dir, project, episode, errors, warnings)
-        return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
+        return self.validate_episode_payload(project_dir, project, episode)
 
     def validate_project_tree(self, project_dir: str | Path) -> ValidationResult:
         """

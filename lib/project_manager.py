@@ -15,7 +15,7 @@ import secrets
 import shutil
 import time
 import unicodedata
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -974,6 +974,12 @@ class ProjectManager:
                 atomic_write_json(real, script)
         return script
 
+    def load_script_readonly(self, project_name: str, filename: str) -> dict:
+        """Load a script with in-memory compatibility migrations but never persist them."""
+        norm = self.normalize_script_filename(filename)
+        script, _migrated = self._read_script_unlocked(project_name, norm)
+        return script
+
     def _read_script_unlocked(self, project_name: str, filename: str) -> tuple[dict, bool]:
         """裸读剧本并就地跑存量迁移，返回 ``(剧本, 是否发生迁移)``；**不取剧本锁**。
 
@@ -1452,6 +1458,16 @@ class ProjectManager:
             )
         return project
 
+    def load_project_readonly(self, project_name: str) -> dict:
+        """Load an in-memory migrated project snapshot without locking or persisting it."""
+        project_file = self._get_project_file_path(project_name)
+        if not project_file.exists():
+            raise FileNotFoundError(f"项目元数据文件不存在: {project_file}")
+        with open(project_file, encoding="utf-8") as f:  # noqa: PTH123
+            project = json.load(f)
+        self._migrate_legacy_style(project)
+        return project
+
     @contextmanager
     def _project_lock(self, project_name: str):
         """通过隐藏 lock file 获取项目文件的排他锁。
@@ -1464,6 +1480,20 @@ class ProjectManager:
         lock_path.touch(exist_ok=True)
         with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
             yield
+
+    @contextmanager
+    def locked_source_mutation(self, project_name: str) -> Iterator[Path]:
+        """Serialize source-file mutations with project transactions.
+
+        Workflow facts such as asset-inventory completion compute source revisions while
+        holding the project lock. Source writers must use this context so a revision check
+        and its matching project.json commit observe one immutable source snapshot.
+        """
+        project_path = self.get_project_path(project_name)
+        with self._project_lock(project_name):
+            source_dir = project_path / "source"
+            source_dir.mkdir(parents=True, exist_ok=True)
+            yield source_dir
 
     @contextmanager
     def file_lock(self, path: Path):

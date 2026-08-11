@@ -97,6 +97,12 @@ class _FakePM:
             raise FileNotFoundError(name)
         return path
 
+    @contextmanager
+    def locked_source_mutation(self, name):
+        source_dir = self.get_project_path(name) / "source"
+        source_dir.mkdir(parents=True, exist_ok=True)
+        yield source_dir
+
     def delete_project_directory(self, name):
         shutil.rmtree(self.get_project_path(name))
 
