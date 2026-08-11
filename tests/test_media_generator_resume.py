@@ -553,3 +553,26 @@ async def test_resume_passes_billed_duration_to_finalize(tmp_path):
     assert len(gen.ledger.resumed) == 1
     call = gen.ledger.resumed[0]
     assert call["result"].duration_seconds == 15, "backend 结果对象必须递交，实际计费时长由 ledger 分发透传"
+
+
+@pytest.mark.asyncio
+async def test_resume_forwards_submitted_base_url_to_request(tmp_path):
+    """提交时的域名装进递交 backend 的 request，且不落进版本元数据。
+
+    它是喂给 backend 轮询的回放值，混进 versions.json 会把一个连接参数写成版本属性。
+    """
+    gen = _build_generator(tmp_path)
+    backend = gen._video_backend
+
+    await gen.resume_video_async(
+        job_id="provider-job-1",
+        resource_type="videos",
+        resource_id="E1S01",
+        task_id="T-1",
+        api_call_id=42,
+        submitted_base_url="https://maas-a.example.com/ws-1/api/v1",
+    )
+
+    _, request = backend.calls[0]
+    assert request.submitted_base_url == "https://maas-a.example.com/ws-1/api/v1"
+    assert all("submitted_base_url" not in kwargs for kwargs in gen.versions.add_calls)

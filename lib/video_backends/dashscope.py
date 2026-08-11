@@ -254,7 +254,11 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             task_id = await self._create_task(client, payload)
             logger.info("DashScope 视频任务已创建: task_id=%s model=%s", task_id, self._model)
-            await self._persist_provider_job_id(request, task_id, provider=PROVIDER_DASHSCOPE)
+            # 一并写回实际提交域名（wan3.0 走独立 maas 域名，且两者都随用户配置可变）：
+            # 续跑据此回放原域名，不然改配置后轮询会打到查不到该任务的主机。
+            await self._persist_provider_job_id(
+                request, task_id, provider=PROVIDER_DASHSCOPE, endpoint=self._request_base_url
+            )
             return await self._poll_and_build(client, task_id, request, is_resume=False)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
@@ -434,7 +438,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             valid = len(audio_files) <= len(reference_items)
         if not valid:
             # 与 gate 的 video_reference_audio_exceeded 分成两个 code：那条的 limit 是模型的
-            # 能力上限（减角色数就能过），这条的上限是本次请求实际有几个可挂载的参考素材
+            # 能力上限（减角色数就能过），这条的上限是该请求实际有几个可挂载的参考素材
             # （加参考图也能过）。共用一个 code 会让文案给出与实际卡点不符的处置建议。
             raise VideoCapabilityError(
                 "video_reference_audio_slots_insufficient",
@@ -475,9 +479,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         )
         return extract_task_id(resp.json())
 
-    async def _poll_once(self, client: httpx.AsyncClient, task_id: str) -> dict:
+    async def _poll_once(self, client: httpx.AsyncClient, task_id: str, base_url: str) -> dict:
         resp = await client.get(
-            f"{self._request_base_url}/tasks/{task_id}",
+            f"{base_url}/tasks/{task_id}",
             headers=dashscope_headers(self._api_key),
         )
         resp.raise_for_status()
@@ -491,12 +495,16 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         *,
         is_resume: bool,
     ) -> VideoGenerationResult:
+        # 续跑轮询回放提交时的域名：任务 id 只在创建它的 endpoint 上可查，用户在途改 base_url
+        # 后按当下配置解析出的新域名去轮旧任务会 404，被下方的 404 分支误判成过期。
+        base_url = request.submitted_base_url or self._request_base_url
+
         # resume 路径下 GET 返回 404（task 完全不存在）直接转 ResumeExpiredError，
         # 不走 poll_with_retry 重试。task_id 24h 过期表现为 200 + task_status=UNKNOWN，
         # 由下方 is_dashscope_expired 兜底（终态返回后判定）。
         async def _gated_poll() -> dict:
             try:
-                return await self._poll_once(client, task_id)
+                return await self._poll_once(client, task_id, base_url)
             except httpx.HTTPStatusError as exc:
                 if is_resume and exc.response.status_code == 404:
                     raise ResumeExpiredError(job_id=task_id, provider=PROVIDER_DASHSCOPE) from exc

@@ -49,9 +49,11 @@ async def _persist_with_retry(task_id: str, job_id: str, endpoint: str | None) -
 async def persist_provider_job_id(task_id: str, job_id: str, *, provider: str, endpoint: str | None = None) -> None:
     """Submit 之后立即调：把 job_id 持久化到 DB 让重启可接续。
 
-    Caller 显式传 task_id；``endpoint`` 仅自定义供应商有值（内置供应商无 endpoint 维度），
-    与 job_id 同一次写入落地，供续跑判定协议是否已被换掉。DB 瞬态错误最多重试 3 次，业务
-    异常立即抛。重试用尽抛异常，由 worker finally 兜底 mark_failed（fail-fast）。
+    Caller 显式传 task_id；``endpoint`` 记提交该 job 实际使用的执行端点，与 job_id 同一次写入
+    落地供续跑消费，按供应商类型有两种取值：自定义供应商记 endpoint 标识（协议维度，续跑据
+    此判定协议是否已被换掉），内置供应商记实际请求域名（连接维度，续跑据此回放原域名轮询）。
+    DB 瞬态错误最多重试 3 次，业务异常立即抛。重试用尽抛异常，由 worker finally 兜底
+    mark_failed（fail-fast）。
     """
     try:
         await _persist_with_retry(task_id, job_id, endpoint)
@@ -80,16 +82,30 @@ class ProviderJobIdPersistenceMixin:
     （``gemini``）不同，自动取 name 会改写持久化日志的 provider 字段。
     """
 
-    async def _persist_provider_job_id(self, request: VideoGenerationRequest, job_id: str, *, provider: str) -> None:
+    async def _persist_provider_job_id(
+        self,
+        request: VideoGenerationRequest,
+        job_id: str,
+        *,
+        provider: str,
+        endpoint: str | None = None,
+    ) -> None:
         """submit 成功后立即调：worker 路径写回 job_id，非 worker 路径（task_id=None）跳过。
 
-        同时写回 ``request.execution_endpoint``——自定义供应商的包装层在转发前注入本次执行所用
-        的 endpoint，内置供应商恒 None。持久化失败抛出（DB 瞬态错误已在 ``persist_provider_job_id``
-        内重试 3 次），由 worker finally 兜底 mark_failed —— 保持现有 fail-fast 语义（ADR 0007）。
+        同时写回该 job 执行所用的端点：``request.execution_endpoint`` 优先——自定义供应商的包装层
+        在转发前注入 endpoint 标识，该标识是续跑比对协议的依据，不能被下游 backend 的域名顶掉；
+        它缺席（内置供应商路径）时落到 ``endpoint``，由提交域名随用户配置变化的 backend 传入实际
+        请求域名，供续跑回放。持久化失败抛出（DB 瞬态错误已在 ``persist_provider_job_id`` 内重试
+        3 次），由 worker finally 兜底 mark_failed —— 保持现有 fail-fast 语义（ADR 0007）。
         """
         if request.task_id is None:
             return
-        await persist_provider_job_id(request.task_id, job_id, provider=provider, endpoint=request.execution_endpoint)
+        await persist_provider_job_id(
+            request.task_id,
+            job_id,
+            provider=provider,
+            endpoint=request.execution_endpoint or endpoint,
+        )
 
 
 @with_retry_async(
@@ -371,7 +387,7 @@ async def download_video(url: str, output_path: Path, *, timeout: int = 120) -> 
                 await resp.aread()
             resp.raise_for_status()
             # 异步流式读取所有 chunk，然后一次 to_thread 完成整段写入，
-            # 避免对每个 64KB 分片调度一次线程池任务（评审反馈 #279）。
+            # 避免对每个 64KB 分片调度一次线程池任务。
             chunks: list[bytes] = []
             async for chunk in resp.aiter_bytes(chunk_size=65536):
                 chunks.append(chunk)
@@ -508,6 +524,11 @@ class VideoGenerationRequest:
     # 自定义供应商包装层（`CustomVideoBackend`）在转发给协议 backend 前注入的 endpoint，
     # 与 job_id 一并持久化供续跑比对。内置供应商无 endpoint 维度，保持 None。
     execution_endpoint: str | None = None
+
+    # 续跑路径专用：提交本 job 时实际使用的请求域名，由 resume_executor 从持久化列回放。
+    # backend 轮询时优先用它而非当下配置解析出的域名——域名是连接维度而非协议维度，
+    # 用户在途改配置后按新域名轮旧 job 会查无（404）而被误判成过期。提交路径恒 None。
+    submitted_base_url: str | None = None
 
     # Seedance 特有
     service_tier: str = "default"
