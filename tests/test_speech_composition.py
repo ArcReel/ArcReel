@@ -331,6 +331,22 @@ def test_drama_voiceover_with_speaker_is_a_parse_blocker() -> None:
     ]
 
 
+@pytest.mark.parametrize("blank_speaker", ["", "  "])
+def test_drama_voiceover_with_blank_speaker_is_narrator_voiceover(blank_speaker) -> None:
+    result = SpeechComposition.prepare(
+        adapt_drama_scene(
+            {
+                "scene_id": "E1S07",
+                "utterances": [{"kind": "voiceover", "speaker": blank_speaker, "text": "大门缓缓合拢。"}],
+            }
+        )
+    )
+
+    assert result.mode is SpeechMode.NARRATOR_VOICEOVER
+    assert [(entry.owner, entry.speaker) for entry in result.utterances] == [(SpeechOwner.NARRATOR, None)]
+    assert result.problems == ()
+
+
 def test_reference_video_adapter_preserves_cross_shot_utterance_order() -> None:
     snapshot = adapt_video_unit(
         {
@@ -443,6 +459,10 @@ def test_damaged_unit_identity_and_container_are_reported_together() -> None:
             adapt_video_unit({"unit_id": "E1U08", "shots": []}),
             SpeechFieldLocation(("shots",)),
         ),
+        (
+            adapt_video_unit({"unit_id": "E1U08", "shots": [7]}),
+            SpeechFieldLocation(("shots", 0)),
+        ),
     ],
 )
 def test_unusable_speech_shapes_never_degrade_to_a_valid_mode(snapshot, expected_location) -> None:
@@ -488,6 +508,10 @@ def test_unusable_speech_shapes_never_degrade_to_a_valid_mode(snapshot, expected
         (
             adapt_ad_shot({"shot_id": "E1S09", "video_prompt": {"dialogue": []}}),
             SpeechFieldLocation(("voiceover_text",)),
+        ),
+        (
+            adapt_video_unit({"unit_id": "E1U09", "shots": [{"text": "@[ ]：{   }"}]}),
+            SpeechFieldLocation(("shots", 0, "text"), line=0),
         ),
     ],
 )

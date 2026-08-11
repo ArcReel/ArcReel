@@ -368,7 +368,10 @@ def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
     shots = unit.get("shots")
     if isinstance(shots, list) and shots:
         for shot_index, shot in enumerate(shots):
-            text = shot.get("text") if isinstance(shot, Mapping) else None
+            if not isinstance(shot, Mapping):
+                problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("shots", shot_index))))
+                continue
+            text = shot.get("text")
             if not isinstance(text, str):
                 problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("shots", shot_index, "text"))))
                 continue
@@ -399,11 +402,15 @@ def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
                     continue
                 empty_speaker = _EMPTY_SPEAKER_LINE.match(line)
                 if empty_speaker is not None:
+                    spoken = empty_speaker.group(1)
+                    if not spoken.strip():
+                        problems.append(_parse_problem(normalized_unit_id, location))
+                        continue
                     entries.append(
                         SpeechInputUtterance(
                             speaker=None,
                             speaker_required=True,
-                            text=empty_speaker.group(1),
+                            text=spoken,
                             location=location,
                         )
                     )
