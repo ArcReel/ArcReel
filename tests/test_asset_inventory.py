@@ -162,10 +162,19 @@ def test_complete_inventory_rejects_non_string_expected_revision(tmp_path: Path)
 
 
 @pytest.mark.integration
-async def test_complete_inventory_mcp_returns_machine_readable_result_and_conflict(tmp_path: Path) -> None:
+async def test_complete_inventory_mcp_returns_machine_readable_result_and_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pm, project_path = _make_project(tmp_path)
     ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
     tool = complete_asset_inventory_tool(ctx)
+    offloads: list[tuple[object, tuple[object, ...]]] = []
+
+    async def _to_thread(fn, *args):
+        offloads.append((fn, args))
+        return fn(*args)
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.asset_inventory.asyncio.to_thread", _to_thread)
     expected = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
     assert expected is not None
 
@@ -184,6 +193,7 @@ async def test_complete_inventory_mcp_returns_machine_readable_result_and_confli
     assert conflict_body["error"] == "source_revision_conflict"
     assert conflict_body["expected_source_revision"] == expected
     assert conflict_body["actual_source_revision"] != expected
+    assert len(offloads) == 2
 
 
 @pytest.mark.integration

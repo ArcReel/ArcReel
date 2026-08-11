@@ -544,7 +544,7 @@ class WorkflowStateService:
         return collection
 
     def get_status(self, project_name: str, episode: int | None = None) -> WorkflowStatus:
-        project = self.pm.load_project(project_name)
+        project = self.pm.load_project_readonly(project_name)
         project_path = self.pm.get_project_path(project_name)
         shared = self._shared_facts(project_path, project)
         return self._get_status(project_name, project, project_path, episode, shared)
@@ -617,10 +617,19 @@ class WorkflowStateService:
             script_path = entry.get("script_file")
             if not isinstance(script_path, str) or not script_path:
                 script_path = episode_script_relpath(number)
+            script_filename = ProjectManager.normalize_script_filename(script_path)
+            if "/" in script_filename or "\\" in script_filename:
+                blockers.append(
+                    WorkflowBlocker(
+                        code="invalid_script_path",
+                        path=f"episodes.{number}.script_file",
+                        reason="script_file must resolve to a bare filename under scripts/",
+                    )
+                )
             target = WorkflowTarget(
                 episode=number,
                 script=script_path,
-                script_filename=ProjectManager.normalize_script_filename(script_path),
+                script_filename=script_filename,
                 source=f"source/episode_{number}.txt",
             )
 

@@ -375,7 +375,7 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     for relative_path in generated_assets.values():
         _write_artifact(project_path, relative_path)
 
-    original_load_project = pm.load_project
+    original_load_project = pm.load_project_readonly
     load_calls = 0
     source_inventory_calls = 0
     asset_sheet_calls = 0
@@ -404,7 +404,7 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
         source_discovery_calls += 1
         return original_discover_sources(*args, **kwargs)
 
-    monkeypatch.setattr(pm, "load_project", _counted_load_project)
+    monkeypatch.setattr(pm, "load_project_readonly", _counted_load_project)
     monkeypatch.setattr(WorkflowStateService, "_source_inventory", _counted_source_inventory)
     monkeypatch.setattr(WorkflowStateService, "_asset_sheets", _counted_asset_sheets)
     monkeypatch.setattr("lib.workflow_state.discover_sources", _counted_discover_sources)
@@ -1157,3 +1157,56 @@ def test_workflow_status_does_not_persist_read_time_script_migrations(tmp_path: 
     assert status.state == "VIDEO"
     assert script_path.read_bytes() == before
     assert not (script_path.parent / ".episode_1.json.lock").exists()
+
+
+@pytest.mark.integration
+def test_workflow_status_does_not_persist_read_time_project_migrations(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    project_path_json = project_path / "project.json"
+    project = pm.load_project("demo")
+    project.pop("style_template_id", None)
+    project["style"] = "Anime"
+    atomic_write_json(project_path_json, project)
+    before = project_path_json.read_bytes()
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.project.content_mode == "ad"
+    assert project_path_json.read_bytes() == before
+
+
+@pytest.mark.integration
+def test_nested_ledger_script_path_is_blocked_before_dispatch(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[
+                {
+                    "episode": 1,
+                    "title": "广告",
+                    "script_file": "scripts/archive/custom.json",
+                    "ledger_status": "planned",
+                }
+            ]
+        ),
+    )
+    nested_script = project_path / "scripts" / "archive" / "custom.json"
+    nested_script.parent.mkdir(parents=True)
+    atomic_write_json(
+        nested_script,
+        {
+            "episode": 1,
+            "title": "广告",
+            "content_mode": "ad",
+            "shots": [_valid_ad_shot()],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "PROJECT_INPUT"
+    assert status.target is not None
+    assert status.target.script_filename == "archive/custom.json"
+    assert status.blockers[0].code == "invalid_script_path"
+    assert status.next_action.type == "none"

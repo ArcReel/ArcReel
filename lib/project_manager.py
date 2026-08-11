@@ -1452,6 +1452,16 @@ class ProjectManager:
             )
         return project
 
+    def load_project_readonly(self, project_name: str) -> dict:
+        """Load an in-memory migrated project snapshot without locking or persisting it."""
+        project_file = self._get_project_file_path(project_name)
+        if not project_file.exists():
+            raise FileNotFoundError(f"项目元数据文件不存在: {project_file}")
+        with open(project_file, encoding="utf-8") as f:  # noqa: PTH123
+            project = json.load(f)
+        self._migrate_legacy_style(project)
+        return project
+
     @contextmanager
     def _project_lock(self, project_name: str):
         """通过隐藏 lock file 获取项目文件的排他锁。

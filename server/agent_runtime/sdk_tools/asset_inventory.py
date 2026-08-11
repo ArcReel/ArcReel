@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -57,7 +58,14 @@ def complete_asset_inventory_tool(ctx: ToolContext):
         try:
             scope = SourceScope.model_validate(args.get("scope"))
             expected = args["expected_source_revision"]
-            completed = complete_asset_inventory(ctx.pm, ctx.project_name, scope, expected, args.get("entries"))
+            completed = await asyncio.to_thread(
+                complete_asset_inventory,
+                ctx.pm,
+                ctx.project_name,
+                scope,
+                expected,
+                args.get("entries"),
+            )
             return _json_response(
                 {
                     "scope": completed.scope.model_dump(mode="json"),
