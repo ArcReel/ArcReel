@@ -128,6 +128,9 @@ export function useAssistantSession(projectName: string | null) {
   const sessionsWriteVersionRef = useRef(0);
   // 最近一次成功加载完成的会话；加载失败后为 null，用于放行对同一会话的重试
   const loadedSessionRef = useRef<string | null>(null);
+  // 当前会话的 DELETE 在途。这期间不做改写的列表补拉：把分支拉进列表，删除收尾
+  // 就会顺手切到它，正是进入时那次作废要避免的结果。
+  const deletingCurrentRef = useRef(false);
 
   const writeSessions = useCallback((sessions: SessionMeta[]) => {
     // 上一个项目的迟到回调既不写列表也不占代数：占了代数，新项目会把自己刚拉到的
@@ -334,11 +337,11 @@ export function useAssistantSession(projectName: string | null) {
         const res = await API.listAssistantSessions(projectName!, null, { signal: projectAbort.signal });
         if (projectAbort.signal.aborted) return;
         const sessions = res.sessions ?? [];
-        // 这份读期间发生过本地权威写入（建会话/改写分叉/删会话）就已过期：写回去
-        // 会让新分支消失、已删的会话复活
-        if (sessionsWriteVersionRef.current === writeVersion) {
-          store.getState().setSessions(sessions);
-        }
+        // 这份读期间发生过本地权威写入（建会话/改写分叉/删会话）就已过期，整份
+        // 作废——不只是别写列表：删掉的若不是当前会话，加载链不会被作废，照着这份
+        // 名单自动选择会选中一条已经不存在的会话并去加载它的时间线
+        if (sessionsWriteVersionRef.current !== writeVersion) return;
+        store.getState().setSessions(sessions);
         if (loadSignal.aborted) return;
 
         // 优先使用上次选择的会话（如果仍存在于列表中）
@@ -355,6 +358,9 @@ export function useAssistantSession(projectName: string | null) {
 
         store.getState().setCurrentSessionId(sessionId);
         await loadSession(sessionId, { signal: loadSignal });
+        // 与 switchSession 同口径地记账：不记的话，点一下本来就选中的这条会话不会
+        // 被短路，时间线白重建一次，连带丢掉还没提交的编辑草稿
+        if (!loadSignal.aborted) loadedSessionRef.current = sessionId;
       } catch {
         // 静默失败（含被 abort 中止的请求）
       } finally {
@@ -632,7 +638,7 @@ export function useAssistantSession(projectName: string | null) {
         // 但服务端此刻确已取代原会话并开出新分支，本地列表仍指向已消失的原会话——
         // 补拉一次列表，否则新分支要等到刷新页面才出现。
         if (pendingSendVersionRef.current !== rewriteVersion) {
-          refreshSessions();
+          if (!deletingCurrentRef.current) refreshSessions();
           return false;
         }
         failedRewriteRef.current = null;
@@ -684,7 +690,10 @@ export function useAssistantSession(projectName: string | null) {
     // 删除当前会话即刻接管会话选择权，作废不能等到 DELETE 返回：在途的发送/改写
     // 若在这期间被受理，会把用户装到一个分支上，而删除收尾此时已看不出该切换
     const invalidatedForDelete = store.getState().currentSessionId === sessionId;
-    if (invalidatedForDelete) invalidatePendingSend();
+    if (invalidatedForDelete) {
+      invalidatePendingSend();
+      deletingCurrentRef.current = true;
+    }
     try {
       await API.deleteAssistantSession(projectName, sessionId);
       const sessions = store.getState().sessions.filter((s) => s.id !== sessionId);
@@ -718,6 +727,8 @@ export function useAssistantSession(projectName: string | null) {
           await switchSession(current);
         }
       }
+    } finally {
+      deletingCurrentRef.current = false;
     }
   }, [
     projectName,

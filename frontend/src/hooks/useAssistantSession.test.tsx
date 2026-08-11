@@ -1492,6 +1492,109 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().sessions).toEqual([]);
   });
 
+  it("does not auto-select from an initial session list that a deletion has already invalidated", async () => {
+    // 初始列表在途期间删除的是「非当前」会话：加载链不会被作废，若只跳过写列表、
+    // 仍照这份名单自动选择，就会选中一条已经不存在的会话并去加载它的时间线。
+    const listDeferred = createDeferred<{ sessions: SessionMeta[] }>();
+    vi.spyOn(API, "listAssistantSessions").mockReturnValue(listDeferred.promise);
+    const getSessionSpy = vi
+      .spyOn(API, "getAssistantSession")
+      .mockImplementation(async (_projectName, sessionId) => ({ session: makeSession(sessionId, "idle") }));
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [] }));
+    vi.spyOn(API, "deleteAssistantSession").mockResolvedValue(undefined as never);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    act(() => {
+      useAssistantStore.getState().setSessions([makeSession("session-1", "idle"), makeSession("session-2", "idle")]);
+    });
+    // 删的不是当前会话（此刻还没有当前会话）
+    await act(async () => {
+      await result.current.deleteSession("session-1");
+    });
+    expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-2"]);
+
+    await act(async () => {
+      listDeferred.resolve({ sessions: [makeSession("session-1", "idle"), makeSession("session-2", "idle")] });
+      await listDeferred.promise;
+    });
+
+    expect(useAssistantStore.getState().currentSessionId).toBeNull();
+    expect(getSessionSpy).not.toHaveBeenCalled();
+    expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-2"]);
+  });
+
+  it("treats the session auto-selected at init as loaded, so clicking it again is a no-op", async () => {
+    mockIdleSession([userEntry(0, "原始消息")]);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+    const entriesCalls = vi.mocked(API.listAssistantEntries).mock.calls.length;
+
+    // 点一下本来就选中的这条：不重建时间线，也就不会丢掉还没提交的编辑草稿
+    await act(async () => {
+      await result.current.switchSession("session-1");
+    });
+
+    expect(vi.mocked(API.listAssistantEntries).mock.calls.length).toBe(entriesCalls);
+  });
+
+  it("skips the rewrite list reconciliation while the current session is being deleted", async () => {
+    // 改写被删除作废后照常补拉列表的话，补拉可能赶在 DELETE 返回前把新分支带进
+    // 列表，删除收尾读到它就会顺手切过去——正是进入时那次作废要避免的结果。
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [userEntry(0, "原始消息")] }));
+    let listCalls = 0;
+    vi.spyOn(API, "listAssistantSessions").mockImplementation(() => {
+      listCalls += 1;
+      // 补拉一旦发生，拿到的就是服务端已分叉后的列表
+      if (listCalls === 1) return Promise.resolve({ sessions: [makeSession("session-1", "idle")] });
+      return Promise.resolve({ sessions: [makeSession("session-2", "idle")] });
+    });
+    const deleteDeferred = createDeferred<void>();
+    vi.spyOn(API, "deleteAssistantSession").mockReturnValue(deleteDeferred.promise as never);
+    const rewriteDeferred = createDeferred<{
+      status: string;
+      session_id: string;
+      origin_session_id: string | null;
+      entry: TimelineEntry | null;
+    }>();
+    vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(rewriteDeferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    act(() => {
+      void result.current.rewriteMessage("u-0", "改写后的消息");
+    });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().sending).toBe(true);
+    });
+
+    await act(async () => {
+      const deleting = result.current.deleteSession("session-1");
+      rewriteDeferred.resolve({
+        status: "accepted",
+        session_id: "session-2",
+        origin_session_id: "session-1",
+        entry: null,
+      });
+      await rewriteDeferred.promise;
+      deleteDeferred.resolve();
+      await deleting;
+    });
+
+    expect(listCalls).toBe(1);
+    expect(useAssistantStore.getState().currentSessionId).toBeNull();
+    expect(useAssistantStore.getState().sessions).toEqual([]);
+  });
+
   it("surfaces a failed session load and lets the same session be retried", async () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [makeSession("session-1", "idle"), makeSession("session-2", "idle")],
