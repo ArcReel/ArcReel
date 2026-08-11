@@ -15,4 +15,4 @@
 
 ## 交付与退役
 
-目标状态终核通过后，先按 [handoff.md](handoff.md) 追加「审查循环」段；超范围发现只记入其 follow-up 候选，不自行立项。随后向 team-lead 汇报达标结论、达标 HEAD（commit SHA）与轮数概要——复盘候选不直接呈用户，由 team-lead 在收尾时聚合统一呈用户。等待 team-lead 执行合并，确认合并完成后退役。
+目标状态终核通过后，先按 [handoff.md](handoff.md) 追加「审查循环」段；超范围发现只记入其 follow-up 候选，不自行立项。随后向 team-lead 汇报达标结论、达标 HEAD（commit SHA）与轮数概要——复盘候选不直接呈用户，随 handoff 留给批次关闭后的后续分析。等待 team-lead 执行合并，确认合并完成后退役。

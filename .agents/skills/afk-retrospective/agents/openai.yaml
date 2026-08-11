@@ -1,0 +1,6 @@
+interface:
+  display_name: "AFK Retrospective"
+  short_description: "Review a completed AFK batch in HTML"
+  default_prompt: "Use $afk-retrospective to review the AFK batch that just finished."
+policy:
+  allow_implicit_invocation: false

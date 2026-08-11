@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AFK 复盘</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1b1b1f;
+        --rail: #17171b;
+        --rail-2: #24242c;
+        --paper: #ffffff;
+        --ground: #e8e8ec;
+        --muted: #71717d;
+        --line: #c9c9d1;
+        --accent: #7c8cff;
+        --danger: #a31d14;
+        --warn: #7a5300;
+        --success: #286242;
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-font-smoothing: antialiased; }
+      body { margin: 0; background: var(--ground); color: var(--ink); font-family: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; }
+      button { font: inherit; }
+      details > summary { cursor: pointer; list-style: none; }
+      details > summary::-webkit-details-marker { display: none; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .label { color: var(--muted); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; }
+      .rail { background: var(--rail); color: #d8d8de; }
+      .pane { background: var(--paper); border: 1px solid var(--line); }
+      .scroll { overflow: auto; }
+      .index-row { align-items: flex-start; border-left: 2px solid transparent; cursor: pointer; display: flex; gap: 8px; padding: 8px 10px; text-align: left; width: 100%; }
+      .index-row:hover { background: var(--rail-2); }
+      .index-row[aria-selected="true"] { background: #2c2c36; border-left-color: var(--accent); }
+      .index-row.is-muted { color: #858592; }
+      .tag { border: 1px solid currentColor; font-size: 10px; letter-spacing: .1em; padding: 2px 6px; text-transform: uppercase; }
+      .tone-critical { color: var(--danger); }
+      .tone-warning { color: var(--warn); }
+      .tone-action { color: #35358a; }
+      .tone-muted { color: var(--muted); }
+      .source { background: #f3f3f6; border-left: 2px solid #a9a9b5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
+      .filter[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--rail); }
+      .track { background: #1e1e24; color: #c6c6d0; }
+      .track-body { max-height: 0; overflow: hidden; transition: max-height .18s ease; }
+      .track[data-open="true"] .track-body { max-height: 42vh; overflow: auto; }
+      .track-caret { transition: transform .18s ease; }
+      .track[data-open="true"] .track-caret { transform: rotate(180deg); }
+      .track-spark { height: 12px; position: relative; }
+      .track-spark i { background: #5c5c68; height: 4px; margin-left: -2px; margin-top: -2px; position: absolute; top: 50%; width: 4px; }
+      .track-spark i.fault { background: #d07636; height: 8px; margin-top: -4px; }
+      .track[data-open="true"] .track-spark { visibility: hidden; }
+      .lane { border-top: 1px solid #2c2c36; }
+      .lane[data-hot="true"] { background: #292934; }
+      .mark { background: var(--rail); border: 1px solid #55556a; color: #c6c6d0; cursor: pointer; display: grid; font-size: 9px; height: 16px; line-height: 1; place-items: center; position: absolute; top: 50%; transform: translate(-50%, -50%); width: 16px; }
+      .mark:hover, .mark[aria-current="true"] { background: var(--accent); border-color: #fff; color: var(--rail); }
+      .mark.fault { border-color: #d07636; color: #e9a371; }
+      .stage { border: 1px solid #4b4b58; color: #c6c6d0; display: inline-flex; font-size: 9px; gap: 4px; padding: 2px 5px; }
+      .stage.done { background: #2f5f46; }
+      .stage.halted { background: #7a461c; }
+      .stage.skipped { border-style: dashed; color: #7f7f8b; }
+      .chip { border: 1px solid #50505e; color: #b8b8c4; cursor: pointer; font-size: 10px; padding: 1px 5px; }
+      .chip:hover, .chip[aria-current="true"] { border-color: var(--accent); color: var(--accent); }
+      .chip.is-muted { border-style: dashed; color: #7f7f8b; }
+      .evaluator + .evaluator { border-left: 1px solid #e2e2e8; }
+      .decision-option { cursor: pointer; }
+      .decision-option.is-selected { background: #ededff; border-color: #5555a6; }
+      .decision-option input { accent-color: var(--accent); }
+      .copy-status { min-width: 7em; }
+      @media (max-width: 1023px) {
+        .evaluator + .evaluator { border-left: 0; border-top: 1px solid #e2e2e8; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script id="report-data" type="application/json">__AFK_REPORT_DATA__</script>
+    <script>
+      (() => {
+        "use strict";
+        const D = JSON.parse(document.getElementById("report-data").textContent);
+        const app = document.getElementById("app");
+        const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+        const ROUTES = {
+          P0: "tone-critical", P1: "tone-warning", P2: "tone-action", "无需处理": "tone-muted",
+          "应更新": "tone-critical", "应记录": "tone-critical", "无需更新": "tone-muted", "无需记录": "tone-muted",
+          "待裁决": "tone-warning", "无候选": "tone-muted"
+        };
+        const AXES = {
+          architecture: ["架构", "ETC · DRY · module depth"],
+          product_user: ["产品与用户", "真实路径 · 收益 · 成本"],
+          knowledge: ["知识维护", "CONTEXT · ADR · agent instructions"]
+        };
+        const GROUP_LABELS = { "follow-up": "工程建议", CONTEXT: "CONTEXT.md", ADR: "ADR", INST: "Agent instructions", "待裁决": "需要你决定" };
+        const GLYPHS = { decision: "◆", authorization: "◇", fault: "▲", gap: "◇", shelve: "■", merge: "●", retrospective: "◌", closed: "▣" };
+        const items = [];
+        D.followups.forEach((item) => items.push({ id: item.id, group: "follow-up", route: item.priority, kind: "followup", raw: item, issues: item.origin.issues || [] }));
+        D.gates.forEach((gate) => {
+          gate.items.forEach((item) => items.push({ id: item.id, group: gate.key, route: item.verdict, kind: "gate", raw: item, gate, issues: item.origin_issues || [] }));
+          if (!gate.items.length) items.push({ id: `${gate.key}-EMPTY`, group: gate.key, route: "无候选", kind: "empty", raw: gate, issues: [] });
+        });
+        D.pending.forEach((item) => items.push({ id: item.id, group: "待裁决", route: "待裁决", kind: "pending", raw: item, issues: item.origin_issues || [] }));
+        const journeyItems = D.operational.journey.map((event) => ({ id: event.id, group: "执行历程", route: "历程", kind: "journey", raw: event, issues: event.issue ? [event.issue] : [] }));
+        const all = items.concat(journeyItems);
+        const firstHeadline = (D.batch.headline_ids || []).find((id) => items.some((item) => item.id === id));
+        const state = { selected: firstHeadline || items[0]?.id || journeyItems[0]?.id, checked: new Set(D.reply_defaults || []), decisions: new Map(), filters: new Set() };
+        const filters = ["P0", "P1", "P2", "无需处理", "应更新", "应记录", "待裁决"];
+        const visibleItems = () => items.filter((item) => !state.filters.size || state.filters.has(item.route));
+        const itemById = (id) => all.find((item) => item.id === id);
+        const muted = (route) => route.startsWith("无需") || route === "无候选";
+        const issueMap = new Map(D.issues.map((issue) => [issue.number, issue]));
+
+        const times = D.operational.journey.map((event) => Date.parse(event.ts)).filter(Number.isFinite);
+        const t0 = times.length ? Math.min(...times) : 0;
+        const t1 = times.length ? Math.max(...times) : 1;
+        const eventPct = (event) => times.length < 2 ? 50 : Math.max(1, Math.min(99, ((Date.parse(event.ts) - t0) / Math.max(1, t1 - t0)) * 100));
+        const shortTime = (value) => {
+          const date = new Date(value);
+          return Number.isNaN(date.valueOf()) ? value : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        };
+        const formatDate = (value) => {
+          const date = new Date(value);
+          return Number.isNaN(date.valueOf()) ? value : date.toLocaleString();
+        };
+        const formatRange = (from, to) => {
+          const start = new Date(from);
+          const end = new Date(to);
+          if (Number.isNaN(start.valueOf()) || Number.isNaN(end.valueOf())) return `${from} → ${to}`;
+          const sameDay = start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth() && start.getDate() === end.getDate();
+          return sameDay ? `${shortTime(from)} → ${shortTime(to)}` : `${formatDate(from)} → ${formatDate(to)}`;
+        };
+        document.title = `${D.operational.batch_id} · AFK 复盘`;
+
+        const produced = new Map();
+        items.forEach((item) => item.issues.forEach((issue) => {
+          if (!produced.has(issue)) produced.set(issue, []);
+          produced.get(issue).push(item);
+        }));
+
+        const evidenceHtml = (evidence) => {
+          if (!evidence?.length) return '<p class="mt-2 text-[#75757F]">没有单独摘录；可在下方原始记录中查看完整输入。</p>';
+          return evidence.map((entry) => `<div class="mt-3"><div class="label">${esc(entry.kind)} · ${esc(entry.ref)}</div><pre class="source mt-1 px-3 py-2">${esc(entry.text)}</pre></div>`).join("");
+        };
+
+        const candidateHtml = (candidateIds) => candidateIds?.length ? `<div class="mb-4 border-b border-[#d4d4dc] pb-3"><div class="label">候选追溯</div><div class="mt-1.5 flex flex-wrap gap-1">${candidateIds.map((id) => `<span class="mono border border-[#b9b9c4] bg-white px-1.5 py-0.5 text-[10px]">${esc(id)}</span>`).join("")}</div></div>` : "";
+
+        const rawSourcesHtml = () => D.operational.snapshots.map((source) => `
+          <details class="mt-3 border border-[#d5d5dc] bg-white">
+            <summary class="flex items-center gap-2 px-3 py-2 text-[11px]">
+              <span class="mono font-semibold">${esc(source.path)}</span>
+              <span class="ml-auto text-[#858592]">sha256 ${esc(source.sha256.slice(0, 12))}</span>
+            </summary>
+            <pre class="source m-3 max-h-[42vh] overflow-auto px-3 py-2">${esc(source.content)}</pre>
+          </details>`).join("");
+
+        const detail = (item) => {
+          if (!item) return { meta: "", main: '<p class="text-[#75757F]">本批次没有复盘事项。</p>', evidence: "" };
+          const value = item.raw;
+          if (item.kind === "followup") {
+            const evaluations = Object.entries(AXES).map(([key, labels]) => {
+              const evaluation = value.evaluations[key];
+              return `<section class="evaluator p-4"><div class="label">${labels[0]}</div><div class="mt-0.5 text-[10px] text-[#9999a5]">${labels[1]}</div><div class="mt-2 text-[12px] font-bold">${esc(evaluation.verdict)}</div><p class="mt-1.5 text-[12px] leading-[1.7] text-[#44444e]">${esc(evaluation.summary)}</p></section>`;
+            }).join("");
+            return {
+              meta: `${value.status} · ${value.origin.where}`,
+              main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.title)}</h2>
+                <p class="mt-2 text-[13.5px] leading-[1.75] text-[#44444e]">${esc(value.summary)}</p>
+                <div class="mt-5 grid grid-cols-3 border-y border-[#c9c9d1] max-lg:grid-cols-1">${evaluations}</div>
+                <section class="mt-4 border-l-2 border-[#17171b] bg-[#f3f3f6] px-4 py-3"><div class="label">综合结论</div><p class="mt-1 text-[13.5px] leading-[1.75]">${esc(value.conclusion)}</p></section>`,
+              evidence: candidateHtml(value.candidate_ids) + evidenceHtml(value.evidence)
+            };
+          }
+          if (item.kind === "gate") {
+            const checks = value.checks?.length ? `<div class="mt-4 border border-[#c9c9d1]">${value.checks.map((check, index) => `<div class="flex gap-3 px-3.5 py-2.5 ${index ? "border-t border-[#e2e2e8]" : ""}"><span class="w-4 font-bold ${check.passed ? "text-[#286242]" : "text-[#858592]"}">${check.passed ? "✓" : "✗"}</span><div><div class="text-[12.5px] font-semibold">${esc(check.label)}</div><div class="text-[12px] leading-[1.6] text-[#5a5a66]">${esc(check.reason)}</div></div></div>`).join("")}</div>` : "";
+            return {
+              meta: `${item.gate.label} · ${item.gate.rule}`,
+              main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.title)}</h2><p class="mt-2 text-[13.5px] leading-[1.75] text-[#44444e]">${esc(value.summary)}</p>${value.suggestion ? `<div class="mt-3"><div class="label">建议内容</div><pre class="source mt-1 px-3 py-2">${esc(value.suggestion)}</pre></div>` : ""}${checks}`,
+              evidence: candidateHtml(value.candidate_ids) + evidenceHtml(value.evidence)
+            };
+          }
+          if (item.kind === "pending") {
+            const positions = value.positions.map((position) => {
+              const selected = state.decisions.get(value.id) === position.id;
+              return `<label class="decision-option ${selected ? "is-selected" : ""} border border-[#17171b] p-3.5"><div class="flex items-start gap-2"><input class="mt-0.5" type="radio" name="decision-${esc(value.id)}" value="${esc(position.id)}" data-decision="${esc(value.id)}" ${selected ? "checked" : ""} /><div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2"><span class="label">${esc(position.label)}</span><span class="mono text-[10px] text-[#71717d]">${esc(position.id)}</span></div><div class="mt-1 text-[14px] font-bold">${esc(position.stance)}</div><p class="mt-2 text-[12px] leading-[1.7] text-[#44444e]">${esc(position.reason)}</p></div></div></label>`;
+            }).join("");
+            return {
+              meta: `${value.kind} · 需要你决定`,
+              main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.title)}</h2><p class="mt-2 text-[13.5px] leading-[1.75] text-[#44444e]">${esc(value.context)}</p><fieldset class="mt-4 grid grid-cols-2 gap-3 max-lg:grid-cols-1"><legend class="sr-only">选择 ${esc(value.id)} 的处理方案</legend>${positions}</fieldset><p class="mt-3 text-[12px] text-[#5a5a66]">当前状态：${esc(value.current_state)}</p>`,
+              evidence: candidateHtml(value.candidate_ids) + evidenceHtml(value.evidence)
+            };
+          }
+          if (item.kind === "empty") {
+            return {
+              meta: `${value.label} · ${value.rule}`,
+              main: `<h2 class="text-[20px] font-bold leading-snug">本批次没有这类建议</h2><p class="mt-2 text-[13.5px] leading-[1.75] text-[#44444e]">${esc(value.empty_note || "没有发现需要记录或更新的内容。")}</p>`,
+              evidence: '<p class="text-[#75757F]">空结果已按原样保留。</p>'
+            };
+          }
+          return {
+            meta: `${shortTime(value.ts)} · ${value.kind}${value.issue ? ` · #${value.issue}` : ""}${value.pr ? ` · PR #${value.pr}` : ""}`,
+            main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.detail || value.kind)}</h2><p class="mt-3 text-[12px] text-[#75757f]">这是执行历程记录，不需要单独裁决。</p>`,
+            evidence: `<div class="label">${esc(D.operational.ledger_path)}:${value.line}</div><pre class="source mt-1 px-3 py-2">${esc(value.raw)}</pre>`
+          };
+        };
+
+        const replyTemplate = () => {
+          const selectable = items.filter((item) => ["followup", "gate"].includes(item.kind));
+          const chosen = selectable.filter((item) => state.checked.has(item.id)).map((item) => item.id);
+          const declined = selectable.filter((item) => !state.checked.has(item.id)).map((item) => item.id);
+          const pending = items.filter((item) => item.kind === "pending");
+          const decided = pending.flatMap((item) => state.decisions.has(item.id) ? [`${item.id} = ${state.decisions.get(item.id)}`] : []);
+          const unresolved = pending.filter((item) => !state.decisions.has(item.id)).map((item) => item.id);
+          return `请处理：${chosen.join(", ") || "无"}\n暂不处理：${declined.join(", ") || "无"}\n裁决：${decided.join(", ") || "无"}\n未裁决（不执行）：${unresolved.join(", ") || "无"}`;
+        };
+
+        const marks = (events) => events.map((event) => `<button class="mark ${event.kind === "fault" ? "fault" : ""}" style="left:${eventPct(event)}%" data-select="${esc(event.id)}" title="${esc(`${shortTime(event.ts)} ${event.kind}`)}">${GLYPHS[event.kind] || "◆"}</button>`).join("");
+        const chips = (issue) => (produced.get(issue) || []).map((item) => `<button class="chip mono ${muted(item.route) ? "is-muted" : ""}" data-select="${esc(item.id)}">${esc(item.id)}</button>`).join(" ") || '<span class="text-[10px] text-[#6f6f7a]">无复盘事项</span>';
+        const stages = (issue) => issue.stages.map((stage) => `<span class="stage ${esc(stage.status)}"><b>${esc(stage.name)}</b>${Number.isInteger(stage.rounds) ? `<span>${stage.rounds} 轮</span>` : ""}</span>`).join(" ") || '<span class="stage skipped">未启动</span>';
+
+        app.innerHTML = `<div class="flex h-screen flex-col">
+          <header class="rail flex shrink-0 flex-wrap items-center gap-5 border-b border-[#2c2c36] px-4 py-2.5">
+            <div><span class="mono text-[12px] font-bold text-white">${esc(D.operational.batch_id)}</span><span class="ml-2 text-[12px] text-[#aaaab5]">${esc(D.batch.title)}</span></div>
+            <div class="text-[11px] text-[#aaaab5]">已合并 <b class="text-white">${D.batch.counts.merged}</b> · 待人工 <b class="text-white">${D.batch.counts.shelved}</b> · 未启动 <b class="text-white">${D.batch.counts.not_started}</b> · 清尾新增 <b class="text-white">${D.batch.counts.cleanup_filed}</b></div>
+            <div class="ml-auto text-[11px] text-[#7f7f8b]">生成于 ${esc(formatDate(D.operational.generated_at))}</div>
+          </header>
+
+          <section class="track order-3 shrink-0 border-t border-[#2c2c36]" data-open="true" id="track">
+            <button class="flex w-full items-center gap-3 border-b border-[#2c2c36] px-4 py-1.5 text-left text-[11px] text-[#aaaab5]" id="track-toggle" aria-expanded="true">
+              <span class="track-caret text-[9px]">▴</span><span class="label text-[#aaaab5]">执行历程</span><span>${esc(formatRange(D.operational.started_at, D.operational.closed_at))}</span>
+              <span class="track-spark mx-2 w-[220px] shrink-0">${D.operational.journey.map((event) => `<i class="${event.kind === "fault" ? "fault" : ""}" style="left:${eventPct(event)}%"></i>`).join("")}</span>
+              <span class="flex-1"></span><span class="text-[#686875]">◆ 裁决　▲ 故障　■ 搁置　● 合并　◇ 缺口　▣ 收尾</span><span class="mono border border-[#444450] px-1 text-[10px]">T</span>
+            </button>
+            <div class="track-body" id="track-body">
+              <div class="lane grid grid-cols-[210px_minmax(320px,1fr)_180px] items-center" data-lane="batch"><div class="px-3 py-2"><b class="mono text-[11px]">批次级</b><div class="text-[9.5px] text-[#7f7f8b]">计划 · 授权 · 缺口 · 收尾</div></div><div class="relative min-h-[34px] border-x border-[#2c2c36]">${marks(D.operational.journey.filter((event) => !event.issue))}</div><div class="px-3 py-2">${items.filter((item) => item.kind === "pending" && !item.issues.length).map((item) => `<button class="chip mono" data-select="${esc(item.id)}">${esc(item.id)}</button>`).join(" ")}</div></div>
+              ${D.issues.map((issue) => `<div class="lane grid grid-cols-[210px_minmax(320px,1fr)_180px] items-center" data-lane="${issue.number}"><div class="px-3 py-2"><b class="mono text-[11px]">#${issue.number}</b><span class="ml-2 text-[11px] text-[#9999a5]">${esc(issue.title)}</span><div class="mt-1 flex flex-wrap gap-1">${stages(issue)}</div></div><div class="relative min-h-[42px] border-x border-[#2c2c36]">${marks(D.operational.journey.filter((event) => event.issue === issue.number))}</div><div class="flex flex-wrap gap-1 px-3 py-2">${chips(issue.number)}</div></div>`).join("")}
+            </div>
+          </section>
+
+          <div class="order-2 grid min-h-0 flex-1 grid-cols-[270px_minmax(0,1fr)_360px] max-xl:grid-cols-[245px_1fr] max-lg:block max-lg:overflow-auto">
+            <nav class="rail scroll max-lg:max-h-[45vh]" aria-label="复盘事项">
+              <div class="border-b border-[#2c2c36] px-3 py-2.5"><div class="label text-[#aaaab5]">筛选复盘事项</div><div class="mt-1.5 flex flex-wrap gap-1">${filters.map((filter) => `<button class="filter mono border border-[#484854] px-1.5 py-0.5 text-[10px] text-[#c0c0c8]" data-filter="${esc(filter)}" aria-pressed="false">${esc(filter)} <span class="opacity-60">${items.filter((item) => item.route === filter).length}</span></button>`).join("")}</div></div>
+              <div id="index"></div>
+              <div class="border-t border-[#2c2c36] px-3 py-3 text-[10.5px] leading-[1.7] text-[#7f7f8b]">J / K 切换　X 选择　T 展开历程<br />没有候选的类别仍会显示，便于确认没有漏项。</div>
+            </nav>
+
+            <main class="scroll bg-[#e8e8ec] p-4">
+              <section class="pane border-t-2 border-t-[#17171b] p-5"><div class="label">批次结论</div><p class="mt-1.5 max-w-[78ch] text-[14.5px] leading-[1.8]">${esc(D.batch.summary)}</p><div class="label mt-5">建议先看</div><ol class="mt-1.5">${D.batch.headline_ids.map((id, index) => { const item = itemById(id); return item ? `<li class="flex gap-3 py-2 ${index ? "border-t border-[#ededf1]" : ""}"><span class="mono mt-[3px] w-4 text-[11px] text-[#858592]">${index + 1}</span><button class="text-left text-[13.5px] leading-[1.7] hover:underline" data-select="${esc(id)}"><b class="mono mr-2 text-[11px]">${esc(id)}</b>${esc(item.raw.title)}</button></li>` : ""; }).join("") || '<li class="py-2 text-[13px] text-[#71717d]">没有需要优先处理的事项。</li>'}</ol></section>
+              <section class="pane mt-4 p-5" id="detail"></section>
+              <section class="pane mt-4 p-4"><div class="flex items-center gap-3"><div class="label">下一步选择</div><button class="ml-auto border border-[#17171b] px-2 py-1 text-[11px] font-semibold" id="copy">复制</button><span class="copy-status text-[11px] text-[#286242]" id="copy-status" aria-live="polite"></span></div><pre class="source mt-2 px-3 py-2.5" id="reply"></pre><p class="mt-2 text-[11.5px] text-[#71717d]">报告仅提供建议。你确认后，再修改文档或创建 issue。</p></section>
+              <section class="pane mt-4 p-4"><div class="label">已驳回的审查意见</div>${D.pushbacks.length ? `<div class="mt-2 overflow-auto"><table class="w-full text-[12px]"><tbody>${D.pushbacks.map((item) => `<tr class="border-b border-[#ededf1] align-top"><td class="mono whitespace-nowrap py-2 pr-3">${item.pr ? `#${item.pr}` : "—"}</td><td class="whitespace-nowrap pr-3">${esc(item.reviewer)}</td><td class="pr-3">${esc(item.topic)}</td><td class="whitespace-nowrap pr-3 font-semibold">${esc(item.ruling)}</td><td class="text-[#5a5a66]">${esc(item.reason)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="mt-2 text-[12px] text-[#71717d]">无。</p>'}</section>
+              <section class="pane mt-4 p-4 xl:hidden"><div class="label">依据</div><div id="mobile-evidence" class="mt-2"></div><details class="mt-5 border-t border-[#d4d4dc] pt-3"><summary class="text-[11px] font-semibold">查看 ledger 与 handoff 完整快照</summary>${rawSourcesHtml()}</details></section>
+            </main>
+
+            <aside class="scroll border-l border-[#c9c9d1] bg-[#f3f3f6] p-4 max-xl:hidden"><div class="label">依据</div><div id="evidence" class="mt-2"></div><details class="mt-5 border-t border-[#d4d4dc] pt-3"><summary class="text-[11px] font-semibold">查看 ledger 与 handoff 完整快照</summary>${rawSourcesHtml()}</details></aside>
+          </div>
+        </div>`;
+
+        const index = document.getElementById("index");
+        const detailEl = document.getElementById("detail");
+        const evidenceEl = document.getElementById("evidence");
+        const mobileEvidenceEl = document.getElementById("mobile-evidence");
+        const replyEl = document.getElementById("reply");
+        const track = document.getElementById("track");
+        const trackBody = document.getElementById("track-body");
+
+        const paintIndex = () => {
+          const visible = visibleItems();
+          const groups = [...new Set(visible.map((item) => item.group))];
+          index.innerHTML = groups.map((group) => `<section class="pt-3"><div class="label px-3 pb-1 text-[#aaaab5]">${esc(GROUP_LABELS[group] || group)} <span class="opacity-60">${visible.filter((item) => item.group === group).length}</span></div>${visible.filter((item) => item.group === group).map((item) => `<button class="index-row ${muted(item.route) ? "is-muted" : ""}" data-select="${esc(item.id)}" aria-selected="${item.id === state.selected}"><span class="mono mt-[1px] w-3 shrink-0 text-[10.5px] ${state.checked.has(item.id) ? "text-[#7c8cff]" : "text-[#858592]"}" ${["followup", "gate"].includes(item.kind) ? `data-check="${esc(item.id)}" title="加入下一步选择"` : ""}>${state.checked.has(item.id) ? "☑" : ["followup", "gate"].includes(item.kind) ? "☐" : "·"}</span><span class="mono w-[62px] shrink-0 text-[11px]">${esc(item.id)}</span><span class="flex-1 text-[12px] leading-[1.45]">${esc(item.raw.title || "无候选")}</span></button>`).join("")}</section>`).join("");
+          bindSelect(index);
+          index.querySelectorAll("[data-check]").forEach((control) => control.addEventListener("click", (event) => { event.stopPropagation(); const id = control.dataset.check; state.checked.has(id) ? state.checked.delete(id) : state.checked.add(id); paint(); }));
+        };
+
+        const paintTrack = () => {
+          const selected = itemById(state.selected);
+          const hotIssues = new Set(selected?.issues || []);
+          track.querySelectorAll("[data-lane]").forEach((lane) => lane.dataset.hot = String(hotIssues.has(Number(lane.dataset.lane))));
+          track.querySelectorAll("[data-select]").forEach((control) => control.setAttribute("aria-current", String(control.dataset.select === state.selected)));
+        };
+
+        const paint = () => {
+          paintIndex();
+          paintTrack();
+          const item = itemById(state.selected) || items[0] || journeyItems[0];
+          const view = detail(item);
+          detailEl.innerHTML = item ? `<div class="flex flex-wrap items-center gap-2"><span class="mono text-[12px] font-bold">${esc(item.id)}</span><span class="tag ${ROUTES[item.route] || "tone-action"}">${esc(item.route)}</span><span class="text-[11.5px] text-[#71717d]">${esc(view.meta)}</span></div><div class="mt-3">${view.main}</div>` : view.main;
+          evidenceEl.innerHTML = view.evidence;
+          mobileEvidenceEl.innerHTML = view.evidence;
+          replyEl.textContent = replyTemplate();
+          detailEl.querySelectorAll("[data-decision]").forEach((control) => control.addEventListener("change", () => {
+            state.decisions.set(control.dataset.decision, control.value);
+            paint();
+          }));
+        };
+
+        const select = (id, reveal = false) => {
+          if (!itemById(id)) return;
+          state.selected = id;
+          paint();
+          if (reveal && track.dataset.open === "true") {
+            const selected = itemById(id);
+            const issue = selected?.issues?.[0];
+            trackBody.querySelector(`[data-lane="${issue || "batch"}"]`)?.scrollIntoView({ block: "nearest" });
+          }
+        };
+
+        function bindSelect(scope) {
+          scope.querySelectorAll("[data-select]").forEach((control) => control.addEventListener("click", () => select(control.dataset.select, true)));
+        }
+        bindSelect(app);
+        document.querySelectorAll("[data-filter]").forEach((control) => control.addEventListener("click", () => {
+          const filter = control.dataset.filter;
+          state.filters.has(filter) ? state.filters.delete(filter) : state.filters.add(filter);
+          control.setAttribute("aria-pressed", String(state.filters.has(filter)));
+          const visible = visibleItems();
+          if (visible.length && !visible.some((item) => item.id === state.selected)) state.selected = visible[0].id;
+          paint();
+        }));
+        document.getElementById("track-toggle").addEventListener("click", () => {
+          const open = track.dataset.open !== "true";
+          track.dataset.open = String(open);
+          document.getElementById("track-toggle").setAttribute("aria-expanded", String(open));
+        });
+        document.getElementById("copy").addEventListener("click", async () => {
+          const status = document.getElementById("copy-status");
+          try { await navigator.clipboard.writeText(replyTemplate()); status.textContent = "已复制"; }
+          catch { status.textContent = "复制失败，请手动选择文本"; }
+          setTimeout(() => { status.textContent = ""; }, 2400);
+        });
+        document.addEventListener("keydown", (event) => {
+          const target = event.target;
+          if (target && (target.matches("input, textarea, [contenteditable='true']"))) return;
+          if (event.key.toLowerCase() === "t") document.getElementById("track-toggle").click();
+          const visible = visibleItems();
+          const current = visible.findIndex((item) => item.id === state.selected);
+          if (["j", "k"].includes(event.key.toLowerCase()) && visible.length) {
+            const offset = event.key.toLowerCase() === "j" ? 1 : -1;
+            state.selected = visible[Math.max(0, Math.min(visible.length - 1, current + offset))].id;
+            paint();
+            index.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+          }
+          if (event.key.toLowerCase() === "x") {
+            const item = itemById(state.selected);
+            if (["followup", "gate"].includes(item?.kind)) { state.checked.has(item.id) ? state.checked.delete(item.id) : state.checked.add(item.id); paint(); }
+          }
+        });
+        paint();
+      })();
+    </script>
+  </body>
+</html>
