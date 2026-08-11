@@ -59,7 +59,7 @@ bash .agents/skills/pr-ai-review-loop/scripts/query.sh <PR_NUMBER> <子命令>
 
 脚本在 stderr 报 `WARNING: SINCE_SHA ... is not on PR`(典型成因 rebase 改写了全部 SHA)时锚点已失效,拿到的是全量提交而非最近一批,不得按该输出判形状——rebase 同时刷新了 `committedDate`,批次边界也无从重建。此时保守处置:不顺延,按 reviewers.md 的触发规则重审 Gemini,并把锚点重设为索引 `commits_since_pr_created` 末条 `oid` 供下轮使用。「收敛兜底」#2 用本脚本取证时同样适用该告警的处置。
 
-执行完触发动作后,按「轮询节奏」表选择延迟,调用 `ScheduleWakeup`。
+执行完触发动作后,按「轮询节奏」进入主动等待。
 
 ### 步骤 3:收集评论并实施修复
 
@@ -78,13 +78,13 @@ GitHub code scanning 两家(quality / security)的评论并入同一批,处置�
 
 ## 轮询节奏
 
-每轮 poll 与决策完成后,调用 `ScheduleWakeup` 安排下一次唤醒,唤醒 prompt 写明 skill 名与 PR 号;唤醒后按已加载的本文继续步骤 1,无需重新调用 Skill 工具。延迟取值:
+每轮 poll 与决策完成后,立即用 `Monitor` 运行 `bash .agents/skills/pr-ai-review-loop/scripts/wait.sh <PR_NUMBER> --max <延迟秒数>`,`timeout_ms` 设为比 `--max` 多 30 秒;命令返回后继续步骤 1。每轮都由 `wait.sh` 保持主动等待,不得结束回合被动等待外部探活。延迟取值:
 
 | 场景 | 延迟 | 备注 |
 |---|---|---|
 | 新 HEAD 后首次 poll | 360s | reviewer cold-start |
 | 其余等待(触发命令后、reviewer 响应中、仅剩 CodeQL 分析未完成) | 180s | |
-| 超过 30 分钟无响应 | 暂停并询问用户,不再 ScheduleWakeup | 见「故障处理」 |
+| 超过 30 分钟无响应 | 暂停并询问用户,不再等待 | 见「故障处理」 |
 
 ## 收敛兜底
 

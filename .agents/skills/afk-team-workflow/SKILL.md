@@ -25,13 +25,13 @@ batch-poll 只产出 gh/git 事实与机械汇总，不做语义判断。取得�
 
 1. 依赖顺序按 batch-poll 的 `blocked_by` / `ready_to_start` 排；并发槽位优先给改动域互不相交的 issue，同域或足迹重叠者靠依赖序或补位串行——冲突事前避而非事后解；`stage_hint` 已起的 issue 在计划中标明现状与接力起点（按第三步阶段表的交付物反推），随计划一并交用户确认
 2. 分流：`ready-for-agent` 进批次；`ready-for-human` 跳过——它与下游被阻塞链都不启动；已被他人 assign 的 issue 视为已认领，同样跳过（batch-poll 不含 assignee，用 `gh issue view <N> --json assignees` 核对）；无标签的读正文判断归类（batch-poll 的 `ready_to_start` 只算依赖与未起，triage 由你定）
-3. 向用户展示批次计划：成员清单、依赖顺序、每个 issue 的实现路线与模型（**各附一句选择理由**，见第三步「实现路线与模型」）、跳过项及连带不启动的下游、并发上限（默认 3，用户可覆盖）
+3. 向用户展示批次计划：成员清单、依赖顺序、每个 issue 的实现路线与模型（**各附一句选择理由**，见第三步「实现路线与模型」）、跳过项及连带不启动的下游、实现 / 本地审查并发上限（默认 3）与 AI 审查循环软上限（默认 6）；两者均可由用户覆盖
 4. **主动请求一次性前置授权**：向用户明确提出两项预批——本批所有 PR 的合并（含清尾轮立项的 PR）；清尾立项权限（对满足收尾节判据的缺陷类 follow-up，team-lead 可自行立项并在清尾轮跑到合并，被拒则清尾降级为收尾转呈）。连同流程将自动执行的动作边界（修改 triage 标签、PR 转 draft、在 Spec 发 QA 验收 comment；清尾授权之外不创建新 issue，gap 立项仍须用户中途指令）。这是本流程唯一的同步确认点；前置授权在此落入 team-lead 的 transcript，后续不再逐笔请示
 5. 用户确认后建账本（首条 append，记录计划裁决与所得授权，见「账本」），进入无人值守执行，不再中途请示
 
 ## 第三步：组建团队，按依赖调度
 
-TeamCreate 建团队。并发上限指同时进行的 issue 数（处于任一阶段都算）：并发越高，每次合并引发的重审与并发请示越多。
+TeamCreate 建团队。并发上限只计算同时处于**实现 / 本地审查**阶段的 issue；进入 AI 审查循环即释放该槽位。AI 审查循环另设软上限 6，team-lead 可在批次计划中覆盖。
 
 issue 的启动条件：全部 blocker 已合入 main。启动时将 issue assign 给自己（`gh issue edit <N> --add-assignee @me`）。worktree 一律从最新 main 创建，不做跨分支依赖；blocker 被搁置时下游不启动，归入收尾清单。
 
@@ -89,8 +89,6 @@ teammate 的一切暂停请示先到你这里。分四类处置：
 批次执行期间保持 ScheduleWakeup 定时唤醒（约 30 分钟一次）。每次唤醒跑一遍 batch-poll 取全批次远端快照（各 issue `stage_hint`、PR `updatedAt` / `mergeable`、`conflicting` / `merge_candidate`），结合 teammate 的 task 状态与最近一次汇报判断进展——batch-poll 不判定 teammate 存活状态。长时间无进展且无合理等待理由（等待 reviewer 响应属合理）→ SendMessage 询问；无回应则判定该 teammate 已失效，按 spawn-prompts.md 的替补附言 spawn 替补接管。
 
 codex 实现任务的进展改用 companion `status`（`--cwd` 指向对应 worktree）判定：长时间无进展 → `cancel` 后重发 task 作替补——现场可信用 `--resume-last` 接续，不可信则删 worktree 重建后 fresh 重跑。
-
-teammate 的 idle 通知不是事件：常规 idle（无伴随请示或交付消息）一律不动作、不输出、不为此提前跑 batch-poll——looper 的 idle 是轮询循环的常态，实现与本地审查阶段的失效也只在定时健康检查中判定（idle 通知与交付消息可能乱序，即时反应易误判）。
 
 ## 账本
 
