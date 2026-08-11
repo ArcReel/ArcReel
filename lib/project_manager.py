@@ -808,6 +808,8 @@ class ProjectManager:
         with self._script_lock(project_name, norm):
             with self._project_lock(project_name):
                 project = self._read_project_raw_unlocked(project_name)
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
                 current = resolve_script_file(project)
                 cur_norm = self.normalize_script_filename(current)
                 if cur_norm != norm:
@@ -824,6 +826,8 @@ class ProjectManager:
                 self._migrate_legacy_resolution_on_save(project)
                 self._migrate_legacy_style(project)
                 self._touch_metadata(project)
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
                 atomic_write_json(self._get_project_file_path(project_name), project)
                 emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
 
@@ -1453,6 +1457,8 @@ class ProjectManager:
                 project = json.load(f)
             if self._migrate_legacy_style(project):
                 # 不走 save_project 以避免触发 _touch_metadata 污染 updated_at。
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
                 atomic_write_json(project_file, project)
                 migrated = True
         if migrated:
@@ -2148,6 +2154,8 @@ class ProjectManager:
             entry = rekey_equivalent_entries(mutated[spec.bucket_key], old_key, new_clean)
             if isinstance(entry, dict):
                 rewrite_entry_paths(entry, spec, old_key, new_clean)
+            if self._requires_unique_asset_namespace(mutated):
+                ensure_project_asset_namespace(mutated)
             after_errors = _rename_agnostic_errors(validator.validate_project_payload(mutated), old_key, new_clean)
             new_errors = {after_errors[fingerprint] for fingerprint in after_errors.keys() - before_errors.keys()}
             if new_errors:

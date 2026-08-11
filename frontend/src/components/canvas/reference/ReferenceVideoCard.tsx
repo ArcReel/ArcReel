@@ -2,8 +2,8 @@ import { Fragment, useCallback, useMemo, useRef, useState, type ReactNode } from
 import { useTranslation } from "react-i18next";
 import { MENTION_PICKER_DEFAULT_ID, MentionPicker, type MentionCandidate } from "./MentionPicker";
 import { ASSET_COLORS, assetColor } from "./asset-colors";
-import { useShotPromptHighlight, type MentionLookup, type Token } from "@/hooks/useShotPromptHighlight";
-import { MENTION_RE, normalizeAssetName } from "@/utils/reference-mentions";
+import { useShotPromptHighlight, type Token } from "@/hooks/useShotPromptHighlight";
+import { buildMentionLookup, MENTION_RE } from "@/utils/reference-mentions";
 import { useProjectsStore } from "@/stores/projects-store";
 import {
   SHEET_FIELD,
@@ -125,25 +125,7 @@ export function ReferenceVideoCard({
 
   const project = useProjectsStore((s) => s.currentProjectData);
 
-  const lookup: MentionLookup = useMemo(() => {
-    // 无原型字典保证 `__proto__` 等合法资产名也能成为自有属性。
-    const out: MentionLookup = Object.create(null) as MentionLookup;
-    const duplicates = new Set<string>();
-    const claim = (name: string, kind: "character" | "scene" | "prop") => {
-      const key = normalizeAssetName(name);
-      if (duplicates.has(key)) return;
-      if (Object.hasOwn(out, key)) {
-        delete out[key];
-        duplicates.add(key);
-        return;
-      }
-      out[key] = kind;
-    };
-    for (const name of Object.keys(project?.characters ?? {})) claim(name, "character");
-    for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");
-    for (const name of Object.keys(project?.props ?? {})) claim(name, "prop");
-    return out;
-  }, [project?.characters, project?.scenes, project?.props]);
+  const lookup = useMemo(() => buildMentionLookup(project), [project]);
 
   const tokens = useShotPromptHighlight(currentText, lookup);
 

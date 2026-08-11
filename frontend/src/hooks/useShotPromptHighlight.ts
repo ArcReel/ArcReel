@@ -8,6 +8,7 @@ import {
   matchVoiceoverLine,
   mentionNameFromMatch,
   splitScriptLines,
+  type MentionLookup,
 } from "@/utils/reference-mentions";
 
 /**
@@ -31,7 +32,7 @@ import {
  * mention 名与说话人都出自 `reference-mentions` 的解析原语，已承诺是规范形——两侧不同源，
  * 同一坐标系才能稳定命中。
  */
-export type MentionLookup = Record<string, "character" | "scene" | "prop">;
+export type { MentionLookup } from "@/utils/reference-mentions";
 
 export type Token =
   | { kind: "text"; text: string }

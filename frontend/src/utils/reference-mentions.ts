@@ -155,6 +155,7 @@ export function extractMentions(text: string): string[] {
 }
 
 type ProjectBuckets = Pick<ProjectData, "characters" | "scenes" | "props">;
+export type MentionLookup = Record<string, AssetKind>;
 
 /**
  * 把资产名归一到项目名称空间的比对坐标系（strip + Unicode NFC）。镜像后端
@@ -172,6 +173,31 @@ function bucketHasName(bucket: Record<string, unknown> | undefined, target: stri
   // （`validate_asset_name` 只挡路径分隔符与 Windows 保留字符），`in` 会命中原型链上的
   // 同名属性，把未登记的名字判成已登记；Object.keys 只返回自有可枚举属性，同样安全。
   return Object.keys(bucket).some((key) => normalizeAssetName(key) === target);
+}
+
+/**
+ * 为编辑器高亮构造项目资产名到类型的唯一映射。
+ *
+ * 无原型字典保证 `__proto__` 等合法资产名可作为普通 key；若损坏的项目在多个 bucket
+ * 声明等价名称，则删除该名称而不在读取路径选择优先级。
+ */
+export function buildMentionLookup(project: ProjectBuckets | null | undefined): MentionLookup {
+  const lookup: MentionLookup = Object.create(null) as MentionLookup;
+  const duplicates = new Set<string>();
+  const claim = (name: string, kind: AssetKind) => {
+    const key = normalizeAssetName(name);
+    if (duplicates.has(key)) return;
+    if (Object.hasOwn(lookup, key)) {
+      delete lookup[key];
+      duplicates.add(key);
+      return;
+    }
+    lookup[key] = kind;
+  };
+  for (const name of Object.keys(project?.characters ?? {})) claim(name, "character");
+  for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");
+  for (const name of Object.keys(project?.props ?? {})) claim(name, "prop");
+  return lookup;
 }
 
 export function resolveMentionType(

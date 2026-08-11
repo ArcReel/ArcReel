@@ -31,6 +31,7 @@ from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.i18n import Translator
 from lib.project_manager import ProjectManager, get_project_manager
+from server.routers._asset_router_factory import localize_project_asset_name_conflict
 
 logger = logging.getLogger(__name__)
 
@@ -450,6 +451,8 @@ async def apply_to_project(
     project_manager = get_project_manager()
     try:
         project = project_manager.load_project(req.target_project)
+    except ProjectAssetNameConflictError as exc:
+        raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
     except FileNotFoundError as exc:
         raise NotFoundError("asset_target_project_not_found", project=req.target_project) from exc
 
@@ -625,7 +628,10 @@ async def apply_to_project(
             data[bk][key] = payload
 
     if plans:
-        await asyncio.to_thread(project_manager.update_project, req.target_project, _apply_all)
+        try:
+            await asyncio.to_thread(project_manager.update_project, req.target_project, _apply_all)
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
 
     for plan in plans:
         succeeded.append({"id": plan["asset"].id, "name": plan["desired_name"]})

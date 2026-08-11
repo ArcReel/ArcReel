@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import unicodedata
 from pathlib import Path
 
@@ -10,7 +11,7 @@ import pytest
 
 from lib.project_migrations.v5_to_v6_asset_namespace import migrate_v5_to_v6
 
-pytestmark = pytest.mark.unit
+pytestmark = pytest.mark.integration
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -195,5 +196,40 @@ def test_migration_failure_leaves_original_tree_untouched(tmp_path: Path, monkey
     with pytest.raises(RuntimeError, match="injected failure"):
         migrate_v5_to_v6(project_dir)
 
+    assert (project_dir / "project.json").read_bytes() == original
+    assert not list(tmp_path.glob(".demo.v6-*"))
+
+
+def test_directory_swap_failure_restores_original_tree(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "demo"
+    _write_json(
+        project_dir / "project.json",
+        {
+            "schema_version": 5,
+            "characters": {"Same": _asset("character", "character_sheet")},
+            "scenes": {"Same": _asset("scene", "scene_sheet")},
+            "props": {},
+            "products": {},
+        },
+    )
+    original = (project_dir / "project.json").read_bytes()
+    real_replace = os.replace
+    failed = False
+
+    def fail_install(source: str | Path, destination: str | Path) -> None:
+        nonlocal failed
+        source_path = Path(source)
+        destination_path = Path(destination)
+        if not failed and destination_path == project_dir and "rollback" not in source_path.name:
+            failed = True
+            raise OSError("injected staging install failure")
+        real_replace(source, destination)
+
+    monkeypatch.setattr("lib.project_migrations.v5_to_v6_asset_namespace.os.replace", fail_install)
+
+    with pytest.raises(OSError, match="injected staging install failure"):
+        migrate_v5_to_v6(project_dir)
+
+    assert failed is True
     assert (project_dir / "project.json").read_bytes() == original
     assert not list(tmp_path.glob(".demo.v6-*"))

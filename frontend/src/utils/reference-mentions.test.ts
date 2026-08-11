@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildMentionLookup,
   extractMentions,
   matchDialogueLine,
   matchVoiceoverLine,
@@ -140,6 +141,21 @@ describe("resolveMentionType", () => {
   it("resolves an asset actually named like a prototype property", () => {
     const withOddName = { characters: { toString: { description: "" } }, scenes: {}, props: {} };
     expect(resolveMentionType(withOddName as never, "toString")).toBe("character");
+  });
+});
+
+describe("buildMentionLookup", () => {
+  it("normalizes keys and removes corrupt cross-bucket duplicates", () => {
+    const lookup = buildMentionLookup({
+      characters: Object.fromEntries([[" café ", {}], ["__proto__", {}]]),
+      scenes: { "cafe\u0301": {} },
+      props: { toString: {} },
+    } as never);
+
+    expect(Object.getPrototypeOf(lookup)).toBeNull();
+    expect(Object.hasOwn(lookup, "café")).toBe(false);
+    expect(lookup.__proto__).toBe("character");
+    expect(lookup.toString).toBe("prop");
   });
 });
 

@@ -1,11 +1,8 @@
 """项目级资产类型规格（character / scene / prop / product）的单一事实源。
 
-升级自原 BUCKET_KEY / SHEET_KEY 常量字典：用 AssetSpec dataclass 描述每类资产
-完整属性（bucket / sheet 字段 / 子目录 / 中文标签 / 额外字符串字段 / 额外列表字段），
-供 ProjectManager 统一资产 API 与 server/routers/_asset_router_factory 共享。
-
-旧常量 ASSET_TYPES / BUCKET_KEY / SHEET_KEY 保留为 ASSET_SPECS 的派生，现有 18 处
-引用零修改。
+``AssetSpec`` 描述每类资产的 bucket、sheet 字段、子目录、显示标签、引用字段与扩展字段，
+供 ProjectManager 统一资产 API、名称空间校验和 server/routers/_asset_router_factory 共享。
+兼容常量 ASSET_TYPES / BUCKET_KEY / SHEET_KEY 均从 ASSET_SPECS 派生。
 
 面向用户的显示名不落在 spec 里：``localize_asset_type`` 以注入的 translate 把类型标识
 映射到 ``lib/i18n`` 的 ``asset_type_*`` key，本模块因而不反向依赖 i18n。
@@ -111,7 +108,7 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         # selling_points 允许 agent 起草/修改；reference_images 是上传路径（与
         # reference_image 同性质），不进 agent 白名单，更新走专用上传 API。
         agent_editable_extra_fields=("selling_points",),
-        # 全局资产库是单图列模型，多图列表型的 product 暂不进入（跨项目复用为后续工作）。
+        # 全局资产库是单图列模型，多图列表型的 product 不进入。
         in_global_library=False,
     ),
 }

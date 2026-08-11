@@ -590,7 +590,7 @@ class TestApplyToProject:
         data = pm.load_project("target")
         assert data["characters"]["王"]["description"] == "library desc"
 
-    @pytest.mark.unit
+    @pytest.mark.integration
     def test_overwrite_policy_rejects_cross_type_name(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
@@ -612,7 +612,7 @@ class TestApplyToProject:
         assert response.json()["failed"] == [{"id": created.json()["asset"]["id"], "reason": "project_name_conflict"}]
         assert pm.load_project("target")["scenes"] == {}
 
-    @pytest.mark.unit
+    @pytest.mark.integration
     def test_rename_policy_uses_project_wide_occupancy(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
@@ -634,6 +634,43 @@ class TestApplyToProject:
         assert response.status_code == 200
         assert response.json()["succeeded"][0]["name"] == "Shared (3)"
         assert "Shared (3)" in pm.load_project("target")["scenes"]
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
+    def test_concurrent_cross_type_conflict_returns_localized_409(self, _assets_env, monkeypatch, locale):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        created = client.post("/api/v1/assets", data={"type": "scene", "name": "Shared"})
+        original_update = pm.update_project
+        injected = False
+
+        def racing_update(project_name, mutate):
+            nonlocal injected
+            if not injected:
+                injected = True
+                original_update(
+                    project_name,
+                    lambda project: project["characters"].update({"Shared": {"description": "character"}}),
+                )
+            return original_update(project_name, mutate)
+
+        monkeypatch.setattr(pm, "update_project", racing_update)
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "overwrite",
+            },
+            headers={"Accept-Language": locale},
+        )
+
+        assert response.status_code == 409
+        assert "Shared" in response.json()["detail"]
+        assert pm.load_project("target")["scenes"] == {}
 
     @pytest.mark.unit
     def test_invalid_policy_returns_400(self, _assets_env):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unicodedata
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from lib.asset_types import ProjectAssetNameConflictError
 from lib.data_validator import DataValidator
 from lib.project_manager import ProjectManager
 
-pytestmark = pytest.mark.unit
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
@@ -77,3 +78,42 @@ def test_validator_reports_cross_type_and_equivalent_duplicates(pm: ProjectManag
     result = DataValidator(str(pm.projects_root)).validate_project_payload(project)
 
     assert any(message.key == "val_asset_name_duplicate" for message in result.error_messages)
+
+
+def _write_corrupt_v6_project(pm: ProjectManager, *, with_episode: bool = False) -> Path:
+    project = pm.load_project("demo")
+    project["characters"] = {"Shared": {"description": "character"}}
+    project["scenes"] = {"Shared": {"description": "scene"}}
+    if with_episode:
+        project["episodes"] = [{"episode": 1, "script_file": "scripts/episode_1.json", "title": "Episode 1"}]
+    project_file = pm.get_project_path("demo") / "project.json"
+    project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    return project_file
+
+
+def test_rename_rejects_a_corrupt_v6_namespace_before_writing(pm: ProjectManager) -> None:
+    project_file = _write_corrupt_v6_project(pm)
+    project = json.loads(project_file.read_text(encoding="utf-8"))
+    project["props"] = {"Old": {"description": "prop"}}
+    project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    before = project_file.read_bytes()
+
+    with pytest.raises(ProjectAssetNameConflictError):
+        pm.rename_asset("demo", "props", "Old", "Renamed")
+
+    assert project_file.read_bytes() == before
+
+
+def test_locked_episode_write_rejects_a_corrupt_v6_namespace_before_writing(pm: ProjectManager) -> None:
+    project_file = _write_corrupt_v6_project(pm, with_episode=True)
+    script_file = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+    script_file.write_text('{"episode": 1}', encoding="utf-8")
+    before_project = project_file.read_bytes()
+    before_script = script_file.read_bytes()
+
+    with pytest.raises(ProjectAssetNameConflictError):
+        with pm.locked_episode_script("demo", lambda project: project["episodes"][0]["script_file"]):
+            pytest.fail("corrupt namespace must fail before yielding the script")
+
+    assert project_file.read_bytes() == before_project
+    assert script_file.read_bytes() == before_script
