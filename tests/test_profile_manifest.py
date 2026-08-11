@@ -806,6 +806,20 @@ def test_profile_status_reports_user_deletion_before_next_sync(tmp_path: Path) -
     }
 
 
+def test_profile_status_reports_newly_projected_file_missing_from_manifest(tmp_path: Path) -> None:
+    from lib.profile_manifest import get_profile_status, sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    sync_profile_to_project(profile, project, content_mode="narration")
+    (profile / ".claude" / "agents" / "new.md").write_text("new built-in", encoding="utf-8")
+
+    assert get_profile_status(profile, project, content_mode="narration") == {
+        "customized": True,
+        "customized_files": [".claude/agents/new.md"],
+    }
+
+
 @pytest.mark.parametrize("manifest_payload", [None, "{invalid"])
 def test_profile_status_reports_missing_builtins_without_trusted_manifest(
     tmp_path: Path, manifest_payload: str | None
@@ -824,6 +838,23 @@ def test_profile_status_reports_missing_builtins_without_trusted_manifest(
             ".claude/skills/manga-workflow/SKILL.md",
             "CLAUDE.md",
         ],
+    }
+
+
+def test_profile_status_reports_nested_directory_symlink(tmp_path: Path) -> None:
+    from lib.profile_manifest import get_profile_status, sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    sync_profile_to_project(profile, project, content_mode="narration")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    custom = project / ".claude" / "skills" / "custom"
+    custom.symlink_to(outside, target_is_directory=True)
+
+    assert get_profile_status(profile, project, content_mode="narration") == {
+        "customized": True,
+        "customized_files": [".claude/skills/custom"],
     }
 
 

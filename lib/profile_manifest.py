@@ -265,6 +265,24 @@ def enumerate_dest_files(project_dir: Path) -> set[str]:
     return files
 
 
+def _enumerate_dest_symlinks(project_dir: Path) -> set[str]:
+    """Return profile symlink entries without traversing directory targets."""
+    links: set[str] = set()
+    dest_top = project_dir / _PROFILE_TOP_FILE
+    if dest_top.is_symlink():
+        links.add(_PROFILE_TOP_FILE)
+
+    dest_tree = project_dir / _PROFILE_TREE_ROOT
+    if not dest_tree.is_dir() or dest_tree.is_symlink():
+        return links
+    for dirpath, dirnames, filenames in os.walk(dest_tree, followlinks=False):
+        for name in (*dirnames, *filenames):
+            path = Path(dirpath) / name
+            if path.is_symlink():
+                links.add(path.relative_to(project_dir).as_posix())
+    return links
+
+
 # ---------- Manifest 数据类 ----------
 
 
@@ -751,16 +769,17 @@ def get_profile_status(
 
     loaded = load_manifest(project_dir)
     dest_files = enumerate_dest_files(project_dir)
+    dest_symlinks = _enumerate_dest_symlinks(project_dir)
     if loaded is None:
         # Without a trustworthy baseline, existing destination files may be
         # customized and missing projected files may be user deletions. A full
         # reset repairs both shapes, so keep the reset action available for the
         # complete affected set.
-        customized_files = sorted(dest_files | mapping.keys())
+        customized_files = sorted(dest_files | dest_symlinks | mapping.keys())
         return {"customized": bool(customized_files), "customized_files": customized_files}
 
     manifest, _ = loaded
-    customized: set[str] = set()
+    customized = set(dest_symlinks)
     for rel in dest_files:
         entry = manifest.entries.get(rel)
         if entry is None:
@@ -776,11 +795,11 @@ def get_profile_status(
         except (OSError, ValueError):
             customized.add(rel)
 
-    for rel in manifest.entries:
-        if rel in dest_files or rel not in mapping:
+    for rel in mapping:
+        if rel in dest_files:
             continue
         # Any missing file still shipped by the current projection is a user
-        # deletion, whether or not normal sync has recorded a tombstone yet.
+        # deletion, whether or not the manifest tracked the path yet.
         customized.add(rel)
 
     files = sorted(customized)

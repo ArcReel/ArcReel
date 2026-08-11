@@ -64,6 +64,20 @@ def test_reports_invalid_frontmatter_pointer_mcp_and_eval_ids(tmp_path: Path) ->
     assert any("duplicate eval id" in error for error in errors)
 
 
+def test_excludes_sentence_punctuation_from_mcp_tool_ids(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    skill = profile / ".claude" / "skills" / "demo" / "SKILL.md"
+    skill.write_text(
+        skill.read_text(encoding="utf-8") + "Use mcp__arcreel__patch_project. Avoid mcp__arcreel__not_registered!\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"})
+
+    assert not any("patch_project." in error for error in errors)
+    assert any("mcp__arcreel__not_registered" in error for error in errors)
+
+
 def test_reports_duplicate_eval_ids_in_root_array(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     (profile / "evals" / "array.json").write_text(
