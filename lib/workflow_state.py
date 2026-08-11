@@ -301,16 +301,28 @@ class WorkflowStateService:
             return False
         rel = cursor.get("source_file")
         offset = cursor.get("offset")
+        canonical_rel = unicodedata.normalize("NFC", rel) if isinstance(rel, str) else None
         if (
-            not isinstance(rel, str)
-            or unicodedata.normalize("NFC", rel) != source.files[-1]
+            canonical_rel != source.files[-1]
             or not isinstance(offset, int)
             or isinstance(offset, bool)
         ):
             return False
         try:
-            text = (project_path / rel).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+            source_dir = project_path / "source"
+            if source_dir.is_symlink():
+                return False
+            matching_paths = [
+                path
+                for path in source_dir.iterdir()
+                if unicodedata.normalize("NFC", f"source/{path.name}") == canonical_rel
+            ]
+            if len(matching_paths) != 1 or matching_paths[0].is_symlink():
+                return False
+            path = matching_paths[0]
+            path.resolve(strict=True).relative_to(project_path.resolve())
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError, ValueError):
             return False
         return offset >= len(normalize_source_text(text))
 

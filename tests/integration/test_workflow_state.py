@@ -555,7 +555,7 @@ def test_stale_episode_requires_step1_even_when_old_artifacts_exist(tmp_path: Pa
 
 
 @pytest.mark.integration
-def test_planning_completion_compares_cursor_paths_in_nfc(tmp_path: Path) -> None:
+def test_planning_completion_resolves_nfc_cursor_to_nfd_filesystem_path(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     decomposed_name = unicodedata.normalize("NFD", "truyện.txt")
     source_path = project_path / "source" / decomposed_name
@@ -563,7 +563,7 @@ def test_planning_completion_compares_cursor_paths_in_nfc(tmp_path: Path) -> Non
     project = pm.load_project("demo")
     source = compute_source_revision(project_path, project, SourceScope(kind="all"))
     assert source.revision is not None
-    project["planning_cursor"] = {"source_file": f"source/{decomposed_name}", "offset": 4}
+    project["planning_cursor"] = {"source_file": source.files[-1], "offset": 4}
     project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
 
     assert WorkflowStateService._planning_complete(project_path, project, source) is True
