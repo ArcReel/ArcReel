@@ -236,14 +236,14 @@ def _append_structured_entry(
     )
 
 
-def _character_reference_names(raw_references: object) -> set[str]:
+def _non_character_reference_names(raw_references: object) -> set[str]:
     if not isinstance(raw_references, list):
         return set()
     return {
         normalize_asset_name(name.strip())
         for reference in raw_references
         if isinstance(reference, Mapping)
-        and reference.get("type") == "character"
+        and reference.get("type") in {"scene", "prop"}
         and isinstance((name := reference.get("name")), str)
         and name.strip()
     }
@@ -364,7 +364,7 @@ def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
     normalized_unit_id = unit_id if isinstance(unit_id, str) else ""
     entries: list[SpeechInputUtterance] = []
     problems = _initial_problems(unit, normalized_unit_id, "unit_id")
-    character_names = _character_reference_names(unit.get("references"))
+    non_character_names = _non_character_reference_names(unit.get("references"))
     shots = unit.get("shots")
     if isinstance(shots, list) and shots:
         for shot_index, shot in enumerate(shots):
@@ -408,12 +408,16 @@ def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
                         )
                     )
                     continue
+                leading_name = leading_mention_before_colon(line)
                 if (
                     "{" in line
                     or "}" in line
                     or "｛" in line
                     or "｝" in line
-                    or (leading_mention_before_colon(line) or "") in character_names
+                    or (
+                        leading_name is not None
+                        and normalize_asset_name(leading_name.strip()) not in non_character_names
+                    )
                     or find_malformed_mention(line) is not None
                 ):
                     problems.append(_parse_problem(normalized_unit_id, location))

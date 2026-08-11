@@ -367,14 +367,28 @@ def test_reference_video_adapter_allows_asset_headings_without_guessing_their_ty
     assert result.problems == ()
 
 
-def test_reference_video_adapter_rejects_malformed_dialogue_for_a_declared_character() -> None:
-    snapshot = adapt_video_unit(
+@pytest.mark.parametrize(
+    "source",
+    [
         {
             "unit_id": "E1U09",
             "shots": [{"text": "@[阿离]：快走。"}],
             "references": [{"type": "character", "name": "阿离"}],
-        }
-    )
+        },
+        {
+            "unit_id": "E1U09",
+            "shots": [{"text": "@[阿离]：快走。"}],
+            "references": [],
+        },
+        {
+            "unit_id": "E1U09",
+            "shots": [{"text": "@[ ]：快走。"}],
+            "references": [],
+        },
+    ],
+)
+def test_reference_video_adapter_rejects_malformed_dialogue(source) -> None:
+    snapshot = adapt_video_unit(source)
 
     result = SpeechComposition.prepare(snapshot)
 
@@ -384,21 +398,19 @@ def test_reference_video_adapter_rejects_malformed_dialogue_for_a_declared_chara
     ]
 
 
-def test_reference_video_adapter_normalizes_character_names_before_matching() -> None:
+def test_reference_video_adapter_normalizes_asset_headings_before_matching() -> None:
     snapshot = adapt_video_unit(
         {
             "unit_id": "E1U10",
-            "shots": [{"text": "@[Caf\u00e9]：hello"}],
-            "references": [{"type": "character", "name": "Cafe\u0301"}],
+            "shots": [{"text": "@[Caf\u00e9]：木门被风吹开。"}],
+            "references": [{"type": "scene", "name": "Cafe\u0301"}],
         }
     )
 
     result = SpeechComposition.prepare(snapshot)
 
-    assert result.mode is None
-    assert [(problem.code, problem.locations) for problem in result.problems] == [
-        (SpeechProblemCode.PARSE_FAILED, (SpeechFieldLocation(("shots", 0, "text"), line=0),))
-    ]
+    assert result.mode is SpeechMode.SILENT
+    assert result.problems == ()
 
 
 def test_damaged_unit_identity_and_container_are_reported_together() -> None:
