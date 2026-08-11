@@ -7,9 +7,10 @@
 # Without --max, the first wait observed for a HEAD is 360 seconds and later waits on the
 # same HEAD are 180 seconds.
 #
-# The probe reads only the PR head SHA, review submittedAt values, and issue-comment
-# updatedAt values. Any change returns immediately. GitHub 403/429 responses switch the
-# remainder of this wait to sleep-only mode; other errors fail loudly with WAIT_ERROR.
+# The probe reads only the PR head SHA, review submittedAt values, issue-comment
+# updatedAt values, and Codex PR reactions. Any change returns immediately. GitHub
+# 403/429 responses switch the remainder of this wait to sleep-only mode; other errors
+# fail loudly with WAIT_ERROR.
 
 set -euo pipefail
 
@@ -71,7 +72,7 @@ is_rate_limited() {
 }
 
 probe() {
-  local reviews_json comments_json
+  local reviews_json comments_json reactions_json
 
   if ! reviews_json=$(gh api graphql --paginate \
     -F owner="$OWNER" -F repo="$REPO" -F number="$PR" \
@@ -85,16 +86,27 @@ probe() {
     is_rate_limited "$WORKDIR/probe.err" && return "$RATE_LIMITED"
     return 1
   fi
+  if ! reactions_json=$(gh api "repos/${REPO_SLUG}/issues/${PR}/reactions" --paginate \
+    2>"$WORKDIR/probe.err"); then
+    is_rate_limited "$WORKDIR/probe.err" && return "$RATE_LIMITED"
+    return 1
+  fi
 
   jq -n \
     --slurpfile reviews <(printf '%s\n' "$reviews_json") \
     --slurpfile comments <(printf '%s\n' "$comments_json") \
+    --slurpfile reactions <(printf '%s\n' "$reactions_json") \
     '{
       head: $comments[0].data.repository.pullRequest.headRefOid,
       review_submitted_at:
         ([$reviews[].data.repository.pullRequest.reviews.nodes[]?.submittedAt] | max // null),
       comment_updated_at:
-        ([$comments[].data.repository.pullRequest.comments.nodes[]?.updatedAt] | max // null)
+        ([$comments[].data.repository.pullRequest.comments.nodes[]?.updatedAt] | max // null),
+      codex_reactions:
+        ([$reactions[][]
+          | select(.user.login == "chatgpt-codex-connector[bot]")
+          | .content]
+         | sort)
     }'
 }
 

@@ -78,7 +78,7 @@ GitHub code scanning 两家(quality / security)的评论并入同一批,处置�
 
 ## 轮询节奏
 
-每轮 poll 与决策完成后,立即用 `Monitor` 运行 `bash .agents/skills/pr-ai-review-loop/scripts/wait.sh <PR_NUMBER> --max <延迟秒数>`,`timeout_ms` 设为比 `--max` 多 30 秒;命令返回后继续步骤 1。`ScheduleWakeup` 在 in-process teammate 上不可用。每轮都由 `wait.sh` 保持主动等待,不得结束回合被动等待外部探活。延迟取值:
+每轮 poll 与决策完成后,立即用 `Monitor` 运行 `bash .agents/skills/pr-ai-review-loop/scripts/wait.sh <PR_NUMBER> --max <延迟秒数>`,`timeout_ms` 设为比 `--max` 多 30 秒;命令返回后继续步骤 1。每轮都由 `wait.sh` 保持主动等待,不得结束回合被动等待外部探活。延迟取值:
 
 | 场景 | 延迟 | 备注 |
 |---|---|---|
