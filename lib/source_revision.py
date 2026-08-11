@@ -120,6 +120,8 @@ def _scoped_source_paths(
         pure = PurePosixPath(rel)
         if len(pure.parts) != 2 or pure.parts[0] != "source" or pure.suffix.lower() not in SOURCE_TEXT_SUFFIXES:
             return [], _blocked(scope, "invalid_source_scope", rel, "scoped files must be source text files")
+        if _DERIVED_EPISODE_RE.fullmatch(pure.name):
+            return [], _blocked(scope, "invalid_source_scope", rel, "derived episode files are not source text")
         if rel in seen:
             continue
         seen.add(rel)

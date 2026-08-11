@@ -30,6 +30,22 @@ def test_all_source_revision_is_stable_and_excludes_planned_episode_files(tmp_pa
 
 
 @pytest.mark.integration
+def test_scoped_revision_rejects_planned_episode_files(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "episode_1.txt").write_text("derived planning output", encoding="utf-8")
+
+    result = compute_source_revision(
+        tmp_path,
+        _project(),
+        SourceScope(kind="files", files=["source/episode_1.txt"]),
+    )
+
+    assert result.revision is None
+    assert result.blockers[0].code == "invalid_source_scope"
+
+
+@pytest.mark.integration
 def test_revision_changes_with_raw_bytes_path_and_source_semantics(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

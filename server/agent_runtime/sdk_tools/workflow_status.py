@@ -43,6 +43,8 @@ def get_workflow_status_tool(ctx: ToolContext):
         try:
             status = WorkflowStateService(ctx.pm).get_status(ctx.project_name, raw_episode)
             return {"content": [{"type": "text", "text": status.model_dump_json()}]}
+        except json.JSONDecodeError as exc:
+            return tool_error("get_workflow_status", exc)
         except ValueError as exc:
             return _error("invalid_episode", str(exc))
         except Exception as exc:  # noqa: BLE001

@@ -15,6 +15,10 @@ class AssetInventoryError(ValueError):
     """Base class for inventory completion failures."""
 
 
+class AssetInventoryInvalidRequest(AssetInventoryError):
+    """The completion request itself is malformed."""
+
+
 class AssetInventoryRevisionConflict(AssetInventoryError):
     """The analyzed source changed before its completion marker was committed."""
 
@@ -52,7 +56,7 @@ def complete_asset_inventory(
     """Validate and persist an inventory fact within one project lock."""
 
     if not expected_source_revision.startswith("sha256-v1:"):
-        raise AssetInventoryError("expected_source_revision must be a sha256-v1 revision")
+        raise AssetInventoryInvalidRequest("expected_source_revision must be a sha256-v1 revision")
 
     result: AssetInventoryCompletion | None = None
     project_path = pm.get_project_path(project_name)
@@ -100,6 +104,7 @@ def complete_asset_inventory(
 __all__ = [
     "AssetInventoryCompletion",
     "AssetInventoryError",
+    "AssetInventoryInvalidRequest",
     "AssetInventoryRevisionConflict",
     "AssetInventorySourceBlocked",
     "complete_asset_inventory",

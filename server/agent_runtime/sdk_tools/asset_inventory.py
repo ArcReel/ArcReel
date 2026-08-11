@@ -9,6 +9,8 @@ from claude_agent_sdk import tool
 from pydantic import ValidationError
 
 from lib.asset_inventory import (
+    AssetInventoryError,
+    AssetInventoryInvalidRequest,
     AssetInventoryRevisionConflict,
     AssetInventorySourceBlocked,
     complete_asset_inventory,
@@ -76,6 +78,10 @@ def complete_asset_inventory_tool(ctx: ToolContext):
                 },
                 is_error=True,
             )
+        except AssetInventoryInvalidRequest as exc:
+            return _json_response({"error": "invalid_request", "detail": str(exc)}, is_error=True)
+        except AssetInventoryError as exc:
+            return _json_response({"error": "inventory_unavailable", "detail": str(exc)}, is_error=True)
         except (KeyError, ValidationError, ValueError) as exc:
             return _json_response({"error": "invalid_request", "detail": str(exc)}, is_error=True)
         except Exception as exc:  # noqa: BLE001

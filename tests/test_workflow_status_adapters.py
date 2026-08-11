@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from lib.project_manager import ProjectManager
+from lib.workflow_state import WorkflowStateService
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.workflow_status import get_workflow_status_tool
 from server.auth import CurrentUserInfo, get_current_user
@@ -42,11 +43,47 @@ async def test_rest_and_mcp_serialize_the_same_workflow_response(
 
 
 @pytest.mark.integration
-async def test_workflow_status_mcp_rejects_invalid_episode_without_calling_service(tmp_path: Path) -> None:
+async def test_workflow_status_mcp_rejects_invalid_episode_without_calling_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pm = _project(tmp_path)
     ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    calls: list[object] = []
+
+    def _fail(*args: object, **kwargs: object) -> None:
+        calls.append((args, kwargs))
+
+    monkeypatch.setattr(WorkflowStateService, "get_status", _fail)
 
     result = await get_workflow_status_tool(ctx).handler({"episode": 0})
 
     assert result["is_error"] is True
     assert json.loads(result["content"][0]["text"])["error"] == "invalid_episode"
+    assert calls == []
+
+
+@pytest.mark.integration
+async def test_workflow_status_adapters_treat_corrupt_project_as_server_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pm = _project(tmp_path)
+    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+
+    def _corrupt(*args: object, **kwargs: object) -> None:
+        raise json.JSONDecodeError("broken", "{", 0)
+
+    monkeypatch.setattr(WorkflowStateService, "get_status", _corrupt)
+
+    result = await get_workflow_status_tool(ctx).handler({})
+
+    assert result["is_error"] is True
+    assert result["content"][0]["text"].startswith("get_workflow_status 失败:")
+
+    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
+    app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/api/v1/projects/demo/workflow-status")
+
+    assert response.status_code == 500

@@ -177,7 +177,7 @@ def test_partial_inventory_scope_never_unlocks_full_workflow(tmp_path: Path) -> 
     status = WorkflowStateService(pm).get_status("demo")
 
     assert status.state == "ASSET_INVENTORY"
-    assert status.artifacts["asset_inventory"]["state"] == "missing"
+    assert status.artifacts["asset_inventory"]["state"] == "partial"
     assert status.artifacts["asset_inventory"]["recorded_scope"] == {
         "kind": "files",
         "files": ["source/novel.txt"],
@@ -308,16 +308,34 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
 
     original_load_project = pm.load_project
     load_calls = 0
+    source_inventory_calls = 0
+    asset_sheet_calls = 0
+    original_source_inventory = WorkflowStateService._source_inventory
+    original_asset_sheets = WorkflowStateService._asset_sheets
 
     def _counted_load_project(project_name: str) -> dict:
         nonlocal load_calls
         load_calls += 1
         return original_load_project(project_name)
 
+    def _counted_source_inventory(*args, **kwargs):
+        nonlocal source_inventory_calls
+        source_inventory_calls += 1
+        return original_source_inventory(*args, **kwargs)
+
+    def _counted_asset_sheets(*args, **kwargs):
+        nonlocal asset_sheet_calls
+        asset_sheet_calls += 1
+        return original_asset_sheets(*args, **kwargs)
+
     monkeypatch.setattr(pm, "load_project", _counted_load_project)
+    monkeypatch.setattr(WorkflowStateService, "_source_inventory", _counted_source_inventory)
+    monkeypatch.setattr(WorkflowStateService, "_asset_sheets", _counted_asset_sheets)
     status = WorkflowStateService(pm).get_status("demo")
 
     assert load_calls == 1
+    assert source_inventory_calls == 1
+    assert asset_sheet_calls == 1
     assert status.target is not None
     assert status.target.episode == 2
     assert status.state == "STEP1_CONTENT"

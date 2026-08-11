@@ -89,3 +89,24 @@ async def test_complete_inventory_mcp_returns_machine_readable_result_and_confli
     assert conflict_body["error"] == "source_revision_conflict"
     assert conflict_body["expected_source_revision"] == expected
     assert conflict_body["actual_source_revision"] != expected
+
+
+@pytest.mark.integration
+async def test_complete_inventory_mcp_distinguishes_invalid_request_from_broken_workflow(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path)
+    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    tool = complete_asset_inventory_tool(ctx)
+
+    invalid = await tool.handler({"scope": {"kind": "all", "files": []}, "expected_source_revision": "not-a-revision"})
+    assert json.loads(invalid["content"][0]["text"])["error"] == "invalid_request"
+
+    expected = compute_source_revision(
+        project_path,
+        pm.load_project("demo"),
+        SourceScope(kind="all"),
+    ).revision
+    assert expected is not None
+    pm.update_project("demo", lambda project: project.update(workflow="broken"))
+
+    unavailable = await tool.handler({"scope": {"kind": "all", "files": []}, "expected_source_revision": expected})
+    assert json.loads(unavailable["content"][0]["text"])["error"] == "inventory_unavailable"

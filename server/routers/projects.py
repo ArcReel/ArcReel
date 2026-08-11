@@ -673,6 +673,8 @@ async def get_workflow_status(
         return await asyncio.to_thread(WorkflowStateService(get_project_manager()).get_status, name, episode)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
+    except json.JSONDecodeError:
+        raise
     except ValueError as exc:
         raise BadRequestError("request_invalid") from exc
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -94,6 +95,15 @@ class WorkflowStatus(BaseModel):
     next_action: WorkflowNextAction
 
 
+@dataclass(frozen=True)
+class _SharedWorkflowFacts:
+    source: SourceRevisionResult | None
+    inventory: dict[str, Any]
+    sheets: dict[str, dict[str, Any]]
+    episodes: list[tuple[int, dict[str, Any]]]
+    blockers: tuple[WorkflowBlocker, ...]
+
+
 def _project_revision(project: Mapping[str, Any]) -> str:
     encoded = json.dumps(project, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return f"sha256-v1:{hashlib.sha256(encoded).hexdigest()}"
@@ -176,6 +186,7 @@ class WorkflowStateService:
         artifact["recorded_scope"] = recorded_scope.model_dump(mode="json")
         artifact["recorded_revision"] = marker.get("source_revision")
         if recorded_scope.kind != "all":
+            artifact["state"] = "partial"
             return source, artifact
         if source.blockers:
             artifact["state"] = "blocked"
@@ -412,22 +423,12 @@ class WorkflowStateService:
     def get_status(self, project_name: str, episode: int | None = None) -> WorkflowStatus:
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
-        return self._get_status(project_name, project, project_path, episode)
+        shared = self._shared_facts(project_path, project)
+        return self._get_status(project_name, project, project_path, episode, shared)
 
-    def _get_status(
-        self,
-        project_name: str,
-        project: dict[str, Any],
-        project_path: Path,
-        episode: int | None,
-    ) -> WorkflowStatus:
+    def _shared_facts(self, project_path: Path, project: dict[str, Any]) -> _SharedWorkflowFacts:
         mode = project.get("content_mode")
-        if episode is not None and (isinstance(episode, bool) or episode < 1):
-            raise ValueError("episode must be a positive integer")
-        if mode == "ad" and episode not in {None, 1}:
-            raise ValueError("ad workflow only has episode 1")
         generation_mode = project.get("generation_mode")
-        grid = bool(project.get("grid_storyboard")) and generation_mode == "storyboard"
         blockers: list[WorkflowBlocker] = []
         if mode not in {"narration", "drama", "ad"}:
             blockers.append(
@@ -437,9 +438,36 @@ class WorkflowStateService:
             blockers.append(
                 WorkflowBlocker(code="invalid_generation_mode", path="generation_mode", reason="unsupported route")
             )
-
         source, inventory = self._source_inventory(project_path, project, str(mode), blockers)
         sheets = self._asset_sheets(project_path, project, blockers)
+        episodes = self._episodes(project, blockers)
+        return _SharedWorkflowFacts(
+            source=source,
+            inventory=inventory,
+            sheets=sheets,
+            episodes=episodes,
+            blockers=tuple(blockers),
+        )
+
+    def _get_status(
+        self,
+        project_name: str,
+        project: dict[str, Any],
+        project_path: Path,
+        episode: int | None,
+        shared: _SharedWorkflowFacts,
+    ) -> WorkflowStatus:
+        mode = project.get("content_mode")
+        if episode is not None and (isinstance(episode, bool) or episode < 1):
+            raise ValueError("episode must be a positive integer")
+        if mode == "ad" and episode not in {None, 1}:
+            raise ValueError("ad workflow only has episode 1")
+        generation_mode = project.get("generation_mode")
+        grid = bool(project.get("grid_storyboard")) and generation_mode == "storyboard"
+        blockers = list(shared.blockers)
+        source = shared.source
+        inventory = shared.inventory
+        sheets = shared.sheets
         artifacts: dict[str, dict[str, Any]] = {
             "asset_inventory": inventory,
             "asset_sheets": sheets,
@@ -452,7 +480,7 @@ class WorkflowStateService:
         gates: dict[str, dict[str, Any]] = {
             "step1_review": {"state": "not_applicable" if mode == "ad" else "pending", "revision": None}
         }
-        episodes = self._episodes(project, blockers)
+        episodes = shared.episodes
         selected = self._target(str(mode), episodes, episode)
         target = None
         if selected is not None:
@@ -640,7 +668,9 @@ class WorkflowStateService:
                                     status
                                     for number, _entry in episodes
                                     if number != target.episode
-                                    and (status := self._get_status(project_name, project, project_path, number)).state
+                                    and (
+                                        status := self._get_status(project_name, project, project_path, number, shared)
+                                    ).state
                                     != "EXPORT_READY"
                                 ),
                                 None,
