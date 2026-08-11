@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
+from lib.asset_types import normalize_asset_name
 from lib.reference_video.shot_parser import (
     find_malformed_mention,
     leading_mention_before_colon,
@@ -222,9 +223,6 @@ def _append_structured_entry(
         problems.append(_parse_problem(unit_id, speaker_location))
         return
     named_speaker = speaker.strip() if isinstance(speaker, str) else ""
-    if not speaker_required and named_speaker:
-        problems.append(_parse_problem(unit_id, speaker_location))
-        return
     entries.append(
         SpeechInputUtterance(
             speaker=named_speaker or None,
@@ -239,13 +237,42 @@ def _character_reference_names(raw_references: object) -> set[str]:
     if not isinstance(raw_references, list):
         return set()
     return {
-        name.strip()
+        normalize_asset_name(name.strip())
         for reference in raw_references
         if isinstance(reference, Mapping)
         and reference.get("type") == "character"
         and isinstance((name := reference.get("name")), str)
         and name.strip()
     }
+
+
+def _append_video_prompt_dialogue(
+    entries: list[SpeechInputUtterance],
+    problems: list[SpeechProblem],
+    unit_id: str,
+    video_prompt: object,
+) -> None:
+    if not isinstance(video_prompt, Mapping):
+        problems.append(_parse_problem(unit_id, SpeechFieldLocation(("video_prompt",))))
+        return
+    dialogue = video_prompt.get("dialogue")
+    if isinstance(dialogue, list):
+        for index, raw in enumerate(dialogue):
+            if not isinstance(raw, Mapping):
+                problems.append(_parse_problem(unit_id, SpeechFieldLocation(("video_prompt", "dialogue", index))))
+                continue
+            _append_structured_entry(
+                entries,
+                problems,
+                unit_id,
+                text=raw.get("line"),
+                speaker=raw.get("speaker"),
+                speaker_required=True,
+                text_location=SpeechFieldLocation(("video_prompt", "dialogue", index, "line")),
+                speaker_location=SpeechFieldLocation(("video_prompt", "dialogue", index, "speaker")),
+            )
+    elif dialogue is not None:
+        problems.append(_parse_problem(unit_id, SpeechFieldLocation(("video_prompt", "dialogue"))))
 
 
 def adapt_narration_segment(segment: Mapping[str, object]) -> SpeechUnitSnapshot:
@@ -255,19 +282,20 @@ def adapt_narration_segment(segment: Mapping[str, object]) -> SpeechUnitSnapshot
     normalized_unit_id = unit_id if isinstance(unit_id, str) else ""
     text = segment.get("novel_text")
     problems = _initial_problems(segment, normalized_unit_id, "segment_id")
-    entries = ()
+    entries: list[SpeechInputUtterance] = []
+    _append_video_prompt_dialogue(entries, problems, normalized_unit_id, segment.get("video_prompt", _MISSING))
     if isinstance(text, str) and text.strip():
-        entries = (
+        entries.append(
             SpeechInputUtterance(
                 speaker=None,
                 speaker_required=False,
                 text=text,
                 location=SpeechFieldLocation(("novel_text",)),
-            ),
+            )
         )
     else:
         problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("novel_text",))))
-    return SpeechUnitSnapshot(normalized_unit_id, entries, tuple(problems))
+    return SpeechUnitSnapshot(normalized_unit_id, tuple(entries), tuple(problems))
 
 
 def adapt_drama_scene(scene: Mapping[str, object]) -> SpeechUnitSnapshot:
@@ -297,7 +325,7 @@ def adapt_drama_scene(scene: Mapping[str, object]) -> SpeechUnitSnapshot:
                 text_location=SpeechFieldLocation(("utterances", index, "text")),
                 speaker_location=SpeechFieldLocation(("utterances", index, "speaker")),
             )
-    elif raw_entries is not _MISSING:
+    else:
         problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("utterances",))))
     return SpeechUnitSnapshot(normalized_unit_id, tuple(entries), tuple(problems))
 
@@ -309,42 +337,19 @@ def adapt_ad_shot(shot: Mapping[str, object]) -> SpeechUnitSnapshot:
     normalized_unit_id = unit_id if isinstance(unit_id, str) else ""
     entries: list[SpeechInputUtterance] = []
     problems = _initial_problems(shot, normalized_unit_id, "shot_id")
-    video_prompt = shot.get("video_prompt", _MISSING)
-    if not isinstance(video_prompt, Mapping):
-        problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("video_prompt",))))
-    dialogue = video_prompt.get("dialogue") if isinstance(video_prompt, Mapping) else None
-    if isinstance(dialogue, list):
-        for index, raw in enumerate(dialogue):
-            if not isinstance(raw, Mapping):
-                problems.append(
-                    _parse_problem(normalized_unit_id, SpeechFieldLocation(("video_prompt", "dialogue", index)))
-                )
-                continue
-            _append_structured_entry(
-                entries,
-                problems,
-                normalized_unit_id,
-                text=raw.get("line"),
-                speaker=raw.get("speaker"),
-                speaker_required=True,
-                text_location=SpeechFieldLocation(("video_prompt", "dialogue", index, "line")),
-                speaker_location=SpeechFieldLocation(("video_prompt", "dialogue", index, "speaker")),
-            )
-    elif dialogue is not None:
-        problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("video_prompt", "dialogue"))))
+    _append_video_prompt_dialogue(entries, problems, normalized_unit_id, shot.get("video_prompt", _MISSING))
     voiceover = shot.get("voiceover_text", _MISSING)
-    if isinstance(voiceover, str) and voiceover.strip():
-        entries.append(
-            SpeechInputUtterance(
-                speaker=None,
-                speaker_required=False,
-                text=voiceover,
-                location=SpeechFieldLocation(("voiceover_text",)),
+    if isinstance(voiceover, str):
+        if voiceover.strip():
+            entries.append(
+                SpeechInputUtterance(
+                    speaker=None,
+                    speaker_required=False,
+                    text=voiceover,
+                    location=SpeechFieldLocation(("voiceover_text",)),
+                )
             )
-        )
-    elif voiceover is not _MISSING and not isinstance(voiceover, str):
-        problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("voiceover_text",))))
-    elif voiceover is _MISSING:
+    else:
         problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("voiceover_text",))))
     return SpeechUnitSnapshot(normalized_unit_id, tuple(entries), tuple(problems))
 

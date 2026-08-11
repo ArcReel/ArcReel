@@ -20,7 +20,7 @@ pytestmark = pytest.mark.unit
 
 
 def test_narration_novel_text_is_materialized_as_narrator_voiceover() -> None:
-    source = {"segment_id": "E1S01", "novel_text": "“别走。”她仍在心里重复。"}
+    source = {"segment_id": "E1S01", "novel_text": "“别走。”她仍在心里重复。", "video_prompt": {}}
 
     result = SpeechComposition.prepare(adapt_narration_segment(source))
 
@@ -29,13 +29,32 @@ def test_narration_novel_text_is_materialized_as_narrator_voiceover() -> None:
         (SpeechOwner.NARRATOR, None, "“别走。”她仍在心里重复。")
     ]
     assert result.problems == ()
-    assert source == {"segment_id": "E1S01", "novel_text": "“别走。”她仍在心里重复。"}
+    assert source == {"segment_id": "E1S01", "novel_text": "“别走。”她仍在心里重复。", "video_prompt": {}}
+
+
+def test_narration_dialogue_and_novel_text_are_reported_as_mixed_speech() -> None:
+    result = SpeechComposition.prepare(
+        adapt_narration_segment(
+            {
+                "segment_id": "E1S02",
+                "novel_text": "雨夜里，她想起了那句警告。",
+                "video_prompt": {"dialogue": [{"speaker": "阿离", "line": "别回头。"}]},
+            }
+        )
+    )
+
+    assert result.mode is None
+    assert [(entry.owner, entry.speaker, entry.text) for entry in result.utterances] == [
+        (SpeechOwner.CHARACTER, "阿离", "别回头。"),
+        (SpeechOwner.NARRATOR, None, "雨夜里，她想起了那句警告。"),
+    ]
+    assert [problem.code for problem in result.problems] == [SpeechProblemCode.MIXED_SPEECH]
 
 
 @pytest.mark.parametrize(
     ("adapter", "source"),
     [
-        (adapt_narration_segment, {"segment_id": "E1S01", "novel_text": "风吹过旷野。"}),
+        (adapt_narration_segment, {"segment_id": "E1S01", "novel_text": "风吹过旷野。", "video_prompt": {}}),
         (
             adapt_drama_scene,
             {
@@ -208,7 +227,7 @@ def test_empty_character_speaker_is_a_structured_blocker(snapshot, expected_loca
     ("snapshot", "expected_location"),
     [
         (
-            adapt_narration_segment({"segment_id": "E1S03", "novel_text": 42}),
+            adapt_narration_segment({"segment_id": "E1S03", "novel_text": 42, "video_prompt": {}}),
             SpeechFieldLocation(("novel_text",)),
         ),
         (
@@ -295,6 +314,23 @@ def test_units_without_spoken_content_are_silent(snapshot) -> None:
     assert result.problems == ()
 
 
+def test_drama_character_voiceover_is_character_speech() -> None:
+    result = SpeechComposition.prepare(
+        adapt_drama_scene(
+            {
+                "scene_id": "E1S06",
+                "utterances": [{"kind": "voiceover", "speaker": "阿离", "text": "我不能让他发现。"}],
+            }
+        )
+    )
+
+    assert result.mode is SpeechMode.CHARACTER_SPEECH
+    assert [(entry.owner, entry.speaker, entry.text) for entry in result.utterances] == [
+        (SpeechOwner.CHARACTER, "阿离", "我不能让他发现。")
+    ]
+    assert result.problems == ()
+
+
 def test_reference_video_adapter_preserves_cross_shot_utterance_order() -> None:
     snapshot = adapt_video_unit(
         {
@@ -337,6 +373,23 @@ def test_reference_video_adapter_rejects_malformed_dialogue_for_a_declared_chara
             "unit_id": "E1U09",
             "shots": [{"text": "@[阿离]：快走。"}],
             "references": [{"type": "character", "name": "阿离"}],
+        }
+    )
+
+    result = SpeechComposition.prepare(snapshot)
+
+    assert result.mode is None
+    assert [(problem.code, problem.locations) for problem in result.problems] == [
+        (SpeechProblemCode.PARSE_FAILED, (SpeechFieldLocation(("shots", 0, "text"), line=0),))
+    ]
+
+
+def test_reference_video_adapter_normalizes_character_names_before_matching() -> None:
+    snapshot = adapt_video_unit(
+        {
+            "unit_id": "E1U10",
+            "shots": [{"text": "@[Caf\u00e9]：hello"}],
+            "references": [{"type": "character", "name": "Cafe\u0301"}],
         }
     )
 
@@ -392,6 +445,10 @@ def test_unusable_speech_shapes_never_degrade_to_a_valid_mode(snapshot, expected
 @pytest.mark.parametrize(
     ("snapshot", "expected_location"),
     [
+        (
+            adapt_drama_scene({"scene_id": "E1S09"}),
+            SpeechFieldLocation(("utterances",)),
+        ),
         (
             adapt_drama_scene({"scene_id": "E1S09", "utterances": [7]}),
             SpeechFieldLocation(("utterances", 0)),
