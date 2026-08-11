@@ -700,6 +700,18 @@ export default {
 
   // ProjectSettingsPage
   'project_settings': '项目设置',
+  'agent_profile_title': '智能体配置',
+  'agent_profile_description': '项目内的智能体指令会随内置配置安全升级，并保留你的本地定制。',
+  'agent_profile_customized': '检测到项目定制配置',
+  'agent_profile_builtin': '正在使用内置配置',
+  'agent_profile_affected_files': '受影响的配置文件',
+  'agent_profile_reset': '重置为内置配置',
+  'agent_profile_reset_confirm_title': '重置智能体配置？',
+  'agent_profile_reset_confirm_description': '以下定制文件将丢弃，并替换为当前内置配置。此操作无法撤销。已打开的智能体会话在重新连接前仍使用原配置。',
+  'agent_profile_reset_confirm': '确认重置',
+  'agent_profile_resetting': '正在重置…',
+  'agent_profile_reset_success': '已恢复内置智能体配置',
+  'agent_profile_reset_failed': '重置智能体配置失败：{{message}}',
   'back_to_project': '返回项目',
   'model_config_project_desc': '为此项目单独选择生成模型，留空则跟随全局默认',
   'video_model': '视频模型',

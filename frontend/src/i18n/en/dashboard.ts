@@ -701,6 +701,18 @@ export default {
 
   // ProjectSettingsPage
   'project_settings': 'Project Settings',
+  'agent_profile_title': 'Agent profile',
+  'agent_profile_description': 'Project Agent instructions upgrade safely with built-ins while preserving local customizations.',
+  'agent_profile_customized': 'Customized project profile detected',
+  'agent_profile_builtin': 'Using built-in configuration',
+  'agent_profile_affected_files': 'Affected profile files',
+  'agent_profile_reset': 'Reset to built-in',
+  'agent_profile_reset_confirm_title': 'Reset Agent profile?',
+  'agent_profile_reset_confirm_description': 'The following customized files will be discarded and replaced by the current built-in profile. This cannot be undone. Open assistant sessions keep their current configuration until they reconnect.',
+  'agent_profile_reset_confirm': 'Confirm reset',
+  'agent_profile_resetting': 'Resetting…',
+  'agent_profile_reset_success': 'Built-in Agent profile restored',
+  'agent_profile_reset_failed': 'Could not reset Agent profile: {{message}}',
   'back_to_project': 'Back to project',
   'model_config_project_desc': 'Select generation models for this project individually; leave empty to follow global defaults',
   'video_model': 'Video Model',

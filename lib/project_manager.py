@@ -58,6 +58,7 @@ from lib.profile_manifest import (
     ProfileEmptyError,
     ProfileMisconfiguredError,
     ProfileMissingError,
+    get_profile_status,
     sync_profile_to_project,
 )
 from lib.profile_manifest import (
@@ -413,6 +414,11 @@ class ProjectManager:
             content_mode = self._resolve_content_mode(project_dir)
         profile_dir = agent_profile_dir()
         return _force_resync_profile(profile_dir, project_dir, content_mode, paths=paths)
+
+    def get_agent_profile_status(self, project_dir: Path) -> dict[str, object]:
+        """Describe project-local Agent Profile customizations for settings UI."""
+        content_mode = self._resolve_content_mode(project_dir)
+        return get_profile_status(agent_profile_dir(), project_dir, content_mode)
 
     def _resolve_content_mode(self, project_dir: Path) -> ContentMode:
         """从 project_dir/project.json 读 content_mode；缺失回退 narration。

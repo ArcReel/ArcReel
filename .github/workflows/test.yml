@@ -71,6 +71,9 @@ jobs:
       - name: Import layering (import-linter)
         run: uv run lint-imports
 
+      - name: Agent Runtime Profile integrity
+        run: uv run python scripts/lint_agent_runtime_profile.py
+
   backend-tests:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
