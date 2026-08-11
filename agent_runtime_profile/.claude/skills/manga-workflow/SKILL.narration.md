@@ -52,6 +52,7 @@ Read / Glob 只用于执行已选定动作所需的内容，不用于另建状�
 |---|---|
 | `collect_project_input` | 阶段 0 |
 | `analyze_assets` | 阶段 1 |
+| `reset_episode_planning` | 阶段 2（先重置） |
 | `plan_episodes` | 阶段 2 |
 | `prepare_step1` | 阶段 3 |
 | `confirm_step1` / `generate_script` | 阶段 4 |
@@ -91,9 +92,9 @@ Read / Glob 只用于执行已选定动作所需的内容，不用于另建状�
 
 ```text
 项目名称：{project_name}
-分析范围：{整部小说 / 用户指定的范围}
+分析范围：{next_action.args.scope 对应的权威范围；workflow 默认整部小说}
 分析 scope：{next_action.args.scope}
-expected source revision：{next_action.args.source_revision}
+expected source revision：{next_action.args.expected_source_revision}
 已有角色：{已有角色名列表，或"无"}
 已有场景：{已有场景名列表，或"无"}
 已有道具：{已有道具名列表，或"无"}
@@ -104,6 +105,10 @@ expected source revision：{next_action.args.source_revision}
 ---
 
 ## 阶段 2：分集规划
+
+**恢复触发**：`next_action.type` 为 `"reset_episode_planning"` 时，先按 `next_action.args` 调
+`mcp__arcreel__reset_episode_planning`。工具若返回已消费集确认要求，展示影响范围并取得用户明确确认，
+再追加 `confirm_consumed: true` 重试；重置成功后刷新 workflow-status，按新的权威动作继续。
 
 **触发**：`next_action.type == "plan_episodes"`
 
@@ -229,13 +234,13 @@ reference_video 模式返回这两个动作。
 按动作直接选择工具，不二次检查 `generation_mode` 或 `grid_storyboard`：
 
 - `next_action.type == "generate_storyboards"` → dispatch `generate-assets`，调
-  `mcp__arcreel__generate_storyboards({"script": target.script, "segment_ids": requested_ids})`
+  `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
 - `next_action.type == "generate_grid"` → dispatch `generate-assets`，调
-  `mcp__arcreel__generate_grid({"script": target.script, "scene_ids": requested_ids})`
+  `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": requested_ids})`
 
 两条路径都把 `next_action.args` 与 `requested_ids` 原样传给 subagent，由 subagent 按上面映射调用工具。
 
-> **切换 `grid_storyboard` 后的重做**：本阶段的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的片段范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": target.script, "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": target.script, "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑阶段 7 对应片段。
+> **切换 `grid_storyboard` 后的重做**：本阶段的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的片段范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑阶段 7 对应片段。
 
 ## 阶段 7：视频生成
 
@@ -248,7 +253,7 @@ dispatch `generate-assets` subagent：
   任务类型：video
   项目名称：{project_name}
   工具调用：
-    mcp__arcreel__generate_video_episode({"script": target.script})
+    mcp__arcreel__generate_video_episode({"script": target.script_filename})
   验证方式：重新读取 target.script，检查各场景的 video_clip 字段
 ```
 
@@ -268,7 +273,7 @@ dispatch `generate-assets` subagent：
   任务类型：narration_audio
   项目名称：{project_name}
   工具调用：
-    mcp__arcreel__generate_narration_audio({"script": target.script})
+    mcp__arcreel__generate_narration_audio({"script": target.script_filename})
   验证方式：重新读取 target.script，检查各段 generated_assets.narration_audio 字段
 ```
 

@@ -87,6 +87,7 @@ def test_drama_target_comes_from_ledger_not_derived_filenames(tmp_path: Path) ->
     assert status.target is not None
     assert status.target.episode == 2
     assert status.target.script == "scripts/custom-name.json"
+    assert status.target.script_filename == "custom-name.json"
     assert status.state == "STEP1_CONTENT"
     assert status.next_action.type == "prepare_step1"
     assert status.next_action.args["preprocessor"] == "normalize-drama-script"
@@ -162,6 +163,10 @@ def test_appended_source_only_refreshes_inventory_and_preserves_existing_work(tm
     assert status.source_revision != old_revision
     assert status.artifacts["asset_inventory"]["state"] == "stale"
     assert status.next_action.type == "analyze_assets"
+    assert status.next_action.args == {
+        "scope": {"kind": "all", "files": []},
+        "expected_source_revision": status.source_revision,
+    }
     stored = pm.load_project("demo")
     assert list(stored["characters"]) == ["阿离"]
     assert stored["episodes"][0]["episode"] == 1
@@ -266,7 +271,8 @@ def test_narration_progresses_through_storyboard_video_audio_to_export(tmp_path:
 
     replanning = service.get_status("demo")
     assert replanning.state == "EPISODE_PLAN"
-    assert replanning.next_action.type == "plan_episodes"
+    assert replanning.next_action.type == "reset_episode_planning"
+    assert replanning.next_action.args == {"from_episode": 1}
 
 
 @pytest.mark.integration
@@ -649,6 +655,35 @@ def test_confirmed_step1_change_marks_old_final_script_stale(tmp_path: Path) -> 
     assert status.state == "FINAL_SCRIPT"
     assert status.artifacts["script"]["state"] == "stale"
     assert status.next_action.type == "generate_script"
+
+
+@pytest.mark.integration
+def test_blocked_final_script_is_not_reclassified_as_stale_by_provenance(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "drama")
+    _write_source_and_complete(pm, project_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"}]
+        ),
+    )
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    step1_path = draft_dir / "step1_normalized_script.json"
+    atomic_write_json(step1_path, {"scenes": []})
+    revision = script_review.content_fingerprint(step1_path)
+    assert revision is not None
+    pm.update_project(
+        "demo", lambda project: script_review.apply_confirmation(project, 1, revision, "2026-08-11T00:00:00Z")
+    )
+    atomic_write_json(project_path / "scripts" / "episode_1.json", [])
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "FINAL_SCRIPT"
+    assert status.artifacts["script"]["state"] == "blocked"
+    assert status.blockers[0].code == "invalid_script"
+    assert status.next_action.type == "none"
 
 
 @pytest.mark.integration

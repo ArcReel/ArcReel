@@ -14,6 +14,7 @@ WORKFLOW_VARIANTS = (
 EXPECTED_ROUTES = {
     "SKILL.narration.md": (
         'next_action.type == "analyze_assets"',
+        'next_action.type` 为 `"reset_episode_planning"`',
         'next_action.type == "plan_episodes"',
         'next_action.type == "prepare_step1"',
         'next_action.type == "confirm_step1"',
@@ -26,6 +27,7 @@ EXPECTED_ROUTES = {
     ),
     "SKILL.drama.md": (
         'next_action.type == "analyze_assets"',
+        'next_action.type` 为 `"reset_episode_planning"`',
         'next_action.type == "plan_episodes"',
         'next_action.type == "prepare_step1"',
         'next_action.type == "confirm_step1"',
@@ -78,7 +80,7 @@ def test_workflow_asset_and_storyboard_routes_forward_authoritative_arguments(fi
     assert '"scene_ids": requested_ids' in content
     assert "不二次检查 `generation_mode` 或 `grid_storyboard`" in content
     assert "target.episode" in content
-    assert '"script": target.script' in content
+    assert '"script": target.script_filename' in content
     assert "next_action.args" in content
     if filename != "SKILL.ad.md":
         assert "names = artifacts.asset_sheets[type].missing_ids ∩ requested_ids" in content
@@ -91,4 +93,5 @@ def test_asset_analysis_records_completion_fact() -> None:
 
     assert "mcp__arcreel__complete_asset_inventory" in content
     assert "expected_source_revision" in content
+    assert "严格按主 agent 传入的 `scope`" in content
     assert "不要调用 `patch_project`" in content

@@ -58,6 +58,7 @@ class WorkflowTarget(BaseModel):
 
     episode: int
     script: str
+    script_filename: str
     source: str
 
 
@@ -119,6 +120,13 @@ def _action(
         requested_ids=ids or [],
         reason=reason,
     )
+
+
+def _planning_fingerprints_diverged(project_path: Path, project: Mapping[str, Any]) -> bool:
+    recorded = project.get(SOURCE_FINGERPRINTS_KEY)
+    if not isinstance(recorded, Mapping) or not recorded:
+        return False
+    return dict(recorded) != compute_source_fingerprints(discover_sources(project_path))
 
 
 def _empty_collection() -> dict[str, list[str]]:
@@ -564,6 +572,7 @@ class WorkflowStateService:
             target = WorkflowTarget(
                 episode=number,
                 script=script_path,
+                script_filename=ProjectManager.normalize_script_filename(script_path),
                 source=f"source/episode_{number}.txt",
             )
 
@@ -580,7 +589,17 @@ class WorkflowStateService:
             next_action = _action(
                 "analyze_assets",
                 "asset inventory is missing or out of date",
-                args={"scope": {"kind": "all", "files": []}, "source_revision": source.revision if source else None},
+                args={
+                    "scope": {"kind": "all", "files": []},
+                    "expected_source_revision": source.revision if source else None,
+                },
+            )
+        elif mode != "ad" and _planning_fingerprints_diverged(project_path, project):
+            state = "EPISODE_PLAN"
+            next_action = _action(
+                "reset_episode_planning",
+                "source files changed after episode planning",
+                args={"from_episode": 1},
             )
         elif mode != "ad" and selected is None:
             state = "EPISODE_PLAN"
@@ -680,7 +699,7 @@ class WorkflowStateService:
                 artifacts["script"] = script_artifact
                 if (
                     mode != "ad"
-                    and script_artifact["state"] != "missing"
+                    and script_artifact["state"] == "current"
                     and script_review.stored_review(project, target.episode).get("fingerprint") is not None
                 ):
                     metadata = script.get("metadata")
