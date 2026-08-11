@@ -76,6 +76,15 @@ def test_reports_duplicate_eval_ids_in_root_array(tmp_path: Path) -> None:
     assert any("duplicate eval id" in error for error in errors)
 
 
+def test_rejects_non_standard_json_constants_in_eval_ids(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / "evals" / "constants.json").write_text('{"evals":[{"id":NaN}]}', encoding="utf-8")
+
+    errors = lint_profile(profile, registered_tools={"patch_project"})
+
+    assert any("non-standard JSON constant 'NaN'" in error for error in errors)
+
+
 def test_normalizes_relative_markdown_pointers(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     skill = profile / ".claude" / "skills" / "demo" / "SKILL.md"

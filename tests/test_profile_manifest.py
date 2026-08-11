@@ -806,6 +806,27 @@ def test_profile_status_reports_user_deletion_before_next_sync(tmp_path: Path) -
     }
 
 
+@pytest.mark.parametrize("manifest_payload", [None, "{invalid"])
+def test_profile_status_reports_missing_builtins_without_trusted_manifest(
+    tmp_path: Path, manifest_payload: str | None
+) -> None:
+    from lib.profile_manifest import get_profile_status
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    if manifest_payload is not None:
+        (project / MANIFEST_FILENAME).write_text(manifest_payload, encoding="utf-8")
+
+    assert get_profile_status(profile, project, content_mode="narration") == {
+        "customized": True,
+        "customized_files": [
+            ".claude/agents/generate-assets.md",
+            ".claude/skills/manga-workflow/SKILL.md",
+            "CLAUDE.md",
+        ],
+    }
+
+
 def test_profile_status_rejects_symlinked_profile_tree(tmp_path: Path) -> None:
     from lib.profile_manifest import get_profile_status
 

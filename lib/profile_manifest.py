@@ -752,7 +752,11 @@ def get_profile_status(
     loaded = load_manifest(project_dir)
     dest_files = enumerate_dest_files(project_dir)
     if loaded is None:
-        customized_files = sorted(dest_files)
+        # Without a trustworthy baseline, existing destination files may be
+        # customized and missing projected files may be user deletions. A full
+        # reset repairs both shapes, so keep the reset action available for the
+        # complete affected set.
+        customized_files = sorted(dest_files | mapping.keys())
         return {"customized": bool(customized_files), "customized_files": customized_files}
 
     manifest, _ = loaded

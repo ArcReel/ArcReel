@@ -9,6 +9,7 @@ import posixpath
 import re
 from collections import defaultdict
 from pathlib import Path
+from typing import NoReturn
 from urllib.parse import unquote
 
 from lib.profile_frontmatter import FrontmatterError, ProfileMetadata, parse_profile_metadata
@@ -36,6 +37,10 @@ _DIRECT_STEP1_EDIT_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _PYTHON_RESUME_RE = re.compile(r"python[^\n`]*\s--resume(?:\s|$)")
+
+
+def _reject_json_constant(value: str) -> NoReturn:
+    raise ValueError(f"non-standard JSON constant {value!r}")
 
 
 def _metadata_files(profile_dir: Path) -> list[Path]:
@@ -122,8 +127,8 @@ def _validate_evals(profile_dir: Path, errors: list[str]) -> None:
         if "eval" not in path.as_posix().lower():
             continue
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            payload = json.loads(path.read_text(encoding="utf-8"), parse_constant=_reject_json_constant)
+        except (OSError, UnicodeError, ValueError) as exc:
             errors.append(f"{path.relative_to(profile_dir)}: invalid eval JSON: {exc}")
             continue
         records: list[object]
