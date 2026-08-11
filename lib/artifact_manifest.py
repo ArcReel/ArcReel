@@ -866,6 +866,10 @@ def _normalize_json(value: object) -> object:
 def _normalize_relative_path(value: object) -> str:
     if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
         raise ValueError(f"artifact path must be a non-empty project-relative POSIX path: {value!r}")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"artifact path must be valid UTF-8: {value!r}") from exc
     raw_parts = value.split("/")
     path = PurePosixPath(value)
     windows_path = PureWindowsPath(value)
@@ -875,6 +879,7 @@ def _normalize_relative_path(value: object) -> str:
         or windows_path.is_absolute()
         or any(part in {"", ".", ".."} for part in raw_parts)
         or any(part.rstrip(" .") != part for part in raw_parts)
+        or any(":" in part for part in raw_parts)
     ):
         raise ValueError(f"artifact path must be a canonical project-relative POSIX path: {value!r}")
     normalized = path.as_posix()

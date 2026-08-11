@@ -99,13 +99,35 @@ def test_manifest_blocks_windows_drive_like_artifact_path() -> None:
     assert comparison.blocker is not None and comparison.blocker.code == "artifact_path_invalid"
 
 
-@pytest.mark.parametrize("artifact_path", [".. /outside.json", ". /episode.json", "scripts /episode.json"])
+@pytest.mark.parametrize(
+    "artifact_path",
+    [
+        ".. /outside.json",
+        ". /episode.json",
+        "scripts /episode.json",
+        ".arcreel_artifacts.json::$DATA",
+        "episode.json:preview",
+    ],
+)
 def test_manifest_blocks_windows_normalized_artifact_path_components(artifact_path: str) -> None:
     manifest = ArtifactManifest(InMemoryArtifactManifestAdapter())
 
     comparison = manifest.compare(
         ArtifactKey.episode_script(1),
         artifact_path=artifact_path,
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={}),
+    )
+
+    assert comparison.status is ArtifactStatus.BLOCKED
+    assert comparison.blocker is not None and comparison.blocker.code == "artifact_path_invalid"
+
+
+def test_manifest_blocks_non_utf8_artifact_path() -> None:
+    manifest = ArtifactManifest(InMemoryArtifactManifestAdapter())
+
+    comparison = manifest.compare(
+        ArtifactKey.episode_script(1),
+        artifact_path="bad_\udcff.json",
         basis=ArtifactBasis.build("test/script", kind_version=1, inputs={}),
     )
 
