@@ -1,6 +1,7 @@
 ---
 name: generate-assets
-description: "统一资产生成 skill：接受 `--type=character|scene|prop`，或不传自动扫所有 pending（缺 sheet）资源并按类型分发。当用户说"生成角色图"/"生成场景图"/"生成道具图"、想为新资产创建参考图、或有资产缺少 *_sheet 时使用。"
+description: >-
+  统一资产生成 skill：接受 `--type=character|scene|prop`，或不传自动扫所有 pending（缺 sheet）资源并按类型分发。当用户说“生成角色图”/“生成场景图”/“生成道具图”、想为新资产创建参考图、或有资产缺少 *_sheet 时使用。
 ---
 
 # 生成资产设计图

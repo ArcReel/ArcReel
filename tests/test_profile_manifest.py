@@ -730,6 +730,82 @@ def test_force_resync_full_uses_mapping(tmp_path: Path) -> None:
     assert (project / "CLAUDE.md").read_text() == "drama top"
 
 
+@pytest.mark.parametrize("mode", ["narration", "drama", "ad"])
+def test_variants_to_common_upgrade_preserves_modified_legacy_files_and_reports_them(tmp_path: Path, mode: str) -> None:
+    from lib.profile_manifest import get_profile_status, sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    sync_profile_to_project(profile, project, content_mode=mode)  # type: ignore[arg-type]
+    old_agent = project / ".claude" / "agents" / "generate-assets.md"
+    old_agent.write_text("user customized legacy agent", encoding="utf-8")
+
+    for path in profile.glob("CLAUDE.*.md"):
+        path.unlink()
+    workflow = profile / ".claude" / "skills" / "manga-workflow"
+    for path in workflow.glob("SKILL.*.md"):
+        path.unlink()
+    (profile / "CLAUDE.md").write_text("common top", encoding="utf-8")
+    (workflow / "SKILL.md").write_text("common skill", encoding="utf-8")
+    (profile / ".claude" / "agents" / "generate-assets.md").unlink()
+    references = profile / ".claude" / "references"
+    references.mkdir()
+    for variant in ("narration", "drama", "ad"):
+        (references / f"workflow-mode.{variant}.md").write_text(variant, encoding="utf-8")
+
+    sync_profile_to_project(profile, project, content_mode=mode)  # type: ignore[arg-type]
+
+    assert (project / "CLAUDE.md").read_text(encoding="utf-8") == "common top"
+    assert (project / ".claude" / "skills" / "manga-workflow" / "SKILL.md").read_text(
+        encoding="utf-8"
+    ) == "common skill"
+    assert (project / ".claude" / "references" / "workflow-mode.md").read_text(encoding="utf-8") == mode
+    assert old_agent.read_text(encoding="utf-8") == "user customized legacy agent"
+    assert get_profile_status(profile, project, content_mode=mode) == {  # type: ignore[arg-type]
+        "customized": True,
+        "customized_files": [".claude/agents/generate-assets.md"],
+    }
+
+
+def test_full_force_reset_discards_all_customized_files_and_restores_builtin(tmp_path: Path) -> None:
+    from lib.profile_manifest import force_resync_profile, get_profile_status, sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    sync_profile_to_project(profile, project, content_mode="narration")
+    (project / "CLAUDE.md").write_text("custom", encoding="utf-8")
+    user_only = project / ".claude" / "skills" / "private" / "SKILL.md"
+    user_only.parent.mkdir(parents=True)
+    user_only.write_text("private", encoding="utf-8")
+    assert get_profile_status(profile, project, content_mode="narration") == {
+        "customized": True,
+        "customized_files": [".claude/skills/private/SKILL.md", "CLAUDE.md"],
+    }
+
+    force_resync_profile(profile, project, content_mode="narration")
+
+    assert (project / "CLAUDE.md").read_text(encoding="utf-8") == "narration top"
+    assert not user_only.exists()
+    assert get_profile_status(profile, project, content_mode="narration") == {
+        "customized": False,
+        "customized_files": [],
+    }
+
+
+def test_profile_status_reports_user_deletion_before_next_sync(tmp_path: Path) -> None:
+    from lib.profile_manifest import get_profile_status, sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    sync_profile_to_project(profile, project, content_mode="narration")
+    (project / "CLAUDE.md").unlink()
+
+    assert get_profile_status(profile, project, content_mode="narration") == {
+        "customized": True,
+        "customized_files": ["CLAUDE.md"],
+    }
+
+
 def test_force_resync_invalid_mode_raises(tmp_path: Path) -> None:
     from lib.profile_manifest import force_resync_profile
 

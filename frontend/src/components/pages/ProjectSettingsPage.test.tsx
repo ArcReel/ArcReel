@@ -68,6 +68,33 @@ describe("ProjectSettingsPage – style picker", () => {
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
   });
 
+  it("shows customized Agent Profile files and resets only after destructive confirmation", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: { title: "Demo", episodes: [], characters: {}, clues: {} },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    vi.spyOn(API, "getAgentProfileStatus").mockResolvedValue({
+      customized: true,
+      customized_files: ["CLAUDE.md", ".claude/agents/legacy.md"],
+    });
+    const resetSpy = vi.spyOn(API, "resetAgentProfile").mockResolvedValue({
+      customized: false,
+      customized_files: [],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    expect(await screen.findByText("CLAUDE.md")).toBeInTheDocument();
+    expect(screen.getByText(".claude/agents/legacy.md")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /重置为内置配置|Reset to built-in/ }));
+    expect(resetSpy).not.toHaveBeenCalled();
+    expect(screen.getByText(/将丢弃|discard/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /确认重置|Confirm reset/ }));
+    await waitFor(() => expect(resetSpy).toHaveBeenCalledWith("demo"));
+    expect(await screen.findByText(/使用内置配置|Using built-in/)).toBeInTheDocument();
+  });
+
   it("loads a project with style_template_id and selects the matching template card by default", async () => {
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {

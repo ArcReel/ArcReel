@@ -680,6 +680,18 @@ export default {
 
   // ProjectSettingsPage
   'project_settings': 'Cài đặt dự án',
+  'agent_profile_title': 'Hồ sơ Agent',
+  'agent_profile_description': 'Chỉ dẫn Agent trong dự án được nâng cấp an toàn theo cấu hình tích hợp và vẫn giữ các tùy chỉnh cục bộ.',
+  'agent_profile_customized': 'Đã phát hiện hồ sơ dự án tùy chỉnh',
+  'agent_profile_builtin': 'Đang dùng cấu hình tích hợp',
+  'agent_profile_affected_files': 'Các tệp hồ sơ bị ảnh hưởng',
+  'agent_profile_reset': 'Đặt lại về tích hợp',
+  'agent_profile_reset_confirm_title': 'Đặt lại hồ sơ Agent?',
+  'agent_profile_reset_confirm_description': 'Các tệp tùy chỉnh sau sẽ bị loại bỏ và thay bằng hồ sơ tích hợp hiện tại. Không thể hoàn tác thao tác này.',
+  'agent_profile_reset_confirm': 'Xác nhận đặt lại',
+  'agent_profile_resetting': 'Đang đặt lại…',
+  'agent_profile_reset_success': 'Đã khôi phục hồ sơ Agent tích hợp',
+  'agent_profile_reset_failed': 'Không thể đặt lại hồ sơ Agent: {{message}}',
   'back_to_project': 'Quay lại dự án',
   'model_config_project_desc': 'Chọn mô hình tạo cho dự án này; để trống để dùng mặc định toàn cục',
   'video_model': 'Mô hình video',

@@ -717,6 +717,45 @@ async def get_project(
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
+@router.get("/projects/{name}/agent-profile")
+async def get_agent_profile_status(name: str, _t: Translator):
+    """Return project-local Agent Profile customizations."""
+
+    def _sync():
+        manager = get_project_manager()
+        project_dir = manager.get_project_path(name)
+        return manager.get_agent_profile_status(project_dir)
+
+    try:
+        return await asyncio.to_thread(_sync)
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
+    except Exception:
+        logger.exception("读取项目 Agent Profile 状态失败: project=%s", name)
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
+@router.post("/projects/{name}/agent-profile/reset")
+async def reset_agent_profile(name: str, _t: Translator):
+    """Destructively restore the project Agent Profile to current built-ins."""
+
+    def _sync():
+        manager = get_project_manager()
+        project_dir = manager.get_project_path(name)
+        stats = manager.force_resync_profile(project_dir)
+        if stats.get("errors"):
+            raise RuntimeError(f"profile reset completed with {stats['errors']} file errors")
+        return {"customized": False, "customized_files": []}
+
+    try:
+        return await asyncio.to_thread(_sync)
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
+    except Exception:
+        logger.exception("重置项目 Agent Profile 失败: project=%s", name)
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
 @router.patch("/projects/{name}")
 async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
     """更新项目元数据"""

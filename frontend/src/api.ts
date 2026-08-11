@@ -219,6 +219,11 @@ export interface SuccessResponse {
   message?: string;
 }
 
+export interface AgentProfileStatus {
+  customized: boolean;
+  customized_files: string[];
+}
+
 /** 说书模式片段 PATCH 入参（drama 模式片段走 {@link API.updateScene}）。 */
 export interface SegmentUpdatePayload {
   script_file: string;
@@ -551,6 +556,16 @@ class API {
     return this.request(`/projects/${encodeURIComponent(name)}`, {
       method: "PATCH",
       body: JSON.stringify(updates),
+    });
+  }
+
+  static async getAgentProfileStatus(name: string): Promise<AgentProfileStatus> {
+    return this.request(`/projects/${encodeURIComponent(name)}/agent-profile`);
+  }
+
+  static async resetAgentProfile(name: string): Promise<AgentProfileStatus> {
+    return this.request(`/projects/${encodeURIComponent(name)}/agent-profile/reset`, {
+      method: "POST",
     });
   }
 

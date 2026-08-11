@@ -609,8 +609,9 @@ def _apply_decision(
                 stats["pruned"] += 1
                 stats["repaired"] += 1
             else:
-                # #8 profile 上游删，用户改过 → 保留 D + 清 entry（不是 tombstone）
-                manifest.entries.pop(rel, None)
+                # #8 profile 上游删，用户改过 → 保留 D 及旧 baseline。保留 entry
+                # 让设置页仍能识别这是从内置 profile 分叉的 legacy 定制，而不是
+                # 无来源的 project-only 文件；后续同步继续按三方语义保护它。
                 stats["orphaned"] += 1
                 stats["skipped"] += 1
         case (False, True, "none"):
@@ -727,6 +728,58 @@ def sync_profile_to_project(
         return stats
 
 
+def get_profile_status(
+    profile_dir: Path,
+    project_dir: Path,
+    content_mode: ContentMode,
+) -> dict[str, object]:
+    """Return project-local files that a full built-in reset would discard.
+
+    A customization is a tracked file whose content differs from its recorded
+    built-in baseline, a user deletion of a currently shipped file, or a
+    project-only profile file. Unmodified files removed upstream are not
+    customizations and are pruned by normal sync.
+    """
+    if not profile_dir.exists():
+        raise ProfileMissingError(f"Profile dir not found: {profile_dir}")
+    mapping = resolve_profile_files_for_mode(profile_dir, content_mode)
+    if not mapping:
+        raise ProfileEmptyError(f"Profile dir empty, likely deploy misconfig: {profile_dir}")
+
+    loaded = load_manifest(project_dir)
+    dest_files = enumerate_dest_files(project_dir)
+    if loaded is None:
+        customized_files = sorted(dest_files)
+        return {"customized": bool(customized_files), "customized_files": customized_files}
+
+    manifest, _ = loaded
+    customized: set[str] = set()
+    for rel in dest_files:
+        entry = manifest.entries.get(rel)
+        if entry is None:
+            customized.add(rel)
+            continue
+        if entry.get("source") == "tombstone":
+            customized.add(rel)
+            continue
+        try:
+            dest = _ensure_dest_within(project_dir, rel)
+            if sha256_file(dest) != entry.get("sha256"):
+                customized.add(rel)
+        except (OSError, ValueError):
+            customized.add(rel)
+
+    for rel in manifest.entries:
+        if rel in dest_files or rel not in mapping:
+            continue
+        # Any missing file still shipped by the current projection is a user
+        # deletion, whether or not normal sync has recorded a tombstone yet.
+        customized.add(rel)
+
+    files = sorted(customized)
+    return {"customized": bool(files), "customized_files": files}
+
+
 def force_resync_profile(
     profile_dir: Path,
     project_dir: Path,
@@ -753,10 +806,10 @@ def force_resync_profile(
     project_dir.mkdir(parents=True, exist_ok=True)
 
     with _project_lock(project_dir):
+        if paths is None:
+            return _full_reset_from_profile(profile_dir, project_dir, mapping, content_mode=content_mode)
         loaded = load_manifest(project_dir)
         if loaded is None:
-            if paths is None:
-                return _full_reset_from_profile(profile_dir, project_dir, mapping, content_mode=content_mode)
             manifest, original_bytes = Manifest.empty(), None
         else:
             manifest, original_bytes = loaded

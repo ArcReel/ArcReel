@@ -63,6 +63,7 @@ class _FakePM:
         }
         self.created = set()
         self.generated_names = ["project-aa11bb22", "project-cc33dd44"]
+        self.profile_reset_calls: list[str] = []
         (self.base / "ready" / "storyboards").mkdir(parents=True, exist_ok=True)
         (self.base / "ready" / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
         (self.base / "empty").mkdir(parents=True, exist_ok=True)
@@ -101,6 +102,17 @@ class _FakePM:
 
     def get_project_status(self, name):
         return {"current_stage": "source_ready"}
+
+    def get_agent_profile_status(self, project_dir):
+        assert project_dir == self.base / "ready"
+        return {
+            "customized": True,
+            "customized_files": ["CLAUDE.md", ".claude/agents/legacy.md"],
+        }
+
+    def force_resync_profile(self, project_dir):
+        self.profile_reset_calls.append(project_dir.name)
+        return {"repaired": 2, "errors": 0}
 
     def create_project(self, name, content_mode="narration"):
         if not name or not re.fullmatch(r"[A-Za-z0-9-]+", name):
@@ -268,6 +280,23 @@ def _client(monkeypatch, fake_pm, fake_calc):
 
 
 class TestProjectsRouter:
+    @pytest.mark.unit
+    def test_agent_profile_status_and_explicit_reset(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            status = client.get("/api/v1/projects/ready/agent-profile")
+            assert status.status_code == 200
+            assert status.json() == {
+                "customized": True,
+                "customized_files": ["CLAUDE.md", ".claude/agents/legacy.md"],
+            }
+
+            reset = client.post("/api/v1/projects/ready/agent-profile/reset")
+            assert reset.status_code == 200
+            assert reset.json() == {"customized": False, "customized_files": []}
+            assert fake_pm.profile_reset_calls == ["ready"]
+
     @pytest.mark.unit
     def test_list_and_create_and_delete(self, tmp_path, monkeypatch):
         client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
