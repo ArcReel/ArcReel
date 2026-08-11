@@ -162,6 +162,8 @@ function MessageEditor({
   const { t } = useTranslation("dashboard");
   const [draft, setDraft] = useState(initialText);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // 部分输入法在组合确认的那次 keydown 上不置 isComposing，靠组合事件补齐
+  const isComposingRef = useRef(false);
 
   // 进入编辑态即聚焦、光标置尾、按内容撑开高度
   useEffect(() => {
@@ -197,11 +199,20 @@ function MessageEditor({
           e.currentTarget.style.height = "auto";
           e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
         }}
+        onCompositionStart={() => {
+          isComposingRef.current = true;
+        }}
+        onCompositionEnd={() => {
+          isComposingRef.current = false;
+        }}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
+            if (submitting) return;
             e.preventDefault();
             onCancel();
           } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            // 组合中的这一下确认的是候选词，不是提交（与主输入框同口径）
+            if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229 || isComposingRef.current) return;
             e.preventDefault();
             submit();
           }
@@ -220,8 +231,10 @@ function MessageEditor({
       <div className="mt-2 flex items-center justify-end gap-2">
         <button
           type="button"
+          // 改写在途时取消无从撤回请求：关掉编辑器只会让随后的会话切换显得无端
+          disabled={submitting}
           onClick={onCancel}
-          className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] transition-colors"
+          className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           style={{ color: "var(--color-text-3)", border: "1px solid var(--color-hairline-soft)" }}
         >
           {t("message_edit_cancel")}

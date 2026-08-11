@@ -119,6 +119,21 @@ export function useAssistantSession(projectName: string | null) {
     return controller.signal;
   }, [abortSessionLoad]);
 
+  // 补拉会话列表。纳入项目级取消域，挂起期间切换项目时迟到响应不得覆盖已切到的
+  // 新项目会话列表；空列表不写入，避免一次失败的读把列表清空。
+  const refreshSessions = useCallback(() => {
+    if (!projectName) return;
+    const signal = projectAbortRef.current?.signal;
+    if (!signal) return;
+    API.listAssistantSessions(projectName, null, { signal })
+      .then((res) => {
+        if (signal.aborted) return;
+        const fresh = res.sessions ?? [];
+        if (fresh.length > 0) store.getState().setSessions(fresh);
+      })
+      .catch(() => {/* 静默失败 */});
+  }, [projectName, store]);
+
   // 关闭流
   const closeStream = useCallback(() => {
     if (reconnectRef.current) {
@@ -199,18 +214,8 @@ export function useAssistantSession(projectName: string | null) {
           }
           closeStream();
 
-          // Turn 结束后刷新会话列表，获取 SDK summary 标题；纳入项目级取消域，
-          // 挂起期间切换项目时迟到响应不得覆盖已切到的新项目会话列表
-          if (projectName) {
-            const signal = projectAbortRef.current?.signal;
-            if (signal) {
-              API.listAssistantSessions(projectName, null, { signal }).then((res) => {
-                if (signal.aborted) return;
-                const fresh = res.sessions ?? [];
-                if (fresh.length > 0) store.getState().setSessions(fresh);
-              }).catch(() => {/* 静默失败 */});
-            }
-          }
+          // Turn 结束后刷新会话列表，获取 SDK summary 标题
+          refreshSessions();
         }
       });
 
@@ -241,7 +246,7 @@ export function useAssistantSession(projectName: string | null) {
         }
       };
     },
-    [clearPendingQuestion, projectName, closeStream, store, syncPendingQuestion],
+    [clearPendingQuestion, projectName, closeStream, refreshSessions, store, syncPendingQuestion],
   );
 
   // 加载指定会话时间线：非 running 冷读日志；running 交给 entry 流回放。
@@ -576,8 +581,13 @@ export function useAssistantSession(projectName: string | null) {
           clientKey,
         );
 
-        // 本轮已被作废：sending 由作废方复位，此处不动任何共享状态
-        if (pendingSendVersionRef.current !== rewriteVersion) return false;
+        // 本轮已被作废：不把用户从他已切去的会话拽回分支，sending 也由作废方复位。
+        // 但服务端此刻确已取代原会话并开出新分支，本地列表仍指向已消失的原会话——
+        // 补拉一次列表，否则新分支要等到刷新页面才出现。
+        if (pendingSendVersionRef.current !== rewriteVersion) {
+          refreshSessions();
+          return false;
+        }
         failedRewriteRef.current = null;
 
         const newSessionId = result.session_id;
@@ -607,9 +617,10 @@ export function useAssistantSession(projectName: string | null) {
       } catch (err) {
         if (pendingSendVersionRef.current !== rewriteVersion) return false;
         failedRewriteRef.current = { clientKey, signature };
-        // 启动失败与发送路径同口径，落故障卡片而非一行错误条
+        // 启动失败与发送路径同口径，落故障卡片而非一行错误条。标注来源为改写：
+        // 保留原始输入的是仍开着的编辑器，重放要由它的「重新发送」发起
         if (err instanceof AgentFailureError) {
-          store.getState().setStartupFailure(err.failure);
+          store.getState().setStartupFailure(err.failure, "rewrite");
         } else {
           store.getState().setError(errMsg(err, t("message_rewrite_failed")));
         }
@@ -617,7 +628,7 @@ export function useAssistantSession(projectName: string | null) {
         return false;
       }
     },
-    [projectName, switchSession, store, t],
+    [projectName, refreshSessions, switchSession, store, t],
   );
 
   // 删除会话

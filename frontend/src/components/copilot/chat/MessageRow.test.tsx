@@ -67,6 +67,30 @@ describe("MessageRow", () => {
     expect(screen.getByRole("button", { name: "发送中…" })).toBeDisabled();
   });
 
+  it("keeps the composing key from submitting a half-typed candidate", () => {
+    const onSubmitEdit = vi.fn();
+    render(<MessageRow turn={userTurn} editable editing onSubmitEdit={onSubmitEdit} />);
+
+    const textarea = screen.getByLabelText("改写消息内容");
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true, isComposing: true });
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true, keyCode: 229 });
+
+    expect(onSubmitEdit).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+    expect(onSubmitEdit).toHaveBeenCalledOnce();
+  });
+
+  it("holds the cancel button while the rewrite is in flight", () => {
+    const onCancelEdit = vi.fn();
+    render(<MessageRow turn={userTurn} editable editing submitting onCancelEdit={onCancelEdit} />);
+
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByLabelText("改写消息内容"), { key: "Escape" });
+
+    expect(onCancelEdit).not.toHaveBeenCalled();
+  });
+
   it("gives a streaming draft no action row", () => {
     render(<MessageRow turn={{ ...userTurn, type: "assistant" }} streaming />);
 

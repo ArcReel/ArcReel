@@ -173,7 +173,7 @@ export function AgentCopilot() {
   const { t } = useTranslation(["dashboard", "common"]);
   const {
     turns, draftTurn, messagesLoading, editingTurnUuid, setEditingTurnUuid,
-    sending, sessionStatus, pendingQuestion, answeringQuestion, error, startupFailure,
+    sending, sessionStatus, pendingQuestion, answeringQuestion, error, startupFailure, startupFailureOrigin,
   } = useAssistantStore();
 
   const { currentProjectName } = useProjectsStore();
@@ -522,7 +522,12 @@ export function AgentCopilot() {
           />
         ))}
         {startupFailure && (
-          <AgentFailureCard failure={startupFailure} onRetry={handleSend} />
+          // 改写失败时原始输入留在仍开着的编辑器里，重试由它的「重新发送」发起：
+          // 卡片这里给重试只会重放主输入框的无关内容（为空时更是毫无反应）
+          <AgentFailureCard
+            failure={startupFailure}
+            onRetry={startupFailureOrigin === "rewrite" ? undefined : handleSend}
+          />
         )}
       </div>
 

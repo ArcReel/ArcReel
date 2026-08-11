@@ -1413,8 +1413,44 @@ describe("useAssistantSession", () => {
     expect(rewriteSpy.mock.calls[0][4]).toBe(rewriteSpy.mock.calls[1][4]);
   });
 
+  it("marks a rewrite startup failure by origin so the card does not replay the composer", async () => {
+    mockIdleSession([userEntry(0, "原始消息")]);
+    const failure = {
+      version: 1,
+      phase: "startup" as const,
+      timestamp: "2026-07-23T01:02:03Z",
+      project_name: "demo",
+      session_id: "session-1",
+      summary: {
+        source: "local_exception",
+        type: "ProcessError",
+        message: "Claude Code exited before initialization",
+      },
+      raw: {},
+    };
+    vi.spyOn(API, "rewriteAssistantMessage").mockRejectedValue(
+      new AgentFailureError("Agent 启动失败", failure),
+    );
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+    useAssistantStore.getState().setEditingTurnUuid("u-0");
+
+    await act(async () => {
+      expect(await result.current.rewriteMessage("u-0", "改写后的消息")).toBe(false);
+    });
+
+    const state = useAssistantStore.getState();
+    expect(state.startupFailure).toEqual(failure);
+    expect(state.startupFailureOrigin).toBe("rewrite");
+    // 原始输入留在仍开着的编辑器里，重放归它
+    expect(state.editingTurnUuid).toBe("u-0");
+  });
+
   it("ignores a delayed rewrite completion after switching sessions (no yank to the branch)", async () => {
-    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+    const listSessions = vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [makeSession("session-1", "idle"), makeSession("session-3", "idle")],
     });
     vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
@@ -1450,6 +1486,11 @@ describe("useAssistantSession", () => {
     });
     expect(useAssistantStore.getState().sending).toBe(false);
 
+    // 服务端此刻已经取代 session-1、开出分支 session-2
+    listSessions.mockResolvedValue({
+      sessions: [makeSession("session-2", "running"), makeSession("session-3", "idle")],
+    });
+
     await act(async () => {
       deferred.resolve({
         status: "accepted",
@@ -1460,10 +1501,12 @@ describe("useAssistantSession", () => {
       await deferred.promise;
     });
 
-    // 迟到的受理不得把用户从他已切去的会话拽到分支，会话列表也不被改写
-    const state = useAssistantStore.getState();
-    expect(state.currentSessionId).toBe("session-3");
-    expect(state.sessions.map((s) => s.id)).toEqual(["session-1", "session-3"]);
+    // 迟到的受理不得把用户从他已切去的会话拽到分支
+    expect(useAssistantStore.getState().currentSessionId).toBe("session-3");
     expect(MockEventSource.instances).toHaveLength(0);
+    // 但服务端的分叉已经发生，列表补拉一次：已消失的 session-1 让位给 session-2
+    await waitFor(() => {
+      expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-2", "session-3"]);
+    });
   });
 });
