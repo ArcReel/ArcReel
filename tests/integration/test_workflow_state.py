@@ -1040,6 +1040,57 @@ def test_identical_stale_step1_rebuild_advances_after_explicit_completion(tmp_pa
 
 
 @pytest.mark.integration
+def test_null_baseline_stale_rebuild_invalidates_grandfathered_script(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source_and_complete(pm, project_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[
+                {
+                    "episode": 1,
+                    "script_file": "scripts/episode_1.json",
+                    "ledger_status": "stale",
+                    script_review.STALE_STEP1_REVISION_FIELD: None,
+                }
+            ]
+        ),
+    )
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "title": "旧剧本",
+            "content_mode": "narration",
+            "segments": [_valid_narration_segment()],
+        },
+    )
+    service = WorkflowStateService(pm)
+    assert service.get_status("demo").next_action.type == "prepare_step1"
+
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    step1_path = draft_dir / "step1_segments.json"
+    atomic_write_json(step1_path, {"episode": 1, "segments": [{"segment_id": "E1S01"}]})
+    script_review.complete_stale_step1_rebuild(pm, "demo", 1, None)
+
+    pending_review = service.get_status("demo")
+    assert pending_review.state == "STEP1_REVIEW"
+    assert pending_review.next_action.type == "confirm_step1"
+    revision = script_review.content_fingerprint(step1_path)
+    assert revision is not None
+
+    def _confirm(project: dict) -> None:
+        script_review.apply_confirmation(project, 1, revision, "now")
+
+    pm.update_project("demo", _confirm)
+    regenerate = service.get_status("demo")
+    assert regenerate.state == "FINAL_SCRIPT"
+    assert regenerate.artifacts["script"]["state"] == "stale"
+    assert regenerate.next_action.type == "generate_script"
+
+
+@pytest.mark.integration
 def test_quarantined_step1_is_a_blocker_not_a_confirmation_loop(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     _write_source_and_complete(pm, project_path)

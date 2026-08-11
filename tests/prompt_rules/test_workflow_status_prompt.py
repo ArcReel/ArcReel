@@ -119,3 +119,15 @@ def test_workflow_stale_step1_records_explicit_rebuild_completion(filename: str)
     assert "mcp__arcreel__complete_step1_rebuild" in content
     assert "expected_stale_step1_revision" in content
     assert "确定性重建可能产出完全相同的 JSON" in content
+
+
+def test_ad_workflow_regenerates_named_reference_units_with_selected_tool() -> None:
+    path = REPO / "agent_runtime_profile" / ".claude" / "skills" / "manga-workflow" / "SKILL.ad.md"
+    content = path.read_text(encoding="utf-8")
+
+    assert '`next_action.type == "generate_videos"` → `requested_ids` 非空时调' in content
+    assert (
+        'mcp__arcreel__generate_video_selected({"script": target.script_filename, "scene_ids": requested_ids})'
+        in content
+    )
+    assert "`requested_ids` 为空时才调 `mcp__arcreel__generate_video_episode" in content

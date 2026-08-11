@@ -849,6 +849,12 @@ class WorkflowStateService:
                         )
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
                     review = script_review.review_status(project_path, project, target.episode)
+                    if (
+                        selected is not None
+                        and selected[1].get("ledger_status") == "stale"
+                        and script_review.stored_review(project, target.episode).get("fingerprint") is None
+                    ):
+                        review = "pending_review"
                     gates["step1_review"] = {
                         "state": "confirmed" if review == "confirmed" else "pending",
                         "revision": revision,

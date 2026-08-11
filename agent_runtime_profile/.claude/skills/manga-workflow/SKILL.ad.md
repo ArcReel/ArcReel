@@ -43,8 +43,9 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
      `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
    - `next_action.type == "generate_grid"` → 调
      `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": requested_ids})`
-   - `next_action.type == "generate_videos"` → 调
-     `mcp__arcreel__generate_video_episode({"script": target.script_filename})`
+   - `next_action.type == "generate_videos"` → `requested_ids` 非空时调
+     `mcp__arcreel__generate_video_selected({"script": target.script_filename, "scene_ids": requested_ids})`；
+     `requested_ids` 为空时才调 `mcp__arcreel__generate_video_episode({"script": target.script_filename})`
    - **storyboard 路径**：分镜生成后引导用户审核产品形象，不合格的点名重生成分镜，在产生视频费用前拦截
    - **reference_video 路径（参考直出）**：视频动作会自动把连续镜头派生分组为 video_unit（每 unit ≤4 镜头、总长受供应商上限约束）、把产品参考与资产 sheet 注入各 unit 并入队生成，跳过分镜步骤。镜头编辑后再次调用即自动重新派生，未变化的 unit 不重复生成；编排变了（stale）或用户对成片不满意的 unit 按 `unit_id` 点名重做，见 `generate-video` skill 的「点名重新生成 unit」
 
