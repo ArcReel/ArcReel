@@ -20,6 +20,7 @@ from lib.episode_ledger import (
     SourceDoc,
     compute_source_fingerprints,
     discover_sources,
+    episodes_without_source_range,
     mismatched_source_fingerprints,
     normalize_source_text,
     parse_positive_episode_num,
@@ -313,6 +314,16 @@ class WorkflowStateService:
                 )
                 continue
             seen.add(number)
+            ledger_status = entry.get("ledger_status")
+            if ledger_status is not None and not isinstance(ledger_status, str):
+                blockers.append(
+                    WorkflowBlocker(
+                        code="invalid_ledger_status",
+                        path=f"episodes[{index}].ledger_status",
+                        reason="ledger_status must be a string",
+                    )
+                )
+                continue
             parsed.append((number, entry))
         parsed.sort(key=lambda pair: pair[0])
         return parsed
@@ -329,6 +340,16 @@ class WorkflowStateService:
             return next((pair for pair in episodes if pair[0] == requested_episode), None)
         pending = [pair for pair in episodes if pair[1].get("ledger_status") in {"planned", "stale"}]
         return (pending or episodes)[0] if (pending or episodes) else None
+
+    @staticmethod
+    def _planning_action(project: dict[str, Any], reason: str) -> WorkflowNextAction:
+        if episodes_without_source_range(project):
+            return _action(
+                "reset_episode_planning",
+                "episode ledger lacks source range records",
+                args={"from_episode": 1},
+            )
+        return _action("plan_episodes", reason)
 
     @staticmethod
     def _planning_complete(
@@ -763,11 +784,11 @@ class WorkflowStateService:
                 )
                 next_action = _action("none", "requested episode is unavailable")
             else:
-                next_action = _action("plan_episodes", "episode ledger has no target episode")
+                next_action = self._planning_action(project, "episode ledger has no target episode")
         else:
             if target is None:  # defensive; ad always supplies episode 1
                 state = "EPISODE_PLAN"
-                next_action = _action("plan_episodes", "target episode is unavailable")
+                next_action = self._planning_action(project, "target episode is unavailable")
             else:
                 preprocessor = (
                     "split-reference-video-units"
@@ -992,13 +1013,13 @@ class WorkflowStateService:
                                 return later_status
                             if not shared.planning_complete:
                                 state = "EPISODE_PLAN"
-                                next_action = _action("plan_episodes", "source text remains unplanned")
+                                next_action = self._planning_action(project, "source text remains unplanned")
                             else:
                                 state = "EXPORT_READY"
                                 next_action = _action("export", "all required artifacts are usable")
                         elif mode != "ad" and not shared.planning_complete:
                             state = "EPISODE_PLAN"
-                            next_action = _action("plan_episodes", "source text remains unplanned")
+                            next_action = self._planning_action(project, "source text remains unplanned")
                         else:
                             state = "EXPORT_READY"
                             next_action = _action("export", "all required artifacts are usable")

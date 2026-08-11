@@ -335,6 +335,52 @@ def test_narration_progresses_through_storyboard_video_audio_to_export(tmp_path:
 
 
 @pytest.mark.integration
+def test_unplanned_source_with_legacy_episode_without_source_range_requires_full_reset(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+
+    def _plan(project: dict) -> None:
+        project["episodes"] = [
+            {
+                "episode": 1,
+                "title": "第一集",
+                "script_file": "scripts/episode_1.json",
+                "ledger_status": "consumed",
+            }
+        ]
+        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": 1}
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+
+    pm.update_project("demo", _plan)
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    atomic_write_json(draft_dir / "step1_segments.json", {"episode": 1, "segments": []})
+    generated_assets = {
+        "storyboard_image": "storyboards/E1S01.png",
+        "video_clip": "videos/E1S01.mp4",
+        "narration_audio": "audio/E1S01.wav",
+    }
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "segments": [_valid_narration_segment(generated_assets=generated_assets)],
+        },
+    )
+    for relative_path in generated_assets.values():
+        _write_artifact(project_path, relative_path)
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "EPISODE_PLAN"
+    assert status.next_action.type == "reset_episode_planning"
+    assert status.next_action.args == {"from_episode": 1}
+
+
+@pytest.mark.integration
 def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -644,6 +690,32 @@ def test_non_string_project_mode_returns_blocker(tmp_path: Path, field: str, val
 
     assert status.state == "PROJECT_INPUT"
     assert status.blockers[0].code == blocker_code
+    assert status.next_action.type == "none"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("ledger_status", [[], {}])
+def test_non_string_ledger_status_returns_blocker(tmp_path: Path, ledger_status: object) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source_and_complete(pm, project_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[
+                {
+                    "episode": 1,
+                    "script_file": "scripts/episode_1.json",
+                    "ledger_status": ledger_status,
+                }
+            ]
+        ),
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "PROJECT_INPUT"
+    assert status.target is None
+    assert status.blockers[0].code == "invalid_ledger_status"
     assert status.next_action.type == "none"
 
 
