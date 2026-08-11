@@ -674,7 +674,8 @@ export function useAssistantSession(projectName: string | null) {
     if (!projectName) return;
     // 删除当前会话即刻接管会话选择权，作废不能等到 DELETE 返回：在途的发送/改写
     // 若在这期间被受理，会把用户装到一个分支上，而删除收尾此时已看不出该切换
-    if (store.getState().currentSessionId === sessionId) invalidatePendingSend();
+    const invalidatedForDelete = store.getState().currentSessionId === sessionId;
+    if (invalidatedForDelete) invalidatePendingSend();
     try {
       await API.deleteAssistantSession(projectName, sessionId);
       const sessions = store.getState().sessions.filter((s) => s.id !== sessionId);
@@ -698,7 +699,16 @@ export function useAssistantSession(projectName: string | null) {
         }
       }
     } catch {
-      // 静默失败
+      // 删除没成功，会话还在。进入时那次作废已经把在途发送/改写的收尾摘掉了——
+      // 若它其实被服务端受理了，这一轮此刻在本地不可见，输入框里的内容还会被再发
+      // 一次。作废与补偿成对出现：重新加载一次当前会话，把它接回来。
+      if (invalidatedForDelete) {
+        const current = store.getState().currentSessionId;
+        if (current) {
+          loadedSessionRef.current = null;
+          await switchSession(current);
+        }
+      }
     }
   }, [
     projectName,

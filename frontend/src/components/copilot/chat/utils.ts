@@ -78,7 +78,7 @@ export function turnPlainText(turn: Turn): string {
 
 export function canEditUserTurn(
   turn: Turn,
-  context: { sessionStatus: SessionStatus | null; hasPendingQuestion: boolean },
+  context: { sessionStatus: SessionStatus | null; hasPendingQuestion: boolean; isSending: boolean },
 ): boolean {
   if (turn.type !== "user") return false;
   // 改写锚点就是条目 uuid：没有 uuid 的 turn（合成卡片、draft）无从锚定
@@ -89,5 +89,8 @@ export function canEditUserTurn(
   if (!turnPlainText(turn).trim()) return false;
   if (context.sessionStatus === "running") return false;
   if (context.hasPendingQuestion) return false;
+  // 已有发送或改写在途：此刻放行别处的编辑入口，点下去会顶掉正在提交的编辑器，
+  // 连同它里面还没被受理的草稿一起消失
+  if (context.isSending) return false;
   return true;
 }

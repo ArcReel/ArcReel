@@ -71,7 +71,7 @@ describe("turnPlainText", () => {
 });
 
 describe("canEditUserTurn", () => {
-  const idle = { sessionStatus: null, hasPendingQuestion: false } as const;
+  const idle = { sessionStatus: null, hasPendingQuestion: false, isSending: false } as const;
 
   it("allows editing a settled user message", () => {
     expect(canEditUserTurn(userTurn, idle)).toBe(true);
@@ -105,10 +105,15 @@ describe("canEditUserTurn", () => {
   });
 
   it("hides the entry while the agent is running", () => {
-    expect(canEditUserTurn(userTurn, { sessionStatus: "running", hasPendingQuestion: false })).toBe(false);
+    expect(canEditUserTurn(userTurn, { ...idle, sessionStatus: "running" })).toBe(false);
   });
 
   it("hides the entry while a question card is pending", () => {
-    expect(canEditUserTurn(userTurn, { sessionStatus: "idle", hasPendingQuestion: true })).toBe(false);
+    expect(canEditUserTurn(userTurn, { ...idle, hasPendingQuestion: true })).toBe(false);
+  });
+
+  it("hides sibling entries while a send or rewrite is in flight", () => {
+    // 放行的话，点别处的编辑会顶掉正在提交的编辑器，草稿随之消失
+    expect(canEditUserTurn(userTurn, { ...idle, isSending: true })).toBe(false);
   });
 });

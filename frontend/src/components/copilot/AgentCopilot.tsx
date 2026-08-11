@@ -513,7 +513,11 @@ export function AgentCopilot() {
             key={turn.uuid || `turn-${i}`}
             turn={turn}
             streaming={turn === draftTurn}
-            editable={canEditUserTurn(turn, { sessionStatus, hasPendingQuestion: Boolean(pendingQuestion) })}
+            editable={canEditUserTurn(turn, {
+              sessionStatus,
+              hasPendingQuestion: Boolean(pendingQuestion),
+              isSending: sending,
+            })}
             editing={Boolean(turn.uuid) && turn.uuid === editingTurnUuid}
             submitting={sending}
             onStartEdit={setEditingTurnUuid}

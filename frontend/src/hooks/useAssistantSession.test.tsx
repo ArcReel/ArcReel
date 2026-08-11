@@ -1570,6 +1570,25 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().sessions.map((s) => s.id)).not.toContain("session-2");
   });
 
+  it("reloads the current session when deletion fails, so a send accepted meanwhile is not orphaned", async () => {
+    mockIdleSession([userEntry(0, "原始消息")]);
+    vi.spyOn(API, "deleteAssistantSession").mockRejectedValue(new Error("delete failed"));
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+    const entriesCallsBefore = vi.mocked(API.listAssistantEntries).mock.calls.length;
+
+    await act(async () => {
+      await result.current.deleteSession("session-1");
+    });
+
+    // 删除失败后会话还在：补一次重载，服务端已受理的那一轮才不会停在本地不可见
+    expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    expect(vi.mocked(API.listAssistantEntries).mock.calls.length).toBeGreaterThan(entriesCallsBefore);
+  });
+
   it("marks a rewrite startup failure by origin so the card does not replay the composer", async () => {
     mockIdleSession([userEntry(0, "原始消息")]);
     const failure = {
