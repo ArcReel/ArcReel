@@ -120,9 +120,24 @@ def test_project_adapter_replace_failure_preserves_manifest_and_cleans_temp_file
     assert manifest.register(first_key, artifact_path="scripts/episode_1.json", basis=basis)
     manifest_path = project / MANIFEST_FILENAME
     original_bytes = manifest_path.read_bytes()
+    original_replace = os.replace
 
-    def fail_replace(_source: str, _destination: Path) -> None:
-        raise OSError("injected replace failure")
+    def fail_replace(
+        source: str | bytes | Path,
+        destination: str | bytes | Path,
+        *,
+        src_dir_fd: int | None = None,
+        dst_dir_fd: int | None = None,
+    ) -> None:
+        is_anchored_manifest = (
+            os.fsdecode(destination) == MANIFEST_FILENAME and src_dir_fd is not None and dst_dir_fd == src_dir_fd
+        )
+        if is_anchored_manifest or Path(os.fsdecode(destination)) == manifest_path:
+            raise OSError("injected replace failure")
+        if src_dir_fd is None and dst_dir_fd is None:
+            original_replace(source, destination)
+        else:
+            original_replace(source, destination, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
 
     monkeypatch.setattr("lib.artifact_manifest.os.replace", fail_replace)
 
@@ -232,6 +247,25 @@ def test_project_adapter_rejects_fifo_without_blocking(tmp_path: Path) -> None:
     assert comparison.blocker is not None and comparison.blocker.code == "artifact_not_regular_file"
 
 
+@pytest.mark.skipif(os.name != "posix", reason="runtime FIFO inspection uses POSIX nonblocking file flags")
+@pytest.mark.parametrize("runtime_path", [MANIFEST_FILENAME, LOCK_FILENAME])
+def test_project_adapter_rejects_runtime_fifo_without_blocking(tmp_path: Path, runtime_path: str) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "episode.json").write_text("{}", encoding="utf-8")
+    os.mkfifo(project / runtime_path)
+    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
+
+    comparison = manifest.compare(
+        ArtifactKey.episode_script(1),
+        artifact_path="episode.json",
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"}),
+    )
+
+    assert comparison.status is ArtifactStatus.BLOCKED
+    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
+
+
 def test_project_adapter_rejects_replaced_portable_project_root(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -248,7 +282,7 @@ def test_project_adapter_rejects_replaced_portable_project_root(tmp_path: Path) 
 
     assert not observation.present
     assert observation.blocker is not None and observation.blocker.code == "artifact_symlink"
-    with pytest.raises(ArtifactManifestError, match="project directory is a symlink or junction"):
+    with pytest.raises(ArtifactManifestError, match="project directory"):
         adapter.put_entry(
             ArtifactKey.episode_script(1),
             ArtifactManifestEntry(
@@ -258,6 +292,56 @@ def test_project_adapter_rejects_replaced_portable_project_root(tmp_path: Path) 
         )
     assert (outside / "episode.json").read_text(encoding="utf-8") == "outside"
     assert not (outside / MANIFEST_FILENAME).exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="dir_fd anchors manifest storage to the opened POSIX root")
+def test_project_adapter_keeps_manifest_write_on_opened_root_during_swap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "episode.json").write_text("inside", encoding="utf-8")
+    adapter = ProjectArtifactManifestAdapter(project)
+    original_identity = project.stat()
+    original_open = os.open
+    moved_project = tmp_path / "moved-project"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    swapped = False
+
+    def swap_root_then_open_lock(
+        path: str | bytes | Path,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal swapped
+        opens_target_lock = (
+            dir_fd is not None
+            and os.fsdecode(path) == LOCK_FILENAME
+            and os.fstat(dir_fd).st_dev == original_identity.st_dev
+            and os.fstat(dir_fd).st_ino == original_identity.st_ino
+        )
+        if not swapped and opens_target_lock:
+            project.rename(moved_project)
+            project.symlink_to(outside, target_is_directory=True)
+            swapped = True
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr("lib.artifact_manifest.os.open", swap_root_then_open_lock)
+
+    assert ArtifactManifest(adapter).register(
+        ArtifactKey.episode_script(1),
+        artifact_path="episode.json",
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"}),
+    )
+
+    assert swapped
+    assert (moved_project / MANIFEST_FILENAME).is_file()
+    assert not (outside / MANIFEST_FILENAME).exists()
+    assert not (outside / LOCK_FILENAME).exists()
 
 
 @pytest.mark.parametrize("runtime_path", [MANIFEST_FILENAME, LOCK_FILENAME])

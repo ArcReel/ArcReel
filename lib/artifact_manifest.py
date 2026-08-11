@@ -11,6 +11,7 @@ import json
 import math
 import os
 import re
+import secrets
 import stat
 import tempfile
 import threading
@@ -337,13 +338,13 @@ class ProjectArtifactManifestAdapter:
         )
 
     def get_entry(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
-        with self._locked():
-            entries, _ = self._load_unlocked()
+        with self._locked() as root_fd:
+            entries, _ = self._load_unlocked(root_fd)
             return entries.get(key.encode())
 
     def put_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> bool:
-        with self._locked():
-            entries, original_bytes = self._load_unlocked()
+        with self._locked() as root_fd:
+            entries, original_bytes = self._load_unlocked(root_fd)
             encoded = key.encode()
             if entries.get(encoded) == entry and original_bytes is not None:
                 return False
@@ -351,48 +352,72 @@ class ProjectArtifactManifestAdapter:
             new_bytes = _serialize_manifest(entries)
             if original_bytes == new_bytes:
                 return False
-            self._atomic_replace(new_bytes)
+            self._atomic_replace(new_bytes, root_fd)
             return True
 
     @contextmanager
-    def _locked(self) -> Iterator[None]:
-        if _is_linkish(self._project_dir):
+    def _locked(self) -> Iterator[int | None]:
+        root_fd: int | None = None
+        if os.name == "posix":
+            root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            try:
+                root_fd = os.open(self._project_dir, root_flags)
+            except OSError as exc:
+                raise ArtifactManifestError(
+                    f"project directory cannot be opened safely: {self._project_dir}: {exc}"
+                ) from exc
+        elif _is_linkish(self._project_dir):
             raise ArtifactManifestError(f"project directory is a symlink or junction: {self._project_dir}")
         lock_path = self._project_dir / LOCK_FILENAME
-        if _is_linkish(lock_path):
-            raise ArtifactManifestError(f"manifest lock is a symlink or junction: {lock_path}")
-        flags = os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
         try:
-            fd = os.open(lock_path, flags, 0o600)
-        except OSError as exc:
-            if exc.errno == errno.ELOOP:
-                raise ArtifactManifestError(f"manifest lock is a symlink: {lock_path}") from exc
-            raise ArtifactManifestError(f"cannot open manifest lock: {lock_path}: {exc}") from exc
-        handle = os.fdopen(fd, "wb")
-        deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
-        try:
-            while True:
-                try:
-                    portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
-                    break
-                except (portalocker.AlreadyLocked, portalocker.LockException) as exc:
-                    if time.monotonic() >= deadline:
-                        raise ArtifactManifestError(f"timed out acquiring manifest lock: {lock_path}") from exc
-                    time.sleep(0.05)
+            if root_fd is None and _is_linkish(lock_path):
+                raise ArtifactManifestError(f"manifest lock is a symlink or junction: {lock_path}")
+            flags = os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
             try:
-                yield
+                fd = (
+                    os.open(LOCK_FILENAME, flags, 0o600, dir_fd=root_fd)
+                    if root_fd is not None
+                    else os.open(lock_path, flags, 0o600)
+                )
+            except OSError as exc:
+                if exc.errno == errno.ELOOP:
+                    raise ArtifactManifestError(f"manifest lock is a symlink: {lock_path}") from exc
+                raise ArtifactManifestError(f"cannot open manifest lock: {lock_path}: {exc}") from exc
+            try:
+                if not stat.S_ISREG(os.fstat(fd).st_mode):
+                    raise ArtifactManifestError(f"manifest lock is not a regular file: {lock_path}")
+                handle = os.fdopen(fd, "wb")
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+                raise
+            deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
+            try:
+                while True:
+                    try:
+                        portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
+                        break
+                    except (portalocker.AlreadyLocked, portalocker.LockException) as exc:
+                        if time.monotonic() >= deadline:
+                            raise ArtifactManifestError(f"timed out acquiring manifest lock: {lock_path}") from exc
+                        time.sleep(0.05)
+                try:
+                    yield root_fd
+                finally:
+                    portalocker.unlock(handle)
             finally:
-                portalocker.unlock(handle)
+                handle.close()
         finally:
-            handle.close()
+            if root_fd is not None:
+                os.close(root_fd)
 
-    def _load_unlocked(self) -> tuple[dict[str, ArtifactManifestEntry], bytes | None]:
+    def _load_unlocked(self, root_fd: int | None) -> tuple[dict[str, ArtifactManifestEntry], bytes | None]:
         path = self._project_dir / MANIFEST_FILENAME
-        if _is_linkish(path):
+        if root_fd is None and _is_linkish(path):
             raise ArtifactManifestError(f"artifact manifest is a symlink or junction: {path}")
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         try:
-            fd = os.open(path, flags)
+            fd = os.open(MANIFEST_FILENAME, flags, dir_fd=root_fd) if root_fd is not None else os.open(path, flags)
         except FileNotFoundError:
             return {}, None
         except OSError as exc:
@@ -400,25 +425,36 @@ class ProjectArtifactManifestAdapter:
                 raise ArtifactManifestError(f"artifact manifest is a symlink: {path}") from exc
             raise ArtifactManifestError(f"cannot open artifact manifest: {path}: {exc}") from exc
         try:
-            with os.fdopen(fd, "rb") as handle:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ArtifactManifestError(f"artifact manifest is not a regular file: {path}")
+            handle = os.fdopen(fd, "rb")
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+            raise
+        try:
+            with handle:
                 raw = handle.read()
         except OSError as exc:
             raise ArtifactManifestError(f"cannot read artifact manifest: {path}: {exc}") from exc
         return _parse_manifest(raw), raw
 
-    def _atomic_replace(self, content: bytes) -> None:
-        fd, tmp_name = tempfile.mkstemp(
-            prefix=f"{MANIFEST_FILENAME}.",
-            suffix=".tmp",
-            dir=self._project_dir,
-        )
+    def _atomic_replace(self, content: bytes, root_fd: int | None) -> None:
+        if root_fd is None:
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=f"{MANIFEST_FILENAME}.",
+                suffix=".tmp",
+                dir=self._project_dir,
+            )
+        else:
+            fd, tmp_name = _create_temporary_file(root_fd)
         try:
             handle = os.fdopen(fd, "wb")
         except BaseException:
             with contextlib.suppress(OSError):
                 os.close(fd)
             with contextlib.suppress(OSError):
-                os.unlink(tmp_name)
+                _unlink_temporary_file(tmp_name, root_fd)
             raise
         try:
             with handle:
@@ -427,14 +463,17 @@ class ProjectArtifactManifestAdapter:
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(tmp_name, self._project_dir / MANIFEST_FILENAME)
+            if root_fd is None:
+                os.replace(tmp_name, self._project_dir / MANIFEST_FILENAME)
+            else:
+                os.replace(tmp_name, MANIFEST_FILENAME, src_dir_fd=root_fd, dst_dir_fd=root_fd)
         except OSError as exc:
             with contextlib.suppress(OSError):
-                os.unlink(tmp_name)
+                _unlink_temporary_file(tmp_name, root_fd)
             raise ArtifactManifestError(f"cannot replace artifact manifest: {exc}") from exc
         except BaseException:
             with contextlib.suppress(OSError):
-                os.unlink(tmp_name)
+                _unlink_temporary_file(tmp_name, root_fd)
             raise
 
 
@@ -702,3 +741,23 @@ def _parse_manifest(raw: bytes) -> dict[str, ArtifactManifestEntry]:
 
 def _is_linkish(path: Path) -> bool:
     return path.is_symlink() or path.is_junction()
+
+
+def _create_temporary_file(root_fd: int) -> tuple[int, str]:
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+    for _ in range(100):
+        tmp_name = f"{MANIFEST_FILENAME}.{secrets.token_hex(8)}.tmp"
+        try:
+            return os.open(tmp_name, flags, 0o600, dir_fd=root_fd), tmp_name
+        except FileExistsError:
+            continue
+        except OSError as exc:
+            raise ArtifactManifestError(f"cannot create temporary artifact manifest: {exc}") from exc
+    raise ArtifactManifestError("cannot allocate a unique temporary artifact manifest")
+
+
+def _unlink_temporary_file(tmp_name: str, root_fd: int | None) -> None:
+    if root_fd is None:
+        os.unlink(tmp_name)
+    else:
+        os.unlink(tmp_name, dir_fd=root_fd)

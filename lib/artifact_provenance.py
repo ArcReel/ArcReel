@@ -1,8 +1,8 @@
 """Canonical direct-input bases for structured content artifacts.
 
 These builders intentionally accept the full project mapping but project only formal
-content semantics. Execution configuration belongs to a future explicit generation,
-not to the currency of an existing structured artifact.
+content semantics. Execution configuration does not participate in the currency of an
+existing structured artifact.
 """
 
 from __future__ import annotations
