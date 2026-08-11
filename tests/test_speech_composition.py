@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import pytest
 
 from lib.speech_composition import (
@@ -55,37 +57,96 @@ def test_narrator_voiceover_has_the_same_result_through_every_skeleton(adapter, 
     assert result.problems == ()
 
 
-def test_character_performance_styles_keep_character_ownership_and_order() -> None:
-    scene = {
-        "scene_id": "E2S03",
-        "utterances": [
-            {"kind": "dialogue", "speaker": "阿离", "text": "跟紧我。"},
-            {"kind": "inner_monologue", "speaker": "阿离", "text": "不能让他看出害怕。"},
-            {"kind": "character_voiceover", "speaker": "阿离", "text": "那是我们最后一次见面。"},
-        ],
-    }
-
-    result = SpeechComposition.prepare(adapt_drama_scene(scene))
+@pytest.mark.parametrize(
+    ("adapter", "source"),
+    [
+        (
+            adapt_drama_scene,
+            {
+                "scene_id": "E2S03",
+                "utterances": [
+                    {"kind": "dialogue", "speaker": "阿离", "text": "跟紧我。"},
+                    {"kind": "dialogue", "speaker": "阿离", "text": "不能让他看出害怕。"},
+                ],
+            },
+        ),
+        (
+            adapt_ad_shot,
+            {
+                "shot_id": "E2S03",
+                "video_prompt": {
+                    "dialogue": [
+                        {"speaker": "阿离", "line": "跟紧我。"},
+                        {"speaker": "阿离", "line": "不能让他看出害怕。"},
+                    ]
+                },
+                "voiceover_text": "",
+            },
+        ),
+        (
+            adapt_video_unit,
+            {
+                "unit_id": "E2S03",
+                "shots": [{"text": "@[阿离]：{跟紧我。}\n@[阿离]：{不能让他看出害怕。}"}],
+            },
+        ),
+    ],
+)
+def test_character_speech_keeps_the_same_ownership_and_order_through_applicable_skeletons(adapter, source) -> None:
+    result = SpeechComposition.prepare(adapter(source))
 
     assert result.mode is SpeechMode.CHARACTER_SPEECH
     assert [(entry.owner, entry.speaker, entry.text) for entry in result.utterances] == [
         (SpeechOwner.CHARACTER, "阿离", "跟紧我。"),
         (SpeechOwner.CHARACTER, "阿离", "不能让他看出害怕。"),
-        (SpeechOwner.CHARACTER, "阿离", "那是我们最后一次见面。"),
     ]
     assert result.problems == ()
 
 
-def test_mixed_speech_returns_a_closed_located_problem_without_rewriting_content() -> None:
-    source = {
-        "scene_id": "E1S04",
-        "utterances": [
-            {"kind": "dialogue", "speaker": "阿离", "text": "快走。"},
-            {"kind": "voiceover", "speaker": None, "text": "大门在她身后合拢。"},
-        ],
-    }
-
-    result = SpeechComposition.prepare(adapt_drama_scene(source))
+@pytest.mark.parametrize(
+    ("adapter", "source", "expected_locations"),
+    [
+        (
+            adapt_drama_scene,
+            {
+                "scene_id": "E1S04",
+                "utterances": [
+                    {"kind": "dialogue", "speaker": "阿离", "text": "快走。"},
+                    {"kind": "voiceover", "speaker": None, "text": "大门在她身后合拢。"},
+                ],
+            },
+            (
+                SpeechFieldLocation(("utterances", 0, "text")),
+                SpeechFieldLocation(("utterances", 1, "text")),
+            ),
+        ),
+        (
+            adapt_ad_shot,
+            {
+                "shot_id": "E1S04",
+                "video_prompt": {"dialogue": [{"speaker": "阿离", "line": "快走。"}]},
+                "voiceover_text": "大门在她身后合拢。",
+            },
+            (
+                SpeechFieldLocation(("video_prompt", "dialogue", 0, "line")),
+                SpeechFieldLocation(("voiceover_text",)),
+            ),
+        ),
+        (
+            adapt_video_unit,
+            {"unit_id": "E1S04", "shots": [{"text": "@[阿离]：{快走。}\n{大门在她身后合拢。}"}]},
+            (
+                SpeechFieldLocation(("shots", 0, "text"), line=0),
+                SpeechFieldLocation(("shots", 0, "text"), line=1),
+            ),
+        ),
+    ],
+)
+def test_mixed_speech_returns_a_closed_located_problem_without_rewriting_content(
+    adapter, source, expected_locations
+) -> None:
+    original = deepcopy(source)
+    result = SpeechComposition.prepare(adapter(source))
 
     assert result.mode is None
     assert [(entry.owner, entry.text) for entry in result.utterances] == [
@@ -96,16 +157,10 @@ def test_mixed_speech_returns_a_closed_located_problem_without_rewriting_content
     problem = result.problems[0]
     assert problem.code is SpeechProblemCode.MIXED_SPEECH
     assert problem.unit_id == "E1S04"
-    assert problem.locations == (
-        SpeechFieldLocation(("utterances", 0, "text")),
-        SpeechFieldLocation(("utterances", 1, "text")),
-    )
+    assert problem.locations == expected_locations
     assert problem.reason is SpeechProblemReason.CHARACTER_AND_NARRATOR_MIXED
     assert problem.action is SpeechProblemAction.REPLAN_UNIT
-    assert source["utterances"] == [
-        {"kind": "dialogue", "speaker": "阿离", "text": "快走。"},
-        {"kind": "voiceover", "speaker": None, "text": "大门在她身后合拢。"},
-    ]
+    assert source == original
 
 
 @pytest.mark.parametrize(
@@ -170,7 +225,7 @@ def test_empty_character_speaker_is_a_structured_blocker(snapshot, expected_loca
             SpeechFieldLocation(("video_prompt", "dialogue")),
         ),
         (
-            adapt_video_unit({"unit_id": "E1S03", "shots": [{"text": "空镜。\n@[阿离]：快走。"}]}),
+            adapt_video_unit({"unit_id": "E1S03", "shots": [{"text": "空镜。\n@[阿离]：{快走。"}]}),
             SpeechFieldLocation(("shots", 0, "text"), line=1),
         ),
     ],
@@ -261,6 +316,38 @@ def test_reference_video_adapter_preserves_cross_shot_utterance_order() -> None:
     ]
 
 
+def test_reference_video_adapter_allows_asset_headings_without_guessing_their_type() -> None:
+    snapshot = adapt_video_unit(
+        {
+            "unit_id": "E1U08",
+            "shots": [{"text": "@[酒馆]：木门被风吹开。"}],
+            "references": [{"type": "scene", "name": "酒馆"}],
+        }
+    )
+
+    result = SpeechComposition.prepare(snapshot)
+
+    assert result.mode is SpeechMode.SILENT
+    assert result.problems == ()
+
+
+def test_reference_video_adapter_rejects_malformed_dialogue_for_a_declared_character() -> None:
+    snapshot = adapt_video_unit(
+        {
+            "unit_id": "E1U09",
+            "shots": [{"text": "@[阿离]：快走。"}],
+            "references": [{"type": "character", "name": "阿离"}],
+        }
+    )
+
+    result = SpeechComposition.prepare(snapshot)
+
+    assert result.mode is None
+    assert [(problem.code, problem.locations) for problem in result.problems] == [
+        (SpeechProblemCode.PARSE_FAILED, (SpeechFieldLocation(("shots", 0, "text"), line=0),))
+    ]
+
+
 def test_damaged_unit_identity_and_container_are_reported_together() -> None:
     result = SpeechComposition.prepare(adapt_video_unit({"unit_id": " ", "shots": "not-a-list"}))
 
@@ -294,6 +381,48 @@ def test_damaged_unit_identity_and_container_are_reported_together() -> None:
     ],
 )
 def test_unusable_speech_shapes_never_degrade_to_a_valid_mode(snapshot, expected_location) -> None:
+    result = SpeechComposition.prepare(snapshot)
+
+    assert result.mode is None
+    assert [(problem.code, problem.locations) for problem in result.problems] == [
+        (SpeechProblemCode.PARSE_FAILED, (expected_location,))
+    ]
+
+
+@pytest.mark.parametrize(
+    ("snapshot", "expected_location"),
+    [
+        (
+            adapt_drama_scene({"scene_id": "E1S09", "utterances": [7]}),
+            SpeechFieldLocation(("utterances", 0)),
+        ),
+        (
+            adapt_drama_scene(
+                {"scene_id": "E1S09", "utterances": [{"kind": "unknown", "speaker": None, "text": "风声。"}]}
+            ),
+            SpeechFieldLocation(("utterances", 0, "kind")),
+        ),
+        (
+            adapt_ad_shot(
+                {
+                    "shot_id": "E1S09",
+                    "video_prompt": {"dialogue": [{"speaker": 7, "line": "快走。"}]},
+                    "voiceover_text": "",
+                }
+            ),
+            SpeechFieldLocation(("video_prompt", "dialogue", 0, "speaker")),
+        ),
+        (
+            adapt_ad_shot({"shot_id": "E1S09", "voiceover_text": "风声。"}),
+            SpeechFieldLocation(("video_prompt",)),
+        ),
+        (
+            adapt_ad_shot({"shot_id": "E1S09", "video_prompt": {"dialogue": []}}),
+            SpeechFieldLocation(("voiceover_text",)),
+        ),
+    ],
+)
+def test_damaged_structured_speech_fields_are_parse_blockers(snapshot, expected_location) -> None:
     result = SpeechComposition.prepare(snapshot)
 
     assert result.mode is None
