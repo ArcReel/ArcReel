@@ -35,6 +35,7 @@ HASH_ALGORITHM = "sha256-v1"
 LOCK_TIMEOUT_SECONDS = 10.0
 _DIGEST_RE = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
 _RESERVED_ARTIFACT_PATHS = frozenset({MANIFEST_FILENAME, LOCK_FILENAME})
+_WINDOWS_RESERVED_ARTIFACT_PATHS = frozenset(path.casefold() for path in _RESERVED_ARTIFACT_PATHS)
 
 
 class ArtifactKind(StrEnum):
@@ -224,6 +225,8 @@ class ProjectArtifactManifestAdapter:
         if not resolved.is_dir():
             raise ArtifactManifestError(f"project path is not a directory: {resolved}")
         self._project_dir = resolved
+        root_stat = resolved.stat(follow_symlinks=False)
+        self._project_identity = (root_stat.st_dev, root_stat.st_ino)
 
     def inspect_artifact(self, artifact_path: str) -> ArtifactObservation:
         try:
@@ -399,58 +402,80 @@ class ProjectArtifactManifestAdapter:
     @contextmanager
     def _locked(self) -> Iterator[int | None]:
         lock_path = self._project_dir / LOCK_FILENAME
-        root_fd: int | None = None
-        try:
-            if os.name == "posix":
-                root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-                try:
-                    root_fd = os.open(self._project_dir, root_flags)
-                except OSError as exc:
-                    raise ArtifactManifestError(
-                        f"project directory cannot be opened safely: {self._project_dir}: {exc}"
-                    ) from exc
-            elif _is_linkish(self._project_dir):
-                raise ArtifactManifestError(f"project directory is a symlink or junction: {self._project_dir}")
-            if root_fd is None and _is_linkish(lock_path):
-                raise ArtifactManifestError(f"manifest lock is a symlink or junction: {lock_path}")
-            flags = os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        with contextlib.ExitStack() as root_stack:
+            root_fd: int | None = None
             try:
-                fd = (
-                    os.open(LOCK_FILENAME, flags, 0o600, dir_fd=root_fd)
-                    if root_fd is not None
-                    else os.open(lock_path, flags, 0o600)
-                )
-            except OSError as exc:
-                if exc.errno == errno.ELOOP:
-                    raise ArtifactManifestError(f"manifest lock is a symlink: {lock_path}") from exc
-                raise ArtifactManifestError(f"cannot open manifest lock: {lock_path}: {exc}") from exc
-            try:
-                if not stat.S_ISREG(os.fstat(fd).st_mode):
-                    raise ArtifactManifestError(f"manifest lock is not a regular file: {lock_path}")
-                handle = os.fdopen(fd, "wb")
-            except BaseException:
-                with contextlib.suppress(OSError):
-                    os.close(fd)
-                raise
-            deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
-            try:
-                while True:
+                if os.name == "posix":
+                    root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
                     try:
-                        portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
-                        break
-                    except (portalocker.AlreadyLocked, portalocker.LockException) as exc:
-                        if time.monotonic() >= deadline:
-                            raise ArtifactManifestError(f"timed out acquiring manifest lock: {lock_path}") from exc
-                        time.sleep(0.05)
+                        root_fd = os.open(self._project_dir, root_flags)
+                    except OSError as exc:
+                        raise ArtifactManifestError(
+                            f"project directory cannot be opened safely: {self._project_dir}: {exc}"
+                        ) from exc
+                else:
+                    root_stack.enter_context(self._guard_portable_project_root())
+                if root_fd is None and _is_linkish(lock_path):
+                    raise ArtifactManifestError(f"manifest lock is a symlink or junction: {lock_path}")
+                flags = os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
                 try:
-                    yield root_fd
+                    fd = (
+                        os.open(LOCK_FILENAME, flags, 0o600, dir_fd=root_fd)
+                        if root_fd is not None
+                        else os.open(lock_path, flags, 0o600)
+                    )
+                except OSError as exc:
+                    if exc.errno == errno.ELOOP:
+                        raise ArtifactManifestError(f"manifest lock is a symlink: {lock_path}") from exc
+                    raise ArtifactManifestError(f"cannot open manifest lock: {lock_path}: {exc}") from exc
+                try:
+                    if not stat.S_ISREG(os.fstat(fd).st_mode):
+                        raise ArtifactManifestError(f"manifest lock is not a regular file: {lock_path}")
+                    handle = os.fdopen(fd, "wb")
+                except BaseException:
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
+                    raise
+                deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
+                try:
+                    while True:
+                        try:
+                            portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
+                            break
+                        except (portalocker.AlreadyLocked, portalocker.LockException) as exc:
+                            if time.monotonic() >= deadline:
+                                raise ArtifactManifestError(f"timed out acquiring manifest lock: {lock_path}") from exc
+                            time.sleep(0.05)
+                    try:
+                        yield root_fd
+                    finally:
+                        portalocker.unlock(handle)
                 finally:
-                    portalocker.unlock(handle)
+                    handle.close()
             finally:
-                handle.close()
+                if root_fd is not None:
+                    os.close(root_fd)
+
+    @contextmanager
+    def _guard_portable_project_root(self) -> Iterator[None]:
+        windows_handle = _open_windows_directory_handle(self._project_dir) if os.name == "nt" else None
+        try:
+            self._assert_portable_project_root_identity()
+            yield
+            self._assert_portable_project_root_identity()
         finally:
-            if root_fd is not None:
-                os.close(root_fd)
+            if windows_handle is not None:
+                _close_windows_handle(windows_handle)
+
+    def _assert_portable_project_root_identity(self) -> None:
+        if _is_linkish(self._project_dir):
+            raise ArtifactManifestError(f"project directory is a symlink or junction: {self._project_dir}")
+        try:
+            root_stat = self._project_dir.stat(follow_symlinks=False)
+        except OSError as exc:
+            raise ArtifactManifestError(f"project directory is unavailable: {self._project_dir}: {exc}") from exc
+        if not stat.S_ISDIR(root_stat.st_mode) or (root_stat.st_dev, root_stat.st_ino) != self._project_identity:
+            raise ArtifactManifestError(f"project directory changed after adapter initialization: {self._project_dir}")
 
     def _load_unlocked(self, root_fd: int | None) -> tuple[dict[str, ArtifactManifestEntry], bytes | None]:
         path = self._project_dir / MANIFEST_FILENAME
@@ -721,7 +746,10 @@ def _normalize_relative_path(value: object) -> str:
     normalized = path.as_posix()
     if normalized in {".", ""}:
         raise ValueError(f"artifact path must name a file: {value!r}")
-    if normalized in _RESERVED_ARTIFACT_PATHS:
+    windows_alias = normalized.rstrip(" .").casefold()
+    if normalized in _RESERVED_ARTIFACT_PATHS or (
+        len(path.parts) == 1 and windows_alias in _WINDOWS_RESERVED_ARTIFACT_PATHS
+    ):
         raise ValueError(f"runtime-owned path cannot be registered as an artifact: {value!r}")
     return normalized
 
@@ -746,6 +774,8 @@ def _parse_manifest(raw: bytes) -> dict[str, ArtifactManifestEntry]:
         payload = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ArtifactManifestError(f"artifact manifest is not valid UTF-8 JSON: {exc}") from exc
+    except RecursionError as exc:
+        raise ArtifactManifestError("artifact manifest exceeds the JSON nesting limit") from exc
     if not isinstance(payload, dict) or set(payload) != {"entries", "hash_algorithm", "schema_version"}:
         raise ArtifactManifestError("artifact manifest has an invalid top-level schema")
     if type(payload["schema_version"]) is not int or payload["schema_version"] != MANIFEST_SCHEMA_VERSION:
@@ -793,6 +823,48 @@ def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, ob
 
 def _is_linkish(path: Path) -> bool:
     return path.is_symlink() or path.is_junction()
+
+
+def _open_windows_directory_handle(path: Path) -> int:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    handle = create_file(
+        str(path),
+        0,
+        0x00000001 | 0x00000002,
+        None,
+        3,
+        0x02000000 | 0x00200000,
+        None,
+    )
+    if handle == wintypes.HANDLE(-1).value:
+        error_code = ctypes.get_last_error()
+        raise ArtifactManifestError(f"project directory cannot be held safely: {path}: winerror {error_code}")
+    return cast(int, handle)
+
+
+def _close_windows_handle(handle: int) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+    close_handle(handle)
 
 
 def _create_temporary_file(root_fd: int) -> tuple[int, str]:

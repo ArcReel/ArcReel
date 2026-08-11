@@ -197,6 +197,8 @@ def test_project_adapter_blocks_escape_and_symlink_artifact_paths(tmp_path: Path
     assert absolute.status is ArtifactStatus.BLOCKED
     assert file_link.status is ArtifactStatus.BLOCKED
     assert parent_link.status is ArtifactStatus.BLOCKED
+    assert traversal.blocker is not None and traversal.blocker.code == "artifact_path_invalid"
+    assert absolute.blocker is not None and absolute.blocker.code == "artifact_path_invalid"
     assert file_link.blocker is not None and file_link.blocker.code == "artifact_symlink"
     assert parent_link.blocker is not None and parent_link.blocker.code == "artifact_symlink"
     with pytest.raises(ArtifactRegistrationError):
@@ -319,6 +321,17 @@ def test_project_adapter_rejects_replaced_portable_project_root(tmp_path: Path) 
     assert not (outside / MANIFEST_FILENAME).exists()
 
 
+def test_project_adapter_rejects_replaced_portable_project_root_identity(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    adapter = ProjectArtifactManifestAdapter(project)
+    project.rename(tmp_path / "original-project")
+    project.mkdir()
+
+    with pytest.raises(ArtifactManifestError, match="changed after adapter initialization"):
+        adapter._assert_portable_project_root_identity()
+
+
 def test_project_adapter_rejects_swapped_portable_parent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -335,13 +348,19 @@ def test_project_adapter_rejects_swapped_portable_parent(
     original_open = os.open
     swapped = False
 
-    def swap_parent_then_open(path: str | bytes | Path, flags: int, mode: int = 0o777) -> int:
+    def swap_parent_then_open(
+        path: str | bytes | Path,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
         nonlocal swapped
-        if not swapped and Path(os.fsdecode(path)) == scripts / "episode.json":
+        if not swapped and dir_fd is None and Path(os.fsdecode(path)) == scripts / "episode.json":
             scripts.rename(moved_scripts)
             scripts.symlink_to(outside, target_is_directory=True)
             swapped = True
-        return original_open(path, flags, mode)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
 
     monkeypatch.setattr("lib.artifact_manifest.os.open", swap_parent_then_open)
 
@@ -480,6 +499,26 @@ def test_project_adapter_reports_duplicate_manifest_fields_as_blocked_without_re
     manifest_path = project / MANIFEST_FILENAME
     manifest_path.write_bytes(malformed)
     manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
+
+    comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
+
+    assert comparison.status is ArtifactStatus.BLOCKED
+    assert comparison.blocker is not None and comparison.blocker.code == "manifest_unreadable"
+    with pytest.raises(ArtifactManifestError):
+        manifest.register(key, artifact_path="episode.json", basis=basis)
+    assert manifest_path.read_bytes() == malformed
+
+
+def test_project_adapter_reports_excessive_manifest_nesting_as_blocked_without_reset(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "episode.json").write_text("{}", encoding="utf-8")
+    malformed = b"[" * 2000 + b"]" * 2000
+    manifest_path = project / MANIFEST_FILENAME
+    manifest_path.write_bytes(malformed)
+    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
+    key = ArtifactKey.episode_script(1)
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"})
 
     comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
 
