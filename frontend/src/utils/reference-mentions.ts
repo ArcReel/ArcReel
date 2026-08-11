@@ -157,6 +157,11 @@ export function extractMentions(text: string): string[] {
 type ProjectBuckets = Pick<ProjectData, "characters" | "scenes" | "props">;
 export type MentionLookup = Record<string, AssetKind>;
 
+// Python str.strip() whitespace set. JavaScript trim() additionally removes U+FEFF,
+// but backend asset-name comparison deliberately treats U+FEFF as a name character.
+// eslint-disable-next-line no-control-regex
+const PYTHON_STRIP_RE = /^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/gu;
+
 /**
  * 把资产名归一到项目名称空间的比对坐标系（strip + Unicode NFC）。镜像后端
  * `lib.asset_types.asset_name_comparison_key`——两侧必须同一坐标系，否则「后端判已登记、
@@ -164,7 +169,7 @@ export type MentionLookup = Record<string, AssetKind>;
  * 尤其容易产出不同编码形式。
  */
 export function normalizeAssetName(name: string): string {
-  return name.trim().normalize("NFC");
+  return name.replace(PYTHON_STRIP_RE, "").normalize("NFC");
 }
 
 function bucketHasName(bucket: Record<string, unknown> | undefined, target: string): boolean {

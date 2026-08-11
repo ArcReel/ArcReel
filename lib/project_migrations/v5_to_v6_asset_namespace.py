@@ -158,11 +158,10 @@ def _contextual_targets(node: dict[str, Any], typed: dict[tuple[str, str], _Asse
 
 def _rewrite_text(
     text: str,
-    node: dict[str, Any],
+    contextual: dict[str, str],
     typed: dict[tuple[str, str], _AssetOccurrence],
     mention_owners: dict[str, _AssetOccurrence],
 ) -> str:
-    contextual = _contextual_targets(node, typed)
     char_targets = {key: item.new_name for (kind, key), item in typed.items() if kind == "character"}
     output: list[str] = []
     for line in text.splitlines(keepends=True):
@@ -206,8 +205,10 @@ def _rewrite_payload(
             rebuilt[target] = cloned
         payload["characters"] = rebuilt
 
-    def walk(node: object) -> None:
+    def walk(node: object, inherited_context: dict[str, str] | None = None) -> None:
         if isinstance(node, dict):
+            contextual = dict(inherited_context or {})
+            contextual.update(_contextual_targets(node, typed))
             for key, value in list(node.items()):
                 asset_type = field_types.get(key)
                 if asset_type is not None and isinstance(value, list):
@@ -217,7 +218,7 @@ def _rewrite_payload(
                             if owner is not None:
                                 value[index] = owner.new_name
                         else:
-                            walk(raw)
+                            walk(raw, contextual)
                     continue
                 if key == "references" and isinstance(value, list):
                     for reference in value:
@@ -236,12 +237,12 @@ def _rewrite_payload(
                         node[key] = owner.new_name
                     continue
                 if key == "text" and isinstance(value, str):
-                    node[key] = _rewrite_text(value, node, typed, mention_owners)
+                    node[key] = _rewrite_text(value, contextual, typed, mention_owners)
                     continue
-                walk(value)
+                walk(value, contextual)
         elif isinstance(node, list):
             for item in node:
-                walk(item)
+                walk(item, inherited_context)
 
     walk(payload)
 

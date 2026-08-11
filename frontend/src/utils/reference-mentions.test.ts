@@ -4,6 +4,7 @@ import {
   extractMentions,
   matchDialogueLine,
   matchVoiceoverLine,
+  normalizeAssetName,
   resolveMentionType,
   mergeReferences,
   splitScriptLines,
@@ -156,6 +157,23 @@ describe("buildMentionLookup", () => {
     expect(Object.hasOwn(lookup, "café")).toBe(false);
     expect(lookup.__proto__).toBe("character");
     expect(lookup.toString).toBe("prop");
+  });
+});
+
+describe("normalizeAssetName", () => {
+  it("uses Python strip whitespace without removing U+FEFF", () => {
+    expect(normalizeAssetName("\u001c\u3000Hero\u00a0")).toBe("Hero");
+    expect(normalizeAssetName("\uFEFFHero")).toBe("\uFEFFHero");
+  });
+
+  it("does not conflate an asset starting with U+FEFF with the visible name", () => {
+    const project = {
+      characters: { "\uFEFFHero": { description: "" } },
+      scenes: {},
+      props: {},
+    };
+    expect(resolveMentionType(project as never, "Hero")).toBeUndefined();
+    expect(resolveMentionType(project as never, "\uFEFFHero")).toBe("character");
   });
 });
 

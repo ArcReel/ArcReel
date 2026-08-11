@@ -446,6 +446,7 @@ async def apply_to_project(
     # 1) 校验冲突策略（400 先于其它检查）
     if req.conflict_policy not in {"skip", "overwrite", "rename"}:
         raise HTTPException(status_code=400, detail=_t("asset_invalid_conflict_policy"))
+    asset_ids = list(dict.fromkeys(req.asset_ids))
 
     # 2) 校验目标项目存在
     project_manager = get_project_manager()
@@ -462,9 +463,9 @@ async def apply_to_project(
 
     # 3) 批量读取所有请求的 asset，缺失的直接归入 failed
     async with async_session_factory() as s:
-        assets = await AssetRepository(s).get_by_ids(req.asset_ids)
+        assets = await AssetRepository(s).get_by_ids(asset_ids)
     assets_by_id = {a.id: a for a in assets}
-    for asset_id in req.asset_ids:
+    for asset_id in asset_ids:
         if asset_id not in assets_by_id:
             failed.append({"id": asset_id, "reason": "not_found"})
 
@@ -480,7 +481,7 @@ async def apply_to_project(
                 if isinstance(raw_name, str):
                     occupied[asset_name_comparison_key(raw_name)] = (asset_type, raw_name)
     plans: list[dict] = []
-    for asset_id in req.asset_ids:
+    for asset_id in asset_ids:
         a = assets_by_id.get(asset_id)
         if a is None:
             continue  # 已在 failed

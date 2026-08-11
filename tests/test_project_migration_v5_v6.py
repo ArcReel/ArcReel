@@ -83,7 +83,15 @@ def test_migration_assigns_stable_safe_names_and_cascades_everywhere(tmp_path: P
     _write_json(project_dir / "scripts" / "episode_1.json", script)
     _write_json(
         project_dir / "drafts" / "episode_1" / "quarantine.json",
-        {"units": [{"text": "@[Hero]", "references": [{"type": "product", "name": "Hero"}]}]},
+        {
+            "units": [
+                {"text": "@[Hero]", "references": [{"type": "product", "name": "Hero"}]},
+                {
+                    "references": [{"type": "scene", "name": "Hero"}],
+                    "shots": [{"text": "@[Hero] in view"}],
+                },
+            ]
+        },
     )
     for name in ("step1_normalized_script.md", "step1_segments.md", "step1_reference_units.md"):
         path = project_dir / "drafts" / "episode_1" / name
@@ -155,6 +163,8 @@ def test_migration_assigns_stable_safe_names_and_cascades_everywhere(tmp_path: P
     assert draft["units"][0]["references"] == [{"type": "product", "name": "Hero_product"}]
     # 同容器唯一 typed reference 可判定归属，mention 随 product 级联。
     assert draft["units"][0]["text"] == "@[Hero_product]"
+    assert draft["units"][1]["references"] == [{"type": "scene", "name": "Hero_scene"}]
+    assert draft["units"][1]["shots"][0]["text"] == "@[Hero_scene] in view"
     for name in ("step1_normalized_script.md", "step1_segments.md", "step1_reference_units.md"):
         assert (project_dir / "drafts" / "episode_1" / name).read_text(encoding="utf-8") == "镜头1：@[Trim] 入场"
 

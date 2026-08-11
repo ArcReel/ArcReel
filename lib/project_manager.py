@@ -1610,7 +1610,12 @@ class ProjectManager:
         mutate_fn: Callable[[dict], None],
         copies: list[tuple[Path, Path]],
     ) -> dict:
-        """在项目锁内把文件替换与 project.json 写回作为一个可回滚事务提交。"""
+        """在项目锁内把文件替换与 project.json 写回作为一个可回滚事务提交。
+
+        ``copies`` 的目标路径必须互不重复。``mutate_fn`` 抛错时不会安装任何文件；
+        所有源文件先完成暂存，再逐个替换目标。安装或 JSON 写回失败时按相反顺序恢复
+        已替换目标，恢复失败仅记录日志并保留原始异常；提交成功后清理备份。
+        """
         project_file = self._get_project_file_path(project_name)
         destinations = [destination for _source, destination in copies]
         if len(set(destinations)) != len(destinations):
@@ -1897,10 +1902,13 @@ class ProjectManager:
     # 100% 兼容旧调用方。
 
     def _add_asset(self, asset_type: str, project_name: str, name: str, entry: dict) -> bool:
-        """新增 entry 到 project[bucket][name]。冲突时返回 False。
+        """新增 entry 到 project[bucket][name]。同类型已存在时返回 False。
 
         通过 update_project 在单一文件锁内完成 read-modify-write，避免并发新增时的
         lost-update 竞态。
+
+        Raises:
+            ProjectAssetNameConflictError: 规范化后的名称已被其它资产类型占用。
         """
         name = validate_asset_name(name)
         spec = ASSET_SPECS[asset_type]
@@ -1926,7 +1934,10 @@ class ProjectManager:
         """批量新增 entries。已存在的 name 跳过，返回新增数量。
 
         通过 update_project 在单一文件锁内完成 read-modify-write，避免并发批量新增时
-        的 lost-update 竞态。
+        的 lost-update 竞态。任一名称与其它资产类型冲突时整批不落盘。
+
+        Raises:
+            ProjectAssetNameConflictError: 任一规范化后的名称已被其它资产类型占用。
         """
         spec = ASSET_SPECS[asset_type]
         # 与 upsert_assets 同口径：规范化（strip + NFC）后等价的 key（{"李白", "  李白  "}
@@ -2512,27 +2523,27 @@ class ProjectManager:
         return entry
 
     def add_character(self, project_name: str, name: str, description: str, voice_style: str = "") -> bool:
-        """直接添加角色到 project.json。已存在返回 False。"""
+        """直接添加角色到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("character", description, {"voice_style": voice_style})
         return self._add_asset("character", project_name, name, entry)
 
     def add_project_scene(self, project_name: str, name: str, description: str) -> bool:
-        """直接添加场景到 project.json。已存在返回 False。"""
+        """直接添加场景到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("scene", description)
         return self._add_asset("scene", project_name, name, entry)
 
     def add_prop(self, project_name: str, name: str, description: str) -> bool:
-        """直接添加道具到 project.json。已存在返回 False。"""
+        """直接添加道具到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("prop", description)
         return self._add_asset("prop", project_name, name, entry)
 
     def add_product(self, project_name: str, name: str, description: str, brand: str = "") -> bool:
-        """直接添加产品到 project.json。已存在返回 False。"""
+        """直接添加产品到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("product", description, {"brand": brand})
         return self._add_asset("product", project_name, name, entry)
 
     def add_characters_batch(self, project_name: str, characters: dict[str, dict]) -> int:
-        """批量添加角色到 project.json。已存在的跳过，返回新增数量。"""
+        """批量添加角色；同类型已存在的跳过，跨类型冲突时整批不落盘。"""
         entries = {
             name: self._build_asset_entry("character", data.get("description", ""), data)
             for name, data in characters.items()
@@ -2540,14 +2551,14 @@ class ProjectManager:
         return self._add_assets_batch("character", project_name, entries)
 
     def add_scenes_batch(self, project_name: str, scenes: dict[str, dict]) -> int:
-        """批量添加场景到 project.json。已存在的跳过，返回新增数量。"""
+        """批量添加场景；同类型已存在的跳过，跨类型冲突时整批不落盘。"""
         entries = {
             name: self._build_asset_entry("scene", data.get("description", ""), data) for name, data in scenes.items()
         }
         return self._add_assets_batch("scene", project_name, entries)
 
     def add_props_batch(self, project_name: str, props: dict[str, dict]) -> int:
-        """批量添加道具到 project.json。已存在的跳过，返回新增数量。"""
+        """批量添加道具；同类型已存在的跳过，跨类型冲突时整批不落盘。"""
         entries = {
             name: self._build_asset_entry("prop", data.get("description", ""), data) for name, data in props.items()
         }

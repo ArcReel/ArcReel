@@ -590,6 +590,32 @@ class TestApplyToProject:
         data = pm.load_project("target")
         assert data["characters"]["王"]["description"] == "library desc"
 
+    @pytest.mark.unit
+    def test_duplicate_overwrite_asset_id_is_idempotent(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "A"},
+            files={"image": ("A.png", b"image", "image/png")},
+        )
+        asset_id = created.json()["asset"]["id"]
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [asset_id, asset_id],
+                "target_project": "target",
+                "conflict_policy": "overwrite",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["succeeded"] == [{"id": asset_id, "name": "A"}]
+        assert (pm.projects_root / "target" / "scenes" / "A.png").read_bytes() == b"image"
+
     @pytest.mark.integration
     def test_overwrite_policy_rejects_cross_type_name(self, _assets_env):
         client = _assets_env["client"]
@@ -636,8 +662,13 @@ class TestApplyToProject:
         assert "Shared (3)" in pm.load_project("target")["scenes"]
 
     @pytest.mark.integration
-    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
-    def test_concurrent_cross_type_conflict_returns_localized_409(self, _assets_env, monkeypatch, locale):
+    @pytest.mark.parametrize(
+        ("locale", "localized_fragment"),
+        [("zh", "不能同名"), ("en", "unique names"), ("vi", "tên duy nhất")],
+    )
+    def test_concurrent_cross_type_conflict_returns_localized_409(
+        self, _assets_env, monkeypatch, locale, localized_fragment
+    ):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
         pm.create_project("target")
@@ -671,6 +702,7 @@ class TestApplyToProject:
 
         assert response.status_code == 409
         assert "Shared" in response.json()["detail"]
+        assert localized_fragment in response.json()["detail"]
         assert pm.load_project("target")["scenes"] == {}
 
     @pytest.mark.unit
@@ -873,6 +905,8 @@ class TestApplyToProject:
 
     @pytest.mark.unit
     def test_multi_file_copy_failure_rolls_back_batch(self, _assets_env, monkeypatch):
+        from lib import project_manager as project_manager_module
+
         client = _assets_env["client"]
         pm = _assets_env["pm"]
         pm.create_project("target")
@@ -886,7 +920,7 @@ class TestApplyToProject:
             )
             asset_ids.append(response.json()["asset"]["id"])
 
-        real_copyfile = assets.shutil.copyfile
+        real_copyfile = project_manager_module.shutil.copyfile
         calls = 0
 
         def fail_second_copy(source, destination):
@@ -896,7 +930,7 @@ class TestApplyToProject:
                 raise OSError("injected second copy failure")
             return real_copyfile(source, destination)
 
-        monkeypatch.setattr("lib.project_manager.shutil.copyfile", fail_second_copy)
+        monkeypatch.setattr(project_manager_module.shutil, "copyfile", fail_second_copy)
 
         with pytest.raises(OSError, match="injected second copy failure"):
             client.post(
@@ -908,6 +942,61 @@ class TestApplyToProject:
         target_dir = pm.projects_root / "target" / "scenes"
         assert not (target_dir / "A.png").exists()
         assert not (target_dir / "B.png").exists()
+        assert not list(target_dir.glob(".*.tmp"))
+        assert not list(target_dir.glob(".*.bak"))
+
+    @pytest.mark.unit
+    def test_second_file_install_failure_restores_all_overwritten_media(self, _assets_env, monkeypatch):
+        from lib import project_manager as project_manager_module
+
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        asset_ids = []
+        for name, content in (("A", b"new-a"), ("B", b"new-b")):
+            response = client.post(
+                "/api/v1/assets",
+                data={"type": "scene", "name": name, "description": f"new-{name}"},
+                files={"image": (f"{name}.png", content, "image/png")},
+            )
+            asset_ids.append(response.json()["asset"]["id"])
+
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        target_dir = pm.projects_root / "target" / "scenes"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for name, content in (("A", b"old-a"), ("B", b"old-b")):
+            (target_dir / f"{name}.png").write_bytes(content)
+        pm.update_project(
+            "target",
+            lambda project: project["scenes"].update(
+                {name: {"description": f"old-{name}", "scene_sheet": f"scenes/{name}.png"} for name in ("A", "B")}
+            ),
+        )
+
+        real_replace = project_manager_module.os.replace
+
+        def fail_second_install(source, destination):
+            source_path = project_manager_module.Path(source)
+            destination_path = project_manager_module.Path(destination)
+            if source_path.suffix == ".tmp" and destination_path.name == "B.png":
+                raise OSError("injected second install failure")
+            return real_replace(source, destination)
+
+        monkeypatch.setattr(project_manager_module.os, "replace", fail_second_install)
+
+        with pytest.raises(OSError, match="injected second install failure"):
+            client.post(
+                "/api/v1/assets/apply-to-project",
+                json={"asset_ids": asset_ids, "target_project": "target", "conflict_policy": "overwrite"},
+            )
+
+        project = pm.load_project("target")
+        assert {name: project["scenes"][name]["description"] for name in ("A", "B")} == {
+            "A": "old-A",
+            "B": "old-B",
+        }
+        assert (target_dir / "A.png").read_bytes() == b"old-a"
+        assert (target_dir / "B.png").read_bytes() == b"old-b"
         assert not list(target_dir.glob(".*.tmp"))
         assert not list(target_dir.glob(".*.bak"))
 
