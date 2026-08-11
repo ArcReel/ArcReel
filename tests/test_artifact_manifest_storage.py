@@ -439,6 +439,36 @@ def test_project_adapter_rejects_replaced_posix_project_root_identity(tmp_path: 
     assert not (project / MANIFEST_FILENAME).exists()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="no-follow root descriptors bind POSIX adapter initialization")
+def test_project_adapter_rejects_project_root_symlink_swap_during_initialization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    original_project = tmp_path / "original-project"
+    original_resolve = Path.resolve
+    swapped = False
+
+    def swap_then_resolve(path: Path, strict: bool = False) -> Path:
+        nonlocal swapped
+        if not swapped and path == project:
+            project.rename(original_project)
+            project.symlink_to(outside, target_is_directory=True)
+            swapped = True
+        return original_resolve(path, strict=strict)
+
+    monkeypatch.setattr("lib.artifact_manifest.Path.resolve", swap_then_resolve)
+
+    with pytest.raises(ArtifactManifestError, match="changed during adapter initialization"):
+        ProjectArtifactManifestAdapter(project)
+
+    assert swapped
+    assert not (outside / MANIFEST_FILENAME).exists()
+
+
 @pytest.mark.skipif(os.name != "posix", reason="opened directory identity is the POSIX replacement defense")
 def test_project_adapter_reports_unavailable_opened_posix_root(tmp_path: Path) -> None:
     project = tmp_path / "project"

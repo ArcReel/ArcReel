@@ -219,17 +219,46 @@ class ProjectArtifactManifestAdapter:
     """Safe project-directory adapter backed by a versioned JSON manifest."""
 
     def __init__(self, project_dir: Path) -> None:
-        if _is_linkish(project_dir):
-            raise ArtifactManifestError(f"project directory is a symlink or junction: {project_dir}")
+        root_fd: int | None = None
+        windows_handle: int | None = None
         try:
+            initial_stat = project_dir.stat(follow_symlinks=False)
+            if _is_linkish(project_dir):
+                raise ArtifactManifestError(f"project directory is a symlink or junction: {project_dir}")
+            if not stat.S_ISDIR(initial_stat.st_mode):
+                raise ArtifactManifestError(f"project path is not a directory: {project_dir}")
+            initial_identity = (initial_stat.st_dev, initial_stat.st_ino)
+            opened_identity: tuple[int, int] | None = None
+            if os.name == "posix":
+                root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | _O_NOFOLLOW
+                root_fd = os.open(project_dir, root_flags)
+                opened_stat = os.fstat(root_fd)
+                opened_identity = (opened_stat.st_dev, opened_stat.st_ino)
+            elif os.name == "nt":
+                windows_handle = _open_windows_directory_handle(project_dir)
             resolved = project_dir.resolve(strict=True)
+            current_stat = project_dir.stat(follow_symlinks=False)
+            resolved_stat = resolved.stat(follow_symlinks=False)
         except OSError as exc:
             raise ArtifactManifestError(f"project directory is unavailable: {project_dir}") from exc
-        if not resolved.is_dir():
-            raise ArtifactManifestError(f"project path is not a directory: {resolved}")
+        finally:
+            if root_fd is not None:
+                os.close(root_fd)
+            if windows_handle is not None:
+                _close_windows_handle(windows_handle)
+        current_identity = (current_stat.st_dev, current_stat.st_ino)
+        resolved_identity = (resolved_stat.st_dev, resolved_stat.st_ino)
+        if (
+            _is_linkish(project_dir)
+            or not stat.S_ISDIR(current_stat.st_mode)
+            or not stat.S_ISDIR(resolved_stat.st_mode)
+            or current_identity != initial_identity
+            or resolved_identity != initial_identity
+            or (opened_identity is not None and opened_identity != initial_identity)
+        ):
+            raise ArtifactManifestError(f"project directory changed during adapter initialization: {project_dir}")
         self._project_dir = resolved
-        root_stat = resolved.stat(follow_symlinks=False)
-        self._project_identity = (root_stat.st_dev, root_stat.st_ino)
+        self._project_identity = initial_identity
 
     def inspect_artifact(self, artifact_path: str) -> ArtifactObservation:
         try:

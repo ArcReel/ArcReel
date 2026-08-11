@@ -26,9 +26,7 @@ def build_step1_basis(source_content: object, *, project: Mapping[str, object]) 
     if not isinstance(source_kind, str) or source_kind not in _SOURCE_KINDS:
         raise ValueError(f"unsupported source_kind: {source_kind!r}")
     raw_source_language = project.get("source_language")
-    source_language = (
-        _DEFAULT_SOURCE_LANGUAGE if raw_source_language is None or raw_source_language == "" else raw_source_language
-    )
+    source_language = raw_source_language or _DEFAULT_SOURCE_LANGUAGE
     if not isinstance(source_language, str):
         raise ValueError(f"source_language must be a non-empty string or null, got {source_language!r}")
     return ArtifactBasis.build(

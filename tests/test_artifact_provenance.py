@@ -102,7 +102,7 @@ def test_step1_basis_treats_null_source_kind_as_default() -> None:
     assert defaulted.digest == explicit.digest
 
 
-@pytest.mark.parametrize("source_language", [None, ""])
+@pytest.mark.parametrize("source_language", [None, "", False, 0, [], {}])
 def test_step1_basis_canonicalizes_default_source_language(source_language: object) -> None:
     project = {
         "content_mode": "narration",
