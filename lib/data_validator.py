@@ -633,6 +633,12 @@ class DataValidator:
         self._validate_project_payload(project, errors, warnings)
         return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
 
+    def validate_asset_definitions(self, project: dict[str, Any]) -> ValidationResult:
+        """Validate the asset-entry subset of an in-memory project payload."""
+        result = self.validate_project_payload(project)
+        errors = [message for message in result.error_messages if message.key.startswith("val_asset_")]
+        return ValidationResult(valid=not errors, error_messages=errors)
+
     def validate_project(self, project_name: str) -> ValidationResult:
         """验证 project.json"""
         return self.validate_project_dir(self.projects_root / project_name)

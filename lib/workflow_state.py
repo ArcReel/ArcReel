@@ -134,6 +134,21 @@ def _planning_fingerprints_diverged(project: Mapping[str, Any], sources: tuple[S
     return bool(mismatched_source_fingerprints(recorded, list(sources)))
 
 
+def _new_source_precedes_cursor(project: Mapping[str, Any], sources: tuple[SourceDoc, ...]) -> bool:
+    recorded = project.get(SOURCE_FINGERPRINTS_KEY)
+    cursor = project.get("planning_cursor")
+    if not isinstance(recorded, Mapping) or not isinstance(cursor, Mapping):
+        return False
+    cursor_file = cursor.get("source_file")
+    if not isinstance(cursor_file, str):
+        return False
+    canonical_cursor = unicodedata.normalize("NFC", cursor_file)
+    return any(
+        (canonical := unicodedata.normalize("NFC", source.rel_path)) not in recorded and canonical <= canonical_cursor
+        for source in sources
+    )
+
+
 def _empty_collection() -> dict[str, list[str]]:
     return {"current_ids": [], "missing_ids": [], "stale_ids": []}
 
@@ -561,6 +576,15 @@ class WorkflowStateService:
             blockers.append(
                 WorkflowBlocker(code="invalid_generation_mode", path="generation_mode", reason="unsupported route")
             )
+        asset_validation = DataValidator(str(self.pm.projects_root)).validate_asset_definitions(project)
+        if not asset_validation.valid:
+            blockers.append(
+                WorkflowBlocker(
+                    code="invalid_asset_definitions",
+                    path="project.json",
+                    reason="; ".join(asset_validation.errors),
+                )
+            )
         source, inventory = self._source_inventory(project_path, project, str(mode), blockers)
         planning_sources = (
             tuple(discover_sources(project_path)) if mode != "ad" and source is not None and not source.blockers else ()
@@ -658,6 +682,13 @@ class WorkflowStateService:
                 "source files changed after episode planning",
                 args={"from_episode": 1},
             )
+        elif mode != "ad" and _new_source_precedes_cursor(project, shared.planning_sources):
+            state = "EPISODE_PLAN"
+            next_action = _action(
+                "reset_episode_planning",
+                "new source text precedes the current planning cursor",
+                args={"from_episode": 1},
+            )
         elif mode != "ad" and selected is None:
             state = "EPISODE_PLAN"
             if episode is not None and shared.planning_complete:
@@ -690,8 +721,14 @@ class WorkflowStateService:
                     baseline_is_recorded = script_review.STALE_STEP1_REVISION_FIELD in stale_entry
                     stale_revision = stale_entry.get(script_review.STALE_STEP1_REVISION_FIELD)
                     if not baseline_is_recorded:
-                        stale_revision = script_review.stored_review(project, target.episode).get("fingerprint")
-                        baseline_is_recorded = isinstance(stale_revision, str)
+                        artifacts["step1"] = {"state": "stale"}
+                        state = "EPISODE_PLAN"
+                        next_action = _action(
+                            "reset_episode_planning",
+                            "legacy stale episode has no rebuild baseline",
+                            args={"from_episode": target.episode},
+                        )
+                        return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
                     if live_revision is None or (baseline_is_recorded and live_revision == stale_revision):
                         artifacts["step1"] = {"state": "stale"}
                         state = "STEP1_CONTENT"

@@ -420,7 +420,7 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
 
 
 @pytest.mark.integration
-def test_legacy_stale_episode_without_baseline_advances_existing_step1_to_review(tmp_path: Path) -> None:
+def test_legacy_stale_episode_without_baseline_requires_planning_reset(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     _write_source_and_complete(pm, project_path)
     pm.update_project(
@@ -441,8 +441,9 @@ def test_legacy_stale_episode_without_baseline_advances_existing_step1_to_review
 
     status = WorkflowStateService(pm).get_status("demo")
 
-    assert status.state == "STEP1_REVIEW"
-    assert status.next_action.type == "confirm_step1"
+    assert status.state == "EPISODE_PLAN"
+    assert status.next_action.type == "reset_episode_planning"
+    assert status.next_action.args == {"from_episode": 1}
 
 
 @pytest.mark.integration
@@ -464,6 +465,52 @@ def test_requested_missing_episode_is_blocked_when_source_is_fully_planned(tmp_p
     assert status.state == "EPISODE_PLAN"
     assert status.target is None
     assert status.blockers[0].code == "episode_unavailable"
+    assert status.next_action.type == "none"
+
+
+@pytest.mark.integration
+def test_source_inserted_before_cursor_requires_planning_reset(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_dir = project_path / "source"
+    (source_dir / "a.txt").write_text("已规划", encoding="utf-8")
+    scope = SourceScope(kind="all")
+    project = pm.load_project("demo")
+    initial = compute_source_revision(project_path, project, scope).revision
+    assert initial is not None
+    complete_asset_inventory(pm, "demo", scope, initial)
+    pm.update_project(
+        "demo",
+        lambda data: data.update(
+            planning_cursor={"source_file": "source/a.txt", "offset": 3},
+            **{SOURCE_FINGERPRINTS_KEY: compute_source_fingerprints(discover_sources(project_path))},
+        ),
+    )
+    (source_dir / "0.txt").write_text("新增", encoding="utf-8")
+    refreshed = compute_source_revision(project_path, pm.load_project("demo"), scope).revision
+    assert refreshed is not None
+    complete_asset_inventory(pm, "demo", scope, refreshed)
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "EPISODE_PLAN"
+    assert status.next_action.type == "reset_episode_planning"
+    assert status.next_action.args == {"from_episode": 1}
+
+
+@pytest.mark.integration
+def test_invalid_asset_definition_blocks_existing_sheet(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    sheet = "characters/invalid.png"
+    _write_artifact(project_path, sheet)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(characters={"无描述角色": {"character_sheet": sheet}}),
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "PROJECT_INPUT"
+    assert status.blockers[0].code == "invalid_asset_definitions"
     assert status.next_action.type == "none"
 
 
