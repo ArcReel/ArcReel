@@ -64,7 +64,7 @@ issue 的启动条件：全部 blocker 已合入 main。启动时将 issue assig
 2. **在 Spec issue 发人工 QA 验收清单 comment，不关闭 Spec 本体**。清单按已合并子 issue（含清尾轮）组织：每项给 PR 链接与面向用户可感知行为的验收步骤（实际操作路径，不复读技术验收标准）；末尾列 needs-human 搁置项、跳过与未启动项、发现的缺口。纯 issue 列表批次没有共同 Spec 时，清单并入收尾汇报
 3. 解散团队，移除已合并 issue 的 assignee（避免 reopen 后仍显示为处理中），删除本批次的全部 worktree 与本地分支——其他会话或批次的 worktree 不在删除之列（worktree 有未提交残留时用 `git worktree remove --force`；远端分支合并后自动删除）
 4. 向用户汇报三份清单：已合并（issue 与 PR 对照）、needs-human 搁置（含争点）、跳过与未启动（含原因）；另附转呈事项：缺口立项建议、故障裁决记录、清尾分拣中转呈的候选，以及**聚合复盘**——从账本 `retrospective` 行与 handoff 目录聚合四类复盘候选（ADR / CONTEXT.md / agent instructions / follow-up），一次性呈用户裁决。多数批次干净收敛，四类候选常为空；空是预期结果，照实呈报，无需为"没有候选"补叙
-5. 删除该批次的 handoff 目录（残留会混入同 batch-id 的下一批交接），再从本 skill 目录运行 `bash scripts/ledger.sh <batch-id> closed` append 一条 `closed` 收尾行——`closed` 须为收尾最后一笔：中断时账本仍非终态，可循接管路径补完。账本不删除，留作复盘源与审计，并供第一步的同批次检查据此判定本批次已终态。批准后的复盘落地方式（写 ADR / 改 CONTEXT.md / 补仓库 agent instructions / 立 follow-up issue）不在此指定，由用户与后续会话决定
+5. 删除该批次的 handoff 目录（残留会混入同 batch-id 的下一批交接），再保持仓库根目录为工作目录，运行 `bash <skill-dir>/scripts/ledger.sh <batch-id> closed` append 一条 `closed` 收尾行——`<skill-dir>` 取当前 skill 目录的绝对路径；`closed` 须为收尾最后一笔：中断时账本仍非终态，可循接管路径补完。账本不删除，留作复盘源与审计，并供第一步的同批次检查据此判定本批次已终态。批准后的复盘落地方式（写 ADR / 改 CONTEXT.md / 补仓库 agent instructions / 立 follow-up issue）不在此指定，由用户与后续会话决定
 
 ## 合并纪律
 
@@ -91,10 +91,10 @@ issue 的启动条件：全部 blocker 已合入 main。启动时将 issue assig
 
 `.afk/<batch-id>.jsonl` 是一份追加式薄账本，只记 **gh/git 无法重推的事实**；远端可查的（issue / PR / 分支状态、依赖图）一律不落账、不镜像，需要时跑 batch-poll。它是恢复 replay 的依据，也是收尾复盘与审计的来源。
 
-用 `ledger.sh` 追加，不要用裸 `echo >>`：
+保持仓库根目录为工作目录，用当前 skill 目录的绝对路径调用 `ledger.sh`；脚本按工作目录把账本写入仓库根 `.afk/`。不要用裸 `echo >>`：
 
 ```bash
-bash scripts/ledger.sh <batch-id> <kind> [--issue N] [--pr M] [--scope-spec N | --scope-issues "1,2,3"] [--detail "..."]
+bash <skill-dir>/scripts/ledger.sh <batch-id> <kind> [--issue N] [--pr M] [--scope-spec N | --scope-issues "1,2,3"] [--detail "..."]
 ```
 
 - **batch-id**：Spec 批次用 `spec-<N>`；显式 issue 批次用一个 slug（如 `batch-<日期>`）
