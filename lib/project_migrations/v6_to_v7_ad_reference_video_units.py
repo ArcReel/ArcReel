@@ -13,6 +13,8 @@ from typing import Any
 from lib.asset_types import asset_name_comparison_key
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
+from lib.reference_video.writing_syntax import MAX_SHOTS_PER_UNIT
+from lib.script_models import REFERENCE_UNIT_DURATION_RANGE, ReferenceVideoScript
 from lib.speech_composition import SpeechComposition, SpeechProblemCode, adapt_video_unit
 
 _REFERENCE_TYPES = (
@@ -111,32 +113,63 @@ def _unit_transition(shots: list[dict[str, Any]]) -> str:
     return value if isinstance(value, str) and value in _TRANSITIONS else "cut"
 
 
+def _migration_note(*, unresolved_shot_ids: list[str], overlapping_shot_ids: list[str]) -> str | None:
+    """把不能写入自包含正文的旧成员证据留在可见备注中。"""
+    history: dict[str, list[str]] = {}
+    if unresolved_shot_ids:
+        history["unresolved_legacy_shot_ids"] = unresolved_shot_ids
+    if overlapping_shot_ids:
+        history["overlapping_legacy_shot_ids"] = overlapping_shot_ids
+    if not history:
+        return None
+    return json.dumps(history, ensure_ascii=False, separators=(",", ":"))
+
+
 def _unit_from_shots(
     *,
     unit_id: str,
     shots: list[dict[str, Any]],
     generated_assets: object,
     requires_replan: bool,
+    note: str | None = None,
 ) -> dict[str, Any]:
+    shot_texts = [_shot_text(shot) for shot in shots]
+    over_capacity = len(shot_texts) > MAX_SHOTS_PER_UNIT
+    if over_capacity:
+        # 旧 unit 的边界与付费产物身份不可拆；折叠画面文本可同时保住全部内容与新模型上限。
+        shot_texts = ["\n".join(shot_texts)]
+    migrated_shots = [{"text": text} for text in shot_texts]
+    duration = sum(_positive_seconds(shot.get("duration_seconds")) for shot in shots)
+    min_duration, max_duration = REFERENCE_UNIT_DURATION_RANGE
+    invalid_duration = bool(migrated_shots) and not min_duration <= duration <= max_duration
+    if invalid_duration:
+        # marker 会阻止生成；夹到结构区间只为让问题 unit 保持可读、可编辑且不丢正文。
+        duration = min(max(duration, min_duration), max_duration)
+
     unit: dict[str, Any] = {
         "unit_id": unit_id,
-        "shots": [{"text": _shot_text(shot)} for shot in shots],
+        "shots": migrated_shots,
         "references": _shot_references(shots),
-        "duration_seconds": sum(_positive_seconds(shot.get("duration_seconds")) for shot in shots),
+        "duration_seconds": duration,
         "transition_to_next": _unit_transition(shots),
-        "note": None,
+        "note": note,
         # 付费产物、URI 与旧来源签名均是历史事实，迁移必须逐键原样保留。
         "generated_assets": copy.deepcopy(generated_assets) if isinstance(generated_assets, dict) else {},
     }
     preparation = SpeechComposition.prepare(adapt_video_unit(unit))
-    needs_replan = requires_replan or any(
-        problem.code
-        in {
-            SpeechProblemCode.MIXED_SPEECH,
-            SpeechProblemCode.PARSE_FAILED,
-            SpeechProblemCode.EMPTY_SPEAKER,
-        }
-        for problem in preparation.problems
+    needs_replan = (
+        requires_replan
+        or over_capacity
+        or invalid_duration
+        or any(
+            problem.code
+            in {
+                SpeechProblemCode.MIXED_SPEECH,
+                SpeechProblemCode.PARSE_FAILED,
+                SpeechProblemCode.EMPTY_SPEAKER,
+            }
+            for problem in preparation.problems
+        )
     )
     if needs_replan:
         unit["needs_replan"] = True
@@ -149,7 +182,9 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
         existing_units = payload.get("video_units")
         if not isinstance(existing_units, list):
             raise ValueError("video_units 必须是数组")
-        return copy.deepcopy(payload)
+        migrated = copy.deepcopy(payload)
+        ReferenceVideoScript.model_validate(migrated)
+        return migrated
 
     raw_shots = payload.get("shots")
     if not isinstance(raw_shots, list):
@@ -163,6 +198,8 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
         shots.append(shot)
         shot_id = shot.get("shot_id")
         if isinstance(shot_id, str) and shot_id:
+            if shot_id in shot_by_id:
+                raise ValueError(f"shots[{index}].shot_id 重复: {shot_id}")
             shot_by_id[shot_id] = shot
 
     raw_units = payload.get("reference_units")
@@ -182,30 +219,51 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
             raise ValueError("reference_units 必须是数组或 null")
         covered_shot_ids: set[str] = set()
         used_unit_ids: set[str] = set()
+        membership_counts: dict[str, int] = {}
+        prepared_units: list[tuple[dict[str, Any], str, list[str]]] = []
         for index, raw_unit in enumerate(raw_units):
             if not isinstance(raw_unit, dict):
                 raise ValueError(f"reference_units[{index}] 必须是对象")
             unit_id = raw_unit.get("unit_id")
             if not isinstance(unit_id, str) or not unit_id:
                 raise ValueError(f"reference_units[{index}].unit_id 必须是非空字符串")
+            if unit_id in used_unit_ids:
+                raise ValueError(f"reference_units[{index}].unit_id 重复: {unit_id}")
             used_unit_ids.add(unit_id)
             shot_ids = raw_unit.get("shot_ids")
             if not isinstance(shot_ids, list):
                 raise ValueError(f"reference_units[{index}].shot_ids 必须是数组")
+            normalized_shot_ids: list[str] = []
+            for member_index, shot_id in enumerate(shot_ids):
+                if not isinstance(shot_id, str) or not shot_id:
+                    raise ValueError(f"reference_units[{index}].shot_ids[{member_index}] 必须是非空字符串")
+                normalized_shot_ids.append(shot_id)
+                if shot_id in shot_by_id:
+                    membership_counts[shot_id] = membership_counts.get(shot_id, 0) + 1
+            prepared_units.append((raw_unit, unit_id, normalized_shot_ids))
+
+        for raw_unit, unit_id, shot_ids in prepared_units:
             members: list[dict[str, Any]] = []
-            dangling = not shot_ids
+            unresolved_shot_ids: list[str] = []
+            overlapping_shot_ids: list[str] = []
             for shot_id in shot_ids:
-                if isinstance(shot_id, str) and shot_id in shot_by_id:
+                if shot_id in shot_by_id:
                     members.append(shot_by_id[shot_id])
                     covered_shot_ids.add(shot_id)
+                    if membership_counts[shot_id] > 1:
+                        overlapping_shot_ids.append(shot_id)
                 else:
-                    dangling = True
+                    unresolved_shot_ids.append(shot_id)
             units.append(
                 _unit_from_shots(
                     unit_id=unit_id,
                     shots=members,
                     generated_assets=raw_unit.get("generated_assets"),
-                    requires_replan=dangling,
+                    requires_replan=not shot_ids or bool(unresolved_shot_ids) or bool(overlapping_shot_ids),
+                    note=_migration_note(
+                        unresolved_shot_ids=unresolved_shot_ids,
+                        overlapping_shot_ids=overlapping_shot_ids,
+                    ),
                 )
             )
 
@@ -235,6 +293,7 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
     migrated.pop("reference_units", None)
     migrated["video_units"] = units
     migrated["duration_seconds"] = sum(_positive_seconds(unit.get("duration_seconds")) for unit in units)
+    ReferenceVideoScript.model_validate(migrated)
     return migrated
 
 

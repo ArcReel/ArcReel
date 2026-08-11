@@ -83,9 +83,9 @@ async def _pending_duration_confirmations(
     *,
     project: dict[str, Any],
     episode: int | None,
-    units: list[dict[str, Any]],
+    units: list[Any],
     skip_ids: set[str],
-    spec_for: Callable[[dict[str, Any]], TaskSpec],
+    spec_for: Callable[[Any], TaskSpec],
 ) -> list[dict[str, Any]]:
     """收集本批将入队的 unit 中，申请时长与剧本编排不一致的清单。
 
@@ -102,6 +102,8 @@ async def _pending_duration_confirmations(
     ctxs: dict[VideoCapability, ProjectDurationContext] = {}
     items: list[dict[str, Any]] = []
     for unit in units:
+        if not isinstance(unit, dict):
+            continue
         unit_id = str(unit.get("unit_id") or "")
         if not unit_id or unit_id in skip_ids:
             continue
@@ -131,9 +133,9 @@ async def _pending_duration_confirmations(
 async def _assert_audio_switch_for_units(
     *,
     project: dict[str, Any],
-    units: list[dict[str, Any]],
+    units: list[Any],
     skip_ids: set[str],
-    spec_for: Callable[[dict[str, Any]], TaskSpec],
+    spec_for: Callable[[Any], TaskSpec],
 ) -> None:
     """参考路线入队前的音频闸门，按本批真正要入队的 unit 所属能力桶逐桶检查。
 
@@ -143,6 +145,8 @@ async def _assert_audio_switch_for_units(
     """
     checked: set[VideoCapability] = set()
     for unit in units:
+        if not isinstance(unit, dict):
+            continue
         unit_id = str(unit.get("unit_id") or "")
         if not unit_id or unit_id in skip_ids:
             continue
@@ -335,13 +339,15 @@ def _build_video_specs(
     return specs, order_map
 
 
-def _reference_unit_spec(unit: dict[str, Any], script_filename: str) -> TaskSpec:
+def _reference_unit_spec(unit: Any, script_filename: str) -> TaskSpec:
     """单 unit 的 TaskSpec 构造，供批量入队与时长预检共用同一份结构校验
     （见 ADR-0001）——``TaskSpec.from_request`` 是「是否可入队」的唯一真相源，两处判断
     不能各自维护一份、由此产生分歧（如预检放行了 build_specs 会拒绝的空提示词 unit）。
     """
     # 用 .get 归一化：缺失 unit_id 的坏数据（Agent 可裸写 script JSON）会被 from_request
     # 当作空 resource_id 拒绝，而不是在此抛 KeyError 中断整批。
+    if not isinstance(unit, dict):
+        raise ValueError("unit 必须是对象")
     unit_id = str(unit.get("unit_id") or "")
     if video_unit_replan_problems(unit):
         raise ValueError("needs_replan 或口播归属无法安全生成")
@@ -358,7 +364,7 @@ def _reference_unit_spec(unit: dict[str, Any], script_filename: str) -> TaskSpec
 
 def _build_reference_specs(
     *,
-    units: list[dict[str, Any]],
+    units: list[Any],
     script_filename: str,
     skip_ids: list[str] | None,
     log: list[str],
@@ -367,7 +373,7 @@ def _build_reference_specs(
     specs: list[TaskSpec] = []
     order_map: dict[str, int] = {}
     for idx, unit in enumerate(units):
-        unit_id = str(unit.get("unit_id") or "")
+        unit_id = str(unit.get("unit_id") or "") if isinstance(unit, dict) else ""
         if unit_id in skip_set:
             continue
         # 任一 unit 不合法（没有 shots、空提示词、或 from_request 对空 resource_id 抛的
@@ -467,13 +473,13 @@ async def _submit_with_checkpoint(
 async def _generate_reference_units(
     *,
     ctx: ToolContext,
-    units: list[dict[str, Any]],
+    units: list[Any],
     episode: int,
     resume: bool,
     log: list[str],
     checkpoint_path: Path | None,
-    build_specs: Callable[[list[dict[str, Any]], list[str], list[str]], tuple[list[TaskSpec], dict[str, int]]],
-    spec_for: Callable[[dict[str, Any]], TaskSpec],
+    build_specs: Callable[[list[Any], list[str], list[str]], tuple[list[TaskSpec], dict[str, int]]],
+    spec_for: Callable[[Any], TaskSpec],
     project: dict[str, Any],
     confirm_duration: bool,
     reuse_existing: Callable[[dict[str, Any]], bool],
@@ -513,7 +519,11 @@ async def _generate_reference_units(
     ordered_paths: list[Path | None] = [None] * len(units)
     already_done: list[str] = []
     for idx, unit in enumerate(units):
-        unit_id = unit["unit_id"]
+        if not isinstance(unit, dict):
+            continue
+        unit_id = str(unit.get("unit_id") or "")
+        if not unit_id:
+            continue
         candidate = output_dir / f"{unit_id}.mp4"
         if candidate.exists() and reuse_existing(unit):
             ordered_paths[idx] = candidate

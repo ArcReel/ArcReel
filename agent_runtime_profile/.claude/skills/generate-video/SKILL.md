@@ -63,7 +63,7 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 ### reference_video 模式的时长确认
 
-按 unit 的引用状态选择生效档位，把编排时长投影到能容纳内容的申请档位。申请时长不同于编排时长时，首次调用只返回确认清单，不入队。向用户说明每个 unit 的编排秒数、申请秒数及变长或变短；用户同意后给同一工具加 `confirm_duration: true`。无需调整或能力无法解析时直接入队。
+按 unit 的引用状态选择生效档位，把编排时长投影到能容纳内容的申请档位。申请时长不同于编排时长时，首次调用只返回确认清单，不入队。向用户说明每个 unit 的编排秒数、申请秒数及变长或变短；用户同意后给同一工具加 `confirm_duration: true`。能力解析成功且无需调整时直接入队；能力无法解析时把工具错误作为 blocker，先修复模型能力声明。
 
 ```text
 mcp__arcreel__generate_video_episode({"script": "episode_1.json", "confirm_duration": true})

@@ -3313,6 +3313,28 @@ def _successful_reference_batch(ctx: ToolContext, enqueued: list[Any]):
 
 
 @pytest.mark.integration
+async def test_generate_video_episode_reference_skips_malformed_unit_entries(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """脏 unit 元素交给逐条校验跳过，不在完成扫描、音频闸门或时长预检中断整批。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    valid = ad_reference_ctx.pm.script_payload["video_units"][0]  # type: ignore[attr-defined]
+    ad_reference_ctx.pm.script_payload["video_units"] = ["bad", {}, valid]  # type: ignore[attr-defined]
+    enqueued: list[Any] = []
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _successful_reference_batch(ad_reference_ctx, enqueued))
+
+    out = await _call(
+        generate_video_episode_tool(ad_reference_ctx),
+        {"script": "episode_1.json", "confirm_duration": True},
+    )
+
+    assert out.get("is_error") is not True, out
+    assert [spec.resource_id for spec in enqueued] == ["E1U1"]
+    assert "入队校验未通过" in out["content"][0]["text"]
+
+
+@pytest.mark.integration
 async def test_generate_video_episode_ad_reference_enqueues_existing_video_units(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

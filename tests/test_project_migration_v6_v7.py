@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from lib.project_migrations.v6_to_v7_ad_reference_video_units import migrate_v6_to_v7
+from lib.script_models import ReferenceVideoScript
 
 pytestmark = pytest.mark.integration
 
@@ -195,6 +196,50 @@ def test_existing_index_preserves_final_member_transition(tmp_path: Path) -> Non
     assert unit["transition_to_next"] == "dissolve"
 
 
+def test_oversized_legacy_unit_keeps_all_text_in_readable_replan_unit(tmp_path: Path) -> None:
+    project_dir = _project(tmp_path)
+    script = _script()
+    for ordinal in range(3, 6):
+        script["shots"].append(_shot(f"E1S{ordinal}"))
+    for ordinal, shot in enumerate(script["shots"], start=1):
+        shot["image_prompt"]["scene"] = f"保留镜头{ordinal}"
+    script["reference_units"] = [
+        {
+            "unit_id": "paid-unit",
+            "shot_ids": [f"E1S{ordinal}" for ordinal in range(1, 6)],
+            "generated_assets": {"video_uri": "provider://paid-job"},
+        }
+    ]
+    _write_json(project_dir / "scripts/episode_1.json", script)
+
+    migrate_v6_to_v7(project_dir)
+
+    migrated = _read_json(project_dir / "scripts/episode_1.json")
+    unit = migrated["video_units"][0]
+    assert len(unit["shots"]) == 1
+    assert all(f"保留镜头{ordinal}" in unit["shots"][0]["text"] for ordinal in range(1, 6))
+    assert unit["needs_replan"] is True
+    assert unit["generated_assets"] == {"video_uri": "provider://paid-job"}
+    ReferenceVideoScript.model_validate(migrated)
+
+
+def test_nonempty_zero_duration_unit_remains_readable_and_requires_replan(tmp_path: Path) -> None:
+    project_dir = _project(tmp_path)
+    script = _script(units=[{"unit_id": "E1U1", "shot_ids": ["E1S1", "E1S2"], "generated_assets": {}}])
+    script["shots"][0]["duration_seconds"] = 0
+    script["shots"][1]["duration_seconds"] = "bad"
+    _write_json(project_dir / "scripts/episode_1.json", script)
+
+    migrate_v6_to_v7(project_dir)
+
+    migrated = _read_json(project_dir / "scripts/episode_1.json")
+    unit = migrated["video_units"][0]
+    assert unit["duration_seconds"] == 1
+    assert unit["needs_replan"] is True
+    assert len(unit["shots"]) == 2
+    ReferenceVideoScript.model_validate(migrated)
+
+
 def test_dangling_and_mixed_speech_preserve_unit_as_replan_shell(tmp_path: Path) -> None:
     project_dir = _project(tmp_path)
     script = _script(
@@ -226,10 +271,78 @@ def test_dangling_and_mixed_speech_preserve_unit_as_replan_shell(tmp_path: Path)
         True,
     )
     assert first["generated_assets"]["video_clip"].endswith("E1U7.mp4")
+    assert json.loads(first["note"]) == {"unresolved_legacy_shot_ids": ["E1S404"]}
     assert second["needs_replan"] is True
     text = second["shots"][0]["text"]
     assert "@[演员]：{试试这一杯}" in text
     assert "{醒来的第一口}" in text
+
+
+def test_mixed_valid_and_dangling_members_keep_content_and_missing_id_history(tmp_path: Path) -> None:
+    project_dir = _project(tmp_path)
+    script = _script(
+        units=[
+            {
+                "unit_id": "E1U7",
+                "shot_ids": ["E1S1", "E1S404"],
+                "generated_assets": {"video_uri": "provider://paid-job"},
+            }
+        ]
+    )
+    _write_json(project_dir / "scripts/episode_1.json", script)
+
+    migrate_v6_to_v7(project_dir)
+
+    migrated = _read_json(project_dir / "scripts/episode_1.json")
+    unit = migrated["video_units"][0]
+    assert unit["unit_id"] == "E1U7"
+    assert len(unit["shots"]) == 1
+    assert "醒来的第一口" in unit["shots"][0]["text"]
+    assert unit["generated_assets"] == {"video_uri": "provider://paid-job"}
+    assert unit["needs_replan"] is True
+    assert json.loads(unit["note"]) == {"unresolved_legacy_shot_ids": ["E1S404"]}
+    ReferenceVideoScript.model_validate(migrated)
+
+
+def test_overlapping_legacy_members_mark_every_affected_unit_for_replanning(tmp_path: Path) -> None:
+    project_dir = _project(tmp_path)
+    script = _script(
+        units=[
+            {"unit_id": "E1U1", "shot_ids": ["E1S1"], "generated_assets": {}},
+            {"unit_id": "E1U2", "shot_ids": ["E1S1", "E1S2"], "generated_assets": {}},
+        ]
+    )
+    _write_json(project_dir / "scripts/episode_1.json", script)
+
+    migrate_v6_to_v7(project_dir)
+
+    migrated = _read_json(project_dir / "scripts/episode_1.json")
+    first, second = migrated["video_units"]
+    assert first["needs_replan"] is True
+    assert second["needs_replan"] is True
+    assert json.loads(first["note"]) == {"overlapping_legacy_shot_ids": ["E1S1"]}
+    assert json.loads(second["note"]) == {"overlapping_legacy_shot_ids": ["E1S1"]}
+    ReferenceVideoScript.model_validate(migrated)
+
+
+def test_duplicate_legacy_unit_ids_fail_preflight_without_writes(tmp_path: Path) -> None:
+    project_dir = _project(tmp_path)
+    script = _script(
+        units=[
+            {"unit_id": "E1U1", "shot_ids": ["E1S1"], "generated_assets": {}},
+            {"unit_id": "E1U1", "shot_ids": ["E1S2"], "generated_assets": {}},
+        ]
+    )
+    _write_json(project_dir / "scripts/episode_1.json", script)
+    project_before = (project_dir / "project.json").read_bytes()
+    script_before = (project_dir / "scripts/episode_1.json").read_bytes()
+
+    with pytest.raises(ValueError, match=r"reference_units\[1\]\.unit_id 重复: E1U1"):
+        migrate_v6_to_v7(project_dir)
+
+    assert (project_dir / "project.json").read_bytes() == project_before
+    assert (project_dir / "scripts/episode_1.json").read_bytes() == script_before
+    assert not list((project_dir / "scripts").glob("*.bak.v6-*"))
 
 
 def test_empty_legacy_members_become_replan_shell_and_same_name_uses_product_priority(tmp_path: Path) -> None:
