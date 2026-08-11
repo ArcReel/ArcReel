@@ -106,9 +106,6 @@ async def generate_grid(
     queue = get_generation_queue()
     gm = GridManager(project_path)
 
-    # Pre-load existing grids for cleanup
-    existing_grids = gm.list_all()
-
     for group in groups:
         all_scene_ids = [item[id_field] for item in group]
         # 超上限分组切为多张宫格批次（末批不足一档时落小档 + 占位格），
@@ -118,18 +115,11 @@ async def generate_grid(
         if not plans:
             continue
 
-        # 清理该组旧的 grid 记录（限定同脚本同集，scene_ids 是当前组子集的旧 grid）
-        # 跳过 pending/generating 状态的记录，避免 worker 执行时找不到资源
-        group_id_set = set(all_scene_ids)
-        for old_grid in existing_grids:
-            if (
-                old_grid.script_file == req.script_file
-                and old_grid.episode == episode
-                and old_grid.status not in ("pending", "generating")
-                and old_grid.scene_ids
-                and set(old_grid.scene_ids) <= group_id_set
-            ):
-                gm.delete(old_grid.id)
+        # 清理该组旧的 grid 记录（限定同脚本同集，scene_ids 是当前组子集的旧 grid；
+        # 跳过 pending/generating 状态的记录，避免 worker 执行时找不到资源）。
+        # 规则唯一定义在 GridManager.cleanup_superseded，HTTP 路由与 SDK 工具
+        # (generate_grid) 两条路径共用同一实现。
+        gm.cleanup_superseded(req.script_file, episode, set(all_scene_ids))
 
         for chunk, chunk_layout in plans:
             chunk_ids = [item[id_field] for item in chunk]

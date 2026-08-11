@@ -70,3 +70,29 @@ class GridManager:
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning("Skipping invalid grid file %s: %s", p.name, e)
         return sorted(grids, key=lambda g: g.created_at)
+
+    def cleanup_superseded(self, script_file: str, episode: int, scene_ids: set[str]) -> int:
+        """Delete finished grid records superseded by a regenerate of ``scene_ids``.
+
+        A record is superseded when it belongs to the same script and episode, its
+        ``scene_ids`` are a subset of the freshly generated group, and it is not still
+        in flight (pending/generating). In-flight records are kept so the generation
+        worker can still find its resource.
+
+        This is the single cleanup rule shared by the HTTP route and the SDK tool so
+        both regenerate paths stop accumulating stale grid generations.
+
+        Returns the number of deleted records.
+        """
+        deleted = 0
+        for old in self.list_all():
+            if (
+                old.script_file == script_file
+                and old.episode == episode
+                and old.status not in ("pending", "generating")
+                and old.scene_ids
+                and set(old.scene_ids) <= scene_ids
+            ):
+                if self.delete(old.id):
+                    deleted += 1
+        return deleted
