@@ -102,12 +102,12 @@ def render_unit_prompt(
 ) -> RenderedUnitPrompt:
     """把一个 unit 的书写文稿渲染成三段论 backend prompt。
 
-    ``references`` 是**本次实际随请求发出**的参考图列表（已按能力上限裁剪），其顺序即
+    ``references`` 是**实际随请求发出**的参考图列表（已按能力上限裁剪），其顺序即
     ``图片N`` 编号——与 ``reference_images`` 严格等长同序，被裁掉的名字退化为原文不产生
     悬空绑定。文稿派生出的参考图顺序（``@mention`` 首现、规范台词行的 speaker 位不计入）
     由上游持久化，本函数只消费不重算。
 
-    ``settings`` 是本次渲染的声音输入档（见 :class:`~lib.reference_video.voice_settings
+    ``settings`` 是渲染所用的声音输入档（见 :class:`~lib.reference_video.voice_settings
     .VoiceRenderSettings`），必填无兜底：这一档决定这一集听不听得到声音，缺省成任何一个方向都是
     替调用方猜——猜有声会给无声项目注入声音特征，漏传时报错才让新调用方在接线阶段就发现。
     ``requires_reference_image`` 为 True 时（backend 要求音频逐段挂在
@@ -229,7 +229,7 @@ def _render_segment_one(
     集中于此，台词行只留统一句式。声明遍历「有台词的已登记角色」而非参考图列表：纯画外角色
     没有参考图（speaker 位不计入参考图派生），但音色声明照常。
 
-    ``labels`` 是 mention 派生的主体记号文本，逐项对应本次随请求发出的参考图。图号按位置
+    ``labels`` 是 mention 派生的主体记号文本，逐项对应随请求发出的参考图。图号按位置
     直接编号（非名字查表）；空 label 占位不产出绑定行，编号照样前进，以免后续图号与请求
     顺序错位。
     """

@@ -11,7 +11,7 @@
 - **视频比例**：由项目 `aspect_ratio` 配置决定（广告/短片默认 9:16 竖屏），无需在 prompt 中指定
 - **时长规划**：广告/短片项目**没有** `default_duration` 偏好，按项目 `target_duration`（目标总时长，秒）规划
   - storyboard 模式：单镜头时长必须取所选视频模型 `supported_durations` 中的值；subagent 运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
-  - reference_video 模式：每个 video unit 持有 1-300 秒的整数编排时长，unit 内镜头不单列时长；生成预检会把编排时长投影到供应商申请档位
+  - reference_video 模式：每个 video unit 持有符合剧本模型结构约束的正整数编排时长，unit 内镜头不单列时长；生成预检会把编排时长投影到供应商申请档位
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
 - **生成方式**：按 `generation_mode` 分两路——storyboard 模式每个镜头独立生成、以分镜图作起始帧；reference_video 模式按自包含 video unit 直出、跳过分镜（见下文「生成模式」）
@@ -78,7 +78,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - unit 正文使用统一书写层：镜头行描述画面，`@[角色]：{台词}` 表达人物发声，其余独立口播行表达无归属旁白；产品、角色、场景、道具均用 `@[名称]` mention。references 由系统从正文机械派生，同名按 product → character → scene → prop 解析
 - 一个 unit 只能承载人物发声、无归属旁白或无人声中的一种；需要切换发声归属时在规划阶段拆成相邻 unit。标记 `needs_replan` 的存量问题单元须先重新规划，生成入口会拒绝入队
 - unit 参考集按正文首次 mention 排序，但产品绝对优先（有 sheet 时 sheet + 原图，无 sheet 时原图直注，自动附高保真指令），其后是角色/场景/道具 sheet
-- **时长约束**：每个 unit 的 `duration_seconds` 是 1-300 秒正整数编排时长，所有 unit 之和应贴近 `target_duration`；供应商档位由生成预检处理，不在剧本规划时量化
+- **时长约束**：每个 unit 的 `duration_seconds` 是符合剧本模型结构约束的正整数编排时长，所有 unit 之和应贴近 `target_duration`；供应商档位由生成预检处理，不在剧本规划时量化
 
 ---
 

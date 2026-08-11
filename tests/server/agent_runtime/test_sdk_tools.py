@@ -3312,7 +3312,7 @@ def _successful_reference_batch(ctx: ToolContext, enqueued: list[Any]):
     return fake_batch
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 async def test_generate_video_episode_ad_reference_enqueues_existing_video_units(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3332,6 +3332,28 @@ async def test_generate_video_episode_ad_reference_enqueues_existing_video_units
     script = ad_reference_ctx.pm.script_payload  # type: ignore[attr-defined]
     assert [unit["unit_id"] for unit in script["video_units"]] == ["E1U1"]
     assert "reference_units" not in script
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_ad_reference_does_not_claim_orphan_file(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """同名文件没有 generated_assets 归属时仍须入队，不能把孤儿文件报告为成功。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    orphan = ad_reference_ctx.project_path / "reference_videos/E1U1.mp4"
+    orphan.parent.mkdir(parents=True, exist_ok=True)
+    orphan.write_bytes(b"orphan")
+    enqueued: list[Any] = []
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _successful_reference_batch(ad_reference_ctx, enqueued))
+
+    out = await _call(
+        generate_video_episode_tool(ad_reference_ctx),
+        {"script": "episode_1.json", "confirm_duration": True},
+    )
+
+    assert out.get("is_error") is not True, out
+    assert [spec.resource_id for spec in enqueued] == ["E1U1"]
 
 
 @pytest.mark.unit
@@ -3369,7 +3391,7 @@ async def test_generate_video_episode_ad_reference_replan_shell_cannot_enqueue(
     assert not called
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 async def test_generate_video_selected_ad_reference_regenerates_named_unit(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

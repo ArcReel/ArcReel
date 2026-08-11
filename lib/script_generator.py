@@ -85,7 +85,7 @@ from lib.script_review import (
     migrate_step1_draft_in_place,
 )
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
-from lib.speech_composition import SpeechComposition, adapt_video_unit
+from lib.speech_composition import video_unit_replan_problems
 from lib.speech_rate import project_speech_rate_override
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
@@ -218,7 +218,7 @@ class ScriptGenerator:
             episode: 剧集编号
             output_filename: 输出文件名，默认 episode_{episode}.json。剧本一律经写盘统一入口写入
                 项目 scripts/ 目录，故此参数只决定文件名、不接受目录。
-            instructions: 用户对本次生成的意见原文；非空时以中性「用户意见」分节追加到
+            instructions: 用户输入的生成意见原文；非空时以中性「用户意见」分节追加到
                 prompt 末尾（遵循强度由正文表达），所有 content_mode / 生成路线同口径。
 
         Returns:
@@ -1381,7 +1381,7 @@ class ScriptGenerator:
                 "note": None,
                 "generated_assets": {},
             }
-            if SpeechComposition.prepare(adapt_video_unit(unit)).problems:
+            if video_unit_replan_problems(unit):
                 unit["needs_replan"] = True
             units.append(unit)
 

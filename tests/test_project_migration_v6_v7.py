@@ -130,6 +130,16 @@ def test_existing_index_preserves_identity_boundaries_assets_and_content(tmp_pat
     assert _read_json(project_dir / "project.json")["schema_version"] == 7
 
 
+def test_unscripted_episode_advances_schema_without_creating_script(tmp_path: Path) -> None:
+    project_dir = _project(tmp_path)
+
+    migrate_v6_to_v7(project_dir)
+
+    assert _read_json(project_dir / "project.json")["schema_version"] == 7
+    assert not (project_dir / "scripts/episode_1.json").exists()
+    assert not list(project_dir.glob("scripts/episode_1.json.bak.v6-*"))
+
+
 @pytest.mark.parametrize("missing_value", [pytest.param("absent", id="absent"), pytest.param(None, id="null")])
 def test_missing_index_creates_one_unit_per_shot_in_order(tmp_path: Path, missing_value: object) -> None:
     project_dir = _project(tmp_path)
@@ -144,6 +154,17 @@ def test_missing_index_creates_one_unit_per_shot_in_order(tmp_path: Path, missin
     assert [unit["unit_id"] for unit in units] == ["E1U1", "E1U2"]
     assert [unit["duration_seconds"] for unit in units] == [4, 4]
     assert all(len(unit["shots"]) == 1 for unit in units)
+
+
+def test_empty_index_creates_one_unit_per_shot_without_data_loss(tmp_path: Path) -> None:
+    project_dir = _project(tmp_path)
+    _write_json(project_dir / "scripts/episode_1.json", _script(units=[]))
+
+    migrate_v6_to_v7(project_dir)
+
+    migrated = _read_json(project_dir / "scripts/episode_1.json")
+    assert [unit["unit_id"] for unit in migrated["video_units"]] == ["E1U1", "E1U2"]
+    assert sum(len(unit["shots"]) for unit in migrated["video_units"]) == 2
 
 
 def test_dangling_and_mixed_speech_preserve_unit_as_replan_shell(tmp_path: Path) -> None:

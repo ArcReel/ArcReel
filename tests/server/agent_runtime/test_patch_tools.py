@@ -367,6 +367,40 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is not True
         assert _load(ref_ctx)["video_units"][0]["note"] == "单元备注"
 
+    @pytest.mark.integration
+    async def test_reference_replan_marker_requires_planning_edit(self, ref_ctx: ToolContext) -> None:
+        script = _reference_script()
+        script["video_units"][0]["needs_replan"] = True
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        noted = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"note": "待复核"}}},
+        )
+        assert noted.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
+        repaired = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "修复后的无声镜头"}]}}},
+        )
+        assert repaired.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0].get("needs_replan") is not True
+
+    @pytest.mark.integration
+    async def test_reference_replan_marker_cannot_be_patched_directly(self, ref_ctx: ToolContext) -> None:
+        script = _reference_script()
+        script["video_units"][0]["needs_replan"] = True
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        out = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"needs_replan": False}}},
+        )
+
+        assert out.get("is_error") is True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
     @pytest.mark.unit
     async def test_ad_mode_by_shot_id(self, ad_ctx: ToolContext) -> None:
         """ad 模式：按 shot_id 定位，批量改字段落盘。"""
@@ -521,14 +555,14 @@ class TestPatchProject:
 
     @pytest.mark.unit
     async def test_invalid_entry_rejected_even_when_project_already_invalid(self, ctx: ToolContext) -> None:
-        """「不更坏」error set diff 语义：项目本就脏（无关字段非法）时，本次 upsert 引入的
+        """「不更坏」error set diff 语义：项目本就脏（无关字段非法）时，upsert 引入的
         新错误（如新 entry 缺 description）仍应被拒——单纯 `before_valid AND after.valid` 判定
         会让新错误 piggyback 通过，error set diff 才能堵这条旁路。"""
         # 让项目改前先脏（与资产无关的历史问题，如空 style）
         ctx.pm.update_project("demo", lambda p: p.update({"style": ""}))
         out = await _call(
             patch_project_tool(ctx),
-            # 缺 description 的非法 entry，本次写入引入的「新错误」
+            # 缺 description 的非法 entry，写入引入的「新错误」
             {"table": "scenes", "entries": {"空场景": {"voice_style": "x"}}},
         )
         assert out.get("is_error") is True

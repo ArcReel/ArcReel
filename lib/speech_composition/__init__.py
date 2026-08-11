@@ -433,6 +433,39 @@ def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
     return SpeechUnitSnapshot(normalized_unit_id, tuple(entries), tuple(problems))
 
 
+def video_unit_replan_problems(
+    unit: Mapping[str, object],
+    *,
+    ignore_marker: bool = False,
+) -> tuple[SpeechProblem, ...]:
+    """Return the shared planning blockers for a self-contained video unit.
+
+    ``ignore_marker`` is for repair flows that must evaluate the edited content without
+    letting the durable ``needs_replan`` marker make itself impossible to clear.
+    """
+    source = dict(unit)
+    if ignore_marker:
+        source.pop("needs_replan", None)
+    return SpeechComposition.prepare(adapt_video_unit(source)).problems
+
+
+def refresh_video_unit_replan_state(unit: dict[str, object], *, allow_clear: bool = True) -> None:
+    """Refresh ``needs_replan`` after a planning edit.
+
+    A non-planning edit may discover a problem but cannot clear a durable migration marker.
+    This prevents note or transition changes from silently approving a partially hydrated
+    legacy unit.
+    """
+    duration = unit.get("duration_seconds")
+    if not unit.get("shots") or not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
+        unit["needs_replan"] = True
+        return
+    if video_unit_replan_problems(unit, ignore_marker=True):
+        unit["needs_replan"] = True
+    elif allow_clear:
+        unit.pop("needs_replan", None)
+
+
 __all__ = [
     "SpeechComposition",
     "SpeechFieldLocation",
@@ -450,4 +483,6 @@ __all__ = [
     "adapt_drama_scene",
     "adapt_narration_segment",
     "adapt_video_unit",
+    "refresh_video_unit_replan_state",
+    "video_unit_replan_problems",
 ]

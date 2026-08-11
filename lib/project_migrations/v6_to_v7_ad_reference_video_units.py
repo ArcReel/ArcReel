@@ -158,7 +158,7 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
 
     raw_units = payload.get("reference_units")
     units: list[dict[str, Any]] = []
-    if raw_units is None:
+    if raw_units is None or raw_units == []:
         for ordinal, shot in enumerate(shots, start=1):
             units.append(
                 _unit_from_shots(
@@ -223,8 +223,12 @@ def _script_paths(project_dir: Path, project: dict[str, Any]) -> list[tuple[Path
         if path in seen:
             raise ValueError(f"多个 episode 指向同一剧本文件: {script_file}")
         seen.add(path)
-        if not path.is_file() or path.is_symlink():
-            raise ValueError(f"剧本文件不存在或不是普通文件: {script_file}")
+        if path.is_symlink():
+            raise ValueError(f"剧本文件不是普通文件: {script_file}")
+        if not path.exists():
+            continue
+        if not path.is_file():
+            raise ValueError(f"剧本文件不是普通文件: {script_file}")
         result.append((path, episode))
     return result
 

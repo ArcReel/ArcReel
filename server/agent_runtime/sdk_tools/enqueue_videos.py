@@ -32,7 +32,7 @@ from lib.reference_video import assemble_shots_text
 from lib.reference_video.units import reference_unit_video_bucket
 from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton
-from lib.speech_composition import SpeechComposition, adapt_video_unit
+from lib.speech_composition import video_unit_replan_problems
 from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
@@ -63,9 +63,9 @@ class DurationConfirmationPending:
 
 
 def _duration_confirmation_response(pending: DurationConfirmationPending, log: list[str]) -> dict[str, Any]:
-    """把待确认清单连同本次已产生的 log 一并交给调用方转述。
+    """把待确认清单连同调用期间产生的 log 一并交给调用方转述。
 
-    log 携带的是同样影响本次生成范围的事实（如 scene_id 被忽略转整集、ad 派生出的 unit 数），
+    log 携带的是同样影响生成范围的事实（如 scene_id 被忽略转整集、ad 派生出的 unit 数），
     确认时一并呈现，用户才知道自己同意的是什么范围。
     """
     lines = [*log, "以下 unit 申请时长与剧本编排不一致，需先向用户确认，本次未入队任何任务："]
@@ -343,7 +343,7 @@ def _reference_unit_spec(unit: dict[str, Any], script_filename: str) -> TaskSpec
     # 用 .get 归一化：缺失 unit_id 的坏数据（Agent 可裸写 script JSON）会被 from_request
     # 当作空 resource_id 拒绝，而不是在此抛 KeyError 中断整批。
     unit_id = str(unit.get("unit_id") or "")
-    if SpeechComposition.prepare(adapt_video_unit(unit)).problems:
+    if video_unit_replan_problems(unit):
         raise ValueError("needs_replan 或口播归属无法安全生成")
     if not unit.get("shots"):
         raise ValueError("没有 shots")
@@ -476,7 +476,7 @@ async def _generate_reference_units(
     spec_for: Callable[[dict[str, Any]], TaskSpec],
     project: dict[str, Any],
     confirm_duration: bool,
-    reuse_existing: Callable[[dict[str, Any]], bool] | None = None,
+    reuse_existing: Callable[[dict[str, Any]], bool],
 ) -> list[Path] | DurationConfirmationPending:
     """unit 批量生成的共享骨架：时长确认 + checkpoint 续传 + 已产出扫描 + 入队等待。
 
@@ -485,15 +485,15 @@ async def _generate_reference_units(
     第二份校验口径。
 
     ``reuse_existing`` 决定磁盘上已存在的 ``{unit_id}.mp4`` 能否当作该 unit 的
-    现行产物复用（None 表示仅凭文件存在即复用）。
+    现行产物复用。调用方必须用持久化资产归属判定，不能只凭同名文件存在猜测。
 
     ``confirm_duration`` 为 false 时，若待入队 unit 中有申请时长与剧本编排不一致的
-    （见 :func:`server.services.reference_video_tasks.resolve_duration_slot`），本次
+    （见 :func:`server.services.reference_video_tasks.resolve_duration_slot`），该调用
     调用不产生任何任务，返回 :class:`DurationConfirmationPending` 供调用方转述给用户；
     用户同意后调用方带 ``confirm_duration=True`` 重新调用完成入队（与 Web 端
     ``duration-precheck`` 预检共用同一取档规则）。
 
-    ``checkpoint_path`` 为 None 表示本次生成不落 checkpoint：点名重新生成一律强制覆盖，
+    ``checkpoint_path`` 为 None 表示生成不落 checkpoint：点名重新生成一律强制覆盖，
     没有可续传的语义，写一份没有读者的进度文件只会在中断时留下垃圾，也会覆盖掉整集
     生成留下的进度。
     """
@@ -515,7 +515,7 @@ async def _generate_reference_units(
     for idx, unit in enumerate(units):
         unit_id = unit["unit_id"]
         candidate = output_dir / f"{unit_id}.mp4"
-        if candidate.exists() and (reuse_existing is None or reuse_existing(unit)):
+        if candidate.exists() and reuse_existing(unit):
             ordered_paths[idx] = candidate
             already_done.append(unit_id)
             if unit_id not in completed:
@@ -604,6 +604,9 @@ async def _run_reference_episode(
         spec_for=lambda u: _reference_unit_spec(u, script_filename),
         project=project,
         confirm_duration=confirm_duration,
+        reuse_existing=lambda unit: (
+            get_generated_assets(unit).get("video_clip") == _reference_fallback_relpath(str(unit.get("unit_id") or ""))
+        ),
     )
     if isinstance(result, DurationConfirmationPending):
         return _duration_confirmation_response(result, log)

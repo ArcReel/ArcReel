@@ -1314,7 +1314,7 @@ def test_script_id_must_match_the_shared_storyboard_pattern(tmp_path: Path) -> N
 
 
 @pytest.mark.integration
-def test_ad_reference_replan_shell_is_stale_and_recoverable(tmp_path: Path) -> None:
+def test_ad_reference_replan_shell_requests_repair_before_generation(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad", generation_mode="reference_video")
     video_path = "reference_videos/E1U1.mp4"
     _write_artifact(project_path, video_path)
@@ -1341,7 +1341,8 @@ def test_ad_reference_replan_shell_is_stale_and_recoverable(tmp_path: Path) -> N
 
     assert status.state == "VIDEO"
     assert status.artifacts["videos"]["stale_ids"] == ["E1U1"]
-    assert status.next_action.type == "generate_videos"
+    assert status.next_action.type == "repair_video_units"
+    assert status.next_action.requested_ids == ["E1U1"]
     assert not status.blockers
 
 

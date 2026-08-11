@@ -41,6 +41,7 @@ EXPECTED_ROUTES = {
         'next_action.type == "draft_selling_points"',
         'next_action.type == "generate_script"',
         'next_action.type == "generate_asset_sheets"',
+        'next_action.type == "repair_video_units"',
         'next_action.type == "generate_storyboards"',
         'next_action.type == "generate_grid"',
         'next_action.type == "generate_videos"',

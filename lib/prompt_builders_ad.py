@@ -3,7 +3,7 @@
 分镜路线产出平铺 ``shots[]``，参考路线单阶段产出自包含 ``video_units[]`` 的扁平
 书写层。两条路线都按目标总时长选择带货八段框架的时长配比档位（15/30/60/90 秒，
 经维护者审定的配比表，数字依据见
-docs/research/arcreel-ad-section-timing-research.md），非四档整数取最近档位按比例适配。
+docs/research/arcreel-ad-section-timing-research.md），非四档整数取距离最小的档位按比例适配。
 ``products`` 为空时自动分流为通用短片 prompt（无带货框架）。
 
 设计原则与 narration/drama 构建器一致：
@@ -23,6 +23,7 @@ from lib.prompt_builders_script import (
     _format_names,
 )
 from lib.reference_video.writing_syntax import WRITING_SYNTAX_SPEC
+from lib.script_models import REFERENCE_UNIT_DURATION_RANGE
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
 
@@ -30,7 +31,7 @@ from lib.text_metrics import reading_unit_noun
 # 审定配比表（数字真相源，逐字照搬，不得修改）
 # ---------------------------------------------------------------------------
 
-#: 四个审定档位（秒）。非四档整数取最近档位按比例适配；
+#: 四个审定档位（秒）。非四档整数取距离最小的档位按比例适配；
 #: 等距时取更接近默认推荐档（30 秒）的一侧。
 AD_DURATION_TIERS: tuple[int, ...] = (15, 30, 60, 90)
 
@@ -112,7 +113,7 @@ _AD_TIER_TABLES: dict[int, str] = {
 
 
 def nearest_ad_tier(target_duration: int) -> int:
-    """取最近的审定档位；等距时取更接近默认推荐档（30 秒）的一侧。"""
+    """取距离最小的审定档位；等距时取更接近默认推荐档（30 秒）的一侧。"""
     return min(AD_DURATION_TIERS, key=lambda t: (abs(t - target_duration), abs(t - AD_DEFAULT_TIER)))
 
 
@@ -122,7 +123,7 @@ def _format_pacing_block(target_duration: int) -> str:
     parts = [_AD_GENERAL_RULES, _AD_TIER_TABLES[tier]]
     if tier != target_duration:
         parts.append(
-            f"目标总时长 {target_duration} 秒不在审定档位内，按最近档位 {tier} 秒的配比模板"
+            f"目标总时长 {target_duration} 秒不在审定档位内，按距离最小的档位 {tier} 秒的配比模板"
             f"按比例适配到 {target_duration} 秒：hook 与 cta 是绝对时长段维持原秒数，"
             "伸缩量按通用规则优先给 selling_point/demo，其次 trust。"
         )
@@ -361,6 +362,7 @@ def build_ad_reference_prompt(
     """广告参考路线单阶段生成 prompt；直接输出扁平书写层 unit。"""
     if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
         raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
+    min_unit_duration, max_unit_duration = REFERENCE_UNIT_DURATION_RANGE
     product_context = _format_products(products) if products else "（无产品资产，按通用短片创作）"
     planning = _format_pacing_block(target_duration) if products else "按开场、发展、高潮、收束组织内容。"
     return f"""# 角色与任务
@@ -368,7 +370,7 @@ def build_ad_reference_prompt(
 你是一位资深短视频编导。根据 brief 与资产候选，直接创作可供参考生视频的一组自包含 video unit。
 
 **输出语言**：所有正文使用 {target_language}；JSON 键名保持英文。
-**输出形状**：只输出 `{{"title": "...", "units": [{{"duration_seconds": 8, "text": "..."}}]}}`。
+**输出形状**：只输出 `{{"title": "...", "units": [{{"duration_seconds": {min_unit_duration}, "text": "..."}}]}}`。
 unit_id、references、generated_assets、needs_replan 均由系统派生，不得输出。不要输出 shots、section、shot_id、逐镜头时长、voiceover_text 或 speech_mode。
 
 <overview>
@@ -399,7 +401,7 @@ unit_id、references、generated_assets、needs_replan 均由系统派生，不�
 
 # 内容规划
 
-目标总时长为 {target_duration} 秒，所有 unit.duration_seconds 之和应贴近该值；每个 unit 是一次生成调用的完整编排时长，取 1-300 的整数，不按供应商档位量化。
+目标总时长为 {target_duration} 秒，所有 unit.duration_seconds 之和应贴近该值；每个 unit 是一次生成调用的完整编排时长，取 {min_unit_duration}-{max_unit_duration} 的整数，不按供应商档位量化。
 下方框架只用于安排内容与节奏，不得把段落名写入 JSON 或正文：
 
 {planning}

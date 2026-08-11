@@ -29,7 +29,7 @@ from lib.reference_video.units import reference_unit_video_bucket, reference_vid
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
-from lib.speech_composition import SpeechComposition, adapt_video_unit
+from lib.speech_composition import refresh_video_unit_replan_state, video_unit_replan_problems
 from lib.version_manager import VersionManager
 from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
@@ -202,26 +202,12 @@ def _build_unit_dict(
             "status": "pending",
         },
     }
-    _refresh_replan_state(unit)
+    refresh_video_unit_replan_state(unit)
     return unit
 
 
-def _refresh_replan_state(unit: dict) -> None:
-    """按当前书写层重算规划问题；编辑修复后可清除旧迁移标记。"""
-    duration = unit.get("duration_seconds")
-    if not unit.get("shots") or not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
-        unit["needs_replan"] = True
-        return
-    snapshot = {**unit}
-    snapshot.pop("needs_replan", None)
-    if SpeechComposition.prepare(adapt_video_unit(snapshot)).problems:
-        unit["needs_replan"] = True
-    else:
-        unit.pop("needs_replan", None)
-
-
 def _require_unit_ready(unit: dict, _t: Translator) -> None:
-    if SpeechComposition.prepare(adapt_video_unit(unit)).problems:
+    if video_unit_replan_problems(unit):
         raise HTTPException(status_code=409, detail=_t("ref_unit_needs_replan"))
 
 
@@ -328,7 +314,8 @@ async def patch_unit(
             unit["transition_to_next"] = req.transition_to_next
         if req.note is not None:
             unit["note"] = req.note
-        _refresh_replan_state(unit)
+        planning_changed = req.prompt is not None or refs is not None or req.duration_seconds is not None
+        refresh_video_unit_replan_state(unit, allow_clear=planning_changed)
 
     return {"unit": unit}
 

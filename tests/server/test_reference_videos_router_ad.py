@@ -83,7 +83,7 @@ def _script(client: TestClient) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 def test_list_and_legacy_derive_removal(ad_client: TestClient) -> None:
     response = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units")
     assert response.status_code == 200
@@ -91,7 +91,7 @@ def test_list_and_legacy_derive_removal(ad_client: TestClient) -> None:
     assert ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units").status_code == 404
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 def test_ad_units_support_crud_and_product_references(ad_client: TestClient) -> None:
     added = ad_client.post(
         "/api/v1/projects/ad-demo/reference-videos/episodes/1/units",
@@ -121,7 +121,7 @@ def test_ad_units_support_crud_and_product_references(ad_client: TestClient) -> 
     assert ad_client.delete("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U2").status_code == 204
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 def test_generate_enqueues_self_contained_unit(ad_client: TestClient) -> None:
     response = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/generate")
     assert response.status_code == 202, response.text
@@ -130,7 +130,7 @@ def test_generate_enqueues_self_contained_unit(ad_client: TestClient) -> None:
     assert kwargs["script_file"] == "scripts/episode_1.json"
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 def test_replan_shell_and_mixed_speech_are_blocked_before_enqueue(ad_client: TestClient) -> None:
     script = _script(ad_client)
     script["video_units"][0].update({"shots": [], "duration_seconds": 0, "needs_replan": True})
@@ -140,6 +140,28 @@ def test_replan_shell_and_mixed_speech_are_blocked_before_enqueue(ad_client: Tes
     response = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/generate")
     assert response.status_code == 409
     ad_client.fake_queue.enqueue_task.assert_not_awaited()  # type: ignore[attr-defined]
+
+
+@pytest.mark.integration
+def test_non_planning_patch_keeps_replan_marker_until_content_is_repaired(ad_client: TestClient) -> None:
+    script = _script(ad_client)
+    script["video_units"][0]["needs_replan"] = True
+    path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
+    path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    noted = ad_client.patch(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
+        json={"note": "待复核"},
+    )
+    assert noted.status_code == 200, noted.text
+    assert noted.json()["unit"]["needs_replan"] is True
+
+    repaired = ad_client.patch(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
+        json={"prompt": "@[按摩仪] 正面朝向镜头"},
+    )
+    assert repaired.status_code == 200, repaired.text
+    assert "needs_replan" not in repaired.json()["unit"]
 
 
 @pytest.mark.integration

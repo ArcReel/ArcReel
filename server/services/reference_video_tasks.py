@@ -36,7 +36,7 @@ from lib.reference_video.units import reference_video_bucket
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_editor import ScriptEditError
 from lib.script_models import ReferenceResource
-from lib.speech_composition import SpeechComposition, adapt_video_unit
+from lib.speech_composition import video_unit_replan_problems
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
 from server.services.generation_context import VideoLaneRequest, resolve_generation_context
@@ -522,7 +522,7 @@ async def execute_reference_video_task(
         unit = next((u for u in units if isinstance(u, dict) and u.get("unit_id") == resource_id), None)
         if unit is None:
             raise ValueError(f"unit not found: {resource_id}")
-        if SpeechComposition.prepare(adapt_video_unit(unit)).problems:
+        if video_unit_replan_problems(unit):
             raise ValueError(f"unit needs replanning: {resource_id}")
         return project, project_path, unit
 

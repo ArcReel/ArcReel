@@ -24,10 +24,12 @@ from lib.script_editor import (
     resolve_items,
     split_segment,
 )
+from lib.speech_composition import refresh_video_unit_replan_state
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 
 # 改了这些顶层字段路径的分镜须紧接着重新生成对应图/视频（工具不自动作废旧资产）。
 _REGEN_TRIGGER_FIELDS = ("image_prompt", "video_prompt")
+_UNIT_PLANNING_FIELDS = frozenset({"shots", "references", "duration_seconds"})
 
 
 def _item_ids(script: dict[str, Any]) -> list[str]:
@@ -81,6 +83,7 @@ def patch_episode_script_tool(ctx: ToolContext):
             # 冒出 with 体 → 写盘被跳过 → 整批零落盘；全部 apply 后写盘统一入口跑一次「不更坏」
             # 结构校验，非法则整体拒。原子性由 locked_script 承重，无需额外事务管线。
             with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
+                items, id_field, kind = resolve_items(script)
                 for raw_id, field_map in edits.items():
                     scene_id = str(raw_id)
                     if not isinstance(field_map, dict) or not field_map:
@@ -95,6 +98,12 @@ def patch_episode_script_tool(ctx: ToolContext):
                         fields.append(field)
                         if field.split(".", 1)[0] in _REGEN_TRIGGER_FIELDS and scene_id not in regen_ids:
                             regen_ids.append(scene_id)
+                    if kind == "video_units":
+                        unit = next(
+                            item for item in items if isinstance(item, dict) and str(item.get(id_field)) == scene_id
+                        )
+                        planning_changed = any(field.split(".", 1)[0] in _UNIT_PLANNING_FIELDS for field in fields)
+                        refresh_video_unit_replan_state(unit, allow_clear=planning_changed)
                     applied.append((scene_id, fields))
 
             lines = [f"✅ 已更新 {len(applied)} 个分镜的字段："]

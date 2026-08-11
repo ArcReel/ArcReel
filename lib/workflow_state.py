@@ -888,8 +888,17 @@ class WorkflowStateService:
                                 args={"episode": target.episode},
                                 ids=missing,
                             )
-                        elif artifacts["videos"]["missing_ids"] or artifacts["videos"]["stale_ids"]:
-                            missing = artifacts["videos"]["missing_ids"] + artifacts["videos"]["stale_ids"]
+                        elif artifacts["videos"]["stale_ids"]:
+                            stale = artifacts["videos"]["stale_ids"]
+                            state = "VIDEO"
+                            next_action = _action(
+                                "repair_video_units",
+                                "video units need replanning before generation",
+                                args={"episode": target.episode},
+                                ids=stale,
+                            )
+                        elif artifacts["videos"]["missing_ids"]:
+                            missing = artifacts["videos"]["missing_ids"]
                             state = "VIDEO"
                             next_action = _action(
                                 "generate_videos",
