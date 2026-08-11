@@ -16,6 +16,7 @@ from lib import script_review
 from lib.asset_types import ASSET_SPECS
 from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
+    SourceDoc,
     compute_source_fingerprints,
     discover_sources,
     mismatched_source_fingerprints,
@@ -101,6 +102,8 @@ class WorkflowStatus(BaseModel):
 @dataclass(frozen=True)
 class _SharedWorkflowFacts:
     source: SourceRevisionResult | None
+    planning_sources: tuple[SourceDoc, ...]
+    planning_complete: bool
     inventory: dict[str, Any]
     sheets: dict[str, dict[str, Any]]
     episodes: list[tuple[int, dict[str, Any]]]
@@ -123,11 +126,11 @@ def _action(
     )
 
 
-def _planning_fingerprints_diverged(project_path: Path, project: Mapping[str, Any]) -> bool:
+def _planning_fingerprints_diverged(project: Mapping[str, Any], sources: tuple[SourceDoc, ...]) -> bool:
     recorded = project.get(SOURCE_FINGERPRINTS_KEY)
     if not isinstance(recorded, Mapping) or not recorded:
         return False
-    return bool(mismatched_source_fingerprints(recorded, discover_sources(project_path)))
+    return bool(mismatched_source_fingerprints(recorded, list(sources)))
 
 
 def _empty_collection() -> dict[str, list[str]]:
@@ -297,13 +300,19 @@ class WorkflowStateService:
         return (pending or episodes)[0] if (pending or episodes) else None
 
     @staticmethod
-    def _planning_complete(project_path: Path, project: dict[str, Any], source: SourceRevisionResult | None) -> bool:
+    def _planning_complete(
+        project_path: Path,
+        project: dict[str, Any],
+        source: SourceRevisionResult | None,
+        planning_sources: tuple[SourceDoc, ...] | None = None,
+    ) -> bool:
         if source is None or not source.files:
             return False
         recorded_fingerprints = project.get(SOURCE_FINGERPRINTS_KEY)
         if not isinstance(recorded_fingerprints, Mapping) or not recorded_fingerprints:
             return False
-        current_fingerprints = compute_source_fingerprints(discover_sources(project_path))
+        current_sources = tuple(discover_sources(project_path)) if planning_sources is None else planning_sources
+        current_fingerprints = compute_source_fingerprints(list(current_sources))
         if dict(recorded_fingerprints) != current_fingerprints:
             return False
         cursor = project.get("planning_cursor")
@@ -314,6 +323,11 @@ class WorkflowStateService:
         canonical_rel = unicodedata.normalize("NFC", rel) if isinstance(rel, str) else None
         if canonical_rel != source.files[-1] or not isinstance(offset, int) or isinstance(offset, bool):
             return False
+        if planning_sources is not None:
+            matching_docs = [
+                doc for doc in current_sources if unicodedata.normalize("NFC", doc.rel_path) == canonical_rel
+            ]
+            return len(matching_docs) == 1 and offset >= len(matching_docs[0].text)
         try:
             source_dir = project_path / "source"
             if source_dir.is_symlink():
@@ -523,10 +537,16 @@ class WorkflowStateService:
                 WorkflowBlocker(code="invalid_generation_mode", path="generation_mode", reason="unsupported route")
             )
         source, inventory = self._source_inventory(project_path, project, str(mode), blockers)
+        planning_sources = (
+            tuple(discover_sources(project_path)) if mode != "ad" and source is not None and not source.blockers else ()
+        )
+        planning_complete = self._planning_complete(project_path, project, source, planning_sources)
         sheets = self._asset_sheets(project_path, project, blockers)
         episodes = self._episodes(project, blockers)
         return _SharedWorkflowFacts(
             source=source,
+            planning_sources=planning_sources,
+            planning_complete=planning_complete,
             inventory=inventory,
             sheets=sheets,
             episodes=episodes,
@@ -597,7 +617,7 @@ class WorkflowStateService:
                     "expected_source_revision": source.revision if source else None,
                 },
             )
-        elif mode != "ad" and _planning_fingerprints_diverged(project_path, project):
+        elif mode != "ad" and _planning_fingerprints_diverged(project, shared.planning_sources):
             state = "EPISODE_PLAN"
             next_action = _action(
                 "reset_episode_planning",
@@ -808,13 +828,13 @@ class WorkflowStateService:
                             )
                             if later_status is not None:
                                 return later_status
-                            if not self._planning_complete(project_path, project, source):
+                            if not shared.planning_complete:
                                 state = "EPISODE_PLAN"
                                 next_action = _action("plan_episodes", "source text remains unplanned")
                             else:
                                 state = "EXPORT_READY"
                                 next_action = _action("export", "all required artifacts are usable")
-                        elif mode != "ad" and not self._planning_complete(project_path, project, source):
+                        elif mode != "ad" and not shared.planning_complete:
                             state = "EPISODE_PLAN"
                             next_action = _action("plan_episodes", "source text remains unplanned")
                         else:

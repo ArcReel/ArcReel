@@ -318,8 +318,10 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     load_calls = 0
     source_inventory_calls = 0
     asset_sheet_calls = 0
+    source_discovery_calls = 0
     original_source_inventory = WorkflowStateService._source_inventory
     original_asset_sheets = WorkflowStateService._asset_sheets
+    original_discover_sources = discover_sources
 
     def _counted_load_project(project_name: str) -> dict:
         nonlocal load_calls
@@ -336,14 +338,21 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
         asset_sheet_calls += 1
         return original_asset_sheets(*args, **kwargs)
 
+    def _counted_discover_sources(*args, **kwargs):
+        nonlocal source_discovery_calls
+        source_discovery_calls += 1
+        return original_discover_sources(*args, **kwargs)
+
     monkeypatch.setattr(pm, "load_project", _counted_load_project)
     monkeypatch.setattr(WorkflowStateService, "_source_inventory", _counted_source_inventory)
     monkeypatch.setattr(WorkflowStateService, "_asset_sheets", _counted_asset_sheets)
+    monkeypatch.setattr("lib.workflow_state.discover_sources", _counted_discover_sources)
     status = WorkflowStateService(pm).get_status("demo")
 
     assert load_calls == 1
     assert source_inventory_calls == 1
     assert asset_sheet_calls == 1
+    assert source_discovery_calls == 1
     assert status.target is not None
     assert status.target.episode == 2
     assert status.state == "STEP1_CONTENT"

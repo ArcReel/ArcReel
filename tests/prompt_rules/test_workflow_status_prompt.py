@@ -96,3 +96,14 @@ def test_asset_analysis_records_completion_fact() -> None:
     assert "严格按主 agent 传入的 `scope`" in content
     assert "`.text`" not in content
     assert "不要调用 `patch_project`" in content
+
+
+@pytest.mark.parametrize("filename", ("SKILL.narration.md", "SKILL.drama.md"))
+def test_workflow_reset_route_executes_recovery_and_refreshes_status(filename: str) -> None:
+    path = REPO / "agent_runtime_profile" / ".claude" / "skills" / "manga-workflow" / filename
+    content = path.read_text(encoding="utf-8")
+
+    assert "mcp__arcreel__reset_episode_planning" in content
+    assert "next_action.args" in content
+    assert "confirm_consumed: true" in content
+    assert "重置成功后刷新 workflow-status" in content

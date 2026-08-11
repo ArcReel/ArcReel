@@ -34,9 +34,9 @@ description: 从剧本中提取角色 / 场景 / 道具三类资产定义，并�
 
 使用 Glob 工具列出 `source/` 目录下的文本文件（`source_kind=novel` 为小说原文，`screenplay` 为成品剧本），
 然后严格按主 agent 传入的 `scope` 读取文本：`kind=all` 时按文件名顺序读取全部 `.txt` 或 `.md`
-文件；`kind=files` 时只读 `files` 列出的完整文件。不得用用户临时提出的更窄章节范围替换
-workflow-status 的权威 scope 后仍提交该 scope 的完成标记；局部分析若不覆盖权威 scope，只能作为不写
-completion fact 的独立管理任务执行。
+文件；`kind=files` 时只读 `files` 列出的完整文件。不得以用户临时提出的更窄章节范围替换
+workflow-status 的权威 scope，也不得为该局部范围提交 completion fact；局部分析若不覆盖权威 scope，
+只能作为不写 completion fact 的独立管理任务执行。
 
 ### Step 3: 分析提取角色、场景和道具
 
