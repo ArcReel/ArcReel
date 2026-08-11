@@ -1460,6 +1460,84 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-2"]);
   });
 
+  it("surfaces a failed session load and lets the same session be retried", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "idle"), makeSession("session-2", "idle")],
+    });
+    let failedOnce = false;
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => {
+      if (sessionId === "session-2" && !failedOnce) {
+        failedOnce = true;
+        throw new Error("network down");
+      }
+      return { session: makeSession(sessionId, "idle") };
+    });
+    vi.spyOn(API, "listAssistantEntries").mockImplementation(async (_projectName, sessionId) =>
+      makeEntriesResponse({ session_id: sessionId, entries: [userEntry(0, sessionId)] }),
+    );
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    await act(async () => {
+      await result.current.switchSession("session-2");
+    });
+    expect(useAssistantStore.getState().error).toBe("会话内容加载失败，请重新选择该会话重试");
+    expect(useAssistantStore.getState().turns).toEqual([]);
+
+    // 再点同一条会话不再被短路，重试成功
+    await act(async () => {
+      await result.current.switchSession("session-2");
+    });
+    expect(useAssistantStore.getState().turns).toHaveLength(1);
+  });
+
+  it("invalidates a pending rewrite as soon as the current session is deleted", async () => {
+    mockIdleSession([userEntry(0, "原始消息")]);
+    // DELETE 挂起，让改写的受理落在它在途的那段窗口里
+    const deleteDeferred = createDeferred<void>();
+    vi.spyOn(API, "deleteAssistantSession").mockReturnValue(deleteDeferred.promise as never);
+    const deferred = createDeferred<{
+      status: string;
+      session_id: string;
+      origin_session_id: string | null;
+      entry: TimelineEntry | null;
+    }>();
+    vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(deferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    act(() => {
+      void result.current.rewriteMessage("u-0", "改写后的消息");
+    });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().sending).toBe(true);
+    });
+
+    // 删除当前会话与改写受理竞速：作废在 DELETE 发出时就已生效，不等它返回
+    await act(async () => {
+      const deleting = result.current.deleteSession("session-1");
+      deferred.resolve({
+        status: "accepted",
+        session_id: "session-2",
+        origin_session_id: "session-1",
+        entry: null,
+      });
+      await deferred.promise;
+      deleteDeferred.resolve();
+      await deleting;
+    });
+
+    // 迟到的受理不得把用户装到一个分支上
+    expect(useAssistantStore.getState().currentSessionId).not.toBe("session-2");
+    expect(useAssistantStore.getState().sessions.map((s) => s.id)).not.toContain("session-2");
+  });
+
   it("marks a rewrite startup failure by origin so the card does not replay the composer", async () => {
     mockIdleSession([userEntry(0, "原始消息")]);
     const failure = {

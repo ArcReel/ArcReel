@@ -500,6 +500,7 @@ export default {
   'message_edit_resending': '发送中…',
   'message_edit_resend_hint': '⌘/Ctrl + Enter',
   'message_rewrite_failed': '消息改写失败，请稍后重试',
+  'session_load_failed': '会话内容加载失败，请重新选择该会话重试',
   'agent_failure_startup_title': 'Agent 启动失败',
   'agent_failure_turn_title': 'Agent 本轮运行失败',
   'agent_failure_observation_note': '以下为系统实际观测信息，不等同于问题根因。',

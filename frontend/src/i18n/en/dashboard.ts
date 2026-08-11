@@ -501,6 +501,7 @@ export default {
   'message_edit_resending': 'Resending…',
   'message_edit_resend_hint': '⌘/Ctrl + Enter',
   'message_rewrite_failed': 'Editing the message failed, please try again',
+  'session_load_failed': 'Could not load this conversation. Select it again to retry.',
   'agent_failure_startup_title': 'Agent failed to start',
   'agent_failure_turn_title': 'Agent turn failed',
   'agent_failure_observation_note': 'This is what the system actually observed; it is not a root-cause diagnosis.',

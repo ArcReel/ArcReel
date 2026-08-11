@@ -493,6 +493,7 @@ export default {
   'message_edit_resending': 'Đang gửi…',
   'message_edit_resend_hint': '⌘/Ctrl + Enter',
   'message_rewrite_failed': 'Sửa tin nhắn không thành công, vui lòng thử lại',
+  'session_load_failed': 'Không tải được nội dung phiên trò chuyện, hãy chọn lại phiên để thử lại',
   'agent_failure_startup_title': 'Không thể khởi động Agent',
   'agent_failure_turn_title': 'Lượt chạy Agent thất bại',
   'agent_failure_observation_note': 'Đây là dữ liệu hệ thống thực sự quan sát được; không phải kết luận về nguyên nhân gốc.',

@@ -123,6 +123,8 @@ export function useAssistantSession(projectName: string | null) {
   // 表达的是「服务端已经这么做了」，比任何更早开始的读都新；代数在写入时递增，读到
   // 的旧列表据此作废，不会把已消失的会话写回来、把新分支挤掉。
   const sessionsWriteVersionRef = useRef(0);
+  // 最近一次成功加载完成的会话；加载失败后为 null，用于放行对同一会话的重试
+  const loadedSessionRef = useRef<string | null>(null);
 
   const writeSessions = useCallback((sessions: SessionMeta[]) => {
     sessionsWriteVersionRef.current += 1;
@@ -534,7 +536,8 @@ export function useAssistantSession(projectName: string | null) {
     // 面板为长生命周期单例：切项目为 null 后 sessions 列表不清空，仍可能渲染出
     // 旧项目的会话项，点击不得以 null projectName 发起请求
     if (!projectName) return;
-    if (store.getState().currentSessionId === sessionId) return;
+    // 上一次加载失败过的会话不短路：否则界面停在空时间线、无 SSE，再点同一条也进不来
+    if (store.getState().currentSessionId === sessionId && loadedSessionRef.current === sessionId) return;
 
     const signal = beginSessionLoad();
     invalidatePendingSend();
@@ -548,15 +551,19 @@ export function useAssistantSession(projectName: string | null) {
     // 记住选择
     saveLastSessionId(projectName, sessionId);
 
+    loadedSessionRef.current = null;
     try {
       await loadSession(sessionId, { signal });
+      if (!signal.aborted) loadedSessionRef.current = sessionId;
     } catch {
-      // 静默失败（含被后续切换 abort）
+      // 被后续切换 abort 不是失败，接管方会自己收尾；真失败要说出来，
+      // 否则用户面对的是一片空白的时间线，也不知道可以重试
+      if (!signal.aborted) store.getState().setError(t("session_load_failed"));
     } finally {
       // 被作废时 loading 归接管方管理，此处复位会踩到其正在进行的加载
       if (!signal.aborted) store.getState().setMessagesLoading(false);
     }
-  }, [projectName, beginSessionLoad, clearPendingQuestion, closeStream, invalidatePendingSend, loadSession, store]);
+  }, [projectName, beginSessionLoad, clearPendingQuestion, closeStream, invalidatePendingSend, loadSession, store, t]);
 
   // 改写历史用户消息。返回是否受理成功——失败时调用方保留编辑态与草稿内容。
   //
@@ -648,6 +655,9 @@ export function useAssistantSession(projectName: string | null) {
   // 删除会话
   const deleteSession = useCallback(async (sessionId: string) => {
     if (!projectName) return;
+    // 删除当前会话即刻接管会话选择权，作废不能等到 DELETE 返回：在途的发送/改写
+    // 若在这期间被受理，会把用户装到一个分支上，而删除收尾此时已看不出该切换
+    if (store.getState().currentSessionId === sessionId) invalidatePendingSend();
     try {
       await API.deleteAssistantSession(projectName, sessionId);
       const sessions = store.getState().sessions.filter((s) => s.id !== sessionId);

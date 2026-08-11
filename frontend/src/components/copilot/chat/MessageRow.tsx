@@ -56,10 +56,14 @@ export function MessageRow({
   const turnUuid = turn.uuid;
 
   if (editing && turnUuid) {
+    // 编辑期间会话可能开跑或弹出问答卡片。此时不关编辑器（用户写到一半的草稿不能
+    // 被夺走），但重新发送要跟着 editable 一起关：否则一次改写会把刚开的那一轮
+    // 连同它已经做出的文件修改一起作废。
     return (
       <MessageEditor
         initialText={text}
         submitting={submitting}
+        canSubmit={editable}
         onCancel={() => onCancelEdit?.()}
         onSubmit={(draft) => onSubmitEdit?.(turnUuid, draft)}
       />
@@ -151,11 +155,14 @@ function CopyButton({ text }: { text: string }) {
 function MessageEditor({
   initialText,
   submitting,
+  canSubmit,
   onCancel,
   onSubmit,
 }: {
   initialText: string;
   submitting: boolean;
+  /** 此刻允许提交改写；false 时保留草稿但锁住重新发送。 */
+  canSubmit: boolean;
   onCancel: () => void;
   onSubmit: (text: string) => void;
 }) {
@@ -176,9 +183,9 @@ function MessageEditor({
   }, []);
 
   const submit = useCallback(() => {
-    if (submitting || !draft.trim()) return;
+    if (submitting || !canSubmit || !draft.trim()) return;
     onSubmit(draft);
-  }, [draft, submitting, onSubmit]);
+  }, [draft, submitting, canSubmit, onSubmit]);
 
   return (
     <div className={`${USER_BUBBLE_LAYOUT_CLASS} ${BUBBLE_SHELL_CLASS}`} style={USER_BUBBLE_STYLE}>
@@ -241,7 +248,7 @@ function MessageEditor({
         </button>
         <button
           type="button"
-          disabled={submitting || !draft.trim()}
+          disabled={submitting || !canSubmit || !draft.trim()}
           onClick={submit}
           title={t("message_edit_resend_hint")}
           className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
