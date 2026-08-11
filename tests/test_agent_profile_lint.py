@@ -112,6 +112,23 @@ def test_validates_titled_and_reference_markdown_links(tmp_path: Path) -> None:
     assert any("missing Markdown pointer 'missing-reference.md'" in error for error in errors)
 
 
+def test_decodes_url_escaped_markdown_pointers(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    reference = profile / ".claude" / "references" / "my guide.md"
+    reference.write_text("# Guide\n", encoding="utf-8")
+    skill = profile / ".claude" / "skills" / "demo" / "SKILL.md"
+    skill.write_text(
+        skill.read_text(encoding="utf-8")
+        + "See [guide](../../references/my%20guide.md) and [missing](missing%20guide.md).\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"})
+
+    assert not any("../../references/my guide.md" in error for error in errors)
+    assert any("missing Markdown pointer 'missing guide.md'" in error for error in errors)
+
+
 def test_target_deprecation_rules_are_explicit_for_variant_profile(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     skill = profile / ".claude" / "skills" / "demo" / "SKILL.md"

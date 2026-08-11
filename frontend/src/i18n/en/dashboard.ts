@@ -708,7 +708,7 @@ export default {
   'agent_profile_affected_files': 'Affected profile files',
   'agent_profile_reset': 'Reset to built-in',
   'agent_profile_reset_confirm_title': 'Reset Agent profile?',
-  'agent_profile_reset_confirm_description': 'The following customized files will be discarded and replaced by the current built-in profile. This cannot be undone.',
+  'agent_profile_reset_confirm_description': 'The following customized files will be discarded and replaced by the current built-in profile. This cannot be undone. Open assistant sessions keep their current configuration until they reconnect.',
   'agent_profile_reset_confirm': 'Confirm reset',
   'agent_profile_resetting': 'Resetting…',
   'agent_profile_reset_success': 'Built-in Agent profile restored',

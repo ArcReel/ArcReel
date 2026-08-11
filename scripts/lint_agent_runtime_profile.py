@@ -9,6 +9,7 @@ import posixpath
 import re
 from collections import defaultdict
 from pathlib import Path
+from urllib.parse import unquote
 
 from lib.profile_frontmatter import FrontmatterError, ProfileMetadata, parse_profile_metadata
 from lib.profile_manifest import VALID_CONTENT_MODES, ProfileMisconfiguredError, resolve_profile_files_for_mode
@@ -74,7 +75,7 @@ def _markdown_link_pointers(text: str) -> set[str]:
     for pattern in (_MARKDOWN_INLINE_LINK_RE, _MARKDOWN_REFERENCE_LINK_RE):
         for match in pattern.finditer(text):
             destination = match.group(1) or match.group(2)
-            path = destination.split("#", 1)[0]
+            path = unquote(destination.split("#", 1)[0])
             if path.lower().endswith(".md"):
                 pointers.add(path)
     return pointers

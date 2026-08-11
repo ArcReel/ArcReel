@@ -687,7 +687,7 @@ export default {
   'agent_profile_affected_files': 'Các tệp hồ sơ bị ảnh hưởng',
   'agent_profile_reset': 'Đặt lại về tích hợp',
   'agent_profile_reset_confirm_title': 'Đặt lại hồ sơ Agent?',
-  'agent_profile_reset_confirm_description': 'Các tệp tùy chỉnh sau sẽ bị loại bỏ và thay bằng hồ sơ tích hợp hiện tại. Không thể hoàn tác thao tác này.',
+  'agent_profile_reset_confirm_description': 'Các tệp tùy chỉnh sau sẽ bị loại bỏ và thay bằng hồ sơ tích hợp hiện tại. Không thể hoàn tác thao tác này. Các phiên Agent đang mở vẫn dùng cấu hình hiện tại cho đến khi kết nối lại.',
   'agent_profile_reset_confirm': 'Xác nhận đặt lại',
   'agent_profile_resetting': 'Đang đặt lại…',
   'agent_profile_reset_success': 'Đã khôi phục hồ sơ Agent tích hợp',

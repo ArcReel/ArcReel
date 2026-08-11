@@ -100,6 +100,7 @@ describe("ProjectSettingsPage – style picker", () => {
     fireEvent.click(screen.getByRole("button", { name: /重置为内置配置|Reset to built-in/ }));
     expect(resetSpy).not.toHaveBeenCalled();
     expect(await screen.findByText(/将丢弃|discard/)).toBeInTheDocument();
+    expect(screen.getByText(/重新连接|reconnect/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /确认重置|Confirm reset/ }));
     await waitFor(() => expect(resetSpy).toHaveBeenCalledWith("demo"));
