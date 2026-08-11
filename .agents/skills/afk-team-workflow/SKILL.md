@@ -10,7 +10,7 @@ disable-model-invocation: true
 
 ## 第一步：确定批次成员
 
-用户显式要求接管或恢复既有批次时，按 [references/recovery.md](references/recovery.md) 处理，不按新批次开工。Spec 批次开工前先检查 `.afk/spec-<N>.jsonl`：该文件已存在且末条事件不是 `closed`，说明此 Spec 尚有未收尾的批次——向用户报告并请其裁决，接管则转入 recovery.md，重开则执行其重开清理后继续本流程。slug 批次的 batch-id 由你命名，建账本时避开既有文件名即可。
+用户显式要求接管或恢复既有批次时，按 [references/recovery.md](references/recovery.md) 处理，不按新批次开工。每次新执行生成唯一 batch-id：Spec 批次用 `spec-<N>-<UTC YYYYMMDD-HHMMSS>-<6 位随机十六进制>`，显式 issue 批次用带相同时间戳与随机后缀的简短 slug。Spec 开工前列出 `.afk/spec-<N>.jsonl` 与 `.afk/spec-<N>-*.jsonl` 中末条不是 `closed` 的账本并暂停；用户明确选择一个 batch-id 后，接管转入 recovery.md，重开则执行其清理并使用新的 batch-id。
 
 运行 batch-poll，取得批次的机械底图：展开 Spec 子 issue、解析依赖图、给出每个 issue 的远端落点（标签、`blocked_by`、分支/PR 状态、`stage_hint`）：
 
@@ -63,8 +63,8 @@ issue 的启动条件：全部 blocker 已合入 main。启动时将 issue assig
    分拣结果 append 账本 `decision`；`--issues` 批次扩员后补一条带 scope 的行。轮中新增的候选转呈
 2. **在 Spec issue 发人工 QA 验收清单 comment，不关闭 Spec 本体**。清单按已合并子 issue（含清尾轮）组织：每项给 PR 链接与面向用户可感知行为的验收步骤（实际操作路径，不复读技术验收标准）；末尾列 needs-human 搁置项、跳过与未启动项、发现的缺口。纯 issue 列表批次没有共同 Spec 时，清单并入收尾汇报
 3. 解散团队，移除已合并 issue 的 assignee（避免 reopen 后仍显示为处理中），删除本批次的全部 worktree 与本地分支——其他会话或批次的 worktree 不在删除之列（worktree 有未提交残留时用 `git worktree remove --force`；远端分支合并后自动删除）
-4. 向用户汇报三份清单：已合并（issue 与 PR 对照）、needs-human 搁置（含争点）、跳过与未启动（含原因）；另附转呈事项：缺口立项建议、故障裁决记录、清尾分拣中转呈的候选，以及**聚合复盘**——从账本 `retrospective` 行与 handoff 目录聚合四类复盘候选（ADR / CONTEXT.md / agent instructions / follow-up），一次性呈用户裁决。多数批次干净收敛，四类候选常为空；空是预期结果，照实呈报，无需为"没有候选"补叙
-5. 删除该批次的 handoff 目录（残留会混入同 batch-id 的下一批交接），再运行 `bash scripts/ledger.sh --repo-root <repo-root> <batch-id> closed` append 一条 `closed` 收尾行——`closed` 须为收尾最后一笔：中断时账本仍非终态，可循接管路径补完。账本不删除，留作复盘源与审计，并供第一步的同批次检查据此判定本批次已终态。批准后的复盘落地方式（写 ADR / 改 CONTEXT.md / 补仓库 agent instructions / 立 follow-up issue）不在此指定，由用户与后续会话决定
+4. 向用户汇报三份清单：已合并（issue 与 PR 对照）、needs-human 搁置（含争点）、跳过与未启动（含原因）；另附转呈事项：缺口、故障裁决、清尾轮未处理的 follow-up，以及 ADR / CONTEXT / agent instructions 候选
+5. 运行 `bash scripts/ledger.sh --repo-root <repo-root> <batch-id> closed` append 一条 `closed` 收尾行——`closed` 须为收尾最后一笔：中断时账本仍非终态，可循接管路径补完。向用户说明批次已关闭，并提供账本与 handoff 路径
 
 ## 合并纪律
 
@@ -89,7 +89,7 @@ issue 的启动条件：全部 blocker 已合入 main。启动时将 issue assig
 
 ## 账本
 
-`.afk/<batch-id>.jsonl` 是一份追加式薄账本，只记 **gh/git 无法重推的事实**；远端可查的（issue / PR / 分支状态、依赖图）一律不落账、不镜像，需要时跑 batch-poll。它是恢复 replay 的依据，也是收尾复盘与审计的来源。
+`.afk/<batch-id>.jsonl` 是一份追加式薄账本，只记 **gh/git 无法重推的事实**；远端可查的（issue / PR / 分支状态、依赖图）一律不落账、不镜像，需要时跑 batch-poll。它是恢复 replay 与审计的依据。
 
 用 `ledger.sh` 追加，不要用裸 `echo >>`：
 
@@ -97,10 +97,10 @@ issue 的启动条件：全部 blocker 已合入 main。启动时将 issue assig
 bash scripts/ledger.sh --repo-root <repo-root> <batch-id> <kind> [--issue N] [--pr M] [--scope-spec N | --scope-issues "1,2,3"] [--detail "..."]
 ```
 
-- **batch-id**：Spec 批次用 `spec-<N>`；显式 issue 批次用一个 slug（如 `batch-<日期>`）
+- **batch-id**：一次执行一个 ID；Spec 批次用 `spec-<N>-<UTC YYYYMMDD-HHMMSS>-<6 位随机十六进制>`，显式 issue 批次用带同格式时间戳与随机后缀的简短 slug
 - **scope（首条必填）**：首条记录批次成员，Spec 批次用 `--scope-spec <N>`，slug 批次用 `--scope-issues "1,2,3"`（slug 的 batch-id 不含成员信息，恢复靠 scope 行重建）
 - **全程 append，按 kind 落账**：`decision`（计划与清尾分拣裁决）、`authorization`（用户口头授权；仅作恢复 replay 的信息参考，不作执行凭证）、`fault`（吸收的故障 / 停用的 reviewer）、`gap`（已浮现的 Spec 缺口）、`shelve`（搁置为 needs-human 的 issue 及争点）、`merge`（已执行的合并）、`retrospective`（review-looper 交来的 per-PR 复盘）、`closed`（收尾终态行）
-- **生命周期**：第二步用户确认时写首条（create）→ 全程 append → 收尾写 `closed`，**不删除**。`closed` 后同一 batch-id 再开批续写同一文件；恢复 replay 与清尾、复盘的聚合均只取最后一条 `closed` 之后的段，整文件仅作审计。`.afk/` 已 gitignored，账本是本地运维状态，永不提交
+- **生命周期**：第二步用户确认时写首条（create）→ 全程 append → 收尾写 `closed`，**不删除**。`closed` 是该 batch-id 的终态；后续执行使用新 ID。`.afk/` 已 gitignored，账本是本地运维状态，永不提交
 
 ## 发现 Spec 落点缺口时
 

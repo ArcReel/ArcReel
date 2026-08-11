@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AFK 复盘</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1b1b1f;
+        --rail: #17171b;
+        --rail-2: #2c2c36;
+        --paper: #fff;
+        --ground: #e8e8ec;
+        --muted: #71717d;
+        --line: #c9c9d1;
+        --accent: #7c8cff;
+        --danger: #a31d14;
+        --warn: #7a5300;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--ground); color: var(--ink); font-family: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; }
+      button { font: inherit; }
+      details > summary { cursor: pointer; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .label { color: var(--muted); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; }
+      .rail { background: var(--rail); color: #d8d8de; }
+      .pane { background: var(--paper); border: 1px solid var(--line); }
+      .scroll { overflow: auto; }
+      .index-row { align-items: flex-start; border-left: 2px solid transparent; cursor: pointer; display: flex; gap: 8px; padding: 8px 10px; text-align: left; width: 100%; }
+      .index-row:hover { background: #24242c; }
+      .index-row[aria-selected="true"] { background: var(--rail-2); border-left-color: var(--accent); }
+      .index-row.is-muted { color: #858592; }
+      .tag { border: 1px solid currentColor; font-size: 10px; letter-spacing: .1em; padding: 2px 6px; text-transform: uppercase; }
+      .tone-critical { color: var(--danger); }
+      .tone-warning { color: var(--warn); }
+      .tone-action { color: #35358a; }
+      .tone-muted { color: var(--muted); }
+      .source { background: #f3f3f6; border-left: 2px solid #a9a9b5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
+      .timeline { background: #1e1e24; color: #c6c6d0; }
+      .timeline-line { background: #52525e; height: 1px; left: 0; position: absolute; right: 0; top: 42px; }
+      .mark { background: var(--rail); border: 1px solid #656576; color: #d2d2da; cursor: pointer; display: grid; font-size: 9px; height: 18px; line-height: 1; place-items: center; position: absolute; transform: translateX(-50%); width: 18px; }
+      .mark:hover, .mark[aria-current="true"] { background: var(--accent); border-color: #fff; color: var(--rail); z-index: 2; }
+      .mark.fault { border-color: #d07636; color: #e9a371; }
+      .evaluator + .evaluator { border-left: 1px solid #e2e2e8; }
+      .markdown-body { color: #33333c; font-size: 12px; line-height: 1.75; }
+      .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { color: #1b1b1f; font-weight: 700; line-height: 1.35; margin: 1.1em 0 .45em; }
+      .markdown-body h1 { font-size: 18px; }
+      .markdown-body h2 { font-size: 16px; }
+      .markdown-body h3 { font-size: 14px; }
+      .markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body pre, .markdown-body table { margin: .65em 0; }
+      .markdown-body ul, .markdown-body ol { padding-left: 1.5em; }
+      .markdown-body ul { list-style: disc; }
+      .markdown-body ol { list-style: decimal; }
+      .markdown-body code { background: #ededf1; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; padding: .1em .3em; }
+      .markdown-body pre { background: #ededf1; overflow: auto; padding: 10px; }
+      .markdown-body pre code { background: transparent; padding: 0; }
+      .markdown-body blockquote { border-left: 2px solid #aaaab5; color: #5a5a66; margin: .7em 0; padding-left: 1em; }
+      .markdown-body table { border-collapse: collapse; width: 100%; }
+      .markdown-body th, .markdown-body td { border: 1px solid #d5d5dc; padding: 5px 7px; text-align: left; }
+      .markdown-body a { color: #35358a; text-decoration: underline; }
+      @media (max-width: 1023px) {
+        .evaluator + .evaluator { border-left: 0; border-top: 1px solid #e2e2e8; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script id="report-data" type="application/json">__AFK_REPORT_DATA__</script>
+    <script>
+      (() => {
+        "use strict";
+        const D = JSON.parse(document.getElementById("report-data").textContent);
+        const app = document.getElementById("app");
+        const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+        const ROUTES = {
+          P0: "tone-critical", P1: "tone-warning", P2: "tone-action", "无需处理": "tone-muted",
+          "应更新": "tone-critical", "应记录": "tone-critical", "无需更新": "tone-muted", "无需记录": "tone-muted",
+          "待裁决": "tone-warning", "无候选": "tone-muted"
+        };
+        const AXES = {
+          architecture: ["架构", "ETC · DRY · module depth"],
+          product_user: ["产品与用户", "真实路径 · 收益 · 成本"],
+          knowledge: ["知识维护", "CONTEXT · ADR · agent instructions"]
+        };
+        const KNOWLEDGE = {
+          CONTEXT: ["CONTEXT.md", "领域术语的当前形状"],
+          ADR: ["ADR", "值得长期保留的架构取舍"],
+          INST: ["Agent instructions", "可检查的返工预防规则"]
+        };
+        const GROUP_LABELS = { pending: "需要你决定", followup: "工程建议", CONTEXT: "CONTEXT.md", ADR: "ADR", INST: "Agent instructions" };
+        const GLYPHS = { decision: "◆", authorization: "◇", fault: "▲", gap: "◇", shelve: "■", merge: "●", retrospective: "◌", closed: "▣" };
+        const PRIORITY = { P0: 0, P1: 1, P2: 2, "无需处理": 3 };
+
+        const items = [];
+        D.pending.forEach((item) => items.push({ id: item.id, group: "pending", route: "待裁决", kind: "pending", raw: item }));
+        [...D.followups].sort((a, b) => (PRIORITY[a.priority] ?? 9) - (PRIORITY[b.priority] ?? 9)).forEach((item) => items.push({ id: item.id, group: "followup", route: item.priority, kind: "followup", raw: item }));
+        Object.keys(KNOWLEDGE).forEach((key) => {
+          const values = D.knowledge[key] || [];
+          values.forEach((item) => items.push({ id: item.id, group: key, route: item.verdict, kind: "knowledge", raw: item }));
+          if (!values.length) items.push({ id: `${key}-EMPTY`, group: key, route: "无候选", kind: "empty", raw: { title: "未发现候选" } });
+        });
+        const journeyItems = D.operational.journey.map((event) => ({ id: event.id, group: "journey", route: "执行历程", kind: "journey", raw: event }));
+        const all = items.concat(journeyItems);
+        const state = { selected: items[0]?.id || journeyItems[0]?.id };
+        const itemById = (id) => all.find((item) => item.id === id);
+        const muted = (route) => route.startsWith("无需") || route === "无候选";
+
+        const validTimes = D.operational.journey.map((event) => Date.parse(event.ts)).filter(Number.isFinite);
+        const t0 = validTimes.length ? Math.min(...validTimes) : 0;
+        const t1 = validTimes.length ? Math.max(...validTimes) : 1;
+        const eventPct = (event) => {
+          const value = Date.parse(event.ts);
+          return Number.isFinite(value) && validTimes.length > 1 ? Math.max(1, Math.min(99, ((value - t0) / Math.max(1, t1 - t0)) * 100)) : 50;
+        };
+        const formatDate = (value) => {
+          const date = new Date(value);
+          return Number.isNaN(date.valueOf()) ? value : date.toLocaleString();
+        };
+        const shortTime = (value) => {
+          const date = new Date(value);
+          return Number.isNaN(date.valueOf()) ? value : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        };
+        document.title = `${D.operational.batch_id} · AFK 复盘`;
+
+        const issueCounts = D.issues.reduce((counts, issue) => {
+          counts[issue.state] = (counts[issue.state] || 0) + 1;
+          return counts;
+        }, {});
+
+        const sourceLink = (ref) => {
+          if (journeyItems.some((item) => item.id === ref)) return `<button class="mono underline" data-select="${esc(ref)}">${esc(ref)}</button>`;
+          const index = D.operational.snapshots.findIndex((source) => source.name === ref || source.path === ref);
+          return index >= 0 ? `<a class="mono underline" href="#source-${index}">${esc(ref)}</a>` : `<span class="mono">${esc(ref)}</span>`;
+        };
+        const sourcesHtml = (sources) => sources?.length
+          ? `<div class="mt-4 border-t border-[#d4d4dc] pt-3"><div class="label">来源</div><div class="mt-2 flex flex-wrap gap-2 text-[11px]">${sources.map(sourceLink).join("")}</div></div>`
+          : "";
+
+        const detail = (item) => {
+          if (!item) return { meta: "", main: '<p class="text-[#75757F]">本批次没有复盘事项。</p>' };
+          const value = item.raw;
+          if (item.kind === "followup") {
+            const evaluations = Object.entries(AXES).map(([key, labels]) => {
+              const evaluation = value.evaluations[key];
+              return `<section class="evaluator p-4"><div class="label">${labels[0]}</div><div class="mt-0.5 text-[10px] text-[#9999a5]">${labels[1]}</div><div class="mt-2 text-[12px] font-bold">${esc(evaluation.verdict)}</div><p class="mt-1.5 text-[12px] leading-[1.7] text-[#44444e]">${esc(evaluation.summary)}</p></section>`;
+            }).join("");
+            return {
+              meta: "三轴评估",
+              main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.title)}</h2><p class="mt-2 text-[13.5px] leading-[1.75] text-[#44444e]">${esc(value.summary)}</p><div class="mt-5 grid grid-cols-3 border-y border-[#c9c9d1] max-lg:grid-cols-1">${evaluations}</div><section class="mt-4 border-l-2 border-[#17171b] bg-[#f3f3f6] px-4 py-3"><div class="label">综合结论</div><p class="mt-1 text-[13.5px] leading-[1.75]">${esc(value.conclusion)}</p></section>${sourcesHtml(value.sources)}`
+            };
+          }
+          if (item.kind === "knowledge") {
+            return {
+              meta: KNOWLEDGE[item.group][1],
+              main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.title)}</h2><p class="mt-2 text-[13.5px] leading-[1.75] text-[#44444e]">${esc(value.summary)}</p>${value.suggestion ? `<div class="mt-4"><div class="label">建议内容</div><pre class="source mt-1 px-3 py-2">${esc(value.suggestion)}</pre></div>` : ""}${sourcesHtml(value.sources)}`
+            };
+          }
+          if (item.kind === "pending") {
+            const positions = value.positions.map((position) => `<section class="border border-[#17171b] p-3.5"><div class="flex items-center gap-2"><span class="label">${esc(position.label)}</span><span class="mono text-[10px] text-[#71717d]">${esc(position.id)}</span></div><div class="mt-1 text-[14px] font-bold">${esc(position.stance)}</div><p class="mt-2 text-[12px] leading-[1.7] text-[#44444e]">${esc(position.reason)}</p></section>`).join("");
+            return {
+              meta: `${value.kind} · 需要你决定`,
+              main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.title)}</h2><p class="mt-2 text-[13.5px] leading-[1.75] text-[#44444e]">${esc(value.context)}</p><div class="mt-4 grid grid-cols-2 gap-3 max-lg:grid-cols-1">${positions}</div><p class="mt-3 text-[12px] text-[#5a5a66]">当前状态：${esc(value.current_state)}</p>${sourcesHtml(value.sources)}`
+            };
+          }
+          if (item.kind === "empty") {
+            return { meta: KNOWLEDGE[item.group][1], main: '<h2 class="text-[20px] font-bold">未发现候选</h2><p class="mt-2 text-[13px] text-[#71717d]">该类别已检查，本批次无需更新。</p>' };
+          }
+          return {
+            meta: `${shortTime(value.ts)} · ${value.kind}${value.issue ? ` · #${value.issue}` : ""}${value.pr ? ` · PR #${value.pr}` : ""}`,
+            main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.detail || value.kind)}</h2><div class="label mt-4">ledger 第 ${value.line} 行</div><pre class="source mt-1 px-3 py-2">${esc(value.raw)}</pre>`
+          };
+        };
+
+        const renderMarkdown = (content) => {
+          try {
+            if (window.marked && window.DOMPurify) return window.DOMPurify.sanitize(window.marked.parse(content));
+          } catch (_) {}
+          return `<pre class="source px-3 py-2">${esc(content)}</pre>`;
+        };
+        const sourceDocuments = () => D.operational.snapshots.map((source, index) => ({ source, index })).sort((a, b) => (a.source.kind === "handoff" ? 0 : 1) - (b.source.kind === "handoff" ? 0 : 1)).map(({ source, index }) => {
+          if (source.kind === "handoff") {
+            return `<section class="border-b border-[#d5d5dc] py-4" id="source-${index}"><div class="mono text-[11px] font-semibold">${esc(source.path)}</div><div class="markdown-body mt-3">${renderMarkdown(source.content)}</div><details class="mt-4"><summary class="text-[11px] font-semibold">查看原始 Markdown</summary><pre class="source mt-2 max-h-[42vh] overflow-auto px-3 py-2">${esc(source.content)}</pre></details></section>`;
+          }
+          return `<details class="border-b border-[#d5d5dc] py-4" id="source-${index}"><summary class="mono text-[11px] font-semibold">${esc(source.path)}</summary><pre class="source mt-3 max-h-[55vh] overflow-auto px-3 py-2">${esc(source.content)}</pre></details>`;
+        }).join("");
+
+        const issueRows = D.issues.map((issue) => `<tr class="border-t border-[#ededf1]"><td class="mono py-2 pr-3">#${esc(issue.number)}</td><td class="py-2 pr-3">${esc(issue.title)}</td><td class="mono py-2 pr-3">${issue.pr ? `PR #${esc(issue.pr)}` : "—"}</td><td class="py-2 font-semibold">${esc(issue.state)}</td></tr>`).join("");
+        const marks = D.operational.journey.map((event, index) => `<button class="mark ${event.kind === "fault" ? "fault" : ""}" style="left:${eventPct(event)}%;top:${10 + (index % 3) * 24}px" data-select="${esc(event.id)}" title="${esc(`${formatDate(event.ts)} · ${event.kind}`)}">${GLYPHS[event.kind] || "◆"}</button>`).join("");
+
+        app.innerHTML = `<div class="flex h-screen flex-col">
+          <header class="rail flex shrink-0 flex-wrap items-center gap-5 border-b border-[#2c2c36] px-4 py-2.5">
+            <div><span class="mono text-[12px] font-bold text-white">${esc(D.operational.batch_id)}</span><span class="ml-2 text-[12px] text-[#aaaab5]">${esc(D.batch.title)}</span></div>
+            <div class="text-[11px] text-[#aaaab5]">已合并 <b class="text-white">${issueCounts.merged || 0}</b> · 待人工 <b class="text-white">${issueCounts.shelved || 0}</b> · 未启动 <b class="text-white">${issueCounts.not_started || 0}</b> · 已完成 <b class="text-white">${issueCounts.done || 0}</b></div>
+            <div class="ml-auto text-[11px] text-[#7f7f8b]">生成于 ${esc(formatDate(D.operational.generated_at))}</div>
+          </header>
+
+          <section class="timeline shrink-0 border-b border-[#2c2c36] px-4 py-2">
+            <div class="flex items-center gap-3"><span class="label text-[#aaaab5]">执行历程</span><span class="text-[10px] text-[#858592]">${esc(formatDate(D.operational.started_at))} → ${esc(formatDate(D.operational.closed_at))}</span><span class="ml-auto text-[10px] text-[#686875]">◆ 裁决　▲ 故障　■ 搁置　● 合并　▣ 收尾</span></div>
+            <div class="relative mt-1 h-[78px] px-3"><div class="timeline-line"></div>${marks}</div>
+          </section>
+
+          <div class="grid min-h-0 flex-1 grid-cols-[265px_minmax(0,1fr)_390px] max-xl:grid-cols-[245px_1fr] max-lg:block max-lg:overflow-auto">
+            <nav class="rail scroll max-lg:max-h-[45vh]" aria-label="复盘事项"><div id="index"></div></nav>
+            <main class="scroll bg-[#e8e8ec] p-4">
+              <section class="pane border-t-2 border-t-[#17171b] p-5"><div class="label">批次结论</div><p class="mt-1.5 max-w-[78ch] text-[14.5px] leading-[1.8]">${esc(D.batch.summary)}</p>${D.issues.length ? `<div class="label mt-5">Issue 结果</div><div class="mt-1 overflow-auto"><table class="w-full text-left text-[12px]"><tbody>${issueRows}</tbody></table></div>` : ""}</section>
+              <section class="pane mt-4 p-5" id="detail"></section>
+              <section class="pane mt-4 p-4"><p class="text-[11.5px] text-[#71717d]">报告只提供建议。请在会话中按报告 ID 或选项 ID 回复，确认后再修改文档或创建 issue。</p></section>
+            </main>
+            <aside class="scroll border-l border-[#c9c9d1] bg-[#f3f3f6] px-4 max-xl:col-span-2 max-xl:border-l-0 max-lg:overflow-visible"><div class="label sticky top-0 z-10 bg-[#f3f3f6] py-3">账本与 handoff</div>${sourceDocuments()}</aside>
+          </div>
+        </div>`;
+
+        const index = document.getElementById("index");
+        const detailEl = document.getElementById("detail");
+
+        const bindSelect = (scope) => scope.querySelectorAll("[data-select]").forEach((control) => control.addEventListener("click", () => select(control.dataset.select)));
+        const paintIndex = () => {
+          const groups = [...new Set(items.map((item) => item.group))];
+          index.innerHTML = groups.map((group) => `<section class="pt-3"><div class="label px-3 pb-1 text-[#aaaab5]">${esc(GROUP_LABELS[group])}</div>${items.filter((item) => item.group === group).map((item) => `<button class="index-row ${muted(item.route) ? "is-muted" : ""}" data-select="${esc(item.id)}" aria-selected="${item.id === state.selected}"><span class="mono w-[68px] shrink-0 text-[11px]">${item.kind === "empty" ? "—" : esc(item.id)}</span><span class="flex-1 text-[12px] leading-[1.45]">${esc(item.raw.title || "未发现候选")}</span></button>`).join("")}</section>`).join("");
+          bindSelect(index);
+        };
+        const paint = () => {
+          paintIndex();
+          const item = itemById(state.selected) || items[0] || journeyItems[0];
+          const view = detail(item);
+          detailEl.innerHTML = item ? `<div class="flex flex-wrap items-center gap-2"><span class="mono text-[12px] font-bold">${esc(item.id)}</span><span class="tag ${ROUTES[item.route] || "tone-action"}">${esc(item.route)}</span><span class="text-[11.5px] text-[#71717d]">${esc(view.meta)}</span></div><div class="mt-3">${view.main}</div>` : view.main;
+          bindSelect(detailEl);
+          document.querySelectorAll(".mark").forEach((control) => control.setAttribute("aria-current", String(control.dataset.select === state.selected)));
+        };
+        function select(id) {
+          if (!itemById(id)) return;
+          state.selected = id;
+          paint();
+        }
+        bindSelect(app);
+        paint();
+      })();
+    </script>
+  </body>
+</html>

@@ -16,7 +16,7 @@
 #
 # JSON SCHEMA
 # {
-#   "batch_id_hint": "spec-<N>" | null,       # spec-<N> for --spec; null for --issues (team-lead names that batch's slug)
+#   "batch_id_hint": "spec-<N>" | null,       # prefix for the unique timestamped batch-id; null for --issues
 #   "generated_for": {"spec": <N>} | {"issues": [<int>,...]},
 #   "issues": [
 #     {
