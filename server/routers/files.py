@@ -467,12 +467,10 @@ async def _handle_source_upload(
     original_filename = _require_filename(file, _t)
 
     try:
-        project_dir = get_project_manager().get_project_path(project_name)
+        manager = get_project_manager()
+        project_dir = manager.get_project_path(project_name)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
-
-    source_dir = project_dir / "source"
-    source_dir.mkdir(parents=True, exist_ok=True)
 
     def _sync() -> NormalizeResult:
         # 流式写入 tmp，避免把上传 body 整体拉进 Python 堆；
@@ -484,12 +482,13 @@ async def _handle_source_upload(
         try:
             with tmp_path.open("wb") as out:
                 shutil.copyfileobj(file.file, out)
-            return SourceLoader.load(
-                tmp_path,
-                source_dir,
-                original_filename=original_filename,
-                on_conflict=on_conflict,
-            )
+            with manager.locked_source_mutation(project_name) as source_dir:
+                return SourceLoader.load(
+                    tmp_path,
+                    source_dir,
+                    original_filename=original_filename,
+                    on_conflict=on_conflict,
+                )
         finally:
             tmp_path.unlink(missing_ok=True)
 
@@ -659,17 +658,17 @@ async def update_source_file(
     try:
 
         def _sync():
-            project_dir = get_project_manager().get_project_path(project_name)
-            source_dir = project_dir / "source"
-            source_dir.mkdir(parents=True, exist_ok=True)
+            manager = get_project_manager()
+            project_dir = manager.get_project_path(project_name)
 
-            # 安全检查：确保路径在项目目录内（文件尚不存在也要能通过，此处允许新建）
-            try:
-                source_path = safe_join(project_dir, "source", filename)
-            except PathTraversalError:
-                raise HTTPException(status_code=403, detail=_t("forbidden_access"))
+            with manager.locked_source_mutation(project_name):
+                # 安全检查：确保路径在项目目录内（文件尚不存在也要能通过，此处允许新建）
+                try:
+                    source_path = safe_join(project_dir, "source", filename)
+                except PathTraversalError:
+                    raise HTTPException(status_code=403, detail=_t("forbidden_access"))
 
-            source_path.write_text(content, encoding="utf-8")
+                source_path.write_text(content, encoding="utf-8")
             return {"success": True, "path": f"source/{filename}"}
 
         return await asyncio.to_thread(_sync)
@@ -689,25 +688,26 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator):
     try:
 
         def _sync():
-            project_dir = get_project_manager().get_project_path(project_name)
+            manager = get_project_manager()
+            project_dir = manager.get_project_path(project_name)
 
-            # 安全检查：确保路径在项目目录内
-            try:
-                source_path = safe_join(project_dir, "source", filename)
-            except PathTraversalError:
-                raise HTTPException(status_code=403, detail=_t("forbidden_access"))
+            with manager.locked_source_mutation(project_name):
+                # 安全检查：确保路径在项目目录内
+                try:
+                    source_path = safe_join(project_dir, "source", filename)
+                except PathTraversalError:
+                    raise HTTPException(status_code=403, detail=_t("forbidden_access"))
 
-            if source_path.exists():
-                source_path.unlink()
-                # 级联删除原文件备份（同 stem，任意扩展名）
-                raw_dir = project_dir / "source" / "raw"
-                if raw_dir.exists():
-                    stem = source_path.stem
-                    for raw_file in raw_dir.iterdir():
-                        if raw_file.is_file() and raw_file.stem == stem:
-                            raw_file.unlink()
-                return {"success": True}
-            else:
+                if source_path.exists():
+                    source_path.unlink()
+                    # 级联删除原文件备份（同 stem，任意扩展名）
+                    raw_dir = project_dir / "source" / "raw"
+                    if raw_dir.exists():
+                        stem = source_path.stem
+                        for raw_file in raw_dir.iterdir():
+                            if raw_file.is_file() and raw_file.stem == stem:
+                                raw_file.unlink()
+                    return {"success": True}
                 raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
 
         return await asyncio.to_thread(_sync)

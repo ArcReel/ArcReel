@@ -399,7 +399,9 @@ class WorkflowStateService:
             seen_ids.add(resource_id)
             duration = item.get("duration_seconds")
             duration_max = 300 if kind == "video_units" else 60
-            if isinstance(duration, bool) or not isinstance(duration, int) or not 1 <= duration <= duration_max:
+            if duration is not None and (
+                isinstance(duration, bool) or not isinstance(duration, int) or not 1 <= duration <= duration_max
+            ):
                 blockers.append(
                     WorkflowBlocker(
                         code="invalid_script_structure",

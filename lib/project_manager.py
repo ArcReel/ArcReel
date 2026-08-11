@@ -15,7 +15,7 @@ import secrets
 import shutil
 import time
 import unicodedata
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1458,6 +1458,20 @@ class ProjectManager:
         lock_path.touch(exist_ok=True)
         with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
             yield
+
+    @contextmanager
+    def locked_source_mutation(self, project_name: str) -> Iterator[Path]:
+        """Serialize source-file mutations with project transactions.
+
+        Workflow facts such as asset-inventory completion compute source revisions while
+        holding the project lock. Source writers must use this context so a revision check
+        and its matching project.json commit observe one immutable source snapshot.
+        """
+        project_path = self.get_project_path(project_name)
+        with self._project_lock(project_name):
+            source_dir = project_path / "source"
+            source_dir.mkdir(parents=True, exist_ok=True)
+            yield source_dir
 
     @contextmanager
     def file_lock(self, path: Path):

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 
 import pytest
 
@@ -71,6 +73,41 @@ def test_revision_conflict_does_not_partially_write_extracted_assets(tmp_path: P
 
     saved = pm.load_project("demo")
     assert "阿青" not in saved["characters"]
+    assert "workflow" not in saved
+
+
+@pytest.mark.integration
+def test_source_mutation_is_serialized_with_inventory_revision_commit(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path)
+    source_path = project_path / "source" / "novel.txt"
+    expected = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
+    assert expected is not None
+    writer_locked = Event()
+    allow_write = Event()
+    completion_started = Event()
+
+    def _write_source() -> None:
+        with pm.locked_source_mutation("demo"):
+            writer_locked.set()
+            allow_write.wait(timeout=5)
+            source_path.write_text("并发修改后的原文", encoding="utf-8")
+
+    def _complete_inventory() -> None:
+        completion_started.set()
+        complete_asset_inventory(pm, "demo", SourceScope(kind="all"), expected)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        writer = executor.submit(_write_source)
+        assert writer_locked.wait(timeout=2)
+        completion = executor.submit(_complete_inventory)
+        assert completion_started.wait(timeout=2)
+        assert not completion.done()
+        allow_write.set()
+        writer.result(timeout=2)
+        with pytest.raises(AssetInventoryRevisionConflict):
+            completion.result(timeout=2)
+
+    saved = pm.load_project("demo")
     assert "workflow" not in saved
 
 

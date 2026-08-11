@@ -379,6 +379,56 @@ def test_non_object_script_is_a_blocker_not_an_exception(tmp_path: Path) -> None
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("mode", "step1_filename", "step1_payload", "items_key", "id_field"),
+    [
+        ("narration", "step1_segments.json", {"segments": []}, "segments", "segment_id"),
+        ("drama", "step1_normalized_script.json", {"scenes": []}, "scenes", "scene_id"),
+    ],
+)
+def test_legacy_storyboard_script_without_duration_remains_resumable(
+    tmp_path: Path,
+    mode: str,
+    step1_filename: str,
+    step1_payload: dict,
+    items_key: str,
+    id_field: str,
+) -> None:
+    pm, project_path = _make_project(tmp_path, mode)
+    _write_source_and_complete(pm, project_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"}]
+        ),
+    )
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    step1_path = draft_dir / step1_filename
+    atomic_write_json(step1_path, step1_payload)
+    revision = script_review.content_fingerprint(step1_path)
+    assert revision is not None
+    pm.update_project(
+        "demo", lambda project: script_review.apply_confirmation(project, 1, revision, "2026-08-11T00:00:00Z")
+    )
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "content_mode": mode,
+            items_key: [{id_field: "E1S01", "generated_assets": {}}],
+            "metadata": {script_review.SCRIPT_STEP1_REVISION_FIELD: revision},
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "STORYBOARD"
+    assert status.artifacts["script"]["state"] == "current"
+    assert not status.blockers
+
+
+@pytest.mark.integration
 def test_legacy_narration_scenes_skeleton_remains_resumable(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"

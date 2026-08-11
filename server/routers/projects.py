@@ -1331,21 +1331,17 @@ async def set_project_source(
         def _sync_write():
             if not manager.project_exists(name):
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
-            project_dir = manager.get_project_path(name)
-            source_dir = project_dir / "source"
-            source_dir.mkdir(parents=True, exist_ok=True)
-
-            if raw is not None:
-                safe_filename = Path(original_name).name
-                try:
-                    text = raw.decode("utf-8")
-                except UnicodeDecodeError:
-                    raise HTTPException(status_code=400, detail=_t("invalid_encoding"))
-                if len(text) > MAX_CHARS:
-                    raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
-                (source_dir / safe_filename).write_text(text, encoding="utf-8")
-                return safe_filename, len(text)
-            else:
+            with manager.locked_source_mutation(name) as source_dir:
+                if raw is not None:
+                    safe_filename = Path(original_name).name
+                    try:
+                        text = raw.decode("utf-8")
+                    except UnicodeDecodeError:
+                        raise HTTPException(status_code=400, detail=_t("invalid_encoding"))
+                    if len(text) > MAX_CHARS:
+                        raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
+                    (source_dir / safe_filename).write_text(text, encoding="utf-8")
+                    return safe_filename, len(text)
                 if len(text_content) > MAX_CHARS:
                     raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
                 safe_filename = "novel.txt"
