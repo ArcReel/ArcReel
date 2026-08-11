@@ -90,7 +90,9 @@ function pushMentionTokens(out: Token[], text: string, lookup: MentionLookup): v
       kind: "mention",
       text: m[0],
       name,
-      assetKind: (resolved ?? "unknown"),
+      // product 参与四 bucket 名称空间归属，但不是 generic reference-video
+      // ReferenceResource；继续以 unknown 样式提示它不会进入参考图列表。
+      assetKind: resolved === "product" ? "unknown" : (resolved ?? "unknown"),
     });
     lastIdx = idx + m[0].length;
   }

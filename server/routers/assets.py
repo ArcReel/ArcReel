@@ -567,6 +567,7 @@ async def apply_to_project(
         plans.append(
             {
                 "asset": a,
+                "requested_name": _validate_asset_name(a.name, _t),
                 "bucket_key": bucket_key,
                 "sheet_key": sheet_key,
                 "desired_name": desired_name,
@@ -579,20 +580,46 @@ async def apply_to_project(
             }
         )
 
-    # 5) 单次事务把所有文件替换与 bucket 变更一次性写回。
+    # 5) 单次事务把所有文件替换与 bucket 变更一次性写回。锁外规划只用于快速失败；
+    #    锁内必须从 requested_name 重施策略，覆盖快照之后出现的同类型占用。
+    file_copies: list[tuple[Path, Path]] = []
+
     def _apply_all(data: dict) -> None:
-        for plan in plans:
-            match = find_project_asset_name(data, plan["desired_name"])
-            if match is not None and match.asset_type != plan["asset"].type:
-                raise ProjectAssetNameConflictError(plan["desired_name"], match, plan["asset"].type)
+        applied_plans: list[dict] = []
         for plan in plans:
             a_ = plan["asset"]
             bk = plan["bucket_key"]
             sk = plan["sheet_key"]
-            name_ = plan["desired_name"]
+            name_ = plan["requested_name"]
+            existing = find_project_asset_name(data, name_)
+            if existing is not None:
+                if req.conflict_policy == "skip":
+                    skipped.append({"id": a_.id, "name": a_.name})
+                    continue
+                if req.conflict_policy == "rename":
+                    base_name = name_
+                    index = 2
+                    while find_project_asset_name(data, f"{base_name} ({index})") is not None:
+                        index += 1
+                    name_ = f"{base_name} ({index})"
+                    existing = None
+                elif existing.asset_type != a_.type:
+                    raise ProjectAssetNameConflictError(name_, existing, a_.type)
+
+            plan["desired_name"] = name_
+            if plan["copy_src"] is not None:
+                extension = plan["copy_src"].suffix.lower() or ".png"
+                plan["target_sheet"] = f"{bk}/{name_}{extension}"
+                plan["copy_dst"] = project_dir / plan["target_sheet"]
+                file_copies.append((plan["copy_src"], plan["copy_dst"]))
+            if plan["copy_audio_src"] is not None:
+                extension = plan["copy_audio_src"].suffix.lower() or ".wav"
+                plan["target_audio"] = f"characters/refs_audio/{name_}{extension}"
+                plan["copy_audio_dst"] = project_dir / plan["target_audio"]
+                file_copies.append((plan["copy_audio_src"], plan["copy_audio_dst"]))
+
             ts = plan["target_sheet"]
             ta = plan["target_audio"]
-            existing = find_project_asset_name(data, name_)
             ensure_project_asset_name_available(
                 data,
                 name_,
@@ -614,17 +641,11 @@ async def apply_to_project(
             # overwrite 策略要落在存量真实 key 上（可能是 NFD），否则会并存两条视觉同名条目
             key = existing.name if existing is not None and existing.asset_type == a_.type else name_
             data[bk][key] = payload
+            applied_plans.append(plan)
+
+        plans[:] = applied_plans
 
     if plans:
-        file_copies = [
-            (src, dst)
-            for plan in plans
-            for src, dst in (
-                (plan["copy_src"], plan["copy_dst"]),
-                (plan["copy_audio_src"], plan["copy_audio_dst"]),
-            )
-            if src is not None and dst is not None
-        ]
         try:
             await asyncio.to_thread(
                 project_manager.update_project_with_file_copies,

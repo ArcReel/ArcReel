@@ -1612,14 +1612,12 @@ class ProjectManager:
     ) -> dict:
         """在项目锁内把文件替换与 project.json 写回作为一个可回滚事务提交。
 
-        ``copies`` 的目标路径必须互不重复。``mutate_fn`` 抛错时不会安装任何文件；
+        ``copies`` 的目标路径必须互不重复；``mutate_fn`` 可在锁内完成最终名称规划并向
+        该列表追加拷贝。回调抛错时不会安装任何文件；
         所有源文件先完成暂存，再逐个替换目标。安装或 JSON 写回失败时按相反顺序恢复
         已替换目标，恢复失败仅记录日志并保留原始异常；提交成功后清理备份。
         """
         project_file = self._get_project_file_path(project_name)
-        destinations = [destination for _source, destination in copies]
-        if len(set(destinations)) != len(destinations):
-            raise ValueError("项目文件事务包含重复目标路径")
 
         token = secrets.token_hex(8)
         staged: list[tuple[Path, Path]] = []
@@ -1638,6 +1636,11 @@ class ProjectManager:
                 self._migrate_legacy_style(project)
                 self._touch_metadata(project)
 
+                # mutate_fn 可在锁内完成最终名称规划并填充 copies；因此目标唯一性也必须
+                # 在回调之后、仍持有同一把项目锁时校验。
+                destinations = [destination for _source, destination in copies]
+                if len(set(destinations)) != len(destinations):
+                    raise ValueError("项目文件事务包含重复目标路径")
                 for index, (source, destination) in enumerate(copies):
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     temporary = destination.with_name(f".{destination.name}.{token}-{index}.tmp")

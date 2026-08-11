@@ -705,6 +705,78 @@ class TestApplyToProject:
         assert localized_fragment in response.json()["detail"]
         assert pm.load_project("target")["scenes"] == {}
 
+    @pytest.mark.integration
+    def test_concurrent_same_type_conflict_reapplies_skip_inside_lock(self, _assets_env, monkeypatch):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        created = client.post("/api/v1/assets", data={"type": "scene", "name": "Shared", "description": "library"})
+        original_update = pm.update_project
+        original_transaction = pm.update_project_with_file_copies
+
+        def racing_transaction(project_name, mutate, copies):
+            original_update(
+                project_name,
+                lambda project: project["scenes"].update({"Shared": {"description": "concurrent"}}),
+            )
+            return original_transaction(project_name, mutate, copies)
+
+        monkeypatch.setattr(pm, "update_project_with_file_copies", racing_transaction)
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["succeeded"] == []
+        assert response.json()["skipped"] == [{"id": created.json()["asset"]["id"], "name": "Shared"}]
+        assert pm.load_project("target")["scenes"]["Shared"]["description"] == "concurrent"
+
+    @pytest.mark.integration
+    def test_concurrent_same_type_conflict_reapplies_rename_inside_lock(self, _assets_env, monkeypatch):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "Shared", "description": "library"},
+            files={"image": ("Shared.png", b"library-image", "image/png")},
+        )
+        original_update = pm.update_project
+        original_transaction = pm.update_project_with_file_copies
+
+        def racing_transaction(project_name, mutate, copies):
+            original_update(
+                project_name,
+                lambda project: project["scenes"].update({"Shared": {"description": "concurrent"}}),
+            )
+            return original_transaction(project_name, mutate, copies)
+
+        monkeypatch.setattr(pm, "update_project_with_file_copies", racing_transaction)
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "rename",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["succeeded"] == [{"id": created.json()["asset"]["id"], "name": "Shared (2)"}]
+        project = pm.load_project("target")
+        assert project["scenes"]["Shared"]["description"] == "concurrent"
+        assert project["scenes"]["Shared (2)"]["description"] == "library"
+        assert (pm.projects_root / "target" / "scenes" / "Shared (2).png").read_bytes() == b"library-image"
+
     @pytest.mark.unit
     def test_invalid_policy_returns_400(self, _assets_env):
         client = _assets_env["client"]

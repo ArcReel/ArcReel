@@ -230,6 +230,46 @@ def test_migration_reserves_retained_history_names(tmp_path: Path) -> None:
     assert (project_dir / "versions" / "scenes" / "Hero_scene_v1_retained.png").is_file()
 
 
+@pytest.mark.parametrize("path_kind", ["absolute", "traversal"])
+def test_migration_rejects_version_snapshot_paths_outside_project(tmp_path: Path, path_kind: str) -> None:
+    project_dir = tmp_path / "demo"
+    external = tmp_path / "outside" / "Hero_v1.png"
+    external.parent.mkdir()
+    external.write_bytes(b"external-version")
+    declared_path = str(external) if path_kind == "absolute" else "../outside/Hero_v1.png"
+    _write_json(
+        project_dir / "project.json",
+        {
+            "schema_version": 5,
+            "characters": {"Hero": _asset("character", "character_sheet")},
+            "scenes": {"Hero": _asset("scene", "scene_sheet")},
+            "props": {},
+            "products": {},
+        },
+    )
+    _write_json(
+        project_dir / "versions" / "versions.json",
+        {
+            "scenes": {
+                "Hero": {
+                    "current_version": 1,
+                    "versions": [{"version": 1, "file": declared_path}],
+                }
+            }
+        },
+    )
+    original_project = (project_dir / "project.json").read_bytes()
+    original_versions = (project_dir / "versions" / "versions.json").read_bytes()
+
+    with pytest.raises(ValueError, match="版本快照路径"):
+        migrate_v5_to_v6(project_dir)
+
+    assert external.read_bytes() == b"external-version"
+    assert (project_dir / "project.json").read_bytes() == original_project
+    assert (project_dir / "versions" / "versions.json").read_bytes() == original_versions
+    assert not list(tmp_path.glob(".demo.v6-*"))
+
+
 def test_migration_uses_declared_owner_for_ambiguous_product_reference(tmp_path: Path) -> None:
     project_dir = tmp_path / "demo"
     _write_json(

@@ -12,11 +12,12 @@ import {
 import type { ProjectData } from "@/types";
 import type { ReferenceResource } from "@/types/reference-video";
 
-function mkProject(): Pick<ProjectData, "characters" | "scenes" | "props"> {
+function mkProject(): Pick<ProjectData, "characters" | "scenes" | "props" | "products"> {
   return {
     characters: { 主角: { description: "" }, 张三: { description: "" }, "角色甲（成年）": { description: "" }, 角色乙: { description: "" } },
     scenes: { 酒馆: { description: "" }, "地点甲·版本A": { description: "" } },
     props: { 长剑: { description: "" }, 载具甲: { description: "" }, 道具甲: { description: "" } },
+    products: { 水杯: { description: "", brand: "" } },
   };
 }
 
@@ -120,6 +121,7 @@ describe("resolveMentionType", () => {
     expect(resolveMentionType(project, "主角")).toBe("character");
     expect(resolveMentionType(project, "酒馆")).toBe("scene");
     expect(resolveMentionType(project, "长剑")).toBe("prop");
+    expect(resolveMentionType(project, "水杯")).toBe("product");
   });
 
   it("returns undefined for unknown names", () => {
@@ -127,7 +129,7 @@ describe("resolveMentionType", () => {
   });
 
   it("does not disambiguate a corrupt duplicate namespace at runtime", () => {
-    const corrupt = { characters: { Shared: {} }, scenes: { Shared: {} }, props: {} };
+    const corrupt = { characters: { Shared: {} }, scenes: { Shared: {} }, props: {}, products: {} };
     expect(resolveMentionType(corrupt as never, "Shared")).toBeUndefined();
   });
 
@@ -151,12 +153,25 @@ describe("buildMentionLookup", () => {
       characters: Object.fromEntries([[" café ", {}], ["__proto__", {}]]),
       scenes: { "cafe\u0301": {} },
       props: { toString: {} },
+      products: { Product: {} },
     } as never);
 
     expect(Object.getPrototypeOf(lookup)).toBeNull();
     expect(Object.hasOwn(lookup, "café")).toBe(false);
     expect(lookup.__proto__).toBe("character");
     expect(lookup.toString).toBe("prop");
+    expect(lookup.Product).toBe("product");
+  });
+
+  it("does not select a runtime owner when a product duplicates another bucket", () => {
+    const lookup = buildMentionLookup({
+      characters: { Shared: {} },
+      scenes: {},
+      props: {},
+      products: { Shared: {} },
+    } as never);
+
+    expect(Object.hasOwn(lookup, "Shared")).toBe(false);
   });
 });
 
@@ -203,6 +218,15 @@ describe("mergeReferences", () => {
   it("skips unknown mentions (not resolvable to any bucket)", () => {
     const merged = mergeReferences("镜头1：@路人 @主角", [], project);
     expect(merged).toEqual([{ type: "character", name: "主角" }]);
+  });
+
+  it("canonicalizes padded wrapped mentions before emitting references", () => {
+    const merged = mergeReferences("镜头1：@[ 主角 ] 入场", [], project);
+    expect(merged).toEqual([{ type: "character", name: "主角" }]);
+  });
+
+  it("does not emit products into the generic reference-video schema", () => {
+    expect(mergeReferences("镜头1：@水杯 特写", [], project)).toEqual([]);
   });
 
   it("deduplicates repeated mentions", () => {

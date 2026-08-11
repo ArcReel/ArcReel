@@ -47,6 +47,12 @@ describe("tokenizePrompt", () => {
     expect(mention?.text).toBe("@路人");
   });
 
+  it("keeps product ownership out of generic reference-video highlighting", () => {
+    const t = tokenizePrompt("镜头1：@水杯 特写", { ...LOOKUP, 水杯: "product" });
+    const mention = t.find((x) => x.kind === "mention");
+    expect(mention?.assetKind).toBe("unknown");
+  });
+
   it("resolves wrapped mentions with punctuation", () => {
     const t = tokenizePrompt(
       "镜头1：@[角色甲（成年）]引导@[角色乙]靠近@[载具甲]区域，移动到@[地点甲·版本A]",

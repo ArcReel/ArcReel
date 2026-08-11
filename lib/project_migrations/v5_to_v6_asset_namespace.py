@@ -371,6 +371,25 @@ def _retained_history_keys(project_dir: Path, project: dict[str, Any]) -> dict[s
     return retained
 
 
+def _confined_version_path(project_dir: Path, spec: AssetSpec, relative: PurePosixPath) -> Path:
+    """Resolve a version entry only inside its declared project version bucket."""
+    if relative.is_absolute():
+        raise ValueError(f"版本快照路径不得为绝对路径: {relative}")
+    expected_root = project_dir / "versions" / spec.bucket_key
+    candidate = project_dir.joinpath(*relative.parts)
+    try:
+        candidate.relative_to(expected_root)
+    except ValueError as exc:
+        raise ValueError(f"版本快照路径必须位于 versions/{spec.bucket_key}: {relative}") from exc
+
+    project_root = project_dir.resolve()
+    resolved_root = expected_root.resolve(strict=False)
+    resolved_candidate = candidate.resolve(strict=False)
+    if not resolved_root.is_relative_to(project_root) or not resolved_candidate.is_relative_to(resolved_root):
+        raise ValueError(f"版本快照路径越出项目目录: {relative}")
+    return candidate
+
+
 def _rewrite_versions(project_dir: Path, occurrences: list[_AssetOccurrence]) -> list[tuple[Path, Path]]:
     versions_file = project_dir / "versions" / "versions.json"
     if not versions_file.is_file():
@@ -408,8 +427,8 @@ def _rewrite_versions(project_dir: Path, occurrences: list[_AssetOccurrence]) ->
                             continue
                         suffix = basename[marker:]
                     new_relative = relative.with_name(f"{item.new_name}{suffix}")
-                    source = project_dir / relative
-                    destination = project_dir / new_relative
+                    source = _confined_version_path(project_dir, spec, relative)
+                    destination = _confined_version_path(project_dir, spec, new_relative)
                     if source != destination:
                         moves.append((source, destination))
                     version["file"] = str(new_relative)
