@@ -21,7 +21,7 @@ def _make_project(tmp_path: Path) -> tuple[ProjectManager, Path]:
     return pm, project_path
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 def test_complete_inventory_accepts_three_empty_buckets_and_persists_scope(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path)
     project = pm.load_project("demo")
@@ -37,7 +37,7 @@ def test_complete_inventory_accepts_three_empty_buckets_and_persists_scope(tmp_p
     assert marker["completed_at"].endswith("+00:00")
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 def test_revision_conflict_does_not_partially_write_inventory_marker(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path)
     project = pm.load_project("demo")
@@ -52,7 +52,7 @@ def test_revision_conflict_does_not_partially_write_inventory_marker(tmp_path: P
     assert "workflow" not in pm.load_project("demo")
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 def test_scoped_completion_keeps_explicit_partial_scope(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path)
     project = pm.load_project("demo")
@@ -66,7 +66,7 @@ def test_scoped_completion_keeps_explicit_partial_scope(tmp_path: Path) -> None:
     assert marker["scope"] == {"kind": "files", "files": ["source/novel.txt"]}
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 async def test_complete_inventory_mcp_returns_machine_readable_result_and_conflict(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path)
     ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from lib.asset_inventory import complete_asset_inventory
+from lib.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints, discover_sources
 from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
 from lib.source_revision import SourceScope, compute_source_revision
@@ -30,6 +31,12 @@ def _write_source_and_complete(pm: ProjectManager, project_path: Path, text: str
     assert revision is not None
     complete_asset_inventory(pm, "demo", scope, revision)
     return revision
+
+
+def _write_artifact(project_path: Path, relative_path: str) -> None:
+    path = project_path / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"artifact")
 
 
 @pytest.mark.integration
@@ -95,6 +102,36 @@ def test_ad_is_episode_one_and_skips_asset_inventory_and_step1(tmp_path: Path) -
     assert status.gates["step1_review"]["state"] == "not_applicable"
     assert status.state == "FINAL_SCRIPT"
     assert status.next_action.type == "generate_script"
+
+
+@pytest.mark.integration
+def test_media_paths_must_resolve_to_project_files_before_becoming_current(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "content_mode": "ad",
+            "shots": [
+                {
+                    "shot_id": "E1S01",
+                    "duration_seconds": 4,
+                    "generated_assets": {
+                        "storyboard_image": "../outside.png",
+                        "video_clip": "videos/missing.mp4",
+                    },
+                }
+            ],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "STORYBOARD"
+    assert status.artifacts["storyboards"]["current_ids"] == []
+    assert status.artifacts["storyboards"]["missing_ids"] == ["E1S01"]
+    assert status.artifacts["videos"]["current_ids"] == []
+    assert status.artifacts["videos"]["missing_ids"] == ["E1S01"]
 
 
 @pytest.mark.integration
@@ -178,6 +215,7 @@ def test_narration_progresses_through_storyboard_video_audio_to_export(tmp_path:
             }
         ]
         project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": len(source_text)}
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
 
     pm.update_project("demo", _plan)
     draft_dir = project_path / "drafts" / "episode_1"
@@ -197,20 +235,81 @@ def test_narration_progresses_through_storyboard_video_audio_to_export(tmp_path:
     assert storyboard.next_action.requested_ids == ["E1S01"]
 
     script["segments"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
+    _write_artifact(project_path, "storyboards/E1S01.png")
     atomic_write_json(script_path, script)
     video = service.get_status("demo")
     assert video.state == "VIDEO"
 
     script["segments"][0]["generated_assets"]["video_clip"] = "videos/E1S01.mp4"
+    _write_artifact(project_path, "videos/E1S01.mp4")
     atomic_write_json(script_path, script)
     audio = service.get_status("demo")
     assert audio.state == "AUDIO"
 
     script["segments"][0]["generated_assets"]["narration_audio"] = "audio/E1S01.wav"
+    _write_artifact(project_path, "audio/E1S01.wav")
     atomic_write_json(script_path, script)
     ready = service.get_status("demo")
     assert ready.state == "EXPORT_READY"
     assert ready.next_action.type == "export"
+
+    (project_path / "source" / "novel.txt").write_text("全新文本", encoding="utf-8")
+    refreshed_revision = compute_source_revision(
+        project_path,
+        pm.load_project("demo"),
+        SourceScope(kind="all"),
+    ).revision
+    assert refreshed_revision is not None
+    complete_asset_inventory(pm, "demo", SourceScope(kind="all"), refreshed_revision)
+
+    replanning = service.get_status("demo")
+    assert replanning.state == "EPISODE_PLAN"
+    assert replanning.next_action.type == "plan_episodes"
+
+
+@pytest.mark.integration
+def test_completed_first_episode_does_not_hide_later_incomplete_episode(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+
+    def _plan(project: dict) -> None:
+        project["episodes"] = [
+            {
+                "episode": episode,
+                "script_file": f"scripts/episode_{episode}.json",
+                "ledger_status": "planned",
+            }
+            for episode in (1, 2)
+        ]
+        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": len(source_text)}
+
+    pm.update_project("demo", _plan)
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    atomic_write_json(draft_dir / "step1_segments.json", {"episode": 1, "segments": []})
+    generated_assets = {
+        "storyboard_image": "storyboards/E1S01.png",
+        "video_clip": "videos/E1S01.mp4",
+        "narration_audio": "audio/E1S01.wav",
+    }
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "duration_seconds": 4, "generated_assets": generated_assets}],
+        },
+    )
+    for relative_path in generated_assets.values():
+        _write_artifact(project_path, relative_path)
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.target is not None
+    assert status.target.episode == 2
+    assert status.state == "STEP1_CONTENT"
+    assert status.next_action.type == "prepare_step1"
 
 
 @pytest.mark.integration

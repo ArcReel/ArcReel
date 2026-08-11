@@ -12,7 +12,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from lib import script_review
 from lib.asset_types import ASSET_SPECS
-from lib.episode_ledger import normalize_source_text, parse_positive_episode_num
+from lib.episode_ledger import (
+    SOURCE_FINGERPRINTS_KEY,
+    compute_source_fingerprints,
+    discover_sources,
+    normalize_source_text,
+    parse_positive_episode_num,
+)
 from lib.episode_paths import episode_script_relpath
 from lib.path_safety import safe_exists
 from lib.project_manager import ProjectManager
@@ -272,6 +278,11 @@ class WorkflowStateService:
     def _planning_complete(project_path: Path, project: dict[str, Any], source: SourceRevisionResult | None) -> bool:
         if source is None or not source.files:
             return False
+        recorded_fingerprints = project.get(SOURCE_FINGERPRINTS_KEY)
+        if isinstance(recorded_fingerprints, Mapping) and recorded_fingerprints:
+            current_fingerprints = compute_source_fingerprints(discover_sources(project_path))
+            if dict(recorded_fingerprints) != current_fingerprints:
+                return False
         cursor = project.get("planning_cursor")
         if not isinstance(cursor, Mapping):
             return False
@@ -324,7 +335,12 @@ class WorkflowStateService:
         return {"state": "current", "path": path}, raw_items, kind
 
     @staticmethod
-    def _media_collection(items: list[dict[str, Any]], kind: str | None, field: str) -> dict[str, list[str]]:
+    def _media_collection(
+        project_path: Path,
+        items: list[dict[str, Any]],
+        kind: str | None,
+        field: str,
+    ) -> dict[str, list[str]]:
         collection = _empty_collection()
         if kind is None:
             return collection
@@ -333,7 +349,8 @@ class WorkflowStateService:
             resource_id = item.get(id_field)
             if not isinstance(resource_id, str) or not resource_id:
                 continue
-            if get_generated_assets(item).get(field):
+            artifact_path = get_generated_assets(item).get(field)
+            if isinstance(artifact_path, str) and safe_exists(project_path, artifact_path):
                 collection["current_ids"].append(resource_id)
             else:
                 collection["missing_ids"].append(resource_id)
@@ -487,13 +504,13 @@ class WorkflowStateService:
                         )
                     else:
                         artifacts["storyboards"] = (
-                            self._media_collection(items, kind, "storyboard_image")
+                            self._media_collection(project_path, items, kind, "storyboard_image")
                             if generation_mode == "storyboard"
                             else _not_applicable_collection()
                         )
-                        artifacts["videos"] = self._media_collection(items, kind, "video_clip")
+                        artifacts["videos"] = self._media_collection(project_path, items, kind, "video_clip")
                         artifacts["audio"] = (
-                            self._media_collection(items, kind, "narration_audio")
+                            self._media_collection(project_path, items, kind, "narration_audio")
                             if mode == "narration" and generation_mode == "storyboard"
                             else _not_applicable_collection()
                         )
@@ -531,6 +548,20 @@ class WorkflowStateService:
                         elif mode != "ad" and not self._planning_complete(project_path, project, source):
                             state = "EPISODE_PLAN"
                             next_action = _action("plan_episodes", "source text remains unplanned")
+                        elif episode is None and mode != "ad":
+                            later_status = next(
+                                (
+                                    status
+                                    for number, _entry in episodes
+                                    if number != target.episode
+                                    and (status := self.get_status(project_name, number)).state != "EXPORT_READY"
+                                ),
+                                None,
+                            )
+                            if later_status is not None:
+                                return later_status
+                            state = "EXPORT_READY"
+                            next_action = _action("export", "all required artifacts are usable")
                         else:
                             state = "EXPORT_READY"
                             next_action = _action("export", "all required artifacts are usable")

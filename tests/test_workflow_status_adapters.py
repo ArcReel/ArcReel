@@ -21,7 +21,7 @@ def _project(tmp_path: Path) -> ProjectManager:
     return pm
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 async def test_rest_and_mcp_serialize_the_same_workflow_response(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -41,7 +41,7 @@ async def test_rest_and_mcp_serialize_the_same_workflow_response(
     assert response.json() == mcp_body
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 async def test_workflow_status_mcp_rejects_invalid_episode_without_calling_service(tmp_path: Path) -> None:
     pm = _project(tmp_path)
     ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
