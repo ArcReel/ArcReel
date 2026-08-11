@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lib.asset_types import BUCKET_KEY, normalize_asset_bucket, normalize_asset_name
+from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.audio_utils import resolve_audio_ref_path
 from lib.prompt_utils import normalize_style
 from lib.reference_video.ad_units import render_ad_unit_prompt
@@ -135,7 +135,7 @@ def render_unit_prompt(
     # ``references`` 是入参（上游持久化的派生结果），其名字以哪种编码形式落盘不可控；正文一侧
     # 出自解析器、已归一。两侧同形，主体记号与图号才对得上——不归一时该角色的绑定行会缺位、
     # 音频也挂不到图上，且全程不报错。
-    references = [ReferenceResource(type=ref.type, name=normalize_asset_name(ref.name)) for ref in references]
+    references = [ReferenceResource(type=ref.type, name=asset_name_comparison_key(ref.name)) for ref in references]
 
     registered, missing = resolve_references(mentions, project)
     warnings = [_warning_unregistered(name) for name in missing] + warnings
@@ -315,7 +315,7 @@ def _derive_ad_utterances(shots: list[dict]) -> list[ShotUtterance]:
                 continue
             raw_speaker = entry.get("speaker")
             raw_text = entry.get("line")
-            speaker = raw_speaker.strip() if isinstance(raw_speaker, str) else ""
+            speaker = asset_name_comparison_key(raw_speaker) if isinstance(raw_speaker, str) else ""
             text = raw_text.strip() if isinstance(raw_text, str) else ""
             if not text:
                 continue
@@ -367,7 +367,7 @@ def render_ad_backend_prompt(
     # 名字归一到比对坐标系后再建映射：本映射与 derive_voice_bindings 产出的说话人（出自解析器、
     # 已归一）判等，entries 的名字则取自资产条目、形式不可控。
     character_image_no = {
-        normalize_asset_name(str(e["name"])): i
+        asset_name_comparison_key(str(e["name"])): i
         for i, e in enumerate(entries, start=1)
         if e.get("asset_type") == "character" and isinstance(e.get("name"), str)
     }

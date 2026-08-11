@@ -144,6 +144,17 @@ def test_speaker_position_is_excluded_from_references():
     assert [u.utterance.speaker for u in preview.utterances] == ["张三"]
 
 
+def test_padded_speaker_uses_registered_character_without_warning():
+    preview = build_script_preview(
+        "镜头1：开场。\n@[ 张三 ]：{我来了}",
+        PROJECT,
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, audio_ready={" 张三 "}),
+    )
+
+    assert [u.utterance.speaker for u in preview.utterances] == ["张三"]
+    assert preview.warnings == []
+
+
 def test_extract_mentions_skips_speaker_position():
     """两条派生路径（step1 工具与审阅回写）共用的口径出口。"""
     text = "镜头1：@[酒馆] 内景。\n@[张三]：{我来了}\n镜头2：@[张三] 抬眼。"

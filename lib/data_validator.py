@@ -18,7 +18,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from lib.asset_types import ASSET_SPECS, ASSET_TYPES, normalize_asset_name, project_asset_name_conflicts
+from lib.asset_types import (
+    ASSET_SPECS,
+    ASSET_TYPES,
+    asset_name_comparison_key,
+    normalize_asset_name,
+    project_asset_name_conflicts,
+)
 from lib.episode_ledger import (
     LEDGER_STATUSES,
     EpisodeOutline,
@@ -601,7 +607,7 @@ class DataValidator:
         校验层与收集层因此对同一份数据给出一致结论。资产引用的判等一律经此，不在各字段
         处按裸字符串做集合差。"""
         normalized_valid = {normalize_asset_name(v) for v in valid_set}
-        return [r for r in refs if not isinstance(r, str) or normalize_asset_name(r) not in normalized_valid]
+        return [r for r in refs if not isinstance(r, str) or asset_name_comparison_key(r) not in normalized_valid]
 
     def _validate_segment_refs(
         self,
@@ -1262,7 +1268,7 @@ class DataValidator:
                     errors.append(_m("val_reference_name_invalid", prefix=prefix, value=repr(rname)))
                     continue
                 bucket = bucket_by_type.get(rtype, set())
-                if normalize_asset_name(rname) not in bucket:
+                if asset_name_comparison_key(rname) not in bucket:
                     errors.append(
                         _m("val_reference_not_in_bucket", prefix=prefix, asset_type=_asset(rtype), name=rname)
                     )
@@ -1342,7 +1348,7 @@ class DataValidator:
                 if not rname or not isinstance(rname, str):
                     errors.append(_m("val_ref_name_invalid", prefix=ref_prefix, value=repr(rname)))
                     continue
-                if normalize_asset_name(rname) not in normalized_registered_names[rtype]:
+                if asset_name_comparison_key(rname) not in normalized_registered_names[rtype]:
                     warnings.append(
                         _m("val_ref_unregistered_regroup", prefix=ref_prefix, asset_type=_asset(rtype), name=rname)
                     )

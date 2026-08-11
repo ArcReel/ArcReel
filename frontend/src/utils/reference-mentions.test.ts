@@ -78,6 +78,10 @@ describe("parser output is normalized", () => {
     expect(extractMentions(`@[${nameNfc}] 与 @[${nameNfd}]`)).toEqual([nameNfc]);
   });
 
+  it("strips wrapped names before lookup and deduplication", () => {
+    expect(extractMentions("@[ Hero ] 与 @[Hero] @Hero")).toEqual(["Hero"]);
+  });
+
   it("strips BOM from inside a mention name", () => {
     // `@[名<BOM>称]` 类粘贴产物：后端解析入口去 BOM，前端不去就会判未登记，预览与生成结果不一致
     expect(extractMentions(`镜头1：@[张${BOM}三] 抬眼`)).toEqual(["张三"]);
@@ -309,6 +313,7 @@ describe("normative dialogue lines", () => {
       speaker: "角色甲（成年）",
       text: "我来了",
     });
+    expect(matchDialogueLine("@[ 张三 ]：{我来了}")).toEqual({ speaker: "张三", text: "我来了" });
   });
 
   it("rejects dialogue mixed into a description line", () => {
@@ -348,7 +353,7 @@ describe("normative dialogue lines", () => {
   it("does not treat a blank speaker slot as a normative line", () => {
     // 同后端 match_dialogue_line：speaker 位全为空白不算规范行，否则会派生出非法 utterance
     expect(matchDialogueLine("@[ ]：{我来了}")).toBeNull();
-    expect(extractMentions("@[ ]：{我来了}")).toEqual([" "]);
+    expect(extractMentions("@[ ]：{我来了}")).toEqual([""]);
   });
 
   it("does not treat blank braces as an utterance", () => {

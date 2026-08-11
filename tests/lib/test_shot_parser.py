@@ -58,6 +58,11 @@ def test_extract_mentions_ordered_unique():
     assert refs == ["张三", "酒馆", "长剑"]
 
 
+def test_extract_mentions_strips_wrapped_names_before_deduplication():
+    _shots, refs = parse_prompt("镜头1：@[ Hero ] 走向 @[Hero]，随后 @Hero 转身")
+    assert refs == ["Hero"]
+
+
 def test_extract_mentions_supports_wrapped_names():
     text = "镜头1：@[角色甲（成年）] 引导@[角色乙]靠近@[载具甲]区域，使用@[道具甲]完成动作"
     _shots, refs = parse_prompt(text)
@@ -109,6 +114,13 @@ def test_bom_prefixed_dialogue_line_is_normative():
 
     assert match_dialogue_line("﻿@[张三]：{我来了}") == ("张三", "我来了")
     assert extract_mentions("﻿@[张三]：{我来了}") == []
+
+
+def test_dialogue_speaker_is_stripped_to_asset_comparison_key():
+    from lib.reference_video.shot_parser import leading_mention_before_colon, match_dialogue_line
+
+    assert match_dialogue_line("@[ 张三 ]：{我来了}") == ("张三", "我来了")
+    assert leading_mention_before_colon("@[ 张三 ]：我来了") == "张三"
 
 
 def test_bom_on_a_later_line_is_normalized_too():

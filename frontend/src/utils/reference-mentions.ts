@@ -118,9 +118,9 @@ const VOICEOVER_LINE_RE = /^\s*\{([^{}]*)\}\s*$/;
 export function matchDialogueLine(line: string): { speaker: string; text: string } | null {
   const m = DIALOGUE_LINE_RE.exec(normalizeSource(line));
   if (!m) return null;
-  const speaker = m[1] ?? m[2] ?? "";
+  const speaker = normalizeAssetName(m[1] ?? m[2] ?? "");
   // speaker 位全为空白不算规范行（同 shot_parser.py：dialogue utterance 必须带非空 speaker）。
-  if (!speaker.trim() || !hasSpokenText(m[3])) return null;
+  if (!speaker || !hasSpokenText(m[3])) return null;
   return { speaker, text: m[3] };
 }
 
@@ -144,7 +144,7 @@ export function extractMentions(text: string): string[] {
   for (const line of splitScriptLines(text)) {
     if (matchDialogueLine(line.replace(SHOT_HEADER_PREFIX_RE, ""))) continue;
     for (const m of line.matchAll(MENTION_RE)) {
-      const name = mentionNameFromMatch(m);
+      const name = normalizeAssetName(mentionNameFromMatch(m));
       if (!seen.has(name)) {
         seen.add(name);
         out.push(name);

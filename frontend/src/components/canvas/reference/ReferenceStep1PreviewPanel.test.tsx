@@ -414,7 +414,7 @@ describe("ReferenceStep1PreviewPanel", () => {
     // with_references 收窄到仅 8 秒，而不是继续沿用编辑前的 references 判定。
     fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
     const textarea = await screen.findByDisplayValue("门开了");
-    fireEvent.change(textarea, { target: { value: "@[阿离] 推门而入。" } });
+    fireEvent.change(textarea, { target: { value: "@[ 阿离 ] 推门而入。" } });
 
     select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
     expect([...select.options].map((o) => o.value)).toEqual(["8"]);

@@ -30,15 +30,15 @@ def _normalize_source(text: str) -> str:
 
     两者同一性质——屏幕上看不见的字节差异，却让按字节走的判定分叉，故合并在一个入口处理。
     BOM 不止出现在文档开头：粘贴拼接会把它带到任意行首，而分叉是按行发生的。NFC 则是
-    资产名比对的坐标系（见 :func:`lib.asset_types.normalize_asset_name`）：说话人位与
+    资产名比对的坐标系（见 :func:`lib.asset_types.asset_name_comparison_key`）：说话人位与
     ``@[名称]`` 引用都要与资产表的 key 判等，正文以 NFD 落盘、资产表以 NFC 登记时两者
     肉眼同字却判不相等。
 
     归一落在四个行级原语（``strip_shot_header`` / ``match_dialogue_line`` /
     ``match_voiceover_line`` / ``leading_mention_before_colon``）与 ``find_malformed_mention``
     上——它们各自与前端同名函数互为镜像，单独调用时也须同判；``parse_prompt`` 另做一次整体
-    归一，让派生出的 shot 文本本身已归一（它会进预览显示、后端渲染与落盘）。据此，从解析器
-    出来的说话人名、mention 名与台词文本一律已是 NFC，下游比对只需归一资产表一侧。
+    归一，让派生出的 shot 文本本身已归一（它会进预览显示、后端渲染与落盘）。名字提取出口再
+    经比对 helper 去除两端空白；因此说话人名与 mention 名一律已 strip + NFC，台词文本已是 NFC。
     """
     stripped = text.replace(_BOM, "") if _BOM in text else text
     return unicodedata.normalize("NFC", stripped)
@@ -137,8 +137,8 @@ def match_dialogue_line(line: str) -> tuple[str, str] | None:
     if not rest or rest[0] not in "：:":
         return None
     spoken = _unwrap_braces(rest[1:])
-    speaker = first[2]
-    if spoken is None or not speaker.strip():
+    speaker = asset_name_comparison_key(first[2])
+    if spoken is None or not speaker:
         return None
     return speaker, spoken
 
@@ -161,7 +161,7 @@ def leading_mention_before_colon(line: str) -> str | None:
     rest = stripped[first[1] :].lstrip()
     if not rest or rest[0] not in "：:":
         return None
-    return first[2]
+    return asset_name_comparison_key(first[2])
 
 
 def find_malformed_mention(line: str) -> str | None:
@@ -288,7 +288,8 @@ def extract_mentions(text: str) -> list[str]:
         line = _normalize_source(raw_line)
         if match_dialogue_line(strip_shot_header(line)) is not None:
             continue
-        for _start, _end, name in _iter_mentions(line):
+        for _start, _end, raw_name in _iter_mentions(line):
+            name = asset_name_comparison_key(raw_name)
             if name not in seen:
                 seen.add(name)
                 result.append(name)
@@ -430,7 +431,7 @@ def resolve_references(
 
     schema v6 起项目资产共用名称空间，一个名字最多命中一个 bucket。
 
-    名字与三张资产表都先归一到比对坐标系（:func:`lib.asset_types.normalize_asset_name`），
+    名字与三张资产表都先归一到比对坐标系（:func:`lib.asset_types.asset_name_comparison_key`），
     产出的 ``ReferenceResource.name`` 与 ``missing`` 因此一律是归一形式：下游拿它回查资产表、
     与说话人判等、在正文里替换成主体记号 ``<X>``，三处都要与这里的判定同形，否则「这里判已
     登记、下游查不到」。入参 ``names`` 通常已出自本模块的解析器（已归一），归一是幂等的补齐，

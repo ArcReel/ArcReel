@@ -388,6 +388,22 @@ def test_combining_char_name_renders_identically_in_every_encoding_pairing(regis
     assert "@[" not in rendered.prompt
 
 
+def test_padded_mention_and_speaker_render_with_canonical_asset_name():
+    rendered = render_unit_prompt(
+        "镜头1：@[ 张三 ] 推门而入。\n@[ 张三 ]：{我来了}",
+        _project(),
+        _refs(("character", " 张三 ")),
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, audio_ready={" 张三 "}),
+    )
+
+    assert rendered.audio_speakers == ["张三"]
+    assert rendered.audio_speaker_reference_index == [0]
+    assert "<张三>@图片1" in rendered.prompt
+    assert "<张三> 推门而入" in rendered.prompt
+    assert "<张三>说 {我来了}" in rendered.prompt
+    assert "@[" not in rendered.prompt
+
+
 def test_resolve_reference_audio_paths_only_returns_existing_files_under_refs_audio(tmp_path):
     refs_audio = tmp_path / "characters" / "refs_audio"
     refs_audio.mkdir(parents=True)

@@ -153,8 +153,8 @@ class TestReferenceInheritance:
         assert name_nfc != name_nfd
 
         shots = [
-            _shot("E1S1", characters_in_shot=[name_nfc], products_in_shot=[name_nfc]),
-            _shot("E1S2", characters_in_shot=[name_nfd], products_in_shot=[name_nfd]),
+            _shot("E1S1", characters_in_shot=[f" {name_nfd} "], products_in_shot=[f" {name_nfd} "]),
+            _shot("E1S2", characters_in_shot=[name_nfc], products_in_shot=[name_nfc]),
         ]
 
         units = derive_ad_reference_units(shots, episode=1)
@@ -321,7 +321,7 @@ class TestReadTimeStaleness:
         script = {"episode": 1, "shots": [_shot("E1S1", characters_in_shot=[name_nfc])]}
         sync_ad_reference_units(script, episode=1)
         unit = _mark_generated(script)
-        script["shots"][0]["characters_in_shot"] = [name_nfd]
+        script["shots"][0]["characters_in_shot"] = [f" {name_nfd} "]
 
         assert is_ad_unit_stale(script, unit) is False
 
