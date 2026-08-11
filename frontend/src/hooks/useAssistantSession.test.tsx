@@ -1595,6 +1595,106 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().sessions).toEqual([]);
   });
 
+  it("keeps the rewrite reconciliation suppressed while another session's deletion finishes first", async () => {
+    // 删除当前会话在途期间删掉列表里的另一条：后者先收尾，不得替前者把保护摘掉。
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [userEntry(0, "原始消息")] }));
+    let listCalls = 0;
+    vi.spyOn(API, "listAssistantSessions").mockImplementation(() => {
+      listCalls += 1;
+      if (listCalls === 1) {
+        return Promise.resolve({ sessions: [makeSession("session-1", "idle"), makeSession("session-3", "idle")] });
+      }
+      return Promise.resolve({ sessions: [makeSession("session-2", "idle")] });
+    });
+    const deleteCurrentDeferred = createDeferred<void>();
+    vi.spyOn(API, "deleteAssistantSession").mockImplementation((_projectName, sessionId) => {
+      if (sessionId === "session-1") return deleteCurrentDeferred.promise as never;
+      return Promise.resolve(undefined as never);
+    });
+    const rewriteDeferred = createDeferred<{
+      status: string;
+      session_id: string;
+      origin_session_id: string | null;
+      entry: TimelineEntry | null;
+    }>();
+    vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(rewriteDeferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    act(() => {
+      void result.current.rewriteMessage("u-0", "改写后的消息");
+    });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().sending).toBe(true);
+    });
+
+    await act(async () => {
+      const deletingCurrent = result.current.deleteSession("session-1");
+      // 另一条会话的删除整轮走完，其收尾不涉及当前会话的保护
+      await result.current.deleteSession("session-3");
+      rewriteDeferred.resolve({
+        status: "accepted",
+        session_id: "session-2",
+        origin_session_id: "session-1",
+        entry: null,
+      });
+      await rewriteDeferred.promise;
+      deleteCurrentDeferred.resolve();
+      await deletingCurrent;
+    });
+
+    expect(listCalls).toBe(1);
+    expect(useAssistantStore.getState().sessions.map((s) => s.id)).not.toContain("session-2");
+  });
+
+  it("does not compensate a failed deletion into the project switched to meanwhile", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockImplementation((projectName) =>
+      Promise.resolve({ sessions: [makeSession(`${projectName}-s1`, "idle")] }),
+    );
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockImplementation(async (_projectName, sessionId) =>
+      makeEntriesResponse({ session_id: sessionId, entries: [userEntry(0, sessionId)] }),
+    );
+    const deleteDeferred = createDeferred<void>();
+    vi.spyOn(API, "deleteAssistantSession").mockReturnValue(deleteDeferred.promise as never);
+
+    const { result, rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+      initialProps: { projectName: "project-a" as string | null },
+    });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("project-a-s1");
+    });
+
+    let deleting!: Promise<void>;
+    act(() => {
+      deleting = result.current.deleteSession("project-a-s1");
+    });
+
+    // DELETE 在途期间切到项目 B
+    rerender({ projectName: "project-b" });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("project-b-s1");
+    });
+    const entriesCalls = vi.mocked(API.listAssistantEntries).mock.calls.length;
+
+    // 旧项目的 DELETE 这才失败：补偿不得拿旧 projectName 去加载 B 的当前会话
+    await act(async () => {
+      deleteDeferred.reject(new Error("delete failed"));
+      await deleting;
+    });
+
+    expect(useAssistantStore.getState().currentSessionId).toBe("project-b-s1");
+    expect(vi.mocked(API.listAssistantEntries).mock.calls.length).toBe(entriesCalls);
+  });
+
   it("surfaces a failed session load and lets the same session be retried", async () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [makeSession("session-1", "idle"), makeSession("session-2", "idle")],

@@ -128,9 +128,10 @@ export function useAssistantSession(projectName: string | null) {
   const sessionsWriteVersionRef = useRef(0);
   // 最近一次成功加载完成的会话；加载失败后为 null，用于放行对同一会话的重试
   const loadedSessionRef = useRef<string | null>(null);
-  // 当前会话的 DELETE 在途。这期间不做改写的列表补拉：把分支拉进列表，删除收尾
-  // 就会顺手切到它，正是进入时那次作废要避免的结果。
-  const deletingCurrentRef = useRef(false);
+  // 在途的「删除当前会话」计数。这期间不做改写的列表补拉：把分支拉进列表，删除收尾
+  // 就会顺手切到它，正是进入时那次作废要避免的结果。用计数而非布尔，否则并行的另一
+  // 次删除收尾会替这一次把保护摘掉。
+  const deletingCurrentRef = useRef(0);
 
   const writeSessions = useCallback((sessions: SessionMeta[]) => {
     // 上一个项目的迟到回调既不写列表也不占代数：占了代数，新项目会把自己刚拉到的
@@ -638,7 +639,7 @@ export function useAssistantSession(projectName: string | null) {
         // 但服务端此刻确已取代原会话并开出新分支，本地列表仍指向已消失的原会话——
         // 补拉一次列表，否则新分支要等到刷新页面才出现。
         if (pendingSendVersionRef.current !== rewriteVersion) {
-          if (!deletingCurrentRef.current) refreshSessions();
+          if (deletingCurrentRef.current === 0) refreshSessions();
           return false;
         }
         failedRewriteRef.current = null;
@@ -692,7 +693,7 @@ export function useAssistantSession(projectName: string | null) {
     const invalidatedForDelete = store.getState().currentSessionId === sessionId;
     if (invalidatedForDelete) {
       invalidatePendingSend();
-      deletingCurrentRef.current = true;
+      deletingCurrentRef.current += 1;
     }
     try {
       await API.deleteAssistantSession(projectName, sessionId);
@@ -720,15 +721,15 @@ export function useAssistantSession(projectName: string | null) {
       // 删除没成功，会话还在。进入时那次作废已经把在途发送/改写的收尾摘掉了——
       // 若它其实被服务端受理了，这一轮此刻在本地不可见，输入框里的内容还会被再发
       // 一次。作废与补偿成对出现：重新加载一次当前会话，把它接回来。
-      if (invalidatedForDelete) {
-        const current = store.getState().currentSessionId;
-        if (current) {
-          loadedSessionRef.current = null;
-          await switchSession(current);
-        }
+      // 补偿的对象只能是被删的那一条：期间用户切走或换了项目的话，当前会话另有其人，
+      // 拿闭包里的旧 projectName 去加载它只会把接管方的时间线冲掉
+      if (invalidatedForDelete && store.getState().currentSessionId === sessionId
+        && projectAbortOwnerRef.current === projectName) {
+        loadedSessionRef.current = null;
+        await switchSession(sessionId);
       }
     } finally {
-      deletingCurrentRef.current = false;
+      if (invalidatedForDelete) deletingCurrentRef.current -= 1;
     }
   }, [
     projectName,
