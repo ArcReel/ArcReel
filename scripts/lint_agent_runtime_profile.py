@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import posixpath
 import re
 from collections import defaultdict
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from lib.profile_frontmatter import FrontmatterError, ProfileMetadata, parse_profile_metadata
 from lib.profile_manifest import VALID_CONTENT_MODES, ProfileMisconfiguredError, resolve_profile_files_for_mode
@@ -54,10 +55,10 @@ def _validate_metadata(profile_dir: Path, errors: list[str]) -> None:
 
 def _projected_pointer(source_logical: str, pointer: str) -> str | None:
     if pointer.startswith(".claude/"):
-        return PurePosixPath(pointer).as_posix()
+        return posixpath.normpath(pointer)
     if pointer.startswith(("http://", "https://", "/", "#")):
         return None
-    return (PurePosixPath(source_logical).parent / pointer).as_posix()
+    return posixpath.normpath(posixpath.join(posixpath.dirname(source_logical), pointer))
 
 
 def _validate_projection(

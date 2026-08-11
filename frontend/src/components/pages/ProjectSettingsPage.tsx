@@ -168,8 +168,12 @@ export function ProjectSettingsPage() {
   const [projectTitle, setProjectTitle] = useState<string>("");
   const [contentMode, setContentMode] = useState<string>("narration");
   const [saving, setSaving] = useState(false);
-  const [agentProfile, setAgentProfile] = useState<AgentProfileStatus | null>(null);
-  const [profileResetOpen, setProfileResetOpen] = useState(false);
+  const [loadedAgentProfile, setLoadedAgentProfile] = useState<{
+    projectName: string;
+    status: AgentProfileStatus;
+  } | null>(null);
+  const agentProfile = loadedAgentProfile?.projectName === projectName ? loadedAgentProfile.status : null;
+  const [profileResetProject, setProfileResetProject] = useState<string | null>(null);
   const [profileResetting, setProfileResetting] = useState(false);
 
   // ── Style picker state (independent save flow) ─────────────────────────────
@@ -201,10 +205,10 @@ export function ProjectSettingsPage() {
     voidCall(
       API.getAgentProfileStatus(projectName)
         .then((status) => {
-          if (!disposed) setAgentProfile(status);
+          if (!disposed) setLoadedAgentProfile({ projectName, status });
         })
         .catch(() => {
-          if (!disposed) setAgentProfile(null);
+          if (!disposed) setLoadedAgentProfile(null);
         }),
     );
     return () => {
@@ -528,18 +532,25 @@ export function ProjectSettingsPage() {
   }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults]);
 
   const handleResetAgentProfile = useCallback(async () => {
+    if (profileResetProject !== projectName) {
+      setProfileResetProject(null);
+      return;
+    }
+    const resetProject = profileResetProject;
     setProfileResetting(true);
     try {
-      const status = await API.resetAgentProfile(projectName);
-      setAgentProfile(status);
-      setProfileResetOpen(false);
+      const status = await API.resetAgentProfile(resetProject);
+      setLoadedAgentProfile((current) => (
+        current?.projectName === resetProject ? { projectName: resetProject, status } : current
+      ));
+      setProfileResetProject(null);
       useAppStore.getState().pushToast(t("agent_profile_reset_success"), "success");
     } catch (error: unknown) {
       useAppStore.getState().pushToast(t("agent_profile_reset_failed", { message: errMsg(error) }), "error");
     } finally {
       setProfileResetting(false);
     }
-  }, [projectName, t]);
+  }, [profileResetProject, projectName, t]);
 
   return (
     <div
@@ -618,7 +629,7 @@ export function ProjectSettingsPage() {
               footer={agentProfile.customized ? (
                 <button
                   type="button"
-                  onClick={() => setProfileResetOpen(true)}
+                  onClick={() => setProfileResetProject(projectName)}
                   className={GHOST_BTN_LG_CLS}
                 >
                   {t("agent_profile_reset")}
@@ -962,7 +973,7 @@ export function ProjectSettingsPage() {
       </footer>
 
       <ConfirmDialog
-        open={profileResetOpen}
+        open={profileResetProject === projectName && agentProfile !== null}
         tone="danger"
         title={t("agent_profile_reset_confirm_title")}
         description={(
@@ -977,7 +988,7 @@ export function ProjectSettingsPage() {
         loadingLabel={t("agent_profile_resetting")}
         loading={profileResetting}
         cancelLabel={t("common:cancel")}
-        onCancel={() => setProfileResetOpen(false)}
+        onCancel={() => setProfileResetProject(null)}
         onConfirm={handleResetAgentProfile}
       />
 

@@ -76,6 +76,21 @@ def test_reports_duplicate_eval_ids_in_root_array(tmp_path: Path) -> None:
     assert any("duplicate eval id" in error for error in errors)
 
 
+def test_normalizes_relative_markdown_pointers(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    skill = profile / ".claude" / "skills" / "demo" / "SKILL.md"
+    skill.write_text(
+        skill.read_text(encoding="utf-8")
+        + "See [mode](../../references/mode.md) and [outside](../../../../outside.md).\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"})
+
+    assert not any("../../references/mode.md" in error for error in errors)
+    assert any("missing Markdown pointer '../../../../outside.md'" in error for error in errors)
+
+
 def test_target_deprecation_rules_are_explicit_for_variant_profile(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     skill = profile / ".claude" / "skills" / "demo" / "SKILL.md"
