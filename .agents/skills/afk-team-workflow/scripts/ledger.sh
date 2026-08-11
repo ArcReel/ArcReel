@@ -17,8 +17,8 @@
 #   bash ledger.sh --repo-root <path> <batch-id> <kind> [--issue N] [--pr M] \
 #                  [--scope-spec N | --scope-issues "1,2,3"] [--detail "free text"]
 #
-#   <batch-id>  Unique to one execution: spec-<N>-<UTC YYYYMMDD-HHMMSS> for a Spec,
-#               or a timestamped slug for explicit issues. Restricted to [A-Za-z0-9._-].
+#   <batch-id>  Unique to one execution: spec-<N>-<UTC YYYYMMDD-HHMMSS>-<6 hex>
+#               for a Spec, or an equivalent timestamped slug for explicit issues.
 #   <kind>      one of: decision | authorization | fault | gap | shelve | merge |
 #               retrospective | closed
 #
@@ -137,12 +137,22 @@ LEDGER_FILE=".afk/${BATCH_ID}.jsonl"
 if [[ -s "$LEDGER_FILE" ]] && tail -n1 "$LEDGER_FILE" | jq -e '.kind == "closed"' >/dev/null 2>&1; then
   die "batch-id is already closed; use a new unique batch-id: $BATCH_ID"
 fi
+if [[ -e "$LEDGER_FILE" && ! -s "$LEDGER_FILE" ]]; then
+  die "batch-id has an empty ledger reservation; use a new unique batch-id: $BATCH_ID"
+fi
 
 # The first line must carry scope so recovery can rebuild the member set.
 if [[ "$SCOPE_JSON" == "null" ]]; then
   if [[ ! -s "$LEDGER_FILE" ]]; then
     die "a batch's first ledger line needs --scope-spec or --scope-issues (recovery rebuilds members from it)"
   fi
+fi
+
+# The handoff directory is the batch-scoped resource shared by every stage. Reserving
+# it atomically before the first ledger append prevents concurrent sessions from
+# mixing one batch-id's ledger and handoffs.
+if [[ ! -e "$LEDGER_FILE" ]] && ! mkdir ".afk/${BATCH_ID}" 2>/dev/null; then
+  die "batch-id path is already reserved; use a new unique batch-id: $BATCH_ID"
 fi
 
 jq -nc \

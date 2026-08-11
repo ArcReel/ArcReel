@@ -31,6 +31,16 @@ if (
 fi
 grep -q 'batch-id is already closed' "$TMP_ROOT/reuse.err"
 
+mkdir -p "$TMP_ROOT/.afk/reserved-batch"
+if (
+  cd "$SCRIPT_DIR"
+  bash ledger.sh --repo-root "$TMP_ROOT" reserved-batch decision --scope-issues 1776
+) >"$TMP_ROOT/reserved.out" 2>"$TMP_ROOT/reserved.err"; then
+  echo "FAIL: reserved batch-id was reused" >&2
+  exit 1
+fi
+grep -q 'batch-id path is already reserved' "$TMP_ROOT/reserved.err"
+
 if (
   cd "$SCRIPT_DIR"
   bash ledger.sh --repo-root "$TMP_ROOT/missing" test-batch closed

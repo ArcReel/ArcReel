@@ -10,7 +10,7 @@ disable-model-invocation: true
 
 ## 第一步：确定批次成员
 
-用户显式要求接管或恢复既有批次时，按 [references/recovery.md](references/recovery.md) 处理，不按新批次开工。每次新执行生成唯一 batch-id：Spec 批次用 `spec-<N>-<UTC YYYYMMDD-HHMMSS>`，显式 issue 批次用带相同时间戳的简短 slug。Spec 开工前列出 `.afk/spec-<N>.jsonl` 与 `.afk/spec-<N>-*.jsonl` 中末条不是 `closed` 的账本并暂停；用户明确选择一个 batch-id 后，接管转入 recovery.md，重开则执行其清理并使用新的 batch-id。
+用户显式要求接管或恢复既有批次时，按 [references/recovery.md](references/recovery.md) 处理，不按新批次开工。每次新执行生成唯一 batch-id：Spec 批次用 `spec-<N>-<UTC YYYYMMDD-HHMMSS>-<6 位随机十六进制>`，显式 issue 批次用带相同时间戳与随机后缀的简短 slug。Spec 开工前列出 `.afk/spec-<N>.jsonl` 与 `.afk/spec-<N>-*.jsonl` 中末条不是 `closed` 的账本并暂停；用户明确选择一个 batch-id 后，接管转入 recovery.md，重开则执行其清理并使用新的 batch-id。
 
 运行 batch-poll，取得批次的机械底图：展开 Spec 子 issue、解析依赖图、给出每个 issue 的远端落点（标签、`blocked_by`、分支/PR 状态、`stage_hint`）：
 
@@ -97,7 +97,7 @@ issue 的启动条件：全部 blocker 已合入 main。启动时将 issue assig
 bash scripts/ledger.sh --repo-root <repo-root> <batch-id> <kind> [--issue N] [--pr M] [--scope-spec N | --scope-issues "1,2,3"] [--detail "..."]
 ```
 
-- **batch-id**：一次执行一个 ID；Spec 批次用 `spec-<N>-<UTC YYYYMMDD-HHMMSS>`，显式 issue 批次用带同格式时间戳的简短 slug
+- **batch-id**：一次执行一个 ID；Spec 批次用 `spec-<N>-<UTC YYYYMMDD-HHMMSS>-<6 位随机十六进制>`，显式 issue 批次用带同格式时间戳与随机后缀的简短 slug
 - **scope（首条必填）**：首条记录批次成员，Spec 批次用 `--scope-spec <N>`，slug 批次用 `--scope-issues "1,2,3"`（slug 的 batch-id 不含成员信息，恢复靠 scope 行重建）
 - **全程 append，按 kind 落账**：`decision`（计划与清尾分拣裁决）、`authorization`（用户口头授权；仅作恢复 replay 的信息参考，不作执行凭证）、`fault`（吸收的故障 / 停用的 reviewer）、`gap`（已浮现的 Spec 缺口）、`shelve`（搁置为 needs-human 的 issue 及争点）、`merge`（已执行的合并）、`retrospective`（review-looper 交来的 per-PR 复盘）、`closed`（收尾终态行）
 - **生命周期**：第二步用户确认时写首条（create）→ 全程 append → 收尾写 `closed`，**不删除**。`closed` 是该 batch-id 的终态；后续执行使用新 ID。`.afk/` 已 gitignored，账本是本地运维状态，永不提交
