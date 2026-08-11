@@ -1577,8 +1577,9 @@ describe("useAssistantSession", () => {
       expect(useAssistantStore.getState().sending).toBe(true);
     });
 
+    let deleting!: Promise<void>;
     await act(async () => {
-      const deleting = result.current.deleteSession("session-1");
+      deleting = result.current.deleteSession("session-1");
       rewriteDeferred.resolve({
         status: "accepted",
         session_id: "session-2",
@@ -1586,13 +1587,21 @@ describe("useAssistantSession", () => {
         entry: null,
       });
       await rewriteDeferred.promise;
+    });
+
+    // DELETE 在途期间不补拉：拉回来的分支会被删除收尾顺手选中
+    expect(listCalls).toBe(1);
+
+    await act(async () => {
       deleteDeferred.resolve();
       await deleting;
     });
 
-    expect(listCalls).toBe(1);
+    // 删除收尾没把用户装到分支上，但记账的补拉在收尾后补上，分支不至于消失在列表外
     expect(useAssistantStore.getState().currentSessionId).toBeNull();
-    expect(useAssistantStore.getState().sessions).toEqual([]);
+    await waitFor(() => {
+      expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-2"]);
+    });
   });
 
   it("keeps the rewrite reconciliation suppressed while another session's deletion finishes first", async () => {
@@ -1634,8 +1643,9 @@ describe("useAssistantSession", () => {
       expect(useAssistantStore.getState().sending).toBe(true);
     });
 
+    let deletingCurrent!: Promise<void>;
     await act(async () => {
-      const deletingCurrent = result.current.deleteSession("session-1");
+      deletingCurrent = result.current.deleteSession("session-1");
       // 另一条会话的删除整轮走完，其收尾不涉及当前会话的保护
       await result.current.deleteSession("session-3");
       rewriteDeferred.resolve({
@@ -1645,12 +1655,16 @@ describe("useAssistantSession", () => {
         entry: null,
       });
       await rewriteDeferred.promise;
+    });
+
+    // 当前会话的 DELETE 还在途，保护仍在：补拉不得发生
+    expect(listCalls).toBe(1);
+
+    await act(async () => {
       deleteCurrentDeferred.resolve();
       await deletingCurrent;
     });
-
-    expect(listCalls).toBe(1);
-    expect(useAssistantStore.getState().sessions.map((s) => s.id)).not.toContain("session-2");
+    expect(useAssistantStore.getState().currentSessionId).not.toBe("session-2");
   });
 
   it("keeps a pending deletion of one session from suppressing another session's rewrite reconciliation", async () => {
@@ -1808,6 +1822,103 @@ describe("useAssistantSession", () => {
 
     expect(useAssistantStore.getState().currentSessionId).toBe("project-b-s1");
     expect(vi.mocked(API.listAssistantEntries).mock.calls.length).toBe(entriesCalls);
+  });
+
+  it("does not fold the previous project's sessions into the list when creating one during initialization", async () => {
+    // 切到 B 后 B 的会话列表还在途，此刻新建并发送：合并时若把仍留在 store 里的 A
+    // 会话一起写进去，B 的权威列表会因这次写入被判过期丢弃，外来会话就一直挂着。
+    const listB = createDeferred<{ sessions: SessionMeta[] }>();
+    vi.spyOn(API, "listAssistantSessions").mockImplementation((projectName) => {
+      if (projectName === "project-a") {
+        return Promise.resolve({ sessions: [{ ...makeSession("a-s1", "idle"), project_name: "project-a" }] });
+      }
+      return listB.promise;
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [] }));
+    vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({
+      session_id: "b-new",
+      status: "accepted",
+      entry: userEntry(0, "hello"),
+    });
+
+    const { result, rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+      initialProps: { projectName: "project-a" as string | null },
+    });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["a-s1"]);
+    });
+
+    rerender({ projectName: "project-b" });
+    act(() => {
+      result.current.createNewSession();
+    });
+    await act(async () => {
+      expect(await result.current.sendMessage("hello")).toBe(true);
+    });
+
+    // 只留本项目的新会话，A 的会话不混进来
+    expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["b-new"]);
+  });
+
+  it("keeps the idempotency key and reconciles the list when a stale rewrite fails in transit", async () => {
+    // 网络中断说不清服务端受理没有：换新键重试会真的分叉两次，不对账则受理了的分支
+    // 要等刷新页面才出现。
+    let listCalls = 0;
+    vi.spyOn(API, "listAssistantSessions").mockImplementation(() => {
+      listCalls += 1;
+      return Promise.resolve({ sessions: [makeSession("session-1", "idle"), makeSession("session-2", "idle")] });
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockImplementation(async (_projectName, sessionId) =>
+      makeEntriesResponse({ session_id: sessionId, entries: [userEntry(0, sessionId)] }),
+    );
+    const rewriteDeferred = createDeferred<never>();
+    const rewriteSpy = vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(rewriteDeferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+    const callsBefore = listCalls;
+
+    act(() => {
+      void result.current.rewriteMessage("u-0", "改写后的消息");
+    });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().sending).toBe(true);
+    });
+
+    // 切走使本轮作废，随后改写以网络错误告终
+    await act(async () => {
+      await result.current.switchSession("session-2");
+      rewriteDeferred.reject(new Error("network down"));
+      await rewriteDeferred.promise.catch(() => {});
+    });
+
+    await waitFor(() => {
+      expect(listCalls).toBeGreaterThan(callsBefore);
+    });
+
+    // 回到原会话重试：沿用同一幂等键，服务端据此认领同一条权威条目而非二次分叉
+    await act(async () => {
+      await result.current.switchSession("session-1");
+    });
+    const firstKey = rewriteSpy.mock.calls[0][4];
+    rewriteSpy.mockResolvedValue({
+      status: "accepted",
+      session_id: "session-3",
+      origin_session_id: "session-1",
+      entry: null,
+    });
+    await act(async () => {
+      await result.current.rewriteMessage("u-0", "改写后的消息");
+    });
+    expect(rewriteSpy.mock.calls[1][4]).toBe(firstKey);
   });
 
   it("surfaces a failed session load and lets the same session be retried", async () => {

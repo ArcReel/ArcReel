@@ -138,13 +138,19 @@ export function useAssistantSession(projectName: string | null) {
   // 共享一个格子时，并行的另一次删除收尾会替这一次把保护摘掉，别的项目/会话上
   // 迟迟不返回的删除则会一直压着本该发生的补拉，新分支不刷新页面就找不回来。
   const deletingCurrentRef = useRef<Record<string, number>>({});
+  // 因上面的保护而没做成的改写补拉，按同一个 key 记账，删除收尾后补上：服务端此刻
+  // 已开出新分支，两条删除路径都只处理原会话，不补拉的话新分支要等刷新页面才出现。
+  const deferredRefreshRef = useRef<Set<string>>(new Set());
 
   const writeSessions = useCallback((sessions: SessionMeta[]) => {
     // 上一个项目的迟到回调既不写列表也不占代数：占了代数，新项目会把自己刚拉到的
     // 初始列表误判成过期而丢弃，侧边栏就一直停在旧项目的会话上
     if (projectAbortOwnerRef.current !== projectName) return;
     sessionsWriteVersionRef.current += 1;
-    store.getState().setSessions(sessions);
+    // 面板是长生命周期单例，切项目后列表在新项目的响应到达前仍停在上一个项目：合并
+    // 时滤掉外来会话，否则新建/改写会把它们一起固化进来，而本项目在途的权威列表又
+    // 因为这次写入被判过期丢弃，侧边栏就一直挂着一串在本项目里打不开的会话
+    store.getState().setSessions(sessions.filter((s) => s.project_name === projectName));
   }, [projectName, store]);
 
   // 补拉会话列表。纳入项目级取消域，挂起期间切换项目时迟到响应不得覆盖已切到的
@@ -169,6 +175,18 @@ export function useAssistantSession(projectName: string | null) {
       })
       .catch(() => {/* 静默失败 */});
   }, [projectName, store]);
+
+  // 改写被作废后的列表对账。源会话正在删除时不能当场补拉——补拉会把新分支带进列表，
+  // 那次删除收尾就顺手切到它，正是作废要避免的结果；改为记账，等删除收尾后再补。
+  const reconcileAfterStaleRewrite = useCallback((originSessionId: string) => {
+    if (!projectName) return;
+    const key = deletingKey(projectName, originSessionId);
+    if ((deletingCurrentRef.current[key] ?? 0) > 0) {
+      deferredRefreshRef.current.add(key);
+      return;
+    }
+    refreshSessions();
+  }, [projectName, refreshSessions]);
 
   // 关闭流
   const closeStream = useCallback(() => {
@@ -645,7 +663,7 @@ export function useAssistantSession(projectName: string | null) {
         // 但服务端此刻确已取代原会话并开出新分支，本地列表仍指向已消失的原会话——
         // 补拉一次列表，否则新分支要等到刷新页面才出现。
         if (pendingSendVersionRef.current !== rewriteVersion) {
-          if ((deletingCurrentRef.current[deletingKey(projectName, originSessionId)] ?? 0) === 0) refreshSessions();
+          reconcileAfterStaleRewrite(originSessionId);
           return false;
         }
         failedRewriteRef.current = null;
@@ -675,8 +693,14 @@ export function useAssistantSession(projectName: string | null) {
         await switchSession(newSessionId);
         return true;
       } catch (err) {
-        if (pendingSendVersionRef.current !== rewriteVersion) return false;
+        // 幂等键无论本轮是否被作废都要留住：网络中断说不清服务端受理没有，重试时
+        // 换新键才会真的分叉两次。作废时同样对账一次列表，受理了的话新分支就不必
+        // 等到刷新页面
         failedRewriteRef.current = { clientKey, signature };
+        if (pendingSendVersionRef.current !== rewriteVersion) {
+          reconcileAfterStaleRewrite(originSessionId);
+          return false;
+        }
         // 启动失败与发送路径同口径，落故障卡片而非一行错误条。标注来源为改写：
         // 保留原始输入的是仍开着的编辑器，重放要由它的「重新发送」发起
         if (err instanceof AgentFailureError) {
@@ -688,7 +712,7 @@ export function useAssistantSession(projectName: string | null) {
         return false;
       }
     },
-    [projectName, refreshSessions, switchSession, store, t, writeSessions],
+    [projectName, reconcileAfterStaleRewrite, switchSession, store, t, writeSessions],
   );
 
   // 删除会话
@@ -736,7 +760,13 @@ export function useAssistantSession(projectName: string | null) {
         await switchSession(sessionId);
       }
     } finally {
-      if (invalidatedForDelete) deletingCurrentRef.current[deleteKey] -= 1;
+      if (invalidatedForDelete) {
+        deletingCurrentRef.current[deleteKey] -= 1;
+        // 最后一次并行删除收尾后才补：早于此仍在删除窗口内
+        if (deletingCurrentRef.current[deleteKey] === 0 && deferredRefreshRef.current.delete(deleteKey)) {
+          refreshSessions();
+        }
+      }
     }
   }, [
     projectName,
@@ -744,6 +774,7 @@ export function useAssistantSession(projectName: string | null) {
     clearPendingQuestion,
     closeStream,
     invalidatePendingSend,
+    refreshSessions,
     switchSession,
     store,
     writeSessions,
