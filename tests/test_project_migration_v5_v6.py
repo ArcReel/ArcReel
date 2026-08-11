@@ -331,6 +331,40 @@ def test_migration_uses_declared_owner_for_ambiguous_product_reference(tmp_path:
     assert (refs / "Hero_1_1.jpg").read_bytes() == b"hero-1"
 
 
+def test_migration_preserves_distinct_nfd_and_nfc_declared_media(tmp_path: Path) -> None:
+    project_dir = tmp_path / "demo"
+    nfd_cafe = unicodedata.normalize("NFD", "café")
+    nfc_cafe = unicodedata.normalize("NFC", "café")
+    _write_json(
+        project_dir / "project.json",
+        {
+            "schema_version": 5,
+            "characters": {},
+            "scenes": {
+                nfd_cafe: _asset("decomposed", "scene_sheet", f"scenes/{nfd_cafe}.png"),
+                nfc_cafe: _asset("composed", "scene_sheet", f"scenes/{nfc_cafe}.png"),
+            },
+            "props": {},
+            "products": {},
+        },
+    )
+    scenes = project_dir / "scenes"
+    scenes.mkdir()
+    (scenes / f"{nfd_cafe}.png").write_bytes(b"nfd")
+    (scenes / f"{nfc_cafe}.png").write_bytes(b"nfc")
+    if len(list(scenes.iterdir())) != 2:
+        pytest.skip("当前文件系统不区分 NFD/NFC 文件名")
+
+    migrate_v5_to_v6(project_dir)
+
+    project = _read_json(project_dir / "project.json")
+    assert list(project["scenes"]) == ["café_scene", "café"]
+    assert project["scenes"]["café_scene"]["scene_sheet"] == "scenes/café_scene.png"
+    assert project["scenes"]["café"]["scene_sheet"] == "scenes/café.png"
+    assert (scenes / "café_scene.png").read_bytes() == b"nfd"
+    assert (scenes / "café.png").read_bytes() == b"nfc"
+
+
 def test_migration_failure_leaves_original_tree_untouched(tmp_path: Path, monkeypatch) -> None:
     project_dir = tmp_path / "demo"
     _write_json(

@@ -1,6 +1,7 @@
 import json
 import re
 import shutil
+import unicodedata
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -742,6 +743,7 @@ class TestProjectsRouter:
         }
 
         client = _client(monkeypatch, fake_pm, _FakeCalc())
+        nfd_cafe = unicodedata.normalize("NFD", "Café")
 
         with client:
             # 写入新引用列表
@@ -749,14 +751,14 @@ class TestProjectsRouter:
                 "/api/v1/projects/ready/segments/E1S01",
                 json={
                     "script_file": "narration.json",
-                    "characters_in_segment": ["Bob", "Carol"],
-                    "scenes": ["Castle"],
+                    "characters_in_segment": [" Bob ", f" {nfd_cafe} "],
+                    "scenes": [" Castle "],
                     "props": [],
                 },
             )
             assert patched.status_code == 200
             seg = patched.json()["segment"]
-            assert seg["characters_in_segment"] == ["Bob", "Carol"]
+            assert seg["characters_in_segment"] == ["Bob", "Café"]
             assert seg["scenes"] == ["Castle"]
             assert seg["props"] == []
 
@@ -768,7 +770,7 @@ class TestProjectsRouter:
             assert untouched.status_code == 200
             seg2 = untouched.json()["segment"]
             assert seg2["duration_seconds"] == 7
-            assert seg2["characters_in_segment"] == ["Bob", "Carol"]
+            assert seg2["characters_in_segment"] == ["Bob", "Café"]
             assert seg2["scenes"] == ["Castle"]
             assert seg2["props"] == []
 
@@ -835,6 +837,7 @@ class TestProjectsRouter:
         }
 
         client = _client(monkeypatch, fake_pm, _FakeCalc())
+        nfd_cafe = unicodedata.normalize("NFD", "Café")
 
         with client:
             patched = client.patch(
@@ -842,15 +845,15 @@ class TestProjectsRouter:
                 json={
                     "script_file": "episode_1.json",
                     "updates": {
-                        "characters_in_scene": ["Bob"],
-                        "scenes": ["Castle"],
-                        "props": ["Map"],
+                        "characters_in_scene": [f" {nfd_cafe} "],
+                        "scenes": [" Castle "],
+                        "props": [" Map "],
                     },
                 },
             )
             assert patched.status_code == 200
             scene = patched.json()["scene"]
-            assert scene["characters_in_scene"] == ["Bob"]
+            assert scene["characters_in_scene"] == ["Café"]
             assert scene["scenes"] == ["Castle"]
             assert scene["props"] == ["Map"]
 

@@ -344,8 +344,12 @@ def _media_path_key(relative: PurePosixPath) -> tuple[PurePosixPath, str]:
 
 def _declared_media_owners(
     occurrences: list[_AssetOccurrence],
-) -> dict[tuple[PurePosixPath, str], _AssetOccurrence]:
-    owners: dict[tuple[PurePosixPath, str], _AssetOccurrence] = {}
+) -> tuple[
+    dict[PurePosixPath, _AssetOccurrence],
+    dict[tuple[PurePosixPath, str], _AssetOccurrence | None],
+]:
+    exact_owners: dict[PurePosixPath, _AssetOccurrence] = {}
+    normalized_owners: dict[tuple[PurePosixPath, str], _AssetOccurrence | None] = {}
     for item in occurrences:
         if not isinstance(item.entry, dict):
             continue
@@ -365,17 +369,22 @@ def _declared_media_owners(
             relative = PurePosixPath(value.replace("\\", "/"))
             if relative.parent not in migrated_dirs:
                 continue
-            key = _media_path_key(relative)
-            previous = owners.get(key)
-            if previous is not None and previous is not item:
+            previous_exact = exact_owners.get(relative)
+            if previous_exact is not None and previous_exact is not item:
                 raise ValueError(f"资产迁移媒体路径被多个条目引用: {relative}")
-            owners[key] = item
-    return owners
+            exact_owners[relative] = item
+
+            key = _media_path_key(relative)
+            if key not in normalized_owners:
+                normalized_owners[key] = item
+            elif normalized_owners[key] is not item:
+                normalized_owners[key] = None
+    return exact_owners, normalized_owners
 
 
 def _plan_media_moves(project_dir: Path, occurrences: list[_AssetOccurrence]) -> list[tuple[Path, Path]]:
     moves: list[tuple[Path, Path]] = []
-    declared_owners = _declared_media_owners(occurrences)
+    exact_owners, normalized_owners = _declared_media_owners(occurrences)
     for spec in _ordered_specs():
         records = [item for item in occurrences if item.asset_type == spec.asset_type]
         for relative, allow_sequence in _managed_media_roots(spec):
@@ -386,7 +395,9 @@ def _plan_media_moves(project_dir: Path, occurrences: list[_AssetOccurrence]) ->
                 if not source.is_file():
                     continue
                 relative = PurePosixPath(source.relative_to(project_dir).as_posix())
-                declared_owner = declared_owners.get(_media_path_key(relative))
+                declared_owner = exact_owners.get(relative)
+                if declared_owner is None:
+                    declared_owner = normalized_owners.get(_media_path_key(relative))
                 match = _record_for_stem(
                     [declared_owner] if declared_owner is not None else records,
                     source.stem,
