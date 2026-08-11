@@ -48,12 +48,20 @@ def _ordered_specs() -> list[AssetSpec]:
     return sorted(ASSET_SPECS.values(), key=lambda spec: spec.namespace_priority)
 
 
+def _managed_media_roots(spec: AssetSpec) -> tuple[tuple[PurePosixPath, bool], ...]:
+    base = PurePosixPath(spec.subdir)
+    return (
+        (base, False),
+        (base / "refs", "reference_images" in spec.extra_list_fields),
+        (base / "refs_audio", False),
+    )
+
+
 def _migration_write_roots() -> tuple[PurePosixPath, ...]:
     """Return every subtree in which this migration may replace or rename files."""
     roots = {PurePosixPath("scripts"), PurePosixPath("drafts"), PurePosixPath("versions")}
     for spec in _ordered_specs():
-        base = PurePosixPath(spec.subdir)
-        roots.update((base, base / "refs", base / "refs_audio"))
+        roots.update(relative for relative, _allow_sequence in _managed_media_roots(spec))
     return tuple(sorted(roots, key=str))
 
 
@@ -74,6 +82,27 @@ def _assert_migration_write_roots(project_dir: Path) -> None:
     """Fail before transformation when any declared migration write root is a symlink."""
     for relative in _migration_write_roots():
         _assert_migration_write_target(project_dir, project_dir.joinpath(*relative.parts))
+
+
+def _reserved_media_keys(project_dir: Path) -> dict[str, set[str]]:
+    """Collect canonical asset-name stems already occupying managed media roots."""
+    reserved: dict[str, set[str]] = {}
+    for spec in _ordered_specs():
+        keys = reserved.setdefault(spec.asset_type, set())
+        for relative, allow_sequence in _managed_media_roots(spec):
+            directory = project_dir.joinpath(*relative.parts)
+            if not directory.is_dir():
+                continue
+            for path in directory.iterdir():
+                if not path.is_file():
+                    continue
+                stem = path.stem
+                if allow_sequence:
+                    base, separator, sequence = stem.rpartition("_")
+                    if separator and sequence.isdigit():
+                        stem = base
+                keys.add(asset_name_comparison_key(stem))
+    return reserved
 
 
 def _plan_occurrences(
@@ -349,13 +378,8 @@ def _plan_media_moves(project_dir: Path, occurrences: list[_AssetOccurrence]) ->
     declared_owners = _declared_media_owners(occurrences)
     for spec in _ordered_specs():
         records = [item for item in occurrences if item.asset_type == spec.asset_type]
-        base = project_dir / spec.subdir
-        sequenced_refs = "reference_images" in spec.extra_list_fields
-        for directory, allow_sequence in (
-            (base, False),
-            (base / "refs", sequenced_refs),
-            (base / "refs_audio", False),
-        ):
+        for relative, allow_sequence in _managed_media_roots(spec):
+            directory = project_dir.joinpath(*relative.parts)
             if not directory.is_dir():
                 continue
             for source in sorted(directory.iterdir()):
@@ -510,7 +534,10 @@ def _migrate_staged_tree(project_dir: Path) -> None:
     if int(project.get("schema_version") or 0) >= 6:
         return
     _assert_migration_write_roots(project_dir)
-    occurrences = _plan_occurrences(project, _retained_history_keys(project_dir, project))
+    reserved_keys = _retained_history_keys(project_dir, project)
+    for asset_type, keys in _reserved_media_keys(project_dir).items():
+        reserved_keys.setdefault(asset_type, set()).update(keys)
+    occurrences = _plan_occurrences(project, reserved_keys)
     moves = _plan_media_moves(project_dir, occurrences)
 
     for item in occurrences:

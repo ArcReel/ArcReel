@@ -230,6 +230,32 @@ def test_migration_reserves_retained_history_names(tmp_path: Path) -> None:
     assert (project_dir / "versions" / "scenes" / "Hero_scene_v1_retained.png").is_file()
 
 
+def test_migration_skips_suffix_occupied_by_orphan_media(tmp_path: Path) -> None:
+    project_dir = tmp_path / "demo"
+    _write_json(
+        project_dir / "project.json",
+        {
+            "schema_version": 5,
+            "characters": {"Hero": _asset("character", "character_sheet")},
+            "scenes": {"Hero": _asset("scene", "scene_sheet", "scenes/Hero.png")},
+            "props": {},
+            "products": {},
+        },
+    )
+    scenes = project_dir / "scenes"
+    scenes.mkdir()
+    (scenes / "Hero.png").write_bytes(b"active")
+    (scenes / "Hero_scene.png").write_bytes(b"orphan")
+
+    migrate_v5_to_v6(project_dir)
+
+    project = _read_json(project_dir / "project.json")
+    assert list(project["scenes"]) == ["Hero_scene_2"]
+    assert project["scenes"]["Hero_scene_2"]["scene_sheet"] == "scenes/Hero_scene_2.png"
+    assert (scenes / "Hero_scene_2.png").read_bytes() == b"active"
+    assert (scenes / "Hero_scene.png").read_bytes() == b"orphan"
+
+
 @pytest.mark.parametrize("path_kind", ["absolute", "traversal"])
 def test_migration_rejects_version_snapshot_paths_outside_project(tmp_path: Path, path_kind: str) -> None:
     project_dir = tmp_path / "demo"
