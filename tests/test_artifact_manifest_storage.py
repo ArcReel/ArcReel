@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -162,6 +163,53 @@ def test_project_adapter_blocks_escape_and_symlink_artifact_paths(tmp_path: Path
     with pytest.raises(ArtifactRegistrationError):
         manifest.register(key, artifact_path="linked-file.json", basis=basis)
     assert outside.read_text(encoding="utf-8") == '{"secret":true}'
+
+
+@pytest.mark.skipif(os.name != "posix", reason="dir_fd traversal is the POSIX symlink-race defense")
+def test_project_adapter_blocks_parent_replaced_by_symlink_during_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    scripts = project / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "episode.json").write_text("inside", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "episode.json").write_text("outside", encoding="utf-8")
+    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
+    original_open = os.open
+    swapped = False
+
+    def swap_parent_then_open(
+        path: str | bytes | Path,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal swapped
+        path_text = os.fsdecode(path)
+        opens_parent_by_fd = dir_fd is not None and path_text == "scripts"
+        opens_final_by_path = Path(path_text) == scripts / "episode.json"
+        if not swapped and (opens_parent_by_fd or opens_final_by_path):
+            scripts.rename(project / "original-scripts")
+            scripts.symlink_to(outside, target_is_directory=True)
+            swapped = True
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr("lib.artifact_manifest.os.open", swap_parent_then_open)
+
+    comparison = manifest.compare(
+        ArtifactKey.episode_script(1),
+        artifact_path="scripts/episode.json",
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"}),
+    )
+
+    assert swapped
+    assert comparison.status is ArtifactStatus.BLOCKED
+    assert comparison.blocker is not None and comparison.blocker.code == "artifact_symlink"
+    assert (outside / "episode.json").read_text(encoding="utf-8") == "outside"
 
 
 @pytest.mark.parametrize("runtime_path", [MANIFEST_FILENAME, ".artifact_manifest.lock"])

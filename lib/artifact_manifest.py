@@ -11,6 +11,7 @@ import json
 import math
 import os
 import re
+import stat
 import tempfile
 import threading
 import time
@@ -19,12 +20,13 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Protocol, Self
+from typing import Protocol, Self, cast
 
 import portalocker
 
+from lib.asset_types import ASSET_TYPES
+
 _KEY_PREFIX = "artifact-key-v1:"
-_ASSET_TYPES = frozenset({"character", "scene", "prop", "product"})
 MANIFEST_FILENAME = ".arcreel_artifacts.json"
 LOCK_FILENAME = ".artifact_manifest.lock"
 MANIFEST_SCHEMA_VERSION = 1
@@ -225,6 +227,62 @@ class ProjectArtifactManifestAdapter:
         except ValueError as exc:
             blocker = ArtifactBlocker(code="artifact_path_invalid", path=str(artifact_path), detail=str(exc))
             return ArtifactObservation(artifact_path=str(artifact_path), present=False, blocker=blocker)
+        if os.name == "posix":
+            return self._inspect_artifact_posix(normalized)
+        return self._inspect_artifact_portable(normalized)
+
+    def _inspect_artifact_posix(self, normalized: str) -> ArtifactObservation:
+        parts = PurePosixPath(normalized).parts
+        directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            root_fd = os.open(self._project_dir, directory_flags)
+        except OSError as exc:
+            return self._artifact_blocked(normalized, "artifact_unreadable", f"project directory is unreadable: {exc}")
+        with contextlib.ExitStack() as stack:
+            stack.callback(os.close, root_fd)
+            directory_fd = root_fd
+            for part in parts[:-1]:
+                try:
+                    next_fd = os.open(part, directory_flags, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    return ArtifactObservation(artifact_path=normalized, present=False)
+                except OSError as exc:
+                    return self._artifact_blocked(
+                        normalized,
+                        "artifact_symlink" if exc.errno in {errno.ELOOP, errno.ENOTDIR} else "artifact_unreadable",
+                        f"artifact parent cannot be opened safely: {normalized}: {exc}",
+                    )
+                stack.callback(os.close, next_fd)
+                directory_fd = next_fd
+            try:
+                fd = os.open(parts[-1], file_flags, dir_fd=directory_fd)
+            except FileNotFoundError:
+                return ArtifactObservation(artifact_path=normalized, present=False)
+            except OSError as exc:
+                return self._artifact_blocked(
+                    normalized,
+                    "artifact_symlink" if exc.errno == errno.ELOOP else "artifact_unreadable",
+                    f"artifact cannot be opened safely: {normalized}: {exc}",
+                )
+            stack.callback(os.close, fd)
+            try:
+                if not stat.S_ISREG(os.fstat(fd).st_mode):
+                    return self._artifact_blocked(
+                        normalized,
+                        "artifact_not_regular_file",
+                        f"artifact path is not a regular file: {normalized}",
+                    )
+                os.read(fd, 1)
+            except OSError as exc:
+                return self._artifact_blocked(
+                    normalized,
+                    "artifact_unreadable",
+                    f"artifact is unreadable: {normalized}: {exc}",
+                )
+        return ArtifactObservation(artifact_path=normalized, present=True)
+
+    def _inspect_artifact_portable(self, normalized: str) -> ArtifactObservation:
         path = self._project_dir.joinpath(*PurePosixPath(normalized).parts)
         cursor = self._project_dir
         for part in PurePosixPath(normalized).parts:
@@ -260,6 +318,14 @@ class ProjectArtifactManifestAdapter:
             )
             return ArtifactObservation(artifact_path=normalized, present=False, blocker=blocker)
         return ArtifactObservation(artifact_path=normalized, present=True)
+
+    @staticmethod
+    def _artifact_blocked(normalized: str, code: str, detail: str) -> ArtifactObservation:
+        return ArtifactObservation(
+            artifact_path=normalized,
+            present=False,
+            blocker=ArtifactBlocker(code=code, path=normalized, detail=detail),
+        )
 
     def get_entry(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
         with self._locked():
@@ -410,7 +476,7 @@ class ArtifactKey:
             asset_type, asset_id = self.components
             valid = (
                 isinstance(asset_type, str)
-                and asset_type in _ASSET_TYPES
+                and asset_type in ASSET_TYPES
                 and isinstance(asset_id, str)
                 and bool(asset_id)
             )
@@ -434,7 +500,7 @@ class ArtifactKey:
 
     @classmethod
     def asset_sheet(cls, asset_type: str, asset_id: str) -> Self:
-        if asset_type not in _ASSET_TYPES:
+        if asset_type not in ASSET_TYPES:
             raise ValueError(f"unsupported asset type: {asset_type!r}")
         return cls(ArtifactKind.ASSET_SHEET, (asset_type, _non_empty("asset_id", asset_id)))
 
@@ -503,35 +569,10 @@ class ArtifactKey:
             kind = ArtifactKind(kind_value)
         except ValueError as exc:
             raise ValueError(f"unsupported artifact kind: {kind_value!r}") from exc
-        if kind is ArtifactKind.ASSET_SHEET and len(parts) == 2:
-            asset_type, asset_id = parts
-            if isinstance(asset_type, str) and isinstance(asset_id, str):
-                return cls.asset_sheet(asset_type, asset_id)
-        elif kind in {ArtifactKind.EPISODE_STEP1, ArtifactKind.EPISODE_SCRIPT} and len(parts) == 1:
-            episode = parts[0]
-            if type(episode) is int:
-                builder = cls.episode_step1 if kind is ArtifactKind.EPISODE_STEP1 else cls.episode_script
-                return builder(episode)
-        elif (
-            kind
-            in {
-                ArtifactKind.EPISODE_GRID,
-                ArtifactKind.EPISODE_STORYBOARD,
-                ArtifactKind.EPISODE_VIDEO,
-                ArtifactKind.EPISODE_AUDIO,
-            }
-            and len(parts) == 2
-        ):
-            episode, resource_id = parts
-            if type(episode) is int and isinstance(resource_id, str):
-                builders = {
-                    ArtifactKind.EPISODE_GRID: cls.episode_grid,
-                    ArtifactKind.EPISODE_STORYBOARD: cls.episode_storyboard,
-                    ArtifactKind.EPISODE_VIDEO: cls.episode_video,
-                    ArtifactKind.EPISODE_AUDIO: cls.episode_audio,
-                }
-                return builders[kind](episode, resource_id)
-        raise ValueError("artifact key payload does not match its kind")
+        try:
+            return cls(kind, cast(tuple[str | int, ...], tuple(parts)))
+        except ValueError as exc:
+            raise ValueError("artifact key payload does not match its kind") from exc
 
 
 def _episode_number(value: int) -> int:
