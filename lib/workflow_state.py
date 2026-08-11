@@ -117,12 +117,18 @@ def _project_revision(project: Mapping[str, Any]) -> str:
 
 
 def _action(
-    action_type: str, reason: str, *, args: dict[str, Any] | None = None, ids: list[str] | None = None
+    action_type: str,
+    reason: str,
+    *,
+    args: dict[str, Any] | None = None,
+    ids: list[str] | None = None,
+    requires_confirmation: bool = False,
 ) -> WorkflowNextAction:
     return WorkflowNextAction(
         type=action_type,
         args=args or {},
         requested_ids=ids or [],
+        requires_confirmation=requires_confirmation,
         reason=reason,
     )
 
@@ -589,6 +595,24 @@ class WorkflowStateService:
                     reason="grid_storyboard must be a boolean",
                 )
             )
+        if mode == "ad":
+            target_duration = project.get("target_duration")
+            if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
+                blockers.append(
+                    WorkflowBlocker(
+                        code="invalid_target_duration",
+                        path="target_duration",
+                        reason="ad target_duration must be a positive integer",
+                    )
+                )
+            if grid_storyboard is True:
+                blockers.append(
+                    WorkflowBlocker(
+                        code="invalid_grid_storyboard",
+                        path="grid_storyboard",
+                        reason="ad workflow does not support grid storyboards",
+                    )
+                )
         asset_validation = DataValidator(str(self.pm.projects_root)).validate_asset_definitions(project)
         if not asset_validation.valid:
             blockers.append(
@@ -809,6 +833,7 @@ class WorkflowStateService:
                             "confirm_step1",
                             "formal step1 awaits content review",
                             args={"episode": target.episode},
+                            requires_confirmation=True,
                         )
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
 
@@ -918,7 +943,10 @@ class WorkflowStateService:
                                     and (
                                         status := self._get_status(project_name, project, project_path, number, shared)
                                     ).state
-                                    not in {"EPISODE_PLAN", "EXPORT_READY"}
+                                    != "EXPORT_READY"
+                                    and not (
+                                        status.state == "EPISODE_PLAN" and status.next_action.type == "plan_episodes"
+                                    )
                                 ),
                                 None,
                             )
