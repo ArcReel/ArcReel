@@ -4,7 +4,7 @@
 
 ## 通用约定
 
-- **本轮新评论**:索引中 `is_new == true` 的条目(inline 走 `inline_new_by_user`,评论走 `comments_new`)。口径与陷阱见 poll.sh PITFALL 2
+- **本轮新评论**:索引中 `is_new == true` 的条目(inline 走 `inline_new_by_user`,评论走 `comments_new`)。口径与陷阱见 poll.sh PITFALL 2 与 6
 - **Acknowledgment 例外**:`is_ack == true` 的条目是 reviewer 对上一次修复或 inline 回复的确认,一律**不算** actionable;review state 为 `APPROVED` 也不算
 - **flag 以正文为准**:索引 flags(`is_ack` / `cr_markers` / `has_pass_marker` / `severity_alt`)是脚本解析结果,预览观感与 flag 冲突时用 `query.sh details` 取全文核实,以正文为准
 - **unacked 兜底假阳性**:终核 unacked 非空时逐条核对,对应修复已落地或回复为在案 pushback 的不算遗漏。快照不含非 bot 的 inline 回复,核对回复串用 `gh api --paginate repos/<owner>/<repo>/pulls/<pr>/comments` 按 `in_reply_to_id` 关联
@@ -24,11 +24,11 @@
 
 ## CodeRabbit
 
-**触发**:`coderabbit.walkthrough.is_paused == true`,且 `updated_at` 之后未发送过 `@coderabbitai resume`(从 `own_trigger_comments` 筛,最新一条 `createdAt` 早于 walkthrough 的 `updated_at`;为空视为未发送)→ 发送 `@coderabbitai resume`。其余场景 CodeRabbit 自动跟新 push,无需手动触发。
+**触发**:`coderabbit.walkthrough.is_paused == true`,且 `updated_at` 之后未发送过 `@coderabbitai resume`(从 `own_trigger_comments` 筛,最新一条 `createdAt` 早于 walkthrough 的 `updated_at`;为空视为未发送)→ 发送 `@coderabbitai resume`。其余场景 CodeRabbit 自动跟新 push,无需手动触发。暂停会在后续 push 后重现,触发判定逐轮执行;暂停期间的静默不是通过。
 
 **已审当前 HEAD**:`walkthrough.reviewed_current_head == true`。CodeRabbit 限流时会把 walkthrough 改写成限流横幅,这次改写不算审查——poll 已按 `is_rate_limited` 排除,该场景下字段恒为 false。
 
-**actionable**:`walkthrough.is_ok == true` 或 `actionable_count == "0"` 时无 actionable;否则看 `inline_new_by_user["coderabbitai[bot]"]` 各行的 `cr_markers`:含 `potential_issue` / `major` / `refactor` / `verification` 任一即 actionable;仅含 nit 级 token(`nitpick` / `trivial` / `low_value` / `minor`)不算。
+**actionable**:`walkthrough.is_ok == true` 或 `actionable_count == "0"` 时无 actionable;否则看 `inline_new_by_user["coderabbitai[bot]"]` 各行的 `cr_markers`:含 `potential_issue` / `major` / `refactor` / `verification` 任一即 actionable;仅含 nit 级 token(`nitpick` / `trivial` / `low_value` / `minor`)不算。**残留例外**:增量重审回复 `Already reviewed` 时 `is_ok` / `actionable_count` 是上一轮残留——跳过这条短路,直接按本轮 inline 的 `cr_markers` 判。
 
 **通过**:前置条件——`reviewed_current_head == true` **且** `is_in_progress == false` **且** `is_paused == false`(paused 时 `is_ok` 等字段可能是上一轮残留,需先经触发规则 resume 后再判)。前置之上满足任一:
 
@@ -36,6 +36,8 @@
 - `actionable_count == "0"`
 - 本轮 inline 均为 `is_ack == true`
 - 本轮 inline 均为 nit 级(`cr_markers` 仅含 nit 级 token,无 actionable token)
+
+增量重审回复 `Already reviewed` 时前两条不可用(上一轮残留),凭本轮 inline 的后两条判。
 
 **outside diff range 意见**:CodeRabbit 对 diff 之外代码的建议内嵌在 review body(`coderabbit.reviews` 一行,source `coderabbit_review`)里,没有独立 inline comment id。索引只给出这条 review 的存在与 `is_new`、不含正文,`unacked coderabbitai[bot]` 兜底只扫 `inline_*_by_user`,同样看不见它——只靠 inline 口径会漏。发现靠 `query.sh <PR> history`(按 400 字 head 扫出该 review),全文用 `query.sh <PR> details <该 review 的 id>` 取;因无 inline 锚点,回复只能走 PR 顶层评论,不能回 inline。
 
@@ -47,19 +49,21 @@
 
 - `gemini.reviews` 完全为空,`pr_created_at` 距今**不足 5 分钟** → cold-start 窗口内,等待——此时抢跑触发既耗 quota,也容易引入第一次未提及的边缘建议
 - `gemini.reviews` 完全为空,`pr_created_at` 距今**已超 5 分钟** → cold-start fallback:自动 review 未在窗口内出现(可能失败或被跳过),发送 `/gemini review`。**此行不受 fix-up 顺延限制**——否则 Gemini 永远不会审本 PR。阈值宽松不必精确——误发代价只是一次受去重约束的额外触发
-- `gemini.reviews` 非空但无 `is_new == true` 条目 → 发送 `/gemini review`(受 fix-up 顺延限制)
+- `gemini.reviews` 非空但无 `reviewed_current_head == true` 条目 → 发送 `/gemini review`(受 fix-up 顺延限制)
 
-**已审当前 HEAD**:`gemini.reviews` 至少一条 `is_new == true`。
+**已审当前 HEAD**:`gemini.reviews` 至少一条 `reviewed_current_head == true`。
 
 **actionable**(两条路径,任一命中即算):
 
 - **inline 路径**:`inline_new_by_user["gemini-code-assist[bot]"]` 中 `severity_alt` 为 `high` / `medium` / `critical`;`low` / `nit` / `style` 不算
-- **summary 路径**:最新一条 `gemini.reviews` 的 `has_pass_marker == false`(通过判定见 poll.sh header——按 summary 的 "no feedback" 语法结构判,未命中即视为仍有 actionable)
+- **summary 路径**:最新一条 `reviewed_current_head == true` 的 review 的 `has_pass_marker == false`(通过判定见 poll.sh header——按 summary 的 "no feedback" 语法结构判,未命中即视为仍有 actionable)
 
 **通过**:前置条件——已审当前 HEAD(避免误用上一轮的通过标记)。前置之上需**同时**满足:
 
 1. 本轮无新 inline,或本轮新 inline 全部为 `low/nit/style` 或全部 `is_ack`
-2. 最新一条 `gemini.reviews` 的 `has_pass_marker == true`
+2. 最新一条 `reviewed_current_head == true` 的 review 的 `has_pass_marker == true`
+
+**pushback 例外**:存在 pushback 时 pass marker 不可达,按「本轮非 ack inline 均已处置」判通过。
 
 ## OpenAI Codex
 

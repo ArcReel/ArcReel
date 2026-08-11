@@ -213,7 +213,7 @@ _Avoid_: 用 voice 指代 audio 媒体类型本身；把音色与「声音复刻
 _Avoid_: 与「旁白配音」混为一谈——旁白是成片素材，试听样本只是选音色的中间产物。
 
 **声音一致性档位（voice consistency）**：
-视频模型在跨片段保持人物音色上能做到什么程度的三级标识，由「模型有无音轨」×「项目生成路线」二维派生，全仓库唯一派生点是 `lib/config/resolver.py::derive_voice_consistency`。路线创建即定不可变，同一项目内档位不随剧集或剧本变化。`native`＝参考路线直传参考音频、音色由音频本身锁定；`soft`＝有音轨但只能靠文字描述引导音色；`none`＝真无声，不承载任何声音语义。soft/none 之分不看 `generate_audio` token 是否声明——该 token 语义是「开关可控」而非「有无音轨」，恒有声但开关不可控的供应商（AI Studio Veo、Grok）经 `model_has_audio_track` 单独识别为有音轨。音轨的另一位描述是**开关可控性**（`model_audio_switch_controllable`，即 token 的字面语义）：设置界面按它决定音频开关是否可交互，恒有声与恒无声两类模型的开关置灰并展示成片的实际音轨状态；存量配置里的「关闭」由入队前预检显式拒绝（判据单一真相源 `server/services/video_caps.py::resolve_audio_switch_conflict`，WebUI 与智能体两条提交路径各自包一层出口），保证无声判据只在开关真正可控时才可能为假。
+视频模型在跨片段保持人物音色上能做到什么程度的三级标识，由「模型有无音轨」×「项目生成路线」二维派生，全仓库唯一派生点是 `lib/config/resolver.py::derive_voice_consistency`。路线创建即定不可变，同一项目内档位不随剧集或剧本变化。`native`＝参考路线直传参考音频、音色由音频本身锁定；`soft`＝有音轨但只能靠文字描述引导音色；`none`＝真无声，不承载任何声音语义。soft/none 之分不看 `generate_audio` token 是否声明——该 token 语义是「开关可控」而非「有无音轨」，恒有声但开关不可控的型号另由 `ModelInfo.audio_always_on` 逐型号声明，经 `model_has_audio_track` 与 token 合成为有音轨。恒有声按型号而非按供应商声明：同一供应商名下可以部分型号恒有声、部分型号可开关或无声。音轨的另一位描述是**开关可控性**（`model_audio_switch_controllable`，即 token 的字面语义）：设置界面按它决定音频开关是否可交互，恒有声与恒无声两类模型的开关置灰并展示成片的实际音轨状态；存量配置里的「关闭」由入队前预检显式拒绝（判据单一真相源 `server/services/video_caps.py::resolve_audio_switch_conflict`，WebUI 与智能体两条提交路径各自包一层出口），保证无声判据只在开关真正可控时才可能为假。
 _Avoid_: 用 `generate_audio` 的真假直接代指有无音轨；把「开关可控」与「有音轨」当同一位读。
 
 **声音描述声明段（Voice_Profiles）**：
@@ -373,6 +373,14 @@ _Avoid_: 把它当第二真相源与 transcript 对账——漂移的修复手�
 **流式预览态（draft）**：
 正在流式生成、尚未完成的 assistant 消息在服务端内存中的唯一预览表示，身份即其 `message_id`；消息完成时被同 `message_id` 的日志权威条目**精确替换**。不入日志、不落盘——服务崩溃即丢，与 agent 记忆一致（SDK 同样不记得未完成的消息）。断线重连时随首帧快照携带当前累积态。
 _Avoid_: 用内容比对判断 draft 与已提交内容的重复——对应关系只认 `message_id`；把 draft 做成日志条目的 pending 状态（破坏日志 append-only）。
+
+**消息改写（message rewrite）**：
+用户对已发出的某条历史用户消息的编辑-重跑动作：等同于回到该消息发出前，用改写后的内容重新发出，原消息及其后的全部对话随之废弃。仅用户消息可改写（任意一条，含首条）；会话存在未决问答卡片时禁止改写，问答优先；agent 运行中改写会先自动中断当前轮次。文件与项目数据的副作用不随改写回退，界面明示。机制上由分支会话承接。
+_Avoid_: 与图片指令式编辑的「编辑」混称——改写专指会话消息；做成原地修改历史——已有回复对不上被改的输入，历史不再自洽。
+
+**分支会话（session branch）**：
+承接一次消息改写的新会话：改写点之前的对话前缀成为新会话的全部历史，改写后的消息作为其首个输入；分叉点固定在用户消息边界。原会话整体保留为产品不可见的备份（标记 superseded 并指向新会话，列表隐藏，数据不删），事件日志的 append-only 契约不受影响——新会话日志按既有机制从 transcript 重放重建（实现取舍见 `docs/adr/0058`）。
+_Avoid_: 与 SDK 原生 `fork_session` 混为一谈——后者只能从会话末尾复制整史，无法丢弃改写点之后的内容；原地截断原会话的 transcript 或事件日志——破坏 append-only 与断线续传契约。
 
 **子时间线（subagent timeline）**：
 同一会话内由 parent_tool_use_id 归组的 subagent 消息序列。subagent 的工具调用与回复作为带 parent 标记的日志条目**全量收录**，但主时间线上只呈现单一可折叠的子任务卡片（默认收起，显示描述+状态+进度），展开才见子时间线。

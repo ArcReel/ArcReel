@@ -399,7 +399,7 @@ class TestGetProviderConfig:
             ("openai", True),
             ("vidu", True),
             ("dashscope", True),
-            ("ark", False),
+            ("ark", True),
             ("grok", False),
             ("gemini-vertex", False),
         ],

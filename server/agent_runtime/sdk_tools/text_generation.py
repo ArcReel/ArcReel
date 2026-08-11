@@ -74,6 +74,7 @@ from lib.script_models import (
     build_drama_normalized_script_model,
     build_reference_units_step1_model,
 )
+from lib.speech_rate import project_speech_rate_override
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
@@ -517,8 +518,10 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 # 非中文项目的 step1 内容据此用目标语言产出，而非默认中文。
                 target_language=project.get("source_language") or "中文",
                 # source_language（zh / en / vi 或 None）另供时长下界软指引取语速：drama step1 引导模型为
-                # 每场选不低于该场 utterances 口播时长的档位，语速按此从 lib.speech_rate 单一真相源注入。
+                # 每场选不低于该场 utterances 口播时长的档位，语速按此从 lib.speech_rate 单一真相源注入
+                # （项目级覆盖优先于语言默认）。
                 source_language=project.get("source_language"),
+                speech_rate_override=project_speech_rate_override(project),
             )
             prompt = append_user_instructions(prompt, instructions)
 
@@ -709,6 +712,8 @@ def _collect_reference_flat_violations(
     时长档位与正文合并为一个入口：适用哪套档位取决于该 unit 有没有 references，而 references
     正是从正文机械派生的——正文解析不出时无从判档位，此时报出的也只会是同一个问题的另一种说法。
     """
+    # 台词口播量的语速与 prompt 侧同源：项目级覆盖优先，否则按语言默认。
+    speech_rate_override = project_speech_rate_override(project)
     violations: list[DraftViolation] = []
     for index, flat in enumerate(flat_units, start=1):
         label = f"unit E{episode}U{index:02d}"
@@ -725,7 +730,9 @@ def _collect_reference_flat_violations(
                 [
                     lambda la=label, st=source_text: validate_source_text_anchor(la, st, novel_text),
                     _check_text_and_tier,
-                    lambda la=label, tx=text, d=duration: validate_dialogue_load(la, tx, d, source_language),
+                    lambda la=label, tx=text, d=duration: validate_dialogue_load(
+                        la, tx, d, source_language, speech_rate_override
+                    ),
                 ]
             )
         )
@@ -1239,8 +1246,10 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 episode=episode,
                 # 输出语言取项目 source_language（生成内容语言的唯一真相源），与 normalize 同口径。
                 target_language=project.get("source_language") or "中文",
-                # source_language（zh / en / vi 或 None）另供台词口播时长下界取语速，与后校验同一把尺。
+                # source_language（zh / en / vi 或 None）另供台词口播时长下界取语速（项目级覆盖优先），
+                # 与后校验同一把尺。
                 source_language=project.get("source_language"),
+                speech_rate_override=project_speech_rate_override(project),
                 # 分集大纲约束本集内容边界，同 drama step1。
                 episode_outline=episode_outline,
                 next_episode_outline=next_episode_outline,

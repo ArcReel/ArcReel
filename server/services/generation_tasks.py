@@ -953,7 +953,7 @@ async def execute_video_task(
     # 的 item 无 utterances 字段，payload.dialogue 原样透传；SDK 路径 prompt 已是渲染好的字符串、跳过。
     if isinstance(item, dict) and isinstance(prompt, dict) and content_mode == "drama":
         # 无声（C 类模型不产音、或本集关闭音频）传 characters=None 即不注入 Voice_Profiles；
-        # 有音轨模型（含恒有声、开关不可控的 gemini-aistudio/grok）机械派生角色声音风格。
+        # 有音轨模型（含恒有声、开关不可控的型号）机械派生角色声音风格。
         # 两条无声路径同口径，判据落在 VideoLaneResult.is_silent。台词不受影响、照常下发。
         voice_characters = None if ctx.video.is_silent else (project.get("characters") or {})
         if "utterances" in item:

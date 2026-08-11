@@ -39,7 +39,14 @@ from lib.script_models import (
     resolve_content_mode,
 )
 from lib.script_skeleton import SkeletonRouteMismatchError, ensure_route_skeleton, resolve_declared_kind
-from lib.speech_rate import estimate_spoken_seconds
+from lib.speech_rate import (
+    MAX_SPEECH_RATE_UPS,
+    MIN_SPEECH_RATE_UPS,
+    SPEECH_RATE_FIELD,
+    estimate_spoken_seconds,
+    is_valid_speech_rate,
+    project_speech_rate_override,
+)
 from lib.validation_messages import MessageJoin, MessagePart, MessageRef, ValidationMessage, ValidationResult
 
 __all__ = [
@@ -377,6 +384,22 @@ class DataValidator:
         grid_storyboard = project.get("grid_storyboard")
         if grid_storyboard is not None and not isinstance(grid_storyboard, bool):
             errors.append(_m("val_field_type_bool", field="grid_storyboard"))
+
+        # 项目级语速覆盖（阅读单位 / 秒）：可选字段，缺省即回退语言默认；出现即须落在硬区间内。
+        speech_rate = project.get(SPEECH_RATE_FIELD)
+        if speech_rate is not None:
+            if isinstance(speech_rate, bool) or not isinstance(speech_rate, (int, float)):
+                errors.append(_m("val_field_type_number", field=SPEECH_RATE_FIELD))
+            elif not is_valid_speech_rate(speech_rate):
+                errors.append(
+                    _m(
+                        "val_speech_rate_out_of_range",
+                        field=SPEECH_RATE_FIELD,
+                        value=speech_rate,
+                        min=MIN_SPEECH_RATE_UPS,
+                        max=MAX_SPEECH_RATE_UPS,
+                    )
+                )
 
         self._validate_ad_project_fields(project, content_mode, errors)
 
@@ -811,10 +834,12 @@ class DataValidator:
         *,
         project_dir: Path | None = None,
         language: str | None = None,
+        speech_rate_override: float | None = None,
     ) -> None:
         """验证 scenes（drama 模式）。
 
-        ``language`` 为项目 ``source_language``（说话量上界 warning 的语速按此取，与字幕派生同口径）。
+        ``language`` 为项目 ``source_language``（说话量上界 warning 的语速按此取，与字幕派生同口径）；
+        ``speech_rate_override`` 为项目级语速覆盖，None 即回退语言默认。
         """
         if not isinstance(scenes, list):
             errors.append(_m("val_field_must_be_array", field="scenes"))
@@ -885,7 +910,7 @@ class DataValidator:
 
             # 说话量（台词 + 画外音）对场景时长的单向上界 warning：估算说话时长超 duration × 容差
             # 时仅提示「说不完」，不阻塞、不改写 duration（duration 由画面驱动）。
-            self._warn_scene_speech_overflow(scene, prefix, language, warnings)
+            self._warn_scene_speech_overflow(scene, prefix, language, speech_rate_override, warnings)
 
             # source_text：逐字原文锚（best-effort，由 step1 内容抽取填入、step2 透传）。镜像共享模型
             # 的 source_text: str（extra=forbid 下显式 null 同样被拒）——键存在则须为字符串，显式 null
@@ -951,6 +976,7 @@ class DataValidator:
         scene: dict[str, Any],
         prefix: str,
         language: str | None,
+        speech_rate_override: float | None,
         warnings: list[ValidationMessage],
     ) -> None:
         """场景说话量（台词 + 画外音）估算时长超 ``duration ×（1 + 容差）`` 时仅 warn（单向上界，不阻塞）。
@@ -972,7 +998,7 @@ class DataValidator:
                 continue
             text = item.get("text")
             if isinstance(text, str):
-                spoken += estimate_spoken_seconds(text, language)
+                spoken += estimate_spoken_seconds(text, language, speech_rate_override)
         budget = duration * (1 + DRAMA_SPEECH_OVERFLOW_TOLERANCE)
         if spoken > budget:
             warnings.append(
@@ -1345,9 +1371,11 @@ class DataValidator:
         if novel is not None and not isinstance(novel, dict):
             errors.append(_m("val_novel_must_be_object"))
 
-        # drama 说话量上界 warning 的语速按项目 source_language 取（唯一真相源，缺失 / 脏值回退默认语速）。
+        # drama 说话量上界 warning 的语速从 lib.speech_rate 唯一真相源取：项目级覆盖优先，
+        # 否则按项目 source_language 的语言默认（缺失 / 脏值回退默认语速）。
         source_language = project.get("source_language")
         scene_language = source_language if isinstance(source_language, str) else None
+        scene_speech_rate = project_speech_rate_override(project)
 
         # "视频来源"维度是项目级事实（generation_mode），剧本不携带；骨架种类经规范解析统一
         # 判别，不再自建 (content_mode, generation_mode) 轴交互的四路 if-elif。ad 剧本骨架唯一、
@@ -1431,6 +1459,7 @@ class DataValidator:
                 warnings,
                 project_dir=project_dir,
                 language=scene_language,
+                speech_rate_override=scene_speech_rate,
             )
         else:  # pragma: no cover - resolve_declared_kind 只回四种骨架；第五种未处置即报错
             raise ValueError(f"未处置的骨架种类: {kind!r}")

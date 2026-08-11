@@ -891,3 +891,183 @@ class TestWan27ReferenceVoice:
             )
 
         assert exc.value.code == "video_reference_audio_format_unsupported"
+
+
+class TestWan3:
+    """wan3.0-video：单模型通吃三条路径，首尾帧 + 独立参考音频条目 + 可控音轨。"""
+
+    @staticmethod
+    def _backend(**kwargs):
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        return DashScopeVideoBackend(api_key="sk", model="wan3.0-video", **kwargs)
+
+    @staticmethod
+    def _file(tmp_path, name: str, data: bytes = b"\x89PNG\r\n") -> Path:
+        p = tmp_path / name
+        p.write_bytes(data)
+        return p
+
+    @pytest.mark.unit
+    def test_declares_capabilities(self):
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model("wan3.0-video")
+        assert caps.first_frame is True
+        assert caps.last_frame is True
+        assert caps.max_reference_images == 10
+        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
+        assert caps.max_reference_audio_count == 5
+        assert caps.max_reference_audio_total_seconds == 15.0
+        assert caps.max_prompt_chars == 20000
+        # 音频是独立 media 条目，不挂在参考素材项上（与 wan2.7-r2v 相反）
+        assert caps.reference_audio_per_image is False
+
+    @pytest.mark.unit
+    def test_first_and_last_frame_in_media(self, tmp_path):
+        payload = self._backend()._build_payload(
+            VideoGenerationRequest(
+                prompt="p",
+                output_path=tmp_path / "o.mp4",
+                start_image=self._file(tmp_path, "s.png"),
+                end_image=self._file(tmp_path, "e.png"),
+            )
+        )
+        types = [m["type"] for m in payload["input"]["media"]]
+        assert types == ["first_frame", "last_frame"]
+        # 首帧在场即不下发 ratio（上游按首帧定比例）
+        assert "ratio" not in payload["parameters"]
+
+    @pytest.mark.unit
+    def test_reference_audio_is_standalone_media_item(self, tmp_path):
+        payload = self._backend()._build_payload(
+            VideoGenerationRequest(
+                prompt="p",
+                output_path=tmp_path / "o.mp4",
+                reference_images=[self._file(tmp_path, "r0.png")],
+                reference_audio_files=[
+                    self._file(tmp_path, "a.mp3", b"riff"),
+                    self._file(tmp_path, "b.wav", b"riff"),
+                ],
+            )
+        )
+        media = payload["input"]["media"]
+        assert [m["type"] for m in media] == ["reference_image", "reference_audio", "reference_audio"]
+        # 顺序即 prompt 中「音频N」的指认契约，不得重排
+        assert media[1]["url"].startswith("data:audio/mpeg;base64,")
+        assert media[2]["url"].startswith("data:audio/wav;base64,")
+        # 音频不挂在参考图项上
+        assert "reference_voice" not in media[0]
+
+    @pytest.mark.unit
+    def test_reference_images_optional(self, tmp_path):
+        """通吃型号的图生/文生请求没有参考图，不能按 r2v 专用型号那样判 required。"""
+        payload = self._backend()._build_payload(
+            VideoGenerationRequest(
+                prompt="p", output_path=tmp_path / "o.mp4", start_image=self._file(tmp_path, "s.png")
+            )
+        )
+        assert [m["type"] for m in payload["input"]["media"]] == ["first_frame"]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("generate_audio", [True, False])
+    def test_audio_switch_is_sent(self, tmp_path, generate_audio):
+        payload = self._backend()._build_payload(
+            VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=generate_audio)
+        )
+        assert payload["parameters"]["audio"] is generate_audio
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["wan2.7-i2v", "happyhorse-1.1-i2v"])
+    def test_audio_switch_not_sent_for_always_on_models(self, tmp_path, model):
+        """恒有声型号收到该参数会被上游当非法参数拒。"""
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        payload = DashScopeVideoBackend(api_key="sk", model=model)._build_payload(
+            VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=False)
+        )
+        assert "audio" not in payload["parameters"]
+
+    @pytest.mark.unit
+    def test_prompt_over_limit_rejected_before_submit(self, tmp_path):
+        """超限对端静默截断且照常计费，故由 gate 在付费前拒。"""
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+        from lib.video_frame_slots import gate_video_request
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model("wan3.0-video")
+        with pytest.raises(VideoCapabilityError) as exc:
+            gate_video_request(
+                caps=caps,
+                provider=PROVIDER_DASHSCOPE,
+                model="wan3.0-video",
+                prompt="超" * 20001,
+            )
+        assert exc.value.code == "video_prompt_too_long"
+
+    @pytest.mark.unit
+    async def test_dedicated_base_url_used_for_submit_and_poll(self):
+        b = self._backend(wan3_base_url="https://maas-cn-hangzhou.example.com/ws-123/api/v1/")
+        # 尾部斜杠归一，提交与轮询同域名（任务 id 只在创建它的 endpoint 上可查）
+        assert b._request_base_url == "https://maas-cn-hangzhou.example.com/ws-123/api/v1"
+        # 断言实际发出的 POST/GET URL，而非只读属性——两处若改回固定 base_url，属性断言仍会绿
+        post = AsyncMock(return_value=_resp(_submit("t-wan3")))
+        get = AsyncMock(return_value=_resp(_succeeded()))
+        client = _client(post=post, get=get)
+        assert await b._create_task(client, {}) == "t-wan3"
+        await b._poll_once(client, "t-wan3", b._request_base_url)
+        from lib.video_backends.dashscope import _VIDEO_ENDPOINT
+
+        assert post.await_args.args[0] == f"https://maas-cn-hangzhou.example.com/ws-123/api/v1{_VIDEO_ENDPOINT}"
+        assert get.await_args.args[0] == "https://maas-cn-hangzhou.example.com/ws-123/api/v1/tasks/t-wan3"
+
+    @pytest.mark.unit
+    def test_falls_back_to_shared_base_url(self):
+        b = self._backend()
+        assert b._request_base_url == b._base_url
+        assert b._request_base_url.endswith("/api/v1")
+
+    @pytest.mark.unit
+    def test_dedicated_base_url_not_applied_to_other_models(self):
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        b = DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v", wan3_base_url="https://maas.example.com/api/v1")
+        assert b._request_base_url == b._base_url
+
+    @pytest.mark.unit
+    async def test_submit_persists_actual_base_url(self, tmp_path: Path):
+        """提交时把实际使用的域名与 job_id 一并落库——续跑要靠它回放。"""
+        post = AsyncMock(return_value=_resp(_submit("t-wan3")))
+        get = AsyncMock(return_value=_resp(_succeeded()))
+        client = _client(post=post, get=get)
+        persist = AsyncMock()
+        p1, p2, p3 = _patches(client, AsyncMock())
+        with p1, p2, p3, patch("lib.video_backends.base.persist_provider_job_id", persist):
+            b = self._backend(wan3_base_url="https://maas-a.example.com/ws-1/api/v1")
+            await b.generate(
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "o.mp4", resolution="720p", task_id="db-task-1"
+                )
+            )
+
+        assert persist.call_args.kwargs["endpoint"] == "https://maas-a.example.com/ws-1/api/v1"
+
+    @pytest.mark.unit
+    async def test_resume_polls_submitted_base_url_after_config_change(self, tmp_path: Path):
+        """在途改 wan3_base_url 后续跑：轮询仍打提交时的域名，而非当下配置解析出的域名。"""
+        get = AsyncMock(return_value=_resp(_succeeded()))
+        client = _client(post=AsyncMock(), get=get)
+        p1, p2, p3 = _patches(client, AsyncMock())
+        with p1, p2, p3:
+            # 配置已被改成 B，提交时用的是 A
+            b = self._backend(wan3_base_url="https://maas-b.example.com/ws-2/api/v1")
+            await b.resume_video(
+                "t-wan3",
+                VideoGenerationRequest(
+                    prompt="p",
+                    output_path=tmp_path / "o.mp4",
+                    resolution="720p",
+                    submitted_base_url="https://maas-a.example.com/ws-1/api/v1",
+                ),
+            )
+
+        assert get.await_args.args[0] == "https://maas-a.example.com/ws-1/api/v1/tasks/t-wan3"

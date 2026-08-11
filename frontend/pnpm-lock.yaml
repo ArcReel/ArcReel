@@ -48,7 +48,7 @@ importers:
         version: 8.2.1
       i18next-resources-to-backend:
         specifier: ^1.2.1
-        version: 1.2.2
+        version: 1.2.3
       lucide-react:
         specifier: ^1.18.0
         version: 1.23.0(react@19.2.8)
@@ -2749,8 +2749,8 @@ packages:
   i18next-browser-languagedetector@8.2.1:
     resolution: {integrity: sha512-bZg8+4bdmaOiApD7N7BPT9W8MLZG+nPTOFlLiJiT8uzKXFjhxw4v2ierCXOwB5sFDMtuA5G4kgYZ0AznZxQ/cw==}
 
-  i18next-resources-to-backend@1.2.2:
-    resolution: {integrity: sha512-1qDy4c67qurkyLKXoFncMBB0XmXJE0GHoPCx7ONbDoq9R3puhjOpfUERbtWcwfulbXvxwdqWRmB4DIud+nLpuw==}
+  i18next-resources-to-backend@1.2.3:
+    resolution: {integrity: sha512-8Y/LLAm5fqZc2ckQxtTWbu75ndjNLzF7mcYl6rhc4g+WBopIsG3YhdYqF5qhJy64tlYhlU2KSSnEgW3gGHLqwg==}
 
   i18next@26.3.6:
     resolution: {integrity: sha512-Bu5Z2nAXgfVyM8xvW3jk9EKRIuX37PudsrBViThNFx7CR7aaYTpP01cxNB/E4c4UUzTDiAZRstEhsRfPOL/8xA==}
@@ -7780,7 +7780,7 @@ snapshots:
     dependencies:
       '@babel/runtime': 7.29.2
 
-  i18next-resources-to-backend@1.2.2:
+  i18next-resources-to-backend@1.2.3:
     dependencies:
       '@babel/runtime': 7.29.7
 

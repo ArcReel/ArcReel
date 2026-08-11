@@ -245,6 +245,8 @@ export interface CreateProjectPayload {
   generation_mode: GenerationRoute;
   /** 分镜板（宫格）装配开关，可随创建写入；仅分镜路线有意义。 */
   grid_storyboard?: boolean;
+  /** 口播语速估算（阅读单位 / 秒）；留空即按项目语言的默认速度估算。 */
+  speech_rate_units_per_second?: number | null;
   default_duration?: number | null;
   /** 仅 ad：目标总时长（秒），UI 四档 15/30/60/90。 */
   target_duration?: number;

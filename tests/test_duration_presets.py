@@ -55,8 +55,15 @@ pytestmark = pytest.mark.unit
         ("MiniMax-Hailuo-2.3-Fast", [6]),
         # 不带 hailuo 的 minimax id 不再命中固定 6，落回默认（裸 minimax token 已移除）
         ("minimax-abab-6.5", DEFAULT_FALLBACK),
+        # MiniMax H3（含大小写/前缀变体，不落入 hailuo 的固定 6 预设）
+        ("minimax-h3", list(range(4, 16))),
+        ("MiniMax-H3", list(range(4, 16))),
+        ("proxy-minimax-h3-turbo", list(range(4, 16))),
         # Wan
         ("wan-2.1", [4, 5]),
+        # 万相 3.0（不落入通用 Wan 的 [4, 5] 预设）
+        ("wan3.0-video", list(range(2, 31))),
+        ("Wan3.0-Video", list(range(2, 31))),
         # Pika
         ("pika-2.0", [3, 5, 10]),
         # 未知模型 → fallback

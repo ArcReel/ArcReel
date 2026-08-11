@@ -608,7 +608,12 @@ class MediaGenerator:
 
         # 能力校验与槽位组装先于记账括号：能力不被支持时硬失败要"不扣费"，
         # 在括号内抛虽也不结算，却会留一条 failed ApiCall 行；两者均无副作用，前置最干净。
-        from lib.video_frame_slots import gate_video_request, plan_frame_slots, resolve_video_capabilities
+        from lib.video_frame_slots import (
+            gate_video_request,
+            plan_frame_slots,
+            resolve_first_frame_aspect_ratio,
+            resolve_video_capabilities,
+        )
 
         # prompt 长度校验对每个请求都适用（不像尾帧/参考图/参考音频那样可选），故能力查询不再
         # 按可选路径惰性触发。查询是纯读后端声明的同步调用，没有 I/O 开销。
@@ -642,6 +647,13 @@ class MediaGenerator:
             start_image=start_image,
             end_image=end_image,
             reference_images=reference_images,
+        )
+        # 仅声明 first_frame_ratio_adaptive_only 的后端受影响；下发值与调用方持有的原始
+        # aspect_ratio（记账、分镜图生成沿用）分离，不回写覆盖上游变量。
+        request_aspect_ratio = resolve_first_frame_aspect_ratio(
+            caps=video_caps,
+            aspect_ratio=aspect_ratio,
+            has_first_frame=slot_plan.start_index is not None,
         )
 
         if self._config is not None:
@@ -703,7 +715,7 @@ class MediaGenerator:
                     VideoGenerationRequest(
                         prompt=prompt,
                         output_path=output_path,
-                        aspect_ratio=aspect_ratio,
+                        aspect_ratio=request_aspect_ratio,
                         duration_seconds=duration_int,
                         resolution=resolution,
                         start_image=start_arg,
@@ -755,6 +767,7 @@ class MediaGenerator:
         resolution: str | None = None,
         task_id: str | None = None,
         api_call_id: int | None = None,
+        submitted_base_url: str | None = None,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """接续 provider 上已发起的 video job：调 backend.resume_video 而非 generate。
@@ -765,8 +778,10 @@ class MediaGenerator:
           / resume_failed 按 call_id 精准翻 pending → success/failed；不透传则 logger.warning 不阻断。
         - resume 成功后总是 add_version 记录新版本：无论 versions.json 是否已有历史版本，
           backend.resume_video 都会下载新视频并覆盖 output_path，必须 bump 一个新版本号
-          让 versions.json 与磁盘文件一致；否则会漏记本次重新生成的视频，回滚记录失真。
+          让 versions.json 与磁盘文件一致；否则会漏记该次 resume 产出的视频，回滚记录失真。
         - prompt / start_image / reference_images 仅用于日志/版本元数据，不影响 provider 端结果。
+        - ``submitted_base_url`` 是具名参数而非 version_metadata：它是提交时域名的回放值、
+          只喂给 backend 轮询，落进版本元数据会污染 versions.json。
 
         Returns: (output_path, version_number, video_ref, video_uri) 四元组。
         """
@@ -806,6 +821,7 @@ class MediaGenerator:
             task_id=task_id,
             service_tier=version_metadata.get("service_tier", "default"),
             seed=version_metadata.get("seed"),
+            submitted_base_url=submitted_base_url,
         )
 
         try:

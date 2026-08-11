@@ -17,6 +17,7 @@ import type { CustomProviderInfo, ProviderInfo } from "@/types";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
 import { ROUTE_META, RouteLockBadge } from "@/components/shared/GenerationRouteCards";
 import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
+import { SpeechRateField, isValidSpeechRate } from "@/components/shared/SpeechRateField";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
@@ -155,6 +156,10 @@ export function ProjectSettingsPage() {
   const [generationRoute, setGenerationRoute] = useState<GenerationRoute>("storyboard");
   const [gridStoryboard, setGridStoryboard] = useState(false);
   const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
+  // 口播语速估算（阅读单位 / 秒）：null = 未填，按项目语言的默认速度估算
+  const [speechRate, setSpeechRate] = useState<number | null>(null);
+  // 源文语言由内容分析写入，此页只读——只用来决定语速的单位名词（字 / 词）
+  const [sourceLanguage, setSourceLanguage] = useState<string | null>(null);
   const [videoResolution, setVideoResolution] = useState<string | null>(null);
   const [imageResolution, setImageResolution] = useState<string | null>(null);
   const [modelSettings, setModelSettings] = useState<Record<string, { resolution: string | null }>>({});
@@ -175,6 +180,7 @@ export function ProjectSettingsPage() {
     textDefault: "", textSimple: "", textComplex: "",
     aspectRatio: "", gridStoryboard: false,
     defaultDuration: null as number | null,
+    speechRate: null as number | null,
     videoResolution: null as string | null,
     imageResolution: null as string | null,
   });
@@ -247,6 +253,9 @@ export function ProjectSettingsPage() {
       const route = normalizeRoute(project.generation_mode);
       const grid = project.grid_storyboard === true;
       const dd = project.default_duration != null ? (project.default_duration as number) : null;
+      const rawRate = project.speech_rate_units_per_second;
+      const sr = typeof rawRate === "number" && Number.isFinite(rawRate) ? rawRate : null;
+      const sl = typeof project.source_language === "string" ? project.source_language : null;
 
       setVideoBackend(vb);
       setVideoProviderI2V(vpi2v);
@@ -265,6 +274,8 @@ export function ProjectSettingsPage() {
       setGenerationRoute(route);
       setGridStoryboard(grid);
       setDefaultDuration(dd);
+      setSpeechRate(sr);
+      setSourceLanguage(sl);
       setProjectTitle(typeof project.title === "string" ? project.title : "");
       setContentMode(typeof project.content_mode === "string" ? project.content_mode : "narration");
 
@@ -298,7 +309,7 @@ export function ProjectSettingsPage() {
         audioOverride: ao,
         audioBackend: ab, narrationVoice: nv, narrationSpeed: ns,
         textDefault: td, textSimple: tsi, textComplex: tcx,
-        aspectRatio: ar, gridStoryboard: grid, defaultDuration: dd,
+        aspectRatio: ar, gridStoryboard: grid, defaultDuration: dd, speechRate: sr,
         videoResolution: vRes, imageResolution: iRes,
       };
     }));
@@ -354,6 +365,7 @@ export function ProjectSettingsPage() {
     aspectRatio !== initialRef.current.aspectRatio ||
     gridStoryboard !== initialRef.current.gridStoryboard ||
     defaultDuration !== initialRef.current.defaultDuration ||
+    speechRate !== initialRef.current.speechRate ||
     videoResolution !== initialRef.current.videoResolution ||
     imageResolution !== initialRef.current.imageResolution ||
     styleIsDirty;
@@ -462,6 +474,8 @@ export function ProjectSettingsPage() {
         audio_backend: audioBackend || null,
         narration_voice: trimmedVoice || null,
         narration_speed: narrationSpeed,
+        // null 即清除项目级覆盖、回退语言默认
+        speech_rate_units_per_second: speechRate,
         default_text_backend: textDefault || null,
         text_backend_simple: textSimple || null,
         text_backend_complex: textComplex || null,
@@ -480,7 +494,7 @@ export function ProjectSettingsPage() {
         imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride,
         audioBackend, narrationVoice: trimmedVoice, narrationSpeed,
         textDefault, textSimple, textComplex,
-        aspectRatio, gridStoryboard, defaultDuration,
+        aspectRatio, gridStoryboard, defaultDuration, speechRate,
         videoResolution, imageResolution,
       };
       // grid_storyboard / video_backend 落盘后，/video-capabilities 按已存值解析——查询 key 未变
@@ -492,7 +506,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults]);
+  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults]);
 
   return (
     <div
@@ -742,6 +756,16 @@ export function ProjectSettingsPage() {
                 </div>
               </SectionCard>
 
+              {/* 口播语速估算：驱动时长建议、说话量提示与字幕定时，与配音（TTS）无关，
+                  故独立成卡、不与 Audio Channel 同栏，避免两个「语速」被读成一个设置 */}
+              <SectionCard kicker="Pacing Estimate">
+                <SpeechRateField
+                  value={speechRate}
+                  onChange={setSpeechRate}
+                  sourceLanguage={sourceLanguage}
+                />
+              </SectionCard>
+
               {/* 旁白配音（TTS）：仅 narration 模式消费——TTS 绑定 segment.novel_text，drama/ad 无该字段，
                   故与两个画布的批量旁白按钮（contentMode === "narration"）同口径门控，避免对无效模式展示配音卡 */}
               {contentMode === "narration" && (
@@ -862,7 +886,8 @@ export function ProjectSettingsPage() {
               // handleSave 在 onClick 时才执行；规则误报。
               // eslint-disable-next-line react-hooks/refs
               onClick={voidPromise(handleSave)}
-              disabled={saving}
+              // 口播语速越界时不放行保存（区间与后端同一把尺），行内提示已说明原因
+              disabled={saving || !isValidSpeechRate(speechRate)}
               className={`${ACCENT_BTN_CLS} px-5`}
               style={ACCENT_BUTTON_STYLE}
             >

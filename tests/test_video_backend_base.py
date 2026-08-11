@@ -581,6 +581,34 @@ class TestProviderJobIdPersistenceMixin:
             await self._backend()._persist_provider_job_id(request, "job-1", provider="ark")
         persist.assert_awaited_once_with("local-task-1", "job-1", provider="ark", endpoint="openai-video")
 
+    async def test_worker_path_persists_backend_endpoint_when_builtin(self):
+        """内置供应商由 backend 传入实际请求域名 → 落库供续跑回放。"""
+        with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:
+            await self._backend()._persist_provider_job_id(
+                self._request(task_id="local-task-1"),
+                "job-1",
+                provider="dashscope",
+                endpoint="https://maas.example.com/api/v1",
+            )
+        persist.assert_awaited_once_with(
+            "local-task-1", "job-1", provider="dashscope", endpoint="https://maas.example.com/api/v1"
+        )
+
+    async def test_execution_endpoint_wins_over_backend_endpoint(self):
+        """自定义供应商注入的 endpoint 标识优先于下游 backend 的域名。
+
+        列里躺着标识才能让续跑比对协议是否被换掉；被下游域名顶掉会让比对闸永远比不出差异。
+        """
+        request = self._request(task_id="local-task-1")
+        request.execution_endpoint = "dashscope-async-video"
+        with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:
+            await self._backend()._persist_provider_job_id(
+                request, "job-1", provider="dashscope", endpoint="https://maas.example.com/api/v1"
+            )
+        persist.assert_awaited_once_with(
+            "local-task-1", "job-1", provider="dashscope", endpoint="dashscope-async-video"
+        )
+
     async def test_non_worker_path_skips_persist(self):
         """非 worker 路径（grid / 直生 / 测试，task_id=None）跳过持久化，不触碰 DB。"""
         with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:

@@ -54,7 +54,7 @@ from lib.project_manager import ProjectManager
 from lib.reference_video.ad_units import ad_shots_by_id
 from lib.script_models import ad_shot_duration_seconds, get_generated_assets
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
-from lib.speech_rate import estimate_spoken_seconds
+from lib.speech_rate import estimate_spoken_seconds, project_speech_rate_override
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,9 @@ def _has_subtitle_track(content_mode: str) -> bool:
     return content_mode in _SUBTITLE_TEXT_FIELDS or content_mode in _SPAN_SUBTITLE_MODES
 
 
-def _utterance_subtitle_spans(utterances: object, language: str | None) -> list[dict[str, Any]]:
+def _utterance_subtitle_spans(
+    utterances: object, language: str | None, speech_rate_override: float | None = None
+) -> list[dict[str, Any]]:
     """从 drama 场景的有序 utterances 派生 subtitle_spans。
 
     台词（dialogue）与画外音（voiceover）一并成字幕、按 utterances 真实先后排列；每条时长
@@ -83,7 +85,7 @@ def _utterance_subtitle_spans(utterances: object, language: str | None) -> list[
         text = utterance.get("text")
         if not isinstance(text, str) or not text.strip():
             continue
-        duration = estimate_spoken_seconds(text, language)
+        duration = estimate_spoken_seconds(text, language, speech_rate_override)
         if duration <= 0:
             continue
         spans.append({"offset_seconds": offset, "duration_seconds": duration, "text": text})
@@ -136,14 +138,16 @@ class JianyingDraftService:
         *,
         generation_mode: str | None = None,
         language: str | None = None,
+        speech_rate_override: float | None = None,
     ) -> list[dict[str, Any]]:
         """从剧本中提取已完成视频的片段列表
 
         分镜列表按 ``resolve_declared_kind`` 定内容骨架（narration→segments、drama→scenes、
         ad→shots；缺失/未知 content_mode fail-loud，不静默兜底）；字幕文案按
         ``_SUBTITLE_TEXT_FIELDS`` 取各模式的文案源字段，归一到 ``subtitle_text``。drama 改走 span 派生：从场景级
-        有序 ``utterances`` 按语速估算出 ``subtitle_spans``（``language`` 决定语速，由调用方
-        按项目 ``source_language`` 传入），整段 ``subtitle_text`` 留空。
+        有序 ``utterances`` 按语速估算出 ``subtitle_spans``（语速由 ``speech_rate_override``
+        项目级覆盖优先、否则按 ``language`` 取语言默认，两者均由调用方从 project.json 解析后传入），
+        整段 ``subtitle_text`` 留空。
 
         ad + reference_video 路径成片是 unit 级视频（``reference_units`` 派生索引），
         按 unit 收集；``generation_mode`` 须由调用方按 project.json 解析传入——
@@ -188,7 +192,9 @@ class JianyingDraftService:
             }
             # drama：从场景 utterances 派生有序字幕 span（台词 + 画外音按真实先后，按语速估时长）
             if is_drama:
-                clip["subtitle_spans"] = _utterance_subtitle_spans(item.get("utterances"), language)
+                clip["subtitle_spans"] = _utterance_subtitle_spans(
+                    item.get("utterances"), language, speech_rate_override
+                )
             clips.append(clip)
 
         return clips
@@ -476,13 +482,15 @@ class JianyingDraftService:
 
         # 2. 收集已完成视频（生成路径按 project.json 解析：ad 参考直出收集 unit 级片段）
         content_mode = _script_content_mode(script_data)
-        # drama 字幕语速按项目源语言取（source_language 是唯一真相源，缺失 / 脏值时回退默认语速）
+        # drama 字幕语速从 lib.speech_rate 唯一真相源取：项目级覆盖优先，否则按项目 source_language
+        # 的语言默认（缺失 / 脏值时回退默认语速）
         source_language = project.get("source_language")
         clips = self._collect_video_clips(
             script_data,
             project_dir,
             generation_mode=project.get("generation_mode"),
             language=source_language if isinstance(source_language, str) else None,
+            speech_rate_override=project_speech_rate_override(project),
         )
         if not clips:
             raise NoCompletedSegmentsError(f"第 {episode} 集没有已完成的视频片段，请先生成视频")

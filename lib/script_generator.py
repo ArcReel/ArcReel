@@ -81,6 +81,7 @@ from lib.script_models import (
 )
 from lib.script_review import gate_blocks_step2, migrate_step1_draft_in_place
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
+from lib.speech_rate import project_speech_rate_override
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
@@ -592,6 +593,7 @@ class ScriptGenerator:
             # 输出语言与口播语速折算同取项目 source_language，与 drama/narration 同口径
             # （见 build_ad_prompt 内 speech_rate_units_per_second/reading_unit_noun 调用）。
             target_language=self.project_json.get("source_language") or "中文",
+            speech_rate_override=project_speech_rate_override(self.project_json),
         )
 
     async def build_prompt(self, episode: int, *, instructions: str | None = None) -> str:
@@ -1079,6 +1081,7 @@ class ScriptGenerator:
         unit 一路落盘。
         """
         source_language = self.project_json.get("source_language")
+        speech_rate_override = project_speech_rate_override(self.project_json)
         for unit in step1_units:
             label = f"step1 的 unit {unit['unit_id']}"
             stored_shots = unit.get("shots") or []
@@ -1095,7 +1098,9 @@ class ScriptGenerator:
                         code="shot_count_changed",
                         label=label,
                     )
-                validate_dialogue_load(label, text, int(unit["duration_seconds"]), source_language)
+                validate_dialogue_load(
+                    label, text, int(unit["duration_seconds"]), source_language, speech_rate_override
+                )
             except DraftViolation as e:
                 raise DraftViolation(
                     f"{e}；这段正文来自 step1（拆分产出或手工编辑），step2 会逐字保留它，"
