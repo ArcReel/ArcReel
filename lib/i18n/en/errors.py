@@ -23,7 +23,7 @@ MESSAGES = {
     "script_data_corrupted": "Script data is corrupted: {reason}",
     "script_edit_error": "Segment edit validation failed",
     "script_edit_items_not_list": "{kind} must be a list, but got {type_name}",
-    "script_edit_unit_lists_invalid": "video_units / reference_units must be a list",
+    "script_edit_unit_lists_invalid": "video_units must be a list",
     "script_edit_generated_assets_invalid": "generated_assets must be a dictionary",
     "narration_mode_required": "This script is not in narration mode, please use the scene update interface",
     "ad_mode_required": "This script is not in ad/short-video mode, please use the update interface for its mode",
@@ -244,18 +244,16 @@ MESSAGES = {
     "ref_not_reference_video_mode": "Episode script is not in reference-video mode",
     "ref_not_registered": "Referenced assets are not registered: {missing}",
     "ref_unit_not_found": "Video unit '{unit_id}' not found",
+    "ref_unit_needs_replan": "This video unit has a speech-ownership or migration problem; replan it before generating",
     "ref_unit_ids_length_mismatch": "unit_ids count does not match existing units",
     "ref_duplicate_unit_ids": "unit_ids contains duplicates",
     "ref_unit_ids_mismatch": "unit_ids do not match existing units",
     "ref_script_missing": "The script file bound to this episode does not exist",
     "ref_script_rebound": "This episode's script binding changed, please retry",
-    "ref_ad_units_derived": "Video units of an ad/short-video project are derived from shots automatically and cannot be edited manually; edit the shots and re-derive the grouping instead",
-    "ref_derive_ad_only": "Deriving video unit groups is only available for ad/short-video projects",
-    "ref_ad_stale_index": "The unit grouping index no longer matches the shots, please re-derive the grouping",
     "ref_ad_reference_skipped": "'{name}' ({type}) has no usable reference image and was skipped for this generation",
     # Shot-script parse preview: degradation visibility
     "ref_warn_unregistered_mention": (
-        "@[{name}] is not registered as a character, scene, or prop: no reference image will be "
+        "@[{name}] is not registered as a product, character, scene, or prop: no reference image will be "
         "attached. Check the name or create the asset first"
     ),
     "ref_warn_unclosed_brace": (

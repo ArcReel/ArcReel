@@ -155,7 +155,7 @@ export function extractMentions(text: string): string[] {
 }
 
 type ProjectBuckets = Pick<ProjectData, "characters" | "scenes" | "props" | "products">;
-type ProjectAssetKind = AssetKind | "product";
+type ProjectAssetKind = AssetKind;
 export type MentionLookup = Record<string, ProjectAssetKind>;
 
 // Python str.strip() whitespace set. JavaScript trim() additionally removes U+FEFF,
@@ -184,26 +184,19 @@ function bucketHasName(bucket: Record<string, unknown> | undefined, target: stri
 /**
  * 为编辑器高亮构造项目资产名到类型的唯一映射。
  *
- * 无原型字典保证 `__proto__` 等合法资产名可作为普通 key；若损坏的项目在多个 bucket
- * 声明等价名称，则删除该名称而不在读取路径选择优先级。
+ * 无原型字典保证 `__proto__` 等合法资产名可作为普通 key。损坏项目若有同名资产，
+ * 按 product → character → scene → prop 的稳定优先级解析。
  */
 export function buildMentionLookup(project: ProjectBuckets | null | undefined): MentionLookup {
   const lookup: MentionLookup = Object.create(null) as MentionLookup;
-  const duplicates = new Set<string>();
   const claim = (name: string, kind: ProjectAssetKind) => {
     const key = normalizeAssetName(name);
-    if (duplicates.has(key)) return;
-    if (Object.hasOwn(lookup, key)) {
-      delete lookup[key];
-      duplicates.add(key);
-      return;
-    }
-    lookup[key] = kind;
+    if (!Object.hasOwn(lookup, key)) lookup[key] = kind;
   };
+  for (const name of Object.keys(project?.products ?? {})) claim(name, "product");
   for (const name of Object.keys(project?.characters ?? {})) claim(name, "character");
   for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");
   for (const name of Object.keys(project?.props ?? {})) claim(name, "prop");
-  for (const name of Object.keys(project?.products ?? {})) claim(name, "product");
   return lookup;
 }
 
@@ -213,12 +206,11 @@ export function resolveMentionType(
 ): ProjectAssetKind | undefined {
   if (!project) return undefined;
   const target = normalizeAssetName(name);
-  const matches: ProjectAssetKind[] = [];
-  if (bucketHasName(project.characters, target)) matches.push("character");
-  if (bucketHasName(project.scenes, target)) matches.push("scene");
-  if (bucketHasName(project.props, target)) matches.push("prop");
-  if (bucketHasName(project.products, target)) matches.push("product");
-  return matches.length === 1 ? matches[0] : undefined;
+  if (bucketHasName(project.products, target)) return "product";
+  if (bucketHasName(project.characters, target)) return "character";
+  if (bucketHasName(project.scenes, target)) return "scene";
+  if (bucketHasName(project.props, target)) return "prop";
+  return undefined;
 }
 
 /**
@@ -251,10 +243,7 @@ export function mergeReferences(
   for (const name of mentioned) {
     if (keptNames.has(name)) continue;
     const type = resolveMentionType(project, name);
-    // Generic reference-video units deliberately accept only character/scene/prop.
-    // Products participate in namespace ownership and duplicate detection here, but
-    // ad product references are derived separately from products_in_shot.
-    if (!type || type === "product") continue;
+    if (!type) continue;
     kept.push({ type, name });
     keptNames.add(name);
   }

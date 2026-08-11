@@ -118,10 +118,6 @@ MESSAGES = {
     ),
     "val_ref_type_invalid": "{prefix}: invalid type: {value}",
     "val_ref_name_invalid": "{prefix}: name must be a non-empty string: {value}",
-    "val_ref_unregistered_regroup": (
-        "{prefix}: referenced {asset_type} “{name}” is not registered; regenerate the grouping"
-    ),
-    "val_reference_units_dangling_shots": ("{prefix}: referenced shots do not exist ({ids}); regenerate the grouping"),
     # ---- skeleton / route mismatch ----
     "val_skeleton_noun_segments": "segments",
     "val_skeleton_noun_scenes": "scenes",

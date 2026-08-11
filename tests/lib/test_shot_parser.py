@@ -209,11 +209,13 @@ def test_resolve_references_empty_input():
     assert missing == []
 
 
-def test_resolve_references_rejects_corrupt_shared_namespace():
+def test_resolve_references_uses_priority_for_corrupt_shared_namespace():
     project = _proj(characters={"Shared": {}}, scenes={"Shared": {}})
 
-    with pytest.raises(ValueError, match="名称空间损坏"):
-        resolve_references(["Shared"], project)
+    refs, missing = resolve_references(["Shared"], project)
+
+    assert [(ref.type, ref.name) for ref in refs] == [("character", "Shared")]
+    assert missing == []
 
 
 #: 带组合附加符的资产名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。

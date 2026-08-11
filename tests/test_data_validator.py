@@ -1340,33 +1340,6 @@ class TestAdEpisodeValidation:
         assert any("products_in_shot" in e for e in result.errors)
 
     @pytest.mark.integration
-    def test_shot_reference_accepts_nfc_nfd_mismatch_against_registered_asset(self, tmp_path):
-        """project.json 角色以 NFD 登记、镜头 characters_in_shot 引用同名的 NFC 形式：
-        generation_mode=reference_video 时必须按归一形式判「已登记」放行，否则 ad 的
-        reference_video unit 派生（lib.reference_video.ad_units 直接消费 characters_in_shot）
-        会被这层校验先行拒绝，用户永远走不到真实的参考解析阶段。归一比对只在
-        reference_mode 下开启（见 storyboard 路径保持原始比对的测试）。"""
-        import unicodedata
-
-        name_nfc = unicodedata.normalize("NFC", "Hiếu")
-        name_nfd = unicodedata.normalize("NFD", "Hiếu")
-        assert name_nfc != name_nfd
-
-        project = _ad_project_payload(
-            generation_mode="reference_video", characters={name_nfd: {"description": "出镜模特"}}
-        )
-        result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[name_nfc])], project=project)
-        assert result.valid, result.errors
-
-    @pytest.mark.integration
-    def test_shot_malformed_reference_reports_error_not_typeerror(self, tmp_path):
-        """归一比对分支（reference_mode）下 characters_in_shot 混入不可哈希元素同样须报错而非崩溃。"""
-        project = _ad_project_payload(generation_mode="reference_video")
-        result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[{"malformed": True}])], project=project)
-        assert not result.valid
-        assert any("characters_in_shot" in e for e in result.errors)
-
-    @pytest.mark.integration
     def test_shot_product_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
         """products_in_shot 与其收集器（collect_product_references_for_names）同口径归一：
         NFC/NFD 不一致的合法产品名必须放行，否则校验层比实际生成时的收集层更严格，
@@ -1412,24 +1385,6 @@ class TestAdEpisodeValidation:
         assert result.valid, result.errors
 
     @pytest.mark.unit
-    def test_reference_path_rejects_duration_out_of_range(self, tmp_path):
-        """ad + reference_video：镜头时长必须是 1-15 自由整数。"""
-        project = _ad_project_payload(generation_mode="reference_video")
-        result = self._validate(tmp_path, [self._ad_shot(duration_seconds=16)], project=project)
-        assert not result.valid
-        assert any("1-15" in e for e in result.errors)
-
-    @pytest.mark.unit
-    def test_reference_path_accepts_free_integers_in_range(self, tmp_path):
-        project = _ad_project_payload(generation_mode="reference_video")
-        result = self._validate(
-            tmp_path,
-            [self._ad_shot(duration_seconds=7), self._ad_shot(shot_id="E1S02", duration_seconds=15)],
-            project=project,
-        )
-        assert result.valid, result.errors
-
-    @pytest.mark.unit
     def test_total_duration_drift_warns_but_passes(self, tmp_path):
         """剧本总时长与 target_duration 偏差超阈值仅 warn，不阻塞。"""
         project = _ad_project_payload(target_duration=60)
@@ -1451,35 +1406,7 @@ class TestAdEpisodeValidation:
 
 
 class TestAdEpisodeValidationEdgeCases:
-    """ad 剧本骨架唯一与脏数据容错。"""
-
-    @pytest.mark.unit
-    def test_ad_reference_generation_mode_still_validates_shots(self, tmp_path):
-        """ad 剧本不随生成路径换骨架：generation_mode=reference_video 仍按 shots 校验。"""
-        project = _ad_project_payload(generation_mode="reference_video")
-        project_dir = tmp_path / "projects" / "demo"
-        _write_json(project_dir / "project.json", project)
-        _write_json(
-            project_dir / "scripts" / "episode_1.json",
-            {
-                "episode": 1,
-                "title": "速干杯带货",
-                "content_mode": "ad",
-                "shots": [
-                    {
-                        "shot_id": "E1S01",
-                        "section": "hook",
-                        "duration_seconds": 3,
-                        "voiceover_text": "口播",
-                        "characters_in_shot": [],
-                        "image_prompt": "img",
-                        "video_prompt": "vid",
-                    }
-                ],
-            },
-        )
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
-        assert result.valid, result.errors
+    """ad storyboard 剧本的脏数据容错。"""
 
     @pytest.mark.unit
     def test_non_string_shot_id_reported_not_crash(self, tmp_path):
@@ -1535,97 +1462,88 @@ class TestAdEpisodeValidationEdgeCases:
         assert any("恒为第 1 集单条" in e for e in result.errors)
 
 
-class TestAdReferenceUnitsValidation:
-    """ad 参考直出派生索引（reference_units）的结构与引用完整性校验。"""
+class TestAdReferenceVideoUnitsValidation:
+    """ad 参考路线与其他内容模式共用自包含 video_units 校验。"""
 
-    def _ad_shot(self, shot_id: str = "E1S01", **overrides) -> dict:
-        shot = {
-            "shot_id": shot_id,
-            "section": "hook",
-            "duration_seconds": 3,
-            "voiceover_text": "口播",
-            "characters_in_shot": [],
-            "scenes": [],
-            "props": [],
-            "products_in_shot": [],
-            "image_prompt": "img",
-            "video_prompt": "vid",
+    @staticmethod
+    def _unit(**overrides) -> dict:
+        unit = {
+            "unit_id": "E1U1",
+            "shots": [{"text": "镜头1：@[主播] 展示 @[速干杯]"}],
+            "references": [
+                {"type": "product", "name": "速干杯"},
+                {"type": "character", "name": "主播"},
+            ],
+            "duration_seconds": 7,
+            "generated_assets": {"status": "pending"},
         }
-        shot.update(overrides)
-        return shot
+        unit.update(overrides)
+        return unit
 
-    def _validate(self, tmp_path, shots: list[dict], units):
+    def _validate(self, tmp_path, units) -> object:
         project_dir = tmp_path / "projects" / "demo"
-        _write_json(project_dir / "project.json", _ad_project_payload(generation_mode="reference_video"))
-        script = {"episode": 1, "title": "速干杯带货", "content_mode": "ad", "shots": shots}
-        if units is not None:
-            script["reference_units"] = units
-        _write_json(project_dir / "scripts" / "episode_1.json", script)
+        project = _ad_project_payload(
+            generation_mode="reference_video",
+            products={"速干杯": {"description": "主推产品"}},
+        )
+        _write_json(project_dir / "project.json", project)
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {"episode": 1, "title": "速干杯带货", "content_mode": "ad", "video_units": units},
+        )
         return DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
     @pytest.mark.unit
-    def test_valid_index_passes(self, tmp_path):
-        units = [
-            {
-                "unit_id": "E1U1",
-                "shot_ids": ["E1S01"],
-                "references": [{"type": "character", "name": "主播"}],
-                "generated_assets": {"status": "pending"},
-            }
-        ]
-        result = self._validate(tmp_path, [self._ad_shot()], units)
+    def test_valid_self_contained_unit_passes(self, tmp_path):
+        result = self._validate(tmp_path, [self._unit()])
         assert result.valid, result.errors
 
     @pytest.mark.unit
-    def test_missing_index_is_legal(self, tmp_path):
-        result = self._validate(tmp_path, [self._ad_shot()], None)
+    def test_replan_shell_allows_empty_shots_and_zero_duration(self, tmp_path):
+        result = self._validate(
+            tmp_path,
+            [self._unit(shots=[], references=[], duration_seconds=0, needs_replan=True)],
+        )
         assert result.valid, result.errors
+
+    @pytest.mark.unit
+    def test_normal_unit_rejects_empty_shots_and_zero_duration(self, tmp_path):
+        result = self._validate(
+            tmp_path,
+            [self._unit(shots=[], references=[], duration_seconds=0, needs_replan=False)],
+        )
+        assert not result.valid
+        assert any("shots" in error for error in result.errors)
+        assert any("duration_seconds" in error for error in result.errors)
 
     @pytest.mark.integration
     def test_unparseable_video_generated_at_rejected(self, tmp_path):
-        # 外部编辑/导入把 video_generated_at 写成不可解析的字符串时不会被类型校验拦下，
-        # 但前端 `new Date(iso).getTime()` 解析得到 NaN，参与比较恒为 false，判定因此
-        # 静默失效而非报错，须单独校验值本身能否被解析。
-        units = [
-            {
-                "unit_id": "E1U1",
-                "shot_ids": ["E1S01"],
-                "references": [{"type": "character", "name": "主播"}],
-                "generated_assets": {"status": "completed", "video_generated_at": "not-a-date"},
-            }
-        ]
-        result = self._validate(tmp_path, [self._ad_shot()], units)
+        unit = self._unit(generated_assets={"status": "completed", "video_generated_at": "not-a-date"})
+        result = self._validate(tmp_path, [unit])
         assert not result.valid
         assert any("video_generated_at 不是合法的 ISO8601 时间戳" in error for error in result.errors)
 
     @pytest.mark.unit
-    def test_dangling_shot_id_warns_not_errors(self, tmp_path):
-        """镜头删除后索引短暂悬空是合法中间态（重新派生即愈）：warn 不 error。"""
-        units = [{"unit_id": "E1U1", "shot_ids": ["E1S01", "E1S99"], "references": []}]
-        result = self._validate(tmp_path, [self._ad_shot()], units)
-        assert result.valid, result.errors
-        assert any("E1S99" in w for w in result.warnings)
-
-    @pytest.mark.unit
     def test_malformed_entry_rejected(self, tmp_path):
-        units = ["not-a-dict", {"unit_id": "E1U2"}]
-        result = self._validate(tmp_path, [self._ad_shot()], units)
+        result = self._validate(tmp_path, ["not-a-dict", {"unit_id": "E1U2"}])
         assert not result.valid
-        assert any("reference_units[0]" in e for e in result.errors)
-        assert any("shot_ids" in e for e in result.errors)
+        assert any("video_units[0]" in error for error in result.errors)
+        assert any("shots" in error for error in result.errors)
 
     @pytest.mark.unit
-    def test_invalid_reference_type_rejected(self, tmp_path):
-        units = [{"unit_id": "E1U1", "shot_ids": ["E1S01"], "references": [{"type": "voice", "name": "x"}]}]
-        result = self._validate(tmp_path, [self._ad_shot()], units)
-        assert not result.valid
+    def test_invalid_or_unregistered_reference_rejected(self, tmp_path):
+        invalid_type = self._validate(
+            tmp_path,
+            [self._unit(references=[{"type": "voice", "name": "x"}])],
+        )
+        assert not invalid_type.valid
 
-    @pytest.mark.unit
-    def test_unregistered_reference_name_warns(self, tmp_path):
-        units = [{"unit_id": "E1U1", "shot_ids": ["E1S01"], "references": [{"type": "product", "name": "不存在"}]}]
-        result = self._validate(tmp_path, [self._ad_shot()], units)
-        assert result.valid, result.errors
-        assert any("不存在" in w for w in result.warnings)
+        unregistered = self._validate(
+            tmp_path,
+            [self._unit(references=[{"type": "product", "name": "不存在"}])],
+        )
+        assert not unregistered.valid
+        assert any("不存在" in error for error in unregistered.errors)
 
     @pytest.mark.integration
     def test_nfc_reference_accepted_for_nfd_registered_character(self, tmp_path):
@@ -1639,18 +1557,13 @@ class TestAdReferenceUnitsValidation:
         payload = _ad_project_payload(generation_mode="reference_video")
         payload["characters"] = {name_nfd: {"description": "主播"}}
         _write_json(project_dir / "project.json", payload)
-        units = [{"unit_id": "E1U1", "shot_ids": ["E1S01"], "references": [{"type": "character", "name": name_nfc}]}]
-        script = {
-            "episode": 1,
-            "title": "速干杯带货",
-            "content_mode": "ad",
-            "shots": [self._ad_shot()],
-            "reference_units": units,
-        }
-        _write_json(project_dir / "scripts" / "episode_1.json", script)
+        unit = self._unit(references=[{"type": "character", "name": name_nfc}])
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {"episode": 1, "title": "速干杯带货", "content_mode": "ad", "video_units": [unit]},
+        )
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
         assert result.valid, result.errors
-        assert not any(name_nfc in w or name_nfd in w for w in result.warnings)
 
 
 class TestSourceKindValidation:
@@ -1981,7 +1894,7 @@ class TestDataValidatorSkeletonExhaustiveness:
 
         content_mode, gen_mode = _KIND_TO_MODES[kind]
         called: list[str] = []
-        spied = (*_KIND_TO_VALIDATOR.values(), "_warn_ad_target_duration_drift", "_validate_ad_reference_units")
+        spied = (*_KIND_TO_VALIDATOR.values(), "_warn_ad_target_duration_drift")
         for name in spied:
             monkeypatch.setattr(DataValidator, name, lambda *a, _n=name, **k: called.append(_n))
 

@@ -243,7 +243,7 @@ def _non_character_reference_names(raw_references: object) -> set[str]:
         normalize_asset_name(name.strip())
         for reference in raw_references
         if isinstance(reference, Mapping)
-        and reference.get("type") in {"scene", "prop"}
+        and reference.get("type") in {"product", "scene", "prop"}
         and isinstance((name := reference.get("name")), str)
         and name.strip()
     }

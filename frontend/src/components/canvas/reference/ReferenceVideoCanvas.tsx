@@ -55,6 +55,10 @@ export interface ReferenceVideoCanvasProps {
   canEditTitle?: boolean;
   /** step2 剧本（scripts/episode_N.json）是否已生成——决定默认 tab（镜像 GridImageToVideoCanvas 的 hasScript 判定）。 */
   hasScript?: boolean;
+  /** ad 参考路线一阶段产出，不展示 step1 预处理页。 */
+  showPreprocess?: boolean;
+  /** unit 时长为自由正整数，不用供应商档位作为编排限制。 */
+  freeDuration?: boolean;
   /**
    * unit 时长下拉的档位，来自模型能力声明（已按参考图约束与分辨率收窄）。供带 references
    * 的 unit 使用；能力不可解析时为 undefined——此时不渲染下拉，只读展示当前秒数，不编造档位。
@@ -124,6 +128,8 @@ export function ReferenceVideoCanvas({
   onSaveTitle,
   canEditTitle,
   hasScript = true,
+  showPreprocess = true,
+  freeDuration = false,
   durationOptions,
   durationOptionsNoReference,
 }: ReferenceVideoCanvasProps) {
@@ -278,8 +284,21 @@ export function ReferenceVideoCanvas({
   const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
   // 时长取档闸门：申请秒数与剧本编排不一致时先确认，取消则一个都不入队
-  /** 单元入口的复核：只看占用。「重新生成」本就要覆盖已有成片，不能按有无成片拦。 */
-  const canEnqueueUnit = useCallback((unitId: string) => !isUnitLocked(unitId), [isUnitLocked]);
+  const isUnitGenerationBlocked = useCallback(
+    (unitId: string) =>
+      Boolean(
+        useReferenceVideoStore
+          .getState()
+          .unitsByEpisode[referenceVideoCacheKey(projectName, episode)]?.find((u) => u.unit_id === unitId)
+          ?.needs_replan,
+      ),
+    [projectName, episode],
+  );
+  /** 单元入口的复核：无占用且规划状态可生成。 */
+  const canEnqueueUnit = useCallback(
+    (unitId: string) => !isUnitLocked(unitId) && !isUnitGenerationBlocked(unitId),
+    [isUnitLocked, isUnitGenerationBlocked],
+  );
 
   /**
    * 批量入口的复核：占用之外还要求尚无成片——批量的作用对象就是「还没有成片的单元」。
@@ -294,7 +313,7 @@ export function ReferenceVideoCanvas({
       const fresh = useReferenceVideoStore
         .getState()
         .unitsByEpisode[referenceVideoCacheKey(projectName, episode)]?.find((u) => u.unit_id === unitId);
-      return !fresh?.generated_assets?.video_clip;
+      return !fresh?.generated_assets?.video_clip && !fresh?.needs_replan;
     },
     [isUnitLocked, projectName, episode],
   );
@@ -310,6 +329,10 @@ export function ReferenceVideoCanvas({
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
       }
+      if (isUnitGenerationBlocked(unitId)) {
+        useAppStore.getState().pushToast(t("reference_needs_replan"), "error");
+        return;
+      }
       try {
         // 乐观打标（请求发出前）、失败回滚与 queued/deduped 提示都在动作层内完成
         await enqueueReferenceVideoUnit(projectName, episode, unitId);
@@ -317,7 +340,7 @@ export function ReferenceVideoCanvas({
         toastError(e, (msg) => t("reference_generate_request_failed", { error: msg }));
       }
     },
-    [projectName, episode, isUnitLocked, t],
+    [projectName, episode, isUnitLocked, isUnitGenerationBlocked, t],
   );
 
   /**
@@ -343,9 +366,13 @@ export function ReferenceVideoCanvas({
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
       }
+      if (isUnitGenerationBlocked(unitId)) {
+        useAppStore.getState().pushToast(t("reference_needs_replan"), "error");
+        return;
+      }
       await durationGate.run([unitId], makeEnqueueSerially(canEnqueueUnit), canEnqueueUnit);
     },
-    [durationGate, makeEnqueueSerially, isUnitLocked, canEnqueueUnit, t],
+    [durationGate, makeEnqueueSerially, isUnitLocked, isUnitGenerationBlocked, canEnqueueUnit, t],
   );
 
   const handleUploadVideo = useCallback(
@@ -388,7 +415,7 @@ export function ReferenceVideoCanvas({
   // unit 是否在跑、与作用对象无关的判定会脱节：选中项空闲时按钮会在没有任何待生成
   // unit 的情况下仍可点击，选中项在跑时又会挡住其余 unit 的批量生成。
   const batchTargets = useMemo(
-    () => units.filter((u) => statusMap[u.unit_id] === "pending"),
+    () => units.filter((u) => statusMap[u.unit_id] === "pending" && !u.needs_replan),
     [units, statusMap],
   );
 
@@ -563,20 +590,22 @@ export function ReferenceVideoCanvas({
   // Reset tab to units on project/episode change (render-time derived-state pattern).
   // 初始值按 hasScript 走 GridImageToVideoCanvas 同款判定：step2 剧本未生成时（仅 segmented）
   // units 面板无脚本可读、请求会 404，应先落到 preproc 审阅 gate。
-  const [tab, setTab] = useState<"units" | "preproc">(hasScript ? "units" : "preproc");
+  const [tab, setTab] = useState<"units" | "preproc">(
+    hasScript || !showPreprocess ? "units" : "preproc",
+  );
   const [lastEpisode, setLastEpisode] = useState(episode);
   const [lastProject, setLastProject] = useState(projectName);
   if (lastEpisode !== episode || lastProject !== projectName) {
     setLastEpisode(episode);
     setLastProject(projectName);
-    setTab(hasScript ? "units" : "preproc");
+    setTab(hasScript || !showPreprocess ? "units" : "preproc");
   }
 
   useEffect(() => {
     // 剧本生成完成后（hasScript 由 false 变 true）自动切到 units，同一 episode 内组件不 remount。
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 镜像 GridImageToVideoCanvas 同款效果
-    if (hasScript) setTab("units");
-  }, [hasScript]);
+    if (hasScript || !showPreprocess) setTab("units");
+  }, [hasScript, showPreprocess]);
 
   // 通知回跳：收到 reference_unit scroll target 时切到 units tab 并选中对应 unit
   // （镜像 ShotSplitView 的选择式回跳）。units 异步加载，靠依赖变化重试到命中或过期。
@@ -689,7 +718,7 @@ export function ReferenceVideoCanvas({
         aria-label={t("reference_main_tab_aria")}
         className="flex items-center gap-0.5 border-b border-[var(--color-hairline)] bg-[oklch(0.19_0.012_250_/_0.5)] px-5"
       >
-        <button
+        {showPreprocess && <button
           type="button"
           role="tab"
           aria-selected={tab === "preproc"}
@@ -713,7 +742,7 @@ export function ReferenceVideoCanvas({
               className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
             />
           )}
-        </button>
+        </button>}
         <button
           type="button"
           role="tab"
@@ -813,7 +842,24 @@ export function ReferenceVideoCanvas({
                     </span>
                     <span className="inline-flex items-center gap-1 rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-2 py-0.5 text-[11.5px] text-[var(--color-text-2)]">
                       <Clock className="h-3 w-3" aria-hidden="true" />
-                      {effectiveDurationOptions && effectiveDurationOptions.length > 0 ? (
+                      {freeDuration ? (
+                        <input
+                          type="number"
+                          min={1}
+                          max={300}
+                          step={1}
+                          aria-label={t("duration_selector_aria")}
+                          value={selected.duration_seconds}
+                          disabled={isUnitLocked(selected.unit_id)}
+                          onChange={(e) => {
+                            const seconds = Number(e.target.value);
+                            if (Number.isInteger(seconds) && seconds >= 1 && seconds <= 300) {
+                              handleDurationChange(selected.unit_id, seconds);
+                            }
+                          }}
+                          className="focus-ring w-14 bg-transparent font-mono tabular-nums text-[var(--color-text-2)] disabled:cursor-not-allowed disabled:opacity-60"
+                        />
+                      ) : effectiveDurationOptions && effectiveDurationOptions.length > 0 ? (
                         <select
                           aria-label={t("duration_selector_aria")}
                           value={selected.duration_seconds}
@@ -875,6 +921,12 @@ export function ReferenceVideoCanvas({
                       <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
                   </div>
+
+                  {selected.needs_replan && (
+                    <p role="alert" className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-300">
+                      {t("reference_needs_replan")}
+                    </p>
+                  )}
 
                   {stackPreview && (
                     <div
@@ -1079,6 +1131,7 @@ export function ReferenceVideoCanvas({
                           estimatedCost={estimatedCost}
                           actualCost={actualCost}
                           onGenerate={onGenerateVoid}
+                          generationBlocked={Boolean(selected.needs_replan)}
                           onUploadVideo={handleUploadVideo}
                           uploadingVideo={uploading.ids.has(selected.unit_id)}
                           restoring={restoring.ids.has(selected.unit_id)}
@@ -1110,6 +1163,7 @@ export function ReferenceVideoCanvas({
                   estimatedCost={estimatedCost}
                   actualCost={actualCost}
                   onGenerate={onGenerateVoid}
+                  generationBlocked={Boolean(selected?.needs_replan)}
                   onUploadVideo={handleUploadVideo}
                   uploadingVideo={selected ? uploading.ids.has(selected.unit_id) : false}
                   restoring={selected ? restoring.ids.has(selected.unit_id) : false}

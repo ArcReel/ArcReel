@@ -9,12 +9,12 @@
 
 ### 视频规格
 - **视频比例**：由项目 `aspect_ratio` 配置决定（广告/短片默认 9:16 竖屏），无需在 prompt 中指定
-- **单镜头时长**：广告/短片项目**没有** `default_duration` 偏好——镜头时长按项目 `target_duration`（目标总时长，秒）逐镜头规划
+- **时长规划**：广告/短片项目**没有** `default_duration` 偏好，按项目 `target_duration`（目标总时长，秒）规划
   - storyboard 模式：单镜头时长必须取所选视频模型 `supported_durations` 中的值；subagent 运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
-  - reference_video 模式：单镜头时长为 1-15 秒自由整数，不受供应商 `supported_durations` 限制（短切节奏赖此成立）
+  - reference_video 模式：每个 video unit 持有 1-300 秒的整数编排时长，unit 内镜头不单列时长；生成预检会把编排时长投影到供应商申请档位
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
-- **生成方式**：按 `generation_mode` 分两路——storyboard 模式每个镜头独立生成、以分镜图作起始帧；reference_video 模式按派生分组（video_unit）直出、跳过分镜（见下文「生成模式」）
+- **生成方式**：按 `generation_mode` 分两路——storyboard 模式每个镜头独立生成、以分镜图作起始帧；reference_video 模式按自包含 video unit 直出、跳过分镜（见下文「生成模式」）
 
 > **关于 extend 功能**：Veo 3.1 extend 功能仅用于延长单个镜头，
 > 每次固定 +7 秒，不适合用于串联不同镜头。不同镜头之间使用 ffmpeg 拼接。
@@ -51,7 +51,8 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 本项目为**广告/短片模式**（ad），产出**单个**约 `target_duration` 秒的短视频，而非多集系列：
 
-- 剧本数据结构为平铺 `shots[]`，`shot_id` 格式 `E1S{n}`；每个镜头携带 `section`（带货框架段落标签，如 hook/pain_point/product_reveal/selling_point/demo/trust/price_promo/cta）与一等口播文案 `voiceover_text`（字幕导出与后续配音的唯一来源）
+- storyboard 路径的剧本是平铺 `shots[]`，`shot_id` 格式 `E1S{n}`；每个镜头携带 `section`（带货框架段落标签，如 hook/pain_point/product_reveal/selling_point/demo/trust/price_promo/cta）与一等口播文案 `voiceover_text`
+- reference_video 路径的剧本是自包含 `video_units[]`；每个 unit 持有书写层正文、编排时长、机械派生参考集与产物，不持久化 `section`、逐镜头时长、`voiceover_text` 或 `speech_mode`
 - 项目**恒单集**：`episodes` 恒为第 1 集单条，剧本即 `scripts/episode_1.json`；**不存在分集概念**，不要做分集规划或拆分
 - 创作输入为 `project.json` 顶层的 `brief`（创作诉求短文本）与 `target_duration`（目标总时长，秒）；不走小说源文件导入流程
 - 剧本总时长应贴近 `target_duration`，偏差过大时提醒用户而非拒绝保存
@@ -67,16 +68,17 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 | generation_mode | 名称（UI） | 数据主结构 | 视觉参考来源 |
 |---|---|---|---|
 | `storyboard` | 图生视频 | `shots[]` + 分镜图 | 每镜头一张分镜图作起始帧 |
-| `reference_video` | 参考生视频 | `shots[]` 派生分组 | 产品参考 + 资产 sheet 图 |
+| `reference_video` | 参考生视频 | 自包含 `video_units[]` | 产品参考 + 资产 sheet 图 |
 
 宫格装配（`grid_storyboard`）对广告/短片项目**不开放**：宫格单格分辨率与产品高保真目标冲突。
 
-### 参考直出（reference_video）的派生分组
+### 参考直出（reference_video）的自包含单元
 
-- 剧本骨架不变（仍是平铺 `shots[]`）；`generate_video_*` 工具会自动把**连续镜头**派生分组为 video_unit（每 unit ≤4 个镜头，unit 总时长受供应商单次生成上限约束），按 unit 直出视频到 `reference_videos/{unit_id}.mp4`，跳过分镜步骤
-- 分组索引持久在剧本 `reference_units` 字段（仅引用 shot_id 与参考集）——由工具派生维护，**不要手工编辑**；shots 是内容唯一真相，镜头编辑后再次生成即自动重新派生。整集生成只补没有成片的 unit，已有成片的一律沿用——编排改动过的 unit 也不例外，要更新须按 `unit_id` 点名重做（见 `generate-video` skill）
-- unit 参考集从成员镜头继承：产品参考全量注入且绝对优先（有 sheet 时 sheet + 原图，无 sheet 时原图直注，自动附高保真指令），其后是角色/场景/道具 sheet；口播文案不进画面 prompt
-- **镜头时长约束**：reference_video 路径下单镜头时长为 1-15 秒自由整数（storyboard 路径则须取视频模型 `supported_durations` 成员）；越界时主动列出并建议调整，经 `patch_episode_script` 修正后再生成
+- 剧本生成会单阶段直接产出 `video_units[]`，不创建 step1 审阅中间态，也不从 `shots` 派生或重新派生分组；每个 unit 对应一次生成调用与 `reference_videos/{unit_id}.mp4`
+- unit 正文使用统一书写层：镜头行描述画面，`@[角色]：{台词}` 表达人物发声，其余独立口播行表达无归属旁白；产品、角色、场景、道具均用 `@[名称]` mention。references 由系统从正文机械派生，同名按 product → character → scene → prop 解析
+- 一个 unit 只能承载人物发声、无归属旁白或无人声中的一种；需要切换发声归属时在规划阶段拆成相邻 unit。标记 `needs_replan` 的存量问题单元须先重新规划，生成入口会拒绝入队
+- unit 参考集按正文首次 mention 排序，但产品绝对优先（有 sheet 时 sheet + 原图，无 sheet 时原图直注，自动附高保真指令），其后是角色/场景/道具 sheet
+- **时长约束**：每个 unit 的 `duration_seconds` 是 1-300 秒正整数编排时长，所有 unit 之和应贴近 `target_duration`；供应商档位由生成预检处理，不在剧本规划时量化
 
 ---
 
@@ -87,11 +89,11 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 1. **创作输入确认**：Read `project.json` 检查 `brief`、`products`、`target_duration`、`generation_mode`。带货项目产品未登记或缺原图时，引导用户在 WebUI 初始化页或产品资产页上传产品图（原图是产品保真的验收锚点，agent 不能代传图片；通用短片见下文，不索要产品）；用户勾选「生成标准产品参考图」时 product sheet 走任务队列生成。`brief` 为空时对话补齐创作诉求（产品/主题、目标人群、期望风格），经 `mcp__arcreel__patch_project` 写入。用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知路线创建后不可更改，无绕过方式；宫格装配对 ad 不开放
 2. **卖点起草确认**：产品已登记但 `selling_points` 为空时，从 brief、产品描述与原图起草卖点列表，与用户确认后经 `patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
 3. **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` subagent 出设计图；轻量短片可跳过，仅靠产品参考与项目 style
-4. **一键生成剧本**：`mcp__arcreel__generate_episode_script({"episode": 1})`，八段带货框架按 `target_duration` 选档配比；生成后向用户呈现镜头列表与口播文案，按需经 `patch_episode_script` 调整（镜头顺序调整引导用户到 WebUI 剧本页）
+4. **一键生成剧本**：`mcp__arcreel__generate_episode_script({"episode": 1})`，八段带货框架按 `target_duration` 选档配比；storyboard 路径向用户呈现镜头列表与口播文案，reference_video 路径呈现 video unit 列表与书写层正文，按需经 `patch_episode_script` 调整（顺序调整引导用户到 WebUI 剧本页）
 5. **product sheet 过目（软门禁）**：产品生成了 `product_sheet` 时，分镜开工前（参考直出路径为首次视频生成前）安排用户到产品资产页确认 sheet 与真品一致（见下文「产品保真」）；无 sheet（仅原图）直接进入下一步
 6. **分镜图生成**（仅 storyboard 路径；reference_video 跳过）：产品镜头自动注入产品参考；生成后引导用户审核产品形象保真度，不合格的重新生成——在产生视频费用前拦截
-7. **视频生成**：storyboard 路径逐镜头图生视频；reference_video 路径自动派生分组按 unit 直出
-8. **导出剪映草稿**：视频齐全后引导用户在 Web 端导出剪映草稿（视频轨 + 口播文案字幕轨，字幕在竖屏 safe-zone 内）；打开剪映即完整时间线，照口播文案配音后成片。in-app 成片（compose-video）对 ad 不适用
+7. **视频生成**：storyboard 路径逐镜头图生视频；reference_video 路径按剧本中的自包含 unit 直出
+8. **导出剪映草稿**：视频齐全后引导用户在 Web 端导出剪映草稿；storyboard 路径沿用视频轨 + 口播文案字幕轨，reference_video 路径本阶段只收敛视频单元骨架，不扩展配音、字幕或混音能力。in-app 成片（compose-video）对 ad 不适用
 
 工作流支持**灵活入口**：从 `project.json` 与剧本现状判断进行到哪一步，中断后从未完成的阶段继续。
 

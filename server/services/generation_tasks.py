@@ -567,10 +567,8 @@ def emit_generation_success_batch(
     action = _SKELETON_DRIVEN_TASK_ACTIONS.get(task_type)
     if action is not None:
         if task_type == "reference_video":
-            # ad 剧本骨架恒为 shots[]（reference_video 路径只是把镜头派生分组为
-            # video_unit 索引，二者持久于同一份剧本 JSON），resolve_script_kind
-            # 的数据形状优先判别会因 shots 键仍在而退回 content_mode==ad→shots，
-            # 与该任务实际对应 video_unit 资源不符——直接固定 kind，不经骨架判别。
+            # reference_video 任务的资源身份恒为 video unit；即使剧本加载失败，完成事件也
+            # 仍须使用 reference_unit 锚点，故不依赖剧本形状取证。
             kind = "video_units"
         else:
             kind = resolve_script_kind(script) if isinstance(script, dict) else "segments"

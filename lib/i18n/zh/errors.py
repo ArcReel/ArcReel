@@ -23,7 +23,7 @@ MESSAGES = {
     "script_data_corrupted": "剧本数据损坏：{reason}",
     "script_edit_error": "剧本编辑操作校验失败",
     "script_edit_items_not_list": "{kind} 必须是列表，当前为 {type_name}",
-    "script_edit_unit_lists_invalid": "video_units / reference_units 必须是列表",
+    "script_edit_unit_lists_invalid": "video_units 必须是列表",
     "script_edit_generated_assets_invalid": "generated_assets 必须是字典",
     "narration_mode_required": "该剧本不是说书模式，请使用场景更新接口",
     "ad_mode_required": "该剧本不是广告/短片模式，请使用对应模式的更新接口",
@@ -221,17 +221,15 @@ MESSAGES = {
     "ref_not_reference_video_mode": "该集剧本不是参考生视频模式",
     "ref_not_registered": "引用的资产未注册：{missing}",
     "ref_unit_not_found": "视频单元「{unit_id}」不存在",
+    "ref_unit_needs_replan": "该视频单元存在发声归属或迁移问题，请先重新规划后再生成",
     "ref_unit_ids_length_mismatch": "unit_ids 数量与现有单元不一致",
     "ref_duplicate_unit_ids": "unit_ids 存在重复",
     "ref_unit_ids_mismatch": "unit_ids 与现有单元不匹配",
     "ref_script_missing": "该集绑定的剧本文件不存在",
     "ref_script_rebound": "该集剧本绑定已变更，请重试",
-    "ref_ad_units_derived": "广告/短片项目的视频单元由镜头自动派生，不支持手动增删改；请编辑镜头后重新派生分组",
-    "ref_derive_ad_only": "仅广告/短片项目支持派生分组",
-    "ref_ad_stale_index": "分组索引与镜头不一致，请重新派生分组",
     "ref_ad_reference_skipped": "「{name}」（{type}）缺少可用参考图，本次生成已跳过该参考",
     # 分镜文稿解析预览的降级可见性提示
-    "ref_warn_unregistered_mention": "@[{name}] 未在角色/场景/道具中登记：不会附带参考图，请检查名称或先创建资产",
+    "ref_warn_unregistered_mention": "@[{name}] 未在产品/角色/场景/道具中登记：不会附带参考图，请检查名称或先创建资产",
     "ref_warn_unclosed_brace": "镜头{shot}：台词花括号未闭合，未识别为台词，该行文本将原样发送：{excerpt}…",
     "ref_warn_dialogue_inline": (
         "镜头{shot}：台词与描述写在同一行，未识别为台词；如需声音参考请将台词单独成行（@[角色]：{{台词}}）"

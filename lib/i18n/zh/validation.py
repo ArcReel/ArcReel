@@ -107,8 +107,6 @@ MESSAGES = {
     "val_reference_not_in_bucket": "{prefix}: 引用的{asset_type} '{name}' 不在 project.json 对应 bucket 中",
     "val_ref_type_invalid": "{prefix}: type 无效: {value}",
     "val_ref_name_invalid": "{prefix}: name 必须是非空字符串: {value}",
-    "val_ref_unregistered_regroup": "{prefix}: 引用的{asset_type}「{name}」未注册，需重新派生分组",
-    "val_reference_units_dangling_shots": "{prefix}: 引用的镜头不存在（{ids}），需重新派生分组",
     # ---- 骨架与路线失配 ----
     "val_skeleton_noun_segments": "分镜",
     "val_skeleton_noun_scenes": "场景",

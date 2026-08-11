@@ -432,7 +432,7 @@ class TestProjectArchiveService:
         installed_dir = pm.get_project_path(result.project_name)
         installed = json.loads((installed_dir / "project.json").read_text(encoding="utf-8"))
         migrated_script = json.loads((installed_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
-        assert installed["schema_version"] == 6
+        assert installed["schema_version"] == 7
         assert list(installed["characters"]) == ["Hero"]
         assert list(installed["scenes"]) == ["Hero_scene"]
         assert migrated_script["segments"][0]["scenes"] == ["Hero_scene"]

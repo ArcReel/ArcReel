@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 from collections.abc import Callable
@@ -30,15 +29,10 @@ from lib.prompt_utils import (
     video_prompt_to_yaml,
 )
 from lib.reference_video import assemble_shots_text
-from lib.reference_video.ad_units import (
-    ad_stale_unit_ids,
-    render_ad_unit_prompt,
-    resolve_ad_unit_shots,
-    sync_ad_reference_units,
-)
 from lib.reference_video.units import reference_unit_video_bucket
 from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton
+from lib.speech_composition import SpeechComposition, adapt_video_unit
 from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
@@ -48,7 +42,6 @@ from server.agent_runtime.sdk_tools._context import (
 from server.services.reference_video_tasks import (
     ProjectDurationContext,
     precheck_unit,
-    resolve_max_unit_duration,
     resolve_project_duration_context,
 )
 from server.services.video_caps import assert_audio_switch_supported, resolve_project_is_silent
@@ -93,13 +86,11 @@ async def _pending_duration_confirmations(
     units: list[dict[str, Any]],
     skip_ids: set[str],
     spec_for: Callable[[dict[str, Any]], TaskSpec],
-    ad_shots_for: Callable[[dict[str, Any]], list[dict[str, Any]]] | None,
 ) -> list[dict[str, Any]]:
     """收集本批将入队的 unit 中，申请时长与剧本编排不一致的清单。
 
     项目视频能力（档位 + 分辨率）按能力桶至多各解析一次（:func:`resolve_project_duration_context`；
-    unit 按参考集分桶，ad 从水合后的成员镜头现算——无参考图退化镜头按 i2v 桶模型取档，
-    与执行侧同口径），批内
+    unit 按自身参考集分桶，与执行侧同口径），批内
     逐 unit 取档改用纯函数 :func:`precheck_unit`——避免整批 N 个 unit 各自触发一轮
     DB 往返。解析推迟到第一个真正需要取档的 unit：整批都已完成或都被跳过时不触发任何 IO。
 
@@ -118,15 +109,11 @@ async def _pending_duration_confirmations(
             spec_for(unit)
         except ValueError:
             continue
-        try:
-            ad_shots = ad_shots_for(unit) if ad_shots_for else None
-        except ValueError:
-            continue
-        bucket = reference_unit_video_bucket(unit, ad_shots=ad_shots)
+        bucket = reference_unit_video_bucket(unit)
         if bucket not in ctxs:
             ctxs[bucket] = await resolve_project_duration_context(project, capability=bucket)
         try:
-            slot = precheck_unit(ctxs[bucket], unit, ad_shots)
+            slot = precheck_unit(ctxs[bucket], unit)
         except ValueError:
             continue
         if slot.needs_confirmation:
@@ -147,12 +134,11 @@ async def _assert_audio_switch_for_units(
     units: list[dict[str, Any]],
     skip_ids: set[str],
     spec_for: Callable[[dict[str, Any]], TaskSpec],
-    ad_shots_for: Callable[[dict[str, Any]], list[dict[str, Any]]] | None,
 ) -> None:
     """参考路线入队前的音频闸门，按本批真正要入队的 unit 所属能力桶逐桶检查。
 
     定桶口径与 :func:`_pending_duration_confirmations` 一致（同一份 ``spec_for`` 判可入队性、
-    ad 从水合后的成员镜头现算参考集），同一桶只解析一次。放在时长确认之前：确认轮次走完再拒
+    unit 以自身参考集定桶），同一桶只解析一次。放在时长确认之前：确认轮次走完再拒
     等于让用户白确认一遍；整批都已完成或都不可入队时不触发任何 IO。
     """
     checked: set[VideoCapability] = set()
@@ -162,10 +148,9 @@ async def _assert_audio_switch_for_units(
             continue
         try:
             spec_for(unit)
-            ad_shots = ad_shots_for(unit) if ad_shots_for else None
         except ValueError:
             continue
-        bucket = reference_unit_video_bucket(unit, ad_shots=ad_shots)
+        bucket = reference_unit_video_bucket(unit)
         if bucket in checked:
             continue
         checked.add(bucket)
@@ -234,9 +219,9 @@ async def _resolve_voice_context(ctx: ToolContext, content_mode: str) -> dict[st
 def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | None:
     """定生成路线并把守骨架闸门。
 
-    项目走参考生视频路线时返回子分支（``"ad"`` / ``"episode"``，两者展示与派生颗粒度不同），
-    分镜路线返回 ``None``。路线以 project.json 的 ``generation_mode`` 为唯一真相源——剧本不
-    携带路线信息，同一项目逐集不变。
+    项目走参考生视频路线时返回 ``"reference"``，分镜路线返回 ``None``。
+    路线以 project.json 的 ``generation_mode`` 为唯一真相源；所有内容模式共用
+    同一份 ``video_units`` 骨架。
 
     Raises:
         SkeletonRouteMismatchError: 剧本骨架与项目路线失配，生成被拒。
@@ -246,7 +231,7 @@ def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | 
     ensure_route_skeleton(script, content_mode, project.get("generation_mode"))
     if not is_reference_video_project(project):
         return None
-    return "ad" if content_mode == "ad" else "episode"
+    return "reference"
 
 
 # Checkpoint helpers
@@ -351,13 +336,15 @@ def _build_video_specs(
 
 
 def _reference_unit_spec(unit: dict[str, Any], script_filename: str) -> TaskSpec:
-    """单 unit 的 narration/drama TaskSpec 构造，供批量入队与时长预检共用同一份结构校验
+    """单 unit 的 TaskSpec 构造，供批量入队与时长预检共用同一份结构校验
     （见 ADR-0001）——``TaskSpec.from_request`` 是「是否可入队」的唯一真相源，两处判断
     不能各自维护一份、由此产生分歧（如预检放行了 build_specs 会拒绝的空提示词 unit）。
     """
     # 用 .get 归一化：缺失 unit_id 的坏数据（Agent 可裸写 script JSON）会被 from_request
     # 当作空 resource_id 拒绝，而不是在此抛 KeyError 中断整批。
     unit_id = str(unit.get("unit_id") or "")
+    if SpeechComposition.prepare(adapt_video_unit(unit)).problems:
+        raise ValueError("needs_replan 或口播归属无法安全生成")
     if not unit.get("shots"):
         raise ValueError("没有 shots")
     return TaskSpec.from_request(
@@ -477,50 +464,6 @@ async def _submit_with_checkpoint(
     return failures
 
 
-def _ad_reference_unit_spec(
-    script: dict[str, Any], unit: dict[str, Any], script_filename: str, style: str | None
-) -> TaskSpec:
-    """单 unit 的 ad TaskSpec 构造，供批量入队与时长预检共用同一份结构校验（同
-    ``_reference_unit_spec``）。成员镜头从 shots（内容唯一真相）水合后渲染 prompt。"""
-    unit_id = str(unit.get("unit_id") or "")
-    shots = resolve_ad_unit_shots(script, unit)
-    return TaskSpec.from_request(
-        task_type="reference_video",
-        media_type="video",
-        resource_id=unit_id,
-        prompt=render_ad_unit_prompt(shots, style=style),
-        script_file=script_filename,
-    )
-
-
-def _build_ad_reference_specs(
-    *,
-    script: dict[str, Any],
-    units: list[dict[str, Any]],
-    script_filename: str,
-    style: str | None,
-    skip_ids: list[str] | None,
-    log: list[str],
-) -> tuple[list[TaskSpec], dict[str, int]]:
-    """ad 派生索引 → TaskSpec。索引悬空 / 空画面提示词的 unit 跳过并告警，不让一个坏
-    unit 中断整批（与 ``_build_reference_specs`` 同口径）。"""
-    skip_set = set(skip_ids or [])
-    specs: list[TaskSpec] = []
-    order_map: dict[str, int] = {}
-    for idx, unit in enumerate(units):
-        unit_id = str(unit.get("unit_id") or "")
-        if unit_id in skip_set:
-            continue
-        try:
-            spec = _ad_reference_unit_spec(script, unit, script_filename, style)
-        except ValueError as exc:
-            log.append(f"⚠️  {unit_id} 入队校验未通过，跳过：{exc}")
-            continue
-        specs.append(spec)
-        order_map[unit_id] = idx
-    return specs, order_map
-
-
 async def _generate_reference_units(
     *,
     ctx: ToolContext,
@@ -534,19 +477,15 @@ async def _generate_reference_units(
     project: dict[str, Any],
     confirm_duration: bool,
     reuse_existing: Callable[[dict[str, Any]], bool] | None = None,
-    ad_shots_for: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None,
 ) -> list[Path] | DurationConfirmationPending:
     """unit 批量生成的共享骨架：时长确认 + checkpoint 续传 + 已产出扫描 + 入队等待。
 
-    narration/drama（video_units 内容自包含）与 ad（reference_units 派生索引）
-    仅 spec 构造不同，经 ``build_specs(units, skip_ids, log)`` 注入；``spec_for``
+    所有内容模式的 ``video_units`` 共用同一构造路径。``spec_for``
     是同一份单 unit 构造逻辑，供时长预检判定可入队性，与 ``build_specs`` 不能有
-    第二份校验口径。ad 的每 unit 剧本时长需要成员镜头（``ad_shots_for``）才能
-    算出，narration/drama 不传。
+    第二份校验口径。
 
     ``reuse_existing`` 决定磁盘上已存在的 ``{unit_id}.mp4`` 能否当作该 unit 的
-    现行产物复用（None 表示仅凭文件存在即复用）。ad 按 generated_assets 是否仍
-    指向成片判定：指针为空的孤儿同名文件不可信，须由该判定排除。
+    现行产物复用（None 表示仅凭文件存在即复用）。
 
     ``confirm_duration`` 为 false 时，若待入队 unit 中有申请时长与剧本编排不一致的
     （见 :func:`server.services.reference_video_tasks.resolve_duration_slot`），本次
@@ -589,7 +528,6 @@ async def _generate_reference_units(
         units=units,
         skip_ids=set(already_done),
         spec_for=spec_for,
-        ad_shots_for=ad_shots_for,
     )
 
     if not confirm_duration:
@@ -599,7 +537,6 @@ async def _generate_reference_units(
             units=units,
             skip_ids=set(already_done),
             spec_for=spec_for,
-            ad_shots_for=ad_shots_for,
         )
         if pending:
             return DurationConfirmationPending(items=pending)
@@ -674,82 +611,9 @@ async def _run_reference_episode(
     return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
 
 
-async def _run_ad_reference_episode(
-    *,
-    ctx: ToolContext,
-    script_filename: str,
-    resume: bool,
-    confirm_duration: bool,
-    log: list[str],
-) -> dict[str, Any]:
-    """ad + reference_video：先（重新）派生分组索引并持久化，再按 unit 批量直出。
-
-    分组是纯函数派生（shots + 供应商时长上限 → 可复现分组）；generated_assets
-    按 unit_id 沿用，已有产物经磁盘扫描跳过重复入队；成片偏离当前编排的 unit
-    按读时签名比较派生 stale 并透出清单，不自动重生成。
-    """
-    project = ctx.pm.load_project(ctx.project_name)
-    max_unit_duration = await resolve_max_unit_duration(project)
-
-    def _sync() -> tuple[dict[str, Any], list[dict[str, Any]], int]:
-        with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
-            episode = ProjectManager.resolve_episode_from_script(script, script_filename)
-            units = sync_ad_reference_units(script, episode=episode, max_unit_duration=max_unit_duration)
-            return script, units, episode
-
-    script, units, episode = await asyncio.to_thread(_sync)
-    if not units:
-        raise ValueError(f"剧本没有可分组的镜头：{script_filename}")
-    log.append(f"已派生 {len(units)} 个 video_unit（连续镜头分组，索引已写入剧本）")
-    # stale 清单透出给调用方：这些 unit 的成片仍有效并按现有产物复用，不自动重生成；
-    # 是否重生成由用户/智能体决定（重生成 finalize 落新签名后自然回归非 stale）。
-    stale_ids = ad_stale_unit_ids(script, units)
-    if stale_ids:
-        log.append(
-            f"⚠️  以下 unit 的剧本已变更但保留既有成片（stale）：{', '.join(stale_ids)}。"
-            "如需更新，用 generate_video_selected 点名这些 unit 重新生成。"
-        )
-
-    style = project.get("style")
-    result = await _generate_reference_units(
-        ctx=ctx,
-        units=units,
-        episode=episode,
-        resume=resume,
-        log=log,
-        checkpoint_path=_episode_checkpoint_path(ctx.project_path, episode),
-        build_specs=lambda u, skip, lg: _build_ad_reference_specs(
-            script=script,
-            units=u,
-            script_filename=script_filename,
-            style=style if isinstance(style, str) else None,
-            skip_ids=skip,
-            log=lg,
-        ),
-        spec_for=lambda u: _ad_reference_unit_spec(
-            script, u, script_filename, style if isinstance(style, str) else None
-        ),
-        project=project,
-        confirm_duration=confirm_duration,
-        # 剧本编辑不作废产物：有成片指针的 unit（含 stale）一律按现有产物复用，
-        # 不自动重生成——stale 清单已透出，是否重生成由用户/智能体决定。
-        # 指针为空的孤儿同名文件不可信，不复用。
-        reuse_existing=lambda u: bool(get_generated_assets(u).get("video_clip")),
-        ad_shots_for=lambda u: resolve_ad_unit_shots(script, u),
-    )
-    if isinstance(result, DurationConfirmationPending):
-        return _duration_confirmation_response(result, log)
-    header = f"参考直出生成完成，共 {len(result)} 个 unit"
-    return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
-
-
-def _select_ad_units(script: dict[str, Any], unit_ids: list[str], log: list[str]) -> list[dict[str, Any]]:
-    """按 unit_id 从持久化的分组索引里点名取 unit，重复 ID 只取一次。
-
-    索引里没有的 ID 记日志跳过（多半是镜头增删后未重新派生分组），一个都没命中才抛错：
-    错误里带上索引现有的 unit_id，智能体据此就能引导用户改口或先重新派生，不必再问一轮。
-    """
-    indexed = script.get("reference_units")
+def _select_reference_units(script: dict[str, Any], unit_ids: list[str], log: list[str]) -> list[dict[str, Any]]:
+    """按 unit_id 从 ``video_units`` 点名取 unit，重复 ID 只取一次。"""
+    indexed = script.get("video_units")
     by_id: dict[str, dict[str, Any]] = {}
     if isinstance(indexed, list):
         for unit in indexed:
@@ -760,64 +624,36 @@ def _select_ad_units(script: dict[str, Any], unit_ids: list[str], log: list[str]
     for unit_id in dict.fromkeys(unit_ids):
         unit = by_id.get(unit_id)
         if unit is None:
-            log.append(f"⚠️  unit {unit_id} 不在分组索引中，跳过")
+            log.append(f"⚠️  unit {unit_id} 不在 video_units 中，跳过")
             continue
         selected.append(unit)
     if not selected:
-        known = "、".join(by_id) if by_id else "（索引为空，请先整集生成或重新派生分组）"
-        raise ValueError(f"没有匹配到任何 unit：{', '.join(unit_ids)}；索引中现有 {known}")
+        known = "、".join(by_id) if by_id else "（video_units 为空）"
+        raise ValueError(f"没有匹配到任何 unit：{', '.join(unit_ids)}；现有 {known}")
     return selected
 
 
-def _assert_ad_units_generatable(
-    script: dict[str, Any], units: list[dict[str, Any]], script_filename: str, style: str | None
-) -> None:
+def _assert_reference_units_generatable(units: list[dict[str, Any]], script_filename: str) -> None:
     """点名的 unit 逐个当场校验可入队性，不合法即抛错。
 
     批量路径对坏 unit 是「跳过并告警」——一个坏 unit 不该中断整批；点名重新生成没有
     批次可保全，沿用跳过会让调用以「没有生成任何 video_unit」收场，智能体转述不出原因。
-    校验走 ``_ad_reference_unit_spec``，与真正入队时同一份构造，不另立判据。
+    校验走 ``_reference_unit_spec``，与真正入队时同一份构造，不另立判据。
     """
     for unit in units:
         try:
-            _ad_reference_unit_spec(script, unit, script_filename, style)
+            _reference_unit_spec(unit, script_filename)
         except ValueError as exc:
             raise ValueError(f"unit {unit.get('unit_id')} 无法生成：{exc}") from exc
-
-
-def _report_residual_staleness(ctx: ToolContext, script_filename: str, unit_ids: set[str], log: list[str]) -> None:
-    """生成后按签名复核点名 unit 是否仍偏离编排，仍偏离的明说。
-
-    stale 是产物签名与当前编排的读时比较结果，正常路径下 finalize 落新签名即自然回清；
-    但生成期间剧本被改、或产物没带上签名时它会留下来。不复核就只能由智能体替系统宣布
-    角标已消失，说错了用户无从察觉。复核失败不改变本次生成的成败——产物已落盘、已计费。
-
-    覆盖不到全部点名 unit 的复核一律按「无法复核」报，不按「未偏离」报：索引被并发重新
-    派生后点名的 ID 可能已不存在，此时过滤只会得到空集合，沿用空集合等于替系统宣布干净。
-    """
-    try:
-        fresh = ctx.pm.load_script(ctx.project_name, script_filename)
-        indexed = fresh.get("reference_units") or []
-        if not isinstance(indexed, list):
-            raise ValueError(f"reference_units 必须是数组，当前为 {type(indexed).__name__}")
-        units = [u for u in indexed if isinstance(u, dict) and u.get("unit_id") in unit_ids]
-        if missing := unit_ids - {str(u["unit_id"]) for u in units}:
-            raise ValueError(f"以下 unit 已不在分组索引中：{'、'.join(sorted(missing))}")
-        residual = ad_stale_unit_ids(fresh, units)
-    except Exception as exc:  # noqa: BLE001
-        log.append(f"⚠️  无法复核重新生成后的 stale 状态：{exc}")
-        return
-    if residual:
-        log.append(f"⚠️  以下 unit 重新生成后仍偏离当前编排（stale），可能是生成期间剧本又被改动：{', '.join(residual)}")
 
 
 async def _assert_no_active_tasks(ctx: ToolContext, script_filename: str, units: list[dict[str, Any]]) -> None:
     """点名重做前探测同 unit 是否已有在途任务：命中即拒绝，不新建任务也不静默沿用在途任务。
 
-    点名即强制（见 ``_run_ad_reference_units`` docstring），但强制不等于抢占——在途任务
+    点名即强制（见 ``_run_reference_units`` docstring），但强制不等于抢占——在途任务
     没有可抢占的中间产物，直接入队只会被 ``enqueue`` 的去重悄悄折回既有任务，智能体读到
     一次"已提交"却并未真的重做。整批拒绝而非部分入队，避免一部分 unit 已建任务、一部分
-    被拒的不一致状态。只作用于点名路径；常规批量生成（``_run_ad_reference_episode``）
+    被拒的不一致状态。只作用于点名路径；常规批量生成（``_run_reference_episode``）
     仍走 ``GenerationQueue.enqueue_task`` 的既有入队去重。
     """
     unit_ids = [str(u["unit_id"]) for u in units]
@@ -833,7 +669,7 @@ async def _assert_no_active_tasks(ctx: ToolContext, script_filename: str, units:
     raise ValueError(f"以下 unit 已有在途任务，请等待其完成后再重做：{details}")
 
 
-async def _run_ad_reference_units(
+async def _run_reference_units(
     *,
     ctx: ToolContext,
     script_filename: str,
@@ -841,23 +677,15 @@ async def _run_ad_reference_units(
     confirm_duration: bool,
     log: list[str],
 ) -> dict[str, Any]:
-    """ad + reference_video：对点名的 unit 重新生成成片，不重新派生分组。
-
-    与 Web 端逐 unit 重新生成同口径：分组索引原样沿用（分组是纯函数，重生成单个 unit
-    时可复现），成员镜头按索引从 shots 水合。点名即强制——已有成片的 unit 一律重新
-    生成，不按现有产物复用，因此非 stale 的 unit 也能重来一次；stale 不是被谁清掉的
-    状态位，而是产物签名与当前编排的比较结果，finalize 落下新签名后自然不再偏离。
-    """
+    """对点名的参考生视频 unit 强制重新生成成片。"""
     project = ctx.pm.load_project(ctx.project_name)
     script = ctx.pm.load_script(ctx.project_name, script_filename)
     episode = ProjectManager.resolve_episode_from_script(script, script_filename)
 
-    selected = _select_ad_units(script, unit_ids, log)
-    style = project.get("style")
-    style_str = style if isinstance(style, str) else None
+    selected = _select_reference_units(script, unit_ids, log)
     # 结构校验先于在途任务探测：结构不合法的 unit 等在途任务跑完也依然生成不了，
     # 先报「请等待」会把一个死结说成暂时性阻塞。顺带省掉一次注定要失败的库查询。
-    _assert_ad_units_generatable(script, selected, script_filename, style_str)
+    _assert_reference_units_generatable(selected, script_filename)
     await _assert_no_active_tasks(ctx, script_filename, selected)
     log.append(f"重新生成 {len(selected)} 个 unit（已有成片一律覆盖）：{', '.join(u['unit_id'] for u in selected)}")
 
@@ -868,26 +696,21 @@ async def _run_ad_reference_units(
         resume=False,
         log=log,
         checkpoint_path=None,
-        build_specs=lambda u, skip, lg: _build_ad_reference_specs(
-            script=script,
+        build_specs=lambda u, skip, lg: _build_reference_specs(
             units=u,
             script_filename=script_filename,
-            style=style_str,
             skip_ids=skip,
             log=lg,
         ),
-        spec_for=lambda u: _ad_reference_unit_spec(script, u, script_filename, style_str),
+        spec_for=lambda u: _reference_unit_spec(u, script_filename),
         project=project,
         confirm_duration=confirm_duration,
-        # 点名即强制：磁盘上的同名成片一律不复用，否则「重新生成」会变成一次空转，
-        # 而这恰是 stale unit 最需要它生效的场景。
+        # 点名即强制：磁盘上的同名成片一律不复用。
         reuse_existing=lambda _u: False,
-        ad_shots_for=lambda u: resolve_ad_unit_shots(script, u),
     )
     if isinstance(result, DurationConfirmationPending):
         return _duration_confirmation_response(result, log)
-    _report_residual_staleness(ctx, script_filename, {u["unit_id"] for u in selected}, log)
-    header = f"参考直出重新生成完成，共 {len(result)} 个 unit"
+    header = f"参考生视频重新生成完成，共 {len(result)} 个 unit"
     return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
 
 
@@ -920,7 +743,7 @@ def generate_video_episode_tool(ctx: ToolContext):
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
             route = _resolve_reference_route(ctx, script)
-            if route == "episode":
+            if route is not None:
                 return await _run_reference_episode(
                     ctx=ctx,
                     script=script,
@@ -929,15 +752,6 @@ def generate_video_episode_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if route == "ad":
-                return await _run_ad_reference_episode(
-                    ctx=ctx,
-                    script_filename=script_filename,
-                    resume=resume,
-                    confirm_duration=confirm_duration,
-                    log=log,
-                )
-
             episode = ProjectManager.resolve_episode_from_script(script, script_filename)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
@@ -1000,8 +814,7 @@ def generate_video_episode_tool(ctx: ToolContext):
 def generate_video_scene_tool(ctx: ToolContext):
     @tool(
         "generate_video_scene",
-        "生成单个场景/片段的视频。ad 参考直出项目传 unit_id 即对该 unit 重新生成（覆盖已有成片）；"
-        "其余 reference_video 项目会忽略 scene_id 转为整集生成。",
+        "生成单个场景/片段的视频。reference_video 项目传 unit_id 即对该 unit 重新生成（覆盖已有成片）。",
         {
             "type": "object",
             "properties": {
@@ -1011,7 +824,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                 },
                 "scene_id": {
                     "type": "string",
-                    "description": "场景或片段 ID；ad 参考直出项目传 video_unit 的 unit_id（如 E1U2）",
+                    "description": "场景或片段 ID；reference_video 项目传 video_unit 的 unit_id（如 E1U2）",
                 },
                 "confirm_duration": _CONFIRM_DURATION_SCHEMA_PROPERTY,
             },
@@ -1029,21 +842,8 @@ def generate_video_scene_tool(ctx: ToolContext):
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
             route = _resolve_reference_route(ctx, script)
-            if route == "episode":
-                log.append(
-                    f"⚠️  narration / drama 的 reference_video 项目暂不支持单 unit 精确选择；"
-                    f"scene_id={scene_id} 被忽略，转整集生成。"
-                )
-                return await _run_reference_episode(
-                    ctx=ctx,
-                    script=script,
-                    script_filename=script_filename,
-                    resume=False,
-                    confirm_duration=confirm_duration,
-                    log=log,
-                )
-            if route == "ad":
-                return await _run_ad_reference_units(
+            if route is not None:
+                return await _run_reference_units(
                     ctx=ctx,
                     script_filename=script_filename,
                     unit_ids=[scene_id],
@@ -1134,7 +934,7 @@ def generate_video_all_tool(ctx: ToolContext):
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
             route = _resolve_reference_route(ctx, script)
-            if route == "episode":
+            if route is not None:
                 return await _run_reference_episode(
                     ctx=ctx,
                     script=script,
@@ -1143,15 +943,6 @@ def generate_video_all_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if route == "ad":
-                return await _run_ad_reference_episode(
-                    ctx=ctx,
-                    script_filename=script_filename,
-                    resume=False,
-                    confirm_duration=confirm_duration,
-                    log=log,
-                )
-
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
             pending = [it for it in items if not get_generated_assets(it).get("video_clip")]
@@ -1195,8 +986,7 @@ def generate_video_selected_tool(ctx: ToolContext):
     @tool(
         "generate_video_selected",
         "生成指定多个场景的视频。storyboard 项目用按 scene_ids 哈希的独立 checkpoint，支持 resume 续传。"
-        "ad 参考直出项目传 unit_id 列表即对这些 unit 重新生成（覆盖已有成片），不落 checkpoint、不支持 resume；"
-        "其余 reference_video 项目会忽略 scene_ids 转整集生成。",
+        "reference_video 项目传 unit_id 列表即对这些 unit 重新生成（覆盖已有成片），不落 checkpoint、不支持 resume。",
         {
             "type": "object",
             "properties": {
@@ -1207,11 +997,11 @@ def generate_video_selected_tool(ctx: ToolContext):
                 "scene_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": '场景或片段 ID 列表；ad 参考直出项目传 video_unit 的 unit_id 列表（如 ["E1U2"]）',
+                    "description": '场景或片段 ID 列表；reference_video 项目传 video_unit 的 unit_id 列表（如 ["E1U2"]）',
                 },
                 "resume": {
                     "type": "boolean",
-                    "description": "是否从上次中断处继续；ad 参考直出项目的点名重新生成会忽略此参数",
+                    "description": "是否从上次中断处继续；reference_video 项目的点名重新生成会忽略此参数",
                 },
                 "confirm_duration": _CONFIRM_DURATION_SCHEMA_PROPERTY,
             },
@@ -1232,25 +1022,12 @@ def generate_video_selected_tool(ctx: ToolContext):
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
             route = _resolve_reference_route(ctx, script)
-            if route == "episode":
-                log.append(
-                    f"⚠️  narration / drama 的 reference_video 项目暂不支持多 unit 精确选择；"
-                    f"scene_ids={','.join(scene_ids)} 被忽略，转整集生成。"
-                )
-                return await _run_reference_episode(
-                    ctx=ctx,
-                    script=script,
-                    script_filename=script_filename,
-                    resume=resume,
-                    confirm_duration=confirm_duration,
-                    log=log,
-                )
-            if route == "ad":
+            if route is not None:
                 if resume:
                     # 点名重新生成一律覆盖已有成片，没有可续传的中断态；照单收下再无视会让
                     # 调用方以为断点还在。
                     log.append("⚠️  点名重新生成不支持续传，resume 已忽略。")
-                return await _run_ad_reference_units(
+                return await _run_reference_units(
                     ctx=ctx,
                     script_filename=script_filename,
                     unit_ids=scene_ids,

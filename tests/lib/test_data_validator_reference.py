@@ -172,24 +172,9 @@ def test_validator_rejects_duplicate_reference_video_unit_ids(tmp_path: Path):
 def test_validator_rejects_duplicate_ad_reference_unit_ids(tmp_path: Path):
     project = _reference_project()
     project.update({"content_mode": "ad", "target_duration": 10})
-    script = {
-        "episode": 1,
-        "title": "Ad",
-        "content_mode": "ad",
-        "shots": [
-            {
-                "shot_id": "E1S1",
-                "duration_seconds": 10,
-                "voiceover_text": "",
-                "image_prompt": "image",
-                "video_prompt": "video",
-            }
-        ],
-        "reference_units": [
-            {"unit_id": "E1U1", "shot_ids": ["E1S1"], "references": []},
-            {"unit_id": "E1U1", "shot_ids": ["E1S1"], "references": []},
-        ],
-    }
+    script = _valid_reference_script()
+    script.update({"title": "Ad", "content_mode": "ad"})
+    script["video_units"].append({**script["video_units"][0]})
     _write(tmp_path, "project.json", project)
     _write(tmp_path, "scripts/episode_1.json", script)
 

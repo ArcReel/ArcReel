@@ -19,7 +19,11 @@ export function ClueStack({
   projectName,
   maxShow = 4,
 }: ClueStackProps) {
-  const all: Array<{ kind: AssetKind; name: string; asset: Scene | Prop | undefined }> = [
+  const all: Array<{
+    kind: Extract<AssetKind, "scene" | "prop">;
+    name: string;
+    asset: Scene | Prop | undefined;
+  }> = [
     ...sceneNames.map((name) => ({ kind: "scene" as const, name, asset: scenes[name] })),
     ...propNames.map((name) => ({ kind: "prop" as const, name, asset: props[name] })),
   ];

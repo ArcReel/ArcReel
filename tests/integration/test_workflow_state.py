@@ -994,7 +994,7 @@ def test_optional_product_sheet_does_not_block_ad_media(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
-def test_ad_reference_video_reads_completion_from_reference_units(tmp_path: Path) -> None:
+def test_ad_reference_video_reads_completion_from_video_units(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad", generation_mode="reference_video")
     video_path = "reference_videos/E1U1.mp4"
     _write_artifact(project_path, video_path)
@@ -1004,15 +1004,7 @@ def test_ad_reference_video_reads_completion_from_reference_units(tmp_path: Path
             "episode": 1,
             "title": "广告",
             "content_mode": "ad",
-            "shots": [_valid_ad_shot()],
-            "reference_units": [
-                {
-                    "unit_id": "E1U1",
-                    "shot_ids": ["E1S01"],
-                    "references": [],
-                    "generated_assets": {"video_clip": video_path},
-                }
-            ],
+            "video_units": [_valid_video_unit(unit_id="E1U1", generated_assets={"video_clip": video_path})],
         },
     )
 
@@ -1020,7 +1012,6 @@ def test_ad_reference_video_reads_completion_from_reference_units(tmp_path: Path
 
     assert status.state == "EXPORT_READY"
     assert status.artifacts["videos"] == {
-        "state": "current",
         "current_ids": ["E1U1"],
         "missing_ids": [],
         "stale_ids": [],
@@ -1028,7 +1019,7 @@ def test_ad_reference_video_reads_completion_from_reference_units(tmp_path: Path
 
 
 @pytest.mark.integration
-def test_ad_reference_video_without_derived_units_requires_video_generation(tmp_path: Path) -> None:
+def test_ad_reference_video_does_not_hydrate_legacy_shots(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad", generation_mode="reference_video")
     atomic_write_json(
         project_path / "scripts" / "episode_1.json",
@@ -1042,9 +1033,8 @@ def test_ad_reference_video_without_derived_units_requires_video_generation(tmp_
 
     status = WorkflowStateService(pm).get_status("demo")
 
-    assert status.state == "VIDEO"
-    assert status.artifacts["videos"]["state"] == "missing"
-    assert status.next_action.type == "generate_videos"
+    assert status.state == "FINAL_SCRIPT"
+    assert any(blocker.code == "invalid_project_mode" for blocker in status.blockers)
 
 
 @pytest.mark.integration
@@ -1324,7 +1314,7 @@ def test_script_id_must_match_the_shared_storyboard_pattern(tmp_path: Path) -> N
 
 
 @pytest.mark.integration
-def test_dangling_ad_reference_unit_is_recoverable_by_video_generation(tmp_path: Path) -> None:
+def test_ad_reference_replan_shell_is_stale_and_recoverable(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad", generation_mode="reference_video")
     video_path = "reference_videos/E1U1.mp4"
     _write_artifact(project_path, video_path)
@@ -1334,12 +1324,13 @@ def test_dangling_ad_reference_unit_is_recoverable_by_video_generation(tmp_path:
             "episode": 1,
             "title": "广告",
             "content_mode": "ad",
-            "shots": [_valid_ad_shot()],
-            "reference_units": [
+            "video_units": [
                 {
                     "unit_id": "E1U1",
-                    "shot_ids": ["E1S99"],
+                    "shots": [],
                     "references": [],
+                    "duration_seconds": 0,
+                    "needs_replan": True,
                     "generated_assets": {"video_clip": video_path},
                 }
             ],
@@ -1349,39 +1340,9 @@ def test_dangling_ad_reference_unit_is_recoverable_by_video_generation(tmp_path:
     status = WorkflowStateService(pm).get_status("demo")
 
     assert status.state == "VIDEO"
-    assert status.artifacts["videos"]["state"] == "stale"
+    assert status.artifacts["videos"]["stale_ids"] == ["E1U1"]
     assert status.next_action.type == "generate_videos"
     assert not status.blockers
-
-
-@pytest.mark.integration
-def test_ad_reference_units_must_cover_every_shot_exactly_once(tmp_path: Path) -> None:
-    pm, project_path = _make_project(tmp_path, "ad", generation_mode="reference_video")
-    video_path = "reference_videos/E1U1.mp4"
-    _write_artifact(project_path, video_path)
-    atomic_write_json(
-        project_path / "scripts" / "episode_1.json",
-        {
-            "episode": 1,
-            "title": "广告",
-            "content_mode": "ad",
-            "shots": [_valid_ad_shot(), _valid_ad_shot(shot_id="E1S02")],
-            "reference_units": [
-                {
-                    "unit_id": "E1U1",
-                    "shot_ids": ["E1S01"],
-                    "references": [],
-                    "generated_assets": {"video_clip": video_path},
-                }
-            ],
-        },
-    )
-
-    status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "VIDEO"
-    assert status.artifacts["videos"]["state"] == "stale"
-    assert status.next_action.type == "generate_videos"
 
 
 @pytest.mark.integration

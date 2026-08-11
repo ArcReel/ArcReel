@@ -36,7 +36,7 @@ _TRANSITION_MAP: dict[str, TransitionType] = {
     "dissolve": TransitionType.叠化,
 }
 
-# content_mode → 整段单字幕文案源字段。narration 按朗读原文、ad 按每镜头口播文案，
+# content_mode → 分镜路线整段单字幕文案源字段。narration 按朗读原文、ad 按每镜头口播文案，
 # 整段共用一条字幕。drama 不走单字段：口播是场景级有序 utterances，按 span 逐条派生
 # （见 _SPAN_SUBTITLE_MODES / _utterance_subtitle_spans），故不登记于此。
 _SUBTITLE_TEXT_FIELDS: dict[str, str] = {
@@ -44,15 +44,13 @@ _SUBTITLE_TEXT_FIELDS: dict[str, str] = {
     "ad": "voiceover_text",
 }
 
-# 字幕由有序 span 派生（而非单字段）的内容模式。drama 从 utterances 派生 subtitle_spans；
-# ad + reference_video 路径虽也产 span，但 content_mode 仍是 ad（已在 _SUBTITLE_TEXT_FIELDS），
-# 故此处只列 drama。未注册且不在此集合的模式（未知脏值）不挂字幕轨。
+# 字幕由有序 span 派生（而非单字段）的内容模式。drama 从 utterances 派生 subtitle_spans。
+# 未注册且不在此集合的模式（未知脏值）不挂字幕轨。
 _SPAN_SUBTITLE_MODES: frozenset[str] = frozenset({"drama"})
 
 from lib.path_safety import PathTraversalError, safe_join, safe_resolve
 from lib.project_manager import ProjectManager
-from lib.reference_video.ad_units import ad_shots_by_id
-from lib.script_models import ad_shot_duration_seconds, get_generated_assets
+from lib.script_models import get_generated_assets
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.speech_rate import estimate_spoken_seconds, project_speech_rate_override
 
@@ -142,23 +140,21 @@ class JianyingDraftService:
     ) -> list[dict[str, Any]]:
         """从剧本中提取已完成视频的片段列表
 
-        分镜列表按 ``resolve_declared_kind`` 定内容骨架（narration→segments、drama→scenes、
+        分镜路线按 ``resolve_declared_kind`` 定内容骨架（narration→segments、drama→scenes、
         ad→shots；缺失/未知 content_mode fail-loud，不静默兜底）；字幕文案按
         ``_SUBTITLE_TEXT_FIELDS`` 取各模式的文案源字段，归一到 ``subtitle_text``。drama 改走 span 派生：从场景级
         有序 ``utterances`` 按语速估算出 ``subtitle_spans``（语速由 ``speech_rate_override``
         项目级覆盖优先、否则按 ``language`` 取语言默认，两者均由调用方从 project.json 解析后传入），
         整段 ``subtitle_text`` 留空。
 
-        ad + reference_video 路径成片是 unit 级视频（``reference_units`` 派生索引），
-        按 unit 收集；``generation_mode`` 须由调用方按 project.json 解析传入——
-        ad 剧本不打 generation_mode 戳，且切回 storyboard 后残留索引不应抢走收集。
+        reference_video 路径成片是 ``video_units`` 级视频，按 unit 收集；
+        ``generation_mode`` 须由调用方按 project.json 解析传入。
         """
         content_mode = _script_content_mode(script)
-        if content_mode == "ad" and generation_mode == "reference_video":
-            return self._collect_ad_reference_unit_clips(script, project_dir)
+        if generation_mode == "reference_video":
+            return self._collect_reference_unit_clips(script, project_dir)
         # 内容骨架经规范解析定分镜数组：content_mode 取剧本原值（缺失/未知即 fail-loud，不静默
-        # 兜底到 drama）。generation_mode 传 None——ad+参考已在上分支按 unit 收集，本分支只按
-        # content_mode 取内容骨架，非 ad 参考路径的 video_units 收集不属本分支职责。
+        # 兜底到 drama）。参考路线已在上分支按 unit 收集。
         kind = resolve_declared_kind(script.get("content_mode"), None)
         items = script.get(kind, [])
         id_field = SKELETONS[kind].id_field
@@ -199,17 +195,10 @@ class JianyingDraftService:
 
         return clips
 
-    def _collect_ad_reference_unit_clips(self, script: dict, project_dir: Path) -> list[dict[str, Any]]:
-        """ad 参考直出的 unit 级片段收集：字幕按成员镜头口播在 unit 内逐镜头对齐。
-
-        成员镜头从 shots（内容唯一真相）按 shot_ids 水合：字幕 span 的偏移/时长取
-        规划时长（与生成请求一致）；unit 间转场取末位成员镜头的 ``transition_to_next``。
-        悬空 shot_id（索引过期）按缺失成员跳过其字幕，不阻断导出。
-        """
-        shots_by_id = ad_shots_by_id(script)
-
+    def _collect_reference_unit_clips(self, script: dict, project_dir: Path) -> list[dict[str, Any]]:
+        """收集参考生视频路线的 unit 级成片。"""
         clips: list[dict[str, Any]] = []
-        units = script.get("reference_units")
+        units = script.get("video_units")
         for unit in units if isinstance(units, list) else []:
             if not isinstance(unit, dict):
                 continue
@@ -221,29 +210,14 @@ class JianyingDraftService:
                 logger.warning("video_clip 不可用（越界或文件不存在），已跳过: %s", video_clip)
                 continue
 
-            spans: list[dict[str, Any]] = []
-            offset = 0
-            transition = "cut"
-            member_shots = [shots_by_id.get(sid) for sid in unit.get("shot_ids") or []]
-            for shot in member_shots:
-                if shot is None:
-                    continue
-                duration = ad_shot_duration_seconds(shot)
-                text = shot.get("voiceover_text")
-                if isinstance(text, str) and text and duration > 0:
-                    spans.append({"offset_seconds": offset, "duration_seconds": duration, "text": text})
-                offset += max(duration, 0)
-                transition = shot.get("transition_to_next", "cut")
-
             clips.append(
                 {
                     "id": unit.get("unit_id", ""),
-                    "duration_seconds": offset,
+                    "duration_seconds": unit.get("duration_seconds", 0),
                     "video_clip": video_clip,
                     "abs_path": abs_path,
                     "subtitle_text": "",
-                    "subtitle_spans": spans,
-                    "transition_to_next": transition,
+                    "transition_to_next": "cut",
                     "narration_audio_abs": None,
                 }
             )
@@ -356,8 +330,8 @@ class JianyingDraftService:
 
             script_file.add_segment(video_seg)
 
-            # 字幕片段：unit 级片段（ad 参考直出）携带 subtitle_spans，按成员镜头
-            # 在片段内逐镜头对齐；其余片段沿用整段单字幕。span 用规划时长定位，
+            # 字幕片段：携带 subtitle_spans 的片段按规划时长在片段内定位；其余片段
+            # 沿用整段单字幕。span 用规划时长定位，
             # 实际视频更短时夹到片段末尾，越界 span 跳过。
             if has_subtitle:
                 spans = clip.get("subtitle_spans")

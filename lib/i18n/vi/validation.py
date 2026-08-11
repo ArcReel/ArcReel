@@ -118,10 +118,6 @@ MESSAGES = {
     ),
     "val_ref_type_invalid": "{prefix}: type không hợp lệ: {value}",
     "val_ref_name_invalid": "{prefix}: name phải là chuỗi không rỗng: {value}",
-    "val_ref_unregistered_regroup": ("{prefix}: {asset_type} “{name}” được tham chiếu chưa đăng ký; cần tạo lại nhóm"),
-    "val_reference_units_dangling_shots": (
-        "{prefix}: các cảnh quay được tham chiếu không tồn tại ({ids}); cần tạo lại nhóm"
-    ),
     # ---- khung xương và tuyến sinh video ----
     "val_skeleton_noun_segments": "phân cảnh",
     "val_skeleton_noun_scenes": "cảnh",
