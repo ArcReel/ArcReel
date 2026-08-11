@@ -314,7 +314,7 @@ def test_units_without_spoken_content_are_silent(snapshot) -> None:
     assert result.problems == ()
 
 
-def test_drama_character_voiceover_is_character_speech() -> None:
+def test_drama_voiceover_with_speaker_is_a_parse_blocker() -> None:
     result = SpeechComposition.prepare(
         adapt_drama_scene(
             {
@@ -324,11 +324,11 @@ def test_drama_character_voiceover_is_character_speech() -> None:
         )
     )
 
-    assert result.mode is SpeechMode.CHARACTER_SPEECH
-    assert [(entry.owner, entry.speaker, entry.text) for entry in result.utterances] == [
-        (SpeechOwner.CHARACTER, "阿离", "我不能让他发现。")
+    assert result.mode is None
+    assert result.utterances == ()
+    assert [(problem.code, problem.locations) for problem in result.problems] == [
+        (SpeechProblemCode.PARSE_FAILED, (SpeechFieldLocation(("utterances", 0, "speaker")),))
     ]
-    assert result.problems == ()
 
 
 def test_reference_video_adapter_preserves_cross_shot_utterance_order() -> None:

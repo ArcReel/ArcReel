@@ -223,6 +223,9 @@ def _append_structured_entry(
         problems.append(_parse_problem(unit_id, speaker_location))
         return
     named_speaker = speaker.strip() if isinstance(speaker, str) else ""
+    if not speaker_required and named_speaker:
+        problems.append(_parse_problem(unit_id, speaker_location))
+        return
     entries.append(
         SpeechInputUtterance(
             speaker=named_speaker or None,
