@@ -130,9 +130,12 @@ export function useAssistantSession(projectName: string | null) {
   const loadedSessionRef = useRef<string | null>(null);
 
   const writeSessions = useCallback((sessions: SessionMeta[]) => {
+    // 上一个项目的迟到回调既不写列表也不占代数：占了代数，新项目会把自己刚拉到的
+    // 初始列表误判成过期而丢弃，侧边栏就一直停在旧项目的会话上
+    if (projectAbortOwnerRef.current !== projectName) return;
     sessionsWriteVersionRef.current += 1;
     store.getState().setSessions(sessions);
-  }, [store]);
+  }, [projectName, store]);
 
   // 补拉会话列表。纳入项目级取消域，挂起期间切换项目时迟到响应不得覆盖已切到的
   // 新项目会话列表；空列表不写入，避免一次失败的读把列表清空。
@@ -312,6 +315,9 @@ export function useAssistantSession(projectName: string | null) {
     const projectAbort = new AbortController();
     projectAbortRef.current = projectAbort;
     projectAbortOwnerRef.current = projectName;
+    // 加载完成标记按项目作废：留着上一个项目的会话 id，回到那个项目后若自动重载
+    // 失败，点它会被短路当成「已加载」，重试就永远进不来
+    loadedSessionRef.current = null;
 
     async function init() {
       // 会话自动选择占据加载链：后续任何用户会话操作接管选择权时作废
@@ -374,6 +380,7 @@ export function useAssistantSession(projectName: string | null) {
       if (projectAbortRef.current === projectAbort) {
         projectAbortRef.current = null;
         projectAbortOwnerRef.current = null;
+        loadedSessionRef.current = null;
       }
       abortSessionLoad();
       invalidatePendingSend();
@@ -563,6 +570,8 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setIsDraftSession(false);
     store.getState().resetTimeline();
     clearPendingQuestion();
+    // 上一次加载失败的提示到此为止：重试成功后不该继续压在已经载入的对话上面
+    store.getState().setError(null);
     store.getState().setMessagesLoading(true);
 
     // 记住选择

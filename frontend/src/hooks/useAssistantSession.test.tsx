@@ -1519,11 +1519,12 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().error).toBe("会话内容加载失败，请重新选择该会话重试");
     expect(useAssistantStore.getState().turns).toEqual([]);
 
-    // 再点同一条会话不再被短路，重试成功
+    // 再点同一条会话不再被短路，重试成功，失败提示随之撤下
     await act(async () => {
       await result.current.switchSession("session-2");
     });
     expect(useAssistantStore.getState().turns).toHaveLength(1);
+    expect(useAssistantStore.getState().error).toBeNull();
   });
 
   it("invalidates a pending rewrite as soon as the current session is deleted", async () => {
