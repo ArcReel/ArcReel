@@ -406,6 +406,10 @@ def test_project_adapter_rejects_replaced_portable_project_root_identity(tmp_pat
     project.rename(tmp_path / "original-project")
     project.mkdir()
 
+    observation = adapter._inspect_artifact_portable("missing.json")
+
+    assert not observation.present
+    assert observation.blocker is not None and observation.blocker.code == "artifact_unreadable"
     with pytest.raises(ArtifactManifestError, match="changed after adapter initialization"):
         adapter._assert_portable_project_root_identity()
 

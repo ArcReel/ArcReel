@@ -328,6 +328,13 @@ class ProjectArtifactManifestAdapter:
                 "artifact_symlink",
                 f"project directory is a symlink or junction: {self._project_dir}",
             )
+        try:
+            with self._guard_portable_project_root():
+                return self._inspect_artifact_portable_guarded(normalized)
+        except ArtifactManifestError as exc:
+            return self._artifact_blocked(normalized, "artifact_unreadable", str(exc))
+
+    def _inspect_artifact_portable_guarded(self, normalized: str) -> ArtifactObservation:
         path = self._project_dir.joinpath(*PurePosixPath(normalized).parts)
         cursor = self._project_dir
         checked_components: list[tuple[Path, tuple[int, int], int]] = []
