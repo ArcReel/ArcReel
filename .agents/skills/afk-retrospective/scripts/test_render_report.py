@@ -133,6 +133,40 @@ class RenderReportTest(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.ReportError, "collides with a ledger event"):
             MODULE.build_report_data(self.root, "batch-one", self.analysis)
 
+        decision = {
+            "id": "DEC-01",
+            "kind": "搁置",
+            "title": "需要决定",
+            "context": "两个选项",
+            "positions": [
+                {"id": "DEC-01-A", "label": "A", "stance": "处理", "reason": "有收益"},
+                {"id": "DEC-01-B", "label": "B", "stance": "不处理", "reason": "收益低"},
+            ],
+            "current_state": "待决定",
+            "sources": ["EV-0001"],
+        }
+
+        data = analysis_fixture()
+        data["pending"] = [decision]
+        del decision["positions"][0]["reason"]
+        self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ReportError, "reason is required"):
+            MODULE.build_report_data(self.root, "batch-one", self.analysis)
+
+        data = analysis_fixture()
+        data["followups"][0]["id"] = "CONTEXT-EMPTY"
+        self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ReportError, "reserved by the renderer"):
+            MODULE.build_report_data(self.root, "batch-one", self.analysis)
+
+        data = analysis_fixture()
+        decision["positions"][0]["reason"] = "有收益"
+        decision["positions"][0]["id"] = "EV-0001"
+        data["pending"] = [decision]
+        self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ReportError, "collides with a ledger event"):
+            MODULE.build_report_data(self.root, "batch-one", self.analysis)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,6 +16,7 @@ TEMPLATE_PATH = SKILL_ROOT / "assets" / "report.html"
 BATCH_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 REPORT_ID_RE = re.compile(r"^\S+$")
 KNOWLEDGE_KEYS = ("CONTEXT", "ADR", "INST")
+RESERVED_REPORT_IDS = {f"{key}-EMPTY" for key in KNOWLEDGE_KEYS}
 
 
 class ReportError(ValueError):
@@ -73,6 +74,8 @@ def validate_analysis(value: Any) -> dict[str, Any]:
     def register(raw_id: Any, path: str) -> None:
         if not isinstance(raw_id, str) or not REPORT_ID_RE.fullmatch(raw_id):
             fail(f"{path} must be a non-empty token")
+        if raw_id in RESERVED_REPORT_IDS:
+            fail(f"report id is reserved by the renderer: {raw_id}")
         if raw_id in ids:
             fail(f"duplicate report id: {raw_id}")
         ids.add(raw_id)
@@ -113,6 +116,8 @@ def validate_analysis(value: Any) -> dict[str, Any]:
             option_path = f"{path}.positions[{option_index}]"
             option = expect_mapping(option_value, option_path)
             register(require(option, "id", option_path), f"{option_path}.id")
+            for field in ("label", "stance", "reason"):
+                expect_string(require(option, field, option_path), f"{option_path}.{field}")
 
     return analysis
 
@@ -122,9 +127,12 @@ def validate_source_references(analysis: dict[str, Any], available: set[str]) ->
     for key in KNOWLEDGE_KEYS:
         items.extend(analysis["knowledge"][key])
     event_ids = {source for source in available if source.startswith("EV-")}
+    report_ids = [item["id"] for item in items]
+    report_ids.extend(option["id"] for item in analysis["pending"] for option in item["positions"])
+    for report_id in report_ids:
+        if report_id in event_ids:
+            fail(f"report id collides with a ledger event id: {report_id}")
     for item in items:
-        if item["id"] in event_ids:
-            fail(f"report id collides with a ledger event id: {item['id']}")
         for source in item.get("sources", []):
             if source not in available:
                 fail(f"source does not resolve to this batch: {source}")
