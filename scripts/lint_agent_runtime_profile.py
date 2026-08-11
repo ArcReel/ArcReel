@@ -46,7 +46,9 @@ def _reject_json_constant(value: str) -> NoReturn:
 
 
 def _metadata_files(profile_dir: Path) -> list[Path]:
-    skills = (profile_dir / ".claude" / "skills").glob("*/SKILL*.md")
+    skills_root = profile_dir / ".claude" / "skills"
+    skill_names = ("SKILL.md", *(f"SKILL.{mode}.md" for mode in sorted(VALID_CONTENT_MODES)))
+    skills = (path for name in skill_names for path in skills_root.glob(f"*/{name}"))
     agents_root = profile_dir / ".claude" / "agents"
     agents = agents_root.glob("*.md") if agents_root.is_dir() else ()
     return sorted((*skills, *agents))

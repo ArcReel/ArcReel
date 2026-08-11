@@ -45,6 +45,15 @@ def test_validates_all_profile_contracts_for_each_mode(tmp_path: Path) -> None:
     assert lint_profile(profile, registered_tools={"patch_project"}) == []
 
 
+def test_ignores_supporting_skill_markdown_files(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "skills" / "demo" / "SKILL_NOTES.md").write_text(
+        "# Supporting notes without frontmatter\n", encoding="utf-8"
+    )
+
+    assert lint_profile(profile, registered_tools={"patch_project"}) == []
+
+
 def test_reports_invalid_frontmatter_pointer_mcp_and_eval_ids(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     (profile / ".claude" / "agents" / "helper.md").write_text("---\n- invalid\n---\n", encoding="utf-8")
