@@ -56,7 +56,7 @@ def validate_analysis(value: Any) -> dict[str, Any]:
         fail("analysis.version must be 1")
 
     expect_mapping(require(analysis, "batch", "analysis"), "analysis.batch")
-    expect_list(require(analysis, "issues", "analysis"), "analysis.issues")
+    issues = expect_list(require(analysis, "issues", "analysis"), "analysis.issues")
     followups = expect_list(require(analysis, "followups", "analysis"), "analysis.followups")
     knowledge = expect_mapping(require(analysis, "knowledge", "analysis"), "analysis.knowledge")
     pending = expect_list(require(analysis, "pending", "analysis"), "analysis.pending")
@@ -64,9 +64,10 @@ def validate_analysis(value: Any) -> dict[str, Any]:
     ids: set[str] = set()
 
     def validate_sources(item: dict[str, Any], path: str) -> None:
-        if "sources" not in item:
-            return
-        for index, source in enumerate(expect_list(item["sources"], f"{path}.sources")):
+        sources = expect_list(require(item, "sources", path), f"{path}.sources")
+        if not sources:
+            fail(f"{path}.sources must not be empty")
+        for index, source in enumerate(sources):
             expect_string(source, f"{path}.sources[{index}]")
 
     def register(raw_id: Any, path: str) -> None:
@@ -75,6 +76,9 @@ def validate_analysis(value: Any) -> dict[str, Any]:
         if raw_id in ids:
             fail(f"duplicate report id: {raw_id}")
         ids.add(raw_id)
+
+    for index, value in enumerate(issues):
+        expect_mapping(value, f"analysis.issues[{index}]")
 
     for index, value in enumerate(followups):
         path = f"analysis.followups[{index}]"

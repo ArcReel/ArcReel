@@ -98,6 +98,12 @@ class RenderReportTest(unittest.TestCase):
 
     def test_rejects_analysis_that_cannot_render(self) -> None:
         data = analysis_fixture()
+        data["issues"] = [None]
+        self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ReportError, r"issues\[0\] must be an object"):
+            MODULE.build_report_data(self.root, "batch-one", self.analysis)
+
+        data = analysis_fixture()
         del data["followups"][0]["evaluations"]["architecture"]
         self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         with self.assertRaisesRegex(MODULE.ReportError, "architecture is required"):
@@ -107,6 +113,12 @@ class RenderReportTest(unittest.TestCase):
         data["followups"][0]["sources"] = ["EV-9999"]
         self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         with self.assertRaisesRegex(MODULE.ReportError, "source does not resolve"):
+            MODULE.build_report_data(self.root, "batch-one", self.analysis)
+
+        data = analysis_fixture()
+        data["followups"][0]["sources"] = []
+        self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ReportError, "sources must not be empty"):
             MODULE.build_report_data(self.root, "batch-one", self.analysis)
 
 
