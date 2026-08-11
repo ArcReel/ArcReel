@@ -832,6 +832,29 @@ def test_planning_without_source_fingerprint_baseline_is_incomplete(tmp_path: Pa
 
 
 @pytest.mark.integration
+def test_new_source_file_continues_planning_without_resetting_existing_fingerprints(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    original_path = project_path / "source" / "a.txt"
+    original_path.write_text("已规划原文", encoding="utf-8")
+    project = pm.load_project("demo")
+    project["planning_cursor"] = {"source_file": "source/a.txt", "offset": len("已规划原文")}
+    project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+    pm.save_project("demo", project)
+    initial_revision = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
+    assert initial_revision is not None
+    complete_asset_inventory(pm, "demo", SourceScope(kind="all"), initial_revision)
+    (project_path / "source" / "z.txt").write_text("新增原文", encoding="utf-8")
+    revision = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
+    assert revision is not None
+    complete_asset_inventory(pm, "demo", SourceScope(kind="all"), revision)
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "EPISODE_PLAN"
+    assert status.next_action.type == "plan_episodes"
+
+
+@pytest.mark.integration
 def test_planning_completion_preserves_planner_order_for_canonical_paths(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_dir = project_path / "source"

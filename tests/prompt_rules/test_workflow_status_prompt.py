@@ -94,4 +94,5 @@ def test_asset_analysis_records_completion_fact() -> None:
     assert "mcp__arcreel__complete_asset_inventory" in content
     assert "expected_source_revision" in content
     assert "严格按主 agent 传入的 `scope`" in content
+    assert "`.text`" not in content
     assert "不要调用 `patch_project`" in content

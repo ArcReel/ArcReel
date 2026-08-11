@@ -18,6 +18,7 @@ from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     compute_source_fingerprints,
     discover_sources,
+    mismatched_source_fingerprints,
     normalize_source_text,
     parse_positive_episode_num,
 )
@@ -126,7 +127,7 @@ def _planning_fingerprints_diverged(project_path: Path, project: Mapping[str, An
     recorded = project.get(SOURCE_FINGERPRINTS_KEY)
     if not isinstance(recorded, Mapping) or not recorded:
         return False
-    return dict(recorded) != compute_source_fingerprints(discover_sources(project_path))
+    return bool(mismatched_source_fingerprints(recorded, discover_sources(project_path)))
 
 
 def _empty_collection() -> dict[str, list[str]]:
