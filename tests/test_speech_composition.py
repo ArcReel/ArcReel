@@ -208,6 +208,10 @@ def test_mixed_speech_returns_a_closed_located_problem_without_rewriting_content
             adapt_video_unit({"unit_id": "E1S02", "shots": [{"text": "空镜。\n@[ ]：{快走。}"}]}),
             SpeechFieldLocation(("shots", 0, "text"), line=1),
         ),
+        (
+            adapt_video_unit({"unit_id": "E1S02", "shots": [{"text": "空镜。\n\ufeff@[ ]：{快走。}"}]}),
+            SpeechFieldLocation(("shots", 0, "text"), line=1),
+        ),
     ],
 )
 def test_empty_character_speaker_is_a_structured_blocker(snapshot, expected_location) -> None:

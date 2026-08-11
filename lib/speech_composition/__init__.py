@@ -400,7 +400,7 @@ def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
                         )
                     )
                     continue
-                empty_speaker = _EMPTY_SPEAKER_LINE.match(line)
+                empty_speaker = _EMPTY_SPEAKER_LINE.match(line.replace("\ufeff", ""))
                 if empty_speaker is not None:
                     spoken = empty_speaker.group(1)
                     if not spoken.strip():
