@@ -6,7 +6,7 @@
 
 ## 步骤
 
-1. 进入实现阶段交付的 worktree；读 handoff 的「实现」段，不以其自报划定审查范围；`gh issue view <N>` 读验收标准与正文
+1. 进入实现阶段交付的 worktree；读 handoff 的「实现」段，不以其自报划定审查范围；`gh issue view <N> --comments` 读验收标准、正文与评论
 2. 运行 `/code-review origin/main`，评估后修复 findings；接近重做规模的缺口或架构级疑虑，请示 team-lead
 3. 修复后重新运行项目质量门（口径同实现契约）
 4. main 已前进时，rebase 到最新 main 并重新验证
