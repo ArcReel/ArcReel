@@ -357,6 +357,7 @@ class WorkflowStateService:
             )
             return {"state": "blocked", "path": path}, [], kind, script
         id_field = SKELETONS[kind].id_field
+        seen_ids: set[str] = set()
         for index, item in enumerate(raw_items):
             resource_id = item.get(id_field)
             if not isinstance(resource_id, str) or not resource_id:
@@ -368,6 +369,16 @@ class WorkflowStateService:
                     )
                 )
                 return {"state": "blocked", "path": path}, [], kind, script
+            if resource_id in seen_ids:
+                blockers.append(
+                    WorkflowBlocker(
+                        code="duplicate_script_id",
+                        path=f"{path}.{kind}[{index}].{id_field}",
+                        reason=f"duplicate {id_field}: {resource_id}",
+                    )
+                )
+                return {"state": "blocked", "path": path}, [], kind, script
+            seen_ids.add(resource_id)
         return {"state": "current", "path": path}, raw_items, kind, script
 
     @staticmethod

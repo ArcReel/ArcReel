@@ -104,7 +104,7 @@ def _all_source_paths(
             continue
         rel = unicodedata.normalize("NFC", f"source/{name}")
         paths.append((rel, path))
-    paths.sort(key=lambda item: item[0])
+    paths.sort(key=lambda item: item[1])
     return paths, None
 
 

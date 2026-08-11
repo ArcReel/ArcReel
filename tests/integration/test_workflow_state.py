@@ -570,6 +570,60 @@ def test_planning_completion_resolves_nfc_cursor_to_nfd_filesystem_path(tmp_path
 
 
 @pytest.mark.integration
+def test_planning_completion_preserves_planner_order_for_canonical_paths(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_dir = project_path / "source"
+    (source_dir / unicodedata.normalize("NFD", "á.txt")).write_text("第一份", encoding="utf-8")
+    (source_dir / "b.txt").write_text("第二份", encoding="utf-8")
+    project = pm.load_project("demo")
+    docs = discover_sources(project_path)
+    source = compute_source_revision(project_path, project, SourceScope(kind="all"))
+    assert source.revision is not None
+    assert source.files == [unicodedata.normalize("NFC", doc.rel_path) for doc in docs]
+    project["planning_cursor"] = {"source_file": docs[-1].rel_path, "offset": len(docs[-1].text)}
+    project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(docs)
+
+    assert WorkflowStateService._planning_complete(project_path, project, source) is True
+
+
+@pytest.mark.integration
+def test_duplicate_reference_video_unit_ids_block_completion(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
+    source_text = "原文"
+    _write_source_and_complete(pm, project_path, source_text)
+
+    def _plan(project: dict) -> None:
+        project["episodes"] = [
+            {
+                "episode": 1,
+                "script_file": "scripts/episode_1.json",
+                "ledger_status": "consumed",
+            }
+        ]
+
+    pm.update_project("demo", _plan)
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    atomic_write_json(draft_dir / "step1_reference_units.json", {"units": []})
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "content_mode": "drama",
+            "video_units": [
+                {"unit_id": "E1U01", "duration_seconds": 4, "generated_assets": {}},
+                {"unit_id": "E1U01", "duration_seconds": 4, "generated_assets": {}},
+            ],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "FINAL_SCRIPT"
+    assert status.blockers[0].code == "duplicate_script_id"
+
+
+@pytest.mark.integration
 def test_reference_video_route_skips_storyboards_and_audio(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     source_text = "原文"
