@@ -26,7 +26,7 @@ from lib.path_safety import safe_exists
 from lib.project_manager import ProjectManager
 from lib.reference_video.ad_units import ad_stale_unit_ids
 from lib.script_models import get_generated_assets
-from lib.script_skeleton import SKELETONS, ensure_route_skeleton
+from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
 
 WorkflowStateName = Literal[
@@ -369,6 +369,15 @@ class WorkflowStateService:
                     )
                 )
                 return {"state": "blocked", "path": path}, [], kind, script
+            if kind != "video_units" and STORYBOARD_ITEM_ID_PATTERN.fullmatch(resource_id) is None:
+                blockers.append(
+                    WorkflowBlocker(
+                        code="invalid_script_id",
+                        path=f"{path}.{kind}[{index}].{id_field}",
+                        reason=f"invalid {id_field}: {resource_id}",
+                    )
+                )
+                return {"state": "blocked", "path": path}, [], kind, script
             if resource_id in seen_ids:
                 blockers.append(
                     WorkflowBlocker(
@@ -403,8 +412,19 @@ class WorkflowStateService:
 
         stale_ids = set(ad_stale_unit_ids(script, raw_units))
         invalid = False
+        seen_unit_ids: set[str] = set()
         for index, unit in enumerate(raw_units):
-            if not isinstance(unit, dict) or not isinstance(unit.get("unit_id"), str) or not unit["unit_id"]:
+            unit_id = unit.get("unit_id") if isinstance(unit, dict) else None
+            shot_ids = unit.get("shot_ids") if isinstance(unit, dict) else None
+            references = unit.get("references") if isinstance(unit, dict) else None
+            if (
+                not isinstance(unit_id, str)
+                or not unit_id
+                or unit_id in seen_unit_ids
+                or not isinstance(shot_ids, list)
+                or not shot_ids
+                or (references is not None and not isinstance(references, list))
+            ):
                 blockers.append(
                     WorkflowBlocker(
                         code="invalid_reference_unit",
@@ -414,7 +434,7 @@ class WorkflowStateService:
                 )
                 invalid = True
                 continue
-            unit_id = unit["unit_id"]
+            seen_unit_ids.add(unit_id)
             video_path = get_generated_assets(unit).get("video_clip")
             if not isinstance(video_path, str) or not safe_exists(project_path, video_path):
                 collection["missing_ids"].append(unit_id)
@@ -560,14 +580,21 @@ class WorkflowStateService:
                     else "normalize-drama-script"
                 )
                 if mode != "ad" and selected is not None and selected[1].get("ledger_status") == "stale":
-                    artifacts["step1"] = {"state": "stale"}
-                    state = "STEP1_CONTENT"
-                    next_action = _action(
-                        "prepare_step1",
-                        "target episode was replanned and its downstream artifacts are stale",
-                        args={"episode": target.episode, "preprocessor": preprocessor},
-                    )
-                    return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
+                    step1_path = script_review.step1_path(project_path, project, target.episode)
+                    live_revision = script_review.content_fingerprint(step1_path) if step1_path is not None else None
+                    stale_entry = selected[1]
+                    baseline_is_recorded = script_review.STALE_STEP1_REVISION_FIELD in stale_entry
+                    if not baseline_is_recorded or live_revision == stale_entry.get(
+                        script_review.STALE_STEP1_REVISION_FIELD
+                    ):
+                        artifacts["step1"] = {"state": "stale"}
+                        state = "STEP1_CONTENT"
+                        next_action = _action(
+                            "prepare_step1",
+                            "target episode was replanned and its downstream artifacts are stale",
+                            args={"episode": target.episode, "preprocessor": preprocessor},
+                        )
+                        return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
                 if mode == "ad":
                     products = project.get("products", {})
                     pending_points = (

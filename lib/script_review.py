@@ -55,6 +55,9 @@ ReviewStatus = Literal["not_applicable", "no_step1", "pending_review", "confirme
 #: 确认记录在 episode 条目上的字段名：``{"fingerprint": str, "confirmed_at": ISO8601}``。
 REVIEW_FIELD = "step1_review"
 
+#: stale 账本条目记录重规划提交时旧 step1 的内容指纹；live 指纹变化即证明 step1 已按新账本重建。
+STALE_STEP1_REVISION_FIELD = "stale_step1_revision"
+
 #: step1 变体：drama / narration（按 content_mode）+ reference_video（按项目生成路线，跨 content_mode）。
 #: 决定 step1 文件名与结构校验模型；三者共用同一审核 gate。
 Step1Kind = Literal["drama", "narration", "reference_video"]

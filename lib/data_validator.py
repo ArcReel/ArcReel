@@ -38,7 +38,12 @@ from lib.script_models import (
     ad_script_total_duration,
     resolve_content_mode,
 )
-from lib.script_skeleton import SkeletonRouteMismatchError, ensure_route_skeleton, resolve_declared_kind
+from lib.script_skeleton import (
+    STORYBOARD_ITEM_ID_PATTERN,
+    SkeletonRouteMismatchError,
+    ensure_route_skeleton,
+    resolve_declared_kind,
+)
 from lib.speech_rate import (
     MAX_SPEECH_RATE_UPS,
     MIN_SPEECH_RATE_UPS,
@@ -137,7 +142,7 @@ class DataValidator:
     # 参考生视频 unit 时长的结构合理性区间，真相源同上（档位成员校验依赖运行时模型能力，
     # 不在归档层做）。
     VALID_UNIT_DURATION_RANGE = REFERENCE_UNIT_DURATION_RANGE
-    ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
+    ID_PATTERN = STORYBOARD_ITEM_ID_PATTERN
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
     ALLOWED_ROOT_ENTRIES = {
         "project.json",

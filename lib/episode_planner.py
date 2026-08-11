@@ -26,6 +26,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from lib import script_review
 from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
@@ -558,6 +559,10 @@ class EpisodePlanner:
                 # 需重做下游产物，产物本身不删除
                 if has_downstream_products(self.project_path, num, entry):
                     entry["ledger_status"] = "stale"
+                    step1_path = script_review.step1_path(self.project_path, p, num)
+                    entry[script_review.STALE_STEP1_REVISION_FIELD] = (
+                        script_review.content_fingerprint(step1_path) if step1_path is not None else None
+                    )
                     committed["stale"].append(num)
                 episodes_list.append(entry)
                 summaries.append(

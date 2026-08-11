@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import lib.script_review as script_review
 from lib.asset_inventory import complete_asset_inventory
 from lib.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints, discover_sources
 from lib.json_io import atomic_write_json
@@ -552,6 +553,83 @@ def test_stale_episode_requires_step1_even_when_old_artifacts_exist(tmp_path: Pa
     assert status.state == "STEP1_CONTENT"
     assert status.artifacts["step1"]["state"] == "stale"
     assert status.next_action.type == "prepare_step1"
+
+
+@pytest.mark.integration
+def test_stale_episode_advances_after_step1_is_rebuilt(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source_and_complete(pm, project_path)
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    step1_path = draft_dir / "step1_segments.json"
+    atomic_write_json(step1_path, {"episode": 1, "segments": [{"segment_id": "E1S01"}]})
+    old_revision = script_review.content_fingerprint(step1_path)
+
+    def _plan(project: dict) -> None:
+        project["episodes"] = [
+            {
+                "episode": 1,
+                "script_file": "scripts/episode_1.json",
+                "ledger_status": "stale",
+                script_review.STALE_STEP1_REVISION_FIELD: old_revision,
+            }
+        ]
+
+    pm.update_project("demo", _plan)
+    service = WorkflowStateService(pm)
+    assert service.get_status("demo").state == "STEP1_CONTENT"
+
+    atomic_write_json(step1_path, {"episode": 1, "segments": [{"segment_id": "E1S02"}]})
+    rebuilt = service.get_status("demo")
+
+    assert rebuilt.state == "STEP1_REVIEW"
+    assert rebuilt.next_action.type == "confirm_step1"
+
+
+@pytest.mark.integration
+def test_script_id_must_match_the_shared_storyboard_pattern(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "content_mode": "ad",
+            "shots": [{"shot_id": "bad id", "duration_seconds": 4, "generated_assets": {}}],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "FINAL_SCRIPT"
+    assert status.blockers[0].code == "invalid_script_id"
+
+
+@pytest.mark.integration
+def test_ad_reference_unit_requires_shot_membership(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad", generation_mode="reference_video")
+    video_path = "reference_videos/E1U1.mp4"
+    _write_artifact(project_path, video_path)
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "content_mode": "ad",
+            "shots": [{"shot_id": "E1S01", "duration_seconds": 4}],
+            "reference_units": [
+                {
+                    "unit_id": "E1U1",
+                    "references": [],
+                    "generated_assets": {"video_clip": video_path},
+                }
+            ],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "VIDEO"
+    assert status.artifacts["videos"]["state"] == "blocked"
+    assert status.blockers[0].code == "invalid_reference_unit"
 
 
 @pytest.mark.integration
