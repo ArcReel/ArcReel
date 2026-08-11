@@ -111,6 +111,9 @@ if [[ -n "$SCOPE_SPEC" && -n "$SCOPE_ISSUES_CSV" ]]; then
 fi
 if [[ -n "$SCOPE_SPEC" ]]; then
   [[ "$SCOPE_SPEC" =~ ^[0-9]+$ ]] || die "--scope-spec must be a number, got: $SCOPE_SPEC"
+  if ! [[ "$BATCH_ID" =~ ^spec-${SCOPE_SPEC}-[0-9]{8}-[0-9]{6}-[0-9A-Fa-f]{6}$ ]]; then
+    die "Spec batch-id must match spec-${SCOPE_SPEC}-<UTC YYYYMMDD-HHMMSS>-<6 hex>"
+  fi
   SCOPE_JSON=$(jq -nc --argjson spec "$SCOPE_SPEC" '{spec: $spec}')
 elif [[ -n "$SCOPE_ISSUES_CSV" ]]; then
   # same fail-loud + de-dup discipline as batch-poll.sh --issues: a silent drop here would

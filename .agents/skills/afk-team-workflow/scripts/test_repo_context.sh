@@ -43,6 +43,15 @@ grep -q 'batch-id path is already reserved' "$TMP_ROOT/reserved.err"
 
 if (
   cd "$SCRIPT_DIR"
+  bash ledger.sh --repo-root "$TMP_ROOT" spec1776-20260811-010101-abcdef decision --scope-spec 1776
+) >"$TMP_ROOT/spec-id.out" 2>"$TMP_ROOT/spec-id.err"; then
+  echo "FAIL: malformed Spec batch-id was accepted" >&2
+  exit 1
+fi
+grep -q 'Spec batch-id must match spec-1776-' "$TMP_ROOT/spec-id.err"
+
+if (
+  cd "$SCRIPT_DIR"
   bash ledger.sh --repo-root "$TMP_ROOT/missing" test-batch closed
 ) >"$TMP_ROOT/missing.out" 2>"$TMP_ROOT/missing.err"; then
   echo "FAIL: invalid --repo-root unexpectedly succeeded" >&2
