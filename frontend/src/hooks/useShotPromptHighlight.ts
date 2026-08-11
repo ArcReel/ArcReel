@@ -7,6 +7,7 @@ import {
   matchDialogueLine,
   matchVoiceoverLine,
   mentionNameFromMatch,
+  normalizeAssetName,
   splitScriptLines,
   type MentionLookup,
 } from "@/utils/reference-mentions";
@@ -82,7 +83,7 @@ function pushMentionTokens(out: Token[], text: string, lookup: MentionLookup): v
     if (idx > lastIdx) {
       out.push({ kind: "text", text: text.slice(lastIdx, idx) });
     }
-    const name = mentionNameFromMatch(m);
+    const name = normalizeAssetName(mentionNameFromMatch(m));
     // hasOwn 而非直接下标：`toString` 等原型链属性是合法资产名，未登记时下标会取到
     // Object.prototype 上的函数并被当成已解析的类型。
     const resolved = Object.hasOwn(lookup, name) ? lookup[name] : undefined;

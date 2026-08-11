@@ -73,6 +73,12 @@ describe("tokenizePrompt", () => {
     ]);
   });
 
+  it("normalizes padded wrapped names before lookup and token output", () => {
+    const t = tokenizePrompt("镜头1：@[ 主角 ] 入场", LOOKUP);
+    const mention = t.find((x) => x.kind === "mention");
+    expect(mention).toMatchObject({ assetKind: "character", name: "主角", text: "@[ 主角 ]" });
+  });
+
   it("treats curly-brace wrapped text as plain text", () => {
     const t = tokenizePrompt("镜头1：@{载具甲} 靠近 @[角色甲（成年）]", LOOKUP);
     const mentions = t.filter((x) => x.kind === "mention");

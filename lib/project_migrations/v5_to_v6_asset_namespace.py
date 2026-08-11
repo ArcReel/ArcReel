@@ -327,6 +327,8 @@ def _plan_media_moves(project_dir: Path, occurrences: list[_AssetOccurrence]) ->
             (base / "refs", sequenced_refs),
             (base / "refs_audio", False),
         ):
+            if directory.is_symlink():
+                raise ValueError(f"资产迁移目录不得为符号链接: {directory.relative_to(project_dir)}")
             if not directory.is_dir():
                 continue
             for source in sorted(directory.iterdir()):

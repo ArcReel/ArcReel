@@ -384,3 +384,36 @@ def test_migration_preserves_broken_symlinks(tmp_path: Path) -> None:
 
     assert link.is_symlink()
     assert os.readlink(link) == "missing-runtime-profile.md"
+
+
+def test_migration_rejects_symlinked_asset_directory_without_touching_target(tmp_path: Path) -> None:
+    project_dir = tmp_path / "demo"
+    _write_json(
+        project_dir / "project.json",
+        {
+            "schema_version": 5,
+            "characters": {"Hero": _asset("character", "character_sheet")},
+            "scenes": {"Hero": _asset("scene", "scene_sheet", "scenes/Hero.png")},
+            "props": {},
+            "products": {},
+        },
+    )
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    external_sheet = outside / "Hero.png"
+    external_sheet.write_bytes(b"external-scene")
+    scenes_link = project_dir / "scenes"
+    try:
+        scenes_link.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"当前平台不允许创建目录符号链接: {exc}")
+    original_project = (project_dir / "project.json").read_bytes()
+
+    with pytest.raises(ValueError, match="资产迁移目录不得为符号链接"):
+        migrate_v5_to_v6(project_dir)
+
+    assert external_sheet.read_bytes() == b"external-scene"
+    assert not (outside / "Hero_scene.png").exists()
+    assert scenes_link.is_symlink()
+    assert (project_dir / "project.json").read_bytes() == original_project
+    assert not list(tmp_path.glob(".demo.v6-*"))
