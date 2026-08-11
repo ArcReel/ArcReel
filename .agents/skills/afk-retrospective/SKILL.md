@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # AFK Retrospective
 
-把刚完成的 `$afk-team-workflow` 批次复盘成一份只读 HTML。账本与 handoff 是过程真相源；报告只给建议，等用户按报告 ID 明确裁决后再落地。
+以当前会话刚结束的 AFK 批次账本与 handoff 为输入，生成一份只读 HTML 复盘报告。
 
 ## 1. 锁定输入
 
@@ -18,7 +18,7 @@ disable-model-invocation: true
 - `.afk/<batch-id>/` 存在，且包含本批 handoff
 - 本次复盘紧接批次结束；不兼容历史账本或缺失 handoff 的旧批次
 
-任一条件不满足就 fail loud，说明缺少什么；不要猜测历史 segment，也不要从 transcript 重写缺失文件。
+任一条件不满足就列出缺失条件并停止。
 
 ## 2. 提取并验证候选
 
@@ -30,29 +30,15 @@ disable-model-invocation: true
 
 ## 3. 独立评估
 
-有候选时，按 [evaluator-prompts.md](references/evaluator-prompts.md) 同时委派三个干净上下文的只读 evaluator；候选为空时跳过委派：
+有候选时，按 [evaluator-prompts.md](references/evaluator-prompts.md) 同时委派三个干净上下文的只读 evaluator；候选为空时跳过委派。team-lead 按 working ID 汇总事实、解释分歧并给出简短结论，不套数值公式。
 
-1. 架构：ETC、DRY 与 `$codebase-design`
-2. 产品与用户：真实路径、影响范围、收益、成本与回归风险
-3. 知识维护：用 `$domain-modeling` 判断 CONTEXT/ADR，用 `$writing-for-agents` 判断 agent instructions
-
-三个 evaluator 不看彼此结论，并对每个输入 working ID 恰好返回一次；无法验证或不适用时也原样返回 ID 与 verdict。team-lead 按 ID 汇总事实、解释分歧并自行给出简短结论：
-
-- follow-up：`P0` / `P1` / `P2` / `无需处理`
-- CONTEXT：`应更新` / `无需更新`
-- ADR：`应记录` / `无需记录`
-- agent instructions：`应更新` / `无需更新`
-- gap / shelve：`待裁决`，保留各方立场
-
-不套数值公式。空候选是正常结果。
+完成标准：三个 evaluator 的输出均满足其契约，team-lead 已汇总结论。
 
 ## 4. 生成报告数据
 
-按 [analysis-contract.md](references/analysis-contract.md) 在操作系统临时目录写一份 `analysis.json`。agent 只写结构化 JSON，不直接创建、拼接或 patch HTML。
+按 [analysis-contract.md](references/analysis-contract.md) 在操作系统临时目录写一份 `analysis.json`。agent 只写结构化 JSON，HTML 由 renderer 生成。
 
-为每项分配报告内唯一 ID：`FU-`、`CTX-`、`ADR-`、`INST-`、`DEC-`，并保留其 `candidate_ids`。每个 `DEC-` 提供至少两个带稳定 ID 的互斥选项。把建议用户优先查看的 ID 放入 `batch.headline_ids`，把建议默认处理的 ID 放入 `reply_defaults`。
-
-完成标准：renderer 对 `analysis.json` 的 schema 校验通过，所有 headline 与默认选择都能解析，每个保留 working ID 都出现在至少一项 `candidate_ids` 中。
+完成标准：renderer 接受 `analysis.json`，且每个保留 working ID 都映射到报告项。
 
 ## 5. 渲染并交付
 
@@ -65,8 +51,6 @@ uv run python .agents/skills/afk-retrospective/scripts/render_report.py \
   --analysis <analysis-json>
 ```
 
-renderer 独占 HTML 模板、样式、转义与源文件快照，默认写入 `.afk/reports/<batch-id>/<timestamp>.html`。成功后删除临时 `analysis.json`；macOS 用 `open`、Linux 用 `xdg-open`、Windows 用 `start` 打开报告，并向用户提供绝对路径。
+成功后删除临时 `analysis.json`，打开报告并向用户提供绝对路径。最后只问用户要处理哪些报告 ID；待裁决项同时接受 `DEC-01 = DEC-01-A` 形式的选项 ID。用户裁决前保持仓库内容不变。
 
-最后只问用户要处理哪些报告 ID；待裁决项同时接受 `DEC-01 = DEC-01-A` 形式的选项 ID。不要在本 skill 内修改 CONTEXT/ADR/agent instructions，也不要创建 issue。
-
-完成标准：HTML 已生成并打开；ledger segment 与全部 handoff 原文已嵌入；每条保留候选恰好出现一次；用户可以按报告 ID 与选项 ID 无歧义地回答下一步。
+完成标准：HTML 已生成并打开，ledger segment 与全部 handoff 原文已嵌入，用户可以按报告 ID 与选项 ID 无歧义地回答下一步。

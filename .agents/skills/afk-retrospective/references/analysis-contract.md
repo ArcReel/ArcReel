@@ -1,6 +1,6 @@
 # Analysis JSON contract
 
-renderer 接受 UTF-8 JSON，顶层 `version` 固定为 `1`。所有文本面向最终用户，使用当前会话语言。未知值用空字符串或省略可选字段，不编造。
+renderer 接受 UTF-8 JSON，顶层 `version` 固定为 `1`。所有文本面向最终用户，使用当前会话语言；可选信息未知时省略，必填文本无法验证时明确写出，不编造。
 
 ## Shape
 
