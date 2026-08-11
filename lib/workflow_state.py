@@ -106,7 +106,7 @@ class _SharedWorkflowFacts:
 
 
 def _project_revision(project: Mapping[str, Any]) -> str:
-    encoded = json.dumps(project, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    encoded = json.dumps(dict(project), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return f"sha256-v1:{hashlib.sha256(encoded).hexdigest()}"
 
 
@@ -302,11 +302,7 @@ class WorkflowStateService:
         rel = cursor.get("source_file")
         offset = cursor.get("offset")
         canonical_rel = unicodedata.normalize("NFC", rel) if isinstance(rel, str) else None
-        if (
-            canonical_rel != source.files[-1]
-            or not isinstance(offset, int)
-            or isinstance(offset, bool)
-        ):
+        if canonical_rel != source.files[-1] or not isinstance(offset, int) or isinstance(offset, bool):
             return False
         try:
             source_dir = project_path / "source"
