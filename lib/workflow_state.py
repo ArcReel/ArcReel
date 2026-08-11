@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -302,7 +303,7 @@ class WorkflowStateService:
         offset = cursor.get("offset")
         if (
             not isinstance(rel, str)
-            or rel != source.files[-1]
+            or unicodedata.normalize("NFC", rel) != source.files[-1]
             or not isinstance(offset, int)
             or isinstance(offset, bool)
         ):
@@ -344,6 +345,18 @@ class WorkflowStateService:
                 )
             )
             return {"state": "blocked", "path": path}, [], kind, script
+        id_field = SKELETONS[kind].id_field
+        for index, item in enumerate(raw_items):
+            resource_id = item.get(id_field)
+            if not isinstance(resource_id, str) or not resource_id:
+                blockers.append(
+                    WorkflowBlocker(
+                        code="invalid_script_id",
+                        path=f"{path}.{kind}[{index}].{id_field}",
+                        reason=f"{id_field} must be a non-empty string",
+                    )
+                )
+                return {"state": "blocked", "path": path}, [], kind, script
         return {"state": "current", "path": path}, raw_items, kind, script
 
     @staticmethod
@@ -594,7 +607,10 @@ class WorkflowStateService:
                     )
                 else:
                     missing_sheets = [
-                        asset_id for collection in sheets.values() for asset_id in collection.get("missing_ids", [])
+                        asset_id
+                        for asset_type, collection in sheets.items()
+                        if asset_type != "product"
+                        for asset_id in collection.get("missing_ids", [])
                     ]
                     if missing_sheets:
                         state = "ASSET_SHEETS"

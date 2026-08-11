@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -374,6 +375,53 @@ def test_empty_script_collection_is_a_blocker_not_completed_work(tmp_path: Path)
 
 
 @pytest.mark.integration
+def test_script_entry_without_required_id_is_a_blocker(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {"episode": 1, "content_mode": "ad", "shots": [{"duration_seconds": 4}]},
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "FINAL_SCRIPT"
+    assert status.blockers[0].code == "invalid_script_id"
+    assert status.blockers[0].path.endswith("shots[0].shot_id")
+
+
+@pytest.mark.integration
+def test_optional_product_sheet_does_not_block_ad_media(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    product_image = "products/original.png"
+    _write_artifact(project_path, product_image)
+
+    def _add_product(project: dict) -> None:
+        project["products"] = {
+            "杯子": {
+                "description": "透明杯",
+                "reference_images": [product_image],
+                "selling_points": ["轻便"],
+            }
+        }
+
+    pm.update_project("demo", _add_product)
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "content_mode": "ad",
+            "shots": [{"shot_id": "E1S01", "duration_seconds": 4, "generated_assets": {}}],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["asset_sheets"]["product"]["missing_ids"] == ["杯子"]
+    assert status.state == "STORYBOARD"
+    assert status.next_action.type == "generate_storyboards"
+
+
+@pytest.mark.integration
 def test_ad_reference_video_reads_completion_from_reference_units(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad", generation_mode="reference_video")
     video_path = "reference_videos/E1U1.mp4"
@@ -457,6 +505,21 @@ def test_stale_episode_requires_step1_even_when_old_artifacts_exist(tmp_path: Pa
     assert status.state == "STEP1_CONTENT"
     assert status.artifacts["step1"]["state"] == "stale"
     assert status.next_action.type == "prepare_step1"
+
+
+@pytest.mark.integration
+def test_planning_completion_compares_cursor_paths_in_nfc(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    decomposed_name = unicodedata.normalize("NFD", "truyện.txt")
+    source_path = project_path / "source" / decomposed_name
+    source_path.write_text("完整原文", encoding="utf-8")
+    project = pm.load_project("demo")
+    source = compute_source_revision(project_path, project, SourceScope(kind="all"))
+    assert source.revision is not None
+    project["planning_cursor"] = {"source_file": f"source/{decomposed_name}", "offset": 4}
+    project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+
+    assert WorkflowStateService._planning_complete(project_path, project, source) is True
 
 
 @pytest.mark.integration
