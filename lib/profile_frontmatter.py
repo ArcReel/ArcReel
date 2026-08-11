@@ -23,7 +23,7 @@ class ProfileMetadata:
 def parse_profile_metadata(path: Path) -> ProfileMetadata:
     """Parse validated YAML metadata from a Skill or Subagent Markdown file."""
     try:
-        content = path.read_text(encoding="utf-8")
+        content = path.read_text(encoding="utf-8-sig")
     except UnicodeError as exc:
         raise FrontmatterError("frontmatter is not valid UTF-8") from exc
 

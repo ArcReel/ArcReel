@@ -806,6 +806,20 @@ def test_profile_status_reports_user_deletion_before_next_sync(tmp_path: Path) -
     }
 
 
+def test_profile_status_rejects_symlinked_profile_tree(tmp_path: Path) -> None:
+    from lib.profile_manifest import get_profile_status
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.md").write_text("secret", encoding="utf-8")
+    (project / ".claude").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="profile tree is a symlink"):
+        get_profile_status(profile, project, content_mode="narration")
+
+
 def test_force_resync_invalid_mode_raises(tmp_path: Path) -> None:
     from lib.profile_manifest import force_resync_profile
 

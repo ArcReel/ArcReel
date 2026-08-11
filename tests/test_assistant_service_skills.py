@@ -135,6 +135,33 @@ class TestListAvailableSkills:
         assert [skill["name"] for skill in skills] == ["valid"]
         assert "invalid skill frontmatter" in caplog.text
 
+    def test_accepts_bom_frontmatter_and_rejects_shifted_opening_delimiter(self, tmp_path, monkeypatch, caplog):
+        import logging
+
+        profile_root = tmp_path / "agent_runtime_profile"
+        skills_root = profile_root / ".claude" / "skills"
+        valid = skills_root / "valid"
+        invalid = skills_root / "invalid"
+        valid.mkdir(parents=True)
+        invalid.mkdir(parents=True)
+        (valid / "SKILL.md").write_bytes(b"\xef\xbb\xbf---\nname: valid\ndescription: Valid with BOM\n---\nBody\n")
+        (invalid / "SKILL.md").write_text(
+            "\n---\nname: invalid\ndescription: Shifted delimiter\n---\nBody\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_root))
+        with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
+            service = AssistantService.__new__(AssistantService)
+            from lib.project_manager import ProjectManager
+
+            service.pm = ProjectManager(tmp_path / "projects")
+
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.service"):
+            skills = service.list_available_skills()
+
+        assert [skill["name"] for skill in skills] == ["valid"]
+        assert "invalid skill frontmatter" in caplog.text
+
     def test_skips_variant_skill_when_user_invocable_disagrees(self, tmp_path, monkeypatch, caplog):
         """Variants with conflicting user-invocable frontmatter should be skipped with a warning."""
         import logging

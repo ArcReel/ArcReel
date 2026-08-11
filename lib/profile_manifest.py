@@ -258,7 +258,10 @@ def enumerate_dest_files(project_dir: Path) -> set[str]:
     files: set[str] = set()
     if (project_dir / _PROFILE_TOP_FILE).is_file():
         files.add(_PROFILE_TOP_FILE)
-    files |= {rel for rel in _walk_files(project_dir / _PROFILE_TREE_ROOT, project_dir) if not _is_skippable_dest(rel)}
+    dest_tree = project_dir / _PROFILE_TREE_ROOT
+    if dest_tree.is_symlink():
+        raise ValueError(f"profile tree is a symlink, refusing to enumerate: {dest_tree}")
+    files |= {rel for rel in _walk_files(dest_tree, project_dir) if not _is_skippable_dest(rel)}
     return files
 
 

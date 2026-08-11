@@ -1070,8 +1070,12 @@ class AssistantService:
 
         Parsed fields: name, description, user-invocable.
         """
-        content = skill_file.read_text(encoding="utf-8", errors="ignore")
-        if content.startswith("---"):
+        try:
+            content = skill_file.read_text(encoding="utf-8-sig")
+        except UnicodeError as exc:
+            logger.warning("invalid skill encoding in %s: %s; skipping", skill_file, exc)
+            return None
+        if content.lstrip().startswith("---"):
             try:
                 metadata = parse_profile_metadata(skill_file)
             except FrontmatterError as exc:

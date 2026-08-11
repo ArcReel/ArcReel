@@ -66,6 +66,10 @@ describe("ProjectSettingsPage – style picker", () => {
     );
     vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
+    vi.spyOn(API, "getAgentProfileStatus").mockResolvedValue({
+      customized: false,
+      customized_files: [],
+    });
   });
 
   it("shows customized Agent Profile files and resets only after destructive confirmation", async () => {

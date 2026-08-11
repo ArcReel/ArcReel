@@ -723,13 +723,18 @@ async def get_agent_profile_status(name: str, _t: Translator):
 
     def _sync():
         manager = get_project_manager()
-        project_dir = manager.get_project_path(name)
+        try:
+            project_dir = manager.get_project_path(name)
+        except ValueError as exc:
+            raise BadRequestError("invalid_project_name", name=name) from exc
         return manager.get_agent_profile_status(project_dir)
 
     try:
         return await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
+    except ApiError:
+        raise
     except Exception:
         logger.exception("读取项目 Agent Profile 状态失败: project=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
@@ -741,7 +746,10 @@ async def reset_agent_profile(name: str, _t: Translator):
 
     def _sync():
         manager = get_project_manager()
-        project_dir = manager.get_project_path(name)
+        try:
+            project_dir = manager.get_project_path(name)
+        except ValueError as exc:
+            raise BadRequestError("invalid_project_name", name=name) from exc
         stats = manager.force_resync_profile(project_dir)
         if stats.get("errors"):
             raise RuntimeError(f"profile reset completed with {stats['errors']} file errors")
@@ -751,6 +759,8 @@ async def reset_agent_profile(name: str, _t: Translator):
         return await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
+    except ApiError:
+        raise
     except Exception:
         logger.exception("重置项目 Agent Profile 失败: project=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))

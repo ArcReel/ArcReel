@@ -82,7 +82,7 @@ def _validate_projection(
             continue
         try:
             text = source.read_text(encoding="utf-8")
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             errors.append(f"{mode}:{source_rel}: cannot read projected file: {exc}")
             continue
         pointers = set(_ROOT_POINTER_RE.findall(text)) | set(_MARKDOWN_LINK_RE.findall(text))
@@ -102,7 +102,7 @@ def _validate_evals(profile_dir: Path, errors: list[str]) -> None:
             continue
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             errors.append(f"{path.relative_to(profile_dir)}: invalid eval JSON: {exc}")
             continue
         records: list[object]
@@ -134,7 +134,7 @@ def _validate_target_deprecations(profile_dir: Path, errors: list[str]) -> None:
     for path in sorted(profile_dir.rglob("*.md")):
         try:
             text = path.read_text(encoding="utf-8")
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             errors.append(f"{path.relative_to(profile_dir)}: cannot read: {exc}")
             continue
         for needle in _TARGET_DEPRECATED_STRINGS:

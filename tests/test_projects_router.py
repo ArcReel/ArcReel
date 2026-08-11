@@ -298,6 +298,18 @@ class TestProjectsRouter:
             assert fake_pm.profile_reset_calls == ["ready"]
 
     @pytest.mark.unit
+    def test_agent_profile_endpoints_reject_invalid_project_name(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            status = client.get("/api/v1/projects/illegal-name/agent-profile")
+            reset = client.post("/api/v1/projects/illegal-name/agent-profile/reset")
+
+        assert status.status_code == 400
+        assert status.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
+        assert reset.status_code == 400
+        assert reset.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
+
+    @pytest.mark.unit
     def test_list_and_create_and_delete(self, tmp_path, monkeypatch):
         client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
         with client:

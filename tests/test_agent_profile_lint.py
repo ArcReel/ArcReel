@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.profile_frontmatter import parse_profile_metadata
 from scripts.lint_agent_runtime_profile import lint_profile
 
 pytestmark = pytest.mark.unit
@@ -85,6 +86,28 @@ def test_target_deprecation_rules_are_explicit_for_variant_profile(tmp_path: Pat
         "deprecated" in error
         for error in lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
     )
+
+
+def test_reports_invalid_utf8_across_profile_inputs(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / "CLAUDE.narration.md").write_bytes(b"\xff")
+    (profile / "evals" / "cases.json").write_bytes(b"\xff")
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert any("cannot read projected file" in error for error in errors)
+    assert any("invalid eval JSON" in error for error in errors)
+    assert any(error.startswith("CLAUDE.narration.md: cannot read:") for error in errors)
+
+
+def test_frontmatter_accepts_utf8_bom(tmp_path: Path) -> None:
+    metadata_path = tmp_path / "SKILL.md"
+    metadata_path.write_bytes(b"\xef\xbb\xbf---\nname: demo\ndescription: Demo skill\n---\n")
+
+    metadata = parse_profile_metadata(metadata_path)
+
+    assert metadata.name == "demo"
+    assert metadata.description == "Demo skill"
 
 
 def test_shipped_profile_passes_current_lint() -> None:
