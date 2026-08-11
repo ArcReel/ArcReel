@@ -23,7 +23,7 @@ jq -sc '(map(.kind == "closed") | rindex(true) // -1) as $i | .[$i+1:] | map(sel
 
 ## 3. 接管非终态 issue
 
-逐个查询前任 agent 的执行状态；仍存活且有进展就继续观察，失效时先确认其已停止，再按 SKILL.md 第三步阶段表的交付物反推接力起点，使用 spawn-prompts.md 的替补接管附言委派新 agent。原 agent 未停止前不得让替补写同一个 worktree。
+前任 agent 可查询时，逐个查询其执行状态：仍存活且有进展就继续观察，失效时先确认其已停止。前任 agent 不可查询时，将其视为失效。随后按 SKILL.md 第三步阶段表与 Git/worktree 中的持久交付物反推接力起点，使用 spawn-prompts.md 的替补接管附言委派新 agent。能够确认原 agent 仍在运行时，不得让替补写同一个 worktree。
 
 - `review-loop`：poll 显示该 PR `updatedAt` 近期仍在变动时，先观察一个健康检查周期；若原 agent 仍存活就沿用，失效后才替补
 - `no-branch`：先检查 worktree。HEAD 有 `origin/main` 之外的完整 commit，且实现交付物核验通过时，从本地审查阶段接力；否则检查实现 agent 状态——在途且有进展就等待，已停止或停滞就按 SKILL.md 健康检查节处置。现场不可信时删除该 issue 的 worktree，从最新 `origin/main` 重建后重新实现
