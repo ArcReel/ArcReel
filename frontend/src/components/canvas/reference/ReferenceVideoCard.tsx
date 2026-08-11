@@ -126,13 +126,18 @@ export function ReferenceVideoCard({
   const project = useProjectsStore((s) => s.currentProjectData);
 
   const lookup: MentionLookup = useMemo(() => {
-    // 无原型字典 + 首次命中：与 ReferenceVideoCanvas.tsx 的 mentionLookup 同口径——`__proto__`
-    // 是合法资产名，普通对象上的赋值不会落自有属性；同名跨 bucket 时后写入不得覆盖先写入
-    // （character → scene → prop 优先级）。
+    // 无原型字典保证 `__proto__` 等合法资产名也能成为自有属性。
     const out: MentionLookup = Object.create(null) as MentionLookup;
+    const duplicates = new Set<string>();
     const claim = (name: string, kind: "character" | "scene" | "prop") => {
       const key = normalizeAssetName(name);
-      if (!Object.hasOwn(out, key)) out[key] = kind;
+      if (duplicates.has(key)) return;
+      if (Object.hasOwn(out, key)) {
+        delete out[key];
+        duplicates.add(key);
+        return;
+      }
+      out[key] = kind;
     };
     for (const name of Object.keys(project?.characters ?? {})) claim(name, "character");
     for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");

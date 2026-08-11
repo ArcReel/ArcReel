@@ -7,7 +7,7 @@ import unicodedata
 from collections.abc import Collection, Iterator
 from typing import Any
 
-from lib.asset_types import BUCKET_KEY, normalize_asset_bucket, normalize_asset_name
+from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket, normalize_asset_name
 from lib.script_models import ReferenceResource, Shot
 
 #: 镜头行 header：``镜头N：``（中英冒号均可）。时长已收编到 unit 级，header 不带秒数——
@@ -303,13 +303,13 @@ def rewrite_mentions(text: str, old_name: str, new_name: str) -> tuple[str, int]
     也会被命中改写。不做其他归一（不去 BOM、不整体 NFC），未命中的字符原样保留：重命名只
     该改名字本身，不该顺带改写正文的编码形式。已经是目标形式的 mention 不计入改写数。
     """
-    target = normalize_asset_name(old_name)
+    target = asset_name_comparison_key(old_name)
     replacement = f"@[{new_name}]"
     pieces: list[str] = []
     last = 0
     count = 0
     for start, end, name in _iter_mentions(text):
-        if normalize_asset_name(name) != target or text[start:end] == replacement:
+        if asset_name_comparison_key(name) != target or text[start:end] == replacement:
             continue
         pieces.append(text[last:start])
         pieces.append(replacement)
@@ -427,7 +427,7 @@ def resolve_references(
 ) -> tuple[list[ReferenceResource], list[str]]:
     """按 project.json 三 bucket 把 mention 名字分派成 ReferenceResource。
 
-    当同一名称同时存在于多个 bucket 时，优先级为 character → scene → prop。
+    schema v6 起项目资产共用名称空间，一个名字最多命中一个 bucket。
 
     名字与三张资产表都先归一到比对坐标系（:func:`lib.asset_types.normalize_asset_name`），
     产出的 ``ReferenceResource.name`` 与 ``missing`` 因此一律是归一形式：下游拿它回查资产表、
@@ -446,13 +446,12 @@ def resolve_references(
     refs: list[ReferenceResource] = []
     missing: list[str] = []
     for raw_name in names:
-        name = normalize_asset_name(raw_name)
-        resolved = False
-        for rtype, bucket in buckets.items():
-            if name in bucket:
-                refs.append(ReferenceResource(type=rtype, name=name))  # type: ignore[arg-type]
-                resolved = True
-                break
-        if not resolved:
+        name = asset_name_comparison_key(raw_name)
+        matches = [rtype for rtype, bucket in buckets.items() if name in bucket]
+        if len(matches) == 1:
+            refs.append(ReferenceResource(type=matches[0], name=name))  # type: ignore[arg-type]
+        elif not matches:
             missing.append(name)
+        else:
+            raise ValueError(f"项目资产名称空间损坏：{name!r} 同时存在于 {', '.join(matches)}")
     return refs, missing

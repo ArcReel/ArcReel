@@ -143,10 +143,7 @@ def render_unit_prompt(
     # 只是这次没随请求发图（纯画外角色同理——有主体、无图）。未登记的 mention 才留原文。
     subjects = {ref.name for ref in registered}
 
-    # 音频只能对齐到「同名且类型也是 character」的图：resolve_references 按
-    # character → scene → prop 的优先级分派，故场景/道具可能与某个角色同名——名字键的字典
-    # 若不先按类型过滤再建，两个同名的不同类型条目会互相覆盖（dict 同键取最后写入的那条），
-    # 导致编号指向错误的图。先过滤类型再建 name → 序号映射，从根上避免该覆盖。
+    # 音频只能挂到 character 参考图；按类型过滤后建 name → 序号映射。
     character_image_no = {ref.name: i for i, ref in enumerate(references, start=1) if ref.type == "character"}
 
     characters = _character_bucket(project)
@@ -242,9 +239,7 @@ def _render_segment_one(
     没有参考图（speaker 位不计入参考图派生），但音色声明照常。
 
     ``labels`` 是主体记号文本，逐项对应本次随请求发出的参考图（narration/drama 传 mention
-    派生的资产名，ad 传参考条目的展示 label）。图号按位置直接编号（非名字查表）：不同类型
-    的资产允许同名（见 ``render_unit_prompt`` 的 ``character_image_no`` 注释），名字键的字典
-    会把两个同名条目的图号互相覆盖，位置编号天然不受影响；空 label 占位不产出绑定行，编号
+    派生的资产名，ad 传参考条目的展示 label）。图号按位置直接编号（非名字查表）；空 label 占位不产出绑定行，编号
     照样前进，以免后续图号与请求顺序错位。
     """
     lines: list[str] = []
@@ -368,11 +363,7 @@ def render_ad_backend_prompt(
     characters = _character_bucket(project)
     utterances = _derive_ad_utterances(shots)
 
-    # 音频只能对齐到「同名且类型也是 character」的图：entries 里 character/scene/prop 的设计图
-    # 共用 kind == "asset"，三类资产允许重名，只有 asset_type 能把角色的图与同名场景/道具的图
-    # 分开——按名字判定会让同名场景的图被当成角色的图（并在名字键的字典里互相覆盖），
-    # 使 speakers_with_reference_image 误判、reference_audio_targets 指向错图（与剧集路径
-    # `character_image_no` 的同款过滤同一理由，见 `render_unit_prompt`）。
+    # 音频只能对齐到 asset_type == character 的设计图。
     # 名字归一到比对坐标系后再建映射：本映射与 derive_voice_bindings 产出的说话人（出自解析器、
     # 已归一）判等，entries 的名字则取自资产条目、形式不可控。
     character_image_no = {

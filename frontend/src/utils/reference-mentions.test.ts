@@ -114,7 +114,7 @@ describe("parser output is normalized", () => {
 describe("resolveMentionType", () => {
   const project = mkProject();
 
-  it("prefers character → scene → prop", () => {
+  it("resolves every registered asset type", () => {
     expect(resolveMentionType(project, "主角")).toBe("character");
     expect(resolveMentionType(project, "酒馆")).toBe("scene");
     expect(resolveMentionType(project, "长剑")).toBe("prop");
@@ -122,6 +122,11 @@ describe("resolveMentionType", () => {
 
   it("returns undefined for unknown names", () => {
     expect(resolveMentionType(project, "路人")).toBeUndefined();
+  });
+
+  it("does not disambiguate a corrupt duplicate namespace at runtime", () => {
+    const corrupt = { characters: { Shared: {} }, scenes: { Shared: {} }, props: {} };
+    expect(resolveMentionType(corrupt as never, "Shared")).toBeUndefined();
   });
 
   // toString / constructor / __proto__ 都通得过 validate_asset_name，用 `in` 查会命中

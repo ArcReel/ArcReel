@@ -157,13 +157,13 @@ export function extractMentions(text: string): string[] {
 type ProjectBuckets = Pick<ProjectData, "characters" | "scenes" | "props">;
 
 /**
- * 把资产名归一到比对坐标系（Unicode NFC）。镜像后端
- * `lib.asset_types.normalize_asset_name`——两侧必须同一坐标系，否则「后端判已登记、
+ * 把资产名归一到项目名称空间的比对坐标系（strip + Unicode NFC）。镜像后端
+ * `lib.asset_types.asset_name_comparison_key`——两侧必须同一坐标系，否则「后端判已登记、
  * 前端判未登记」（反之亦然），组合字符名（如越南语）在这两侧各自输入法/来源下
  * 尤其容易产出不同编码形式。
  */
 export function normalizeAssetName(name: string): string {
-  return name.normalize("NFC");
+  return name.trim().normalize("NFC");
 }
 
 function bucketHasName(bucket: Record<string, unknown> | undefined, target: string): boolean {
@@ -180,10 +180,11 @@ export function resolveMentionType(
 ): AssetKind | undefined {
   if (!project) return undefined;
   const target = normalizeAssetName(name);
-  if (bucketHasName(project.characters, target)) return "character";
-  if (bucketHasName(project.scenes, target)) return "scene";
-  if (bucketHasName(project.props, target)) return "prop";
-  return undefined;
+  const matches: AssetKind[] = [];
+  if (bucketHasName(project.characters, target)) matches.push("character");
+  if (bucketHasName(project.scenes, target)) matches.push("scene");
+  if (bucketHasName(project.props, target)) matches.push("prop");
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 /**

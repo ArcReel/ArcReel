@@ -45,6 +45,8 @@ class AssetSpec:
     sheet_field: str
     subdir: str
     label_zh: str
+    namespace_priority: int
+    reference_list_fields: tuple[str, ...]
     extra_string_fields: tuple[str, ...] = ()
     extra_list_fields: tuple[str, ...] = ()
     agent_editable_extra_fields: tuple[str, ...] = ()
@@ -58,6 +60,8 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         sheet_field="character_sheet",
         subdir="characters",
         label_zh="角色",
+        namespace_priority=0,
+        reference_list_fields=("characters_in_segment", "characters_in_scene", "characters_in_shot"),
         extra_string_fields=("voice_style", "reference_image", "reference_audio", "voice_notice_dismissed_at"),
         # voice_style 是 LLM 生成的角色配音风格，agent 可改；reference_image / reference_audio
         # 是用户上传的文件路径（系统级），不进 agent 白名单——更新分别走
@@ -75,6 +79,8 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         sheet_field="scene_sheet",
         subdir="scenes",
         label_zh="场景",
+        namespace_priority=1,
+        reference_list_fields=("scenes",),
         extra_string_fields=(),
         agent_editable_extra_fields=(),
     ),
@@ -84,6 +90,8 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         sheet_field="prop_sheet",
         subdir="props",
         label_zh="道具",
+        namespace_priority=2,
+        reference_list_fields=("props",),
         extra_string_fields=(),
         agent_editable_extra_fields=(),
     ),
@@ -93,6 +101,8 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         sheet_field="product_sheet",
         subdir="products",
         label_zh="产品",
+        namespace_priority=3,
+        reference_list_fields=("products_in_shot",),
         # brand 是用户填写的品牌要素自由文本；reference_images 是用户上传的多张产品
         # 原图路径（系统级，保真验收锚点），selling_points 是卖点列表（agent 起草、
         # 用户可改）。
@@ -114,6 +124,34 @@ BUCKET_KEY: dict[str, str] = {t: s.bucket_key for t, s in ASSET_SPECS.items()}
 SHEET_KEY: dict[str, str] = {t: s.sheet_field for t, s in ASSET_SPECS.items()}
 
 GLOBAL_LIBRARY_ASSET_TYPES: frozenset[str] = frozenset(t for t, s in ASSET_SPECS.items() if s.in_global_library)
+
+
+@dataclass(frozen=True)
+class ProjectAssetNameMatch:
+    """项目共享资产名称空间中的一个已有条目。"""
+
+    asset_type: str
+    bucket_key: str
+    name: str
+
+
+class ProjectAssetNameConflictError(ValueError):
+    """项目内的资产名与另一资产冲突。"""
+
+    def __init__(self, name: str, existing: ProjectAssetNameMatch, requested_asset_type: str | None = None):
+        self.name = name
+        self.existing = existing
+        self.requested_asset_type = requested_asset_type
+        requested = (
+            f"新增/改名后的{ASSET_SPECS[requested_asset_type].label_zh}"
+            if requested_asset_type in ASSET_SPECS
+            else "待写入资产"
+        )
+        super().__init__(
+            f"{requested}名称 {name!r} 与项目内已有{ASSET_SPECS[existing.asset_type].label_zh} "
+            f"{existing.name!r} 冲突（按 strip + Unicode NFC、大小写敏感判定）"
+        )
+
 
 ILLEGAL_ASSET_NAME_CHARS: tuple[str, ...] = ("/", "\\", "\0", ":", "*", "?", '"', "<", ">", "|", "]")
 
@@ -147,6 +185,92 @@ def normalize_asset_name(name: str) -> str:
     归一只做编码形式收敛，不改字、不改长度语义，对纯 ASCII 名是恒等变换。
     """
     return unicodedata.normalize("NFC", name)
+
+
+def asset_name_comparison_key(name: str) -> str:
+    """项目级资产名判等键：去除两端空白后收敛到 Unicode NFC。
+
+    这一坐标系仅用于名称空间判等，不做 case-fold；项目资产名大小写敏感。
+    """
+    return normalize_asset_name(name.strip())
+
+
+def find_project_asset_name(
+    project: object,
+    name: str,
+    *,
+    exclude_asset_type: str | None = None,
+    exclude_name: str | None = None,
+) -> ProjectAssetNameMatch | None:
+    """在 ``ASSET_SPECS`` 驱动的四类项目资产中查找等价名称。
+
+    ``exclude_*`` 只排除一个确切落盘条目，供 rename 检查目标名时忽略自身。
+    畸形 bucket 按空处理，其结构错误由 DataValidator 另行报告。
+    """
+    if not isinstance(project, dict):
+        return None
+    target = asset_name_comparison_key(name)
+    for asset_type, spec in ASSET_SPECS.items():
+        bucket = project.get(spec.bucket_key)
+        if not isinstance(bucket, dict):
+            continue
+        for raw_name in bucket:
+            if not isinstance(raw_name, str):
+                continue
+            if asset_type == exclude_asset_type and raw_name == exclude_name:
+                continue
+            if asset_name_comparison_key(raw_name) == target:
+                return ProjectAssetNameMatch(asset_type=asset_type, bucket_key=spec.bucket_key, name=raw_name)
+    return None
+
+
+def ensure_project_asset_name_available(
+    project: object,
+    name: str,
+    *,
+    requested_asset_type: str | None = None,
+    exclude_asset_type: str | None = None,
+    exclude_name: str | None = None,
+) -> None:
+    """断言项目共享名称空间中 *name* 可用，否则给出结构化冲突诊断。"""
+    existing = find_project_asset_name(
+        project,
+        name,
+        exclude_asset_type=exclude_asset_type,
+        exclude_name=exclude_name,
+    )
+    if existing is not None:
+        raise ProjectAssetNameConflictError(name, existing, requested_asset_type)
+
+
+def project_asset_name_conflicts(project: object) -> list[tuple[ProjectAssetNameMatch, ProjectAssetNameMatch]]:
+    """返回项目共享名称空间里的所有重名对，顺序稳定可复现。"""
+    if not isinstance(project, dict):
+        return []
+    first_by_key: dict[str, ProjectAssetNameMatch] = {}
+    conflicts: list[tuple[ProjectAssetNameMatch, ProjectAssetNameMatch]] = []
+    specs = sorted(ASSET_SPECS.values(), key=lambda spec: spec.namespace_priority)
+    for spec in specs:
+        bucket = project.get(spec.bucket_key)
+        if not isinstance(bucket, dict):
+            continue
+        for raw_name in bucket:
+            if not isinstance(raw_name, str):
+                continue
+            current = ProjectAssetNameMatch(spec.asset_type, spec.bucket_key, raw_name)
+            key = asset_name_comparison_key(raw_name)
+            first = first_by_key.setdefault(key, current)
+            if first is not current:
+                conflicts.append((first, current))
+    return conflicts
+
+
+def ensure_project_asset_namespace(project: object) -> None:
+    """断言项目四类资产全局唯一，报告第一个稳定冲突。"""
+    conflicts = project_asset_name_conflicts(project)
+    if conflicts:
+        first, current = conflicts[0]
+        raise ProjectAssetNameConflictError(current.name, first, current.asset_type)
 
 
 def normalize_asset_bucket(bucket: object) -> dict[str, Any]:

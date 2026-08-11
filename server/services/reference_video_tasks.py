@@ -418,9 +418,8 @@ def _resolve_ad_unit_reference_entries(
     各自 sheet。条目形如 ``{"image": Path, "label": str, "name": str, "kind":
     "sheet"|"original"|"asset"}``，label 供三段论第一段 ``<label>@图片N`` 主体绑定渲染
     （见 ``lib.reference_video.prompt_render.render_ad_backend_prompt``）；
-    ``kind == "asset"`` 的条目另带 ``"asset_type": "character"|"scene"|"prop"``——
-    三类资产允许重名，只有类型能把「角色的设计图」与同名场景/道具的设计图分开，
-    参考音频的图号对齐依赖该区分（见 ``render_ad_backend_prompt``）。
+    ``kind == "asset"`` 的条目另带 ``"asset_type": "character"|"scene"|"prop"``，
+    参考音频只对齐到 character 条目（见 ``render_ad_backend_prompt``）。
     """
     warnings: list[dict] = []
     product_names: list[str] = []

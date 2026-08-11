@@ -940,17 +940,21 @@ class TestProjectArchiveService:
         已登记的场景/道具会被误报 blocking 缺失。"""
         import unicodedata
 
-        name_nfc = unicodedata.normalize("NFC", "Hiếu")
-        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        character_nfc = unicodedata.normalize("NFC", "Hiếu")
+        character_nfd = unicodedata.normalize("NFD", "Hiếu")
+        scene_nfc = unicodedata.normalize("NFC", "Quán")
+        scene_nfd = unicodedata.normalize("NFD", "Quán")
+        prop_nfc = unicodedata.normalize("NFC", "Kiếm")
+        prop_nfd = unicodedata.normalize("NFD", "Kiếm")
 
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
 
         project = pm.load_project("demo")
-        project["characters"][name_nfc] = {"description": "已登记角色"}
-        project["scenes"] = {name_nfc: {"description": "已登记场景"}}
-        project["props"][name_nfc] = {"description": "已登记道具"}
+        project["characters"][character_nfc] = {"description": "已登记角色"}
+        project["scenes"] = {scene_nfc: {"description": "已登记场景"}}
+        project["props"][prop_nfc] = {"description": "已登记道具"}
         pm.save_project("demo", project)
 
         _write_json(
@@ -965,9 +969,9 @@ class TestProjectArchiveService:
                         "segment_id": "E1S01",
                         "duration_seconds": 4,
                         "novel_text": "原文",
-                        "characters_in_segment": [name_nfd],
-                        "scenes": [name_nfd],
-                        "props": [name_nfd],
+                        "characters_in_segment": [character_nfd],
+                        "scenes": [scene_nfd],
+                        "props": [prop_nfd],
                         "image_prompt": "img",
                         "video_prompt": "vid",
                     }
@@ -982,7 +986,7 @@ class TestProjectArchiveService:
         result = service.import_project_archive(archive_path, uploaded_filename="nfc-nfd.zip")
 
         imported = pm.load_project(result.project_name)
-        assert name_nfd not in imported["characters"]  # 不补重复占位角色
+        assert character_nfd not in imported["characters"]  # 不补重复占位角色
         assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
 
     @pytest.mark.unit

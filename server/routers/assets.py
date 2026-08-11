@@ -19,8 +19,11 @@ from lib.asset_types import (
     BUCKET_KEY,
     GLOBAL_LIBRARY_ASSET_TYPES,
     SHEET_KEY,
+    ProjectAssetNameConflictError,
+    asset_name_comparison_key,
+    ensure_project_asset_name_available,
+    find_project_asset_name,
     localize_asset_type,
-    normalize_asset_name,
     resolve_asset_key,
     validate_asset_name,
 )
@@ -465,11 +468,14 @@ async def apply_to_project(
     # 4) 先在内存里算好每条 asset 的目标名 + 是否需要拷贝文件，
     #    再一次性执行文件拷贝和 project.json 写回
     project_dir = project_manager.get_project_path(req.target_project)
-    # 按 bucket 维护一份"已占用的名字"集合（NFC 坐标系，存量 key 可能是 NFD），
-    # 用于冲突判定与 rename 策略的累积冲突检查
-    bucket_names: dict[str, set[str]] = {
-        bk: {normalize_asset_name(str(k)) for k in (project.get(bk) or {})} for bk in BUCKET_KEY.values()
-    }
+    # 四类资产共用一份名称占用表；owner 用于区分同类 overwrite 与不可覆盖的跨类型冲突。
+    occupied: dict[str, tuple[str, str]] = {}
+    for asset_type, bucket_key in BUCKET_KEY.items():
+        bucket = project.get(bucket_key)
+        if isinstance(bucket, dict):
+            for raw_name in bucket:
+                if isinstance(raw_name, str):
+                    occupied[asset_name_comparison_key(raw_name)] = (asset_type, raw_name)
     plans: list[dict] = []
     for asset_id in req.asset_ids:
         a = assets_by_id.get(asset_id)
@@ -478,26 +484,28 @@ async def apply_to_project(
 
         bucket_key = BUCKET_KEY[a.type]
         sheet_key = SHEET_KEY[a.type]
-        names = bucket_names[bucket_key]
-
         try:
             desired_name = _validate_asset_name(a.name, _t)
         except HTTPException:
             failed.append({"id": a.id, "reason": "invalid_name"})
             continue
 
-        if desired_name in names:
+        existing = occupied.get(asset_name_comparison_key(desired_name))
+        if existing is not None:
+            same_type = existing[0] == a.type
             if req.conflict_policy == "skip":
                 skipped.append({"id": a.id, "name": a.name})
                 continue
             if req.conflict_policy == "rename":
-                # 基名用校验后的 desired_name（NFC），与 names 集合同坐标系，DB 原文可能是 NFD
                 base_name = desired_name
                 i = 2
-                while f"{base_name} ({i})" in names:
+                while asset_name_comparison_key(f"{base_name} ({i})") in occupied:
                     i += 1
                 desired_name = f"{base_name} ({i})"
-            # overwrite: 保留原名，后续覆盖
+            elif not same_type:
+                failed.append({"id": a.id, "reason": "project_name_conflict"})
+                continue
+            # overwrite 只能覆盖同类型条目。
 
         # 规划图片拷贝
         target_sheet: str | None = None
@@ -551,7 +559,7 @@ async def apply_to_project(
                 failed.append({"id": a.id, "reason": "audio_missing"})
                 continue
 
-        names.add(desired_name)
+        occupied[asset_name_comparison_key(desired_name)] = (a.type, desired_name)
         plans.append(
             {
                 "asset": a,
@@ -567,7 +575,8 @@ async def apply_to_project(
             }
         )
 
-    # 5) 执行文件拷贝（off event loop）
+    # 5) 文件与 project.json 都在 update_project 的项目锁内提交；先完整复核名称空间，
+    #    避免规划后发生的并发写让文件先落盘、项目写回才因跨类型冲突失败。
     def _copy_all() -> None:
         for plan in plans:
             for src_key, dst_key in (("copy_src", "copy_dst"), ("copy_audio_src", "copy_audio_dst")):
@@ -578,11 +587,13 @@ async def apply_to_project(
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(src, dst)
 
-    if plans:
-        await asyncio.to_thread(_copy_all)
-
     # 6) 单次 update_project 把所有 bucket 变更一次性写回
     def _apply_all(data: dict) -> None:
+        for plan in plans:
+            match = find_project_asset_name(data, plan["desired_name"])
+            if match is not None and match.asset_type != plan["asset"].type:
+                raise ProjectAssetNameConflictError(plan["desired_name"], match, plan["asset"].type)
+        _copy_all()
         for plan in plans:
             a_ = plan["asset"]
             bk = plan["bucket_key"]
@@ -590,6 +601,14 @@ async def apply_to_project(
             name_ = plan["desired_name"]
             ts = plan["target_sheet"]
             ta = plan["target_audio"]
+            existing = find_project_asset_name(data, name_)
+            ensure_project_asset_name_available(
+                data,
+                name_,
+                requested_asset_type=a_.type,
+                exclude_asset_type=a_.type,
+                exclude_name=existing.name if existing is not None and existing.asset_type == a_.type else None,
+            )
             payload: dict = {"description": a_.description or ""}
             if a_.type == "character":
                 payload["voice_style"] = a_.voice_style or ""
@@ -602,11 +621,11 @@ async def apply_to_project(
             if bk not in data or not isinstance(data.get(bk), dict):
                 data[bk] = {}
             # overwrite 策略要落在存量真实 key 上（可能是 NFD），否则会并存两条视觉同名条目
-            key = resolve_asset_key(data[bk], name_) or name_
+            key = existing.name if existing is not None and existing.asset_type == a_.type else name_
             data[bk][key] = payload
 
     if plans:
-        project_manager.update_project(req.target_project, _apply_all)
+        await asyncio.to_thread(project_manager.update_project, req.target_project, _apply_all)
 
     for plan in plans:
         succeeded.append({"id": plan["asset"].id, "name": plan["desired_name"]})

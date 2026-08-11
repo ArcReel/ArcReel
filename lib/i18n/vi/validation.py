@@ -72,6 +72,10 @@ MESSAGES = {
     "val_asset_field_bad_timestamp": ("{asset_type} '{name}'.{field} không phải dấu thời gian ISO8601 hợp lệ: {value}"),
     "val_asset_field_must_be_string_list": ("{asset_type} '{name}'.{field} phải là danh sách chuỗi, hiện là {actual}"),
     "val_asset_field_item_must_be_string": "{asset_type} '{name}'.{field}[{index}] phải là chuỗi, hiện là {actual}",
+    "val_asset_name_duplicate": (
+        "Trùng tên tài nguyên dự án: {duplicate_type} '{duplicate_name}' xung đột với "
+        "{first_type} '{first_name}' sau khi strip + chuẩn hóa Unicode NFC"
+    ),
     # ---- tham chiếu cấp mục ----
     "val_refs_unregistered": "{prefix}: {field} tham chiếu {asset_type} không có trong project.json: {names}",
     "val_missing_defaults_empty_array": "{prefix}: thiếu {field}, sẽ dùng mảng rỗng mặc định",

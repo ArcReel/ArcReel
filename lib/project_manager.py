@@ -36,6 +36,10 @@ from lib.asset_rename import (
 )
 from lib.asset_types import (
     ASSET_SPECS,
+    ProjectAssetNameConflictError,
+    ensure_project_asset_name_available,
+    ensure_project_asset_namespace,
+    find_project_asset_name,
     normalize_asset_bucket,
     normalize_asset_name,
     rekey_equivalent_entries,
@@ -1543,6 +1547,8 @@ class ProjectManager:
         self._touch_metadata(project)
 
         with self._project_lock(project_name):
+            if self._requires_unique_asset_namespace(project):
+                ensure_project_asset_namespace(project)
             atomic_write_json(project_file, project)
 
         emit_project_change_hint(
@@ -1575,7 +1581,11 @@ class ProjectManager:
         with self._project_lock(project_name):
             with open(project_file, encoding="utf-8") as f:
                 project = json.load(f)
+            if self._requires_unique_asset_namespace(project):
+                ensure_project_asset_namespace(project)
             mutate_fn(project)
+            if self._requires_unique_asset_namespace(project):
+                ensure_project_asset_namespace(project)
             self._migrate_legacy_resolution_on_save(project)
             self._migrate_legacy_style(project)
             self._touch_metadata(project)
@@ -1595,6 +1605,12 @@ class ProjectManager:
             project["metadata"] = {"created_at": now, "updated_at": now}
         else:
             project["metadata"]["updated_at"] = now
+
+    @staticmethod
+    def _requires_unique_asset_namespace(project: dict) -> bool:
+        """schema v6 起禁止普通业务写继续操作已损坏的资产名称空间。"""
+        version = project.get("schema_version")
+        return isinstance(version, int) and not isinstance(version, bool) and version >= 6
 
     @staticmethod
     def _migrate_legacy_resolution_on_save(project: dict) -> None:
@@ -1791,7 +1807,7 @@ class ProjectManager:
         # 仅返回项目数据，不执行任何写入
         return self.load_project(project_name)
 
-    # ==================== 项目级资产统一 API（character / scene / prop） ====================
+    # ================ 项目级资产统一 API（character / scene / prop / product） ================
     #
     # 这一节的 6 个私有方法按 lib.asset_types.ASSET_SPECS 驱动，统一处理 character /
     # scene / prop 三类项目级资产的桶级读写。下方的 public 方法（add_project_scene /
@@ -1815,6 +1831,7 @@ class ProjectManager:
             if resolve_asset_key(bucket, name) is not None:
                 logger.debug("%s '%s' 已存在于 project.json，跳过", spec.label_zh, name)
                 return
+            ensure_project_asset_name_available(project, name, requested_asset_type=asset_type)
             bucket[name] = entry
             added = True
 
@@ -1854,6 +1871,7 @@ class ProjectManager:
                 if resolve_asset_key(bucket, name) is not None:
                     logger.debug("%s '%s' 已存在，跳过", spec.label_zh, name)
                     continue
+                ensure_project_asset_name_available(project, name, requested_asset_type=asset_type)
                 bucket[name] = entry
                 added += 1
                 logger.info("添加%s: %s", spec.label_zh, name)
@@ -1863,7 +1881,7 @@ class ProjectManager:
         return added
 
     def upsert_assets(self, project_name: str, table: str, entries: dict[str, dict]) -> dict[str, Any]:
-        """按 table（characters/scenes/props）+ name upsert 资产：不存在则新增、存在则改字段。
+        """按 table（characters/scenes/props/products）+ name upsert 资产：不存在则新增、存在则改字段。
 
         在 `update_project` 的单一文件锁内完成 read-modify-write；apply 后、落盘前对结果
         project dict 做 payload 级结构校验，按**「不更坏」语义**裁决：仅当本次 upsert 把原本
@@ -1961,7 +1979,10 @@ class ProjectManager:
                 raise ValueError(f"project[{spec.bucket_key!r}] 必须是对象，当前为 {type(bucket).__name__}")
             for name, attrs in cleaned.items():
                 # 存量 entry 的 key 可能是 NFD：解析真实 key 就地更新，而非按 NFC 名新建第二条
-                key = resolve_asset_key(bucket, name) or name
+                match = find_project_asset_name(project, name)
+                if match is not None and match.asset_type != asset_type:
+                    raise ProjectAssetNameConflictError(name, match, asset_type)
+                key = match.name if match is not None else name
                 existing = isinstance(bucket.get(key), dict)
                 # 仅对已存在 entry 检测 no-op:全字段被白名单/legacy strip 丢空时 update({})
                 # 实际不变,归到 noop 而非 merged 避免「合并 1 个」误报。新 entry 即使
@@ -1996,7 +2017,7 @@ class ProjectManager:
             "dropped_legacy": dropped_legacy,
         }
 
-    # bucket_key（characters/scenes/props）→ 资产类型，从静态 ASSET_SPECS 派生一次，避免每次 upsert 重建。
+    # bucket_key（characters/scenes/props/products）→ 资产类型，从静态 ASSET_SPECS 派生一次。
     _BUCKET_TO_ASSET_TYPE = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
 
     @classmethod
@@ -2085,6 +2106,13 @@ class ProjectManager:
             conflict_key = resolve_asset_key(bucket, new_clean)
             if conflict_key is not None and conflict_key != old_key:
                 raise AssetRenameConflictError(conflict_key)
+            ensure_project_asset_name_available(
+                project,
+                new_clean,
+                requested_asset_type=asset_type,
+                exclude_asset_type=asset_type,
+                exclude_name=old_key,
+            )
 
             # —— 扫描（dry-run 预览与执行共用同一套逻辑）——
             references = 0
@@ -2224,7 +2252,10 @@ class ProjectManager:
         def _mutate(project: dict) -> None:
             bucket = project["characters"]
             # 覆盖写也要落在存量真实 key 上（可能是 NFD），否则会残留视觉同名的旧条目
-            key = resolve_asset_key(bucket, name) or name
+            match = find_project_asset_name(project, name)
+            if match is not None and match.asset_type != "character":
+                raise ProjectAssetNameConflictError(name, match, "character")
+            key = match.name if match is not None else name
             bucket[key] = {
                 "description": description,
                 "voice_style": voice_style or "",
@@ -2371,7 +2402,7 @@ class ProjectManager:
 
         return self.update_project(project_name, _mutate)
 
-    # ==================== 角色/场景/道具直接写入工具 ====================
+    # ==================== 项目资产直接写入工具 ====================
 
     @staticmethod
     def _build_asset_entry(asset_type: str, description: str, source: dict | None = None) -> dict:

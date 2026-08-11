@@ -233,11 +233,11 @@ AI 生成的角色/场景/道具定型图（`character_sheet` / `scene_sheet` / 
 _Avoid_: 与「参考图（reference image，生成的条件输入）」混为一谈——方向相反：sheet 是产出后再被引用，参考图是输入；也不要与 character 的用户上传 `reference_image` 字段混淆（那是用户上传的参考文件，非 AI 定型图）。
 
 **资产名坐标系（asset name normalization）**：
-资产名的比对总是「文本里的名字 × 资产表的 key」，两侧须在同一坐标系（Unicode NFC）里才判得准，函数集中在 `lib/asset_types`。登记闸口 `validate_asset_name`（strip + NFC）覆盖全部新写入路径，NFD 输入（macOS 输入法与文件名拖放天然产生）因此不再落成视觉同名的第二条资产；存量 key 保持原形态、**不迁移**，由读取侧承担：整桶比对用 `normalize_asset_bucket`，按 key 就地更新/删除/判冲突用 `resolve_asset_key` 解析出真实落盘 key 再操作。同名多形态的存量 key 之间一律**后写入胜出**，后端两函数与前端 `sheetOf` / `VoiceLegacyBanner` 同向。展示值（`Voice_Profiles` 的 Speaker、参考图 label）保留原文，只有索引与去重走归一。
-_Avoid_: 拿归一后的名字直接下标存量桶——会对同一个视觉名字新建第二条资产或漏判冲突；在比对点逐处补归一而不走上述函数；把全局资产库 DB 侧的按名唯一性算进来——`assets` 表仍是字节精确比对，不在这个坐标系内。
+项目资产名的判等坐标系是 **strip + Unicode NFC、大小写敏感**，函数集中在 `lib/asset_types`。`character / scene / prop / product` 共用一个项目级名称空间，任何两项不得同名；登记闸口 `validate_asset_name` 把新名落成 strip + NFC 形态，schema v6 迁移会把存量 key、引用、媒体与版本历史一次性级联收敛。`ASSET_SPECS.namespace_priority` 定义存量冲突的稳定所有者优先级；同类 Unicode 等价条目延续迁移前的后写胜出语义，其余条目获得类型后缀新名。全局资产库 DB 不在这个名称空间内。
+_Avoid_: 在业务读取或渲染路径保留跨类型同名的优先级消歧、双读兼容或 registry 参数；把全局资产库的名字约束扩大到项目外。
 
 **资产重命名（asset rename）**：
-以 name 为身份的资产改换名称的**原子级联事务**：资产桶 key、全部剧集剧本中的名称引用（各骨架引用数组、说话人 speaker、`@[名称]` mention）、按名命名的关联文件（设计图/参考图/参考音频/版本快照）及其路径字段一次改齐，维持「文件 stem = 资产名」不变式。目标名与既有同类型资产冲突（NFC 坐标系判定）即拒绝。全局资产库不联动（快照复制语义，库有独立改名入口）；不与进行中的生成任务互斥，属已知限制。
+以 name 为身份的资产改换名称的**原子级联事务**：资产桶 key、全部剧集剧本中的名称引用（各骨架引用数组、说话人 speaker、`@[名称]` mention）、按名命名的关联文件（设计图/参考图/参考音频/版本快照）及其路径字段一次改齐，维持「文件 stem = 资产名」不变式。目标名与项目内任一资产冲突即拒绝。全局资产库不联动（快照复制语义，库有独立改名入口）；不与进行中的生成任务互斥，属已知限制。
 _Avoid_: 用「新名 upsert + 删旧名」拼装改名——引用会断裂、旧名残留；目标名已存在时并入——那是合并，另一种语义，重命名不承载；把它与全局库改名传导混为一谈。
 
 **全局资产库（global asset library）**：

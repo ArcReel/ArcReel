@@ -237,8 +237,7 @@ def build_script_preview(
     utterances, syntax_warnings = derive_utterances(shots)
     warnings.extend(syntax_warnings)
 
-    # 音频只能对齐到「同名且类型也是 character」的图：scene/prop 可能与角色同名，image_no
-    # 若按名字判定会把「这个名字有图」误判成「这个角色有图」。同时按能力上限裁剪后再判定，
+    # 音频只能对齐到 character 参考图。同时按能力上限裁剪后再判定，
     # 与执行层「先裁 references 再渲染」的口径对齐。
     clipped_references = references[:max_reference_images] if max_reference_images is not None else references
     character_image_names = {ref.name for ref in clipped_references if ref.type == "character"}

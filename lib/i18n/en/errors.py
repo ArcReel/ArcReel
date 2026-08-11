@@ -208,6 +208,10 @@ MESSAGES = {
     "product_already_exists": "Product '{name}' already exists",
     "product_not_found": "Product '{name}' not found",
     "product_deleted": "Product '{name}' deleted",
+    "project_asset_name_conflict": (
+        "{requested_type} name '{name}' is already used by {existing_type} '{existing_name}'. "
+        "Characters, scenes, props, and products in one project must have unique names"
+    ),
     # API Keys
     "jwt_auth_required": "API Key is not authorized to perform this action, please use JWT authentication",
     "api_key_name_exists": "Name '{name}' already exists",

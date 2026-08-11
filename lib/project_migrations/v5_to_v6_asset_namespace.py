@@ -1,0 +1,423 @@
+"""v5→v6：把四类项目资产收敛到一个名称空间。"""
+
+from __future__ import annotations
+
+import copy
+import logging
+import os
+import shutil
+import tempfile
+import uuid
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from typing import Any
+
+from lib.asset_rename import rewrite_entry_paths
+from lib.asset_types import (
+    ASSET_SPECS,
+    AssetSpec,
+    asset_name_comparison_key,
+    ensure_project_asset_namespace,
+    validate_asset_name,
+)
+from lib.json_io import atomic_write_json, load_json
+from lib.reference_video.shot_parser import match_dialogue_line, rewrite_mentions, strip_shot_header
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _AssetOccurrence:
+    asset_type: str
+    spec: AssetSpec
+    old_name: str
+    entry: Any
+    ordinal: int
+    key: str
+    new_name: str = ""
+
+
+def _ordered_specs() -> list[AssetSpec]:
+    return sorted(ASSET_SPECS.values(), key=lambda spec: spec.namespace_priority)
+
+
+def _plan_occurrences(project: dict[str, Any]) -> list[_AssetOccurrence]:
+    occurrences: list[_AssetOccurrence] = []
+    ordinal = 0
+    for spec in _ordered_specs():
+        bucket = project.get(spec.bucket_key, {})
+        if not isinstance(bucket, dict):
+            raise ValueError(f"project[{spec.bucket_key!r}] 必须是对象，无法迁移资产名称空间")
+        for raw_name, entry in bucket.items():
+            clean = validate_asset_name(raw_name)
+            occurrences.append(
+                _AssetOccurrence(
+                    asset_type=spec.asset_type,
+                    spec=spec,
+                    old_name=raw_name,
+                    entry=entry,
+                    ordinal=ordinal,
+                    key=asset_name_comparison_key(clean),
+                )
+            )
+            ordinal += 1
+
+    groups: dict[str, list[_AssetOccurrence]] = {}
+    for occurrence in occurrences:
+        groups.setdefault(occurrence.key, []).append(occurrence)
+
+    # 先预留所有存量规范名，后缀分配不得抢走另一资产原本合法的名字。
+    occupied = set(groups)
+    for key, group in groups.items():
+        best_priority = min(item.spec.namespace_priority for item in group)
+        # 同类等价 key 延续存量读侧“后写入胜出”语义；跨类型先比稳定优先级。
+        winner = [item for item in group if item.spec.namespace_priority == best_priority][-1]
+        winner.new_name = validate_asset_name(winner.old_name)
+        if len(group) > 1:
+            logger.warning(
+                "项目资产名 %r 存在冲突；无类型 mention 按稳定所有者 %s/%r 归属，其余资产级联改名",
+                key,
+                winner.asset_type,
+                winner.new_name,
+            )
+        suffix_counters: dict[str, int] = {}
+        for item in group:
+            if item is winner:
+                continue
+            base = f"{validate_asset_name(item.old_name)}_{item.asset_type}"
+            index = suffix_counters.get(base, 1)
+            candidate = base if index == 1 else f"{base}_{index}"
+            while asset_name_comparison_key(candidate) in occupied:
+                index += 1
+                candidate = f"{base}_{index}"
+            suffix_counters[base] = index + 1
+            item.new_name = validate_asset_name(candidate)
+            occupied.add(asset_name_comparison_key(item.new_name))
+    return occurrences
+
+
+def _typed_owner_map(occurrences: list[_AssetOccurrence]) -> dict[tuple[str, str], _AssetOccurrence]:
+    owners: dict[tuple[str, str], _AssetOccurrence] = {}
+    for item in occurrences:
+        # 同类型等价条目按存量读侧后写胜出。
+        owners[(item.asset_type, item.key)] = item
+    return owners
+
+
+def _mention_owner_map(occurrences: list[_AssetOccurrence]) -> dict[str, _AssetOccurrence]:
+    owners: dict[str, _AssetOccurrence] = {}
+    for item in occurrences:
+        current = owners.get(item.key)
+        if current is None or item.spec.namespace_priority < current.spec.namespace_priority:
+            owners[item.key] = item
+        elif item.spec.namespace_priority == current.spec.namespace_priority:
+            owners[item.key] = item
+    return owners
+
+
+def _contextual_targets(node: dict[str, Any], typed: dict[tuple[str, str], _AssetOccurrence]) -> dict[str, str]:
+    candidates: dict[str, set[str]] = {}
+    for spec in _ordered_specs():
+        for field in spec.reference_list_fields:
+            values = node.get(field)
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                if not isinstance(value, str):
+                    continue
+                owner = typed.get((spec.asset_type, asset_name_comparison_key(value)))
+                if owner is not None:
+                    candidates.setdefault(owner.key, set()).add(owner.new_name)
+    references = node.get("references")
+    if isinstance(references, list):
+        for reference in references:
+            if not isinstance(reference, dict):
+                continue
+            asset_type = reference.get("type")
+            name = reference.get("name")
+            if not isinstance(asset_type, str) or not isinstance(name, str):
+                continue
+            owner = typed.get((asset_type, asset_name_comparison_key(name)))
+            if owner is not None:
+                candidates.setdefault(owner.key, set()).add(owner.new_name)
+    return {key: next(iter(targets)) for key, targets in candidates.items() if len(targets) == 1}
+
+
+def _rewrite_text(
+    text: str,
+    node: dict[str, Any],
+    typed: dict[tuple[str, str], _AssetOccurrence],
+    mention_owners: dict[str, _AssetOccurrence],
+) -> str:
+    contextual = _contextual_targets(node, typed)
+    char_targets = {key: item.new_name for (kind, key), item in typed.items() if kind == "character"}
+    output: list[str] = []
+    for line in text.splitlines(keepends=True):
+        body = line.rstrip("\r\n")
+        ending = line[len(body) :]
+        dialogue = match_dialogue_line(strip_shot_header(body))
+        protected: set[str] = set()
+        if dialogue is not None:
+            speaker_key = asset_name_comparison_key(dialogue[0])
+            target = char_targets.get(speaker_key)
+            if target is not None:
+                body, _ = rewrite_mentions(body, speaker_key, target)
+                protected.add(speaker_key)
+        for key, owner in mention_owners.items():
+            if key in protected:
+                continue
+            body, _ = rewrite_mentions(body, key, contextual.get(key, owner.new_name))
+        output.append(body + ending)
+    return "".join(output)
+
+
+def _rewrite_payload(
+    payload: dict[str, Any],
+    occurrences: list[_AssetOccurrence],
+) -> None:
+    typed = _typed_owner_map(occurrences)
+    mention_owners = _mention_owner_map(occurrences)
+    field_types = {field: spec.asset_type for spec in _ordered_specs() for field in spec.reference_list_fields}
+
+    # 旧式剧本顶层角色镜像同样独立 re-key，不用会合并等价 key 的普通 rename helper。
+    embedded = payload.get("characters")
+    if isinstance(embedded, dict):
+        rebuilt: dict[str, Any] = {}
+        exact = {item.old_name: item for item in occurrences if item.asset_type == "character"}
+        for old_name, entry in embedded.items():
+            item = exact.get(old_name) or typed.get(("character", asset_name_comparison_key(str(old_name))))
+            target = item.new_name if item is not None else old_name
+            cloned = copy.deepcopy(entry)
+            if item is not None and isinstance(cloned, dict):
+                rewrite_entry_paths(cloned, item.spec, item.old_name, target)
+            rebuilt[target] = cloned
+        payload["characters"] = rebuilt
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            for key, value in list(node.items()):
+                asset_type = field_types.get(key)
+                if asset_type is not None and isinstance(value, list):
+                    for index, raw in enumerate(value):
+                        if isinstance(raw, str):
+                            owner = typed.get((asset_type, asset_name_comparison_key(raw)))
+                            if owner is not None:
+                                value[index] = owner.new_name
+                        else:
+                            walk(raw)
+                    continue
+                if key == "references" and isinstance(value, list):
+                    for reference in value:
+                        if not isinstance(reference, dict):
+                            continue
+                        asset_kind = reference.get("type")
+                        raw_name = reference.get("name")
+                        if isinstance(asset_kind, str) and isinstance(raw_name, str):
+                            owner = typed.get((asset_kind, asset_name_comparison_key(raw_name)))
+                            if owner is not None:
+                                reference["name"] = owner.new_name
+                    continue
+                if key == "speaker" and isinstance(value, str):
+                    owner = typed.get(("character", asset_name_comparison_key(value)))
+                    if owner is not None:
+                        node[key] = owner.new_name
+                    continue
+                if key == "text" and isinstance(value, str):
+                    node[key] = _rewrite_text(value, node, typed, mention_owners)
+                    continue
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(payload)
+
+
+def _record_for_stem(
+    records: list[_AssetOccurrence], stem: str, *, allow_sequence: bool
+) -> tuple[_AssetOccurrence, str] | None:
+    for item in records:
+        if stem == item.old_name:
+            return item, ""
+    if allow_sequence:
+        for item in sorted(records, key=lambda value: len(value.old_name), reverse=True):
+            prefix = f"{item.old_name}_"
+            if stem.startswith(prefix) and stem[len(prefix) :].isdigit():
+                return item, stem[len(item.old_name) :]
+    key = asset_name_comparison_key(stem)
+    matches = [item for item in records if item.key == key]
+    if matches:
+        return matches[-1], ""
+    return None
+
+
+def _plan_media_moves(project_dir: Path, occurrences: list[_AssetOccurrence]) -> list[tuple[Path, Path]]:
+    moves: list[tuple[Path, Path]] = []
+    for spec in _ordered_specs():
+        records = [item for item in occurrences if item.asset_type == spec.asset_type]
+        base = project_dir / spec.subdir
+        sequenced_refs = "reference_images" in spec.extra_list_fields
+        for directory, allow_sequence in (
+            (base, False),
+            (base / "refs", sequenced_refs),
+            (base / "refs_audio", False),
+        ):
+            if not directory.is_dir():
+                continue
+            for source in sorted(directory.iterdir()):
+                if not source.is_file():
+                    continue
+                match = _record_for_stem(records, source.stem, allow_sequence=allow_sequence)
+                if match is None:
+                    continue
+                item, sequence = match
+                destination = source.with_name(f"{item.new_name}{sequence}{source.suffix}")
+                if source != destination:
+                    moves.append((source, destination))
+    return moves
+
+
+def _rewrite_versions(project_dir: Path, occurrences: list[_AssetOccurrence]) -> list[tuple[Path, Path]]:
+    versions_file = project_dir / "versions" / "versions.json"
+    if not versions_file.is_file():
+        return []
+    payload = load_json(versions_file)
+    if not isinstance(payload, dict):
+        raise ValueError("versions/versions.json 必须是对象")
+    moves: list[tuple[Path, Path]] = []
+    typed = _typed_owner_map(occurrences)
+    for spec in _ordered_specs():
+        bucket = payload.get(spec.bucket_key)
+        if not isinstance(bucket, dict):
+            continue
+        exact = {item.old_name: item for item in occurrences if item.asset_type == spec.asset_type}
+        rebuilt: dict[str, Any] = {}
+        for old_name, record in bucket.items():
+            item = exact.get(old_name) or typed.get((spec.asset_type, asset_name_comparison_key(str(old_name))))
+            if item is None:
+                rebuilt[old_name] = record
+                continue
+            cloned = copy.deepcopy(record)
+            versions = cloned.get("versions") if isinstance(cloned, dict) else None
+            if isinstance(versions, list):
+                for version in versions:
+                    if not isinstance(version, dict) or not isinstance(version.get("file"), str):
+                        continue
+                    relative = PurePosixPath(version["file"].replace("\\", "/"))
+                    old_prefix = f"{old_name}_v"
+                    basename = relative.name
+                    if basename.startswith(old_prefix):
+                        suffix = basename[len(old_name) :]
+                    else:
+                        marker = basename.rfind("_v")
+                        if marker < 0 or asset_name_comparison_key(basename[:marker]) != item.key:
+                            continue
+                        suffix = basename[marker:]
+                    new_relative = relative.with_name(f"{item.new_name}{suffix}")
+                    source = project_dir / relative
+                    destination = project_dir / new_relative
+                    if source != destination:
+                        moves.append((source, destination))
+                    version["file"] = str(new_relative)
+            rebuilt[item.new_name] = cloned
+        payload[spec.bucket_key] = rebuilt
+    atomic_write_json(versions_file, payload)
+    return moves
+
+
+def _execute_moves(moves: list[tuple[Path, Path]]) -> None:
+    sources = {source for source, _ in moves if source.exists()}
+    destinations: set[Path] = set()
+    pending: list[tuple[Path, Path, Path]] = []
+    for source, destination in moves:
+        if not source.exists():
+            continue
+        if destination.exists():
+            try:
+                if destination.samefile(source):
+                    continue
+            except OSError:
+                pass
+        if destination in destinations:
+            raise ValueError(f"资产迁移目标重复: {destination}")
+        if destination.exists() and destination not in sources:
+            raise ValueError(f"资产迁移目标已被占用: {destination}")
+        destinations.add(destination)
+        temporary = source.with_name(f".{source.name}.v6-{uuid.uuid4().hex}.tmp")
+        os.replace(source, temporary)
+        pending.append((temporary, source, destination))
+    try:
+        for temporary, _source, destination in pending:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(temporary, destination)
+    except Exception:
+        for temporary, source, _destination in reversed(pending):
+            if temporary.exists():
+                os.replace(temporary, source)
+        raise
+
+
+def _migrate_staged_tree(project_dir: Path) -> None:
+    project_file = project_dir / "project.json"
+    project = load_json(project_file)
+    if int(project.get("schema_version") or 0) >= 6:
+        return
+    occurrences = _plan_occurrences(project)
+
+    for item in occurrences:
+        if isinstance(item.entry, dict):
+            rewrite_entry_paths(item.entry, item.spec, item.old_name, item.new_name)
+    for spec in _ordered_specs():
+        bucket = project.get(spec.bucket_key, {})
+        items = [item for item in occurrences if item.asset_type == spec.asset_type]
+        project[spec.bucket_key] = {item.new_name: item.entry for item in items} if isinstance(bucket, dict) else bucket
+
+    for path in sorted((project_dir / "scripts").rglob("*.json")) if (project_dir / "scripts").is_dir() else []:
+        payload = load_json(path)
+        if isinstance(payload, dict):
+            _rewrite_payload(payload, occurrences)
+            atomic_write_json(path, payload)
+    for path in sorted((project_dir / "drafts").rglob("*.json")) if (project_dir / "drafts").is_dir() else []:
+        payload = load_json(path)
+        if isinstance(payload, dict):
+            _rewrite_payload(payload, occurrences)
+            atomic_write_json(path, payload)
+
+    moves = _plan_media_moves(project_dir, occurrences)
+    moves.extend(_rewrite_versions(project_dir, occurrences))
+    _execute_moves(moves)
+    project["schema_version"] = 6
+    ensure_project_asset_namespace(project)
+    atomic_write_json(project_file, project)
+
+
+def migrate_v5_to_v6(project_dir: Path) -> None:
+    """Make the multi-file v6 migration atomic by transforming a sibling staging tree then swapping it in."""
+    project_dir = Path(project_dir)
+    project_file = project_dir / "project.json"
+    if not project_file.is_file():
+        return
+    data = load_json(project_file)
+    if int(data.get("schema_version") or 0) >= 6:
+        return
+
+    staging = Path(tempfile.mkdtemp(prefix=f".{project_dir.name}.v6-", dir=project_dir.parent))
+    rollback = project_dir.parent / f".{project_dir.name}.v6-rollback-{uuid.uuid4().hex}"
+    try:
+        shutil.copytree(project_dir, staging, dirs_exist_ok=True)
+        _migrate_staged_tree(staging)
+        os.replace(project_dir, rollback)
+        try:
+            os.replace(staging, project_dir)
+        except BaseException:
+            os.replace(rollback, project_dir)
+            raise
+        shutil.rmtree(rollback, ignore_errors=True)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+        if rollback.exists() and not project_dir.exists():
+            os.replace(rollback, project_dir)
+
+
+__all__ = ["migrate_v5_to_v6"]

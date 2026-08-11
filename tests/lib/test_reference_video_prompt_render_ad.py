@@ -323,9 +323,8 @@ def test_requires_reference_image_downgrades_offscreen_speaker():
     assert any(w["key"] == WARN_SPEAKER_AUDIO_NEEDS_IMAGE for w in rendered.warnings)
 
 
-def test_audio_speaker_image_slot_ignores_same_named_scene_or_prop():
-    # "客厅" 同名注册为场景（project fixture），资产条目里若混入同名场景条目，不应被误判为
-    # 角色有参考图（与剧集路径 character_image_no 的同款过滤同一理由）。
+def test_audio_speaker_image_slot_uses_character_entry_only():
+    # 角色音频按 character 条目的图号绑定。
     shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "在客厅里"}])]
     entries = [
         _entry("客厅", "场景「客厅」设计图", asset_type="scene"),
@@ -336,26 +335,6 @@ def test_audio_speaker_image_slot_ignores_same_named_scene_or_prop():
         shots,
         entries,
         _project(),
-        VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, audio_ready={"小美"}),
-    )
-
-    assert rendered.audio_speaker_reference_index == [1]
-
-
-def test_audio_speaker_image_slot_ignores_scene_sharing_a_character_name():
-    # 三类资产允许重名：同名的场景设计图不得占用角色的图号，否则 reference_audio_targets
-    # 会把音频挂到场景图上。
-    project = _project(scenes={"小美": {}})
-    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "太好用了"}])]
-    entries = [
-        _entry("小美", "场景「小美」设计图", asset_type="scene"),
-        _entry("小美", "角色「小美」设计图"),
-    ]
-
-    rendered = render_ad_backend_prompt(
-        shots,
-        entries,
-        project,
         VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, audio_ready={"小美"}),
     )
 

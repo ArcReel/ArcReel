@@ -591,6 +591,51 @@ class TestApplyToProject:
         assert data["characters"]["王"]["description"] == "library desc"
 
     @pytest.mark.unit
+    def test_overwrite_policy_rejects_cross_type_name(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_character("target", "Shared", "character", "")
+        created = client.post("/api/v1/assets", data={"type": "scene", "name": "Shared"})
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "overwrite",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["failed"] == [{"id": created.json()["asset"]["id"], "reason": "project_name_conflict"}]
+        assert pm.load_project("target")["scenes"] == {}
+
+    @pytest.mark.unit
+    def test_rename_policy_uses_project_wide_occupancy(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_character("target", "Shared", "character", "")
+        pm.add_prop("target", "Shared (2)", "prop")
+        created = client.post("/api/v1/assets", data={"type": "scene", "name": "Shared"})
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "rename",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["succeeded"][0]["name"] == "Shared (3)"
+        assert "Shared (3)" in pm.load_project("target")["scenes"]
+
+    @pytest.mark.unit
     def test_invalid_policy_returns_400(self, _assets_env):
         client = _assets_env["client"]
         r = client.post(

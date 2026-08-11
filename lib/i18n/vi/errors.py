@@ -208,6 +208,10 @@ MESSAGES = {
     "product_already_exists": "Sản phẩm '{name}' đã tồn tại",
     "product_not_found": "Không tìm thấy sản phẩm '{name}'",
     "product_deleted": "Đã xóa sản phẩm '{name}'",
+    "project_asset_name_conflict": (
+        "Tên {requested_type} '{name}' đã được {existing_type} '{existing_name}' sử dụng. "
+        "Nhân vật, cảnh, đạo cụ và sản phẩm trong cùng dự án phải có tên duy nhất"
+    ),
     # API Keys
     "jwt_auth_required": "API Key không được phép thực hiện thao tác này, vui lòng dùng xác thực JWT",
     "api_key_name_exists": "Tên '{name}' đã tồn tại",

@@ -190,6 +190,13 @@ def test_resolve_references_empty_input():
     assert missing == []
 
 
+def test_resolve_references_rejects_corrupt_shared_namespace():
+    project = _proj(characters={"Shared": {}}, scenes={"Shared": {}})
+
+    with pytest.raises(ValueError, match="名称空间损坏"):
+        resolve_references(["Shared"], project)
+
+
 #: 带组合附加符的资产名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")

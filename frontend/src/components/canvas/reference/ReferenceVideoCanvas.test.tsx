@@ -171,36 +171,6 @@ describe("ReferenceVideoCanvas", () => {
     expect(parsePanel).toHaveAttribute("tabindex", "0");
   });
 
-  // 同名同时落在 characters 与 props 时，后端 resolve_references 判 character；
-  // 预览着色若反着来，规范台词行的说话人会被标成未登记角色。
-  it("resolves a name shared by two asset buckets the way the backend does", async () => {
-    useProjectsStore.setState({
-      currentProjectName: "proj",
-      currentProjectData: {
-        ...STUB_PROJECT,
-        characters: { 张三: { description: "" } },
-        props: { 张三: { description: "" } },
-      } as ProjectData,
-    });
-    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
-      units: [mkUnit("E1U1", "@[张三]：{我来了}")],
-    });
-    vi.spyOn(API, "previewReferenceScript").mockResolvedValue({
-      shots: [{ index: 1, text: "@[张三]：{我来了}" }],
-      references: [],
-      utterances: [{ shot_index: 1, kind: "dialogue", speaker: "张三", text: "我来了" }],
-      warnings: [],
-    });
-    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-
-    await screen.findByRole("combobox");
-    fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
-
-    const speaker = (await screen.findAllByText("张三"))[0];
-    // character = sky；被 props 覆盖会渲染成 amber，被判未登记会渲染成 red
-    expect(speaker.className).toContain("sky");
-  });
-
   // `out["__proto__"] = kind` 在普通对象上走继承的 setter、不落自有属性，
   // 登记过的 `__proto__` 角色会在高亮里显示成未登记（后端照常解析）
   it("resolves an asset named __proto__ in the highlight lookup", async () => {

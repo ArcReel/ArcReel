@@ -18,7 +18,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from lib.asset_types import ASSET_SPECS, ASSET_TYPES, normalize_asset_name
+from lib.asset_types import ASSET_SPECS, ASSET_TYPES, normalize_asset_name, project_asset_name_conflicts
 from lib.episode_ledger import (
     LEDGER_STATUSES,
     EpisodeOutline,
@@ -443,6 +443,17 @@ class DataValidator:
                 PlanningCursor.model_validate(planning_cursor)
             except ValidationError as exc:
                 errors.append(_m("val_field_invalid", field="planning_cursor", detail=_pydantic_error_summary(exc)))
+
+        for first, duplicate in project_asset_name_conflicts(project):
+            errors.append(
+                _m(
+                    "val_asset_name_duplicate",
+                    first_type=_asset(first.asset_type),
+                    first_name=first.name,
+                    duplicate_type=_asset(duplicate.asset_type),
+                    duplicate_name=duplicate.name,
+                )
+            )
 
         characters = project.get("characters", {})
         if isinstance(characters, dict):

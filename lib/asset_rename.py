@@ -77,10 +77,7 @@ class AssetRenameReport:
 #: drama 顶层 ``scenes`` 是场景 dict 列表，与 narration 分段里的场景名列表同 key 不同形，
 #: 按元素类型即可区分，无需骨架特例。
 _LIST_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
-    "character": frozenset({"characters_in_segment", "characters_in_scene", "characters_in_shot"}),
-    "scene": frozenset({"scenes"}),
-    "prop": frozenset({"props"}),
-    "product": frozenset({"products_in_shot"}),
+    asset_type: frozenset(spec.reference_list_fields) for asset_type, spec in ASSET_SPECS.items()
 }
 
 
