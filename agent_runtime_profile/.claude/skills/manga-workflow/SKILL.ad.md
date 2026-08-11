@@ -12,7 +12,7 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 
 每次进入工作流、用户说“继续/下一步/查看进度”、以及每次工具或 subagent 完成后，先调用
 `mcp__arcreel__get_workflow_status({})`。其 `project`、`target`、`state`、`blockers`、`gates`、
-`artifacts` 与 `next_action` 是已实现阶段的唯一状态真相；Read 只补充创作输入与产品 soft gate 信息，
+`artifacts` 与 `next_action` 是阶段判断的唯一真相源；Read 只补充创作输入与产品 soft gate 信息，
 不根据文件存在性重建阶段。`next_action.type == "none"` 时展示 blockers 并停止变更；其余动作按下列步骤执行，
 完成后再次刷新状态。产品 sheet 过目等明确标注的 soft gate 继续叠加在服务端状态之上。
 

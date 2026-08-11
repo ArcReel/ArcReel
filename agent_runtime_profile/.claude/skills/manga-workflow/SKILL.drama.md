@@ -101,7 +101,7 @@ expected source revision：{next_action.args.source_revision}
 
 ## 阶段 2：分集规划
 
-**触发**：目标集在账本（project.json `episodes[]`）中没有条目
+**触发**：`next_action.type == "plan_episodes"`
 
 分集规划由服务端工具完成：工具内部从 `planning_cursor` 起读一个源文窗口，调用项目配置的文本模型一次规划出窗口内所有剧情弧完整的集（标题/钩子/原文范围 + 分集大纲：故事节点与下集预告），在同一把项目锁内写账本、派生 `source/episode_{N}.txt` 并清理残留派生文件。**主 agent 只调一次工具、只收摘要**——不读小说原文、不自行选切分点：
 
@@ -119,7 +119,7 @@ expected source revision：{next_action.args.source_revision}
 
 ## 阶段 3：单集预处理
 
-**触发**：目标集的 drafts/ 中间文件不存在
+**触发**：`next_action.type == "prepare_step1"`
 
 根据项目 `generation_mode` 选择 subagent：
 
@@ -139,9 +139,8 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 ## 阶段 4：JSON 剧本生成
 
-**触发**（满足其一）：
-- `scripts/episode_{N}.json` 不存在
-- 阶段 3 的中间文件在本次会话中被修改或重拆（此时即使 JSON 已存在也必须重生）
+**触发**：`next_action.type` 为 `"confirm_step1"` 或 `"generate_script"`。前者先完成下述审核 gate，
+刷新 workflow-status 后再按新的 `next_action` 路由；后者 dispatch 剧本生成。
 
 **step1→step2 审核 gate（阻塞）**：阶段 3 的结构化 step1 中间态须经**显式确认**才放行本阶段（三种结构化 step1 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `step1_reference_units.json` 同样须确认，不要跳过。ad 无 step1，不纳入 gate）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。未确认（或确认后 step1 又被改）时 `generate_episode_script` 会被 gate 拒绝；**存量项目**（升级前已生成过本集剧本）已 grandfather 放行、无需再确认。
 
@@ -151,9 +150,8 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 ## 阶段 5：资产设计（character / scene / prop 三类并行）
 
-**前置条件**：三类资产的定义（characters / scenes / props）均已通过阶段 1 写入 project.json。若任一类定义为空（数组缺失），应回到阶段 1 补提取，而非停留在阶段 5。
-
-**触发**：三类资产中任一类存在缺 sheet 项：
+**触发**：`next_action.type == "generate_asset_sheets"`。空资产 bucket 是阶段 1 的合法完成结果，
+不得据此回退；按 `artifacts.asset_sheets` 与 `requested_ids` 找到下列缺 sheet 项：
 - character 缺 character_sheet
 - scene 缺 scene_sheet
 - prop 缺 prop_sheet
@@ -217,7 +215,8 @@ dispatch `generate-assets` subagent：
 
 ## 阶段 6：分镜图生成（仅 storyboard 模式，含 grid_storyboard）
 
-**触发**：有场景缺少分镜图；**参考生视频模式跳过此阶段**
+**触发**：`next_action.type` 为 `"generate_storyboards"` 或 `"generate_grid"`；服务端不会在
+reference_video 模式返回这两个动作。
 
 检查项目 `generation_mode` 与 `grid_storyboard`：
 
@@ -257,7 +256,7 @@ dispatch `generate-assets` subagent：
 
 ## 阶段 7：视频生成
 
-**触发**：有场景缺少视频
+**触发**：`next_action.type == "generate_videos"`
 
 **dispatch `generate-assets` subagent**：
 

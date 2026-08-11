@@ -73,6 +73,9 @@ def test_complete_inventory_rejects_non_string_expected_revision(tmp_path: Path)
     with pytest.raises(AssetInventoryInvalidRequest):
         complete_asset_inventory(pm, "demo", SourceScope(kind="all"), None)
 
+    with pytest.raises(AssetInventoryInvalidRequest):
+        complete_asset_inventory(pm, "demo", SourceScope(kind="all"), "sha256-v1:not-a-digest")
+
 
 @pytest.mark.integration
 async def test_complete_inventory_mcp_returns_machine_readable_result_and_conflict(tmp_path: Path) -> None:

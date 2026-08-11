@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -55,7 +56,10 @@ def complete_asset_inventory(
 ) -> AssetInventoryCompletion:
     """Validate and persist an inventory fact within one project lock."""
 
-    if not isinstance(expected_source_revision, str) or not expected_source_revision.startswith("sha256-v1:"):
+    if (
+        not isinstance(expected_source_revision, str)
+        or re.fullmatch(r"sha256-v1:[0-9a-f]{64}", expected_source_revision) is None
+    ):
         raise AssetInventoryInvalidRequest("expected_source_revision must be a sha256-v1 revision")
 
     result: AssetInventoryCompletion | None = None
