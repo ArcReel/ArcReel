@@ -3,7 +3,7 @@
 # stdout and stage the FULL SNAPSHOT to a temp file for query.sh (layer-2 lookups).
 #
 # USAGE
-#   bash poll.sh <PR_NUMBER>
+#   bash poll.sh --repo-root <path> <PR_NUMBER>
 #
 # OUTPUT
 #   stdout   — minimal index JSON (schema below), semi-compact: containers expand one key
@@ -205,8 +205,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/repo-context.sh"
+enter_repo_root "POLL_ERROR" "$@"
+shift "$REPO_CONTEXT_SHIFT"
+
 if [[ $# -lt 1 ]]; then
-  echo "POLL_ERROR: missing PR_NUMBER. Usage: bash poll.sh <PR_NUMBER>" >&2
+  echo "POLL_ERROR: missing PR_NUMBER. Usage: bash poll.sh [--repo-root <path>] <PR_NUMBER>" >&2
   exit 2
 fi
 
@@ -829,7 +835,7 @@ if [[ -n "$PREV_NORM" && "$PREV_NORM" == "$NEW_NORM" ]]; then
      head: .index.head,
      last_push_at: .index.last_push_at,
      unchanged_since: .printed_at,
-     hint: ("index identical to every poll since unchanged_since; full index: bash query.sh " + $pr + " index")}
+     hint: ("index identical to every poll since unchanged_since; run query.sh " + $pr + " index for the full index")}
   ' "$INDEX_FILE"
 else
   jq -n --arg printed_at "$GENERATED_AT" --slurpfile idx "$WORKDIR/index.json" \

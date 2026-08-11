@@ -2,14 +2,14 @@
 # batch-poll.sh — pull the remote state of a whole AFK batch in one shot.
 #
 # Sibling in spirit to pr-ai-review-loop/scripts/poll.sh: collect gh/git facts,
-# project them mechanically, and leave every semantic call to Claude. This script
+# project them mechanically, and leave every semantic call to the team lead. This script
 # answers "where does each issue physically sit on the remote, right now" so the
 # team-lead doesn't hand-expand sub-issues / rebuild the dependency graph each time it
 # plans, runs a health check, or recovers a crashed batch.
 #
 # USAGE
-#   bash batch-poll.sh --spec <N>           # expand a Spec's GitHub sub-issues
-#   bash batch-poll.sh --issues 1,2,3       # an explicit cross-Spec issue set
+#   bash batch-poll.sh --repo-root <path> --spec <N>      # expand a Spec's GitHub sub-issues
+#   bash batch-poll.sh --repo-root <path> --issues 1,2,3  # an explicit cross-Spec issue set
 #
 # OUTPUT: single JSON object to stdout (fatal errors to stderr prefixed
 # `BATCH_POLL_ERROR:`; per-issue degradations prefixed `BATCH_POLL_WARN:`).
@@ -53,7 +53,7 @@
 #   4. no PR but remote branch issue/<N>      -> local-review (branch pushed, PR not opened yet)
 #   5. no PR, no branch, issue closed/done    -> done       (closed-completed without a PR of its own)
 #   6. no PR, no branch, issue closed/other   -> shelved
-#   7. otherwise                              -> no-branch  (means ONLY "no remote branch" — NOT "teammate dead")
+#   7. otherwise                              -> no-branch  (means ONLY "no remote branch" — NOT "agent dead")
 #
 # "## Blocked by" PARSING (mechanical, follows the to-tickets template convention)
 #   The dependency graph lives in each issue body's "## Blocked by" section, not in
@@ -69,7 +69,7 @@
 #
 # BOUNDARY (hold this line — crossing it turns a fact collector into a semantic judge)
 #   - Reports gh/git facts and mechanical roll-ups ONLY.
-#   - Does NOT judge whether a teammate is alive/stalled (no-branch is a remote fact, not a verdict).
+#   - Does NOT judge whether an agent is alive/stalled (no-branch is a remote fact, not a verdict).
 #   - Does NOT decide whether a PR should merge (merge_candidate is the mechanical "green & mergeable"
 #     signal; the merge decision stays with the team-lead, who also weighs the review-looper's report).
 #   - Does NOT drill into per-reviewer detail (that is poll.sh's job, one PR at a time).
@@ -89,8 +89,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/repo-context.sh"
+enter_repo_root "BATCH_POLL_ERROR" "$@"
+shift "$REPO_CONTEXT_SHIFT"
+
 usage() {
-  echo "BATCH_POLL_ERROR: usage: bash batch-poll.sh --spec <N> | --issues 1,2,3" >&2
+  echo "BATCH_POLL_ERROR: usage: bash batch-poll.sh [--repo-root <path>] (--spec <N> | --issues 1,2,3)" >&2
 }
 
 SPEC=""
