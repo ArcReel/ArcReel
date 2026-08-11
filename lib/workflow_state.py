@@ -359,6 +359,15 @@ class WorkflowStateService:
     def get_status(self, project_name: str, episode: int | None = None) -> WorkflowStatus:
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
+        return self._get_status(project_name, project, project_path, episode)
+
+    def _get_status(
+        self,
+        project_name: str,
+        project: dict[str, Any],
+        project_path: Path,
+        episode: int | None,
+    ) -> WorkflowStatus:
         mode = project.get("content_mode")
         if episode is not None and (isinstance(episode, bool) or episode < 1):
             raise ValueError("episode must be a positive integer")
@@ -554,7 +563,8 @@ class WorkflowStateService:
                                     status
                                     for number, _entry in episodes
                                     if number != target.episode
-                                    and (status := self.get_status(project_name, number)).state != "EXPORT_READY"
+                                    and (status := self._get_status(project_name, project, project_path, number)).state
+                                    != "EXPORT_READY"
                                 ),
                                 None,
                             )

@@ -268,7 +268,9 @@ def test_narration_progresses_through_storyboard_video_audio_to_export(tmp_path:
 
 
 @pytest.mark.integration
-def test_completed_first_episode_does_not_hide_later_incomplete_episode(tmp_path: Path) -> None:
+def test_completed_first_episode_does_not_hide_later_incomplete_episode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
     _write_source_and_complete(pm, project_path, source_text)
@@ -304,8 +306,18 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(tmp_path
     for relative_path in generated_assets.values():
         _write_artifact(project_path, relative_path)
 
+    original_load_project = pm.load_project
+    load_calls = 0
+
+    def _counted_load_project(project_name: str) -> dict:
+        nonlocal load_calls
+        load_calls += 1
+        return original_load_project(project_name)
+
+    monkeypatch.setattr(pm, "load_project", _counted_load_project)
     status = WorkflowStateService(pm).get_status("demo")
 
+    assert load_calls == 1
     assert status.target is not None
     assert status.target.episode == 2
     assert status.state == "STEP1_CONTENT"

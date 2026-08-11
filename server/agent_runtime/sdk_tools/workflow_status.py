@@ -31,7 +31,6 @@ def get_workflow_status_tool(ctx: ToolContext):
             "type": "object",
             "properties": {
                 "episode": {"type": "integer", "minimum": 1},
-                "include_details": {"type": "boolean", "default": True},
             },
         },
     )
@@ -41,9 +40,6 @@ def get_workflow_status_tool(ctx: ToolContext):
             not isinstance(raw_episode, int) or isinstance(raw_episode, bool) or raw_episode < 1
         ):
             return _error("invalid_episode", "episode must be a positive integer")
-        include_details = args.get("include_details", True)
-        if not isinstance(include_details, bool):
-            return _error("invalid_request", "include_details must be a boolean")
         try:
             status = WorkflowStateService(ctx.pm).get_status(ctx.project_name, raw_episode)
             return {"content": [{"type": "text", "text": status.model_dump_json()}]}
