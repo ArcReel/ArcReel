@@ -329,8 +329,15 @@ class ProjectArtifactManifestAdapter:
                     )
                 stack.callback(os.close, next_fd)
                 if expected_parent_identity is not None:
-                    opened_parent_stat = os.fstat(next_fd)
-                    current_parent_stat = cursor.stat(follow_symlinks=False)
+                    try:
+                        opened_parent_stat = os.fstat(next_fd)
+                        current_parent_stat = cursor.stat(follow_symlinks=False)
+                    except OSError as exc:
+                        return self._artifact_blocked(
+                            normalized,
+                            "artifact_unreadable",
+                            f"artifact parent changed while it was being opened: {normalized}: {exc}",
+                        )
                     if (
                         _is_linkish(cursor)
                         or not stat.S_ISDIR(opened_parent_stat.st_mode)
@@ -521,7 +528,7 @@ class ProjectArtifactManifestAdapter:
         lock_path = self._project_dir / LOCK_FILENAME
         with contextlib.ExitStack() as root_stack:
             root_fd: int | None = None
-            portable_lock_identity: tuple[int, int] | None = None
+            checked_lock_identity: tuple[int, int] | None = None
             try:
                 if os.name == "posix":
                     root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | _O_NOFOLLOW
@@ -536,9 +543,8 @@ class ProjectArtifactManifestAdapter:
                     self._assert_open_project_root_identity(root_fd)
                 else:
                     root_stack.enter_context(self._guard_portable_project_root())
-                    portable_lock_identity = self._runtime_file_identity(lock_path, "manifest lock")
-                if root_fd is not None and not _O_NOFOLLOW and _is_linkish(lock_path):
-                    raise ArtifactManifestError(f"manifest lock is a symlink or junction: {lock_path}")
+                if root_fd is None or not _O_NOFOLLOW:
+                    checked_lock_identity = self._runtime_file_identity(lock_path, "manifest lock")
                 flags = os.O_WRONLY | _O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
                 try:
                     if root_fd is not None:
@@ -553,11 +559,11 @@ class ProjectArtifactManifestAdapter:
                         raise ArtifactManifestError(f"manifest lock is a symlink: {lock_path}") from exc
                     raise ArtifactManifestError(f"cannot open manifest lock: {lock_path}: {exc}") from exc
                 try:
-                    if root_fd is None:
+                    if root_fd is None or not _O_NOFOLLOW:
                         self._assert_open_runtime_file_identity(
                             lock_path,
                             fd,
-                            portable_lock_identity,
+                            checked_lock_identity,
                             "manifest lock",
                         )
                     elif not stat.S_ISREG(os.fstat(fd).st_mode):
