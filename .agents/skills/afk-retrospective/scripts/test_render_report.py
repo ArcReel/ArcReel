@@ -96,6 +96,19 @@ class RenderReportTest(unittest.TestCase):
         self.assertNotIn("</script><script>alert('analysis')</script>", html)
         self.assertIn("\\u003cscript", html)
 
+    def test_rejects_analysis_that_cannot_render(self) -> None:
+        data = analysis_fixture()
+        del data["followups"][0]["evaluations"]["architecture"]
+        self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ReportError, "architecture is required"):
+            MODULE.build_report_data(self.root, "batch-one", self.analysis)
+
+        data = analysis_fixture()
+        data["followups"][0]["sources"] = ["EV-9999"]
+        self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ReportError, "source does not resolve"):
+            MODULE.build_report_data(self.root, "batch-one", self.analysis)
+
 
 if __name__ == "__main__":
     unittest.main()

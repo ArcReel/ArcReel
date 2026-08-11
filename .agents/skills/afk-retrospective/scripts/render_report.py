@@ -38,6 +38,12 @@ def expect_list(value: Any, path: str) -> list[Any]:
     return value
 
 
+def expect_string(value: Any, path: str) -> str:
+    if not isinstance(value, str) or not value:
+        fail(f"{path} must be a non-empty string")
+    return value
+
+
 def require(mapping: dict[str, Any], key: str, path: str) -> Any:
     if key not in mapping:
         fail(f"{path}.{key} is required")
@@ -57,6 +63,12 @@ def validate_analysis(value: Any) -> dict[str, Any]:
 
     ids: set[str] = set()
 
+    def validate_sources(item: dict[str, Any], path: str) -> None:
+        if "sources" not in item:
+            return
+        for index, source in enumerate(expect_list(item["sources"], f"{path}.sources")):
+            expect_string(source, f"{path}.sources[{index}]")
+
     def register(raw_id: Any, path: str) -> None:
         if not isinstance(raw_id, str) or not REPORT_ID_RE.fullmatch(raw_id):
             fail(f"{path} must be a non-empty token")
@@ -65,19 +77,31 @@ def validate_analysis(value: Any) -> dict[str, Any]:
         ids.add(raw_id)
 
     for index, value in enumerate(followups):
-        item = expect_mapping(value, f"analysis.followups[{index}]")
-        register(require(item, "id", f"analysis.followups[{index}]"), f"analysis.followups[{index}].id")
+        path = f"analysis.followups[{index}]"
+        item = expect_mapping(value, path)
+        register(require(item, "id", path), f"{path}.id")
+        expect_string(require(item, "priority", path), f"{path}.priority")
+        evaluations = expect_mapping(require(item, "evaluations", path), f"{path}.evaluations")
+        for axis in ("architecture", "product_user", "knowledge"):
+            expect_mapping(require(evaluations, axis, f"{path}.evaluations"), f"{path}.evaluations.{axis}")
+        validate_sources(item, path)
 
     for key in KNOWLEDGE_KEYS:
         items = expect_list(require(knowledge, key, "analysis.knowledge"), f"analysis.knowledge.{key}")
         for index, value in enumerate(items):
             item = expect_mapping(value, f"analysis.knowledge.{key}[{index}]")
             register(require(item, "id", f"analysis.knowledge.{key}[{index}]"), f"analysis.knowledge.{key}[{index}].id")
+            expect_string(
+                require(item, "verdict", f"analysis.knowledge.{key}[{index}]"),
+                f"analysis.knowledge.{key}[{index}].verdict",
+            )
+            validate_sources(item, f"analysis.knowledge.{key}[{index}]")
 
     for index, value in enumerate(pending):
         path = f"analysis.pending[{index}]"
         item = expect_mapping(value, path)
         register(require(item, "id", path), f"{path}.id")
+        validate_sources(item, path)
         positions = expect_list(require(item, "positions", path), f"{path}.positions")
         if len(positions) < 2:
             fail(f"{path}.positions must contain at least two options")
@@ -87,6 +111,16 @@ def validate_analysis(value: Any) -> dict[str, Any]:
             register(require(option, "id", option_path), f"{option_path}.id")
 
     return analysis
+
+
+def validate_source_references(analysis: dict[str, Any], available: set[str]) -> None:
+    items = list(analysis["followups"]) + list(analysis["pending"])
+    for key in KNOWLEDGE_KEYS:
+        items.extend(analysis["knowledge"][key])
+    for item in items:
+        for source in item.get("sources", []):
+            if source not in available:
+                fail(f"source does not resolve to this batch: {source}")
 
 
 def load_json(path: Path) -> Any:
@@ -150,6 +184,10 @@ def build_report_data(repo_root: Path, batch_id: str, analysis_path: Path) -> di
         }
         for path in handoff_paths
     )
+    available_sources = {f"EV-{event['_line']:04d}" for event in events}
+    available_sources.update(source["name"] for source in snapshots)
+    available_sources.update(source["path"] for source in snapshots)
+    validate_source_references(analysis, available_sources)
 
     report = dict(analysis)
     report["operational"] = {

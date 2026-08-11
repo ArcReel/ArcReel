@@ -10,7 +10,7 @@ disable-model-invocation: true
 
 ## 第一步：确定批次成员
 
-用户显式要求接管或恢复既有批次时，按 [references/recovery.md](references/recovery.md) 处理，不按新批次开工。每次新执行生成唯一 batch-id：Spec 批次用 `spec-<N>-<UTC YYYYMMDD-HHMMSS>`，显式 issue 批次用带相同时间戳的简短 slug。Spec 开工前检查 `.afk/spec-<N>-*.jsonl`；存在末条不是 `closed` 的账本时向用户报告，接管转入 recovery.md，重开则执行其清理后使用新的 batch-id。
+用户显式要求接管或恢复既有批次时，按 [references/recovery.md](references/recovery.md) 处理，不按新批次开工。每次新执行生成唯一 batch-id：Spec 批次用 `spec-<N>-<UTC YYYYMMDD-HHMMSS>`，显式 issue 批次用带相同时间戳的简短 slug。Spec 开工前列出 `.afk/spec-<N>-*.jsonl` 中末条不是 `closed` 的账本并暂停；用户明确选择一个 batch-id 后，接管转入 recovery.md，重开则执行其清理并使用新的 batch-id。
 
 运行 batch-poll，取得批次的机械底图：展开 Spec 子 issue、解析依赖图、给出每个 issue 的远端落点（标签、`blocked_by`、分支/PR 状态、`stage_hint`）：
 

@@ -29,6 +29,6 @@ uv run python .agents/skills/afk-retrospective/scripts/render_report.py \
   --analysis <analysis-json>
 ```
 
-renderer 负责校验批次边界、嵌入 ledger/handoff 快照并生成 HTML。失败时报告错误并停止；成功后删除临时 JSON、打开报告并提供绝对路径。
+renderer 负责校验批次边界、可渲染字段与来源引用，嵌入 ledger/handoff 快照并生成 HTML。失败时报告错误并停止；成功后删除临时 JSON、打开报告并提供绝对路径。
 
 最终报告须覆盖所有保留候选，来源链接可到达对应 ledger 事件或 handoff。只问用户要处理哪些报告 ID；待裁决项接受 `DEC-01 = DEC-01-A` 形式的回答。用户裁决前保持仓库内容不变。
