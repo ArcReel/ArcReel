@@ -106,6 +106,9 @@ export function useAssistantSession(projectName: string | null) {
   // 项目级取消域的当前 controller：跨 useCallback 边界（connectStream 的终态刷新）
   // 复用同一 signal，随项目切换/卸载 abort。
   const projectAbortRef = useRef<AbortController | null>(null);
+  // 当前 controller 属于哪个项目。回调可能来自上一个项目的迟到收尾，那时
+  // projectAbortRef 里装的已经是新项目的 controller，只看 signal 认不出跨项目。
+  const projectAbortOwnerRef = useRef<string | null>(null);
 
   const abortSessionLoad = useCallback(() => {
     loadAbortRef.current?.abort();
@@ -135,12 +138,17 @@ export function useAssistantSession(projectName: string | null) {
   // 新项目会话列表；空列表不写入，避免一次失败的读把列表清空。
   const refreshSessions = useCallback(() => {
     if (!projectName) return;
+    // 本次补拉属于 projectName，取消域也必须是它的。改写的迟到收尾会带着旧
+    // projectName 走到这里，此刻 ref 里已是新项目的 controller——借用它去读旧项目
+    // 的列表，再把结果写进新项目的侧边栏，用户会看到一串打不开的会话。
+    if (projectAbortOwnerRef.current !== projectName) return;
     const signal = projectAbortRef.current?.signal;
     if (!signal) return;
     const writeVersion = sessionsWriteVersionRef.current;
     API.listAssistantSessions(projectName, null, { signal })
       .then((res) => {
         if (signal.aborted) return;
+        if (projectAbortOwnerRef.current !== projectName) return;
         // 本次读开始之后发生过本地权威写入：这份列表已经过期
         if (sessionsWriteVersionRef.current !== writeVersion) return;
         const fresh = res.sessions ?? [];
@@ -303,6 +311,7 @@ export function useAssistantSession(projectName: string | null) {
     // 会被误判过期丢弃、新项目的会话列表被陈旧会话点击作废且无重试。
     const projectAbort = new AbortController();
     projectAbortRef.current = projectAbort;
+    projectAbortOwnerRef.current = projectName;
 
     async function init() {
       // 会话自动选择占据加载链：后续任何用户会话操作接管选择权时作废
@@ -313,12 +322,17 @@ export function useAssistantSession(projectName: string | null) {
       // 的空 entries 推导（等效从头订阅），不被上一个项目的残留条目污染，也不会
       // 把旧项目条目混排进新会话时间线。
       store.getState().resetTimeline();
+      const writeVersion = sessionsWriteVersionRef.current;
       try {
         // 获取会话列表（项目级数据：即便自动选择已被用户操作作废，列表照常落地）
         const res = await API.listAssistantSessions(projectName!, null, { signal: projectAbort.signal });
         if (projectAbort.signal.aborted) return;
         const sessions = res.sessions ?? [];
-        store.getState().setSessions(sessions);
+        // 这份读期间发生过本地权威写入（建会话/改写分叉/删会话）就已过期：写回去
+        // 会让新分支消失、已删的会话复活
+        if (sessionsWriteVersionRef.current === writeVersion) {
+          store.getState().setSessions(sessions);
+        }
         if (loadSignal.aborted) return;
 
         // 优先使用上次选择的会话（如果仍存在于列表中）
@@ -357,7 +371,10 @@ export function useAssistantSession(projectName: string | null) {
 
     return () => {
       projectAbort.abort();
-      if (projectAbortRef.current === projectAbort) projectAbortRef.current = null;
+      if (projectAbortRef.current === projectAbort) {
+        projectAbortRef.current = null;
+        projectAbortOwnerRef.current = null;
+      }
       abortSessionLoad();
       invalidatePendingSend();
       closeStream();

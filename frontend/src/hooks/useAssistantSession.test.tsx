@@ -1460,6 +1460,38 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-2"]);
   });
 
+  it("does not let a delayed initial session-list response undo a branch created meanwhile", async () => {
+    const listDeferred = createDeferred<{ sessions: SessionMeta[] }>();
+    vi.spyOn(API, "listAssistantSessions").mockReturnValue(listDeferred.promise);
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockImplementation(async (_projectName, sessionId) =>
+      makeEntriesResponse({ session_id: sessionId, entries: [userEntry(0, sessionId)] }),
+    );
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    // 初始列表还在途，此间已有本地权威写入（删除会话）
+    act(() => {
+      useAssistantStore.getState().setSessions([makeSession("session-1", "idle")]);
+      useAssistantStore.getState().setCurrentSessionId("session-9");
+    });
+    vi.spyOn(API, "deleteAssistantSession").mockResolvedValue(undefined as never);
+    await act(async () => {
+      await result.current.deleteSession("session-1");
+    });
+    expect(useAssistantStore.getState().sessions).toEqual([]);
+
+    await act(async () => {
+      listDeferred.resolve({ sessions: [makeSession("session-1", "idle")] });
+      await listDeferred.promise;
+    });
+
+    // 迟到的初始列表不得让已删除的会话复活
+    expect(useAssistantStore.getState().sessions).toEqual([]);
+  });
+
   it("surfaces a failed session load and lets the same session be retried", async () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [makeSession("session-1", "idle"), makeSession("session-2", "idle")],
