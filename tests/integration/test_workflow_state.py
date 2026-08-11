@@ -498,6 +498,45 @@ def test_source_inserted_before_cursor_requires_planning_reset(tmp_path: Path) -
 
 
 @pytest.mark.integration
+def test_decomposed_recorded_source_does_not_trigger_repeated_planning_reset(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_dir = project_path / "source"
+    decomposed_name = unicodedata.normalize("NFD", "é.txt")
+    source_path = source_dir / decomposed_name
+    source_path.write_text("已规划", encoding="utf-8")
+    scope = SourceScope(kind="all")
+    project = pm.load_project("demo")
+    revision = compute_source_revision(project_path, project, scope).revision
+    assert revision is not None
+    complete_asset_inventory(pm, "demo", scope, revision)
+    pm.update_project(
+        "demo",
+        lambda data: data.update(
+            planning_cursor={"source_file": f"source/{decomposed_name}", "offset": 3},
+            **{SOURCE_FINGERPRINTS_KEY: compute_source_fingerprints(discover_sources(project_path))},
+        ),
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "EPISODE_PLAN"
+    assert status.next_action.type == "plan_episodes"
+
+
+@pytest.mark.integration
+def test_non_boolean_grid_storyboard_blocks_route_dispatch(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    pm.update_project("demo", lambda project: project.update(grid_storyboard="false"))
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "PROJECT_INPUT"
+    assert status.project.grid_storyboard is False
+    assert status.blockers[0].code == "invalid_grid_storyboard"
+    assert status.next_action.type == "none"
+
+
+@pytest.mark.integration
 def test_invalid_asset_definition_blocks_existing_sheet(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad")
     sheet = "characters/invalid.png"

@@ -143,8 +143,12 @@ def _new_source_precedes_cursor(project: Mapping[str, Any], sources: tuple[Sourc
     if not isinstance(cursor_file, str):
         return False
     canonical_cursor = unicodedata.normalize("NFC", cursor_file)
+    canonical_recorded = {
+        unicodedata.normalize("NFC", recorded_path) for recorded_path in recorded if isinstance(recorded_path, str)
+    }
     return any(
-        (canonical := unicodedata.normalize("NFC", source.rel_path)) not in recorded and canonical <= canonical_cursor
+        (canonical := unicodedata.normalize("NFC", source.rel_path)) not in canonical_recorded
+        and canonical <= canonical_cursor
         for source in sources
     )
 
@@ -576,6 +580,15 @@ class WorkflowStateService:
             blockers.append(
                 WorkflowBlocker(code="invalid_generation_mode", path="generation_mode", reason="unsupported route")
             )
+        grid_storyboard = project.get("grid_storyboard")
+        if grid_storyboard is not None and not isinstance(grid_storyboard, bool):
+            blockers.append(
+                WorkflowBlocker(
+                    code="invalid_grid_storyboard",
+                    path="grid_storyboard",
+                    reason="grid_storyboard must be a boolean",
+                )
+            )
         asset_validation = DataValidator(str(self.pm.projects_root)).validate_asset_definitions(project)
         if not asset_validation.valid:
             blockers.append(
@@ -616,7 +629,7 @@ class WorkflowStateService:
         if mode == "ad" and episode not in {None, 1}:
             raise ValueError("ad workflow only has episode 1")
         generation_mode = project.get("generation_mode")
-        grid = bool(project.get("grid_storyboard")) and generation_mode == "storyboard"
+        grid = project.get("grid_storyboard") is True and generation_mode == "storyboard"
         blockers = list(shared.blockers)
         source = shared.source
         inventory = shared.inventory
@@ -943,7 +956,7 @@ class WorkflowStateService:
             project=WorkflowProject(
                 content_mode=str(project.get("content_mode")),
                 generation_mode=str(project.get("generation_mode")),
-                grid_storyboard=bool(project.get("grid_storyboard")),
+                grid_storyboard=project.get("grid_storyboard") is True,
             ),
             target=target,
             state=state,
