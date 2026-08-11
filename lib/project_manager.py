@@ -968,6 +968,12 @@ class ProjectManager:
                 atomic_write_json(real, script)
         return script
 
+    def load_script_readonly(self, project_name: str, filename: str) -> dict:
+        """Load a script with in-memory compatibility migrations but never persist them."""
+        norm = self.normalize_script_filename(filename)
+        script, _migrated = self._read_script_unlocked(project_name, norm)
+        return script
+
     def _read_script_unlocked(self, project_name: str, filename: str) -> tuple[dict, bool]:
         """裸读剧本并就地跑存量迁移，返回 ``(剧本, 是否发生迁移)``；**不取剧本锁**。
 

@@ -1355,6 +1355,8 @@ class DataValidator:
         episode: dict[str, Any],
         errors: list[ValidationMessage],
         warnings: list[ValidationMessage],
+        *,
+        validate_artifacts: bool = True,
     ) -> None:
         project_characters = set(project.get("characters", {}).keys())
         project_scenes = set(project.get("scenes", {}).keys())
@@ -1407,6 +1409,7 @@ class DataValidator:
             # 按骨架的检查。同一闸门在生成入口拒绝生成，此处只是把同一事实报告出来。
             errors.append(exc.to_validation_message())
             return
+        artifact_root = project_dir if validate_artifacts else None
         if kind == "video_units":
             self._validate_reference_video_script(
                 episode.get("video_units", []),
@@ -1415,7 +1418,7 @@ class DataValidator:
                 project_props,
                 errors,
                 warnings,
-                project_dir=project_dir,
+                project_dir=artifact_root,
             )
         elif kind == "segments":
             self._validate_segments(
@@ -1425,7 +1428,7 @@ class DataValidator:
                 project_props,
                 errors,
                 warnings,
-                project_dir=project_dir,
+                project_dir=artifact_root,
             )
         elif kind == "shots":
             raw_products = project.get("products")
@@ -1438,7 +1441,7 @@ class DataValidator:
                 set(raw_products.keys()) if isinstance(raw_products, dict) else set(),
                 errors,
                 warnings,
-                project_dir=project_dir,
+                project_dir=artifact_root,
                 reference_mode=gen_mode == "reference_video",
             )
             self._warn_ad_target_duration_drift(project, shots, warnings)
@@ -1462,7 +1465,7 @@ class DataValidator:
                 project_props,
                 errors,
                 warnings,
-                project_dir=project_dir,
+                project_dir=artifact_root,
                 language=scene_language,
                 speech_rate_override=scene_speech_rate,
             )
@@ -1473,15 +1476,37 @@ class DataValidator:
         """验证 episode JSON"""
         return self.validate_episode_file(self.projects_root / project_name, episode_file)
 
+    def validate_episode_payload(
+        self,
+        project_dir: Path,
+        project: dict[str, Any],
+        episode: dict[str, Any],
+        *,
+        validate_artifacts: bool = True,
+    ) -> ValidationResult:
+        """Validate an already loaded episode without reading or rewriting project files.
+
+        Callers that classify artifact readiness separately can disable filesystem artifact
+        checks while retaining the shared episode structure and reference validation.
+        """
+        errors: list[ValidationMessage] = []
+        warnings: list[ValidationMessage] = []
+        self._validate_episode_payload(
+            Path(project_dir),
+            project,
+            episode,
+            errors,
+            warnings,
+            validate_artifacts=validate_artifacts,
+        )
+        return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
+
     def validate_episode_file(
         self,
         project_dir: Path,
         episode_file: str | Path,
     ) -> ValidationResult:
         """验证指定目录中的剧本文件。"""
-        errors: list[ValidationMessage] = []
-        warnings: list[ValidationMessage] = []
-
         project_dir = Path(project_dir)
         project_path = project_dir / "project.json"
         project = load_json_or_none(project_path)
@@ -1510,8 +1535,7 @@ class DataValidator:
                 error_messages=[_m("val_cannot_load_script", path=episode_path)],
             )
 
-        self._validate_episode_payload(project_dir, project, episode, errors, warnings)
-        return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
+        return self.validate_episode_payload(project_dir, project, episode)
 
     def validate_project_tree(self, project_dir: str | Path) -> ValidationResult:
         """

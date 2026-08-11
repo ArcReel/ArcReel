@@ -63,6 +63,25 @@ async def test_workflow_status_mcp_rejects_invalid_episode_without_calling_servi
 
 
 @pytest.mark.integration
+async def test_workflow_status_mcp_offloads_filesystem_scan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pm = _project(tmp_path)
+    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    calls: list[tuple[object, tuple[object, ...]]] = []
+
+    async def _to_thread(fn, *args):
+        calls.append((fn, args))
+        return fn(*args)
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.workflow_status.asyncio.to_thread", _to_thread)
+
+    result = await get_workflow_status_tool(ctx).handler({})
+
+    assert result.get("is_error") is not True
+    assert len(calls) == 1
+    assert calls[0][1] == ("demo", None)
+
+
+@pytest.mark.integration
 async def test_workflow_status_adapters_treat_corrupt_project_as_server_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

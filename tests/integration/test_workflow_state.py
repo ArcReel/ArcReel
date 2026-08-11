@@ -41,6 +41,66 @@ def _write_artifact(project_path: Path, relative_path: str) -> None:
     path.write_bytes(b"artifact")
 
 
+def _valid_narration_segment(**overrides: object) -> dict:
+    segment = {
+        "segment_id": "E1S01",
+        "duration_seconds": 4,
+        "novel_text": "原文",
+        "characters_in_segment": [],
+        "scenes": [],
+        "props": [],
+        "image_prompt": "画面",
+        "video_prompt": "动作",
+        "generated_assets": {},
+    }
+    segment.update(overrides)
+    return segment
+
+
+def _valid_drama_scene(**overrides: object) -> dict:
+    scene = {
+        "scene_id": "E1S01",
+        "duration_seconds": 4,
+        "characters_in_scene": [],
+        "scenes": [],
+        "props": [],
+        "image_prompt": "画面",
+        "video_prompt": "动作",
+        "generated_assets": {},
+    }
+    scene.update(overrides)
+    return scene
+
+
+def _valid_ad_shot(**overrides: object) -> dict:
+    shot = {
+        "shot_id": "E1S01",
+        "duration_seconds": 4,
+        "voiceover_text": "",
+        "characters_in_shot": [],
+        "scenes": [],
+        "props": [],
+        "products_in_shot": [],
+        "image_prompt": "画面",
+        "video_prompt": "动作",
+        "generated_assets": {},
+    }
+    shot.update(overrides)
+    return shot
+
+
+def _valid_video_unit(**overrides: object) -> dict:
+    unit = {
+        "unit_id": "E1U01",
+        "duration_seconds": 8,
+        "shots": [{"text": "镜头"}],
+        "references": [],
+        "generated_assets": {},
+    }
+    unit.update(overrides)
+    return unit
+
+
 @pytest.mark.integration
 def test_narration_empty_inventory_completes_and_advances_to_episode_plan(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
@@ -114,16 +174,15 @@ def test_media_paths_must_resolve_to_project_files_before_becoming_current(tmp_p
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
+            "title": "广告",
             "content_mode": "ad",
             "shots": [
-                {
-                    "shot_id": "E1S01",
-                    "duration_seconds": 4,
-                    "generated_assets": {
+                _valid_ad_shot(
+                    generated_assets={
                         "storyboard_image": "../outside.png",
                         "video_clip": "videos/missing.mp4",
-                    },
-                }
+                    }
+                )
             ],
         },
     )
@@ -231,8 +290,9 @@ def test_narration_progresses_through_storyboard_video_audio_to_export(tmp_path:
     script_path = project_path / "scripts" / "episode_1.json"
     script = {
         "episode": 1,
+        "title": "第一集",
         "content_mode": "narration",
-        "segments": [{"segment_id": "E1S01", "duration_seconds": 4, "generated_assets": {}}],
+        "segments": [_valid_narration_segment()],
     }
     atomic_write_json(script_path, script)
     service = WorkflowStateService(pm)
@@ -307,8 +367,9 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
+            "title": "第一集",
             "content_mode": "narration",
-            "segments": [{"segment_id": "E1S01", "duration_seconds": 4, "generated_assets": generated_assets}],
+            "segments": [_valid_narration_segment(generated_assets=generated_assets)],
         },
     )
     for relative_path in generated_assets.values():
@@ -389,10 +450,10 @@ def test_non_object_script_is_a_blocker_not_an_exception(tmp_path: Path) -> None
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    ("mode", "step1_filename", "step1_payload", "items_key", "id_field"),
+    ("mode", "step1_filename", "step1_payload", "items_key"),
     [
-        ("narration", "step1_segments.json", {"segments": []}, "segments", "segment_id"),
-        ("drama", "step1_normalized_script.json", {"scenes": []}, "scenes", "scene_id"),
+        ("narration", "step1_segments.json", {"segments": []}, "segments"),
+        ("drama", "step1_normalized_script.json", {"scenes": []}, "scenes"),
     ],
 )
 def test_legacy_storyboard_script_without_duration_remains_resumable(
@@ -401,7 +462,6 @@ def test_legacy_storyboard_script_without_duration_remains_resumable(
     step1_filename: str,
     step1_payload: dict,
     items_key: str,
-    id_field: str,
 ) -> None:
     pm, project_path = _make_project(tmp_path, mode)
     _write_source_and_complete(pm, project_path)
@@ -420,12 +480,19 @@ def test_legacy_storyboard_script_without_duration_remains_resumable(
     pm.update_project(
         "demo", lambda project: script_review.apply_confirmation(project, 1, revision, "2026-08-11T00:00:00Z")
     )
+    item = (
+        _valid_narration_segment(duration_seconds=None)
+        if mode == "narration"
+        else _valid_drama_scene(duration_seconds=None)
+    )
+    item.pop("duration_seconds")
     atomic_write_json(
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
+            "title": "第一集",
             "content_mode": mode,
-            items_key: [{id_field: "E1S01", "generated_assets": {}}],
+            items_key: [item],
             "metadata": {script_review.SCRIPT_STEP1_REVISION_FIELD: revision},
         },
     )
@@ -460,8 +527,9 @@ def test_legacy_narration_scenes_skeleton_remains_resumable(tmp_path: Path) -> N
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
+            "title": "第一集",
             "content_mode": "narration",
-            "scenes": [{"scene_id": "E1S01", "duration_seconds": 4, "generated_assets": {}}],
+            "scenes": [_valid_drama_scene()],
         },
     )
 
@@ -522,8 +590,9 @@ def test_optional_product_sheet_does_not_block_ad_media(tmp_path: Path) -> None:
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
+            "title": "广告",
             "content_mode": "ad",
-            "shots": [{"shot_id": "E1S01", "duration_seconds": 4, "generated_assets": {}}],
+            "shots": [_valid_ad_shot()],
         },
     )
 
@@ -543,8 +612,9 @@ def test_ad_reference_video_reads_completion_from_reference_units(tmp_path: Path
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
+            "title": "广告",
             "content_mode": "ad",
-            "shots": [{"shot_id": "E1S01", "duration_seconds": 4}],
+            "shots": [_valid_ad_shot()],
             "reference_units": [
                 {
                     "unit_id": "E1U1",
@@ -574,8 +644,9 @@ def test_ad_reference_video_without_derived_units_requires_video_generation(tmp_
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
+            "title": "广告",
             "content_mode": "ad",
-            "shots": [{"shot_id": "E1S01", "duration_seconds": 4}],
+            "shots": [_valid_ad_shot()],
         },
     )
 
@@ -696,8 +767,9 @@ def test_confirmed_step1_change_marks_old_final_script_stale(tmp_path: Path) -> 
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
+            "title": "第一集",
             "content_mode": "narration",
-            "segments": [{"segment_id": "E1S01", "duration_seconds": 4, "generated_assets": {}}],
+            "segments": [_valid_narration_segment()],
             "metadata": {script_review.SCRIPT_STEP1_REVISION_FIELD: old_revision},
         },
     )
@@ -764,7 +836,7 @@ def test_script_id_must_match_the_shared_storyboard_pattern(tmp_path: Path) -> N
 
 
 @pytest.mark.integration
-def test_ad_reference_unit_requires_shot_membership(tmp_path: Path) -> None:
+def test_dangling_ad_reference_unit_is_recoverable_by_video_generation(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad", generation_mode="reference_video")
     video_path = "reference_videos/E1U1.mp4"
     _write_artifact(project_path, video_path)
@@ -772,8 +844,9 @@ def test_ad_reference_unit_requires_shot_membership(tmp_path: Path) -> None:
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
+            "title": "广告",
             "content_mode": "ad",
-            "shots": [{"shot_id": "E1S01", "duration_seconds": 4}],
+            "shots": [_valid_ad_shot()],
             "reference_units": [
                 {
                     "unit_id": "E1U1",
@@ -788,8 +861,98 @@ def test_ad_reference_unit_requires_shot_membership(tmp_path: Path) -> None:
     status = WorkflowStateService(pm).get_status("demo")
 
     assert status.state == "VIDEO"
-    assert status.artifacts["videos"]["state"] == "blocked"
-    assert status.blockers[0].code == "invalid_reference_unit"
+    assert status.artifacts["videos"]["state"] == "stale"
+    assert status.next_action.type == "generate_videos"
+    assert not status.blockers
+
+
+@pytest.mark.integration
+def test_ad_reference_units_must_cover_every_shot_exactly_once(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad", generation_mode="reference_video")
+    video_path = "reference_videos/E1U1.mp4"
+    _write_artifact(project_path, video_path)
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "title": "广告",
+            "content_mode": "ad",
+            "shots": [_valid_ad_shot(), _valid_ad_shot(shot_id="E1S02")],
+            "reference_units": [
+                {
+                    "unit_id": "E1U1",
+                    "shot_ids": ["E1S01"],
+                    "references": [],
+                    "generated_assets": {"video_clip": video_path},
+                }
+            ],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "VIDEO"
+    assert status.artifacts["videos"]["state"] == "stale"
+    assert status.next_action.type == "generate_videos"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("missing_field", ["voiceover_text", "image_prompt", "video_prompt"])
+def test_structurally_incomplete_ad_script_blocks_media_progress(tmp_path: Path, missing_field: str) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    shot = _valid_ad_shot()
+    shot.pop(missing_field)
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "title": "广告",
+            "content_mode": "ad",
+            "shots": [shot],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "FINAL_SCRIPT"
+    assert status.artifacts["script"]["state"] == "blocked"
+    assert status.blockers[0].code == "invalid_script_structure"
+    assert status.next_action.type == "none"
+
+
+@pytest.mark.integration
+def test_narration_script_without_source_text_blocks_media_progress(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "原文"
+    _write_source_and_complete(pm, project_path, source_text)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "consumed"}],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(source_text)},
+            **{SOURCE_FINGERPRINTS_KEY: compute_source_fingerprints(discover_sources(project_path))},
+        ),
+    )
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    atomic_write_json(draft_dir / "step1_segments.json", {"segments": []})
+    segment = _valid_narration_segment()
+    segment.pop("novel_text")
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "segments": [segment],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "FINAL_SCRIPT"
+    assert status.artifacts["script"]["state"] == "blocked"
+    assert status.blockers[0].code == "invalid_script_structure"
 
 
 @pytest.mark.integration
@@ -941,8 +1104,9 @@ def test_reference_video_route_skips_storyboards_and_audio(tmp_path: Path) -> No
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
+            "title": "第一集",
             "content_mode": "drama",
-            "video_units": [{"unit_id": "E1U01", "duration_seconds": 8, "generated_assets": {}}],
+            "video_units": [_valid_video_unit()],
         },
     )
 
@@ -952,3 +1116,44 @@ def test_reference_video_route_skips_storyboards_and_audio(tmp_path: Path) -> No
     assert status.artifacts["storyboards"]["state"] == "not_applicable"
     assert status.artifacts["audio"]["state"] == "not_applicable"
     assert status.next_action.requested_ids == ["E1U01"]
+
+
+@pytest.mark.integration
+def test_workflow_status_does_not_persist_read_time_script_migrations(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
+    source_text = "原文"
+    _write_source_and_complete(pm, project_path, source_text)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "consumed"}],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(source_text)},
+        ),
+    )
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    atomic_write_json(draft_dir / "step1_reference_units.json", {"units": []})
+    script_path = project_path / "scripts" / "episode_1.json"
+    atomic_write_json(
+        script_path,
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "drama",
+            "video_units": [
+                {
+                    "unit_id": "E1U01",
+                    "shots": [{"text": "镜头", "duration": 8}],
+                    "references": [],
+                    "generated_assets": {},
+                }
+            ],
+        },
+    )
+    before = script_path.read_bytes()
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "VIDEO"
+    assert script_path.read_bytes() == before
+    assert not (script_path.parent / ".episode_1.json.lock").exists()

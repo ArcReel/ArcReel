@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -41,7 +42,7 @@ def get_workflow_status_tool(ctx: ToolContext):
         ):
             return _error("invalid_episode", "episode must be a positive integer")
         try:
-            status = WorkflowStateService(ctx.pm).get_status(ctx.project_name, raw_episode)
+            status = await asyncio.to_thread(WorkflowStateService(ctx.pm).get_status, ctx.project_name, raw_episode)
             return {"content": [{"type": "text", "text": status.model_dump_json()}]}
         except json.JSONDecodeError as exc:
             return tool_error("get_workflow_status", exc)

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from lib import script_review
 from lib.asset_types import ASSET_SPECS
+from lib.data_validator import DataValidator
 from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
@@ -356,7 +357,7 @@ class WorkflowStateService:
     ) -> tuple[dict[str, Any], list[dict[str, Any]], str | None, dict[str, Any]]:
         path = target.script
         try:
-            script: Any = self.pm.load_script(project_name, path)
+            script: Any = self.pm.load_script_readonly(project_name, path)
         except FileNotFoundError:
             return {"state": "missing", "path": path}, [], None, {}
         except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -425,6 +426,21 @@ class WorkflowStateService:
                     )
                 )
                 return {"state": "blocked", "path": path}, [], kind, script
+        validation = DataValidator(str(self.pm.projects_root)).validate_episode_payload(
+            project_path,
+            project,
+            script,
+            validate_artifacts=False,
+        )
+        if not validation.valid:
+            blockers.append(
+                WorkflowBlocker(
+                    code="invalid_script_structure",
+                    path=path,
+                    reason="; ".join(validation.errors),
+                )
+            )
+            return {"state": "blocked", "path": path}, [], kind, script
         return {"state": "current", "path": path}, raw_items, kind, script
 
     @staticmethod
@@ -454,6 +470,8 @@ class WorkflowStateService:
             for shot in script.get("shots", [])
             if isinstance(shot, dict) and isinstance(shot.get("shot_id"), str)
         }
+        member_counts = {shot_id: 0 for shot_id in valid_shot_ids}
+        has_dangling_members = False
         seen_unit_ids: set[str] = set()
         for index, unit in enumerate(raw_units):
             unit_id = unit.get("unit_id") if isinstance(unit, dict) else None
@@ -465,7 +483,6 @@ class WorkflowStateService:
                 or unit_id in seen_unit_ids
                 or not isinstance(shot_ids, list)
                 or not shot_ids
-                or not any(isinstance(shot_id, str) and shot_id in valid_shot_ids for shot_id in shot_ids)
                 or (references is not None and not isinstance(references, list))
             ):
                 blockers.append(
@@ -478,6 +495,11 @@ class WorkflowStateService:
                 invalid = True
                 continue
             seen_unit_ids.add(unit_id)
+            for shot_id in shot_ids:
+                if isinstance(shot_id, str) and shot_id in member_counts:
+                    member_counts[shot_id] += 1
+                else:
+                    has_dangling_members = True
             video_path = get_generated_assets(unit).get("video_clip")
             if not isinstance(video_path, str) or not safe_exists(project_path, video_path):
                 collection["missing_ids"].append(unit_id)
@@ -486,9 +508,12 @@ class WorkflowStateService:
             else:
                 collection["current_ids"].append(unit_id)
 
+        membership_is_current = (
+            not has_dangling_members and bool(valid_shot_ids) and all(count == 1 for count in member_counts.values())
+        )
         if invalid:
             state = "blocked"
-        elif collection["stale_ids"]:
+        elif collection["stale_ids"] or not membership_is_current:
             state = "stale"
         elif collection["missing_ids"] or not collection["current_ids"]:
             state = "missing"
