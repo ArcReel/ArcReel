@@ -62,6 +62,14 @@ def require(mapping: dict[str, Any], key: str, path: str) -> Any:
     return mapping[key]
 
 
+def validate_optional_positive_int(mapping: dict[str, Any], key: str, path: str) -> None:
+    if key not in mapping or mapping[key] is None:
+        return
+    value = mapping[key]
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        fail(f"{path}.{key} must be a positive integer or null")
+
+
 def validate_evidence(value: Any, path: str) -> None:
     for index, item_value in enumerate(expect_list(value, path)):
         item = expect_mapping(item_value, f"{path}[{index}]")
@@ -107,6 +115,7 @@ def validate_analysis(value: Any) -> dict[str, Any]:
         number = require(item, "number", path)
         if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
             fail(f"{path}.number must be a positive integer")
+        validate_optional_positive_int(item, "pr", path)
         expect_string(require(item, "title", path), f"{path}.title")
         state = expect_string(require(item, "state", path), f"{path}.state")
         if state not in ISSUE_STATES:
@@ -228,6 +237,7 @@ def validate_analysis(value: Any) -> dict[str, Any]:
     for index, item_value in enumerate(expect_list(require(analysis, "pushbacks", "analysis"), "analysis.pushbacks")):
         path = f"analysis.pushbacks[{index}]"
         item = expect_mapping(item_value, path)
+        validate_optional_positive_int(item, "pr", path)
         for key in ("reviewer", "topic", "ruling", "reason"):
             expect_string(require(item, key, path), f"{path}.{key}")
 

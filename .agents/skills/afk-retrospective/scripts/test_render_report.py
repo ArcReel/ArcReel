@@ -138,6 +138,26 @@ class RenderReportTest(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.ReportError, "unknown id"):
             MODULE.validate_analysis(data)
 
+    def test_rejects_nonnumeric_pushback_pr(self) -> None:
+        data = analysis_fixture()
+        data["pushbacks"] = [
+            {
+                "pr": "<img src=x onerror=alert(1)>",
+                "reviewer": "Codex",
+                "topic": "validation",
+                "ruling": "rejected",
+                "reason": "invalid input",
+            }
+        ]
+        with self.assertRaisesRegex(MODULE.ReportError, "positive integer or null"):
+            MODULE.validate_analysis(data)
+
+    def test_rejects_nonnumeric_issue_pr(self) -> None:
+        data = analysis_fixture()
+        data["issues"][0]["pr"] = "two"
+        with self.assertRaisesRegex(MODULE.ReportError, "positive integer or null"):
+            MODULE.validate_analysis(data)
+
     def test_rejects_invalid_candidate_id(self) -> None:
         data = analysis_fixture()
         data["followups"][0]["candidate_ids"] = ["candidate-1"]
