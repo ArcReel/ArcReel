@@ -151,7 +151,8 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 ## 阶段 5：资产设计（character / scene / prop 三类并行）
 
 **触发**：`next_action.type == "generate_asset_sheets"`。空资产 bucket 是阶段 1 的合法完成结果，
-不得据此回退；按 `artifacts.asset_sheets` 与 `requested_ids` 找到下列缺 sheet 项：
+不得据此回退；对每个资产类型，取 `artifacts.asset_sheets[type].missing_ids` 与 `requested_ids` 的交集作为
+该类型的 `names`，同时传给 subagent 和工具：
 - character 缺 character_sheet
 - scene 缺 scene_sheet
 - prop 缺 prop_sheet
@@ -179,7 +180,7 @@ dispatch `generate-assets` subagent：
   项目名称：{project_name}
   待生成项：{缺失角色名列表}
   工具调用：
-    mcp__arcreel__generate_assets({"type": "character"})
+    mcp__arcreel__generate_assets({"type": "character", "names": [该类型 requested_ids]})
   验证方式：重新读取 project.json，检查对应角色的 character_sheet 字段
 ```
 
@@ -193,7 +194,7 @@ dispatch `generate-assets` subagent：
   项目名称：{project_name}
   待生成项：{缺失场景名列表}
   工具调用：
-    mcp__arcreel__generate_assets({"type": "scene"})
+    mcp__arcreel__generate_assets({"type": "scene", "names": [该类型 requested_ids]})
   验证方式：重新读取 project.json，检查对应场景的 scene_sheet 字段
 ```
 
@@ -207,7 +208,7 @@ dispatch `generate-assets` subagent：
   项目名称：{project_name}
   待生成项：{缺失道具名列表}
   工具调用：
-    mcp__arcreel__generate_assets({"type": "prop"})
+    mcp__arcreel__generate_assets({"type": "prop", "names": [该类型 requested_ids]})
   验证方式：重新读取 project.json，检查对应道具的 prop_sheet 字段
 ```
 
@@ -218,11 +219,14 @@ dispatch `generate-assets` subagent：
 **触发**：`next_action.type` 为 `"generate_storyboards"` 或 `"generate_grid"`；服务端不会在
 reference_video 模式返回这两个动作。
 
-检查项目 `generation_mode` 与 `grid_storyboard`：
+按动作直接选择工具，不二次检查 `generation_mode` 或 `grid_storyboard`：
 
-- `generation_mode == "storyboard"` 且 `grid_storyboard` 为 false → dispatch `generate-assets`，调 `mcp__arcreel__generate_storyboards`
-- `generation_mode == "storyboard"` 且 `grid_storyboard` 为 true → dispatch `generate-assets`，调 `mcp__arcreel__generate_grid`
-- `generation_mode == "reference_video"` → 不触发，直接跳到阶段 7
+- `next_action.type == "generate_storyboards"` → dispatch `generate-assets`，调
+  `mcp__arcreel__generate_storyboards({"script": "episode_{target.episode}.json", "segment_ids": requested_ids})`
+- `next_action.type == "generate_grid"` → dispatch `generate-assets`，调
+  `mcp__arcreel__generate_grid({"script": "episode_{target.episode}.json", "scene_ids": requested_ids})`
+
+两条路径都把 `next_action.args` 与 `requested_ids` 原样传给 subagent，由 subagent 按上面映射调用工具。
 
 > **切换 `grid_storyboard` 后的重做**：本阶段的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的场景范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": "episode_{N}.json", "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": "episode_{N}.json", "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑阶段 7 对应场景。
 

@@ -16,6 +16,20 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 不根据文件存在性重建阶段。`next_action.type == "none"` 时展示 blockers 并停止变更；其余动作按下列步骤执行，
 完成后再次刷新状态。产品 sheet 过目等明确标注的 soft gate 继续叠加在服务端状态之上。
 
+按 `next_action.type` 直接进入对应步骤：
+
+- `next_action.type == "draft_selling_points"` → 步骤 3
+- `next_action.type == "generate_script"` → 步骤 5
+- `next_action.type == "generate_asset_sheets"` → 步骤 4
+- `next_action.type == "generate_storyboards"` → 步骤 7 的 storyboard 单图路径
+- `next_action.type == "generate_grid"` → 步骤 7 的 storyboard 宫格路径
+- `next_action.type == "generate_videos"` → 步骤 7 的视频生成
+- `next_action.type == "export"` → 步骤 8
+
+调用工具或 dispatch subagent 时，把 `target.episode`、`next_action.args` 和 `requested_ids` 原样带入；
+不得再按 products、sheet、剧本或媒体文件的存在性改选另一个阶段。步骤内的产品原图与 sheet 过目规则仅是
+执行已选动作前的 soft gate。
+
 1. **确认项目状态**：按 workflow-status 返回的 `project` 确认 `content_mode`（固定 `ad`）与 `generation_mode`；Read `project.json` 补充 `title`、`target_duration`、`brief` 与 `products`。用户要求更改生成模式时明确告知路线创建后不可更改，agent 无对应写入权限，也无绕过方式
 2. **创作输入**：带货项目而产品未登记或缺原图（`reference_images` 为空）时，引导用户在 WebUI 初始化页或产品资产页上传产品图——原图是产品保真的验收锚点，agent 不能代传图片；产品描述/品牌可经 `mcp__arcreel__patch_project` 代写。`brief` 为空时引导用户补充创作诉求（产品/主题、目标人群、期望风格——卖点留给下一步起草，不在此重复索要），同样经 `patch_project` 写入
 3. **起草卖点（selling_points）**：产品已登记但 `selling_points` 为空时，先从 `brief`、产品描述与产品原图（`reference_images`）中起草卖点列表，与用户确认后经 `mcp__arcreel__patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
