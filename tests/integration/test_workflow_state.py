@@ -683,6 +683,7 @@ def test_ad_reference_unit_requires_shot_membership(tmp_path: Path) -> None:
             "reference_units": [
                 {
                     "unit_id": "E1U1",
+                    "shot_ids": ["E1S99"],
                     "references": [],
                     "generated_assets": {"video_clip": video_path},
                 }
@@ -698,6 +699,26 @@ def test_ad_reference_unit_requires_shot_membership(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+def test_invalid_required_script_field_blocks_export(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "content_mode": "ad",
+            "shots": [{"shot_id": "E1S01", "duration_seconds": -7, "generated_assets": {}}],
+        },
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "FINAL_SCRIPT"
+    assert status.artifacts["script"]["state"] == "blocked"
+    assert status.blockers[0].code == "invalid_script_structure"
+    assert status.next_action.type == "none"
+
+
+@pytest.mark.integration
 def test_planning_completion_resolves_nfc_cursor_to_nfd_filesystem_path(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     decomposed_name = unicodedata.normalize("NFD", "truyện.txt")
@@ -710,6 +731,19 @@ def test_planning_completion_resolves_nfc_cursor_to_nfd_filesystem_path(tmp_path
     project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
 
     assert WorkflowStateService._planning_complete(project_path, project, source) is True
+
+
+@pytest.mark.integration
+def test_planning_without_source_fingerprint_baseline_is_incomplete(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_path = project_path / "source" / "novel.txt"
+    source_path.write_text("完整原文", encoding="utf-8")
+    project = pm.load_project("demo")
+    source = compute_source_revision(project_path, project, SourceScope(kind="all"))
+    assert source.revision is not None
+    project["planning_cursor"] = {"source_file": source.files[-1], "offset": 4}
+
+    assert WorkflowStateService._planning_complete(project_path, project, source) is False
 
 
 @pytest.mark.integration

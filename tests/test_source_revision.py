@@ -100,6 +100,25 @@ def test_revision_changes_with_raw_bytes_path_and_source_semantics(tmp_path: Pat
 
 
 @pytest.mark.integration
+def test_revision_payload_order_is_stable_across_unicode_filename_spelling(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    nfc_name = "á.txt"
+    nfd_name = unicodedata.normalize("NFD", nfc_name)
+    accented = source / nfd_name
+    accented.write_text("accented", encoding="utf-8")
+    (source / "b.txt").write_text("plain", encoding="utf-8")
+    before = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+
+    intermediate = source / "rename.tmp"
+    accented.rename(intermediate)
+    intermediate.rename(source / nfc_name)
+    after = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+
+    assert after.revision == before.revision
+
+
+@pytest.mark.integration
 def test_scoped_revision_rejects_escape_symlink_and_invalid_scope(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

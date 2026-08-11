@@ -46,6 +46,12 @@ EXPECTED_ROUTES = {
     ),
 }
 
+EXPECTED_BLOCKER_ROUTE = {
+    "SKILL.narration.md": "| `none` | 展示 `blockers` 并停止变更 |",
+    "SKILL.drama.md": "| `none` | 展示 `blockers` 并停止变更 |",
+    "SKILL.ad.md": '`next_action.type == "none"` 时展示 blockers 并停止变更',
+}
+
 
 @pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
 def test_workflow_variants_use_authoritative_status_tool(filename: str) -> None:
@@ -59,6 +65,7 @@ def test_workflow_variants_use_authoritative_status_tool(filename: str) -> None:
         assert route in content
         route_positions.append(content.index(route))
     assert route_positions == sorted(route_positions)
+    assert EXPECTED_BLOCKER_ROUTE[filename] in content
 
 
 @pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
@@ -73,6 +80,9 @@ def test_workflow_asset_and_storyboard_routes_forward_authoritative_arguments(fi
     assert "target.episode" in content
     assert '"script": target.script' in content
     assert "next_action.args" in content
+    if filename != "SKILL.ad.md":
+        assert "names = artifacts.asset_sheets[type].missing_ids ∩ requested_ids" in content
+        assert "若 names 为空 → 跳过，不 dispatch；不得回退到整类 missing_ids" in content
 
 
 def test_asset_analysis_records_completion_fact() -> None:

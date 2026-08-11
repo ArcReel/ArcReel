@@ -216,8 +216,9 @@ def compute_source_revision(
     if error is not None:
         return error
 
+    canonical_fingerprints = sorted(fingerprints, key=lambda item: item[0])
     payload = {
-        "files": [{"path": rel, "sha256": digest} for rel, digest in fingerprints],
+        "files": [{"path": rel, "sha256": digest} for rel, digest in canonical_fingerprints],
         "source_kind": project.get("source_kind", "novel"),
         "source_language": project.get("source_language"),
     }

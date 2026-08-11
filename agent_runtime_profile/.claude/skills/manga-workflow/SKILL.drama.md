@@ -163,8 +163,9 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 ```text
 对于 type ∈ {character, scene, prop}:
-  若该类存在缺 *_sheet 项 → dispatch 对应的 `generate-assets` subagent
-  若该类均已齐全         → 跳过，不 dispatch
+  names = artifacts.asset_sheets[type].missing_ids ∩ requested_ids
+  若 names 非空 → dispatch 对应的 `generate-assets` subagent，并把 names 原样传给 subagent 和工具
+  若 names 为空 → 跳过，不 dispatch；不得回退到整类 missing_ids
 
 三类判断彼此独立，结果可能 dispatch 0~3 个 subagent。
 所有 dispatch 的 subagent 返回后，合并摘要展示给用户，进入阶段间确认。
@@ -174,13 +175,13 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 ### subagent — 角色设计
 
-**触发**：有角色缺少 character_sheet
+**触发**：该类 `names` 交集非空
 
 ```text
 dispatch `generate-assets` subagent：
   任务类型：character
   项目名称：{project_name}
-  待生成项：{缺失角色名列表}
+  待生成项：{names 交集}
   工具调用：
     mcp__arcreel__generate_assets({"type": "character", "names": [该类型 requested_ids]})
   验证方式：重新读取 project.json，检查对应角色的 character_sheet 字段
@@ -188,13 +189,13 @@ dispatch `generate-assets` subagent：
 
 ### subagent — 场景设计
 
-**触发**：有场景缺少 scene_sheet
+**触发**：该类 `names` 交集非空
 
 ```text
 dispatch `generate-assets` subagent：
   任务类型：scene
   项目名称：{project_name}
-  待生成项：{缺失场景名列表}
+  待生成项：{names 交集}
   工具调用：
     mcp__arcreel__generate_assets({"type": "scene", "names": [该类型 requested_ids]})
   验证方式：重新读取 project.json，检查对应场景的 scene_sheet 字段
@@ -202,13 +203,13 @@ dispatch `generate-assets` subagent：
 
 ### subagent — 道具设计
 
-**触发**：有道具缺少 prop_sheet
+**触发**：该类 `names` 交集非空
 
 ```text
 dispatch `generate-assets` subagent：
   任务类型：prop
   项目名称：{project_name}
-  待生成项：{缺失道具名列表}
+  待生成项：{names 交集}
   工具调用：
     mcp__arcreel__generate_assets({"type": "prop", "names": [该类型 requested_ids]})
   验证方式：重新读取 project.json，检查对应道具的 prop_sheet 字段

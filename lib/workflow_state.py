@@ -292,10 +292,11 @@ class WorkflowStateService:
         if source is None or not source.files:
             return False
         recorded_fingerprints = project.get(SOURCE_FINGERPRINTS_KEY)
-        if isinstance(recorded_fingerprints, Mapping) and recorded_fingerprints:
-            current_fingerprints = compute_source_fingerprints(discover_sources(project_path))
-            if dict(recorded_fingerprints) != current_fingerprints:
-                return False
+        if not isinstance(recorded_fingerprints, Mapping) or not recorded_fingerprints:
+            return False
+        current_fingerprints = compute_source_fingerprints(discover_sources(project_path))
+        if dict(recorded_fingerprints) != current_fingerprints:
+            return False
         cursor = project.get("planning_cursor")
         if not isinstance(cursor, Mapping):
             return False
@@ -388,6 +389,17 @@ class WorkflowStateService:
                 )
                 return {"state": "blocked", "path": path}, [], kind, script
             seen_ids.add(resource_id)
+            duration = item.get("duration_seconds")
+            duration_max = 300 if kind == "video_units" else 60
+            if isinstance(duration, bool) or not isinstance(duration, int) or not 1 <= duration <= duration_max:
+                blockers.append(
+                    WorkflowBlocker(
+                        code="invalid_script_structure",
+                        path=f"{path}.{kind}[{index}].duration_seconds",
+                        reason=f"duration_seconds must be an integer between 1 and {duration_max}",
+                    )
+                )
+                return {"state": "blocked", "path": path}, [], kind, script
         return {"state": "current", "path": path}, raw_items, kind, script
 
     @staticmethod
@@ -412,6 +424,11 @@ class WorkflowStateService:
 
         stale_ids = set(ad_stale_unit_ids(script, raw_units))
         invalid = False
+        valid_shot_ids = {
+            shot.get("shot_id")
+            for shot in script.get("shots", [])
+            if isinstance(shot, dict) and isinstance(shot.get("shot_id"), str)
+        }
         seen_unit_ids: set[str] = set()
         for index, unit in enumerate(raw_units):
             unit_id = unit.get("unit_id") if isinstance(unit, dict) else None
@@ -423,6 +440,7 @@ class WorkflowStateService:
                 or unit_id in seen_unit_ids
                 or not isinstance(shot_ids, list)
                 or not shot_ids
+                or not any(isinstance(shot_id, str) and shot_id in valid_shot_ids for shot_id in shot_ids)
                 or (references is not None and not isinstance(references, list))
             ):
                 blockers.append(
