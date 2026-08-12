@@ -59,8 +59,11 @@ pytestmark = pytest.mark.unit
         ("minimax-h3", list(range(4, 16))),
         ("MiniMax-H3", list(range(4, 16))),
         ("proxy-minimax-h3-turbo", list(range(4, 16))),
-        # Wan
+        # Wan（连字符/下划线/点号三种分隔符形态同档，与端点路由、能力档的匹配宽度一致）
         ("wan-2.1", [4, 5]),
+        ("wan2.7-i2v", [4, 5]),
+        ("wan_2.7-i2v", [4, 5]),
+        ("WAN_2-T2V", [4, 5]),
         # 万相 3.0（不落入通用 Wan 的 [4, 5] 预设）
         ("wan3.0-video", list(range(2, 31))),
         ("Wan3.0-Video", list(range(2, 31))),

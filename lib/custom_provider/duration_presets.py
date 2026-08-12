@@ -53,8 +53,10 @@ PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
     # 万相 3.0（2-30 任意；须先于通用 Wan 判断，否则会落入 [4, 5]）。
     # 出处：lib/config/registry.py wan3.0-video 的 supported_durations。
     (WAN3_PATTERN, list(range(2, 31))),
-    # Wan（其余系列）
-    (re.compile(r"wan-?\d", re.I), [4, 5]),
+    # Wan（其余系列）。分隔符集合与 WAN3_PATTERN 一致（连字符/下划线均可选），否则
+    # wan_2.7-i2v 这类下划线别名会落 DEFAULT_FALLBACK，与它在端点路由、能力档上被认作
+    # 万相家族的结论相互矛盾（用户会拿到该型号并不支持的时长档）。
+    (re.compile(r"wan[-_]?\d", re.I), [4, 5]),
     # Pika
     (re.compile(r"pika", re.I), [3, 5, 10]),
 ]
