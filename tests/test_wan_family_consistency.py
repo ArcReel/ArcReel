@@ -236,11 +236,23 @@ def test_wan_glued_bare_digit_version_excluded_from_minimax_routing(model_id: st
     ["image-to-video-proxy/swan2.7-image", "image-to-video-proxy/vendorwan2.7-image"],
 )
 def test_fallback_image_to_video_syntax_scoped_to_wan_marker_not_decoration_prefix(model_id: str) -> None:
-    """family=None 兜底路径的 image-to-video 续接语法识别同样须从字面 "wan" 子串本身开始搜索——
-    "swan2.7-image"/"vendorwan2.7-image" 均不满足家族严格边界（family=None），装饰前缀
-    "image-to-video-proxy/" 里的续接语法拼写不属于该 id 自身的模态段，不能把真图像变体误判成
-    视频续接。"""
+    """family=None 兜底路径的 image-to-video 续接语法识别同样须从疑似 wan 版本号标记（"wan" 后紧跟
+    数字，即便不满足家族严格边界）本身开始搜索——"swan2.7-image"/"vendorwan2.7-image" 均不满足
+    家族严格边界（family=None），装饰前缀 "image-to-video-proxy/" 里的续接语法拼写不属于该 id
+    自身的模态段，不能把真图像变体误判成视频续接。"""
     assert infer_endpoint(model_id, "openai") == "openai-images"
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    ["seedance-image2video-swan", "viduq3-image2video-swan"],
+)
+def test_fallback_image_to_video_syntax_not_scoped_when_wan_has_no_version_marker(model_id: str) -> None:
+    """裸 "wan" 后不跟数字（如 "seedance-image2video-swan" 里的 "swan"）不构成疑似版本号标记，
+    不缩小 image-to-video 续接语法的搜索范围——这类 id 已有自己的视频家族 token（seedance/
+    viduq3），"wan" 只是无关词尾，不应让它前面本就属于该 id 自身的续接语法文本被排除在搜索范围
+    之外，进而被误判成图像变体。"""
+    assert infer_endpoint(model_id, "openai") != "openai-images"
 
 
 @pytest.mark.parametrize(

@@ -580,7 +580,7 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 各用一次。家族归属、分隔符归一化、标识符边界、image-to-video 续接语法、videoedit 模态排除
     # 全部只在 classify_wan_model（lib.video_backends.dashscope）里判定一次，本函数与
     # DashScopeVideoBackend._profile_for_model、duration_presets.infer_supported_durations 三处
-    # 只消费其结论，不再各自对 model_id 做正则匹配——避免三处宽度各自漂移，出现"路由到本后端却拿
+    # 只消费其结论，不得各自对 model_id 做正则匹配——避免三处宽度各自漂移，出现"路由到本后端却拿
     # 不到对应能力档"一类互斥组合。
     classification = classify_wan_model(model_id)
     is_wan_family = classification.family is not None and classification.family != "happyhorse"

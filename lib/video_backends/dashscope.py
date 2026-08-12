@@ -171,6 +171,13 @@ WAN_VIDEOEDIT_PATTERN = re.compile(r"(?<![a-z0-9])video[-_]?edit(?![a-z0-9])", r
 # 判定是否落图像端点用），不代表已实现该模态的请求构造（仍须落 has_known_modality 的排除路径）。
 WAN_S2V_V2V_PATTERN = re.compile(r"(?<![a-z0-9])[sv]2v(?![a-z0-9])", re.I)
 
+# family=None 兜底路径定位疑似 wan 版本号标记的位置：要求 "wan" 后（可选分隔符）紧跟数字，
+# 与真正的家族正则一样不设左边界（"swan2.7" 里的 "wan2.7" 同样定位）。用于把 image-to-video
+# 续接语法的搜索范围限定在该标记之后的模态段，"wan" 前的装饰前缀（"image-to-video-proxy/"）不
+# 计入。裸 "wan" 后无数字（"seedance-image2video-swan" 里的 "swan"）不构成疑似版本号标记，不缩小
+# 搜索范围——这类 id 的 "wan" 只是无关词尾，不应让它前面的续接语法文本被排除在外。
+_WAN_LOOSE_VERSION_LOCATOR = re.compile(r"wan[-_]?\d", re.I)
+
 WanFamily = Literal["happyhorse", "wan2.7", "wan3", "wan2x_dot"]
 
 
@@ -233,13 +240,14 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
         # image-to-video 续接语法的标识符边界匹配与家族归属判定相互独立：不满足家族严格边界的 id
         # （如 "wan-2.2-image-to-video"，"wan" 与版本号间的连字符不满足点号形态边界）依然可能是
         # 视频模型的显式续接语法命名，家族未命中不代表该语法信息作废，须原样带出，供 endpoints.py
-        # 的 image 变体排除判定消费——否则这类 id 会被笼统 image 判定误吞成图像端点。搜索范围仍须
-        # 从字面 "wan" 子串本身开始切分（不要求满足严格标识符边界，"swan2.7-image" 里的 "wan" 同样
-        # 定位），不含其前的装饰前缀——否则 "image-to-video-proxy/swan2.7-image" 这类与模态无关的
-        # 代理命名空间前缀会把真图像变体误判成视频续接。字面无 "wan" 子串时该字段不被下游消费
-        # （endpoints.py 先决 `"wan" in lowered` 才读取本字段），退回全串搜索即可。
-        wan_locator = normalized.find("wan")
-        fallback_scope = normalized[wan_locator:] if wan_locator != -1 else normalized
+        # 的 image 变体排除判定消费——否则这类 id 会被笼统 image 判定误吞成图像端点。搜索范围限定
+        # 在疑似 wan 版本号标记（_WAN_LOOSE_VERSION_LOCATOR）之后的模态段，标记前的装饰前缀
+        # （"image-to-video-proxy/"）不计入——否则 "image-to-video-proxy/swan2.7-image" 这类与
+        # 模态无关的代理命名空间前缀会把真图像变体误判成视频续接。id 不含疑似版本号标记时
+        # （如 "seedance-image2video-swan" 里裸 "wan" 后无数字，只是与模态无关的词尾）退回全串
+        # 搜索——这类 "wan" 不构成可供切分的标记位置，前面的续接语法文本本就该纳入搜索范围。
+        wan_locator = _WAN_LOOSE_VERSION_LOCATOR.search(normalized)
+        fallback_scope = normalized[wan_locator.start() :] if wan_locator else normalized
         return WanClassification(
             family=None,
             is_image_to_video=bool(WAN_IMAGE_TO_VIDEO_PATTERN.search(fallback_scope)),
