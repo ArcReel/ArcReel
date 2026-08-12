@@ -181,6 +181,14 @@ def test_wan27_videoedit_excluded_even_alongside_recognized_modality_token() -> 
     assert infer_supported_durations("wan2.7-i2v-videoedit") != list(range(2, 16))
 
 
+@pytest.mark.parametrize("model_id", ["proxy-videoeditor/wan2.7-i2v", "proxy-videoedit-service/wan_2.7-r2v"])
+def test_videoedit_token_requires_identifier_boundary(model_id: str) -> None:
+    """ "videoedit" 判定须按标识符边界匹配："videoeditor" 一类无关词形不应误判命中；真正的
+    "videoedit" 装饰前缀（如 "-service" 后缀分隔）仍要正确命中并排除出原生路由。"""
+    is_editor_typo = "videoeditor" in model_id
+    assert infer_endpoint(model_id, "openai") == ("dashscope-async-video" if is_editor_typo else "openai-video")
+
+
 @pytest.mark.parametrize("model_id", ["proxy-videoedit/wan3-turbo", "wan-3-turbo-videoedit"])
 def test_videoedit_exclusion_scoped_to_wan27_only(model_id: str) -> None:
     """videoedit 排除只对 wan2.7 家族生效——wan3 的 id 即便含 "videoedit" 子串（装饰前缀或
@@ -210,7 +218,7 @@ def test_wan27_unrecognized_modality_excluded_from_native_route_and_family_durat
 def test_wan2x_dot_image_to_video_has_no_registered_capability_falls_back_to_generic(model_id: str) -> None:
     """wan2x_dot（2.7 以外的点号形态）没有登记任何 VideoCapabilities；image-to-video 续接语法
     命中时若仍放行原生路由，会静默拿到 _DEFAULT_PROFILE（恰好 first_frame=True，掩盖问题）。
-    登记前排除出原生路由，落通用视频端点。"""
+    没有已验证能力/请求 schema 的 id 排除出原生路由，落通用视频端点。"""
     assert infer_endpoint(model_id, "openai") == "openai-video"
 
 

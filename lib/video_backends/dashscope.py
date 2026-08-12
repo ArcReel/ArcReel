@@ -162,8 +162,9 @@ WAN_IMAGE_TO_VIDEO_PATTERN = re.compile(r"(?<![a-z0-9])image[-_]?(?:to|2)[-_]?vi
 # wan2.7-videoedit（指令式视频编辑，见 docs/research/arcreel-vendor-integration-research.md）是
 # 万相家族内真实存在的独立模态，但本后端只实现了 t2v/i2v/r2v 三档的请求构造，没有该模态所需的
 # 输入视频传输字段。命中家族正则但落这个模态的 id 须排除出原生路由与已知能力档，否则会带着
-# _DEFAULT_PROFILE（丢失该模态实际所需的能力声明）发出本后端无法正确构造的请求。
-WAN_VIDEOEDIT_PATTERN = re.compile(r"video[-_]?edit", re.I)
+# _DEFAULT_PROFILE（丢失该模态实际所需的能力声明）发出本后端无法正确构造的请求。两侧标识符边界
+# 避免 "videoeditor" 一类无关词形（"edit" 后紧邻字母）被误判命中。
+WAN_VIDEOEDIT_PATTERN = re.compile(r"(?<![a-z0-9])video[-_]?edit(?![a-z0-9])", re.I)
 
 WanFamily = Literal["happyhorse", "wan2.7", "wan3", "wan2x_dot"]
 
@@ -232,8 +233,8 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
     elif family == "wan2x_dot" and is_image_to_video:
         # wan2x_dot 没有登记任何 VideoCapabilities（profile_key 恒 None，下条注释），image-to-video
         # 续接语法命中时若仍放行原生路由，_profile_for_model 会回落 _DEFAULT_PROFILE（first_frame
-        # 默认 True，恰好掩盖问题），但本后端并未为这些未收窄的 2.x 小版本声明过已验证的首帧请求
-        # 构造，登记前先排除出原生路由，同落下方 5) 的通用视频端点。
+        # 默认 True，恰好掩盖问题）——但本后端并未为这些未收窄的 2.x 小版本声明过已验证的首帧
+        # 请求构造，没有已验证能力/请求 schema 的 id 排除出原生路由，同落下方 5) 的通用视频端点。
         has_known_modality = False
     # wan2x_dot 无法从 model_id 直接归一化出确切 t2v/i2v/r2v 档位（其命名形态未收敛），
     # profile_key 留空，交由 _profile_for_model 末尾的兜底子串匹配处理（多数落 _DEFAULT_PROFILE）；
