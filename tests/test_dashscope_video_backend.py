@@ -894,7 +894,9 @@ class TestWan27ReferenceVoice:
 
 
 class TestWan2Aliases:
-    """wan2 家族 model_id 的能力档解析：连字符/下划线别名与点号形态须归同一档。"""
+    """wan2.7 的 model_id 能力档解析：连字符/下划线别名与点号形态须归同一档；WAN2_PATTERN 只认
+    2.7，其余 2.x 小版本（2.1/2.2 等）不在本正则确权范围内（见 WAN2_PATTERN 处的说明）。
+    """
 
     @pytest.mark.unit
     @pytest.mark.parametrize("model", ["wan-2.7-r2v", "wan_2.7-r2v"])
@@ -913,9 +915,36 @@ class TestWan2Aliases:
         assert caps.max_reference_audio_count == 5
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["wan-2.7-image-to-video", "wan_2.7-image2video"])
+    def test_image_to_video_alias_gets_wan27_i2v_capabilities(self, model):
+        """连字符/下划线形态的 image-to-video 续接别名归一化后仍带该后缀（如
+        "wan2.7-image-to-video"），不与 _MODEL_PROFILES 的 "wan2.7-i2v" 构成子串关系；须先把
+        该后缀折成 "i2v" 再查表，否则静默落默认档、丢失 first_frame，_build_media 据此不下发
+        start_image。
+        """
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        assert caps.first_frame is True
+        assert caps.max_prompt_chars == 5000
+
+    @pytest.mark.unit
     @pytest.mark.parametrize("model", ["swan2", "vendorwan2", "wan20"])
     def test_substring_without_boundary_does_not_get_wan2_capabilities(self, model):
         """含 "wan2" 子串但两侧非字母数字边界不成立的型号名，不得被误判为万相 2.x 家族。"""
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        assert caps.max_reference_images == 0
+        assert caps.max_prompt_chars is None
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["wan-2.1-r2v", "wan_2.2-i2v"])
+    def test_non_27_alias_forms_fall_back_to_default_profile(self, model):
+        """WAN2_PATTERN 只认 2.7：连字符/下划线形态的其余 2.x 小版本不落 wan2.7 能力档——
+        本后端固定请求的端点与这些小版本的实际协议不符（见 WAN2_PATTERN 处的说明），
+        endpoints.py 也不会把它们路由到本后端；此处确认能力档解析同样不越界。
+        """
         from lib.video_backends.dashscope import DashScopeVideoBackend
 
         caps = DashScopeVideoBackend.video_capabilities_for_model(model)
