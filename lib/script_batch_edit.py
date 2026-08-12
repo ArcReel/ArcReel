@@ -82,17 +82,20 @@ class ScriptBatchEditCommand(BaseModel):
     """Transport-neutral ordered edit command.
 
     Exactly one target coordinate is accepted: ``episode`` resolves the project ledger
-    binding, while ``script`` addresses an already known script filename.
+    binding, while ``script`` addresses an already known script filename. Episode-scoped
+    compatibility adapters may also pin the binding they originally loaded so a same-content
+    rebind cannot evade the revision check.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     script: str | None = Field(default=None, min_length=1)
     episode: int | None = Field(default=None, ge=1, strict=True)
+    expected_script_file: str | None = Field(default=None, min_length=1)
     expected_revision: str = Field(pattern=_REVISION_PATTERN)
     operations: list[ScriptBatchOperation] = Field(min_length=1)
 
-    @field_validator("script")
+    @field_validator("script", "expected_script_file")
     @classmethod
     def _safe_script_filename(cls, value: str | None) -> str | None:
         if value is None:
@@ -112,6 +115,8 @@ class ScriptBatchEditCommand(BaseModel):
     def _exactly_one_target(self) -> ScriptBatchEditCommand:
         if (self.script is None) == (self.episode is None):
             raise ValueError("exactly one of script or episode is required")
+        if self.expected_script_file is not None and self.episode is None:
+            raise ValueError("expected_script_file requires an episode target")
         return self
 
 
@@ -183,7 +188,16 @@ class ScriptBatchEditor:
         self._manifest_adapter_factory = manifest_adapter_factory
 
     def execute(self, project_name: str, command: ScriptBatchEditCommand) -> ScriptBatchEditResult:
-        resolved_script = command.script or episode_script_filename(command.episode or 0)
+        expected_script_file = (
+            self._pm.normalize_script_filename(command.expected_script_file)
+            if command.expected_script_file is not None
+            else None
+        )
+        resolved_script = (
+            self._pm.normalize_script_filename(command.script)
+            if command.script is not None
+            else expected_script_file or episode_script_filename(command.episode or 0)
+        )
         episode_number: int | None = command.episode
         before_revision = command.expected_revision
         affected_ids: list[str] = []
@@ -205,7 +219,12 @@ class ScriptBatchEditor:
             )
             if entry is None or not isinstance(entry.get("script_file"), str):
                 raise FileNotFoundError(f"episode {command.episode} has no script binding")
-            resolved_script = self._pm.normalize_script_filename(entry["script_file"])
+            bound_script = self._pm.normalize_script_filename(entry["script_file"])
+            if expected_script_file is not None and bound_script != expected_script_file:
+                raise EpisodeScriptReboundError(
+                    f"episode script binding changed: {expected_script_file} -> {bound_script}"
+                )
+            resolved_script = bound_script
             return resolved_script
 
         def finalize_manifest(_script_path: Path) -> None:
@@ -333,6 +352,7 @@ class ScriptBatchEditor:
                     project,
                     candidate,
                     validate_artifacts=False,
+                    validate_route=False,
                 )
                 validation_errors = _candidate_validation_errors(candidate, reference_validation.error_messages)
                 if validation_errors:
@@ -653,8 +673,8 @@ def _candidate_validation_errors(
 
     Empty scripts are valid editable drafts in every script model. DataValidator also
     serves export/readiness checks and intentionally rejects those drafts; this command
-    uses it for project-reference and route validation, not to turn remove-last into an
-    impossible operation.
+    uses it for project-reference validation, not generation-route admission or to turn
+    remove-last into an impossible operation.
     """
 
     items, _id_field, _kind = resolve_items(candidate)

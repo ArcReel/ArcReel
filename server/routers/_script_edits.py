@@ -63,6 +63,7 @@ def execute_current_episode_edit(
     manager: ProjectManager,
     project_name: str,
     episode: int,
+    script_file: str,
     current_script: Mapping[str, Any],
     operations: Sequence[Mapping[str, Any]],
 ) -> ScriptBatchEditResult:
@@ -71,6 +72,7 @@ def execute_current_episode_edit(
     command = ScriptBatchEditCommand.model_validate(
         {
             "episode": episode,
+            "expected_script_file": script_file,
             "expected_revision": script_revision(current_script),
             "operations": list(operations),
         }

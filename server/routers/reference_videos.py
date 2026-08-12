@@ -186,7 +186,7 @@ async def add_unit(
     refs = _normalized_refs(req.references)
     references_supplied = "references" in req.model_fields_set
 
-    project, current, _script_file = _load_episode_script(project_name, episode, _t)
+    project, current, script_file = _load_episode_script(project_name, episode, _t)
     if references_supplied:
         _validate_references_exist(project, refs, _t)
     else:
@@ -221,6 +221,7 @@ async def add_unit(
         get_project_manager(),
         project_name,
         episode,
+        script_file,
         current,
         [{"op": "insert_after", "after_id": units[-1].get("unit_id") if units else None, "item": unit}],
     )
@@ -261,7 +262,7 @@ async def patch_unit(
     _t: Translator,
 ) -> dict[str, Any]:
     refs: list[dict] | None = _normalized_refs(req.references) if req.references is not None else None
-    project, current, _script_file = _load_episode_script(project_name, episode, _t)
+    project, current, script_file = _load_episode_script(project_name, episode, _t)
     _find_unit(current, unit_id, _t)
     if refs is not None:
         _validate_references_exist(project, refs, _t)
@@ -283,6 +284,7 @@ async def patch_unit(
         get_project_manager(),
         project_name,
         episode,
+        script_file,
         current,
         [{"op": "update", "id": unit_id, "fields": fields}],
     )
@@ -299,12 +301,13 @@ async def delete_unit(
     unit_id: str,
     _t: Translator,
 ) -> Response:
-    _project, current, _script_file = _load_episode_script(project_name, episode, _t)
+    _project, current, script_file = _load_episode_script(project_name, episode, _t)
     _find_unit(current, unit_id, _t)
     result = execute_current_episode_edit(
         get_project_manager(),
         project_name,
         episode,
+        script_file,
         current,
         [{"op": "remove", "id": unit_id}],
     )
@@ -323,7 +326,7 @@ async def reorder_units(
     req: ReorderRequest,
     _t: Translator,
 ) -> dict[str, Any]:
-    _project, current, _script_file = _load_episode_script(project_name, episode, _t)
+    _project, current, script_file = _load_episode_script(project_name, episode, _t)
     units = current.get("video_units") or []
     existing_ids = [unit.get("unit_id") for unit in units]
     error_kind = full_permutation_error(existing_ids, req.unit_ids)
@@ -340,7 +343,9 @@ async def reorder_units(
         {"op": "move_after", "id": unit_id, "after_id": req.unit_ids[index - 1] if index else None}
         for index, unit_id in enumerate(req.unit_ids)
     ]
-    result = execute_current_episode_edit(get_project_manager(), project_name, episode, current, operations)
+    result = execute_current_episode_edit(
+        get_project_manager(), project_name, episode, script_file, current, operations
+    )
     require_script_edit_result(result)
     reordered = get_project_manager().load_script(project_name, result.script)["video_units"]
     return {"units": reordered, "edit_result": result.model_dump(mode="json")}

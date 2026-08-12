@@ -219,6 +219,50 @@ def test_stale_revision_conflicts_without_writing(editor: tuple[ProjectManager, 
     assert script_path.read_bytes() == before
 
 
+def test_same_content_episode_rebind_conflicts_without_writing(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, service, project_dir = editor
+    current = pm.load_script("demo", "episode_1.json")
+    command = ScriptBatchEditCommand.model_validate(
+        {
+            "episode": 1,
+            "expected_script_file": "scripts/episode_1.json",
+            "expected_revision": script_revision(current),
+            "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "stale"}}],
+        }
+    )
+    pm.save_script("demo", current, "episode_1_copy.json")
+    original_path = project_dir / "scripts" / "episode_1.json"
+    rebound_path = project_dir / "scripts" / "episode_1_copy.json"
+    before_original = original_path.read_bytes()
+    before_rebound = rebound_path.read_bytes()
+
+    result = service.execute("demo", command)
+
+    assert result.success is False
+    assert result.script == "episode_1.json"
+    assert result.problems[0].code == "revision_conflict"
+    assert result.problems[0].reason == "script_binding_changed"
+    assert original_path.read_bytes() == before_original
+    assert rebound_path.read_bytes() == before_rebound
+
+
+def test_route_mismatched_legacy_script_remains_editable(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, service, _project_dir = editor
+    pm.update_project("demo", lambda project: project.update({"generation_mode": "reference_video"}))
+
+    result = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1S01", "fields": {"note": "仍可修复"}}]),
+    )
+
+    assert result.success is True
+    assert pm.load_script("demo", "episode_1.json")["segments"][0]["note"] == "仍可修复"
+
+
 class _FailingManifestAdapter:
     def __init__(self, project_dir: Path):
         self._delegate = ProjectArtifactManifestAdapter(project_dir)
