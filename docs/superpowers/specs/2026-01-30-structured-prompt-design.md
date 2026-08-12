@@ -366,5 +366,5 @@ For each segment, generate a video_prompt object with the following structure:
 ## 九、参考
 
 - [StoryCraft 调研报告](/docs/storycraft-investigation.md)
-- [Veo prompt guide](https://ai.google.dev/gemini-api/docs/video#prompt_guide)
+- [Veo prompt guide](https://ai.google.dev/gemini-api/docs/veo#prompt-guide)
 - [StoryCraft prompt-utils.ts](/docs/storycraft/lib/utils/prompt-utils.ts)
