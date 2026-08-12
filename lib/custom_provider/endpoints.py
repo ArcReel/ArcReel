@@ -33,7 +33,7 @@ from lib.text_backends.gemini import GeminiTextBackend
 from lib.text_backends.openai import OpenAITextBackend
 from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import VideoCapabilities
-from lib.video_backends.dashscope import DashScopeVideoBackend
+from lib.video_backends.dashscope import WAN2_PATTERN, DashScopeVideoBackend
 from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.minimax import MiniMaxVideoBackend
 from lib.video_backends.newapi import NewAPIVideoBackend
@@ -545,13 +545,14 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     列表常夹带 gemini-*/imagen-* 原生 id，必须按内容纠偏到 Google 端点，否则被错推到
     openai-chat/openai-images，每次都要手动改回。
 
-    1) 阿里百炼视频 → happyhorse / wan2.x / 万相 3 家族（含 wan-3-xxx 连字符形态、image-to-video
-       续接别名）走 "dashscope-async-video"（原生异步端点）。happyhorse 不在 _VIDEO_PATTERN 须显式；
-       万相视频抢在通用 is_video 前拦截。真正的图像变体不自动推 dashscope（中转可能是 OpenAI
-       兼容）：qwen-image / wan2.7-image / wan3.0-video-image 及带版本/日期后缀的同类 id 落到既有
-       图像家族推断；wan-3-turbo-image-to-video / wan3-image2video 这类显式 image-to-video 续接
-       语法仍归视频（同 2.5 节 kling-image2video 的处理原则），按 _WAN_IMAGE_TO_VIDEO_PATTERN 精确
-       挑出这一种形态，不对图像变体的命名形态（结尾 token 等）做任何假设。
+    1) 阿里百炼视频 → happyhorse / wan2 / wan3 家族（含 wan-2.7-xxx / wan-3-xxx 连字符形态、
+       image-to-video 续接别名）走 "dashscope-async-video"（原生异步端点）。happyhorse 不在
+       _VIDEO_PATTERN 须显式；万相视频抢在通用 is_video 前拦截。真正的图像变体不自动推 dashscope
+       （中转可能是 OpenAI 兼容）：qwen-image / wan2.7-image / wan-2.7-image / wan3.0-video-image
+       及带版本/日期后缀的同类 id 落到既有图像家族推断；wan-3-turbo-image-to-video /
+       wan3-image2video 这类显式 image-to-video 续接语法仍归视频（同 2.5 节 kling-image2video
+       的处理原则），按 _WAN_IMAGE_TO_VIDEO_PATTERN 精确挑出这一种形态，不对图像变体的命名形态
+       （结尾 token 等）做任何假设。
     2) MiniMax 原生 token → 海螺 / S2V 走 "minimax-video"，image-01 走 "minimax-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
     2.5) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
@@ -569,13 +570,12 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     lowered = model_id.lower()
     is_image = bool(_IMAGE_PATTERN.search(model_id))
     # 走百炼原生端点的万相家族 id（视频与图像变体都命中），下面路由与 is_video 排除各用一次。
-    # wan3 分支复用 duration_presets.WAN3_PATTERN（源出 video_backends.dashscope，连字符可选、
-    # 不锚版本号），与时长档位推断、DashScopeVideoBackend 的请求形态分派保持同一匹配宽度，
-    # 否则同一 model_id 会出现"档位按 wan3 给、路由却按普通 wan 走"或"路由到本后端却被当
-    # 通用型号丢失能力声明"的矛盾。
-    # wan2 保留字面量：连字符形态的 wan2 在时长推断走通用 wan 预设、路由走 openai-video，
-    # 两处结论自洽，无须并入正则。
-    is_wan_family = "wan2." in lowered or bool(WAN3_PATTERN.search(model_id))
+    # WAN2_PATTERN / WAN3_PATTERN 均源出 video_backends.dashscope（连字符/下划线可选、不锚
+    # 版本号、两侧标识符边界避免误吞 "swan2"/"wan20" 一类第三方型号名），与
+    # DashScopeVideoBackend 的请求形态分派保持同一匹配宽度，否则同一 model_id 会出现"路由到
+    # 本后端却被当通用型号丢失能力声明"的矛盾。wan3 分支额外与 duration_presets.WAN3_PATTERN
+    # 共用同一常量，保持时长档位推断口径一致。
+    is_wan_family = bool(WAN2_PATTERN.search(model_id) or WAN3_PATTERN.search(model_id))
     # wan 家族的 image-to-video 别名（如 wan-3-turbo-image-to-video / wan3-image2video）含 "image"
     # 子串但本质是视频模型，与下方 kling-image2video 同类陷阱：笼统 is_image 会把它们错判成图像
     # 变体。反过来"以 image 结尾才算图像变体"同样错——wan3.0-image-edit / wan-3-turbo-image-preview /

@@ -282,18 +282,22 @@ class TestInferEndpoint:
             # ── 阿里百炼 wan2.x / wan3.0 → dashscope-async-video（image 变体不受影响）──
             ("wan2.7-i2v", "openai", "dashscope-async-video"),
             ("wan2.7-t2v", "openai", "dashscope-async-video"),
+            ("wan-2.7-i2v", "openai", "dashscope-async-video"),  # 连字符形态与点号形态匹配宽度一致
+            ("wan_2.7-t2v", "openai", "dashscope-async-video"),
             ("wan3.0-video", "openai", "dashscope-async-video"),
             ("Wan3.0-Video", "openai", "dashscope-async-video"),  # 大小写不敏感
             ("proxy/wan3.0-video", "openai", "dashscope-async-video"),
             ("wan-3-turbo", "openai", "dashscope-async-video"),  # 连字符形态与点号形态匹配宽度一致
             ("wan3-turbo", "openai", "dashscope-async-video"),
             ("wan2.7-image", "openai", "openai-images"),  # image 变体不受影响
+            ("wan-2.7-image", "openai", "openai-images"),  # 连字符形态的 image 变体同样落图像端点
             ("wan3.0-video-image", "openai", "openai-images"),  # 含 image 语义不受影响
             ("wan-3-turbo-image", "openai", "openai-images"),  # 连字符形态的 image 变体同样不受影响
             # image-to-video 别名含 "image" 子串但本质是视频，须留在 dashscope-async-video（同
             # kling-image2video 的"video 语义优先"原则），不能被笼统 is_image 误判成图像变体。
             ("wan-3-turbo-image-to-video", "openai", "dashscope-async-video"),
             ("wan3-image2video", "openai", "dashscope-async-video"),
+            ("wan-2.7-image-to-video", "openai", "dashscope-async-video"),
             # 反向陷阱：真图像别名不保证以 "image" 结尾（版本/日期/变体后缀），不能靠"结尾是不是
             # image"反推是不是图像——只有显式 image-to-video 续接语法才算视频例外，其余含 image
             # 语义一律仍是图像。
@@ -304,15 +308,14 @@ class TestInferEndpoint:
             ("wan_3_turbo", "openai", "dashscope-async-video"),
             ("wan_3.0-image", "openai", "openai-images"),
             ("WAN_3_TURBO_IMAGE_TO_VIDEO", "openai", "dashscope-async-video"),
-            # 标识符边界：含 "wan3" 子串但并非该家族的型号名不得被误判——WAN3_PATTERN 两侧要求
-            # 非字母数字边界，裸 "wan" 命中 _VIDEO_PATTERN 仍落回通用视频分支。
+            # 标识符边界：含 "wan3"/"wan2" 子串但并非该家族的型号名不得被误判——WAN2_PATTERN /
+            # WAN3_PATTERN 两侧要求非字母数字边界，裸 "wan" 仍命中 _VIDEO_PATTERN 落回通用视频分支。
             ("swan3", "openai", "openai-video"),
             ("vendorwan3", "openai", "openai-video"),
             ("wan30", "openai", "openai-video"),
-            # 表征测试，非期望结论：wan2 家族仅认字面 "wan2."（要求点号）触发 is_wan_family，
-            # 连字符无点号形态 wan-2.7 不触发，其 image 变体因此被裸 "wan" 命中 _VIDEO_PATTERN
-            # 误判为视频而非图像，这是已知局限而非设计意图。断言钉住当前行为、防止无意变更。
-            ("wan-2.7-image", "openai", "openai-video"),
+            ("swan2", "openai", "openai-video"),
+            ("vendorwan2", "openai", "openai-video"),
+            ("wan20", "openai", "openai-video"),
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),

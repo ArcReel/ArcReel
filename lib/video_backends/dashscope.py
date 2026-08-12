@@ -128,6 +128,11 @@ _WAN3_MODEL_KEY = "wan3.0-video"
 # 的第三方型号名。
 WAN3_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?3(?![a-z0-9])", re.I)
 
+# wan2.7 家族 model_id 识别，匹配宽度与 WAN3_PATTERN 对齐（连字符/下划线可选、标识符边界避免
+# 误吞 "swan2"、"wan20"）：endpoints.py::is_wan_family 复用同一正则，使连字符形态（"wan-2.7"）
+# 与点号形态（"wan2.7"）在图像/视频归属与端点路由上得出一致结论。
+WAN2_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?2(?![a-z0-9])", re.I)
+
 # 按 model id 派发能力声明。happyhorse-r2v 仅 reference_image（无 first_frame）；
 # wan2.7-r2v 额外支持首帧与参考音色。
 _MODEL_PROFILES: dict[str, VideoCapabilities] = {
@@ -181,7 +186,7 @@ def _is_wan3(model: str | None) -> bool:
 def _profile_for_model(model: str | None) -> VideoCapabilities:
     """按 model_id 解析能力档：先精确命中，再容忍代理中转的前后缀装饰。
 
-    infer_endpoint 用子串（"happyhorse" / "wan2."）路由到 dashscope-async-video，故此处也须
+    infer_endpoint 用 WAN2_PATTERN / WAN3_PATTERN 路由到 dashscope-async-video，故此处也须
     子串容忍，否则 "proxy/happyhorse-1.0-r2v" / "wan2.7-r2v-0715" 这类装饰名会退回 _DEFAULT_PROFILE、
     丢掉 r2v 的 max_reference_images，_build_media 据此构造出错误 payload。
     仅带系列名而无变体后缀（如裸 "happyhorse"）无法判别 t2v/i2v/r2v，按设计回落通用默认。
@@ -197,6 +202,11 @@ def _profile_for_model(model: str | None) -> VideoCapabilities:
     # _DEFAULT_PROFILE，丢失参考图/尾帧/音轨参数等 wan3 专属能力声明。
     if WAN3_PATTERN.search(normalized):
         return _MODEL_PROFILES[_WAN3_MODEL_KEY]
+    # wan2.7 家族有 t2v/i2v/r2v 三档，无法像 wan3 那样单 key 直返，故按 WAN2_PATTERN 把
+    # "wan-2.7"/"wan_2.7" 归一化成 "wan2.7" 再走下方子串匹配，否则 "wan-2.7-r2v" 这类连字符
+    # 别名会因不含字面量 "wan2.7-r2v" 子串而落到 _DEFAULT_PROFILE，丢失参考图/首帧等能力声明。
+    if WAN2_PATTERN.search(normalized):
+        normalized = WAN2_PATTERN.sub("wan2", normalized)
     # 各 profile key（happyhorse-{1.0,1.1}-{t2v,i2v,r2v} / wan2.7-{t2v,i2v,r2v}）互不为子串，无歧义
     for known, profile in _MODEL_PROFILES.items():
         if known in normalized:

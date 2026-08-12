@@ -950,6 +950,32 @@ class TestWan3:
         assert caps.max_prompt_chars is None
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["wan-2.7-r2v", "wan_2.7-r2v"])
+    def test_wan2_alias_forms_get_wan27_r2v_capabilities(self, model):
+        """discovery 返回的连字符/下划线 wan2.7 别名（endpoints.py 已路由到本后端）须认作
+        wan2.7-r2v，不落回默认档案。
+
+        与 endpoints.infer_endpoint 共用 WAN2_PATTERN：两处不同宽即会出现"路由到本后端却被当
+        通用型号丢失参考图/首帧参数"的矛盾。
+        """
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        assert caps.first_frame is True
+        assert caps.max_reference_images == 5
+        assert caps.max_reference_audio_count == 5
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["swan2", "vendorwan2", "wan20"])
+    def test_wan2_substring_without_boundary_does_not_get_wan2_capabilities(self, model):
+        """含 "wan2" 子串但两侧非字母数字边界不成立的型号名，不得被误判为万相 2.7 家族。"""
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        assert caps.max_reference_images == 0
+        assert caps.max_prompt_chars is None
+
+    @pytest.mark.unit
     def test_first_and_last_frame_in_media(self, tmp_path):
         payload = self._backend()._build_payload(
             VideoGenerationRequest(
