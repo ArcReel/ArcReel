@@ -169,7 +169,7 @@ class ProviderMeta:
         return sorted(set(c for m in self.models.values() for c in m.capabilities))
 
     def fully_covered_credential_groups(self, values: Mapping[str, str | None]) -> list[list[str]]:
-        """返回本次提交「完整覆盖」的凭证组（组内所有 key 在 values 中均非空）。
+        """返回被 ``values`` 完整覆盖的凭证组（组内所有 key 均非空）。
 
         驱动凭证创建/更新端点的切组判定：未声明 credential_groups 的 provider
         （绝大多数）该列表恒为空，调用方据此保持"不做切组处理"的原语义不变。
@@ -384,7 +384,7 @@ def _kling_image_by_resolution_pricing(model_id: str, rates: dict[str, float]) -
     return PerImageByResolution(rates={model_id: rates}, default_model=model_id, currency="CNY")
 
 
-# Agnes 图片费率（美元/张），官方原价；当前促销 $0 不建模。
+# Agnes 图片费率（美元/张）按官方标准价建模，不纳入促销价。
 def _agnes_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
     return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="USD")
 
@@ -398,7 +398,7 @@ def _agnes_text_pricing(model_id: str, input_rate: float, output_rate: float) ->
     )
 
 
-# Agnes 视频费率（美元/秒），flat 按秒、与分辨率/音频无关；官方原价，当前促销 $0 不建模。
+# Agnes 视频费率（美元/秒）按官方标准价建模，flat 按秒、与分辨率/音频无关；不纳入促销价。
 def _agnes_video_pricing(model_id: str, per_second: float) -> PerSecondMatrix:
     return PerSecondMatrix(
         rates={model_id: {("", None): per_second}},
@@ -708,7 +708,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         secret_keys=["api_key"],
         models={
             # --- text ---
-            # Agent Plan 套餐价当前无独立费率表，沿用历史行为：按 Gemini 默认费率兜底（pricing=None）。
+            # Agent Plan 套餐未声明独立费率表；pricing=None 由 lookup_pricing 按 Gemini 通用默认费率处理。
             "doubao-seed-2.0-mini": ModelInfo(
                 display_name="豆包 Seed 2.0 Mini",
                 media_type="text",

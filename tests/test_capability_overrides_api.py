@@ -959,7 +959,7 @@ class TestBuiltinBackendsDeclareCapabilityFunction:
 class TestVideoCapabilitiesEndpoint:
     """GET /projects/{name}/video-capabilities 的响应形状与覆盖联动。
 
-    其余同源测试打在 resolver 私有方法上，这里补住 HTTP 这一层：新增的两个布尔位真的
+    其余同源测试打在 resolver 私有方法上，这里补住 HTTP 这一层：两个布尔位真的
     出现在接口响应里，且写入覆盖后接口返回值随之变化（不只是 resolver 内部变了）。
     """
 

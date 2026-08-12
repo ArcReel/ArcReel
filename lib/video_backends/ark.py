@@ -159,7 +159,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     )
     # 白名单命中后要求剩余部分为空或纯数字日期戳（如 "-251215"）——单纯 `in` 子串匹配会让
     # "doubao-seedance-1-5-pro-future" 这类未上表的未知变体因包含 "seedance-1-5-pro" 而
-    # 被误判为继承已验证型号的尾帧能力，绕过本模块新增的硬拒绝。
+    # 被误判为继承已验证型号的尾帧能力，绕过本模块的硬拒绝。
     _KNOWN_MODEL_SUFFIX_RE = re.compile(r"^(-\d+)?$")
 
     # 非 2.0 系列里支持参考生视频的型号：1.5 pro 的参考图上限由本模块的 VideoCapabilities
@@ -220,10 +220,10 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         if ArkVideoBackend._is_seedance_2(model):
             # API 拒绝首帧/尾帧与参考素材混合请求（InvalidParameter: first/last frame content
             # cannot be mixed with reference media content）——参考图是与首尾帧互斥的
-            # 参考生视频模式，故不声明首帧叠加参考能力；若上游后续放开混合可重新开启。
+            # 参考生视频模式，故在官方契约未声明支持混合时不开启首帧叠加能力。
             # 尾帧与参考音频都单独走边界校验的已验证型号白名单：_is_seedance_2 本身只做宽松
-            # 族群识别（供 service_tier 剔除复用），未验证的 2.0 系列未来变体不应继承这两项
-            # 能力。两者当前覆盖同一组已上表型号（2.0 / 2.0-fast / 2.0-mini 三档官方均声明
+            # 族群识别（供 service_tier 剔除复用），未验证的 2.0 系列变体不应继承这两项
+            # 能力。两者覆盖同一组已上表型号（2.0 / 2.0-fast / 2.0-mini 三档官方均声明
             # 支持音频参考），故共用同一份白名单常量而非维护两份同内容清单。
             on_verified_allowlist = ArkVideoBackend._matches_known_model(
                 model.lower(), ArkVideoBackend._SEEDANCE_2_LAST_FRAME_ALLOW_SUBSTRINGS
@@ -243,7 +243,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             )
         # 非 2.0 系列：DEFAULT_MODEL 1.5 pro 可正常下发 role="last_frame"（见
         # test_first_last_frame_role_fields）。白名单覆盖能力表已验证支持首尾帧的三个型号，
-        # 未命中白名单的一律 last_frame=False（含未来新增/自定义供应商的未知型号）。
+        # 未命中白名单的一律 last_frame=False（含上游或自定义供应商的未知型号）。
         model_lower = model.lower()
         no_first_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_FIRST_FRAME_SUBSTRINGS)
         allowed_last_frame = ArkVideoBackend._matches_known_model(
