@@ -129,13 +129,13 @@ describe("canEditUserTurn", () => {
     expect(canEditUserTurn(answerTurn, idle)).toBe(false);
   });
 
-  it("rejects a turn with no plain text", () => {
+  it("allows a user turn with an image attachment and no plain text", () => {
     const imageOnly: Turn = {
       type: "user",
       uuid: "u-3",
       content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "x" } }],
     };
-    expect(canEditUserTurn(imageOnly, idle)).toBe(false);
+    expect(canEditUserTurn(imageOnly, idle)).toBe(true);
   });
 
   it("hides the entry while the agent is running", () => {

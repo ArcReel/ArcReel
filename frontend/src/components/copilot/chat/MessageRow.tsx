@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy, Pencil, TriangleAlert, X } from "lucide-react";
+import { Check, Copy, Paperclip, Pencil, TriangleAlert, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ImagePayload, Turn } from "@/types";
 import { copyText } from "@/utils/clipboard";
@@ -13,6 +13,12 @@ import {
   USER_BUBBLE_STYLE,
 } from "./bubble";
 import { turnImageAttachments, turnPlainText } from "./utils";
+import {
+  attachmentToImagePayload,
+  imagePayloadToAttachment,
+  MAX_ATTACHED_IMAGES,
+  useImageAttachments,
+} from "@/hooks/useImageAttachments";
 
 // ---------------------------------------------------------------------------
 // MessageRow — 一条时间线消息及其操作行。
@@ -73,8 +79,9 @@ export function MessageRow({
     );
   }
 
-  // 操作行只服务于有正文的已落库消息：草稿、工具卡片、系统事件没有可复制的正文
-  const showActions = !streaming && Boolean(text.trim()) && (turn.type === "user" || turn.type === "assistant");
+  // 操作行只服务于有正文或附件的已落库消息：草稿、工具卡片、系统事件没有消息操作
+  const showActions = !streaming && (Boolean(text.trim()) || images.length > 0)
+    && (turn.type === "user" || turn.type === "assistant");
   if (!showActions) {
     return <ChatMessage message={turn} streaming={streaming} />;
   }
@@ -90,7 +97,7 @@ export function MessageRow({
         }`}
       >
         {isUser && time && <TimeStamp time={time} className="mr-1" />}
-        <CopyButton text={text} />
+        {Boolean(text.trim()) && <CopyButton text={text} />}
         {isUser && editable && turnUuid && (
           <button
             type="button"
@@ -174,13 +181,14 @@ function MessageEditor({
 }) {
   const { t } = useTranslation("dashboard");
   const [draft, setDraft] = useState(initialText);
-  const [images, setImages] = useState(() =>
-    initialImages.map((image, id) => ({
-      id,
-      image,
-      src: `data:${image.media_type};base64,${image.data}`,
-    })),
-  );
+  const {
+    images,
+    error: attachError,
+    addFiles,
+    removeImage,
+    invalidatePendingReaders,
+  } = useImageAttachments(initialImages.map(imagePayloadToAttachment));
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // 部分输入法在组合确认的那次 keydown 上不置 isComposing，靠组合事件补齐
   const isComposingRef = useRef(false);
@@ -199,11 +207,9 @@ function MessageEditor({
 
   const submit = useCallback(() => {
     if (submitting || !canSubmit || !hasContent) return;
-    onSubmit(
-      draft,
-      images.map(({ image }) => image),
-    );
-  }, [draft, images, hasContent, submitting, canSubmit, onSubmit]);
+    invalidatePendingReaders();
+    onSubmit(draft, images.map(attachmentToImagePayload));
+  }, [draft, images, hasContent, submitting, canSubmit, onSubmit, invalidatePendingReaders]);
 
   return (
     <div className={`${USER_BUBBLE_LAYOUT_CLASS} ${BUBBLE_SHELL_CLASS}`} style={USER_BUBBLE_STYLE}>
@@ -215,10 +221,10 @@ function MessageEditor({
       </div>
       {images.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
-          {images.map(({ id, src }, index) => (
+          {images.map(({ id, dataUrl }, index) => (
             <div key={id} className="relative">
               <img
-                src={src}
+                src={dataUrl}
                 alt={t("message_edit_attachment", { index: index + 1, total: images.length })}
                 className="h-14 w-14 rounded-md object-cover"
                 style={{ border: "1px solid var(--color-hairline)" }}
@@ -226,7 +232,7 @@ function MessageEditor({
               <button
                 type="button"
                 disabled={submitting}
-                onClick={() => setImages((current) => current.filter((attachment) => attachment.id !== id))}
+                onClick={() => removeImage(id)}
                 className="focus-ring absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full transition-colors hover:bg-[var(--color-danger)] disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
                   background: "oklch(0.14 0.008 265)",
@@ -241,6 +247,35 @@ function MessageEditor({
           ))}
         </div>
       )}
+      <div className="mb-2 flex items-center gap-2">
+        <button
+          type="button"
+          disabled={submitting || images.length >= MAX_ATTACHED_IMAGES}
+          onClick={() => fileInputRef.current?.click()}
+          className="focus-ring flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ color: "var(--color-text-3)", border: "1px solid var(--color-hairline-soft)" }}
+          title={images.length >= MAX_ATTACHED_IMAGES
+            ? t("max_images_hint", { count: MAX_ATTACHED_IMAGES })
+            : t("attach_image")}
+        >
+          <Paperclip aria-hidden className="h-3 w-3" />
+          {t("attach_image")}
+        </button>
+        {attachError && <span role="alert" className="text-[10.5px] text-[var(--color-danger)]">{attachError}</span>}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          aria-label={t("upload_attachment_aria")}
+          className="hidden"
+          disabled={submitting}
+          onChange={(event) => {
+            addFiles(Array.from(event.target.files ?? []));
+            event.target.value = "";
+          }}
+        />
+      </div>
       <textarea
         ref={textareaRef}
         value={draft}

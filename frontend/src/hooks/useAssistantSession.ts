@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { errMsg, voidCall } from "@/utils/async";
 import { AgentFailureError, API } from "@/api";
 import { uid } from "@/utils/id";
+import type { AttachedImage } from "@/hooks/useImageAttachments";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type {
   DraftDeltaPayload,
@@ -12,12 +13,6 @@ import type {
   SessionMeta,
   TimelineEntry,
 } from "@/types";
-
-export interface AttachedImage {
-  id: string;
-  dataUrl: string;
-  mimeType: string;
-}
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Turn } from "@/types";
 import { MessageRow } from "./MessageRow";
@@ -29,6 +29,13 @@ const twoImageTurn: Turn = {
   ],
 };
 
+const imageOnlyTurn: Turn = {
+  type: "user",
+  uuid: "u-3",
+  timestamp: "2026-05-02T14:27:00Z",
+  content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } }],
+};
+
 describe("MessageRow", () => {
   it("renders the edit entry on an editable user message", () => {
     render(<MessageRow turn={userTurn} editable />);
@@ -51,6 +58,13 @@ describe("MessageRow", () => {
     fireEvent.click(screen.getByLabelText("编辑此消息并从这里重新发送"));
 
     expect(onStartEdit).toHaveBeenCalledWith("u-1", "只改第 3 集");
+  });
+
+  it("shows the edit entry but no copy button for an image-only user message", () => {
+    render(<MessageRow turn={imageOnlyTurn} editable />);
+
+    expect(screen.getByLabelText("编辑此消息并从这里重新发送")).toBeInTheDocument();
+    expect(screen.queryByLabelText("复制消息")).not.toBeInTheDocument();
   });
 
   it("edits in place, showing the consequence note and submitting on ⌘/Ctrl+Enter", () => {
@@ -95,6 +109,24 @@ describe("MessageRow", () => {
     fireEvent.keyDown(screen.getByLabelText("改写消息内容"), { key: "Enter", metaKey: true });
     expect(onSubmitEdit).toHaveBeenCalledWith("u-2", "按这两张图改人设", [
       { data: "BBBB", media_type: "image/jpeg" },
+    ]);
+  });
+
+  it("adds an image in the editor and includes it in the rewrite payload", async () => {
+    const onSubmitEdit = vi.fn();
+    render(<MessageRow turn={imageTurn} editable editing onSubmitEdit={onSubmitEdit} />);
+
+    const added = new File(["new-image"], "new.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("上传附件图片"), { target: { files: [added] } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("img", { name: "编辑中的附件 2/2" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "重新发送" }));
+
+    expect(onSubmitEdit).toHaveBeenCalledWith("u-2", "按这张图改人设", [
+      { data: "AAAA", media_type: "image/png" },
+      { data: "bmV3LWltYWdl", media_type: "image/png" },
     ]);
   });
 
