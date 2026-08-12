@@ -309,9 +309,9 @@ class TestInferEndpoint:
             ("swan3", "openai", "openai-video"),
             ("vendorwan3", "openai", "openai-video"),
             ("wan30", "openai", "openai-video"),
-            # wan2 家族仅认字面 "wan2." 触发 is_wan_family，连字符形态 wan-2.7 不触发，故其
-            # image 变体会被裸 "wan" 命中 _VIDEO_PATTERN 判定为视频。wan2 字面量保留决策见
-            # duration_presets 对应用例，此处锁定端点路由侧同一结论。
+            # 表征测试，非期望结论：wan2 家族仅认字面 "wan2."（要求点号）触发 is_wan_family，
+            # 连字符无点号形态 wan-2.7 不触发，其 image 变体因此被裸 "wan" 命中 _VIDEO_PATTERN
+            # 误判为视频而非图像，这是已知局限而非设计意图。断言钉住当前行为、防止无意变更。
             ("wan-2.7-image", "openai", "openai-video"),
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
