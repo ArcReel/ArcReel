@@ -266,6 +266,21 @@ class TestDramaGateFlow:
         assert json.loads(path.read_text(encoding="utf-8")) == metadata_edit
 
     @pytest.mark.unit
+    async def test_repairing_marked_drama_candidate_clears_replan_marker(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        candidate = _drama_step1()
+        candidate["scenes"][0]["needs_replan"] = True
+        path = _write_step1(pm, "drama", candidate)
+
+        repaired = json.loads(json.dumps(candidate, ensure_ascii=False))
+        repaired["scenes"][0]["utterances"] = [{"kind": "dialogue", "speaker": "阿离", "text": "你终于回来了。"}]
+        await svc.save_content("demo", 1, repaired)
+
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        assert saved["scenes"][0].get("needs_replan") is not True
+
+    @pytest.mark.unit
     async def test_whitespace_reformat_keeps_confirmed(self, tmp_path):
         """纯键序 / 空白重排不改语义 → 指纹不变、保持 confirmed。"""
         pm = _make_project(tmp_path, "drama")

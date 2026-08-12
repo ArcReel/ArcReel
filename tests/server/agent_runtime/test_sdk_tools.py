@@ -1855,6 +1855,32 @@ async def test_generate_video_scene_accepts_legacy_drama_dialogue(fake_ctx: Tool
 
 
 @pytest.mark.unit
+async def test_generate_video_scene_accepts_legacy_narration_string_prompt(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.project_payload["content_mode"] = "narration"  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+        "content_mode": "narration",
+        "segments": [
+            {
+                "segment_id": "E1S01",
+                "novel_text": "风吹过旷野。",
+                "video_prompt": "Slow pan across the field",
+                "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+            }
+        ],
+    }
+
+    async def fake_enqueue(**kwargs):
+        return {"task": {}, "result": {"file_path": "videos/scene_E1S01.mp4"}}
+
+    monkeypatch.setattr(mod, "enqueue_and_wait", fake_enqueue)
+    out = await _call(generate_video_scene_tool(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
+
+    assert out.get("is_error") is not True, out
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("case", SPEECH_CONTRACT_CASES, ids=lambda case: case.route_id)
 async def test_six_route_agent_single_video_generation_returns_structured_admission_without_enqueuing(
     fake_ctx: ToolContext,
@@ -2914,6 +2940,64 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
         f"normalize_drama_script 必须向 TextGenerator.generate 传入 project_name，"
         f"实际传入: {captured.get('generate_project_name')!r}"
     )
+
+
+@pytest.mark.unit
+async def test_normalize_drama_script_marks_mixed_machine_candidate_before_review(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    source_dir = project_path / "source"
+    source_dir.mkdir(parents=True)
+    (source_dir / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
+
+    async def fake_caps(_project, _episode=None):
+        return 4, [4, 6, 8]
+
+    class _FakeGenerator:
+        async def generate(self, _request, project_name=None):
+            class _Result:
+                text = json.dumps(
+                    {
+                        "title": "第一集",
+                        "scenes": [
+                            {
+                                "scene_id": "E1S01",
+                                "duration_seconds": 4,
+                                "segment_break": False,
+                                "characters_in_scene": ["阿离"],
+                                "scenes": [],
+                                "props": [],
+                                "scene_description": "阿离站在山门前。",
+                                "utterances": [
+                                    {"kind": "dialogue", "speaker": "阿离", "text": "我回来了。"},
+                                    {"kind": "voiceover", "speaker": None, "text": "三年后。"},
+                                ],
+                                "source_text": "三年后，阿离回到山门。",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
+
+            return _Result()
+
+    async def fake_create(_task_type, project_name=None):
+        return _FakeGenerator()
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+
+    result = await _call(normalize_drama_script_tool(fake_ctx), {"episode": 1})
+
+    assert result.get("is_error") is not True, result
+    saved = json.loads(
+        (project_path / "drafts" / "episode_1" / "step1_normalized_script.json").read_text(encoding="utf-8")
+    )
+    assert saved["scenes"][0]["needs_replan"] is True
+    assert [utterance["text"] for utterance in saved["scenes"][0]["utterances"]] == ["我回来了。", "三年后。"]
 
 
 @pytest.mark.unit

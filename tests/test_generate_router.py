@@ -243,6 +243,23 @@ class TestGenerateRouter:
         assert len(fake_queue.calls) == 1
 
     @pytest.mark.unit
+    def test_legacy_narration_string_prompt_can_enqueue_single_video(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["video_prompt"] = "Slow pan across the field"
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "Slow pan across the field"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert len(fake_queue.calls) == 1
+
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         "case",
         [case for case in SPEECH_CONTRACT_CASES if case.generation_mode == "storyboard"],

@@ -570,6 +570,7 @@ class DramaSceneContent(BaseModel):
         description="场景级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列，逐字保留",
     )
     source_text: str = Field(default="", description="逐字原文摘录（追溯锚，不朗读、不出音，best-effort）")
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该场景需要人工重新规划")
 
 
 class DramaNormalizedScript(BaseModel):

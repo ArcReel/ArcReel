@@ -8,6 +8,7 @@ import lib.script_review as script_review
 from lib.config.resolver import ConfigResolver
 from lib.script_generator import ScriptGenerator, _units_use_references
 from lib.script_structure_validator import ScriptStructureValidationError
+from lib.speech_composition import SpeechAdmissionError
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
@@ -705,6 +706,27 @@ class TestScriptGenerator:
         await generator.generate(1, instructions="打斗场面多给全景")
 
         assert fake.backend.last_request.prompt.endswith("# 用户意见\n打斗场面多给全景")
+
+    @pytest.mark.unit
+    async def test_generate_drama_step2_rejects_marked_mixed_candidate_before_backend_call(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            characters={"姜月茴": {}},
+        )
+        content = _drama_step1_content()
+        content["scenes"][0]["utterances"].append({"kind": "voiceover", "speaker": None, "text": "庭院里只剩风声。"})
+        content["scenes"][0]["needs_replan"] = True
+        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", content)
+
+        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        with pytest.raises(SpeechAdmissionError):
+            await generator.generate(1)
+
+        assert fake.backend.last_request is None
 
     @pytest.mark.unit
     async def test_generate_sets_script_max_output_tokens(self, tmp_path):

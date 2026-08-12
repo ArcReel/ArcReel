@@ -107,6 +107,29 @@ def test_narration_dialogue_and_novel_text_are_reported_as_mixed_speech() -> Non
     assert [problem.code for problem in result.problems] == [SpeechProblemCode.MIXED_SPEECH]
 
 
+@pytest.mark.parametrize(
+    ("snapshot", "expected_text"),
+    [
+        (
+            adapt_narration_segment(
+                {"segment_id": "E1S02", "novel_text": "风吹过旷野。", "video_prompt": "Slow pan across the field"}
+            ),
+            "风吹过旷野。",
+        ),
+        (
+            adapt_ad_shot({"shot_id": "E1S02", "voiceover_text": "现在下单。", "video_prompt": "Product hero shot"}),
+            "现在下单。",
+        ),
+    ],
+)
+def test_legacy_string_video_prompt_has_no_structured_character_dialogue(snapshot, expected_text: str) -> None:
+    result = SpeechComposition.prepare(snapshot)
+
+    assert result.mode is SpeechMode.NARRATOR_VOICEOVER
+    assert [utterance.text for utterance in result.utterances] == [expected_text]
+    assert result.problems == ()
+
+
 @pytest.mark.parametrize("text", ["别回头。", "我不能让他发现。", "她不会知道我在这里。"])
 def test_character_dialogue_inner_monologue_and_offscreen_speech_share_character_owner(text: str) -> None:
     result = SpeechComposition.prepare(
@@ -543,10 +566,6 @@ def test_damaged_unit_identity_and_container_are_reported_together() -> None:
                 }
             ),
             SpeechFieldLocation(("utterances", 0, "speaker")),
-        ),
-        (
-            adapt_ad_shot({"shot_id": "E1S08", "video_prompt": "bad", "voiceover_text": ""}),
-            SpeechFieldLocation(("video_prompt",)),
         ),
         (
             adapt_video_unit({"unit_id": "E1U08", "shots": []}),

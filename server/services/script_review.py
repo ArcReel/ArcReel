@@ -79,6 +79,7 @@ def _require_changed_speech_admitted(kind: str, previous: object, candidate: obj
         admission = admit_script_unit(skeleton, unit, ignore_marker=True)
         if not admission.allowed:
             raise ScriptReviewError("speech_admission", admission=admission)
+        unit.pop("needs_replan", None)
 
 
 class ScriptReviewService:
@@ -404,6 +405,10 @@ class ScriptReviewService:
         except ValidationError as exc:
             _require_changed_speech_admitted(kind, _read_json(path), content)
             raise ScriptReviewError("invalid_content", str(exc)) from exc
+        if kind == "drama":
+            for scene in validated["scenes"]:
+                if scene.get("needs_replan") is not True:
+                    scene.pop("needs_replan", None)
         # 入参的 None 表示「调用方无基线、不比对」；比对语义里的 None 另有含义（取基线时文件不存在），
         # 两者在此一次性转换，三个变体共用同一个 expected。
         expected = base_fingerprint if base_fingerprint is not None else script_review.UNCHECKED_FINGERPRINT
