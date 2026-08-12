@@ -459,7 +459,9 @@ class TestPersistJobIdRetry:
                 raise _make_operational_error("database is locked")
 
         class _FakeQueue:
-            async def persist_provider_job_id(self, tid: str, job_id: str, *, endpoint: str | None = None) -> None:
+            async def persist_provider_job_id(
+                self, tid: str, job_id: str, *, endpoint: str | None = None, base_url: str | None = None
+            ) -> None:
                 await _flaky_persist(tid, job_id)
 
         fake_queue = _FakeQueue()
@@ -481,7 +483,9 @@ class TestPersistJobIdRetry:
             raise _make_operational_error("database is locked")
 
         class _FailingQueue:
-            async def persist_provider_job_id(self, tid: str, job_id: str, *, endpoint: str | None = None) -> None:
+            async def persist_provider_job_id(
+                self, tid: str, job_id: str, *, endpoint: str | None = None, base_url: str | None = None
+            ) -> None:
                 await _always_fail(tid, job_id)
 
         fake_queue = _FailingQueue()
@@ -511,7 +515,9 @@ class TestPersistJobIdRetry:
             raise ValueError("not retryable")
 
         class _BadQueue:
-            async def persist_provider_job_id(self, tid: str, job_id: str, *, endpoint: str | None = None) -> None:
+            async def persist_provider_job_id(
+                self, tid: str, job_id: str, *, endpoint: str | None = None, base_url: str | None = None
+            ) -> None:
                 await _bad(tid, job_id)
 
         fake_queue = _BadQueue()
@@ -540,7 +546,9 @@ class TestPersistJobIdRetry:
             raise ValueError("Connection timed out: rate limited at upstream")
 
         class _BadQueue:
-            async def persist_provider_job_id(self, tid: str, job_id: str, *, endpoint: str | None = None) -> None:
+            async def persist_provider_job_id(
+                self, tid: str, job_id: str, *, endpoint: str | None = None, base_url: str | None = None
+            ) -> None:
                 await _bad(tid, job_id)
 
         fake_queue = _BadQueue()
@@ -571,7 +579,7 @@ class TestProviderJobIdPersistenceMixin:
             await self._backend()._persist_provider_job_id(
                 self._request(task_id="local-task-1"), "job-1", provider="ark"
             )
-        persist.assert_awaited_once_with("local-task-1", "job-1", provider="ark", endpoint=None)
+        persist.assert_awaited_once_with("local-task-1", "job-1", provider="ark", endpoint=None, base_url=None)
 
     async def test_worker_path_persists_execution_endpoint(self):
         """自定义供应商包装层注入的 endpoint 与 job_id 一并落库，供续跑比对协议是否被换掉。"""
@@ -579,7 +587,9 @@ class TestProviderJobIdPersistenceMixin:
         request.execution_endpoint = "openai-video"
         with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:
             await self._backend()._persist_provider_job_id(request, "job-1", provider="ark")
-        persist.assert_awaited_once_with("local-task-1", "job-1", provider="ark", endpoint="openai-video")
+        persist.assert_awaited_once_with(
+            "local-task-1", "job-1", provider="ark", endpoint="openai-video", base_url=None
+        )
 
     async def test_worker_path_persists_backend_endpoint_when_builtin(self):
         """内置供应商由 backend 传入实际请求域名 → 落库供续跑回放。"""
@@ -591,14 +601,11 @@ class TestProviderJobIdPersistenceMixin:
                 endpoint="https://maas.example.com/api/v1",
             )
         persist.assert_awaited_once_with(
-            "local-task-1", "job-1", provider="dashscope", endpoint="https://maas.example.com/api/v1"
+            "local-task-1", "job-1", provider="dashscope", endpoint="https://maas.example.com/api/v1", base_url=None
         )
 
-    async def test_execution_endpoint_wins_over_backend_endpoint(self):
-        """自定义供应商注入的 endpoint 标识优先于下游 backend 的域名。
-
-        列里躺着标识才能让续跑比对协议是否被换掉；被下游域名顶掉会让比对闸永远比不出差异。
-        """
+    async def test_execution_endpoint_and_backend_domain_land_in_separate_columns(self):
+        """自定义供应商：endpoint 位落协议标识供比对，域名另落 base_url 位供回放，互不覆盖。"""
         request = self._request(task_id="local-task-1")
         request.execution_endpoint = "dashscope-async-video"
         with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:
@@ -606,7 +613,11 @@ class TestProviderJobIdPersistenceMixin:
                 request, "job-1", provider="dashscope", endpoint="https://maas.example.com/api/v1"
             )
         persist.assert_awaited_once_with(
-            "local-task-1", "job-1", provider="dashscope", endpoint="dashscope-async-video"
+            "local-task-1",
+            "job-1",
+            provider="dashscope",
+            endpoint="dashscope-async-video",
+            base_url="https://maas.example.com/api/v1",
         )
 
     async def test_non_worker_path_skips_persist(self):

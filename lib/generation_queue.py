@@ -278,9 +278,16 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             return await repo.list_orphan_tasks_on_start()
 
-    async def persist_provider_job_id(self, task_id: str, job_id: str, *, endpoint: str | None = None) -> None:
+    async def persist_provider_job_id(
+        self,
+        task_id: str,
+        job_id: str,
+        *,
+        endpoint: str | None = None,
+        base_url: str | None = None,
+    ) -> None:
         async with self._task_repo() as repo:
-            await repo.persist_provider_job_id(task_id, job_id, endpoint=endpoint)
+            await repo.persist_provider_job_id(task_id, job_id, endpoint=endpoint, base_url=base_url)
 
     async def persist_api_call_id(self, task_id: str, call_id: int) -> None:
         async with self._task_repo() as repo:

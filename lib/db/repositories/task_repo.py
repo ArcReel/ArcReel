@@ -110,6 +110,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "provider_id": row.provider_id,
         "provider_job_id": row.provider_job_id,
         "provider_endpoint": row.provider_endpoint,
+        "submitted_base_url": row.submitted_base_url,
         "queued_at": dt_to_iso(row.queued_at),
         "started_at": dt_to_iso(row.started_at),
         "finished_at": dt_to_iso(row.finished_at),
@@ -701,13 +702,22 @@ class TaskRepository(BaseRepository):
                 skipped_terminal=skipped_terminal,
             )
 
-    async def persist_provider_job_id(self, task_id: str, job_id: str, *, endpoint: str | None = None) -> None:
+    async def persist_provider_job_id(
+        self,
+        task_id: str,
+        job_id: str,
+        *,
+        endpoint: str | None = None,
+        base_url: str | None = None,
+    ) -> None:
         """单独事务持久化 provider_job_id；不带 WHERE 状态守卫（worker 内调用，确定是 running）。
 
         ``endpoint`` 是提交本 job 时实际使用的执行端点，按供应商类型有两种取值：自定义供应商
-        传模型行的 endpoint 标识，提交域名随用户配置变化的内置供应商传实际请求域名。与 job_id
-        同一次 UPDATE 落地：两者必须同时可见，否则续跑会拿到 job_id 却判不出协议是否已被换掉、
-        也无从回放原域名。None 时不写该列——保留既有值比清空更安全（清空等于放弃比对）。
+        传模型行的 endpoint 标识，提交域名随用户配置变化的内置供应商传实际请求域名。
+        ``base_url`` 只由自定义供应商传——它的 ``endpoint`` 位已被协议标识占用，实际请求域名
+        另落 ``submitted_base_url`` 列。两者都与 job_id 同一次 UPDATE 落地：必须同时可见，否则
+        续跑会拿到 job_id 却判不出协议是否已被换掉、也无从回放原域名。None 时不写对应列——保留
+        既有值比清空更安全（清空等于放弃比对 / 放弃回放）。
 
         失败抛异常，由 worker finally 兜底 mark_failed（ADR 0007 fail-fast：未持久化的
         submit 视为整笔失败，避免「幽灵任务」继续在 provider 端跑而 DB 已忘）。
@@ -716,6 +726,8 @@ class TaskRepository(BaseRepository):
         values: dict[str, Any] = {"provider_job_id": job_id, "updated_at": now}
         if endpoint is not None:
             values["provider_endpoint"] = endpoint
+        if base_url is not None:
+            values["submitted_base_url"] = base_url
         await self.session.execute(update(Task).where(Task.task_id == task_id).values(**values))
         await self.session.commit()
 

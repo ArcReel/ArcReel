@@ -438,6 +438,46 @@ async def test_resume_does_not_replay_endpoint_id_for_custom(monkeypatch, fake_p
 
 
 @pytest.mark.asyncio
+async def test_resume_replays_submitted_base_url_for_custom(monkeypatch, fake_pm, video_task):
+    """自定义供应商：域名落在专列，在途改 base_url 后续跑仍按提交时的域名轮询。"""
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="dashscope-async-video")
+
+    task = {
+        **video_task,
+        "provider_id": "custom-7",
+        "provider_endpoint": "dashscope-async-video",
+        "submitted_base_url": "https://custom-a.example.com/api/v1",
+    }
+    await execute_resume_video_task(task, job_id="custom-job-1")
+
+    assert fake_gen.resume_calls[0]["submitted_base_url"] == "https://custom-a.example.com/api/v1"
+
+
+@pytest.mark.asyncio
+async def test_resume_fails_when_custom_endpoint_changed_even_with_base_url(monkeypatch, fake_pm, video_task):
+    """协议标识不一致仍显式失败——域名回放不为换协议的续跑开口子。"""
+    from lib.video_backends.base import ResumeEndpointChangedError
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="minimax-video")
+
+    task = {
+        **video_task,
+        "provider_id": "custom-7",
+        "provider_endpoint": "dashscope-async-video",
+        "submitted_base_url": "https://custom-a.example.com/api/v1",
+    }
+    with pytest.raises(ResumeEndpointChangedError):
+        await execute_resume_video_task(task, job_id="custom-job-1")
+
+    assert fake_gen.resume_calls == []
+
+
+@pytest.mark.asyncio
 async def test_resume_ignores_endpoint_id_left_by_provider_switch(monkeypatch, fake_pm, video_task):
     """任务由自定义供应商提交、模型行在途被改成内置供应商：列里的标识不当域名用。
 
