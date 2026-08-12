@@ -236,6 +236,21 @@ def test_wan2x_dot_image_to_video_has_no_registered_capability_falls_back_to_gen
     assert infer_endpoint(model_id, "openai") == "openai-video"
 
 
+@pytest.mark.parametrize("model_id", ["wan-2.2-image-to-video", "wan_2.6-image2video"])
+def test_image_to_video_syntax_recognized_even_when_family_boundary_unmet(model_id: str) -> None:
+    """image-to-video 续接语法的识别不依赖家族严格边界：家族分隔符（连字符隔开 wan 与版本号）
+    未满足点号形态边界、classify_wan_model 判定 family=None 时，续接语法信息仍须原样带出，
+    不能被笼统 image 判定误吞成图像端点。"""
+    assert infer_endpoint(model_id, "openai") == "openai-video"
+
+
+@pytest.mark.parametrize("model_id", ["wan-2.2-s2v", "wan_2.6-s2v", "vendorwan2.7-s2v"])
+def test_wan_substring_s2v_excluded_from_minimax_routing_even_without_family_match(model_id: str) -> None:
+    """裸 "s2v" 排除 MiniMax 路由的判定同样不能拿家族严格边界做门槛：这些 id 含 "wan" 子串但
+    家族边界未满足（family=None），仍应落通用视频端点而非被误吞成 MiniMax S2V 协议。"""
+    assert infer_endpoint(model_id, "openai") == "openai-video"
+
+
 @pytest.mark.parametrize(
     ("model_id", "expected_max_reference_images"),
     [

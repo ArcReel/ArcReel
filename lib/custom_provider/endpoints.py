@@ -593,7 +593,12 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 也不应被判成图像变体。不对 wan3 套用同一判定：wan3 只有单一 profile key，不区分 t2v/i2v/r2v
     # 与 image-edit 等真图像别名，has_known_modality 对 wan3 恒真，会反过来误伤 wan3.0-image-edit
     # 一类真图像别名（见上方注释）。
-    wan_video_continuation = is_wan_family and (
+    #
+    # 该判定同样不能拿 is_wan_family 做门槛，理由与上面 wan_image_variant 的排除范围一致：
+    # "wan-2.2-image-to-video" 一类不满足家族严格边界（连字符隔开 wan 与版本号）的 id，
+    # classify_wan_model 仍会按标识符边界识别出其 image-to-video 续接语法（is_image_to_video），
+    # 若在这里再要求先通过家族判定，这类显式 i2v 命名会被误判成图像变体。
+    wan_video_continuation = contains_wan_token and (
         classification.is_image_to_video or (classification.family == "wan2.7" and classification.has_known_modality)
     )
     wan_image_variant = contains_wan_token and is_image and not wan_video_continuation
@@ -611,10 +616,11 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # MiniMax 原生 token 二级路由：海螺（含 minimax-hailuo）/ S2V / H3 → 两步或单步取回的视频端点；
     # image-01 → 单步图像端点。先于通用 is_video/is_image：s2v 与 h3 均不被 _VIDEO_PATTERN 覆盖，
     # image-01 含 "image" 否则会被通用图像家族抢走。匹配 "minimax-h3" 而非裸 "h3"——后者过短，
-    # 容易撞上其它厂商恰好含 h3 子串的型号 id。裸 "s2v" 排除 wan 家族 id（如未落原生路由的
-    # "wan2.7-s2v"，本后端未实现该模态请求构造）：这类 id 应落下方 5) 的通用视频端点，而非被误吞
-    # 成 MiniMax S2V 协议。
-    if "hailuo" in lowered or ("s2v" in lowered and not is_wan_family) or "minimax-h3" in lowered:
+    # 容易撞上其它厂商恰好含 h3 子串的型号 id。裸 "s2v" 排除含 wan 子串的 id（如未落原生路由的
+    # "wan2.7-s2v"、家族边界未满足的 "wan-2.2-s2v"，本后端均未实现该模态请求构造）：这类 id 应落
+    # 下方 5) 的通用视频端点，而非被误吞成 MiniMax S2V 协议——用 contains_wan_token 而非
+    # is_wan_family 做门槛，理由同上方 wan_image_variant/wan_video_continuation 的排除范围说明。
+    if "hailuo" in lowered or ("s2v" in lowered and not contains_wan_token) or "minimax-h3" in lowered:
         return "minimax-video"
     if "image-01" in lowered:
         return "minimax-image"

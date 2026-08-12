@@ -195,6 +195,11 @@ class WanClassification:
 def classify_wan_model(model_id: str | None) -> WanClassification:
     """对 model_id 做一次判定，供路由/能力档/时长档复用同一结论。"""
     normalized = (model_id or "").strip().lower()
+    # image-to-video 续接语法的标识符边界匹配与家族归属判定相互独立：不满足家族严格边界的 id
+    # （如 "wan-2.2-image-to-video"，"wan" 与版本号间的连字符不满足点号形态边界）依然可能是视频
+    # 模型的显式续接语法命名，家族未命中不代表该语法信息作废，须原样带出，供 endpoints.py 的
+    # image 变体排除判定消费——否则这类 id 会被笼统 image 判定误吞成图像端点。
+    is_image_to_video = bool(WAN_IMAGE_TO_VIDEO_PATTERN.search(normalized))
     if HAPPYHORSE_PATTERN.search(normalized):
         # happyhorse 无 image-to-video 续接语法与 videoedit 模态；t2v/i2v/r2v 具体档位交由
         # _profile_for_model 末尾的兜底子串匹配解析，此处不预先归一化。
@@ -209,14 +214,17 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
         family = "wan2x_dot"
     else:
         return WanClassification(
-            family=None, is_image_to_video=False, is_videoedit=False, profile_key=None, has_known_modality=True
+            family=None,
+            is_image_to_video=is_image_to_video,
+            is_videoedit=False,
+            profile_key=None,
+            has_known_modality=True,
         )
 
     # videoedit 是 wan2.7 家族内独有的模态（见 WAN_VIDEOEDIT_PATTERN 处的说明）；wan3/wan2x_dot
     # 不受它约束，否则形如 "proxy-videoedit/wan3-turbo" 这类与 videoedit 无关的装饰前缀会被误吞，
     # 把本应走原生路由的 wan3 模型错误排除出去。
     is_videoedit = family == "wan2.7" and bool(WAN_VIDEOEDIT_PATTERN.search(normalized))
-    is_image_to_video = bool(WAN_IMAGE_TO_VIDEO_PATTERN.search(normalized))
     profile_key: str | None = None
     has_known_modality = True
     if family == "wan3":
