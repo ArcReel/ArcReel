@@ -588,7 +588,14 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 因此排除只看"是否含 wan 子串"（与 _VIDEO_PATTERN 的宽度一致），不要求满足家族标识符边界；
     # 家族边界只用于下面原生路由（dashscope-async-video）的资格判定。
     contains_wan_token = "wan" in lowered
-    wan_video_continuation = is_wan_family and classification.is_image_to_video
+    # wan2.7 已解析出已知 t2v/i2v/r2v profile（has_known_modality）时，该 profile 本身已确立视频
+    # 语义——即便 id 别处（如代理命名空间前缀 "image-proxy/wan-2.7-i2v"）另含无关 "image" 子串，
+    # 也不应被判成图像变体。不对 wan3 套用同一判定：wan3 只有单一 profile key，不区分 t2v/i2v/r2v
+    # 与 image-edit 等真图像别名，has_known_modality 对 wan3 恒真，会反过来误伤 wan3.0-image-edit
+    # 一类真图像别名（见上方注释）。
+    wan_video_continuation = is_wan_family and (
+        classification.is_image_to_video or (classification.family == "wan2.7" and classification.has_known_modality)
+    )
     wan_image_variant = contains_wan_token and is_image and not wan_video_continuation
     # 未实现请求构造的模态（wan2.7-videoedit / wan2.7-s2v / wan2.7-v2v 等）即便命中家族正则也不
     # 走原生端点（见 classify_wan_model 的 has_known_modality 处的说明），落到下方 5) 的通用视频

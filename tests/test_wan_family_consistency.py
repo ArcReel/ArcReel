@@ -168,6 +168,20 @@ def test_wan_substring_image_variant_routes_to_image_endpoint_despite_rejected_f
     assert infer_endpoint(model_id, "openai") == "openai-images"
 
 
+@pytest.mark.parametrize("model_id", ["image-proxy/wan-2.7-i2v", "proxy-image/wan_2.7-r2v"])
+def test_wan27_known_modality_not_downgraded_by_unrelated_image_decoration(model_id: str) -> None:
+    """wan2.7 已解析出已知 t2v/i2v/r2v profile 时，id 别处（如代理命名空间前缀）另含无关 "image"
+    子串不应被误判成图像变体——已知 profile 本身已确立视频语义，须优先于笼统 image 子串判定。"""
+    assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
+
+
+@pytest.mark.parametrize("model_id", ["wan3.0-image-edit", "wan-3-turbo-image-preview"])
+def test_wan3_image_variant_still_routes_to_image_endpoint(model_id: str) -> None:
+    """wan3 只有单一 profile key，has_known_modality 恒真，不区分 t2v/i2v/r2v 与 image-edit 等真
+    图像别名——上一条已知 modality 豁免不套用到 wan3，真图像别名仍须正确落图像端点。"""
+    assert infer_endpoint(model_id, "openai") == "openai-images"
+
+
 def test_wan27_videoedit_excluded_from_family_duration_preset() -> None:
     """wan2.7-videoedit 本后端未实现该模态的请求构造，时长不套用 t2v/i2v/r2v 家族档
     （落到通用预设，而非家族专属的 2-15s 全档）。"""
