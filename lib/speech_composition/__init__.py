@@ -449,13 +449,23 @@ def video_unit_replan_problems(
     return SpeechComposition.prepare(adapt_video_unit(source)).problems
 
 
-def refresh_video_unit_replan_state(unit: dict[str, object], *, allow_clear: bool = True) -> None:
+def refresh_video_unit_replan_state(
+    unit: dict[str, object],
+    *,
+    allow_clear: bool = True,
+    content_changed: bool = False,
+) -> None:
     """Refresh ``needs_replan`` after a planning edit.
 
-    An edit may discover a problem, but only a rewritten unit body may clear a durable
-    migration marker. Duration, reference, note, and transition changes cannot prove that
-    ambiguous or missing legacy shot membership has been repaired.
+    ``migration_requires_content_replan`` records membership/over-capacity evidence that
+    the migrated self-contained body cannot express. Only an actual body rewrite consumes
+    that provenance; duration edits may still clear an independent invalid-duration marker.
     """
+    if content_changed:
+        unit.pop("migration_requires_content_replan", None)
+    if unit.get("migration_requires_content_replan") is True:
+        unit["needs_replan"] = True
+        return
     duration = unit.get("duration_seconds")
     if not unit.get("shots") or not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
         unit["needs_replan"] = True

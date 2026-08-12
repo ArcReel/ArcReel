@@ -110,6 +110,9 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id trùng lặp '{value}'",
     "val_video_units_missing": "Kịch bản reference_video thiếu mảng video_units hoặc mảng rỗng",
     "val_unit_duration_range": "{prefix}: duration_seconds phải là số nguyên trong khoảng {low}-{high}",
+    "val_migration_content_replan_requires_needs_replan": (
+        "{prefix}: migration_requires_content_replan=true yêu cầu needs_replan=true"
+    ),
     "val_reference_entry_must_be_object": "{prefix}: mỗi mục reference phải là đối tượng",
     "val_reference_type_invalid": "{prefix}: reference.type không hợp lệ: {value}",
     "val_reference_name_invalid": "{prefix}: reference.name phải là chuỗi không rỗng: {value}",

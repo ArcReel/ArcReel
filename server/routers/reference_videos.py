@@ -318,7 +318,11 @@ async def patch_unit(
         # 只有正文重写能证明迁移留下的镜头归属问题已被重新规划；仅改时长或引用
         # 不能解除 overlapping / dangling legacy shot 对应的 durable marker。
         body_changed = req.prompt is not None and unit.get("shots") != previous_shots
-        refresh_video_unit_replan_state(unit, allow_clear=body_changed)
+        refresh_video_unit_replan_state(
+            unit,
+            allow_clear=body_changed or req.duration_seconds is not None,
+            content_changed=body_changed,
+        )
 
     return {"unit": unit}
 

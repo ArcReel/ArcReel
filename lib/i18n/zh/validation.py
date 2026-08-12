@@ -101,6 +101,9 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id 重复 '{value}'",
     "val_video_units_missing": "reference_video 脚本缺少 video_units 数组或为空",
     "val_unit_duration_range": "{prefix}: duration_seconds 必须是 {low}-{high} 之间的整数",
+    "val_migration_content_replan_requires_needs_replan": (
+        "{prefix}: migration_requires_content_replan=true 时 needs_replan 必须为 true"
+    ),
     "val_reference_entry_must_be_object": "{prefix}: reference 条目必须是对象",
     "val_reference_type_invalid": "{prefix}: reference.type 无效: {value}",
     "val_reference_name_invalid": "{prefix}: reference.name 必须是非空字符串: {value}",

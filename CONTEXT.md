@@ -284,7 +284,7 @@ _Avoid_: 让 ad 落入「非 narration 即 drama」的二值兜底；把分镜�
 
 **video_unit / shot（参考视频单元）**：
 参考路线下一次视频生成、计费和成片归属的最小单元，以 `unit_id` 区分；正文、编排时长、声明参考集与产物关联由自身承载。shot 是 unit 内的时间编排，不是独立产物单位；一个正常 unit 含 1–4 个 shot，整 unit 共享一组按顺序编号的参考图，跳过分镜直接由资产图生成。三种内容模式的参考路线统一使用 `video_units[]`，不再让广告维持 `shots + reference_units` 双层真相。参考图列表从 shot 正文的 `@mention` 机械派生；广告同名按 product → character → scene → prop 解析并把产品参考排在请求候选最前。规范台词行 `@[角色]：{台词}` 的 speaker 位只驱动发声归属，不把纯画外角色机械加入画面参考。
-存量广告参考结构只在项目 schema 迁移时读取：已有 `reference_units` 保留顺序、边界、原样 `unit_id` 与 `generated_assets`，缺失或 null 时按旧 shot 顺序一镜头一单元；悬空的旧 `shot_id` 作为迁移历史写入 unit 备注，只水合仍存在的 shot 并标记 `needs_replan`。成员全悬空时保留身份与历史，迁成 `needs_replan=true`、`shots=[]`、`duration_seconds=0` 的问题壳。该空壳是唯一允许空 shots / 零时长的 unit，运行时阻止生成；历史 `generated_assets.source_signature` 原样留存为惰性键，业务代码不再读取、比较或新增。
+存量广告参考结构只在项目 schema 迁移时读取：已有 `reference_units` 保留顺序、边界、原样 `unit_id` 与 `generated_assets`，缺失或 null 时按旧 shot 顺序一镜头一单元；悬空的旧 `shot_id` 作为迁移历史写入 unit 备注，只水合仍存在的 shot 并标记 `needs_replan`。成员全悬空时保留身份与历史，迁成 `needs_replan=true`、`shots=[]`、`duration_seconds=0` 的问题壳。该空壳是唯一允许空 shots / 零时长的 unit，运行时阻止生成。成员缺失、重叠、未索引或超量折叠另以隐藏的 `migration_requires_content_replan` 保留阻塞来源，只有正文实际重写才解除；单纯的旧时长非法则可由时长修复解除。历史 `generated_assets.source_signature` 原样留存为惰性键，业务代码不再读取、比较或新增。
 _Avoid_: 把 shot 与 segment（说书片段）/ DramaScene（剧集场景）混为一谈；运行时继续读取旧 `reference_units`、重新派生分组或用来源签名重算 stale；迁移时丢弃悬空 unit 的身份与已付费历史。
 
 **三段论渲染（参考生视频路径）**：

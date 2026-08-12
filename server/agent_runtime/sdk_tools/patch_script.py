@@ -16,6 +16,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.reference_video import rederive_unit_references
 from lib.script_editor import (
     ScriptEditError,
     insert_segment,
@@ -29,7 +30,6 @@ from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, val
 
 # 改了这些顶层字段路径的分镜须紧接着重新生成对应图/视频（工具不自动作废旧资产）。
 _REGEN_TRIGGER_FIELDS = ("image_prompt", "video_prompt")
-_UNIT_REPLAN_FIELDS = frozenset({"shots"})
 
 
 def _item_ids(script: dict[str, Any]) -> list[str]:
@@ -49,6 +49,7 @@ def patch_episode_script_tool(ctx: ToolContext):
         "Pydantic 字段路径（含数组下标，如 segments.4.video_prompt.x）报告。修正后整批重提即可。"
         "纯字段 setter，不触碰已生成资产——批量改了任意分镜的 image_prompt / video_prompt 后，"
         "须紧接着重新生成对应分镜的图/视频，否则会留下「新 prompt + 旧画面」的陈旧。"
+        "reference video unit 的 shots 正文变化时，references 会从其中的已登记 @ mention 机械重派生。"
         "叶子字段不存在会被创建（允许补 LLM 漏写的 optional 字段如 video_prompt.dialogue）；"
         "拼写错误（如 image_prompt.scen 应为 image_prompt.scene）会经写盘统一入口的 Pydantic "
         "extra='forbid' 结构校验拒，提交前请确认字段名拼写正确。",
@@ -79,6 +80,7 @@ def patch_episode_script_tool(ctx: ToolContext):
 
             applied: list[tuple[str, list[str]]] = []
             regen_ids: list[str] = []
+            project = ctx.pm.load_project(ctx.project_name)
             # 全批在同一个 locked_script 上下文内逐条 patch_field 就地改 dict：任一编辑抛异常即
             # 冒出 with 体 → 写盘被跳过 → 整批零落盘；全部 apply 后写盘统一入口跑一次「不更坏」
             # 结构校验，非法则整体拒。原子性由 locked_script 承重，无需额外事务管线。
@@ -108,11 +110,15 @@ def patch_episode_script_tool(ctx: ToolContext):
                         if field.split(".", 1)[0] in _REGEN_TRIGGER_FIELDS and scene_id not in regen_ids:
                             regen_ids.append(scene_id)
                     if unit is not None:
-                        body_changed = (
-                            any(field.split(".", 1)[0] in _UNIT_REPLAN_FIELDS for field in fields)
-                            and unit.get("shots") != previous_shots
+                        edited_roots = {field.split(".", 1)[0] for field in fields}
+                        body_changed = "shots" in edited_roots and unit.get("shots") != previous_shots
+                        if body_changed:
+                            rederive_unit_references([unit], project)
+                        refresh_video_unit_replan_state(
+                            unit,
+                            allow_clear=body_changed or "duration_seconds" in edited_roots,
+                            content_changed=body_changed,
                         )
-                        refresh_video_unit_replan_state(unit, allow_clear=body_changed)
                     applied.append((scene_id, fields))
 
             lines = [f"✅ 已更新 {len(applied)} 个分镜的字段："]

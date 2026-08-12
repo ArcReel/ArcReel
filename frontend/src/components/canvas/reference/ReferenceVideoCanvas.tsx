@@ -491,18 +491,22 @@ export function ReferenceVideoCanvas({
   const commitFreeDuration = useCallback(
     (unitId: string, rawValue: string) => {
       const key = draftKey(projectName, episode, unitId);
+      if (!(key in durationDrafts)) return;
       const seconds = Number(rawValue);
       const fresh = useReferenceVideoStore
         .getState()
         .unitsByEpisode[referenceVideoCacheKey(projectName, episode)]?.find(
           (unit) => unit.unit_id === unitId,
         );
+      const confirmsDurationMarker = Boolean(
+        fresh?.needs_replan && !fresh.migration_requires_content_replan,
+      );
       if (
         !Number.isInteger(seconds) ||
         seconds < 1 ||
         seconds > 300 ||
         !fresh ||
-        fresh.duration_seconds === seconds
+        (fresh.duration_seconds === seconds && !confirmsDurationMarker)
       ) {
         clearDurationDraft(key, rawValue);
         return;
@@ -511,7 +515,7 @@ export function ReferenceVideoCanvas({
         if (saved) clearDurationDraft(key, rawValue);
       });
     },
-    [projectName, episode, handleDurationChange, clearDurationDraft],
+    [projectName, episode, durationDrafts, handleDurationChange, clearDurationDraft],
   );
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
 
@@ -547,7 +551,19 @@ export function ReferenceVideoCanvas({
   // schema v6 起各 bucket 共用名称空间，每个名字只会声明一次。
   const mentionLookup = useMemo(() => buildMentionLookup(project), [project]);
 
-  const hasAnyDraft = Object.keys(drafts).length > 0;
+  const hasAnyDurationDraft = units.some((unit) => {
+    const raw = durationDrafts[draftKey(projectName, episode, unit.unit_id)];
+    if (raw === undefined) return false;
+    const seconds = Number(raw);
+    return (
+      !Number.isInteger(seconds) ||
+      seconds < 1 ||
+      seconds > 300 ||
+      seconds !== unit.duration_seconds ||
+      (Boolean(unit.needs_replan) && !unit.migration_requires_content_replan)
+    );
+  });
+  const hasAnyDraft = Object.keys(drafts).length > 0 || hasAnyDurationDraft;
 
   // 草稿已落盘 → 丢弃本地草稿。若这期间用户又敲了字（草稿值已变），保留新草稿不动，
   // 否则落盘响应回来时会把用户刚输入的内容抹掉。

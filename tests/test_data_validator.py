@@ -1516,6 +1516,26 @@ class TestAdReferenceVideoUnitsValidation:
         assert any("shots" in error for error in result.errors)
         assert any("duration_seconds" in error for error in result.errors)
 
+    @pytest.mark.unit
+    def test_migration_content_replan_marker_requires_boolean(self, tmp_path):
+        result = self._validate(
+            tmp_path,
+            [self._unit(needs_replan=True, migration_requires_content_replan="yes")],
+        )
+
+        assert not result.valid
+        assert any("migration_requires_content_replan" in error for error in result.errors)
+
+    @pytest.mark.unit
+    def test_migration_content_replan_marker_requires_needs_replan(self, tmp_path):
+        result = self._validate(
+            tmp_path,
+            [self._unit(needs_replan=False, migration_requires_content_replan=True)],
+        )
+
+        assert not result.valid
+        assert any("needs_replan" in error for error in result.errors)
+
     @pytest.mark.integration
     def test_unparseable_video_generated_at_rejected(self, tmp_path):
         unit = self._unit(generated_assets={"status": "completed", "video_generated_at": "not-a-date"})

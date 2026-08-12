@@ -79,6 +79,8 @@ export interface ReferenceVideoUnit {
   generated_assets: UnitGeneratedAssets;
   /** Problem shell or mixed-speech marker; generation is blocked until repaired. */
   needs_replan?: boolean;
+  /** Migration membership/over-capacity evidence that only a body rewrite may clear. */
+  migration_requires_content_replan?: boolean;
 }
 
 /**

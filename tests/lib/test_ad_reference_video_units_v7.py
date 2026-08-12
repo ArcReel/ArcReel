@@ -40,13 +40,24 @@ def test_reference_video_script_accepts_ad_products_and_replan_state() -> None:
 
 
 def test_only_replan_shell_may_be_empty_and_zero_duration() -> None:
-    shell = ReferenceVideoUnit.model_validate(_unit(shots=[], references=[], duration_seconds=0, needs_replan=True))
+    shell = ReferenceVideoUnit.model_validate(
+        _unit(
+            shots=[],
+            references=[],
+            duration_seconds=0,
+            needs_replan=True,
+            migration_requires_content_replan=True,
+        )
+    )
     assert shell.needs_replan is True
+    assert shell.migration_requires_content_replan is True
 
     with pytest.raises(pydantic.ValidationError):
         ReferenceVideoUnit.model_validate(_unit(shots=[], references=[], duration_seconds=0, needs_replan=False))
     with pytest.raises(pydantic.ValidationError):
         ReferenceVideoUnit.model_validate(_unit(shots=[], references=[], duration_seconds=8, needs_replan=True))
+    with pytest.raises(pydantic.ValidationError):
+        ReferenceVideoUnit.model_validate(_unit(migration_requires_content_replan=True, needs_replan=False))
 
 
 def test_product_mentions_resolve_first_even_in_corrupt_duplicate_namespace() -> None:

@@ -173,6 +173,10 @@ def _unit_from_shots(
     )
     if needs_replan:
         unit["needs_replan"] = True
+    if requires_replan or over_capacity:
+        # 成员缺失/重叠/未索引与超量折叠在新结构里不一定仍表现为校验问题，单独保留
+        # provenance；只有正文实际重写才能解除，纯时长修复不得误放行。
+        unit["migration_requires_content_replan"] = True
     return unit
 
 

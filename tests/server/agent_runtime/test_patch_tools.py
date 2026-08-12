@@ -371,6 +371,7 @@ class TestPatchEpisodeScript:
     async def test_reference_replan_marker_requires_planning_edit(self, ref_ctx: ToolContext) -> None:
         script = _reference_script()
         script["video_units"][0]["needs_replan"] = True
+        script["video_units"][0]["migration_requires_content_replan"] = True
         ref_ctx.pm.save_script("demo", script, "episode_1.json")
 
         noted = await _call(
@@ -400,6 +401,43 @@ class TestPatchEpisodeScript:
         )
         assert repaired.get("is_error") is not True
         assert _load(ref_ctx)["video_units"][0].get("needs_replan") is not True
+        assert _load(ref_ctx)["video_units"][0].get("migration_requires_content_replan") is not True
+
+    @pytest.mark.integration
+    async def test_reference_duration_repair_clears_non_content_marker(self, ref_ctx: ToolContext) -> None:
+        script = _reference_script()
+        script["video_units"][0].update({"duration_seconds": 1, "needs_replan": True})
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        repaired = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"duration_seconds": 1}}},
+        )
+
+        assert repaired.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0].get("needs_replan") is not True
+
+    @pytest.mark.integration
+    async def test_reference_shot_edit_rederives_registered_references(self, ref_ctx: ToolContext) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["products"] = {"产品A": {"description": ""}, "产品B": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+        script = _reference_script()
+        script["video_units"][0].update(
+            {
+                "shots": [{"text": "@[产品A] 正面展示"}],
+                "references": [{"type": "product", "name": "产品A"}],
+            }
+        )
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        changed = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "@[产品B] 侧面展示"}]}}},
+        )
+
+        assert changed.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["references"] == [{"type": "product", "name": "产品B"}]
 
     @pytest.mark.integration
     async def test_reference_replan_marker_cannot_be_patched_directly(self, ref_ctx: ToolContext) -> None:
@@ -413,6 +451,17 @@ class TestPatchEpisodeScript:
         )
 
         assert out.get("is_error") is True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
+        provenance = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {"E1U1": {"migration_requires_content_replan": False}},
+            },
+        )
+
+        assert provenance.get("is_error") is True
         assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
 
     @pytest.mark.unit

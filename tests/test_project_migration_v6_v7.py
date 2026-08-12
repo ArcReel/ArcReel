@@ -181,6 +181,7 @@ def test_partial_index_preserves_uncovered_shots_as_replan_units(tmp_path: Path)
     assert existing["unit_id"] == "E1U1"
     assert recovered["unit_id"] == "E1U2"
     assert recovered["needs_replan"] is True
+    assert recovered["migration_requires_content_replan"] is True
     assert "未索引镜头仍须保留" in recovered["shots"][0]["text"]
 
 
@@ -219,6 +220,7 @@ def test_oversized_legacy_unit_keeps_all_text_in_readable_replan_unit(tmp_path: 
     assert len(unit["shots"]) == 1
     assert all(f"保留镜头{ordinal}" in unit["shots"][0]["text"] for ordinal in range(1, 6))
     assert unit["needs_replan"] is True
+    assert unit["migration_requires_content_replan"] is True
     assert unit["generated_assets"] == {"video_uri": "provider://paid-job"}
     ReferenceVideoScript.model_validate(migrated)
 
@@ -236,6 +238,7 @@ def test_nonempty_zero_duration_unit_remains_readable_and_requires_replan(tmp_pa
     unit = migrated["video_units"][0]
     assert unit["duration_seconds"] == 1
     assert unit["needs_replan"] is True
+    assert "migration_requires_content_replan" not in unit
     assert len(unit["shots"]) == 2
     ReferenceVideoScript.model_validate(migrated)
 
@@ -271,6 +274,7 @@ def test_dangling_and_mixed_speech_preserve_unit_as_replan_shell(tmp_path: Path)
         True,
     )
     assert first["generated_assets"]["video_clip"].endswith("E1U7.mp4")
+    assert first["migration_requires_content_replan"] is True
     assert json.loads(first["note"]) == {"unresolved_legacy_shot_ids": ["E1S404"]}
     assert second["needs_replan"] is True
     text = second["shots"][0]["text"]
@@ -320,6 +324,8 @@ def test_overlapping_legacy_members_mark_every_affected_unit_for_replanning(tmp_
     first, second = migrated["video_units"]
     assert first["needs_replan"] is True
     assert second["needs_replan"] is True
+    assert first["migration_requires_content_replan"] is True
+    assert second["migration_requires_content_replan"] is True
     assert json.loads(first["note"]) == {"overlapping_legacy_shot_ids": ["E1S1"]}
     assert json.loads(second["note"]) == {"overlapping_legacy_shot_ids": ["E1S1"]}
     ReferenceVideoScript.model_validate(migrated)

@@ -343,6 +343,42 @@ describe("ReferenceVideoCanvas", () => {
     expect(patchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("protects an uncommitted free-form duration from tab unload", async () => {
+    const unit = mkUnit("E1U1");
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    const patchSpy = vi.spyOn(API, "patchReferenceVideoUnit");
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} freeDuration />);
+    const input = await screen.findByRole("spinbutton", { name: /Duration|时长/ });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "12" } });
+
+    await waitFor(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    });
+    expect(patchSpy).not.toHaveBeenCalled();
+  });
+
+  it("lets an explicit same-value duration confirm a duration-only replan marker", async () => {
+    const unit = { ...mkUnit("E1U1"), needs_replan: true };
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValue({ unit: { ...unit, needs_replan: false } });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} freeDuration />);
+    const input = await screen.findByRole("spinbutton", { name: /Duration|时长/ });
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.change(input, { target: { value: "3" } });
+    fireEvent.blur(input);
+
+    await waitFor(() =>
+      expect(patchSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_seconds: 3 }),
+    );
+  });
+
   // 参考视频按申请秒数计价：改档位即改估价。SSE 会让分组缓存最终一致，费用面板仍由
   // 本地写成功主动刷新，避免当前浏览器等待事件回环才显示新估价。
   it("refreshes cost estimates after a duration patch succeeds", async () => {

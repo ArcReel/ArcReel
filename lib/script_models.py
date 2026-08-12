@@ -843,10 +843,16 @@ class ReferenceVideoUnit(BaseModel):
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
+    migration_requires_content_replan: SkipJsonSchema[bool] = Field(
+        default=False,
+        description="迁移留下的成员归属或折叠内容尚未通过正文重写复核",
+    )
 
     @model_validator(mode="after")
     def _validate_replan_shell(self) -> "ReferenceVideoUnit":
         """全悬空迁移壳可为空且为 0 秒；其余单元仍须可执行。"""
+        if self.migration_requires_content_replan and not self.needs_replan:
+            raise ValueError("迁移内容待复核的 video unit 必须标记 needs_replan=true")
         if not self.shots:
             if not self.needs_replan or self.duration_seconds != 0:
                 raise ValueError("空 video unit 仅允许 needs_replan=true 且 duration_seconds=0")

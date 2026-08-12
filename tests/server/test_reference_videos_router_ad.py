@@ -147,6 +147,7 @@ def test_replan_shell_and_mixed_speech_are_blocked_before_enqueue(ad_client: Tes
 def test_non_planning_patch_keeps_replan_marker_until_content_is_repaired(ad_client: TestClient) -> None:
     script = _script(ad_client)
     script["video_units"][0]["needs_replan"] = True
+    script["video_units"][0]["migration_requires_content_replan"] = True
     path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
     path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
@@ -177,6 +178,48 @@ def test_non_planning_patch_keeps_replan_marker_until_content_is_repaired(ad_cli
     )
     assert repaired.status_code == 200, repaired.text
     assert "needs_replan" not in repaired.json()["unit"]
+    assert "migration_requires_content_replan" not in repaired.json()["unit"]
+
+
+@pytest.mark.integration
+def test_duration_repair_clears_an_independent_migration_marker(ad_client: TestClient) -> None:
+    script = _script(ad_client)
+    # 旧聚合时长非法时迁移会夹到结构下限并标 replan，但不会留下内容归属 provenance。
+    script["video_units"][0].update({"duration_seconds": 1, "needs_replan": True})
+    path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
+    path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    repaired = ad_client.patch(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
+        json={"duration_seconds": 1},
+    )
+
+    assert repaired.status_code == 200, repaired.text
+    assert "needs_replan" not in repaired.json()["unit"]
+
+
+@pytest.mark.integration
+def test_empty_migration_shell_can_repair_body_and_duration_atomically(ad_client: TestClient) -> None:
+    script = _script(ad_client)
+    script["video_units"][0].update(
+        {
+            "shots": [],
+            "duration_seconds": 0,
+            "needs_replan": True,
+            "migration_requires_content_replan": True,
+        }
+    )
+    path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
+    path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    repaired = ad_client.patch(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
+        json={"prompt": "@[按摩仪] 正面朝向镜头", "duration_seconds": 6},
+    )
+
+    assert repaired.status_code == 200, repaired.text
+    assert "needs_replan" not in repaired.json()["unit"]
+    assert "migration_requires_content_replan" not in repaired.json()["unit"]
 
 
 @pytest.mark.integration

@@ -1229,6 +1229,11 @@ class DataValidator:
             needs_replan = unit.get("needs_replan", False)
             if not isinstance(needs_replan, bool):
                 errors.append(_m("val_field_type_bool", field=f"{prefix}: needs_replan"))
+            migration_requires_content_replan = unit.get("migration_requires_content_replan", False)
+            if not isinstance(migration_requires_content_replan, bool):
+                errors.append(_m("val_field_type_bool", field=f"{prefix}: migration_requires_content_replan"))
+            elif migration_requires_content_replan and needs_replan is not True:
+                errors.append(_m("val_migration_content_replan_requires_needs_replan", prefix=prefix))
             low, high = self.VALID_UNIT_DURATION_RANGE
             valid_duration = False
             if isinstance(duration, int) and not isinstance(duration, bool):
