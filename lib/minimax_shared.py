@@ -82,6 +82,11 @@ def minimax_text_base_url(configured: str | None = None) -> str:
     return f"{_minimax_host(configured)}{_V1_SUFFIX}"
 
 
+def minimax_voice_base_url(configured: str | None = None) -> str:
+    """Voice operation base: {host}/v1."""
+    return f"{_minimax_host(configured)}{_V1_SUFFIX}"
+
+
 def minimax_video_base_url(configured: str | None = None) -> str:
     """原生视频端点 base：{host}/v1。与文本共用单一 /v1 base，仅命名区分用途。"""
     return f"{_minimax_host(configured)}{_V1_SUFFIX}"

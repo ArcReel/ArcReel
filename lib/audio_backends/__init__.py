@@ -7,6 +7,12 @@ from lib.audio_backends.base import (
     AudioSynthesisResult,
     VoiceOption,
 )
+from lib.audio_backends.minimax import (
+    MiniMaxVoiceDesignClient,
+    VoiceDesignRequest,
+    VoiceDesignResult,
+    extract_voice_design_id,
+)
 from lib.audio_backends.registry import create_backend, get_registered_backends, register_backend
 
 __all__ = [
@@ -14,8 +20,12 @@ __all__ = [
     "AudioCapability",
     "AudioSynthesisRequest",
     "AudioSynthesisResult",
+    "MiniMaxVoiceDesignClient",
     "VoiceOption",
+    "VoiceDesignRequest",
+    "VoiceDesignResult",
     "create_backend",
+    "extract_voice_design_id",
     "get_registered_backends",
     "register_backend",
 ]
