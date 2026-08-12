@@ -723,9 +723,13 @@ class TestScriptGenerator:
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        with pytest.raises(SpeechAdmissionError):
+        with pytest.raises(SpeechAdmissionError) as exc_info:
             await generator.generate(1)
 
+        admission = exc_info.value.admission
+        assert admission.unit_id == "E1S01"
+        assert admission.problems[0].code == "needs_replan"
+        assert admission.problems[0].locations[0].path == ("needs_replan",)
         assert fake.backend.last_request is None
 
     @pytest.mark.unit

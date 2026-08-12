@@ -482,6 +482,18 @@ class ScriptReviewService:
             except ValidationError as exc:
                 raise ScriptReviewError("invalid_content", str(exc)) from exc
 
+            marked_shape = {
+                "drama": ("scenes", "scenes"),
+                "reference_video": ("units", "video_units"),
+            }.get(kind)
+            if marked_shape is not None:
+                root, skeleton = marked_shape
+                for unit in validated.model_dump()[root]:
+                    if unit.get("needs_replan") is not True:
+                        continue
+                    admission = admit_script_unit(skeleton, unit)
+                    raise ScriptReviewError("speech_admission", admission=admission)
+
             if kind == "reference_video":
                 # references 是从 shot 正文机械派生的字段（同 save_content）：agent / 人工可能绕过
                 # save_content 直改 step1 正文后直接确认，故确认前重派生并落盘。指纹按刚写盘的

@@ -278,7 +278,7 @@ class TestDramaGateFlow:
         await svc.save_content("demo", 1, repaired)
 
         saved = json.loads(path.read_text(encoding="utf-8"))
-        assert saved["scenes"][0].get("needs_replan") is not True
+        assert "needs_replan" not in saved["scenes"][0]
 
     @pytest.mark.unit
     async def test_whitespace_reformat_keeps_confirmed(self, tmp_path):
@@ -962,6 +962,24 @@ class TestErrors:
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
         assert exc.value.code == "no_step1"
+
+    @pytest.mark.unit
+    async def test_confirm_marked_drama_candidate_returns_structured_admission(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        candidate = _drama_step1()
+        candidate["scenes"][0]["needs_replan"] = True
+        _write_step1(pm, "drama", candidate)
+
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.confirm("demo", 1)
+
+        assert exc.value.code == "speech_admission"
+        assert exc.value.admission is not None
+        assert exc.value.admission.unit_id == "E1S01"
+        assert exc.value.admission.problems[0].code == "needs_replan"
+        project = pm.load_project("demo")
+        assert script_review.gate_blocks_step2(pm.get_project_path("demo"), project, 1) is True
 
     @pytest.mark.unit
     async def test_save_not_applicable_rejected(self, tmp_path):
