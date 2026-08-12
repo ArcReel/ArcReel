@@ -136,14 +136,19 @@ elif [[ "$*" == *'/check-runs?per_page=100'* ]]; then
   printf '{"check_runs":[{"id":3,"name":"CodeQL","app":%s,"status":"%s","conclusion":%s,"started_at":"2026-08-11T00:00:00Z","completed_at":%s}]}\n' \
     "$app" "$status" "$conclusion" "$completed_at"
 elif [[ "$*" == *'/code-scanning/alerts?'* ]]; then
-  count=$(next_count security)
+  if [[ "$*" == *'ref=refs/pull/'* ]]; then
+    alert_scope=security
+  else
+    alert_scope=base_security
+  fi
+  count=$(next_count "$alert_scope")
   if [[ "$mode" == "security_unavailable" ]]; then
     echo 'HTTP 404: no analysis found' >&2
     exit 1
   fi
   if [[ "$mode" == "null_nested_fields" ]]; then
     printf '[{"number":4,"state":"open","rule":null,"tool":null,"most_recent_instance":null}]\n'
-  elif [[ "$mode" == "security_change" && "$count" -gt 1 ]]; then
+  elif [[ "$mode" == "${alert_scope}_change" && "$count" -gt 1 ]]; then
     printf '[{"number":4,"state":"open","rule":{"id":"py/test"},"tool":{"name":"CodeQL"},"most_recent_instance":{"ref":"refs/pull/1767/merge","analysis_key":".github/workflows/codeql.yml","location":{"path":"server/app.py","start_line":10}}}]\n'
   else
     printf '[]\n'
@@ -185,7 +190,7 @@ run_wait() {
     > "$TMP_ROOT/result.out" 2> "$TMP_ROOT/result.err"
 }
 
-for signal in head review issue_comment reaction comment_reaction inline check security; do
+for signal in head review issue_comment reaction comment_reaction inline check security base_security; do
   reset_case
   run_wait "${signal}_change" --max 180
   [[ "$(<"$TMP_ROOT/sleeps")" == "60" ]] || fail "expected $signal change after one interval"

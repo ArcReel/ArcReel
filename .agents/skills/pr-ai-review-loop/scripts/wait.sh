@@ -7,8 +7,8 @@
 # The default wait uses 1770 seconds of a 30-minute command budget, leaving 30 seconds
 # for setup and result delivery. --max is an override for tests and manual diagnostics.
 # Every probe is an atomic fingerprint of reviews, comments, reactions, inline comments,
-# check runs, and PR code-scanning alerts. Truncated output, network errors, rate limits,
-# and HTTP 5xx responses retry the whole probe up to three times. Authentication,
+# check runs, and the PR/base code-scanning alert sets. Truncated output, network errors,
+# rate limits, and HTTP 5xx responses retry the whole probe up to three times. Authentication,
 # permission, and other request errors fail loudly with WAIT_ERROR.
 
 set -euo pipefail
@@ -239,12 +239,22 @@ probe_once() {
   fetch_json "$WORKDIR/check-runs.json" "$WORKDIR/check-runs.err" required \
     gh api --include "repos/${REPO_SLUG}/commits/${head_sha}/check-runs?per_page=100" --paginate || return 1
 
-  if fetch_json "$WORKDIR/security-alerts.json" "$WORKDIR/security-alerts.err" optional \
+  if fetch_json "$WORKDIR/security-alerts-pr.json" "$WORKDIR/security-alerts-pr.err" optional \
     gh api --include "repos/${REPO_SLUG}/code-scanning/alerts?ref=refs/pull/${PR}/merge&state=open&per_page=100" --paginate; then
     :
   elif [[ "$FAILURE_KIND" == "unavailable" ]]; then
     security_available=false
-    printf '[]\n' > "$WORKDIR/security-alerts.json"
+    printf '[]\n' > "$WORKDIR/security-alerts-pr.json"
+  else
+    return 1
+  fi
+
+  if fetch_json "$WORKDIR/security-alerts-base.json" "$WORKDIR/security-alerts-base.err" optional \
+    gh api --include "repos/${REPO_SLUG}/code-scanning/alerts?state=open&per_page=100" --paginate; then
+    :
+  elif [[ "$FAILURE_KIND" == "unavailable" ]]; then
+    security_available=false
+    printf '[]\n' > "$WORKDIR/security-alerts-base.json"
   else
     return 1
   fi
@@ -257,7 +267,8 @@ probe_once() {
     --slurpfile reactions "$WORKDIR/reactions.json" \
     --slurpfile inline_comments "$WORKDIR/inline-comments.json" \
     --slurpfile check_runs "$WORKDIR/check-runs.json" \
-    --slurpfile security_alerts "$WORKDIR/security-alerts.json" \
+    --slurpfile security_alerts_pr "$WORKDIR/security-alerts-pr.json" \
+    --slurpfile security_alerts_base "$WORKDIR/security-alerts-base.json" \
     --argjson security_available "$security_available" \
     '
     if any($reviews[]; .errors? != null) or any($comments[]; .errors? != null) then
@@ -295,8 +306,16 @@ probe_once() {
            | sort_by(.id)),
         security_alerts: {
           available: $security_available,
-          open:
-            ([$security_alerts[][]?
+          pr_open:
+            ([$security_alerts_pr[][]?
+              | {number, state, rule_id: .rule.id, tool: .tool.name,
+                 ref: .most_recent_instance.ref,
+                 analysis_key: .most_recent_instance.analysis_key,
+                 path: .most_recent_instance.location.path,
+                 start_line: .most_recent_instance.location.start_line}]
+             | sort_by(.number)),
+          base_open:
+            ([$security_alerts_base[][]?
               | {number, state, rule_id: .rule.id, tool: .tool.name,
                  ref: .most_recent_instance.ref,
                  analysis_key: .most_recent_instance.analysis_key,
