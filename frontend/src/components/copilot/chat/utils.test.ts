@@ -90,6 +90,18 @@ describe("turnImageAttachments", () => {
   it("gives an empty list for a text-only turn", () => {
     expect(turnImageAttachments(userTurn)).toEqual([]);
   });
+
+  it("drops image blocks that carry no base64 payload", () => {
+    const turn: Turn = {
+      type: "user",
+      uuid: "u-11",
+      content: [
+        { type: "image" },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+      ],
+    };
+    expect(turnImageAttachments(turn)).toEqual([{ data: "AAAA", media_type: "image/png" }]);
+  });
 });
 
 describe("canEditUserTurn", () => {
