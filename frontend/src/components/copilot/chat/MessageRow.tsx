@@ -224,10 +224,13 @@ function MessageEditor({
 
   const handlePaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (attachDisabled) return;
-    const imageItems = Array.from(event.clipboardData.items).filter((item) => item.type.startsWith("image/"));
-    if (imageItems.length === 0) return;
+    const imageFiles = Array.from(event.clipboardData.items)
+      .filter((item) => item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+    if (imageFiles.length === 0) return;
     event.preventDefault();
-    addFiles(imageItems.map((item) => item.getAsFile()).filter(Boolean) as File[]);
+    addFiles(imageFiles);
   }, [addFiles, attachDisabled]);
 
   return (

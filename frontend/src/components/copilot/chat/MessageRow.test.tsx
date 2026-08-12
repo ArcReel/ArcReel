@@ -175,6 +175,19 @@ describe("MessageRow", () => {
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
+  it("keeps the browser's default paste behavior when an image clipboard item has no file", () => {
+    render(<MessageRow turn={userTurn} editable editing />);
+
+    const defaultWasAllowed = fireEvent.paste(screen.getByLabelText("改写消息内容"), {
+      clipboardData: {
+        items: [{ type: "image/png", getAsFile: () => null }],
+      },
+    });
+
+    expect(defaultWasAllowed).toBe(true);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
   it("does not intercept image paste while a rewrite is submitting", () => {
     render(<MessageRow turn={userTurn} editable editing submitting />);
 
