@@ -364,7 +364,8 @@ class SessionManager:
         # 轮次终结时仍未被认领的回显登记累计数，见 _drain_pending_user_echoes。
         self.unclaimed_user_echoes = 0
         self._disconnecting: set[str] = set()
-        self._session_actor_shutdown_timeout: float = 15.0  # total budget for send_disconnect + cancel fallback
+        # 优雅 send_disconnect 的等待上限；超时后各调用点再走无界的 cancel 兜底。
+        self._session_actor_shutdown_timeout: float = 15.0
         self._connect_locks: dict[str, asyncio.Lock] = {}
         # 实例不变量缓存：避免每次构建 access policy 都重做 path resolve。
         self._project_root_resolved = self.project_root.resolve()
@@ -652,19 +653,35 @@ class SessionManager:
 
             Runs send_disconnect first (which causes actor to exit and
             _on_actor_done to push the None sentinel, letting _process_inbox
-            finish naturally), then belt-and-suspenders cancels the processor
-            in case it is stuck elsewhere.
+            finish naturally), bounded by _session_actor_shutdown_timeout so an
+            SDK-side hang does not stall this error-only cleanup path on the
+            graceful wait — on timeout the actor is cancelled so it does not leak
+            with the failed session; then belt-and-suspenders cancels the
+            processor in case it is stuck elsewhere.
             """
             self.sessions.pop(temp_id, None)
             # sdk_session_id 就绪后 key swap 已把会话挂到正式 id 下，两个键都清。
             self.sessions.pop(managed.session_id, None)
             try:
-                await managed.send_disconnect()
+                await asyncio.wait_for(managed.send_disconnect(), timeout=self._session_actor_shutdown_timeout)
+            except TimeoutError:
+                logger.warning(
+                    "send_disconnect on error path 超时，走 cancel 兜底 session_id=%s",
+                    temp_id,
+                )
+                if managed.actor is not None:
+                    await managed.actor.cancel_and_wait()
             except Exception:
                 logger.exception(
                     "send_disconnect on error path failed session_id=%s",
                     temp_id,
                 )
+            # 断开成功时 send_disconnect 已把 status 落到 "closed"；失败或超时则停在
+            # "running"，而下面取消 _process_task 会让 _process_inbox 的 CancelledError
+            # 分支据此写 interrupted 终态，并把待回放登记记为未认领。启动失败既不是中断、
+            # 也无回放可言，先落 error 收口这条判断。
+            if managed.status == "running":
+                managed.status = "error"
             if managed._process_task is not None and not managed._process_task.done():
                 managed._process_task.cancel()
                 await asyncio.gather(managed._process_task, return_exceptions=True)
