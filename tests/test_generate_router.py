@@ -195,7 +195,6 @@ class TestGenerateRouter:
                         "action": "奔跑",
                         "camera_motion": "Static",
                         "ambiance_audio": "雨声",
-                        "dialogue": [{"speaker": "Alice", "line": "快走"}],
                     },
                 },
             )
@@ -289,6 +288,47 @@ class TestGenerateRouter:
 
         assert response.status_code == 200, response.text
         assert len(fake_queue.calls) == 1
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("content_mode", "root", "id_field", "narrator_field"),
+        [
+            ("narration", "segments", "segment_id", "novel_text"),
+            ("ad", "shots", "shot_id", "voiceover_text"),
+        ],
+    )
+    def test_narrator_video_request_rejects_mixed_queued_prompt(
+        self, tmp_path, monkeypatch, content_mode, root, id_field, narrator_field
+    ):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["content_mode"] = content_mode
+        fake_pm.script = {
+            "content_mode": content_mode,
+            root: [
+                {
+                    id_field: "E1S01",
+                    narrator_field: "风吹过旷野。",
+                    "video_prompt": {},
+                    "generated_assets": {},
+                }
+            ],
+        }
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "prompt": {"dialogue": [{"speaker": "阿离", "line": "快走。"}]},
+                },
+            )
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["problems"][0]["code"] == "mixed_speech"
+        assert fake_queue.calls == []
 
     @pytest.mark.unit
     @pytest.mark.parametrize(

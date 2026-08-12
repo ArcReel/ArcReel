@@ -502,6 +502,10 @@ class ScriptReviewService:
                 # 这份对象直接算，确认记录与实际写入内容一致。
                 dumped = validated.model_dump()
                 rederive_unit_references(dumped["units"], project)
+                for unit in dumped["units"]:
+                    admission = admit_script_unit("video_units", unit)
+                    if not admission.allowed:
+                        raise ScriptReviewError("speech_admission", admission=admission)
                 # 单一写盘出口（已持同一把 per-path 锁，不再套 step1_write_lock）；同临界区
                 # 读改写无并发窗口，不做基线比对。重派生真的改了内容时，step2 隔离草稿的基底
                 # 随之失效，由出口按变更清理。

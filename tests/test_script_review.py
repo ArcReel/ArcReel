@@ -471,6 +471,29 @@ class TestReferenceVideoGateFlow:
             ("scene", "屋檐"),
         ]
 
+    @pytest.mark.unit
+    async def test_confirm_readmits_after_deleted_reference_is_rederived(self, tmp_path):
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        pm.add_scenes_batch("demo", {"酒馆": {"description": "夜雨中的酒馆"}})
+        svc = ScriptReviewService(pm)
+        candidate = _rv_step1()
+        candidate["units"][0]["shots"] = [{"text": "@[酒馆]：木门被风吹开。"}]
+        candidate["units"][0]["references"] = [{"type": "scene", "name": "酒馆"}]
+        path = _write_rv_step1(pm, candidate)
+
+        def _delete_scene(project: dict) -> None:
+            project["scenes"].pop("酒馆")
+
+        pm.update_project("demo", _delete_scene)
+
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.confirm("demo", 1)
+
+        assert exc.value.code == "speech_admission"
+        assert exc.value.admission is not None
+        assert exc.value.admission.problems[0].code == "parse_failed"
+        assert json.loads(path.read_text(encoding="utf-8")) == candidate
+
     @pytest.mark.integration
     async def test_reference_duration_tiers_narrows_raw_set_by_resolution_constraint(self, tmp_path, monkeypatch):
         """gate 下拉的档位须按分辨率联动约束收窄，与 step2 落盘前的校验同一把尺。

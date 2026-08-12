@@ -192,7 +192,12 @@ async def generate_video(
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
             raise NotFoundError("segment_not_found", id=segment_id)
-        admission = admit_script_unit(resolve_script_kind(script), resolved[0])
+        script_kind = resolve_script_kind(script)
+        admission = admit_script_unit(script_kind, resolved[0])
+        if admission.allowed and script_kind in {"segments", "shots"}:
+            # narration / ad 的 worker 会把请求 prompt 里的 dialogue 原样下发；准入必须检查
+            # 实际入队的 prompt 与盘上旁白字段，而不能只检查可能已过时的 script prompt。
+            admission = admit_script_unit(script_kind, {**resolved[0], "video_prompt": req.prompt})
         if not admission.allowed:
             raise HTTPException(status_code=409, detail=admission.to_dict())
         storyboard_rel = get_generated_assets(resolved[0]).get("storyboard_image")
