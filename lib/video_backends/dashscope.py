@@ -221,10 +221,14 @@ def _profile_for_model(model: str | None) -> VideoCapabilities:
     # wan2.7 家族有 t2v/i2v/r2v 三档，无法像 wan3 那样单 key 直返，故按 WAN2_PATTERN 把
     # "wan-2.7"/"wan_2.7" 归一化成 "wan2.7" 再走下方子串匹配，否则 "wan-2.7-r2v" 这类连字符
     # 别名会因不含字面量 "wan2.7-r2v" 子串而落到 _DEFAULT_PROFILE，丢失参考图/首帧等能力声明。
-    # image-to-video 续接别名（"wan-2.7-image-to-video"）额外需要把该后缀折成 "i2v"，见
-    # _WAN27_IMAGE_TO_VIDEO_PATTERN 处的说明。
+    # 版本号与模态后缀之间的分隔符单独归一化（"wan2.7_r2v" → "wan2.7-r2v"）：_MODEL_PROFILES
+    # 的 key 固定用连字符分隔模态，"wan_2.7_r2v" 这类整段下划线别名在上一步只处理了 wan 与版本号
+    # 之间的分隔符，模态前的下划线不处理会导致同样不构成子串关系。image-to-video 续接别名
+    # （"wan-2.7-image-to-video"）额外需要把该后缀折成 "i2v"，见 _WAN27_IMAGE_TO_VIDEO_PATTERN
+    # 处的说明。
     if WAN2_PATTERN.search(normalized):
         normalized = WAN2_PATTERN.sub("wan2.7", normalized)
+        normalized = re.sub(r"wan2\.7_", "wan2.7-", normalized)
         normalized = _WAN27_IMAGE_TO_VIDEO_PATTERN.sub("i2v", normalized)
     # 各 profile key（happyhorse-{1.0,1.1}-{t2v,i2v,r2v} / wan2.7-{t2v,i2v,r2v}）互不为子串，无歧义
     for known, profile in _MODEL_PROFILES.items():

@@ -899,13 +899,14 @@ class TestWan2Aliases:
     """
 
     @pytest.mark.unit
-    @pytest.mark.parametrize("model", ["wan-2.7-r2v", "wan_2.7-r2v"])
+    @pytest.mark.parametrize("model", ["wan-2.7-r2v", "wan_2.7-r2v", "wan_2.7_r2v"])
     def test_alias_forms_get_wan27_r2v_capabilities(self, model):
         """discovery 返回的连字符/下划线 wan2.7 别名（endpoints.py 已路由到本后端）须认作
         wan2.7-r2v，不落回默认档案。
 
         与 endpoints.infer_endpoint 共用 WAN2_PATTERN：两处不同宽即会出现"路由到本后端却被当
-        通用型号丢失参考图/首帧参数"的矛盾。
+        通用型号丢失参考图/首帧参数"的矛盾。"wan_2.7_r2v" 这类版本号与模态后缀之间也用下划线
+        分隔的别名，须额外把该分隔符归一化成连字符才能匹配 _MODEL_PROFILES 的 key。
         """
         from lib.video_backends.dashscope import DashScopeVideoBackend
 
@@ -915,7 +916,7 @@ class TestWan2Aliases:
         assert caps.max_reference_audio_count == 5
 
     @pytest.mark.unit
-    @pytest.mark.parametrize("model", ["wan-2.7-image-to-video", "wan_2.7-image2video"])
+    @pytest.mark.parametrize("model", ["wan-2.7-image-to-video", "wan_2.7-image2video", "wan_2.7_image_to_video"])
     def test_image_to_video_alias_gets_wan27_i2v_capabilities(self, model):
         """连字符/下划线形态的 image-to-video 续接别名归一化后仍带该后缀（如
         "wan2.7-image-to-video"），不与 _MODEL_PROFILES 的 "wan2.7-i2v" 构成子串关系；须先把
@@ -926,6 +927,20 @@ class TestWan2Aliases:
 
         caps = DashScopeVideoBackend.video_capabilities_for_model(model)
         assert caps.first_frame is True
+        # r2v 同样 first_frame=True，靠 max_reference_images 区分二者：i2v 无参考图能力，
+        # 缺这条断言时归一化误落 r2v 档案也会通过。
+        assert caps.max_reference_images == 0
+        assert caps.max_prompt_chars == 5000
+
+    @pytest.mark.unit
+    def test_fully_underscored_t2v_alias_does_not_get_default_first_frame(self):
+        """ "wan_2.7_t2v" 的版本号与模态后缀均用下划线分隔；t2v 无首帧能力，与 _DEFAULT_PROFILE
+        的默认 first_frame=True 恰好相反，能验证确实解析到了 wan2.7-t2v 而非静默落回默认档。
+        """
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model("wan_2.7_t2v")
+        assert caps.first_frame is False
         assert caps.max_prompt_chars == 5000
 
     @pytest.mark.unit
