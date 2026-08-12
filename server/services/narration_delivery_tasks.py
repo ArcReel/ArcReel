@@ -537,6 +537,7 @@ def _storyboard_visual_basis_digest(
             seed=seed,
             content_mode=content_mode,
             utterances=item.get("utterances") if content_mode == "drama" else None,
+            has_utterances=content_mode == "drama" and "utterances" in item,
             voice_characters=(None if is_silent else project.get("characters")) if content_mode == "drama" else None,
         ).digest
     except (OSError, TypeError, ValueError):

@@ -100,6 +100,8 @@ export function UnitPreviewPanel({
 
   const effectiveStatus = status ?? resolveUnitStatus(unit);
   const videoUrl = clip && projectName ? API.getFileUrl(projectName, clip, clipFp) : null;
+  const hasNarrationText = Boolean(narrationText?.trim());
+  const narrationAudio = unit.generated_assets.narration_audio ?? null;
 
   // 状态先于 video_clip 落库的窗口里，effectiveStatus==="ready" 但 videoUrl
   // 还为 null —— 这种情况下走 inFlight 占位避免空白面板。
@@ -269,13 +271,15 @@ export function UnitPreviewPanel({
         </p>
       )}
 
-      {narrationText && projectName && (
+      {(hasNarrationText || narrationAudio) && projectName && (
         <NarrationAudioCard
           projectName={projectName}
           segmentId={unit.unit_id}
-          novelText={narrationText}
-          assetPath={unit.generated_assets.narration_audio ?? null}
+          novelText={narrationText ?? ""}
+          assetPath={narrationAudio}
           generating={narrationGenerating}
+          generateDisabled={!hasNarrationText}
+          generateDisabledHint={!hasNarrationText ? t("no_original_text") : undefined}
           estimatedCost={narrationEstimatedCost}
           onGenerate={onGenerateNarration ? () => onGenerateNarration(unit.unit_id) : undefined}
         />

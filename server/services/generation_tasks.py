@@ -1219,6 +1219,7 @@ async def execute_video_task(
             seed=seed,
             content_mode=content_mode,
             utterances=item.get("utterances") if content_mode == "drama" else None,
+            has_utterances=content_mode == "drama" and "utterances" in item,
             voice_characters=(None if ctx.video.is_silent else project.get("characters"))
             if content_mode == "drama"
             else None,

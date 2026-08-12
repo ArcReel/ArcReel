@@ -1028,7 +1028,7 @@ export function ShotDetail({
           uploadDisabled={uploadingKind !== null || endFrameSubmitting}
         />
       </div>
-      {(contentMode === "narration" || hasNarrationText) && (
+      {(contentMode === "narration" || hasNarrationText || Boolean(assets?.narration_audio)) && (
         <NarrationAudioCard
           projectName={projectName}
           segmentId={segmentId}

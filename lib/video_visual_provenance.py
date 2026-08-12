@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import cast
 
 from lib.artifact_manifest import ArtifactBasis
+from lib.prompt_utils import (
+    build_drama_video_prompt,
+    build_drama_video_prompt_from_legacy_dialogue,
+    strip_voice_profiles,
+)
 
 
 def resolve_video_aspect_ratio(project: Mapping[str, object], resource_type: str = "videos") -> str:
@@ -59,17 +64,28 @@ def build_storyboard_video_visual_basis(
     seed: object,
     content_mode: str,
     utterances: object,
+    has_utterances: bool,
     voice_characters: object,
 ) -> ArtifactBasis:
     """Describe the request facts that determine one storyboard video prompt and frames."""
 
+    effective_prompt = prompt
+    if isinstance(prompt, dict):
+        effective_prompt = strip_voice_profiles(prompt)
+        if content_mode == "drama":
+            characters = voice_characters if isinstance(voice_characters, dict) else None
+            effective_prompt = (
+                build_drama_video_prompt(effective_prompt, utterances, characters=characters)
+                if has_utterances
+                else build_drama_video_prompt_from_legacy_dialogue(effective_prompt, characters=characters)
+            )
     files = [("storyboard", storyboard_image)]
     if end_frame_image is not None:
         files.append(("end_frame", end_frame_image))
     return _build_video_visual_basis(
         "storyboard",
         semantics={
-            "prompt": prompt,
+            "prompt": effective_prompt,
             "aspect_ratio": aspect_ratio,
             "request_context": {
                 "provider_id": provider_id,
@@ -78,8 +94,6 @@ def build_storyboard_video_visual_basis(
                 "seed": seed,
             },
             "content_mode": content_mode,
-            "utterances": utterances,
-            "voice_characters": voice_characters,
         },
         files=files,
     )

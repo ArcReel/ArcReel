@@ -194,6 +194,7 @@ def test_storyboard_visual_basis_tracks_effective_request_context(tmp_path: Path
         "model_id": "seedance",
         "resolution": "720p",
         "seed": 7,
+        "has_utterances": False,
     }
 
     portrait = build_storyboard_video_visual_basis(**common, aspect_ratio="9:16")
@@ -222,6 +223,42 @@ def test_storyboard_visual_basis_tracks_effective_request_context(tmp_path: Path
     assert portrait.digest != other_model.digest
     assert portrait.digest != other_resolution.digest
     assert portrait.digest != other_seed.digest
+
+
+@pytest.mark.unit
+def test_storyboard_visual_basis_tracks_only_referenced_character_voices(tmp_path: Path) -> None:
+    storyboard = tmp_path / "storyboard.png"
+    storyboard.write_bytes(b"png")
+    common = {
+        "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+        "storyboard_image": storyboard,
+        "end_frame_image": None,
+        "aspect_ratio": "9:16",
+        "provider_id": "ark",
+        "model_id": "seedance",
+        "resolution": "720p",
+        "seed": None,
+        "content_mode": "drama",
+        "utterances": [{"kind": "dialogue", "speaker": "Alice", "text": "Run"}],
+        "has_utterances": True,
+    }
+    characters = {
+        "Alice": {"voice_style": "bright"},
+        "Bob": {"voice_style": "deep"},
+    }
+
+    original = build_storyboard_video_visual_basis(**common, voice_characters=characters)
+    unrelated_change = build_storyboard_video_visual_basis(
+        **common,
+        voice_characters={**characters, "Bob": {"voice_style": "soft"}},
+    )
+    used_voice_change = build_storyboard_video_visual_basis(
+        **common,
+        voice_characters={**characters, "Alice": {"voice_style": "soft"}},
+    )
+
+    assert original.digest == unrelated_change.digest
+    assert original.digest != used_voice_change.digest
 
 
 class _FakePM:
@@ -873,6 +910,7 @@ class TestGenerationTasks:
             seed=None,
             content_mode="narration",
             utterances=None,
+            has_utterances=False,
             voice_characters=None,
         )
         selected_version = fake_generator.versions.add_version(
