@@ -170,6 +170,33 @@ class TestCapabilities:
             assert DashScopeVideoBackend.video_capabilities_for_model(model).max_reference_images == expected_max
 
     @pytest.mark.unit
+    def test_alnum_glued_prefix_does_not_resolve_r2v_caps(self):
+        """字母数字直接粘连的前缀（无分隔符）不算装饰名，须落回 _DEFAULT_PROFILE。
+
+        与上一条用例的边界相反："myhappyhorse-1.0-r2v" 去掉 "my" 后与
+        "happyhorse-1.0-r2v" 逐字符相同，若子串匹配不做标识符边界校验就会误判命中——
+        代理装饰名靠 "/" ":" 等非字母数字分隔符与真实型号名区分，"my" 直接粘连不满足。
+        """
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        assert DashScopeVideoBackend.video_capabilities_for_model("myhappyhorse-1.0-r2v").max_reference_images == 0
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["wan2.7-i2vfoo", "happyhorse-1.0-r2vfoo"])
+    def test_alnum_glued_suffix_does_not_resolve_known_profile(self, model):
+        """字母数字直接粘连的后缀同样不算装饰名，须落回 _DEFAULT_PROFILE。
+
+        与前两条用例互补的第三个边界方向："wan2.7-i2vfoo" 截断掉 "foo" 后与 key "wan2.7-i2v"
+        逐字符相同，若子串匹配只做左侧边界校验、不做右侧校验，未知变体后缀会被截断误判成已知
+        modality；数字后缀（"-0715"）靠 "-" 分隔满足右侧边界，不受本用例约束。
+        """
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        assert caps.max_reference_images == 0
+        assert caps.max_prompt_chars is None
+
+    @pytest.mark.unit
     def test_unknown_bare_series_falls_back_to_default(self):
         """仅系列名无变体后缀（裸 "happyhorse"）无法判别 t2v/i2v/r2v → 通用默认（无 r2v）。"""
         from lib.video_backends.dashscope import DashScopeVideoBackend
@@ -891,6 +918,86 @@ class TestWan27ReferenceVoice:
             )
 
         assert exc.value.code == "video_reference_audio_format_unsupported"
+
+
+class TestWan2Aliases:
+    """wan2.7 的 model_id 能力档解析：连字符/下划线别名与点号形态须归同一档；WAN2_PATTERN 只认
+    2.7，其余 2.x 小版本（2.1/2.2 等）不在本正则确权范围内（见 WAN2_PATTERN 处的说明）。
+    """
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["wan-2.7-r2v", "wan_2.7-r2v", "wan_2.7_r2v"])
+    def test_alias_forms_get_wan27_r2v_capabilities(self, model):
+        """discovery 返回的连字符/下划线 wan2.7 别名（endpoints.py 已路由到本后端）须认作
+        wan2.7-r2v，不落回默认档案。
+
+        与 endpoints.infer_endpoint 共用 WAN2_PATTERN：两处不同宽即会出现"路由到本后端却被当
+        通用型号丢失参考图/首帧参数"的矛盾。"wan_2.7_r2v" 这类版本号与模态后缀之间也用下划线
+        分隔的别名，须额外把该分隔符归一化成连字符才能匹配 _MODEL_PROFILES 的 key。
+        """
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        assert caps.first_frame is True
+        assert caps.max_reference_images == 5
+        assert caps.max_reference_audio_count == 5
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["wan-2.7-image-to-video", "wan_2.7-image2video", "wan_2.7_image_to_video"])
+    def test_image_to_video_alias_gets_wan27_i2v_capabilities(self, model):
+        """连字符/下划线形态的 image-to-video 续接别名归一化后仍带该后缀（如
+        "wan2.7-image-to-video"），不与 _MODEL_PROFILES 的 "wan2.7-i2v" 构成子串关系；须先把
+        该后缀折成 "i2v" 再查表，否则静默落默认档、丢失 first_frame，_build_media 据此不下发
+        start_image。
+        """
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        assert caps.first_frame is True
+        # r2v 同样 first_frame=True，靠 max_reference_images 区分二者：i2v 无参考图能力，
+        # 缺这条断言时归一化误落 r2v 档案也会通过。
+        assert caps.max_reference_images == 0
+        assert caps.max_prompt_chars == 5000
+
+    @pytest.mark.unit
+    def test_fully_underscored_t2v_alias_does_not_get_default_first_frame(self):
+        """ "wan_2.7_t2v" 的版本号与模态后缀均用下划线分隔；t2v 无首帧能力，与 _DEFAULT_PROFILE
+        的默认 first_frame=True 恰好相反，能验证确实解析到了 wan2.7-t2v 而非静默落回默认档。
+        """
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model("wan_2.7_t2v")
+        assert caps.first_frame is False
+        assert caps.max_prompt_chars == 5000
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["swan2", "vendorwan2", "wan20", "swan2.7-r2v", "vendorwan2.7-t2v"])
+    def test_substring_without_boundary_does_not_get_wan2_capabilities(self, model):
+        """含 "wan2" 子串但两侧非字母数字边界不成立的型号名，不得被误判为万相 2.x 家族。
+
+        "swan2.7-r2v" / "vendorwan2.7-t2v" 这类完整别名（左侧紧贴字母、右侧带合法模态后缀）单靠
+        WAN2_PATTERN 的边界锚点无法拦下——命中的是 _profile_for_model 末尾的兜底子串匹配：
+        "swan2.7-r2v" 去掉首字符后与 _MODEL_PROFILES 的 key "wan2.7-r2v" 逐字符相同，该循环须
+        对每个 key 同样做左侧边界校验才不会误判命中。
+        """
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        assert caps.max_reference_images == 0
+        assert caps.max_prompt_chars is None
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["wan-2.1-r2v", "wan_2.2-i2v"])
+    def test_non_27_alias_forms_fall_back_to_default_profile(self, model):
+        """WAN2_PATTERN 只认 2.7：连字符/下划线形态的其余 2.x 小版本不落 wan2.7 能力档——
+        本后端固定请求的端点与这些小版本的实际协议不符（见 WAN2_PATTERN 处的说明），
+        endpoints.py 也不会把它们路由到本后端；此处确认能力档解析同样不越界。
+        """
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        assert caps.max_reference_images == 0
+        assert caps.max_prompt_chars is None
 
 
 class TestWan3:

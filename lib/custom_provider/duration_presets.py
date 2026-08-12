@@ -11,13 +11,21 @@ from __future__ import annotations
 
 import re
 
-from lib.video_backends.dashscope import WAN3_PATTERN
+from lib.video_backends.dashscope import classify_wan_model
 
 DEFAULT_FALLBACK: list[int] = [4, 8]
 
-# WAN3_PATTERN（连字符可选、不锚版本号）源出 lib.video_backends.dashscope——那里是本后端
-# 请求形态分派的单一真相源，endpoints.py 路由推断与本模块的时长档位推断均复用同一份，
-# 避免三处各写一份正则、匹配宽度悄悄漂移。
+# 万相 3.0（2-30 任意）。出处：lib/config/registry.py wan3.0-video 的 supported_durations。
+_WAN3_DURATIONS: list[int] = list(range(2, 31))
+# 万相 2.7（2-15 任意）。出处：lib/config/registry.py wan2.7-{t2v,i2v,r2v} 的 supported_durations。
+_WAN27_DURATIONS: list[int] = list(range(2, 16))
+# Alibaba HappyHorse（3-15 任意）。
+_HAPPYHORSE_DURATIONS: list[int] = list(range(3, 16))
+
+# wan3 / wan2.7 / happyhorse 三个家族的归属判定复用 classify_wan_model（lib.video_backends.dashscope
+# 的单一判定入口），不在本模块另写正则——与 endpoints.py 路由推断、DashScopeVideoBackend 能力档
+# 推断共用同一结论，避免三处宽度各自漂移。下方 PRESETS 里其余家族（sora/veo/kling 等）不受该判定
+# 入口覆盖，仍按各自厂商关键字匹配；末尾的通用 wan 兜底同理（见该条目处的说明）。
 
 # 按特异性从高到低排列；命中一条即返回。range 全展开为离散集。
 PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
@@ -37,8 +45,6 @@ PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
     (re.compile(r"dreamina|seedance", re.I), list(range(4, 16))),
     # 字节即梦
     (re.compile(r"jimeng", re.I), list(range(4, 16))),
-    # Alibaba HappyHorse（3-15 任意）
-    (re.compile(r"happyhorse", re.I), list(range(3, 16))),
     # xAI Grok Imagine（1-15 任意）
     (re.compile(r"grok[-.]?imagine", re.I), list(range(1, 16))),
     # Vidu Q 系列（1-16 任意）
@@ -50,11 +56,12 @@ PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
     (re.compile(r"minimax-h3", re.I), list(range(4, 16))),
     # MiniMax Hailuo（固定 6）
     (re.compile(r"hailuo", re.I), [6]),
-    # 万相 3.0（2-30 任意；须先于通用 Wan 判断，否则会落入 [4, 5]）。
-    # 出处：lib/config/registry.py wan3.0-video 的 supported_durations。
-    (WAN3_PATTERN, list(range(2, 31))),
-    # Wan（其余系列）
-    (re.compile(r"wan-?\d", re.I), [4, 5]),
+    # Wan（classify_wan_model 未归类到 wan3/wan2.7 的其余系列，含万相 2.x 中 2.7 以外的小版本）。
+    # 分隔符接受连字符与下划线，不加标识符边界：本条是兜底启发式，"swan3"/"wan20" 一类含 wan
+    # 子串的第三方型号名落到这条比落 DEFAULT_FALLBACK 更接近常见值，且预设本就要求用户在输入框
+    # review。wan3/wan2.7/happyhorse 已在 infer_supported_durations 里由 classify_wan_model
+    # 先行判定并返回，不会落到本条。
+    (re.compile(r"wan[-_]?\d", re.I), [4, 5]),
     # Pika
     (re.compile(r"pika", re.I), [3, 5, 10]),
 ]
@@ -65,6 +72,15 @@ def infer_supported_durations(model_id: str) -> list[int]:
 
     返回值始终是非空升序去重的正整数列表，且为独立 list（caller 可安全修改）。
     """
+    classification = classify_wan_model(model_id)
+    if classification.family == "wan3":
+        return list(_WAN3_DURATIONS)
+    # wan2.7 未实现请求构造的模态（videoedit / s2v / v2v 等，见 classify_wan_model 的
+    # has_known_modality 处的说明）时长上限与 t2v/i2v/r2v 不同，不套用家族档，落到下方通用预设。
+    if classification.family == "wan2.7" and classification.has_known_modality:
+        return list(_WAN27_DURATIONS)
+    if classification.family == "happyhorse":
+        return list(_HAPPYHORSE_DURATIONS)
     for pattern, durations in PRESETS:
         if pattern.search(model_id):
             return list(durations)
