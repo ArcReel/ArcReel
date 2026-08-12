@@ -128,9 +128,11 @@ _WAN3_MODEL_KEY = "wan3.0-video"
 # 的第三方型号名。
 WAN3_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?3(?![a-z0-9])", re.I)
 
-# wan2.7 家族 model_id 识别，匹配宽度与 WAN3_PATTERN 对齐（连字符/下划线可选、标识符边界避免
-# 误吞 "swan2"、"wan20"）：endpoints.py::is_wan_family 复用同一正则，使连字符形态（"wan-2.7"）
-# 与点号形态（"wan2.7"）在图像/视频归属与端点路由上得出一致结论。
+# 万相 2.x 家族 model_id 识别，匹配宽度与 WAN3_PATTERN 对齐（连字符/下划线可选、不锚版本号、
+# 标识符边界避免误吞 "swan2"、"wan20"）：endpoints.py::is_wan_family 复用同一正则，使连字符形态
+# （"wan-2.7"）与点号形态（"wan2.7"）在图像/视频归属与端点路由上得出一致结论。不锚版本号意味着
+# 整个 2.x 系列（含 "wan-2.1"、裸 "wan2"）都按万相家族路由到百炼原生端点，与点号形态一致；
+# 能力档只有 2.7 三档，其余 2.x 仍按下方子串匹配落通用默认。
 WAN2_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?2(?![a-z0-9])", re.I)
 
 # 按 model id 派发能力声明。happyhorse-r2v 仅 reference_image（无 first_frame）；
