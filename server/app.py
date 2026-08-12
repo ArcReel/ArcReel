@@ -157,7 +157,8 @@ def check_sandbox_available() -> bool:
     """启动期检测 sandbox 工具可用性。
 
     返回 ``True`` 表示沙箱可用且必须启用；返回 ``False`` 表示 SDK 不支持
-    当前平台（目前仅 Windows — sandboxing.md §"Platform support"），server
+    当前平台（仅 Windows，官方平台约束见
+    https://code.claude.com/docs/en/sandboxing#platform-and-tool-compatibility），server
     仍可启动但 sandbox 关闭，Bash 工具回退到
     ``AgentAccessPolicy.WINDOWS_BASH_PREFIX_WHITELIST`` 代码白名单。
     macOS / Linux 工具缺失仍硬失败（受支持平台禁止降级）。
@@ -172,7 +173,7 @@ def check_sandbox_available() -> bool:
             )
         return True
     if system == "Linux":
-        # 官方 sandboxing.md 明确 Linux 需要 bubblewrap + socat 一起装
+        # Linux 依赖见 https://code.claude.com/docs/en/sandboxing#set-up-linux-and-wsl2：需同时安装
         # （bwrap 做进程/文件隔离，socat 做网络代理转发）。
         missing = [name for name in ("bwrap", "socat") if shutil.which(name) is None]
         if missing:

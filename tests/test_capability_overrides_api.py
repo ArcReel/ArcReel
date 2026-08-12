@@ -32,7 +32,7 @@ VIDEO_MODEL = "sora-2"
 
 # openai-video 的 delegate 不序列化 end_image（见 _check_capability_overrides 的
 # end_image_capable 门槛），last_frame 覆盖为 True 的用例须换一个真正支持尾帧的 endpoint。
-# ark-seedance 的 1.0 pro fast 系统判定 last_frame=False（docs/ark-docs/seedance2.0.md
+# ark-seedance 的 1.0 pro fast 系统判定 last_frame=False（docs/api-docs/providers/ark.md
 # 能力表标 "-"），可类比断言覆盖前后差异；不用 seedance-2 系列是因为那两系模型系统判定
 # 本身就是 True，无法体现覆盖生效前后的差异。
 LAST_FRAME_ENDPOINT = "ark-seedance"
@@ -873,10 +873,8 @@ class TestResolverReturnsEffectiveCapabilities:
 
     @pytest.mark.integration
     async def test_media_type_mismatch_falls_back_to_default_model(self, session: AsyncSession):
-        """请求的 model 仍启用,但用户已把该模型的 endpoint 改成非 video 类型时,与执行层同一条
-        回退规则:改用该 provider 的默认启用 video model。此前这里只检查 is_enabled,遗漏 endpoint
-        媒体类型不符会让本方法直接抛错(响应层 422),而 loader.load_custom_backend 会静默回退
-        成功,展示层与执行层因此漂移。"""
+        """请求的 model 仍启用,但它的 endpoint 不是 video 类型时,与执行层同样
+        回退到该 provider 的默认启用 video model，避免展示层与执行层漂移。"""
         repo = CustomProviderRepository(session)
         provider = await repo.create_provider(
             display_name="Relay",
@@ -961,7 +959,7 @@ class TestBuiltinBackendsDeclareCapabilityFunction:
 class TestVideoCapabilitiesEndpoint:
     """GET /projects/{name}/video-capabilities 的响应形状与覆盖联动。
 
-    其余同源测试打在 resolver 私有方法上，这里补住 HTTP 这一层：新增的两个布尔位真的
+    其余同源测试打在 resolver 私有方法上，这里补住 HTTP 这一层：两个布尔位真的
     出现在接口响应里，且写入覆盖后接口返回值随之变化（不只是 resolver 内部变了）。
     """
 

@@ -111,7 +111,10 @@ def test_sandbox_missing_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_sandbox_missing_socat_only_linux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """官方 sandboxing.md 明文要求 socat 同装（网络代理需要）。"""
+    """Linux sandbox 需同时安装 socat 供网络代理使用。
+
+    https://code.claude.com/docs/en/sandboxing#set-up-linux-and-wsl2
+    """
     monkeypatch.setattr(platform, "system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", _linux_which_stub({"bwrap"}))
     with pytest.raises(RuntimeError, match="missing in PATH: socat"):

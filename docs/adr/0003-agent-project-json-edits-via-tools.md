@@ -15,7 +15,7 @@ Agent 今天能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`
 
 强制（双层）：
 
-- **Bash 子进程**（Linux/macOS，内核级）：`sandbox.filesystem.denyWrite` 覆盖 `scripts/` 目录与 `project.json`。SDK 文档（sandboxing.md）明确 `denyWrite` 是 OS 级（Seatbelt / bwrap profile），对 sandbox 内**所有子进程（含 Bash 及其 child）生效**——堵住 `echo>`/`sed`/`python -c` 旁路。选 `denyWrite` 而非「Edit-deny 规则下推」：前者是文档化的 write-deny 字段，与现有 `denyRead` 同一 `filesystem` passthrough，不依赖 Edit allow/deny 规则被 SDK 派生进 Bash FS profile 这一未明文保证的行为。
+- **Bash 子进程**（Linux/macOS，内核级）：`sandbox.filesystem.denyWrite` 覆盖 `scripts/` 目录与 `project.json`。[Claude Code sandbox 的 OS-level enforcement](https://code.claude.com/docs/en/sandboxing#os-level-enforcement) 明确约束由 Seatbelt / bwrap 在 OS 级执行，对 sandbox 内**所有子进程（含 Bash 及其 child）生效**——堵住 `echo>`/`sed`/`python -c` 旁路。选 `denyWrite` 而非「Edit-deny 规则下推」：前者是文档化的 write-deny 字段，与现有 `denyRead` 同一 `filesystem` passthrough，不依赖 Edit allow/deny 规则被 SDK 派生进 Bash FS profile 这一未明文保证的行为。
 - **内置 Write/Edit**（全平台）：内置文件工具不走 sandbox（走权限系统），由 `_check_write_access` hook 拒绝 `scripts/*.json` + `project.json`。与上面的 denyWrite 同源（同两类路径），构成双层。
 - 剧本写入全 funnel 进 `_write_script_unlocked`。批量人工编辑在其外增加 `ScriptBatchEditor` 深模块：同一项目/剧本临界区内做 OCC、candidate 预检，并把 script、project episode 索引与适用的 episode-script Manifest entry 作为可补偿提交；后一步失败时在锁释放前逐字恢复 script/project，Manifest hook 自行恢复旧 entry。底层写入口仍保留 ADR-0002 的「不更坏」兼容策略，批量命令则要求本次 candidate 通过完整结构与引用预检；唯一兼容例外是未被本批改变的 legacy speech blocker，不阻塞无关编辑。
 
