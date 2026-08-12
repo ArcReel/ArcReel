@@ -251,7 +251,7 @@ async def _drive_query(
 
 - `asyncio.wait(FIRST_COMPLETED)` 让 "消息到达" 与 "新命令到达" 同权竞争。interrupt 不会被 `receive_response` 阻塞，即便 LLM 长时间思考也能穿插。
 - `client.interrupt()` 发生在 actor 主 task 内，完全符合 SDK 同 task 契约。
-- interrupt 后**不取消** `receive_response`。0.1.58 的 [`receive_response`](https://github.com/anthropics/claude-agent-sdk-python/blob/v0.1.58/src/claude_agent_sdk/client.py#L503-L542) 契约会持续读取并包含终态 `ResultMessage`；中断后的 `error_during_execution` 收尾由 `tests/test_session_actor.py::test_drain_after_interrupt_reaches_error_during_execution` 锁定。若强行取消会丢失尾部消息，且下一条 `query` 的响应将与被中断的消息混流。
+- interrupt 后**不取消** `receive_response`。0.1.58 的 [`receive_response`](https://github.com/anthropics/claude-agent-sdk-python/blob/v0.1.58/src/claude_agent_sdk/client.py#L503-L542) 源码锁定了“持续读取并包含终态 `ResultMessage`”的接收边界；[Python SDK interrupt 契约](https://code.claude.com/docs/en/agent-sdk/python#example-using-interrupts) 明确中断不会清空消息缓冲区，必须在新 query 前 drain 至被中断任务的 `ResultMessage`。`tests/test_session_actor.py::test_drain_after_interrupt_reaches_error_during_execution` 保护 ArcReel 对该契约的集成语义。若强行取消会丢失尾部消息，且下一条 `query` 的响应将与被中断的消息混流。
 
 ### 5.5 待处理命令语义
 
@@ -509,7 +509,7 @@ async def answer_user_question(
 
 - `pyproject.toml`：`claude-agent-sdk>=0.1.51` → `>=0.1.58`
 - 通过 `uv lock --upgrade-package claude-agent-sdk` 锁定；`uv sync` 已完成
-- 核心收益：0.1.58 的 [`receive_response`](https://github.com/anthropics/claude-agent-sdk-python/blob/v0.1.58/src/claude_agent_sdk/client.py#L503-L542) 契约与本仓库中断 drain 测试共同锁定终态收取语义，使 `_drive_query` 在 interrupt 时无需取消 `receive_response`
+- 核心收益：0.1.58 的 [`receive_response`](https://github.com/anthropics/claude-agent-sdk-python/blob/v0.1.58/src/claude_agent_sdk/client.py#L503-L542) 接收边界、[Python SDK interrupt 缓冲区契约](https://code.claude.com/docs/en/agent-sdk/python#example-using-interrupts) 与本仓库中断 drain 回归测试共同保护终态收取语义，使 `_drive_query` 在 interrupt 时无需取消 `receive_response`
 - 项目中仅 `session_manager.py:853 / 951` 两处调用 `client.connect()`，均不带 prompt 参数，不受 0.1.52 的 "`connect(prompt=...)` 静默丢失" 修复影响
 - 回归：`uv run python -m pytest tests/test_session_manager_more.py` 35 个测试全部通过
 
