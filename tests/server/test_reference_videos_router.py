@@ -466,7 +466,11 @@ def test_three_reference_route_web_video_entries_share_structured_speech_admissi
     from server.routers import reference_videos as router_mod
 
     enqueue = AsyncMock()
-    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: type("Queue", (), {"enqueue_task": enqueue})())
+
+    def get_generation_queue():
+        return type("Queue", (), {"enqueue_task": enqueue})()
+
+    monkeypatch.setattr(router_mod, "get_generation_queue", get_generation_queue)
 
     response = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate")
 
