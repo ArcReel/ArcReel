@@ -652,14 +652,21 @@ class SessionManager:
 
             Runs send_disconnect first (which causes actor to exit and
             _on_actor_done to push the None sentinel, letting _process_inbox
-            finish naturally), then belt-and-suspenders cancels the processor
-            in case it is stuck elsewhere.
+            finish naturally), bounded by _session_actor_shutdown_timeout so an
+            SDK-side hang cannot stall this error-only cleanup path indefinitely;
+            then belt-and-suspenders cancels the processor in case it is stuck
+            elsewhere.
             """
             self.sessions.pop(temp_id, None)
             # sdk_session_id 就绪后 key swap 已把会话挂到正式 id 下，两个键都清。
             self.sessions.pop(managed.session_id, None)
             try:
-                await managed.send_disconnect()
+                await asyncio.wait_for(managed.send_disconnect(), timeout=self._session_actor_shutdown_timeout)
+            except TimeoutError:
+                logger.warning(
+                    "send_disconnect on error path 超时，继续后续清理 session_id=%s",
+                    temp_id,
+                )
             except Exception:
                 logger.exception(
                     "send_disconnect on error path failed session_id=%s",

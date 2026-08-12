@@ -241,6 +241,58 @@ class TestSessionManagerUserInput:
         assert session_manager.unclaimed_user_echoes == 0
         assert not [r for r in caplog.records if "unclaimed" in r.getMessage()]
 
+    async def test_cleanup_on_error_disconnect_timeout_does_not_block(
+        self, session_manager, meta_store, monkeypatch, caplog, tmp_path
+    ):
+        """启动失败清理路径里 send_disconnect 挂起时，超时兜底让清理仍在限时内完成。"""
+        proj_dir = tmp_path / "projects" / "demo"
+        proj_dir.mkdir(parents=True)
+        (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
+
+        seen_commands: list[str] = []
+
+        class _FakeActor:
+            def __init__(self, *_, on_message=None, client_factory=None):
+                self.task = None
+
+            async def start(self):
+                return None
+
+            def add_done_callback(self, _cb):
+                pass
+
+            async def enqueue(self, cmd):
+                seen_commands.append(cmd.type)
+                if cmd.type == "query":
+                    cmd.error = RuntimeError("SDK 拒绝了这次投递")
+                    cmd.sent.set()
+                    cmd.done.set()
+                elif cmd.type == "disconnect":
+                    # 模拟 SDK 侧挂起：send_disconnect 内部等待的 cmd.done 永不 set，
+                    # 只有 asyncio.wait_for 的超时能让 _cleanup_on_error 脱身。
+                    await asyncio.Event().wait()
+                else:
+                    cmd.sent.set()
+                    cmd.done.set()
+
+            async def wait(self):
+                return None
+
+        async def fake_env():
+            return {"ANTHROPIC_API_KEY": "sk"}
+
+        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+        monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
+        monkeypatch.setattr(type(session_manager), "_ensure_capacity", AsyncMock(return_value=None))
+        session_manager._session_actor_shutdown_timeout = 0.05
+
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
+            with pytest.raises(AgentStartupError, match="SDK 拒绝了这次投递"):
+                await asyncio.wait_for(session_manager.send_new_session("demo", "你好"), timeout=2.0)
+
+        assert "disconnect" in seen_commands
+        assert any("超时" in r.getMessage() for r in caplog.records)
+
     async def test_ask_user_question_waits_for_answer_and_merges_answers(self, session_manager, meta_store):
         if not SDK_AVAILABLE:
             pytest.skip("claude_agent_sdk is not installed")
