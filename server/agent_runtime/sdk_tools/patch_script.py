@@ -122,6 +122,7 @@ def patch_episode_script_tool(ctx: ToolContext):
                         None,
                     )
                     previous_shots = unit.get("shots") if unit is not None else None
+                    previous_references = unit.get("references") if unit is not None else None
                     previous_speech = (
                         admit_script_unit(kind, unit, ignore_marker=True).preparation if unit is not None else None
                     )
@@ -150,9 +151,12 @@ def patch_episode_script_tool(ctx: ToolContext):
                             if kind != "video_units":
                                 unit.pop("needs_replan", None)
                     if unit is not None and kind == "video_units":
+                        references_changed = (
+                            "references" in edited_roots and unit.get("references") != previous_references
+                        )
                         refresh_video_unit_replan_state(
                             unit,
-                            allow_clear=body_changed or "duration_seconds" in edited_roots,
+                            allow_clear=body_changed or references_changed or "duration_seconds" in edited_roots,
                             content_changed=body_changed,
                         )
                     applied.append((scene_id, fields))

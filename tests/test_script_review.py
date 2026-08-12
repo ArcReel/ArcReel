@@ -912,14 +912,30 @@ class TestApplicability:
 
 class TestErrors:
     @pytest.mark.unit
-    async def test_save_invalid_content_rejected(self, tmp_path):
+    async def test_save_empty_dialogue_speaker_returns_structured_admission(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        path = _write_step1(pm, "drama", _drama_step1())
+
+        bad = _drama_step1()
+        bad["scenes"][0]["utterances"][1] = {"kind": "dialogue", "speaker": None, "text": "无人"}
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.save_content("demo", 1, bad)
+        assert exc.value.code == "speech_admission"
+        assert exc.value.admission is not None
+        assert exc.value.admission.unit_id == "E1S01"
+        assert exc.value.admission.problems[0].code == "empty_speaker"
+        assert exc.value.admission.problems[0].locations[0].path == ("utterances", 1, "speaker")
+        assert json.loads(path.read_text(encoding="utf-8")) == _drama_step1()
+
+    @pytest.mark.unit
+    async def test_save_invalid_non_speech_content_rejected(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
         _write_step1(pm, "drama", _drama_step1())
 
         bad = _drama_step1()
-        # dialogue 缺 speaker → kind ⇄ speaker 约束失败
-        bad["scenes"][0]["utterances"][1] = {"kind": "dialogue", "speaker": None, "text": "无人"}
+        bad["scenes"][0]["duration_seconds"] = "invalid"
         with pytest.raises(ScriptReviewError) as exc:
             await svc.save_content("demo", 1, bad)
         assert exc.value.code == "invalid_content"

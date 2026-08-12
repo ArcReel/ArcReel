@@ -52,7 +52,7 @@ class ScriptReviewError(Exception):
         self.admission = admission
 
 
-def _require_changed_speech_admitted(kind: str, previous: object, candidate: dict[str, Any]) -> None:
+def _require_changed_speech_admitted(kind: str, previous: object, candidate: object) -> None:
     """Reject only new or edited speech content, leaving legacy mixed metadata editable."""
 
     if kind == "drama":
@@ -61,6 +61,8 @@ def _require_changed_speech_admitted(kind: str, previous: object, candidate: dic
         root, skeleton, id_field, speech_fields = "units", "video_units", "unit_id", ("shots",)
     else:
         return
+    if not isinstance(candidate, dict) or not isinstance(candidate.get(root), list):
+        return
     previous_units = previous.get(root) if isinstance(previous, dict) else None
     previous_by_id = {
         unit.get(id_field): unit
@@ -68,6 +70,8 @@ def _require_changed_speech_admitted(kind: str, previous: object, candidate: dic
         if isinstance(unit, dict) and isinstance(unit.get(id_field), str)
     }
     for unit in candidate[root]:
+        if not isinstance(unit, dict) or not isinstance(unit.get(id_field), str):
+            continue
         old = previous_by_id.get(unit[id_field])
         speech_changed = old is None or any(old.get(field) != unit.get(field) for field in speech_fields)
         if not speech_changed:
@@ -398,6 +402,7 @@ class ScriptReviewService:
         try:
             validated = model.model_validate(content).model_dump()
         except ValidationError as exc:
+            _require_changed_speech_admitted(kind, _read_json(path), content)
             raise ScriptReviewError("invalid_content", str(exc)) from exc
         # 入参的 None 表示「调用方无基线、不比对」；比对语义里的 None 另有含义（取基线时文件不存在），
         # 两者在此一次性转换，三个变体共用同一个 expected。

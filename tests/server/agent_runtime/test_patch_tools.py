@@ -581,6 +581,32 @@ class TestPatchEpisodeScript:
         assert _load(ref_ctx)["video_units"][0].get("needs_replan") is not True
 
     @pytest.mark.integration
+    async def test_reference_repair_clears_non_content_marker(self, ref_ctx: ToolContext) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["scenes"] = {"酒馆": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+        script = _reference_script()
+        script["video_units"][0].update(
+            {
+                "shots": [{"text": "@[酒馆]：木门被风吹开"}],
+                "references": [],
+                "needs_replan": True,
+            }
+        )
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        repaired = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {"E1U1": {"references": [{"type": "scene", "name": "酒馆"}]}},
+            },
+        )
+
+        assert repaired.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0].get("needs_replan") is not True
+
+    @pytest.mark.integration
     async def test_reference_shot_edit_rederives_registered_references(self, ref_ctx: ToolContext) -> None:
         project = ref_ctx.pm.load_project("demo")
         project["products"] = {"产品A": {"description": ""}, "产品B": {"description": ""}}
