@@ -10,6 +10,16 @@ const userTurn: Turn = {
   content: [{ type: "text", text: "只改第 3 集" }],
 };
 
+const imageTurn: Turn = {
+  type: "user",
+  uuid: "u-2",
+  timestamp: "2026-05-02T14:25:00Z",
+  content: [
+    { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+    { type: "text", text: "按这张图改人设" },
+  ],
+};
+
 describe("MessageRow", () => {
   it("renders the edit entry on an editable user message", () => {
     render(<MessageRow turn={userTurn} editable />);
@@ -45,7 +55,44 @@ describe("MessageRow", () => {
     fireEvent.change(textarea, { target: { value: "逐条给我看要改哪些台词" } });
     fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
 
-    expect(onSubmitEdit).toHaveBeenCalledWith("u-1", "逐条给我看要改哪些台词");
+    expect(onSubmitEdit).toHaveBeenCalledWith("u-1", "逐条给我看要改哪些台词", []);
+  });
+
+  it("carries the anchor's image attachments along with the rewritten text", () => {
+    const onSubmitEdit = vi.fn();
+    render(<MessageRow turn={imageTurn} editable editing onSubmitEdit={onSubmitEdit} />);
+
+    const textarea = screen.getByLabelText("改写消息内容");
+    expect(textarea).toHaveValue("按这张图改人设");
+
+    fireEvent.change(textarea, { target: { value: "按这张图改场景" } });
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+
+    expect(onSubmitEdit).toHaveBeenCalledWith("u-2", "按这张图改场景", [
+      { data: "AAAA", media_type: "image/png" },
+    ]);
+  });
+
+  it("lets a message with attachments be rewritten down to the attachments alone", () => {
+    const onSubmitEdit = vi.fn();
+    render(<MessageRow turn={imageTurn} editable editing onSubmitEdit={onSubmitEdit} />);
+
+    fireEvent.change(screen.getByLabelText("改写消息内容"), { target: { value: "  " } });
+
+    expect(screen.getByRole("button", { name: "重新发送" })).toBeEnabled();
+    fireEvent.keyDown(screen.getByLabelText("改写消息内容"), { key: "Enter", metaKey: true });
+    expect(onSubmitEdit).toHaveBeenCalledWith("u-2", "  ", [{ data: "AAAA", media_type: "image/png" }]);
+  });
+
+  it("keeps an empty draft unsubmittable on a text-only message", () => {
+    const onSubmitEdit = vi.fn();
+    render(<MessageRow turn={userTurn} editable editing onSubmitEdit={onSubmitEdit} />);
+
+    fireEvent.change(screen.getByLabelText("改写消息内容"), { target: { value: "  " } });
+
+    expect(screen.getByRole("button", { name: "重新发送" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByLabelText("改写消息内容"), { key: "Enter", metaKey: true });
+    expect(onSubmitEdit).not.toHaveBeenCalled();
   });
 
   it("cancels the edit on Escape", () => {

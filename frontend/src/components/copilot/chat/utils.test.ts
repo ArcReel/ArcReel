@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Turn } from "@/types";
-import { canEditUserTurn, composeAllTurns, turnPlainText } from "./utils";
+import { canEditUserTurn, composeAllTurns, turnImageAttachments, turnPlainText } from "./utils";
 
 const userTurn: Turn = {
   type: "user",
@@ -67,6 +67,40 @@ describe("turnPlainText", () => {
       ],
     };
     expect(turnPlainText(turn)).toBe("第一段\n\n第二段");
+  });
+});
+
+describe("turnImageAttachments", () => {
+  it("takes image blocks back to the transport shape, in block order", () => {
+    const turn: Turn = {
+      type: "user",
+      uuid: "u-10",
+      content: [
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+        { type: "text", text: "按图改" },
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "BBBB" } },
+      ],
+    };
+    expect(turnImageAttachments(turn)).toEqual([
+      { data: "AAAA", media_type: "image/png" },
+      { data: "BBBB", media_type: "image/jpeg" },
+    ]);
+  });
+
+  it("gives an empty list for a text-only turn", () => {
+    expect(turnImageAttachments(userTurn)).toEqual([]);
+  });
+
+  it("drops image blocks that carry no base64 payload", () => {
+    const turn: Turn = {
+      type: "user",
+      uuid: "u-11",
+      content: [
+        { type: "image" },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+      ],
+    };
+    expect(turnImageAttachments(turn)).toEqual([{ data: "AAAA", media_type: "image/png" }]);
   });
 });
 

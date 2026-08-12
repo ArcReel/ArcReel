@@ -1365,7 +1365,14 @@ describe("useAssistantSession", () => {
       await result.current.rewriteMessage("u-0", "改写后的消息");
     });
 
-    expect(rewriteSpy).toHaveBeenCalledWith("demo", "session-1", "u-0", "改写后的消息", expect.any(String));
+    expect(rewriteSpy).toHaveBeenCalledWith(
+      "demo",
+      "session-1",
+      "u-0",
+      "改写后的消息",
+      undefined,
+      expect.any(String),
+    );
 
     const state = useAssistantStore.getState();
     expect(state.currentSessionId).toBe("session-2");
@@ -1410,7 +1417,71 @@ describe("useAssistantSession", () => {
     await act(async () => {
       await result.current.rewriteMessage("u-0", "改写后的消息");
     });
-    expect(rewriteSpy.mock.calls[0][4]).toBe(rewriteSpy.mock.calls[1][4]);
+    expect(rewriteSpy.mock.calls[0][5]).toBe(rewriteSpy.mock.calls[1][5]);
+  });
+
+  it("carries the anchor's image attachments into the rewrite, empty text included", async () => {
+    mockIdleSession([userEntry(0, "原始消息")]);
+    const rewriteSpy = vi.spyOn(API, "rewriteAssistantMessage").mockResolvedValue({
+      status: "accepted",
+      session_id: "session-2",
+      origin_session_id: "session-1",
+      entry: null,
+    });
+    const images = [{ data: "AAAA", media_type: "image/png" }];
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    // 正文被改空的带图消息仍是有内容的消息，附件即内容
+    await act(async () => {
+      expect(await result.current.rewriteMessage("u-0", "   ", images)).toBe(true);
+    });
+
+    expect(rewriteSpy).toHaveBeenCalledWith("demo", "session-1", "u-0", "   ", images, expect.any(String));
+  });
+
+  it("rejects a rewrite with neither text nor attachments", async () => {
+    mockIdleSession([userEntry(0, "原始消息")]);
+    const rewriteSpy = vi.spyOn(API, "rewriteAssistantMessage");
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    await act(async () => {
+      expect(await result.current.rewriteMessage("u-0", "   ")).toBe(false);
+    });
+
+    expect(rewriteSpy).not.toHaveBeenCalled();
+  });
+
+  it("mints a new idempotency key when only the attachments differ", async () => {
+    mockIdleSession([userEntry(0, "原始消息")]);
+    const rewriteSpy = vi
+      .spyOn(API, "rewriteAssistantMessage")
+      .mockRejectedValue(new Error("改写失败"));
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    await act(async () => {
+      await result.current.rewriteMessage("u-0", "改写后的消息", [
+        { data: "AAAA", media_type: "image/png" },
+      ]);
+    });
+    await act(async () => {
+      await result.current.rewriteMessage("u-0", "改写后的消息", [
+        { data: "BBBB", media_type: "image/png" },
+      ]);
+    });
+
+    expect(rewriteSpy.mock.calls[0][5]).not.toBe(rewriteSpy.mock.calls[1][5]);
   });
 
   it("does not let a session-list refresh started before the fork resurrect the superseded origin", async () => {
@@ -1908,7 +1979,7 @@ describe("useAssistantSession", () => {
     await act(async () => {
       await result.current.switchSession("session-1");
     });
-    const firstKey = rewriteSpy.mock.calls[0][4];
+    const firstKey = rewriteSpy.mock.calls[0][5];
     rewriteSpy.mockResolvedValue({
       status: "accepted",
       session_id: "session-3",
@@ -1918,7 +1989,7 @@ describe("useAssistantSession", () => {
     await act(async () => {
       await result.current.rewriteMessage("u-0", "改写后的消息");
     });
-    expect(rewriteSpy.mock.calls[1][4]).toBe(firstKey);
+    expect(rewriteSpy.mock.calls[1][5]).toBe(firstKey);
   });
 
   it("surfaces a failed session load and lets the same session be retried", async () => {

@@ -16,6 +16,7 @@ import type {
   TaskItem,
   TaskStats,
   SessionMeta,
+  ImagePayload,
   EntriesResponse,
   TimelineEntry,
   FailureObservation,
@@ -1906,7 +1907,7 @@ class API {
     projectName: string,
     content: string,
     sessionId?: string | null,
-    images?: Array<{ data: string; media_type: string }>,
+    images?: ImagePayload[],
     clientKey?: string
   ): Promise<{ session_id: string; status: string; entry: TimelineEntry | null }> {
     return this.request(`${this.assistantBase(projectName)}/sessions/send`, {
@@ -1925,12 +1926,16 @@ class API {
    *
    * `sessionId` 是被改写的原会话，响应里的 `session_id` 是承接改写的新会话。
    * 运行中的会话由端点自动中断，调用方不必先停止。
+   *
+   * `images` 是锚点消息的图片附件，随改写后的文本一同进入分支会话的首条输入，
+   * 形态与发送端点一致。
    */
   static async rewriteAssistantMessage(
     projectName: string,
     sessionId: string,
     anchorEntryUuid: string,
     content: string,
+    images?: ImagePayload[],
     clientKey?: string
   ): Promise<{ status: string; session_id: string; origin_session_id: string | null; entry: TimelineEntry | null }> {
     return this.request(
@@ -1940,6 +1945,7 @@ class API {
         body: JSON.stringify({
           anchor_entry_uuid: anchorEntryUuid,
           content,
+          images: images || [],
           client_key: clientKey || undefined,
         }),
       }

@@ -7,7 +7,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from server.agent_runtime.event_log import REPLAYED_USER_ECHO_ENTRY_UUID_KEY, REPLAYED_USER_ECHO_KEY
-from server.agent_runtime.message_serialization import PendingUserEcho, match_user_echo, message_to_dict
+from server.agent_runtime.message_serialization import (
+    IMAGE_ONLY_SENTINEL,
+    PendingUserEcho,
+    match_user_echo,
+    message_to_dict,
+)
 from server.agent_runtime.session_manager import SDK_AVAILABLE, AgentStartupError, ManagedSession
 from tests.fakes import build_managed_with_actor
 
@@ -99,6 +104,30 @@ class TestSessionManagerUserInput:
             while not queue.empty():
                 broadcasted.append(queue.get_nowait())
             assert not any(isinstance(item, dict) and item.get("local_echo") for item in broadcasted)
+        finally:
+            await _finish(managed)
+
+    async def test_image_only_input_registers_the_sentinel_dedup_key(self, session_manager, meta_store):
+        """正文为空的带图消息（改写把文本清空即落在这条路上）靠 sentinel 认领回放副本。
+
+        SDK 的 parser 丢掉 image 块，回放的 UserMessage content 为空，按文本匹配
+        永远对不上——身份映射会漏，条目被二次落库。
+        """
+        messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
+        meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
+        try:
+            await session_manager.send_message(
+                meta.id,
+                "",
+                echo_text="",
+                echo_content=[
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"}}
+                ],
+                user_entry=None,
+            )
+            assert [echo.dedup_key for echo in managed.pending_user_echoes] == [IMAGE_ONLY_SENTINEL]
+            # 空 content 的回放副本被这条 pending echo 认领
+            assert match_user_echo(managed.pending_user_echoes, {"type": "user", "content": []}) is not None
         finally:
             await _finish(managed)
 
