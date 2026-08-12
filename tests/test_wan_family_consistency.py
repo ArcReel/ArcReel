@@ -243,6 +243,20 @@ def test_fallback_image_to_video_syntax_scoped_to_wan_marker_not_decoration_pref
     assert infer_endpoint(model_id, "openai") == "openai-images"
 
 
+@pytest.mark.parametrize(
+    "model_id",
+    ["vendorwan2.7-videoedit-proxy/wan2.7-r2v", "wan2.7s2v-proxy/wan2.7-i2v"],
+)
+def test_wan27_suffix_not_polluted_by_literal_marker_text_in_decoration_prefix(model_id: str) -> None:
+    """wan27_suffix 须取自家族标记本身的位置，不能通过在拼接后的完整 profile_key 上重新搜索
+    "wan2.7" 字面文本来定位——标记前的装饰前缀可能自身就含 "wan2.7" 字面子串（不满足家族标识符
+    边界、未被判定为家族标记，如 "vendorwan2.7-videoedit-proxy/" 里的 "wan2.7"），重新搜索会先
+    命中这个更靠前的字面文本，把装饰前缀内容（"videoedit"/"s2v"）误当模态段的一部分。"""
+    assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
+    caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
+    assert caps is not _DEFAULT_PROFILE
+
+
 def test_wan27_videoedit_excluded_from_family_duration_preset() -> None:
     """wan2.7-videoedit 本后端未实现该模态的请求构造，时长不套用 t2v/i2v/r2v 家族档
     （落到通用预设，而非家族专属的 2-15s 全档）。"""
