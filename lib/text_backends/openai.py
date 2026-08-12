@@ -178,16 +178,20 @@ def _build_messages(request: TextGenerationRequest) -> list[dict]:
         messages.append({"role": "system", "content": request.system_prompt})
 
     # 构建 user message
-    if request.images:
-        from lib.image_backends.base import image_to_base64_data_uri
-
+    if request.images or request.videos:
         content: list[dict] = []
-        for img in request.images:
-            if img.path:
-                data_uri = image_to_base64_data_uri(img.path)
-                content.append({"type": "image_url", "image_url": {"url": data_uri}})
-            elif img.url:
-                content.append({"type": "image_url", "image_url": {"url": img.url}})
+        if request.images:
+            from lib.image_backends.base import image_to_base64_data_uri
+
+            for img in request.images:
+                if img.path:
+                    data_uri = image_to_base64_data_uri(img.path)
+                    content.append({"type": "image_url", "image_url": {"url": data_uri}})
+                elif img.url:
+                    content.append({"type": "image_url", "image_url": {"url": img.url}})
+        if request.videos:
+            for video in request.videos:
+                content.append({"type": "video_url", "video_url": {"url": video.url}})
         content.append({"type": "text", "text": request.prompt})
         messages.append({"role": "user", "content": content})
     else:

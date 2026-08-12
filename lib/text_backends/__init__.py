@@ -10,6 +10,7 @@ from lib.text_backends.base import (
     TextGenerationResult,
     TextTaskTier,
     TextTaskType,
+    VideoInput,
 )
 from lib.text_backends.registry import create_backend, get_registered_backends, register_backend
 
@@ -23,6 +24,7 @@ __all__ = [
     "TextGenerationResult",
     "TextTaskTier",
     "TextTaskType",
+    "VideoInput",
     "create_backend",
     "get_registered_backends",
     "register_backend",

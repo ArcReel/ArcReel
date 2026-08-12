@@ -198,12 +198,20 @@ class ImageInput:
 
 
 @dataclass
+class VideoInput:
+    """Remote video input for multimodal text models."""
+
+    url: str
+
+
+@dataclass
 class TextGenerationRequest:
     """通用文本生成请求。各 Backend 忽略不支持的字段。"""
 
     prompt: str
     response_schema: dict | type | None = None
     images: list[ImageInput] | None = None
+    videos: list[VideoInput] | None = None
     system_prompt: str | None = None
     max_output_tokens: int | None = None
 
