@@ -290,6 +290,10 @@ class TestInferEndpoint:
             ("wan2.7-image", "openai", "openai-images"),  # image 变体不受影响
             ("wan3.0-video-image", "openai", "openai-images"),  # 含 image 语义不受影响
             ("wan-3-turbo-image", "openai", "openai-images"),  # 连字符形态的 image 变体同样不受影响
+            # image-to-video 别名含 "image" 子串但本质是视频，须留在 dashscope-async-video（同
+            # kling-image2video 的"video 语义优先"原则），不能被笼统 is_image 误判成图像变体。
+            ("wan-3-turbo-image-to-video", "openai", "dashscope-async-video"),
+            ("wan3-image2video", "openai", "dashscope-async-video"),
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),
