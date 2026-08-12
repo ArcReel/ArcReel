@@ -246,6 +246,7 @@ async def add_unit(
     _t: Translator,
 ) -> dict[str, Any]:
     refs = _normalized_refs(req.references)
+    references_supplied = "references" in req.model_fields_set
 
     # 时长是 unit 级单一真相：请求未给出时按项目能力解析默认档位（异步 IO 不进项目锁临界区）
     duration_seconds = req.duration_seconds
@@ -259,7 +260,9 @@ async def add_unit(
             with_references=bool(refs),
         )
 
-    with _locked_episode_script(project_name, _episode_script_resolver(episode, _t, refs), _t) as script:
+    project_out: dict[str, dict] = {}
+    resolver = _episode_script_resolver(episode, _t, refs, project_out=project_out)
+    with _locked_episode_script(project_name, resolver, _t) as script:
         # unit_id 在锁内基于 fresh script 计算，避免并发新增撞 ID
         unit = _build_unit_dict(
             unit_id=_next_unit_id(script, episode),
@@ -269,6 +272,8 @@ async def add_unit(
             transition=req.transition_to_next,
             note=req.note,
         )
+        if not references_supplied:
+            rederive_unit_references([unit], project_out["project"])
         _require_unit_ready(unit, ignore_marker=True, allow_blank_draft=True)
         script.setdefault("video_units", []).append(unit)
     return {"unit": unit}

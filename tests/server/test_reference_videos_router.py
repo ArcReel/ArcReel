@@ -311,6 +311,17 @@ def test_patch_unit_references_only(client: TestClient):
 
 
 @pytest.mark.integration
+def test_add_nonblank_unit_derives_registered_references_when_omitted(client: TestClient):
+    response = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "@[酒馆]：木门被风吹开", "duration_seconds": 5},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["unit"]["references"] == [{"type": "scene", "name": "酒馆"}]
+
+
+@pytest.mark.integration
 def test_patch_unit_references_atomically_rejects_new_parse_failure(client: TestClient):
     uid = _seed_unit(client)
     from server.routers import reference_videos as router_mod
