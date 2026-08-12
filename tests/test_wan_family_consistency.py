@@ -7,8 +7,8 @@ image-to-video 续接语法、videoedit 模态排除的唯一判定入口；端�
 （`lib.custom_provider.duration_presets.infer_supported_durations`）三处判定点都只消费其结论。
 本文件覆盖分隔符 × 版本 × 模态 × 大小写 × 装饰前缀等轴的组合，逐条比对三处判定点的期望值，
 并对可解析出具体模态（t2v/i2v/r2v）的家族成员做一条通用一致性断言：命中原生路由必有非默认
-能力档，反之亦然——这类互斥组合是过去几轮里三处判定宽度各自漂移时反复引入的缺陷形状，
-逐点单测抓不到，只有跨判定点的组合校验能抓到。
+能力档，反之亦然——三处判定点各自维护一份正则时容易出现宽度不一致，产生这类互斥组合；
+逐点单测无法发现，只有跨判定点的组合校验能发现。
 """
 
 from __future__ import annotations
@@ -99,7 +99,9 @@ def test_wan3_alias_routes_and_durations_consistently(model_id: str) -> None:
 def test_wan2x_non_27_dash_form_stays_generic_dot_form_stays_native(
     prefix_sep: str, modality: str, version: str, case_fn: type[str]
 ) -> None:
-    """万相 2.1/2.2：连字符/下划线前缀落通用视频端点，点号形态（既有行为，本票未变更）走原生。"""
+    """万相 2.1/2.2：连字符/下划线前缀落通用视频端点，点号形态走原生（本后端固定请求
+    video-generation/video-synthesis 端点，是否收窄该判定需要供应商 API 事实与产品判断，
+    见 classify_wan_model 的说明）。"""
     model_id = case_fn(_build(prefix_sep, version, "-", modality))
     expected_endpoint = "dashscope-async-video" if prefix_sep == "" else "openai-video"
     assert infer_endpoint(model_id, "openai") == expected_endpoint
@@ -162,8 +164,8 @@ def test_native_route_and_non_default_profile_agree(model_id: str) -> None:
     """一致性断言：家族成员且模态可解析（t2v/i2v/r2v）时，命中原生路由必有非默认能力档，反之亦然。
 
     该断言只覆盖模态可解析的成员——裸家族名（如 "happyhorse"）、wan2.7-videoedit、非 2.7 的点号形态
-    2.x（"wan2.1-*"）均因模态/协议未确权而按设计落默认档，是文档化的既有例外，不受本断言约束
-    （见 classify_wan_model 与 _profile_for_model 的说明）。
+    2.x（"wan2.1-*"）均因模态/协议未确权而按设计落默认档，不受本断言约束（见 classify_wan_model
+    与 _profile_for_model 的说明）。
     """
     routed_native = infer_endpoint(model_id, "openai") == "dashscope-async-video"
     caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
