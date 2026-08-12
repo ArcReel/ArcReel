@@ -110,6 +110,7 @@ def _fake_resolve_ctx(
     image_provider=("openai", "gpt-image-2"),
     image_resolution=None,
     video_provider=("ark", "seedance"),
+    video_backend_model=None,
     video_resolution="720p",
     supported_durations=(4, 6, 8),
     voice_consistency="soft",
@@ -139,10 +140,11 @@ def _fake_resolve_ctx(
         video_lane = None
         if video is not None:
             provider, model = video_provider
+            backend_model = video_backend_model or model
             video_lane = VideoLaneResult(
                 provider_model=ProviderModel(provider, model),
                 backend_name=provider,
-                backend_model=model,
+                backend_model=backend_model,
                 resolution=video_resolution,
                 resolution_or_fallback=video_resolution or "720p",
                 supported_durations=tuple(supported_durations),
@@ -178,7 +180,7 @@ from lib.storyboard_sequence import (
 
 
 @pytest.mark.unit
-def test_storyboard_visual_basis_tracks_effective_aspect_ratio(tmp_path: Path) -> None:
+def test_storyboard_visual_basis_tracks_effective_request_context(tmp_path: Path) -> None:
     storyboard = tmp_path / "storyboard.png"
     storyboard.write_bytes(b"png")
     common = {
@@ -188,12 +190,32 @@ def test_storyboard_visual_basis_tracks_effective_aspect_ratio(tmp_path: Path) -
         "content_mode": "narration",
         "utterances": None,
         "voice_characters": None,
+        "provider_id": "ark",
+        "model_id": "seedance",
+        "resolution": "720p",
     }
 
     portrait = build_storyboard_video_visual_basis(**common, aspect_ratio="9:16")
     landscape = build_storyboard_video_visual_basis(**common, aspect_ratio="16:9")
 
     assert portrait.digest != landscape.digest
+
+    other_provider = build_storyboard_video_visual_basis(
+        **{**common, "provider_id": "openai"},
+        aspect_ratio="9:16",
+    )
+    other_model = build_storyboard_video_visual_basis(
+        **{**common, "model_id": "seedance-pro"},
+        aspect_ratio="9:16",
+    )
+    other_resolution = build_storyboard_video_visual_basis(
+        **{**common, "resolution": "1080p"},
+        aspect_ratio="9:16",
+    )
+
+    assert portrait.digest != other_provider.digest
+    assert portrait.digest != other_model.digest
+    assert portrait.digest != other_resolution.digest
 
 
 class _FakePM:
@@ -839,6 +861,9 @@ class TestGenerationTasks:
             storyboard_image=project_path / "storyboards" / "scene_E1S01.png",
             end_frame_image=None,
             aspect_ratio="9:16",
+            provider_id="ark",
+            model_id="seedance",
+            resolution="720p",
             content_mode="narration",
             utterances=None,
             voice_characters=None,
@@ -876,7 +901,12 @@ class TestGenerationTasks:
         monkeypatch.setattr(
             generation_tasks,
             "resolve_generation_context",
-            _fake_resolve_ctx(fake_generator, supported_durations=(4, 8, 12)),
+            _fake_resolve_ctx(
+                fake_generator,
+                video_provider=("ark", "configured-seedance"),
+                video_backend_model="seedance",
+                supported_durations=(4, 8, 12),
+            ),
         )
         monkeypatch.setattr(generation_tasks, "prepare_current_narrated_video_duration", _prepare)
         monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))

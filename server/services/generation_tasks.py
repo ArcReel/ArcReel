@@ -1194,6 +1194,10 @@ async def execute_video_task(
         audio=AudioLaneRequest() if delivery_options.narration_delivery == USE_TTS else None,
     )
     generator = ctx.generator
+    registry_provider_id = ctx.video.provider_model.provider_id
+    model_name = ctx.video.backend_model
+    supported_durations: list[int] = list(ctx.video.supported_durations)
+    resolution = ctx.video.resolution
 
     storyboard_file, end_image = resolve_storyboard_video_inputs(
         project_path=project_path,
@@ -1208,6 +1212,9 @@ async def execute_video_task(
             storyboard_image=storyboard_file,
             end_frame_image=end_image,
             aspect_ratio=aspect_ratio,
+            provider_id=registry_provider_id,
+            model_id=model_name,
+            resolution=resolution,
             content_mode=content_mode,
             utterances=item.get("utterances") if content_mode == "drama" else None,
             voice_characters=(None if ctx.video.is_silent else project.get("characters"))
@@ -1247,11 +1254,6 @@ async def execute_video_task(
     # （用「项目默认 model 的能力」误判「实际调用的 model」）。能力不可解析时 supported_durations
     # 留空，守卫遇空列表放行（不更坏，见 ADR-0002）。解析/构造失败已在 resolve_generation_context
     # 内原样上抛整次任务失败，不再有硬编码 provider/model 静默兜底。
-    registry_provider_id = ctx.video.provider_model.provider_id
-    model_name = ctx.video.backend_model
-    supported_durations: list[int] = list(ctx.video.supported_durations)
-    resolution = ctx.video.resolution
-
     # duration 解析收口于执行层：payload > project.default_duration > caps 默认。
     # 用 ``is not None`` 而非 ``or`` 取 payload 值，避免显式 falsy 值被当作未设置。
     duration_seconds = payload.get("duration_seconds")

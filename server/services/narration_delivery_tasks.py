@@ -342,6 +342,7 @@ async def prepare_current_storyboard_narrated_video_duration(
 
     resolver = ConfigResolver(async_session_factory)
     candidate = await ConfigReferenceCapabilityProjection(resolver).resolve_candidate(project, capability)
+    request_resolution = await resolver.resolve_resolution(project, candidate.provider_id, candidate.model_id)
     planned = planned_duration_seconds
     if planned is None:
         configured = project.get("default_duration")
@@ -372,6 +373,9 @@ async def prepare_current_storyboard_narrated_video_duration(
         resource_id=preparation.unit_id,
         item=item,
         prompt=visual_prompt,
+        provider_id=candidate.provider_id,
+        model_id=candidate.model_id,
+        resolution=request_resolution,
         content_mode=resolve_content_mode(script, project),
         is_silent=not candidate.has_audio_track or not candidate.requested_generate_audio,
     )
@@ -507,6 +511,9 @@ def _storyboard_visual_basis_digest(
     resource_id: str,
     item: dict[str, Any],
     prompt: object,
+    provider_id: str,
+    model_id: str,
+    resolution: str | None,
     content_mode: str,
     is_silent: bool,
 ) -> str | None:
@@ -521,6 +528,9 @@ def _storyboard_visual_basis_digest(
             storyboard_image=storyboard_file,
             end_frame_image=end_frame_file,
             aspect_ratio=resolve_video_aspect_ratio(project),
+            provider_id=provider_id,
+            model_id=model_id,
+            resolution=resolution,
             content_mode=content_mode,
             utterances=item.get("utterances") if content_mode == "drama" else None,
             voice_characters=(None if is_silent else project.get("characters")) if content_mode == "drama" else None,

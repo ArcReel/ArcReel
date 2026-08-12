@@ -53,6 +53,9 @@ def build_storyboard_video_visual_basis(
     storyboard_image: Path,
     end_frame_image: Path | None,
     aspect_ratio: object,
+    provider_id: str,
+    model_id: str,
+    resolution: str | None,
     content_mode: str,
     utterances: object,
     voice_characters: object,
@@ -67,6 +70,11 @@ def build_storyboard_video_visual_basis(
         semantics={
             "prompt": prompt,
             "aspect_ratio": aspect_ratio,
+            "request_context": {
+                "provider_id": provider_id,
+                "model_id": model_id,
+                "resolution": resolution,
+            },
             "content_mode": content_mode,
             "utterances": utterances,
             "voice_characters": voice_characters,
