@@ -19,7 +19,6 @@ subject_reference（reference_images[0]→{"type":"character","image":[...]}）�
 
 from __future__ import annotations
 
-import base64
 import logging
 from pathlib import Path
 from typing import Any
@@ -63,6 +62,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     download_video,
     poll_with_retry,
+    reference_audio_to_data_uri,
     should_retry_download,
     should_retry_poll,
     should_retry_submit,
@@ -161,28 +161,6 @@ def _safe_body_for_log(body: dict) -> dict:
 def _image_content_item(data_uri: str, *, role: str) -> dict[str, Any]:
     """图片 data URI → v2 content[] 条目。"""
     return {"type": "image_url", "image_url": {"url": data_uri}, "role": role}
-
-
-def _reference_audio_to_data_uri(path: Path, *, model: str) -> str:
-    """参考音频 → base64 data URI；格式不受支持或文件不可读一律抛错。
-
-    与参考图的处理同为 fail-loud：prompt 里的「音频N」按 content 数组中音频条目的出现顺序
-    编号，跳过一段会让其后所有编号整体前移，把某个角色的音色安到另一个角色头上——错得无声
-    无息，且照常扣费。
-    """
-    mime = _REFERENCE_AUDIO_MIME_TYPES.get(path.suffix.lower())
-    if mime is None:
-        raise VideoCapabilityError(
-            "video_reference_audio_format_unsupported",
-            model=model,
-            name=path.name,
-            supported=", ".join(sorted(_REFERENCE_AUDIO_MIME_TYPES)),
-        )
-    try:
-        raw = path.read_bytes()
-    except OSError as exc:
-        raise VideoCapabilityError("video_reference_audio_unreadable", model=model, names=path.name) from exc
-    return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
 
 
 class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
@@ -386,7 +364,11 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
             content.append(
                 {
                     "type": "audio_url",
-                    "audio_url": {"url": _reference_audio_to_data_uri(Path(audio_path), model=self._model)},
+                    "audio_url": {
+                        "url": reference_audio_to_data_uri(
+                            Path(audio_path), model=self._model, mime_types=_REFERENCE_AUDIO_MIME_TYPES
+                        )
+                    },
                     "role": "reference_audio",
                 }
             )

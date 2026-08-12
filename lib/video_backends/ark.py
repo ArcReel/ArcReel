@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 import re
 from pathlib import Path
@@ -25,6 +24,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     download_video,
     poll_with_retry,
+    reference_audio_to_data_uri,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,8 +59,8 @@ def _safe_create_params_for_log(create_params: dict[str, Any]) -> dict[str, Any]
 
     content 里的图片与音频都是 base64 data URI。``format_kwargs_for_log`` 只截断长字符串、
     不认识这层结构，直接交给它会把每个素材的 base64 前缀写进 info 日志（音频还可能带上
-    mp3 文件头的 ID3 元数据）。dashscope / vidu / minimax 三家均已各有同名的安全视图并在
-    注释里点明对齐 CodeQL clear-text-logging，Ark 此前是唯一漏网的一家。
+    mp3 文件头的 ID3 元数据）。dashscope / vidu / minimax 三家各有同名的安全视图，同为
+    对齐 CodeQL clear-text-logging。
 
     prompt 是用户文本、不是素材，仍按 ``format_kwargs_for_log`` 的既有截断规则输出，
     以保留排查生成效果时最常用的那一项。
@@ -79,28 +79,6 @@ def _safe_create_params_for_log(create_params: dict[str, Any]) -> dict[str, Any]
         if isinstance(prompt, str):
             view["prompt"] = prompt
     return view
-
-
-def _reference_audio_to_data_uri(path: Path, *, model: str) -> str:
-    """参考音频 → base64 data URI；格式不受支持或文件不可读一律抛错。
-
-    与参考图的「缺失即跳过」不同，音频不能静默跳过：prompt 里的「音频N」按 content 数组中
-    音频条目的出现顺序编号，跳过一段会让其后所有编号整体前移，把某个角色的音色安到另一个
-    角色头上——错得无声无息，且照常扣费。
-    """
-    mime = _REFERENCE_AUDIO_MIME_TYPES.get(path.suffix.lower())
-    if mime is None:
-        raise VideoCapabilityError(
-            "video_reference_audio_format_unsupported",
-            model=model,
-            name=path.name,
-            supported=", ".join(sorted(_REFERENCE_AUDIO_MIME_TYPES)),
-        )
-    try:
-        raw = path.read_bytes()
-    except OSError as exc:
-        raise VideoCapabilityError("video_reference_audio_unreadable", model=model, names=path.name) from exc
-    return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
 
 
 class ArkVideoBackend(ProviderJobIdPersistenceMixin):
@@ -378,7 +356,11 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                 content.append(
                     {
                         "type": "audio_url",
-                        "audio_url": {"url": _reference_audio_to_data_uri(Path(audio_path), model=self._model)},
+                        "audio_url": {
+                            "url": reference_audio_to_data_uri(
+                                Path(audio_path), model=self._model, mime_types=_REFERENCE_AUDIO_MIME_TYPES
+                            )
+                        },
                         "role": "reference_audio",
                     }
                 )
