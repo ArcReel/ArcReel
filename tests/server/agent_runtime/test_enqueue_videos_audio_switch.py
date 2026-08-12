@@ -134,7 +134,6 @@ class TestReferenceRouteGate:
             units=units,
             skip_ids={"E1U4"},
             spec_for=_unit_spec,
-            ad_shots_for=None,
         )
         assert sorted(seen) == ["i2v", "r2v"]
 
@@ -155,7 +154,6 @@ class TestReferenceRouteGate:
             units=[{"unit_id": "E1U1", "references": []}],
             skip_ids=set(),
             spec_for=_reject,
-            ad_shots_for=None,
         )
         assert called is False
 

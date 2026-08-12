@@ -11,12 +11,14 @@ import pytest
 
 from lib.reference_video.errors import MissingReferenceError
 from lib.reference_video.voice_settings import VoiceRenderSettings
+from lib.script_models import ReferenceResource
 from server.services.reference_video_tasks import (
     FALLBACK_UNIT_DURATION,
     ProjectDurationContext,
     _apply_provider_constraints,
+    _clamp_resolved_reference_images,
     _render_unit_prompt,
-    _resolve_ad_unit_reference_entries,
+    _resolve_unit_reference_entries,
     _resolve_unit_references,
     default_unit_duration,
     effective_reference_durations,
@@ -167,6 +169,85 @@ def test_resolve_unit_references_maps_sheets(tmp_path: Path):
 
 
 @pytest.mark.unit
+def test_product_references_expand_to_sheet_and_originals_then_clamp_sheets_first(tmp_path: Path):
+    """产品是一条逻辑引用、多张请求图片；超限时各产品 sheet 跨产品优先存活。"""
+    proj_dir = _write_project(tmp_path)
+    project, _unit = _load_project_and_unit(proj_dir, "E1U1")
+    products_dir = proj_dir / "products"
+    refs_dir = products_dir / "refs"
+    refs_dir.mkdir(parents=True)
+    image = (proj_dir / "characters" / "张三.png").read_bytes()
+    for filename in ("甲-sheet.png", "甲-original.png", "乙-sheet.png", "乙-original.png"):
+        target_dir = refs_dir if "original" in filename else products_dir
+        (target_dir / filename).write_bytes(image)
+    project["products"] = {
+        "产品甲": {
+            "product_sheet": "products/甲-sheet.png",
+            "reference_images": ["products/refs/甲-original.png"],
+        },
+        "产品乙": {
+            "product_sheet": "products/乙-sheet.png",
+            "reference_images": ["products/refs/乙-original.png"],
+        },
+    }
+    entries = _resolve_unit_reference_entries(
+        project,
+        proj_dir,
+        [
+            {"type": "character", "name": "张三"},
+            {"type": "product", "name": "产品甲"},
+            {"type": "product", "name": "产品乙"},
+        ],
+    )
+
+    assert [entry.path.name for entry in entries] == [
+        "甲-sheet.png",
+        "甲-original.png",
+        "乙-sheet.png",
+        "乙-original.png",
+        "张三.png",
+    ]
+    clamped, warnings = _clamp_resolved_reference_images(
+        entries,
+        2,
+        provider="custom-openai",
+        model="video-model",
+    )
+    assert [entry.path.name for entry in clamped] == ["甲-sheet.png", "乙-sheet.png"]
+    assert warnings == [
+        {
+            "key": "ref_too_many_images",
+            "params": {"count": 5, "model": "video-model", "max_count": 2},
+        }
+    ]
+
+
+@pytest.mark.unit
+def test_product_reference_with_original_only_is_executable(tmp_path: Path):
+    """尚无标准 sheet 的产品仍以实拍原图作为保真锚点，不被误判为缺图。"""
+    proj_dir = _write_project(tmp_path)
+    project, _unit = _load_project_and_unit(proj_dir, "E1U1")
+    refs_dir = proj_dir / "products" / "refs"
+    refs_dir.mkdir(parents=True)
+    (refs_dir / "original.png").write_bytes((proj_dir / "characters" / "张三.png").read_bytes())
+    project["products"] = {
+        "产品甲": {
+            "product_sheet": "",
+            "reference_images": ["products/refs/original.png"],
+        }
+    }
+
+    entries = _resolve_unit_reference_entries(
+        project,
+        proj_dir,
+        [{"type": "product", "name": "产品甲"}],
+    )
+
+    assert [entry.path.name for entry in entries] == ["original.png"]
+    assert entries[0].kind == "original"
+
+
+@pytest.mark.unit
 def test_resolve_unit_references_missing_sheet_raises(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
     project, unit = _load_project_and_unit(proj_dir, "E1U1")
@@ -239,77 +320,6 @@ def test_resolve_unit_references_dedupes_nfc_nfd_pair(tmp_path: Path):
     assert [p.name for p in resolved] == ["hieu.png"]
 
 
-@pytest.mark.integration
-def test_resolve_ad_unit_reference_entries_dedupes_nfc_nfd_pair(tmp_path: Path):
-    """同一 ad unit 内两个镜头以不同编码形式引用同一角色：归一化查找会把两条都解析到同一张
-    图，_resolve_ad_unit_reference_entries 须按归一形式去重为一条，否则同一张参考图占两个
-    槽位。"""
-    import unicodedata
-
-    proj_dir = _write_project(tmp_path)
-    project, _ = _load_project_and_unit(proj_dir, "E1U1")
-    name_nfc = unicodedata.normalize("NFC", "Hiếu")
-    name_nfd = unicodedata.normalize("NFD", "Hiếu")
-    assert name_nfc != name_nfd
-    project["characters"][name_nfd] = {"description": "x", "character_sheet": "characters/hieu.png"}
-    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-
-    refs = [
-        {"type": "character", "name": name_nfc},
-        {"type": "character", "name": name_nfd},
-    ]
-    entries, warnings = _resolve_ad_unit_reference_entries(project, proj_dir, refs)
-    assert [e["image"].name for e in entries] == ["hieu.png"]
-    assert warnings == []
-
-
-@pytest.mark.integration
-def test_resolve_ad_unit_reference_entries_nfd_reference_hits_nfc_registered_asset(tmp_path: Path):
-    """镜头以 NFD 形式引用、资产表按 NFC 登记：解析须命中该资产的 sheet 而非软跳过，且条目的
-    name/label 写归一形式——下游按名字判等（第一段主体绑定、参考音频图号对齐）才落在同一坐标系。"""
-    import unicodedata
-
-    proj_dir = _write_project(tmp_path)
-    project, _ = _load_project_and_unit(proj_dir, "E1U1")
-    name_nfc = unicodedata.normalize("NFC", "Hiếu")
-    name_nfd = unicodedata.normalize("NFD", "Hiếu")
-    assert name_nfc != name_nfd
-    project["characters"][name_nfc] = {"description": "x", "character_sheet": "characters/hieu.png"}
-    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-
-    refs = [{"type": "character", "name": name_nfd}]
-    entries, warnings = _resolve_ad_unit_reference_entries(project, proj_dir, refs)
-
-    assert warnings == []
-    assert [e["image"].name for e in entries] == ["hieu.png"]
-    assert entries[0]["name"] == name_nfc
-    assert name_nfc in entries[0]["label"] and name_nfd not in entries[0]["label"]
-
-
-@pytest.mark.integration
-def test_resolve_ad_unit_reference_entries_no_false_positive_warning_for_nfd_product(tmp_path: Path):
-    """产品参考在 unit.references 中以 NFD 编码出现且 sheet 存在：collect_product_references_for_names
-    返回的 entries["name"] 已归一为 NFC，membership 检查须同样归一后再比较产品名是否成功注入，
-    否则原始 NFD 名永远命中不了归一后的集合，误报 ref_ad_reference_skipped。"""
-    import unicodedata
-
-    proj_dir = _write_project(tmp_path)
-    project, _ = _load_project_and_unit(proj_dir, "E1U1")
-    name_nfd = unicodedata.normalize("NFD", "Hiếu")
-    project["products"] = {name_nfd: {"description": "x", "product_sheet": "products/hieu.png"}}
-    (proj_dir / "products").mkdir()
-    (proj_dir / "products" / "hieu.png").write_bytes(
-        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
-        b"\x08\x02\x00\x00\x00&\x93\t)\x00\x00\x00\x13IDATx\x9cc<\x91b\xc4\x00"
-        b"\x03Lp\x16^\x0e\x00E\xf6\x01f\xac\xf5\x15\xfa\x00\x00\x00\x00IEND\xaeB`\x82"
-    )
-
-    refs = [{"type": "product", "name": name_nfd}]
-    entries, warnings = _resolve_ad_unit_reference_entries(project, proj_dir, refs)
-    assert [e["image"].name for e in entries] == ["hieu.png"]
-    assert warnings == []
-
-
 @pytest.mark.unit
 def test_render_unit_prompt_rejects_empty_shots():
     """执行层保留一道防御性空检查：提示词源是可变 script、执行期重读，结构校验上移到
@@ -352,6 +362,26 @@ def test_render_unit_prompt_binds_subjects_in_reference_order():
     assert "@张三" not in rendered.prompt
     # [图N] 对照表已废除
     assert "[图1]" not in rendered.prompt
+
+
+@pytest.mark.unit
+def test_render_unit_prompt_binds_all_product_images_and_adds_fidelity_guard():
+    unit = {
+        "shots": [{"text": "镜头1：@[产品甲] 出现在画面中央"}],
+        "references": [{"type": "product", "name": "产品甲"}],
+    }
+    rendered = _render_unit_prompt(
+        unit,
+        {"products": {"产品甲": {}}},
+        VoiceRenderSettings(model_id="m", audio_ready=set()),
+        request_references=[
+            ReferenceResource(type="product", name="产品甲"),
+            ReferenceResource(type="product", name="产品甲"),
+        ],
+    )
+
+    assert "<产品甲>@图片1、<产品甲>@图片2。" in rendered.prompt
+    assert "产品高保真还原（最高优先级" in rendered.prompt
 
 
 @pytest.mark.unit
@@ -530,42 +560,9 @@ def test_precheck_unit_is_pure_and_matches_slot_semantics(
         "duration_seconds": total_seconds,
         "references": [{"type": "character", "name": "张三"}] if with_references else [],
     }
-    slot = precheck_unit(ctx, unit, None)
+    slot = precheck_unit(ctx, unit)
     assert slot.seconds == expected_seconds
     assert slot.adjustment == expected_adjustment
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("ad_shots", "expected_seconds"),
-    [
-        # 索引缓存声明有参考、成员镜头已被清空 → 按不带图的全集取档（8 秒是档位成员，原样通过）
-        ([{"shot_id": "E1S01", "duration_seconds": 8}], 8),
-        # 索引缓存为空、成员镜头带产品参考 → 按带图收窄后的档位取档（720p 带图仅 8 秒）
-        ([{"shot_id": "E1S01", "duration_seconds": 8, "products_in_shot": ["口红"]}], 8),
-    ],
-)
-def test_precheck_unit_ad_tiers_follow_member_shots_not_index_cache(ad_shots, expected_seconds):
-    """ad 取档的「是否带参考图」以成员镜头为准，与同一调用点的定桶同源。
-
-    否则缓存与镜头相反时会出现「按 r2v 模型解析能力、按 i2v 档位取档」，弹出错误的时长
-    确认、并让费用估算与执行期时长对不上。
-    """
-    ctx = ProjectDurationContext(
-        supported_durations=(4, 6, 8),
-        resolution="720p",
-        provider_id="gemini-aistudio",
-        model_name="veo-3.1-generate-preview",
-    )
-    has_shot_refs = bool(ad_shots[0].get("products_in_shot"))
-    # 缓存一律与镜头相反：判据若误读缓存，收窄结果会与断言不符
-    unit = {"shot_ids": ["E1S01"], "references": [] if has_shot_refs else [{"type": "character", "name": "张三"}]}
-    slot = precheck_unit(ctx, unit, ad_shots)
-    assert slot.seconds == expected_seconds
-    # 不带图时 5 秒会被上调到 6（全集），带图时只剩 8 秒——用一个非档位成员的申请值区分两条路径
-    short_unit = {**unit, "shot_ids": ["E1S01"]}
-    short_shots = [{**ad_shots[0], "duration_seconds": 5}]
-    assert precheck_unit(ctx, short_unit, short_shots).seconds == (8 if has_shot_refs else 6)
 
 
 @pytest.mark.unit
@@ -617,7 +614,7 @@ def test_precheck_unit_unconstrained_when_context_has_no_durations():
     """能力不可解析（ctx.supported_durations 为空）时原样透传，沿用现状放行不弹确认。"""
     ctx = ProjectDurationContext(supported_durations=(), resolution=None, provider_id="", model_name=None)
     unit = {"duration_seconds": 7, "references": []}
-    slot = precheck_unit(ctx, unit, None)
+    slot = precheck_unit(ctx, unit)
     assert slot.seconds == 7
     assert slot.adjustment == "unconstrained"
     assert slot.needs_confirmation is False
@@ -828,87 +825,6 @@ async def test_execute_reference_video_task_bucket_follows_resolved_references(
     await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
 
     assert captured["video"].capability == expected_capability
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_execute_reference_video_task_ad_bucket_follows_resolved_not_declared(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """ad 声明了参考但资产全缺图 → 软跳过后实际参考为空，按 i2v 定桶。
-
-    与清空声明的用例互补：这里镜头声明了参考，只有按**解析结果**定桶才会得到 i2v——
-    若实现回退成按声明判定，该 unit 会被送进拒空参考的 r2v 桶模型，正是分流要消除的失败。
-    """
-    proj_dir = _write_project(tmp_path)
-
-    project_path = proj_dir / "project.json"
-    project = json.loads(project_path.read_text(encoding="utf-8"))
-    project["content_mode"] = "ad"
-    # 声明保留、盘上无图：软口径跳过后 source_refs 为空
-    project["scenes"]["酒馆"]["scene_sheet"] = "scenes/不存在.png"
-    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-
-    script_path = proj_dir / "scripts" / "episode_1.json"
-    script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["content_mode"] = "ad"
-    script["shots"] = [
-        {
-            "shot_id": "S1",
-            "duration_seconds": 3,
-            "scenes": ["酒馆"],
-            "image_prompt": {"scene": "产品置于木桌上"},
-            "video_prompt": {"action": "镜头缓推"},
-        }
-    ]
-    script["reference_units"] = [
-        {
-            "unit_id": "E1U1",
-            "shot_ids": ["S1"],
-            "references": [{"type": "scene", "name": "酒馆"}],
-        }
-    ]
-    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
-
-    from server.services import reference_video_tasks as rvt
-
-    fake_pm = MagicMock()
-    fake_pm.load_project.return_value = json.loads(project_path.read_text(encoding="utf-8"))
-    fake_pm.get_project_path.return_value = proj_dir
-    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
-    _wire_locked_script(fake_pm)
-    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
-
-    async def _fake_generate_video_async(**kwargs):
-        out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
-        return out, 1, None, None
-
-    fake_generator = MagicMock()
-    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
-    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
-    _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
-
-    captured: dict = {}
-    inner = rvt.resolve_generation_context
-
-    async def _capture(*args, **kwargs):
-        captured["video"] = kwargs.get("video")
-        return await inner(*args, **kwargs)
-
-    monkeypatch.setattr(rvt, "resolve_generation_context", _capture)
-
-    async def _fake_extract(*_a, **_k):
-        return True
-
-    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
-
-    await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
-
-    assert captured["video"].capability == "i2v"
-    call_kwargs = fake_generator.generate_video_async.await_args.kwargs
-    assert call_kwargs.get("reference_images") in (None, [])
 
 
 @pytest.mark.unit
@@ -1142,8 +1058,8 @@ async def test_execute_reference_video_task_aligns_reference_audio_targets_for_p
 
     # 李四没有参考图（纯画外），降级不绑定：只剩张三一段音频
     assert [p.name for p in captured["reference_audio_files"]] == ["张三.wav"]
-    # 张三在 references 里的 0-based 下标是 1（酒馆占 0）
-    assert captured["reference_audio_targets"] == [1]
+    # 统一引用顺序按产品→角色→场景→道具排列，张三因此位于 0-based 下标 0。
+    assert captured["reference_audio_targets"] == [0]
 
 
 @pytest.mark.unit
@@ -2205,59 +2121,14 @@ def test_apply_unit_video_assets_stamps_video_generated_at():
 
 
 @pytest.mark.unit
-def test_apply_unit_video_assets_writes_source_signature_for_ad_units():
-    """写回 ad unit 产物时缺省按剧本现算来源签名，并剥除历史剧本残留的 stale 键。"""
-    from lib.reference_video.ad_units import ad_unit_source_signature
+def test_apply_unit_video_assets_preserves_legacy_source_signature_without_reading_it():
+    """遗留来源签名只是历史资产键；生成写回应原样保留，不能再新增、比较或清理它。"""
     from server.services.reference_video_tasks import apply_unit_video_assets
 
-    script = {
-        "shots": [{"shot_id": "E1S1", "products_in_shot": ["按摩仪"]}],
-        "reference_units": [
-            {
-                "unit_id": "E1U1",
-                "shot_ids": ["E1S1"],
-                "references": [{"type": "product", "name": "按摩仪"}],
-                "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
-                "stale": True,
-            }
-        ],
-    }
-    written = apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
-    unit = script["reference_units"][0]
-    assert "stale" not in unit
-    assert unit["generated_assets"]["status"] == "completed"
-    assert written == ad_unit_source_signature(script, unit)
-    assert unit["generated_assets"]["source_signature"] == written
-
-
-@pytest.mark.unit
-def test_apply_unit_video_assets_explicit_signature_and_clear():
-    """签名显式传入即原样落盘（生成 finalize 的执行期快照）；传 None 清除（版本还原无档案）。"""
-    from server.services.reference_video_tasks import apply_unit_video_assets
-
-    script = {
-        "shots": [{"shot_id": "E1S1"}],
-        "reference_units": [{"unit_id": "E1U1", "shot_ids": ["E1S1"], "references": [], "generated_assets": {}}],
-    }
-    written = apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None, source_signature="abc123")
-    ga = script["reference_units"][0]["generated_assets"]
-    assert written == "abc123"
-    assert ga["source_signature"] == "abc123"
-
-    cleared = apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None, source_signature=None)
-    assert cleared is None
-    assert "source_signature" not in ga
-
-
-@pytest.mark.unit
-def test_apply_unit_video_assets_video_units_carry_no_signature():
-    """narration/drama 的 video_units 条目不承载来源签名。"""
-    from server.services.reference_video_tasks import apply_unit_video_assets
-
-    script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {}}]}
+    script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {"source_signature": "legacy"}}]}
     written = apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
     assert written is None
-    assert "source_signature" not in script["video_units"][0]["generated_assets"]
+    assert script["video_units"][0]["generated_assets"]["source_signature"] == "legacy"
 
 
 @pytest.mark.unit

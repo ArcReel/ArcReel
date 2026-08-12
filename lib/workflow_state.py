@@ -27,7 +27,6 @@ from lib.episode_ledger import (
 )
 from lib.path_safety import safe_exists
 from lib.project_manager import ProjectManager
-from lib.reference_video.ad_units import ad_stale_unit_ids
 from lib.script_models import get_generated_assets
 from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
@@ -476,8 +475,13 @@ class WorkflowStateService:
             seen_ids.add(resource_id)
             duration = item.get("duration_seconds")
             duration_max = 300 if kind == "video_units" else 60
-            if duration is not None and (
-                isinstance(duration, bool) or not isinstance(duration, int) or not 1 <= duration <= duration_max
+            replan_shell = (
+                kind == "video_units" and item.get("needs_replan") is True and item.get("shots") == [] and duration == 0
+            )
+            if (
+                duration is not None
+                and not replan_shell
+                and (isinstance(duration, bool) or not isinstance(duration, int) or not 1 <= duration <= duration_max)
             ):
                 blockers.append(
                     WorkflowBlocker(
@@ -505,84 +509,6 @@ class WorkflowStateService:
         return {"state": "current", "path": path}, raw_items, kind, script
 
     @staticmethod
-    def _ad_reference_videos(
-        project_path: Path,
-        script: dict[str, Any],
-        blockers: list[WorkflowBlocker],
-    ) -> dict[str, Any]:
-        collection: dict[str, Any] = _empty_collection()
-        raw_units = script.get("reference_units")
-        if raw_units is None or raw_units == []:
-            return {"state": "missing", **collection}
-        if not isinstance(raw_units, list):
-            blockers.append(
-                WorkflowBlocker(
-                    code="invalid_reference_units",
-                    path="reference_units",
-                    reason="reference_units must be an array",
-                )
-            )
-            return {"state": "blocked", **collection}
-
-        stale_ids = set(ad_stale_unit_ids(script, raw_units))
-        invalid = False
-        valid_shot_ids = {
-            shot.get("shot_id")
-            for shot in script.get("shots", [])
-            if isinstance(shot, dict) and isinstance(shot.get("shot_id"), str)
-        }
-        member_counts = {shot_id: 0 for shot_id in valid_shot_ids}
-        has_dangling_members = False
-        seen_unit_ids: set[str] = set()
-        for index, unit in enumerate(raw_units):
-            unit_id = unit.get("unit_id") if isinstance(unit, dict) else None
-            shot_ids = unit.get("shot_ids") if isinstance(unit, dict) else None
-            references = unit.get("references") if isinstance(unit, dict) else None
-            if (
-                not isinstance(unit_id, str)
-                or not unit_id
-                or unit_id in seen_unit_ids
-                or not isinstance(shot_ids, list)
-                or not shot_ids
-                or (references is not None and not isinstance(references, list))
-            ):
-                blockers.append(
-                    WorkflowBlocker(
-                        code="invalid_reference_unit",
-                        path=f"reference_units[{index}]",
-                        reason="reference units must be named objects",
-                    )
-                )
-                invalid = True
-                continue
-            seen_unit_ids.add(unit_id)
-            for shot_id in shot_ids:
-                if isinstance(shot_id, str) and shot_id in member_counts:
-                    member_counts[shot_id] += 1
-                else:
-                    has_dangling_members = True
-            video_path = get_generated_assets(unit).get("video_clip")
-            if not isinstance(video_path, str) or not safe_exists(project_path, video_path):
-                collection["missing_ids"].append(unit_id)
-            elif unit_id in stale_ids:
-                collection["stale_ids"].append(unit_id)
-            else:
-                collection["current_ids"].append(unit_id)
-
-        membership_is_current = (
-            not has_dangling_members and bool(valid_shot_ids) and all(count == 1 for count in member_counts.values())
-        )
-        if invalid:
-            state = "blocked"
-        elif collection["stale_ids"] or not membership_is_current:
-            state = "stale"
-        elif collection["missing_ids"] or not collection["current_ids"]:
-            state = "missing"
-        else:
-            state = "current"
-        return {"state": state, **collection}
-
-    @staticmethod
     def _media_collection(
         project_path: Path,
         items: list[dict[str, Any]],
@@ -596,6 +522,9 @@ class WorkflowStateService:
         for item in items:
             resource_id = item.get(id_field)
             if not isinstance(resource_id, str) or not resource_id:
+                continue
+            if kind == "video_units" and item.get("needs_replan") is True:
+                collection["stale_ids"].append(resource_id)
                 continue
             artifact_path = get_generated_assets(item).get(field)
             if isinstance(artifact_path, str) and safe_exists(project_path, artifact_path):
@@ -941,11 +870,7 @@ class WorkflowStateService:
                             if generation_mode == "storyboard"
                             else _not_applicable_collection()
                         )
-                        artifacts["videos"] = (
-                            self._ad_reference_videos(project_path, script, blockers)
-                            if mode == "ad" and generation_mode == "reference_video"
-                            else self._media_collection(project_path, items, kind, "video_clip")
-                        )
+                        artifacts["videos"] = self._media_collection(project_path, items, kind, "video_clip")
                         artifacts["audio"] = (
                             self._media_collection(project_path, items, kind, "narration_audio")
                             if mode == "narration" and generation_mode == "storyboard"
@@ -963,16 +888,17 @@ class WorkflowStateService:
                                 args={"episode": target.episode},
                                 ids=missing,
                             )
-                        elif (
-                            artifacts["videos"]["missing_ids"]
-                            or artifacts["videos"]["stale_ids"]
-                            or (
-                                mode == "ad"
-                                and generation_mode == "reference_video"
-                                and artifacts["videos"].get("state") != "current"
+                        elif artifacts["videos"]["stale_ids"]:
+                            stale = artifacts["videos"]["stale_ids"]
+                            state = "VIDEO"
+                            next_action = _action(
+                                "repair_video_units",
+                                "video units need replanning before generation",
+                                args={"episode": target.episode},
+                                ids=stale,
                             )
-                        ):
-                            missing = artifacts["videos"]["missing_ids"] + artifacts["videos"]["stale_ids"]
+                        elif artifacts["videos"]["missing_ids"]:
+                            missing = artifacts["videos"]["missing_ids"]
                             state = "VIDEO"
                             next_action = _action(
                                 "generate_videos",

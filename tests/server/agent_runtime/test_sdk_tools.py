@@ -1372,7 +1372,7 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
-    def fake_precheck(ctx, unit, ad_shots):
+    def fake_precheck(ctx, unit):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
@@ -1384,9 +1384,13 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
     async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
+    async def fake_active_tasks(**_kwargs):
+        return []
+
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
     monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    monkeypatch.setattr(mod, "get_active_tasks_for_resources", fake_active_tasks)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
@@ -1409,7 +1413,7 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
-    def fake_precheck(ctx, unit, ad_shots):
+    def fake_precheck(ctx, unit):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
@@ -1453,7 +1457,7 @@ async def test_generate_video_episode_reference_duration_repeat_without_confirm_
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
-    def fake_precheck(ctx, unit, ad_shots):
+    def fake_precheck(ctx, unit):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
@@ -1488,7 +1492,7 @@ async def test_generate_video_episode_reference_duration_exact_enqueues_directly
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
-    def fake_precheck(ctx, unit, ad_shots):
+    def fake_precheck(ctx, unit):
         return DurationSlot(seconds=5, total_seconds=5, adjustment=EXACT)
 
     enqueued: list[Any] = []
@@ -1543,7 +1547,7 @@ async def test_generate_video_episode_reference_duration_skips_unit_without_shot
 
     precheck_calls: list[str] = []
 
-    def fake_precheck(ctx, unit, ad_shots):
+    def fake_precheck(ctx, unit):
         precheck_calls.append(unit["unit_id"])
         return DurationSlot(seconds=5, total_seconds=5, adjustment=EXACT)
 
@@ -1707,14 +1711,14 @@ async def test_generate_video_episode_reference_skips_duration_context_when_prom
 async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
     ad_reference_ctx: ToolContext, monkeypatch
 ) -> None:
-    """ad 参考直出走同一条确认闸门，且预检拿到的是水合后的成员镜头（ad_shots 非空）。"""
+    """ad 参考直出走同一条 unit 时长确认闸门。"""
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    seen_ad_shots: list[Any] = []
+    seen_units: list[dict[str, Any]] = []
 
-    def fake_precheck(ctx, unit, ad_shots):
-        seen_ad_shots.append(ad_shots)
+    def fake_precheck(ctx, unit):
+        seen_units.append(unit)
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
@@ -1735,27 +1739,23 @@ async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
 
     assert out.get("is_error") is not True, out
     assert enqueued == []
-    assert seen_ad_shots and seen_ad_shots[0]
+    assert [unit["unit_id"] for unit in seen_units] == ["E1U1"]
 
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
     ("make_tool", "extra_args"),
     [
-        (generate_video_scene_tool, {"scene_id": "E1S01"}),
+        (generate_video_scene_tool, {"scene_id": "E1U1"}),
         (generate_video_all_tool, {}),
-        (generate_video_selected_tool, {"scene_ids": ["E1S01"]}),
+        (generate_video_selected_tool, {"scene_ids": ["E1U1"]}),
     ],
     ids=["scene", "all", "selected"],
 )
 async def test_generate_video_reference_duration_confirmation_across_entries(
     fake_ctx: ToolContext, monkeypatch, make_tool, extra_args: dict[str, Any]
 ) -> None:
-    """四个入口在 reference 路径下共用同一条确认闸门：未确认不入队、确认后入队。
-
-    确认文本必须保留本次已产生的 log——scene / selected 的「scene_id 被忽略，转整集生成」
-    正是靠它告诉用户，他同意的是整集而非所选的那个 scene。
-    """
+    """reference 路径的整集与点名入口共用确认闸门：未确认不入队、确认后入队。"""
     from lib.generation_queue_client import BatchTaskResult
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
@@ -1763,7 +1763,7 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
-    def fake_precheck(ctx, unit, ad_shots):
+    def fake_precheck(ctx, unit):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
@@ -1785,9 +1785,13 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
+    async def fake_active_tasks(**_kwargs):
+        return []
+
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
     monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    monkeypatch.setattr(mod, "get_active_tasks_for_resources", fake_active_tasks)
 
     tool_obj = make_tool(fake_ctx)
     pending = await _call(tool_obj, {"script": "episode_1.json", **extra_args})
@@ -1796,8 +1800,6 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     assert enqueued == []
     text = pending["content"][0]["text"]
     assert "confirm_duration" in text
-    if make_tool is not generate_video_all_tool:
-        assert "转整集生成" in text
 
     confirmed = await _call(tool_obj, {"script": "episode_1.json", **extra_args, "confirm_duration": True})
 
@@ -3238,36 +3240,24 @@ async def test_reset_episode_planning_requires_from_episode(fake_ctx: ToolContex
 
 
 # ---------------------------------------------------------------------------
-# enqueue_videos — ad + reference_video（派生分组直出）
+# enqueue_videos — ad + reference_video（统一 video_units）
 # ---------------------------------------------------------------------------
 
 
-def _ad_shot(shot_id: str, duration: int, **overrides: Any) -> dict[str, Any]:
-    base: dict[str, Any] = {
-        "shot_id": shot_id,
-        "section": "hook",
-        "duration_seconds": duration,
-        "voiceover_text": "口播",
-        "products_in_shot": [],
-        "image_prompt": {
-            "scene": f"{shot_id} 画面",
-            "composition": {"shot_type": "Close-up", "lighting": "自然光", "ambiance": "明亮"},
-        },
-        "video_prompt": {
-            "action": f"{shot_id} 动作",
-            "camera_motion": "Static",
-            "ambiance_audio": "",
-            "dialogue": [],
-        },
+def _ad_reference_unit(**overrides: Any) -> dict[str, Any]:
+    unit: dict[str, Any] = {
+        "unit_id": "E1U1",
+        "duration_seconds": 5,
+        "shots": [{"text": "镜头1：@[保温杯] 置于桌面"}],
+        "references": [{"type": "product", "name": "保温杯"}],
+        "generated_assets": {},
     }
-    base.update(overrides)
-    return base
+    unit.update(overrides)
+    return unit
 
 
 @pytest.fixture
 def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> ToolContext:
-    from contextlib import contextmanager
-
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     pm = fake_ctx.pm
@@ -3276,6 +3266,7 @@ def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> 
             "content_mode": "ad",
             "generation_mode": "reference_video",
             "style": "明亮写实",
+            "products": {"保温杯": {"description": "主推产品"}},
             "episodes": [{"episode": 1, "title": "短片", "script_file": "scripts/episode_1.json"}],
         }
     )
@@ -3283,546 +3274,198 @@ def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> 
         "content_mode": "ad",
         "episode": 1,
         "title": "短片",
-        "shots": [
-            _ad_shot("E1S1", 3, products_in_shot=["保温杯"]),
-            _ad_shot("E1S2", 2),
-        ],
+        "video_units": [_ad_reference_unit()],
     }
-
-    @contextmanager
-    def _locked(_name: str, _filename: str, **_kw: Any):
-        yield pm.script_payload  # type: ignore[attr-defined]
-
-    pm.locked_script = _locked  # type: ignore[attr-defined]
-
-    async def _fake_max_duration(_project: dict[str, Any], _episode: int | None = None) -> int | None:
-        return 15
 
     async def _fake_no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
         return []
 
-    monkeypatch.setattr(mod, "resolve_max_unit_duration", _fake_max_duration)
+    async def _allow_audio_switch(_project: dict[str, Any], _capability: str) -> None:
+        return None
+
     monkeypatch.setattr(mod, "get_active_tasks_for_resources", _fake_no_active_tasks)
+    monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow_audio_switch)
     return fake_ctx
 
 
-@pytest.mark.unit
-async def test_generate_video_episode_ad_reference_derives_and_enqueues(
-    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """ad + reference_video：自动派生分组、持久化索引、按 unit 入队 reference_video 任务。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    enqueued: list[Any] = []
-
+def _successful_reference_batch(ctx: ToolContext, enqueued: list[Any]):
     async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None):
         from lib.generation_queue_client import BatchTaskResult
 
+        successes: list[BatchTaskResult] = []
         for spec in specs:
             enqueued.append(spec)
-            out = ad_reference_ctx.project_path / "reference_videos" / f"{spec.resource_id}.mp4"
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(b"\x00")
-            br = BatchTaskResult(
+            output = ctx.project_path / "reference_videos" / f"{spec.resource_id}.mp4"
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"\x00")
+            result = BatchTaskResult(
                 resource_id=spec.resource_id,
                 task_id="t1",
                 status="succeeded",
                 result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
             )
+            successes.append(result)
             if on_success:
-                on_success(br)
-        return [], []
-
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
-
-    tool_obj = generate_video_episode_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
-
-    assert out.get("is_error") is not True, out
-    assert [s.resource_id for s in enqueued] == ["E1U1"]
-    assert enqueued[0].task_type == "reference_video"
-    # 派生索引持久化进剧本
-    script = ad_reference_ctx.pm.script_payload  # type: ignore[attr-defined]
-    assert script["reference_units"][0]["shot_ids"] == ["E1S1", "E1S2"]
-    assert script["reference_units"][0]["references"][0] == {"type": "product", "name": "保温杯"}
-
-
-@pytest.mark.unit
-async def test_generate_video_episode_ad_reference_keeps_stale_unit_and_reports(
-    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """成片偏离当前编排的 unit 保留成片指针并按现有产物跳过，stale 清单透出到工具输出。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    pm = ad_reference_ctx.pm
-    # 产物签名来自旧编排（仅 E1S1）；当前 shots 派生出的 E1U1 含 E1S1+E1S2 → 读时判 stale
-    pm.script_payload["reference_units"] = [  # type: ignore[attr-defined]
-        {
-            "unit_id": "E1U1",
-            "shot_ids": ["E1S1"],
-            "references": [{"type": "product", "name": "保温杯"}],
-            "generated_assets": {
-                "video_clip": "reference_videos/E1U1.mp4",
-                "status": "completed",
-                "source_signature": "signature-of-old-orchestration",
-            },
-        }
-    ]
-    existing = ad_reference_ctx.project_path / "reference_videos" / "E1U1.mp4"
-    existing.parent.mkdir(parents=True, exist_ok=True)
-    existing.write_bytes(b"\x00")
-
-    enqueued: list[Any] = []
-
-    async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None):
-        enqueued.extend(specs)
-        return [], []
-
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
-
-    tool_obj = generate_video_episode_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
-
-    assert out.get("is_error") is not True, out
-    # 剧本变更不作废产物：既有成片按现行产物复用，不自动重生成
-    assert enqueued == []
-    script = pm.script_payload  # type: ignore[attr-defined]
-    assert script["reference_units"][0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
-    # stale 是读时派生属性，剧本条目不落盘
-    assert "stale" not in script["reference_units"][0]
-    text = out["content"][0]["text"]
-    assert "stale" in text
-    assert "E1U1" in text
-
-
-@pytest.mark.unit
-async def test_generate_video_episode_ad_reference_skips_unchanged_unit_with_output(
-    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """成员与参考集未变且产物在盘的 unit 按已完成跳过，不重复入队。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    pm = ad_reference_ctx.pm
-    pm.script_payload["reference_units"] = [  # type: ignore[attr-defined]
-        {
-            "unit_id": "E1U1",
-            "shot_ids": ["E1S1", "E1S2"],
-            "references": [{"type": "product", "name": "保温杯"}],
-            "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
-        }
-    ]
-    done = ad_reference_ctx.project_path / "reference_videos" / "E1U1.mp4"
-    done.parent.mkdir(parents=True, exist_ok=True)
-    done.write_bytes(b"\x00")
-
-    enqueued: list[Any] = []
-
-    async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None):
-        enqueued.extend(specs)
-        return [], []
-
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
-
-    tool_obj = generate_video_episode_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
-
-    assert out.get("is_error") is not True, out
-    assert enqueued == []
-
-
-@pytest.mark.unit
-async def test_generate_video_all_ad_reference_falls_through_to_episode(
-    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None):
-        from lib.generation_queue_client import BatchTaskResult
-
-        for spec in specs:
-            if on_success:
-                on_success(
-                    BatchTaskResult(
-                        resource_id=spec.resource_id,
-                        task_id="t1",
-                        status="succeeded",
-                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
-                    )
-                )
-        return [], []
-
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
-
-    tool_obj = generate_video_all_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
-
-    assert out.get("is_error") is not True, out
-
-
-# ---------------------------------------------------------------------------
-# ad 参考直出：点名 unit 重新生成
-# ---------------------------------------------------------------------------
-
-
-def _existing_ad_unit(
-    ctx: ToolContext, *, shot_ids: list[str], signature: str | None = "signature-of-old-orchestration"
-) -> dict[str, Any]:
-    """一个已有成片（文件也在盘）的分组索引条目；``signature`` 为 None 表示存量无签名产物。"""
-    assets: dict[str, Any] = {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"}
-    if signature is not None:
-        assets["source_signature"] = signature
-    out = ctx.project_path / "reference_videos" / "E1U1.mp4"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(b"\x00")
-    return {
-        "unit_id": "E1U1",
-        "shot_ids": shot_ids,
-        "references": [{"type": "product", "name": "保温杯"}],
-        "generated_assets": assets,
-    }
-
-
-def _ad_batch(ctx: ToolContext, enqueued: list[Any], *, refresh_signature: bool = True, fail: bool = False):
-    """``batch_enqueue_and_wait`` 替身：记录 spec，成功时按 finalize 的写点更新索引条目。"""
-
-    async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None):
-        from lib.generation_queue_client import BatchTaskResult
-        from lib.reference_video.ad_units import ad_unit_source_signature
-
-        script = ctx.pm.script_payload  # type: ignore[attr-defined]
-        by_id = {u["unit_id"]: u for u in script.get("reference_units") or []}
-        successes: list[Any] = []
-        failures: list[Any] = []
-        for spec in specs:
-            enqueued.append(spec)
-            if fail:
-                br = BatchTaskResult(
-                    resource_id=spec.resource_id, task_id="t1", status="failed", error="供应商拒绝：额度不足"
-                )
-                failures.append(br)
-                if on_failure:
-                    on_failure(br)
-                continue
-            out = ctx.project_path / "reference_videos" / f"{spec.resource_id}.mp4"
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(b"\x01")
-            unit = by_id.get(spec.resource_id)
-            if unit is not None:
-                assets = unit.setdefault("generated_assets", {})
-                assets["video_clip"] = f"reference_videos/{spec.resource_id}.mp4"
-                assets["status"] = "completed"
-                if refresh_signature:
-                    assets["source_signature"] = ad_unit_source_signature(script, unit)
-            br = BatchTaskResult(
-                resource_id=spec.resource_id,
-                task_id="t1",
-                status="succeeded",
-                result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
-            )
-            successes.append(br)
-            if on_success:
-                on_success(br)
-        return successes, failures
+                on_success(result)
+        return successes, []
 
     return fake_batch
 
 
-@pytest.mark.unit
-async def test_generate_video_selected_ad_regenerates_named_stale_unit(
+@pytest.mark.integration
+async def test_generate_video_episode_reference_skips_malformed_unit_entries(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """点名 stale unit：不复用既有成片、照常入队，且不重新派生分组索引。"""
+    """脏 unit 元素交给逐条校验跳过，不在完成扫描、音频闸门或时长预检中断整批。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    pm = ad_reference_ctx.pm
-    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
-
+    valid = ad_reference_ctx.pm.script_payload["video_units"][0]  # type: ignore[attr-defined]
+    ad_reference_ctx.pm.script_payload["video_units"] = ["bad", {}, valid]  # type: ignore[attr-defined]
     enqueued: list[Any] = []
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, enqueued))
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _successful_reference_batch(ad_reference_ctx, enqueued))
 
-    tool_obj = generate_video_selected_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
+    out = await _call(
+        generate_video_episode_tool(ad_reference_ctx),
+        {"script": "episode_1.json", "confirm_duration": True},
+    )
 
     assert out.get("is_error") is not True, out
-    assert [s.resource_id for s in enqueued] == ["E1U1"]
-    # 分组不重新派生：索引仍是点名时的成员集，prompt 也只含该成员镜头
-    script = pm.script_payload  # type: ignore[attr-defined]
-    assert script["reference_units"][0]["shot_ids"] == ["E1S1"]
-    assert "E1S2" not in enqueued[0].payload["prompt"]
-    # finalize 落新签名后不再偏离，工具不再报 stale
-    assert "stale" not in out["content"][0]["text"]
+    assert [spec.resource_id for spec in enqueued] == ["E1U1"]
+    assert "入队校验未通过" in out["content"][0]["text"]
 
 
-@pytest.mark.unit
-async def test_generate_video_scene_ad_regenerates_named_unit(
+@pytest.mark.integration
+async def test_generate_video_episode_ad_reference_enqueues_existing_video_units(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """单 unit 入口同样点名生效，不再退化成整集生成。"""
+    """广告参考路线直接消费自包含 video_units，不派生或写入 reference_units。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    pm = ad_reference_ctx.pm
-    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
 
     enqueued: list[Any] = []
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, enqueued))
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _successful_reference_batch(ad_reference_ctx, enqueued))
 
-    tool_obj = generate_video_scene_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1U1"})
+    out = await _call(
+        generate_video_episode_tool(ad_reference_ctx),
+        {"script": "episode_1.json", "confirm_duration": True},
+    )
 
     assert out.get("is_error") is not True, out
-    assert [s.resource_id for s in enqueued] == ["E1U1"]
-    assert "转整集生成" not in out["content"][0]["text"]
+    assert [spec.resource_id for spec in enqueued] == ["E1U1"]
+    script = ad_reference_ctx.pm.script_payload  # type: ignore[attr-defined]
+    assert [unit["unit_id"] for unit in script["video_units"]] == ["E1U1"]
+    assert "reference_units" not in script
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_ad_reference_does_not_claim_orphan_file(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """同名文件没有 generated_assets 归属时仍须入队，不能把孤儿文件报告为成功。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    orphan = ad_reference_ctx.project_path / "reference_videos/E1U1.mp4"
+    orphan.parent.mkdir(parents=True, exist_ok=True)
+    orphan.write_bytes(b"orphan")
+    enqueued: list[Any] = []
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _successful_reference_batch(ad_reference_ctx, enqueued))
+
+    out = await _call(
+        generate_video_episode_tool(ad_reference_ctx),
+        {"script": "episode_1.json", "confirm_duration": True},
+    )
+
+    assert out.get("is_error") is not True, out
+    assert [spec.resource_id for spec in enqueued] == ["E1U1"]
 
 
 @pytest.mark.unit
-async def test_generate_video_selected_ad_rejects_unit_with_active_task(
+async def test_generate_video_episode_ad_reference_replan_shell_cannot_enqueue(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """点名撞上同一 unit 的在途任务：拒绝入队并说明在途状态，不新建任务、不静默沿用。"""
+    """迁移保留的 needs_replan 空壳可被读取，但不能提交生成任务。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    pm = ad_reference_ctx.pm
-    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
-
-    async def _fake_active(**_kwargs: Any) -> list[dict[str, Any]]:
-        return [{"task_id": "t-inflight", "resource_id": "E1U1", "status": "running"}]
-
-    monkeypatch.setattr(mod, "get_active_tasks_for_resources", _fake_active)
-
+    ad_reference_ctx.pm.script_payload["video_units"] = [  # type: ignore[attr-defined]
+        _ad_reference_unit(
+            shots=[],
+            references=[],
+            duration_seconds=0,
+            needs_replan=True,
+            generated_assets={"source_signature": "legacy"},
+        )
+    ]
     called = False
 
-    async def fail_if_called(*args: Any, **kwargs: Any):
+    async def _fail_if_enqueued(*args: Any, **kwargs: Any):
         nonlocal called
         called = True
-        raise AssertionError("不应在拒绝路径上入队任何任务")
+        raise AssertionError("needs_replan shell must not enqueue")
 
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fail_if_called)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fail_if_enqueued)
 
-    tool_obj = generate_video_selected_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
+    out = await _call(
+        generate_video_episode_tool(ad_reference_ctx),
+        {"script": "episode_1.json", "confirm_duration": True},
+    )
 
-    assert out["is_error"] is True
-    text = out["content"][0]["text"]
-    assert "E1U1" in text
-    assert "running" in text
+    assert out.get("is_error") is True
+    assert "E1U1" in out["content"][0]["text"]
     assert not called
 
 
 @pytest.mark.unit
-async def test_generate_video_scene_ad_rejects_unit_with_active_task(
+async def test_generate_video_episode_ad_reference_replan_unit_cannot_reuse_owned_clip(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """单 unit 入口同样拒绝：撞上在途任务不静默沿用。"""
+    """迁移保留的已归属视频不能绕过 needs_replan 生成闸门。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    pm = ad_reference_ctx.pm
-    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
+    ad_reference_ctx.pm.script_payload["video_units"] = [  # type: ignore[attr-defined]
+        _ad_reference_unit(
+            needs_replan=True,
+            migration_requires_content_replan=True,
+            generated_assets={"video_clip": "reference_videos/E1U1.mp4"},
+        )
+    ]
+    owned = ad_reference_ctx.project_path / "reference_videos/E1U1.mp4"
+    owned.parent.mkdir(parents=True, exist_ok=True)
+    owned.write_bytes(b"legacy")
+    called = False
 
-    async def _fake_active(**_kwargs: Any) -> list[dict[str, Any]]:
-        return [{"task_id": "t-inflight", "resource_id": "E1U1", "status": "queued"}]
+    async def _fail_if_enqueued(*args: Any, **kwargs: Any):
+        nonlocal called
+        called = True
+        raise AssertionError("needs_replan unit must not enqueue")
 
-    monkeypatch.setattr(mod, "get_active_tasks_for_resources", _fake_active)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fail_if_enqueued)
 
-    tool_obj = generate_video_scene_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1U1"})
+    out = await _call(
+        generate_video_episode_tool(ad_reference_ctx),
+        {"script": "episode_1.json", "confirm_duration": True},
+    )
 
-    assert out["is_error"] is True
+    assert out.get("is_error") is True
     assert "E1U1" in out["content"][0]["text"]
+    assert not called
 
 
-@pytest.mark.unit
-async def test_generate_video_selected_ad_reports_structure_before_active_task(
+@pytest.mark.integration
+async def test_generate_video_selected_ad_reference_regenerates_named_unit(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """结构不合法的 unit 同时有在途任务时报结构问题，不报「请等待」——等完也依然生成不了。"""
+    """广告点名重做沿用统一 video_unit 路径。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    pm = ad_reference_ctx.pm
-    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S404"])]  # type: ignore[attr-defined]
-
-    probed = False
-
-    async def _fake_active(**_kwargs: Any) -> list[dict[str, Any]]:
-        nonlocal probed
-        probed = True
-        return [{"task_id": "t-inflight", "resource_id": "E1U1", "status": "running"}]
-
-    monkeypatch.setattr(mod, "get_active_tasks_for_resources", _fake_active)
-
-    tool_obj = generate_video_selected_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
-
-    assert out["is_error"] is True
-    text = out["content"][0]["text"]
-    assert "无法生成" in text
-    assert "请等待" not in text
-    assert not probed
-
-
-@pytest.mark.unit
-async def test_generate_video_selected_ad_forces_non_stale_unit(
-    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """非 stale 的 unit 被点名时同样重新生成——点名即强制，不按现有产物复用。"""
-    from lib.reference_video.ad_units import ad_unit_source_signature
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    pm = ad_reference_ctx.pm
-    unit = _existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1", "E1S2"], signature=None)
-    pm.script_payload["reference_units"] = [unit]  # type: ignore[attr-defined]
-    unit["generated_assets"]["source_signature"] = ad_unit_source_signature(pm.script_payload, unit)  # type: ignore[attr-defined]
 
     enqueued: list[Any] = []
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, enqueued))
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _successful_reference_batch(ad_reference_ctx, enqueued))
 
-    tool_obj = generate_video_selected_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
-
-    assert out.get("is_error") is not True, out
-    assert [s.resource_id for s in enqueued] == ["E1U1"]
-
-
-@pytest.mark.unit
-async def test_generate_video_selected_ad_keeps_episode_checkpoint(
-    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """点名重新生成不落 checkpoint，也不清掉整集生成留下的断点。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    pm = ad_reference_ctx.pm
-    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
-    ckpt = ad_reference_ctx.project_path / "videos" / ".checkpoint_ep1.json"
-    ckpt.parent.mkdir(parents=True, exist_ok=True)
-    ckpt.write_text(json.dumps({"completed_scenes": ["E1U9"]}), encoding="utf-8")
-
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, []))
-
-    tool_obj = generate_video_selected_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"], "resume": True})
+    out = await _call(
+        generate_video_selected_tool(ad_reference_ctx),
+        {"script": "episode_1.json", "scene_ids": ["E1U1"], "confirm_duration": True},
+    )
 
     assert out.get("is_error") is not True, out
-    assert json.loads(ckpt.read_text(encoding="utf-8"))["completed_scenes"] == ["E1U9"]
-    # resume 对点名重新生成无意义，照单收下再无视会让调用方以为断点还在
-    assert "resume 已忽略" in out["content"][0]["text"]
-
-
-@pytest.mark.unit
-async def test_generate_video_selected_ad_unknown_unit_ids_error(ad_reference_ctx: ToolContext) -> None:
-    """全部点名 ID 都不在索引里：报错并带上索引现有的 unit_id。"""
-    pm = ad_reference_ctx.pm
-    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
-
-    tool_obj = generate_video_selected_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U7"]})
-
-    assert out["is_error"] is True
-    text = out["content"][0]["text"]
-    assert "E1U7" in text
-    assert "E1U1" in text
-
-
-@pytest.mark.unit
-async def test_generate_video_selected_ad_skips_unknown_and_generates_rest(
-    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """部分点名 ID 无效时生成其余 unit，被跳过的 ID 写进输出供智能体转述。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    pm = ad_reference_ctx.pm
-    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
-
-    enqueued: list[Any] = []
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, enqueued))
-
-    tool_obj = generate_video_selected_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1", "E1U7"]})
-
-    assert out.get("is_error") is not True, out
-    assert [s.resource_id for s in enqueued] == ["E1U1"]
-    assert "E1U7" in out["content"][0]["text"]
-
-
-@pytest.mark.unit
-async def test_generate_video_selected_ad_dangling_index_fails_loud(ad_reference_ctx: ToolContext) -> None:
-    """点名 unit 的成员镜头已被删：报出重新派生分组的指引，不静默跳过。"""
-    pm = ad_reference_ctx.pm
-    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S9"])]  # type: ignore[attr-defined]
-
-    tool_obj = generate_video_selected_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
-
-    assert out["is_error"] is True
-    text = out["content"][0]["text"]
-    assert "E1U1" in text
-    assert "重新派生分组" in text
-
-
-@pytest.mark.unit
-async def test_generate_video_selected_ad_reports_failure_reason(
-    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """生成失败时供应商给的原因随工具输出回到智能体手上。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    pm = ad_reference_ctx.pm
-    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
-
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, [], fail=True))
-
-    tool_obj = generate_video_selected_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
-
-    assert out["is_error"] is True
-    assert "额度不足" in out["content"][0]["text"]
-
-
-@pytest.mark.unit
-async def test_generate_video_selected_ad_reports_residual_staleness(
-    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """产物没带上新签名时仍判 stale，工具明说而不是让智能体宣布角标已消失。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    pm = ad_reference_ctx.pm
-    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
-
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _ad_batch(ad_reference_ctx, [], refresh_signature=False))
-
-    tool_obj = generate_video_selected_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
-
-    assert out.get("is_error") is not True, out
-    text = out["content"][0]["text"]
-    assert "stale" in text
-    assert "E1U1" in text
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("mutated_index", [[], {"E1U1": {"unit_id": "E1U1"}}], ids=["vanished", "malformed"])
-async def test_generate_video_selected_ad_recheck_without_coverage_says_so(
-    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch, mutated_index: Any
-) -> None:
-    """复核覆盖不到点名 unit 时报「无法复核」，不把空集合当成「未偏离」宣布干净。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    pm = ad_reference_ctx.pm
-    pm.script_payload["reference_units"] = [_existing_ad_unit(ad_reference_ctx, shot_ids=["E1S1"])]  # type: ignore[attr-defined]
-
-    inner = _ad_batch(ad_reference_ctx, [])
-
-    async def fake_batch(**kwargs: Any):
-        result = await inner(**kwargs)
-        # 生成落盘后索引被并发重新派生：点名的 ID 消失 / 容器被写成非数组
-        pm.script_payload["reference_units"] = mutated_index  # type: ignore[attr-defined]
-        return result
-
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
-
-    tool_obj = generate_video_selected_tool(ad_reference_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["E1U1"]})
-
-    assert out.get("is_error") is not True, out
-    assert "无法复核" in out["content"][0]["text"]
+    assert [spec.resource_id for spec in enqueued] == ["E1U1"]
 
 
 # ---------------------------------------------------------------------------

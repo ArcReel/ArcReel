@@ -158,12 +158,13 @@ export function ReferenceVideoCard({
 
   const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
     const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {
+      product: project?.products,
       character: project?.characters,
       scene: project?.scenes,
       prop: project?.props,
     };
     const out = {} as Record<AssetKind, MentionCandidate[]>;
-    for (const kind of ["character", "scene", "prop"] as const) {
+    for (const kind of ["product", "character", "scene", "prop"] as const) {
       const bucket = buckets[kind];
       out[kind] = Object.entries(bucket ?? {}).map(([name, data]) => ({
         name,
@@ -171,7 +172,7 @@ export function ReferenceVideoCard({
       }));
     }
     return out;
-  }, [project?.characters, project?.scenes, project?.props]);
+  }, [project?.products, project?.characters, project?.scenes, project?.props]);
 
   const updatePickerFromCursor = useCallback((nextValue: string, cursor: number) => {
     // 向左扫描寻找 @ 触发符。旧格式只允许 `\w` + CJK 作为正在输入的 query；

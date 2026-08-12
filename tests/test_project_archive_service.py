@@ -375,6 +375,42 @@ class TestProjectArchiveService:
         assert (pm.get_project_path(result.project_name) / "project.json").exists()
 
     @pytest.mark.unit
+    def test_import_rejects_reference_unit_with_more_than_four_shots(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        project = pm.load_project("demo")
+        project["content_mode"] = "ad"
+        project["generation_mode"] = "reference_video"
+        pm.save_project("demo", project)
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "ad",
+                "video_units": [
+                    {
+                        "unit_id": "E1U1",
+                        "shots": [{"text": f"镜头{i}"} for i in range(1, 6)],
+                        "references": [],
+                        "duration_seconds": 7,
+                        "generated_assets": {"status": "pending"},
+                    }
+                ],
+            },
+        )
+        archive_path = tmp_path / "too-many-unit-shots.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="too-many-unit-shots.zip")
+
+        assert any("shots 含 5 个条目，最多允许 4 个" in error for error in exc_info.value.render_errors())
+
+    @pytest.mark.unit
     def test_import_legacy_v1_archive_runs_migration(self, tmp_path):
         """启动后导入的旧归档（schema_version=1 + legacy image_backend）在导入入口走完整迁移链。"""
         import json as _json
@@ -432,7 +468,7 @@ class TestProjectArchiveService:
         installed_dir = pm.get_project_path(result.project_name)
         installed = json.loads((installed_dir / "project.json").read_text(encoding="utf-8"))
         migrated_script = json.loads((installed_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
-        assert installed["schema_version"] == 6
+        assert installed["schema_version"] == 7
         assert list(installed["characters"]) == ["Hero"]
         assert list(installed["scenes"]) == ["Hero_scene"]
         assert migrated_script["segments"][0]["scenes"] == ["Hero_scene"]

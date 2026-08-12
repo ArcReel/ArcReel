@@ -34,8 +34,8 @@ async def video_bucket_for_queued_task(
 ) -> VideoCapability | None:
     """视频任务的定桶口径，入队派生与 worker 限流投影共用、与执行侧同步（docs/adr/0054）。
 
-    图生视频 / 宫格 → i2v；参考生视频按 unit 的参考集分流（ad 从成员镜头现算，其余按
-    unit 声明）——无参考图的退化镜头降级 → i2v，其余 → r2v。剧本 / unit 读不到时回退代表桶 r2v：这只影响 claim 池过滤与限流槽
+    图生视频 / 宫格 → i2v；参考生视频按自包含 unit 的参考集分流——无参考图的退化镜头
+    降级 → i2v，其余 → r2v。剧本 / unit 读不到时回退代表桶 r2v：这只影响 claim 池过滤与限流槽
     路由的精度，执行层会按解析后的实际参考图独立精确定桶。表外任务类型返回 None（不定桶）。
     """
     from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE, get_project_manager
@@ -52,24 +52,10 @@ async def video_bucket_for_queued_task(
     except Exception:
         logger.debug("reference_video 定桶读取剧本失败，回退 %s 桶", fallback, exc_info=True)
         return fallback
-    is_ad = (project or {}).get("content_mode") == "ad"
-    unit = find_reference_unit(script, str(resource_id), is_ad=is_ad)
+    unit = find_reference_unit(script, str(resource_id))
     if unit is None:
         return fallback
-    if not is_ad:
-        return reference_unit_video_bucket(unit)
-    # ad 的参考集从成员镜头现算（与执行侧同源），索引里的 references 只是展示缓存；
-    # 索引悬空（ValueError）或索引结构被裸写坏（如 shot_ids 写成布尔值，遍历抛 TypeError）
-    # 时，按「读不到 unit」同处置回退代表桶：成员镜头无从水合也就无从定桶，而定桶只影响
-    # claim 池过滤与限流槽路由的精度，不该让一次入队整体失败——与上方读剧本失败同口径。
-    from lib.reference_video.ad_units import resolve_ad_unit_shots
-
-    try:
-        ad_shots = resolve_ad_unit_shots(script, unit)
-    except Exception:
-        logger.debug("reference_video 定桶水合成员镜头失败，回退 %s 桶", fallback, exc_info=True)
-        return fallback
-    return reference_unit_video_bucket(unit, ad_shots=ad_shots)
+    return reference_unit_video_bucket(unit)
 
 
 async def _derive_execution_model_for_enqueue(

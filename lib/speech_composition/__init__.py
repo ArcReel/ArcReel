@@ -243,7 +243,7 @@ def _non_character_reference_names(raw_references: object) -> set[str]:
         normalize_asset_name(name.strip())
         for reference in raw_references
         if isinstance(reference, Mapping)
-        and reference.get("type") in {"scene", "prop"}
+        and reference.get("type") in {"product", "scene", "prop"}
         and isinstance((name := reference.get("name")), str)
         and name.strip()
     }
@@ -433,6 +433,49 @@ def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
     return SpeechUnitSnapshot(normalized_unit_id, tuple(entries), tuple(problems))
 
 
+def video_unit_replan_problems(
+    unit: Mapping[str, object],
+    *,
+    ignore_marker: bool = False,
+) -> tuple[SpeechProblem, ...]:
+    """Return the shared planning blockers for a self-contained video unit.
+
+    ``ignore_marker`` is for repair flows that must evaluate the edited content without
+    letting the durable ``needs_replan`` marker make itself impossible to clear.
+    """
+    source = dict(unit)
+    if ignore_marker:
+        source.pop("needs_replan", None)
+    return SpeechComposition.prepare(adapt_video_unit(source)).problems
+
+
+def refresh_video_unit_replan_state(
+    unit: dict[str, object],
+    *,
+    allow_clear: bool = True,
+    content_changed: bool = False,
+) -> None:
+    """Refresh ``needs_replan`` after a planning edit.
+
+    ``migration_requires_content_replan`` records membership/over-capacity evidence that
+    the migrated self-contained body cannot express. Only an actual body rewrite consumes
+    that provenance; duration edits may still clear an independent invalid-duration marker.
+    """
+    if content_changed:
+        unit.pop("migration_requires_content_replan", None)
+    if unit.get("migration_requires_content_replan") is True:
+        unit["needs_replan"] = True
+        return
+    duration = unit.get("duration_seconds")
+    if not unit.get("shots") or not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
+        unit["needs_replan"] = True
+        return
+    if video_unit_replan_problems(unit, ignore_marker=True):
+        unit["needs_replan"] = True
+    elif allow_clear:
+        unit.pop("needs_replan", None)
+
+
 __all__ = [
     "SpeechComposition",
     "SpeechFieldLocation",
@@ -450,4 +493,6 @@ __all__ = [
     "adapt_drama_scene",
     "adapt_narration_segment",
     "adapt_video_unit",
+    "refresh_video_unit_replan_state",
+    "video_unit_replan_problems",
 ]

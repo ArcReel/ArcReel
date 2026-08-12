@@ -101,14 +101,16 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id 重复 '{value}'",
     "val_video_units_missing": "reference_video 脚本缺少 video_units 数组或为空",
     "val_unit_duration_range": "{prefix}: duration_seconds 必须是 {low}-{high} 之间的整数",
+    "val_unit_shots_too_many": "{prefix}: shots 含 {count} 个条目，最多允许 {max} 个",
+    "val_migration_content_replan_requires_needs_replan": (
+        "{prefix}: migration_requires_content_replan=true 时 needs_replan 必须为 true"
+    ),
     "val_reference_entry_must_be_object": "{prefix}: reference 条目必须是对象",
     "val_reference_type_invalid": "{prefix}: reference.type 无效: {value}",
     "val_reference_name_invalid": "{prefix}: reference.name 必须是非空字符串: {value}",
     "val_reference_not_in_bucket": "{prefix}: 引用的{asset_type} '{name}' 不在 project.json 对应 bucket 中",
     "val_ref_type_invalid": "{prefix}: type 无效: {value}",
     "val_ref_name_invalid": "{prefix}: name 必须是非空字符串: {value}",
-    "val_ref_unregistered_regroup": "{prefix}: 引用的{asset_type}「{name}」未注册，需重新派生分组",
-    "val_reference_units_dangling_shots": "{prefix}: 引用的镜头不存在（{ids}），需重新派生分组",
     # ---- 骨架与路线失配 ----
     "val_skeleton_noun_segments": "分镜",
     "val_skeleton_noun_scenes": "场景",

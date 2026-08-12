@@ -23,7 +23,7 @@ MESSAGES = {
     "script_data_corrupted": "Dữ liệu kịch bản bị hỏng: {reason}",
     "script_edit_error": "Xác thực chỉnh sửa kịch bản thất bại",
     "script_edit_items_not_list": "{kind} phải là một danh sách, nhưng nhận được {type_name}",
-    "script_edit_unit_lists_invalid": "video_units / reference_units phải là một danh sách",
+    "script_edit_unit_lists_invalid": "video_units phải là một danh sách",
     "script_edit_generated_assets_invalid": "generated_assets phải là một từ điển",
     "narration_mode_required": "Kịch bản này không ở chế độ thuyết minh, vui lòng dùng API cập nhật cảnh",
     "ad_mode_required": "Kịch bản này không ở chế độ quảng cáo/video ngắn, vui lòng dùng API cập nhật của chế độ tương ứng",
@@ -244,18 +244,16 @@ MESSAGES = {
     "ref_not_reference_video_mode": "Kịch bản của tập này không ở chế độ video tham chiếu",
     "ref_not_registered": "Các tài nguyên được tham chiếu chưa được đăng ký: {missing}",
     "ref_unit_not_found": "Không tìm thấy đơn vị video '{unit_id}'",
+    "ref_unit_needs_replan": "Đơn vị video này có vấn đề về người phát ngôn hoặc di chuyển; hãy lập kế hoạch lại trước khi tạo",
     "ref_unit_ids_length_mismatch": "Số lượng unit_ids không khớp với các đơn vị hiện có",
     "ref_duplicate_unit_ids": "unit_ids bị trùng lặp",
     "ref_unit_ids_mismatch": "unit_ids không khớp với các đơn vị hiện có",
     "ref_script_missing": "Tệp kịch bản gắn với tập này không tồn tại",
     "ref_script_rebound": "Liên kết kịch bản của tập này đã thay đổi, vui lòng thử lại",
-    "ref_ad_units_derived": "Các đơn vị video của dự án quảng cáo/video ngắn được tự động suy ra từ các cảnh quay, không thể chỉnh sửa thủ công; hãy chỉnh sửa cảnh quay rồi suy ra lại nhóm",
-    "ref_derive_ad_only": "Chỉ dự án quảng cáo/video ngắn mới hỗ trợ suy ra nhóm đơn vị video",
-    "ref_ad_stale_index": "Chỉ mục nhóm không còn khớp với các cảnh quay, vui lòng suy ra lại nhóm",
     "ref_ad_reference_skipped": "'{name}' ({type}) không có ảnh tham chiếu khả dụng, đã bỏ qua tham chiếu này trong lần tạo này",
     # Xem trước phân tích kịch bản phân cảnh: hiển thị các trường hợp giảm cấp
     "ref_warn_unregistered_mention": (
-        "@[{name}] chưa được đăng ký trong nhân vật/bối cảnh/đạo cụ: sẽ không kèm ảnh tham chiếu, "
+        "@[{name}] chưa được đăng ký trong sản phẩm/nhân vật/bối cảnh/đạo cụ: sẽ không kèm ảnh tham chiếu, "
         "hãy kiểm tra tên hoặc tạo tài sản trước"
     ),
     "ref_warn_unclosed_brace": (

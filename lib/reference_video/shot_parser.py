@@ -427,9 +427,9 @@ def resolve_references(
     names: list[str],
     project: dict,
 ) -> tuple[list[ReferenceResource], list[str]]:
-    """按 project.json 三 bucket 把 mention 名字分派成 ReferenceResource。
+    """按 project.json 四类资产把 mention 名字分派成 ReferenceResource。
 
-    schema v6 起项目资产共用名称空间，一个名字最多命中一个 bucket。
+    新项目资产共用名称空间；对历史重复名仍按产品→角色→场景→道具稳定决议。
 
     名字与三张资产表都先归一到比对坐标系（:func:`lib.asset_types.asset_name_comparison_key`），
     产出的 ``ReferenceResource.name`` 与 ``missing`` 因此一律是归一形式：下游拿它回查资产表、
@@ -441,6 +441,7 @@ def resolve_references(
         (refs, missing): refs 保持入参顺序；missing 是没在任何 bucket 找到的名字
     """
     buckets: dict[str, dict[str, Any]] = {
+        "product": normalize_asset_bucket(project.get(BUCKET_KEY["product"])),
         "character": normalize_asset_bucket(project.get(BUCKET_KEY["character"])),
         "scene": normalize_asset_bucket(project.get(BUCKET_KEY["scene"])),
         "prop": normalize_asset_bucket(project.get(BUCKET_KEY["prop"])),
@@ -453,11 +454,9 @@ def resolve_references(
         if name in seen:
             continue
         seen.add(name)
-        matches = [rtype for rtype, bucket in buckets.items() if name in bucket]
-        if len(matches) == 1:
-            refs.append(ReferenceResource(type=matches[0], name=name))  # type: ignore[arg-type]
-        elif not matches:
-            missing.append(name)
+        match = next((rtype for rtype, bucket in buckets.items() if name in bucket), None)
+        if match is not None:
+            refs.append(ReferenceResource(type=match, name=name))  # type: ignore[arg-type]
         else:
-            raise ValueError(f"项目资产名称空间损坏：{name!r} 同时存在于 {', '.join(matches)}")
+            missing.append(name)
     return refs, missing

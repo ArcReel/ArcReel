@@ -29,7 +29,6 @@ import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
 import { ProductsPage } from "./lorebook/ProductsPage";
 import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
-import { AdReferenceVideoCanvas } from "./reference/AdReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import { API } from "@/api";
@@ -75,6 +74,7 @@ function resolveSegmentPrompt(
   if (!resolvedFile) return null;
   const script = scripts[resolvedFile];
   if (!script) return null;
+  if ("video_units" in script) return null;
   const seg =
     script.content_mode === "narration"
       ? script.segments.find((s) => s.segment_id === segmentId)
@@ -187,8 +187,8 @@ export function StudioCanvasRouter() {
 
   // ---- Timeline action callbacks ----
   // These receive scriptFile from TimelineCanvas so they always use the active episode's script.
-  // 返回是否写入成功：本函数内部吞掉异常并转 toast，调用方（如 AdReferenceVideoCanvas
-  // 的镜头级编辑）靠返回值而非"是否抛出"判断能否清空本地草稿——不依赖此契约的调用方
+  // 返回是否写入成功：本函数内部吞掉异常并转 toast，调用方靠返回值而非
+  // "是否抛出"判断能否清空本地草稿——不依赖此契约的调用方
   // （TimelineCanvas / GridImageToVideoCanvas）按 void 用即可，多出的返回值不影响它们。
   const handleUpdatePrompt = useCallback(async (
     segmentId: string,
@@ -694,11 +694,7 @@ export function StudioCanvasRouter() {
             );
           const hasDraft =
             episode?.script_status === "segmented" || episode?.script_status === "generated";
-          // ad 剧本骨架唯一（shots[]），但两条生成路径进不同画布：storyboard 走镜头
-          // 编辑画布，reference_video 走按派生分组组织的专用画布（不提供分镜图与
-          // 逐镜头图生视频——该路径按 ADR 0033 跳过分镜步骤）。
           const isAd = currentProjectData?.content_mode === "ad";
-          const adReference = isAd && route === "reference_video";
 
           // 已选集但剧本未生成：进入切片审阅视图（narration/drama 全部生成路径——
           // reference_video 此时 units 为空，同样没有可展示内容）；ad 恒单集无源文
@@ -718,23 +714,6 @@ export function StudioCanvasRouter() {
                     episode={epNum}
                     episodes={currentProjectData?.episodes ?? []}
                   />
-                ) : adReference ? (
-                  <AdReferenceVideoCanvas
-                    // 与下方画布同理：同 epNum 跨项目不 remount 会让分组列表、
-                    // 派生态等内部 state 残留上一个项目的值。
-                    key={`${currentProjectName}::${epNum}`}
-                    projectName={currentProjectName}
-                    episode={epNum}
-                    episodeTitle={episode?.title}
-                    onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
-                    canEditTitle={Boolean(episode?.script_file)}
-                    shots={script?.content_mode === "ad" ? script.shots : []}
-                    hasScript={Boolean(script)}
-                    scriptFile={scriptFile ?? undefined}
-                    // 其余画布的演示只读靠组件内部 useDemoWorkbench() 自行收口；本画布未读取
-                    // demoMode（未提供 onUpdatePrompt 时自行降级为纯文本），故在调用点显式门控。
-                    onUpdatePrompt={demoMode ? undefined : handleUpdatePrompt}
-                  />
                 ) : route === "reference_video" ? (
                   <ReferenceVideoCanvas
                     // 同一 epNum 跨项目不 remount 会让 optimisticUnitIds / prevTaskStatusRef
@@ -748,6 +727,8 @@ export function StudioCanvasRouter() {
                     onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
                     canEditTitle={Boolean(episode?.script_file)}
                     hasScript={Boolean(script)}
+                    showPreprocess={!isAd}
+                    freeDuration={isAd}
                     // unit 时长档位随所选模型能力变化（已按本集参考图路径收窄）
                     durationOptions={durationOptions}
                     durationOptionsNoReference={durationOptionsNoReference}

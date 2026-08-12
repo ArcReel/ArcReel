@@ -29,6 +29,8 @@ export interface UnitPreviewPanelProps {
   /** Actual already-spent cost; rendered in the metadata block. */
   actualCost?: CostBreakdown;
   onGenerate?: (unitId: string) => void;
+  /** 剧本单元需重新规划，在修复前不可生成。 */
+  generationBlocked?: boolean;
   /** 上传成片视频（替换该单元的 AI 生成视频）；未提供时不显示上传入口 */
   onUploadVideo?: (unitId: string, file: File) => void | Promise<void>;
   /** 上传进行中 */
@@ -66,6 +68,7 @@ export function UnitPreviewPanel({
   estimatedCost,
   actualCost,
   onGenerate,
+  generationBlocked = false,
   onUploadVideo,
   uploadingVideo,
   restoring = false,
@@ -221,9 +224,9 @@ export function UnitPreviewPanel({
         <button
           type="button"
           onClick={() => onGenerate(unit.unit_id)}
-          disabled={inFlight || busy || restoring}
+          disabled={inFlight || busy || restoring || generationBlocked}
           className={`focus-ring inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-semibold transition-colors ${
-            inFlight || busy || restoring
+            inFlight || busy || restoring || generationBlocked
               ? "cursor-not-allowed border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.6)] text-[var(--color-text-3)]"
               : "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_14px_-4px_var(--color-accent-glow)]"
           }`}
@@ -249,6 +252,12 @@ export function UnitPreviewPanel({
             </>
           )}
         </button>
+      )}
+
+      {generationBlocked && (
+        <p role="alert" className="text-xs text-amber-300">
+          {t("reference_needs_replan")}
+        </p>
       )}
 
       <div className="rounded-lg border border-[var(--color-hairline-soft)] bg-[oklch(0.18_0.010_265_/_0.5)] p-3">

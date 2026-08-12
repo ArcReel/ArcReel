@@ -6,17 +6,19 @@
 
 import type { TransitionType } from "./script";
 
-export type AssetKind = "character" | "scene" | "prop";
+export type AssetKind = "product" | "character" | "scene" | "prop";
 
 /** Project.json sheet field for each asset kind. Mirrors lib/asset_types.py SHEET_KEY. */
-export const SHEET_FIELD: Record<AssetKind, "character_sheet" | "scene_sheet" | "prop_sheet"> = {
+export const SHEET_FIELD: Record<AssetKind, "product_sheet" | "character_sheet" | "scene_sheet" | "prop_sheet"> = {
+  product: "product_sheet",
   character: "character_sheet",
   scene: "scene_sheet",
   prop: "prop_sheet",
 };
 
 /** Project.json bucket for each asset kind. Mirrors lib/asset_types.py BUCKET_KEY. */
-export const BUCKET_FIELD: Record<AssetKind, "characters" | "scenes" | "props"> = {
+export const BUCKET_FIELD: Record<AssetKind, "products" | "characters" | "scenes" | "props"> = {
+  product: "products",
   character: "characters",
   scene: "scenes",
   prop: "props",
@@ -29,7 +31,7 @@ export interface Shot {
 
 export interface ReferenceResource {
   type: AssetKind;
-  /** Must already exist in project.json {characters|scenes|props} bucket */
+  /** Must already exist in the matching project.json asset bucket. */
   name: string;
 }
 
@@ -55,10 +57,13 @@ export interface UnitGeneratedAssets {
   grid_cell_index: number | null;
   video_clip: string | null;
   video_uri: string | null;
+  video_thumbnail?: string | null;
   /** Raw backend status — use `UnitStatus` for UI display. */
   status: UnitPersistedStatus;
   /** ISO8601 completion time; null is treated as "before any voice setting". */
   video_generated_at: string | null;
+  /** Legacy migration history only; runtime never reads or creates it. */
+  source_signature?: string | null;
 }
 
 export interface ReferenceVideoUnit {
@@ -67,11 +72,15 @@ export interface ReferenceVideoUnit {
   shots: Shot[];
   /** Ordered — position defines [图N] index in the final prompt */
   references: ReferenceResource[];
-  /** Unit duration in seconds — the single source of truth, sent to the provider as-is. */
+  /** Planning duration in seconds — provider request duration is resolved during precheck. */
   duration_seconds: number;
   transition_to_next: TransitionType;
   note: string | null;
   generated_assets: UnitGeneratedAssets;
+  /** Problem shell or mixed-speech marker; generation is blocked until repaired. */
+  needs_replan?: boolean;
+  /** Migration membership/over-capacity evidence that only a body rewrite may clear. */
+  migration_requires_content_replan?: boolean;
 }
 
 /**
@@ -110,28 +119,6 @@ export interface ScriptPreview {
   references: ReferenceResource[];
   utterances: ScriptPreviewUtterance[];
   warnings: ScriptPreviewWarning[];
-}
-
-/** ad 派生分组的参考条目：比 ReferenceResource 多 product 类型（产品绝对优先）。 */
-export interface AdUnitReference {
-  type: AssetKind | "product";
-  name: string;
-}
-
-/**
- * ad + reference_video 的派生分组索引条目——仅引用 shot_id 与参考集，
- * 不复制镜头内容（shots 是内容唯一真相）。Mirrors lib/script_models.py AdReferenceUnit。
- */
-export interface AdReferenceUnit {
-  /** Format: "E{episode}U{index}" */
-  unit_id: string;
-  /** 成员镜头 ID（连续、1-4 个），展示时对照本地剧本 shots 水合 */
-  shot_ids: string[];
-  /** 继承的参考集，产品在前 */
-  references: AdUnitReference[];
-  generated_assets?: Partial<UnitGeneratedAssets> & { video_thumbnail?: string | null };
-  /** 成片已偏离当前剧本编排（剧本编辑不作废产物）。后端读时派生注入，仅偏离时携带 */
-  stale?: boolean;
 }
 
 /**
@@ -201,7 +188,7 @@ export interface ReferenceVideoScript {
    * 内容类型——参考视频集继承项目级 narration/drama，决定画面比例等次级配置；
    * "视频来源"维度由项目的生成路线表达，不落在剧本上。
    */
-  content_mode?: "narration" | "drama";
+  content_mode?: "narration" | "drama" | "ad";
   duration_seconds: number;
   schema_version?: number;
   novel: { title: string; chapter: string };

@@ -557,18 +557,16 @@ class TestAdStatusCalculation:
 
     @pytest.mark.unit
     def test_ad_reference_path_scores_videos_by_units(self, tmp_path):
-        """ad + reference_video：视频进度按派生 unit 计，分镜仍按 shots 计（该路径恒 0）。"""
+        """ad + reference_video 与其他内容模式一样按自包含 video_units 计分。"""
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         script = {
             "content_mode": "ad",
-            "shots": [
-                {"shot_id": "E1S01", "duration_seconds": 3},
-                {"shot_id": "E1S02", "duration_seconds": 2},
-            ],
-            "reference_units": [
+            "video_units": [
                 {
                     "unit_id": "E1U1",
-                    "shot_ids": ["E1S01", "E1S02"],
+                    "shots": [{"text": "镜头1：产品特写"}],
+                    "references": [],
+                    "duration_seconds": 5,
                     "generated_assets": {"video_clip": "reference_videos/E1U1.mp4"},
                 },
             ],
@@ -578,46 +576,8 @@ class TestAdStatusCalculation:
 
         assert stats["videos"] == {"total": 1, "completed": 1}
         assert stats["status"] == "completed"
-        # 时长口径仍以 shots（内容唯一真相）求和
         assert stats["duration_seconds"] == 5
-        assert stats["scenes_count"] == 2
-
-    @pytest.mark.unit
-    def test_ad_reference_path_without_index_stays_draft(self, tmp_path):
-        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
-        script = {"content_mode": "ad", "shots": [{"shot_id": "E1S01", "duration_seconds": 3}]}
-
-        stats = calc.calculate_episode_stats("demo", script, generation_mode="reference_video")
-
-        assert stats["videos"] == {"total": 0, "completed": 0}
-        assert stats["status"] == "draft"
-
-    @pytest.mark.unit
-    def test_ad_reference_path_malformed_index_scores_as_not_derived(self, tmp_path):
-        """索引形状损坏（非数组 / 夹非 dict 条目）按未派生计分，不部分计数、不抛错。"""
-        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
-        valid_unit = {
-            "unit_id": "E1U1",
-            "shot_ids": ["E1S01"],
-            "generated_assets": {"video_clip": "reference_videos/E1U1.mp4"},
-        }
-        for malformed in (
-            "garbage",
-            {"unit_id": "E1U1"},
-            [valid_unit, "junk"],
-            [{**valid_unit, "generated_assets": "done"}],
-            [valid_unit, {"unit_id": "E1U2", "shot_ids": [], "generated_assets": ["x"]}],
-        ):
-            script = {
-                "content_mode": "ad",
-                "shots": [{"shot_id": "E1S01", "duration_seconds": 3}],
-                "reference_units": malformed,
-            }
-
-            stats = calc.calculate_episode_stats("demo", script, generation_mode="reference_video")
-
-            assert stats["videos"] == {"total": 0, "completed": 0}
-            assert stats["status"] == "draft"
+        assert stats["scenes_count"] == 1
 
     @pytest.mark.unit
     def test_ad_storyboard_path_ignores_leftover_index(self, tmp_path):
@@ -681,9 +641,8 @@ class TestAdStatusCalculation:
 
     @pytest.mark.unit
     def test_legacy_ad_script_on_reference_route_keeps_shots(self):
-        """缺 content_mode 的 ad 剧本落在参考路线项目下：ad 骨架恒 shots（含派生
-        reference_units 索引），legacy 短路不得把计分抢成空 video_units。"""
-        script = {"shots": [{"shot_id": "E1S01"}, {"shot_id": "E1S02"}], "reference_units": []}
+        """缺 content_mode 的遗留 shots 剧本仍按可见主骨架计分，不虚构 video_units。"""
+        script = {"shots": [{"shot_id": "E1S01"}, {"shot_id": "E1S02"}]}
         kind, items = StatusCalculator._select_kind_and_items(script, "reference_video")
         assert kind == "shots"
         assert len(items) == 2

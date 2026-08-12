@@ -137,7 +137,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 2. **全局角色/场景/道具提取** → dispatch `analyze-assets` subagent
 3. **分集规划** → 主 agent 调用 `mcp__arcreel__plan_episodes` 服务端工具规划一批集（账本+派生集文件由工具维护）+ 批级审阅。用户对已规划内容提出调整意见时走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning` 退回到意见中最早受影响的集（保留其前的集），再带调整后的 `instructions` 分批重新调用 `plan_episodes`。用户表达常驻分集偏好（如按章节对齐切分）时，须经 `plan_episodes` 的 `instructions` 传入，并在规划完成前**每一批调用都重复带上**（偏好不持久化）；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
 4. **单集预处理** → 按项目 `generation_mode` × `content_mode` 选（中间文件统一位于 `drafts/episode_{N}/`）：
-   - reference_video（任一 content_mode）→ `split-reference-video-units`（产出 `step1_reference_units.json`）
+   - reference_video（本内容模式）→ `split-reference-video-units`（产出 `step1_reference_units.json`）
    - storyboard + narration → `split-narration-segments`（产出 `step1_segments.json`）
    - storyboard + drama → `normalize-drama-script`（产出结构化内容 `step1_normalized_script.json`）
 5. **JSON 剧本生成** → dispatch `create-episode-script` subagent；中间文件被修改/重拆后必须重新执行本阶段

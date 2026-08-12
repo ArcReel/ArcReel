@@ -51,7 +51,6 @@ import type {
   ReferenceResource,
   TransitionType,
   AdShot,
-  AdReferenceUnit,
   ReferenceDurationPrecheck,
   ScriptPreview,
   ScriptReviewState,
@@ -2637,30 +2636,6 @@ class API {
     );
   }
 
-  // ==================== Ad Reference-to-Video（派生分组） ====================
-
-  /** ad 项目：列出已持久化的派生分组索引（未派生时为空数组）。 */
-  static async listAdReferenceUnits(
-    projectName: string,
-    episode: number,
-    options?: { signal?: AbortSignal },
-  ): Promise<{ units: AdReferenceUnit[] }> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units`,
-      { signal: options?.signal },
-    );
-  }
-
-  /** ad 项目：从 shots（重新）派生分组索引并持久化；分组可复现，仅 ad 开放。 */
-  static async deriveAdReferenceUnits(
-    projectName: string,
-    episode: number,
-  ): Promise<{ units: AdReferenceUnit[] }> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/derive-units`,
-      { method: "POST" },
-    );
-  }
 }
 
 export { API };

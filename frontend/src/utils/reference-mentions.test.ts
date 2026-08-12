@@ -132,9 +132,9 @@ describe("resolveMentionType", () => {
     expect(resolveMentionType(project, "路人")).toBeUndefined();
   });
 
-  it("does not disambiguate a corrupt duplicate namespace at runtime", () => {
+  it("uses the stable asset priority for a duplicate namespace", () => {
     const corrupt = { characters: { Shared: {} }, scenes: { Shared: {} }, props: {}, products: {} };
-    expect(resolveMentionType(corrupt as never, "Shared")).toBeUndefined();
+    expect(resolveMentionType(corrupt as never, "Shared")).toBe("character");
   });
 
   // toString / constructor / __proto__ 都通得过 validate_asset_name，用 `in` 查会命中
@@ -152,7 +152,7 @@ describe("resolveMentionType", () => {
 });
 
 describe("buildMentionLookup", () => {
-  it("normalizes keys and removes corrupt cross-bucket duplicates", () => {
+  it("normalizes keys and resolves cross-bucket duplicates by stable priority", () => {
     const lookup = buildMentionLookup({
       characters: Object.fromEntries([[" café ", {}], ["__proto__", {}]]),
       scenes: { "cafe\u0301": {} },
@@ -161,13 +161,13 @@ describe("buildMentionLookup", () => {
     } as never);
 
     expect(Object.getPrototypeOf(lookup)).toBeNull();
-    expect(Object.hasOwn(lookup, "café")).toBe(false);
+    expect(lookup["café"]).toBe("character");
     expect(lookup.__proto__).toBe("character");
     expect(lookup.toString).toBe("prop");
     expect(lookup.Product).toBe("product");
   });
 
-  it("does not select a runtime owner when a product duplicates another bucket", () => {
+  it("gives products priority when a name is present in another bucket", () => {
     const lookup = buildMentionLookup({
       characters: { Shared: {} },
       scenes: {},
@@ -175,7 +175,7 @@ describe("buildMentionLookup", () => {
       products: { Shared: {} },
     } as never);
 
-    expect(Object.hasOwn(lookup, "Shared")).toBe(false);
+    expect(lookup.Shared).toBe("product");
   });
 });
 
@@ -229,8 +229,8 @@ describe("mergeReferences", () => {
     expect(merged).toEqual([{ type: "character", name: "主角" }]);
   });
 
-  it("does not emit products into the generic reference-video schema", () => {
-    expect(mergeReferences("镜头1：@水杯 特写", [], project)).toEqual([]);
+  it("emits products into the unified reference-video schema", () => {
+    expect(mergeReferences("镜头1：@水杯 特写", [], project)).toEqual([{ type: "product", name: "水杯" }]);
   });
 
   it("deduplicates repeated mentions", () => {

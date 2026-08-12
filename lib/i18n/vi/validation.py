@@ -110,6 +110,10 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id trùng lặp '{value}'",
     "val_video_units_missing": "Kịch bản reference_video thiếu mảng video_units hoặc mảng rỗng",
     "val_unit_duration_range": "{prefix}: duration_seconds phải là số nguyên trong khoảng {low}-{high}",
+    "val_unit_shots_too_many": "{prefix}: shots có {count} mục; chỉ cho phép tối đa {max}",
+    "val_migration_content_replan_requires_needs_replan": (
+        "{prefix}: migration_requires_content_replan=true yêu cầu needs_replan=true"
+    ),
     "val_reference_entry_must_be_object": "{prefix}: mỗi mục reference phải là đối tượng",
     "val_reference_type_invalid": "{prefix}: reference.type không hợp lệ: {value}",
     "val_reference_name_invalid": "{prefix}: reference.name phải là chuỗi không rỗng: {value}",
@@ -118,10 +122,6 @@ MESSAGES = {
     ),
     "val_ref_type_invalid": "{prefix}: type không hợp lệ: {value}",
     "val_ref_name_invalid": "{prefix}: name phải là chuỗi không rỗng: {value}",
-    "val_ref_unregistered_regroup": ("{prefix}: {asset_type} “{name}” được tham chiếu chưa đăng ký; cần tạo lại nhóm"),
-    "val_reference_units_dangling_shots": (
-        "{prefix}: các cảnh quay được tham chiếu không tồn tại ({ids}); cần tạo lại nhóm"
-    ),
     # ---- khung xương và tuyến sinh video ----
     "val_skeleton_noun_segments": "phân cảnh",
     "val_skeleton_noun_scenes": "cảnh",
