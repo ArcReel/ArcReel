@@ -95,7 +95,7 @@ _DURATION_RULES: dict[tuple[str, str], list[int]] = {
     ("vidu2.0", "/reference2video"): [4],
 }
 
-# 端点支持的模型集合 —— 用于早期失败提示（依据 Vidu 官方文档 docs/vidu-docs/*）
+# 端点支持的模型集合 —— 用于早期失败提示（依据 docs/api-docs/providers/vidu.md 所列官方文档）
 _ENDPOINT_MODELS: dict[str, frozenset[str]] = {
     "/text2video": frozenset({"viduq3-turbo", "viduq3-pro", "viduq2", "viduq1"}),
     "/img2video": frozenset(

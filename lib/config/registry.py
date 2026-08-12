@@ -456,7 +456,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 ),
             ),
             # --- video ---
-            # Veo 的分辨率↔时长、参考图↔时长约束按 Gemini API 文档（docs/google-genai-docs/veo.md
+            # Veo 的分辨率↔时长、参考图↔时长约束按 Gemini API 文档（docs/api-docs/providers/gemini-aistudio.md
             # 参数表：durationSeconds 在 reference images 与 1080p/4k 下必须为 8）逐型号声明。
             # Lite 未见于该参数表，其 4k 不支持取自 AI Studio 定价页明文；两条时长约束沿用同代
             # Veo 3.1 的行为，与 backend 的执行期拒绝保持一致。

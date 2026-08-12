@@ -20,7 +20,7 @@
 
 1. 接入 Ark Seedance 2.0 的多模态参考能力（最多 9 张参考图、4-15s、支持 generate_audio）。
 2. 减少生成步骤：跳过分镜图生成环节，缩短出片路径。
-3. 支持单视频多镜头，与 Seedance 2.0 文档中的 `Shot N (Xs):` prompt 约定对齐（参见 `docs/ark-docs/seedance2.0.md`）。
+3. 支持单视频多镜头，与 Seedance 2.0 文档中的 `Shot N (Xs):` prompt 约定对齐（官方入口见 `docs/api-docs/providers/ark.md`）。
 4. 同时引入参考图压缩通道，避免 Grok 等供应商的请求体/gRPC 尺寸限制。
 
 ## 2. 范围

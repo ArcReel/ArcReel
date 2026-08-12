@@ -32,7 +32,7 @@ VIDEO_MODEL = "sora-2"
 
 # openai-video 的 delegate 不序列化 end_image（见 _check_capability_overrides 的
 # end_image_capable 门槛），last_frame 覆盖为 True 的用例须换一个真正支持尾帧的 endpoint。
-# ark-seedance 的 1.0 pro fast 系统判定 last_frame=False（docs/ark-docs/seedance2.0.md
+# ark-seedance 的 1.0 pro fast 系统判定 last_frame=False（docs/api-docs/providers/ark.md
 # 能力表标 "-"），可类比断言覆盖前后差异；不用 seedance-2 系列是因为那两系模型系统判定
 # 本身就是 True，无法体现覆盖生效前后的差异。
 LAST_FRAME_ENDPOINT = "ark-seedance"

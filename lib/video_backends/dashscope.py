@@ -4,8 +4,8 @@
 GET /tasks/{id} 至 SUCCEEDED → 下载 video_url。覆盖 happyhorse-1.0 / happyhorse-1.1
 与 wan2.7 系列的 t2v / i2v / r2v，以及单模型通吃三条路径的 wan3.0。
 
-schema 的确权程度按型号分两档：happyhorse 与 wan2.7 依据 docs/dashscope-docs/ 一手
-核实快照；wan3.0 无对应快照，其请求形态按 2.7 形状类推，出处与类推范围见 _WAN3_*
+schema 的确权程度按型号分两档：happyhorse 与 wan2.7 依据 docs/api-docs/providers/dashscope.md 所列一手
+官方文档核实；wan3.0 无可用官方页面，其请求形态按 2.7 形状类推，出处与类推范围见 _WAN3_*
 常量处的说明。
 
 注：t2v/i2v 起始帧用 media[{type:"first_frame"}]（first_frame type 在 r2v media

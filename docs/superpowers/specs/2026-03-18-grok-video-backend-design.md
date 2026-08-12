@@ -43,7 +43,7 @@ def __init__(self, *, api_key: str | None = None, model: str | None = None):
 
 1. 构建参数：prompt、aspect_ratio、duration（1-15 秒整数值，直接传入）
 2. 若有 `start_image`：读取本地文件，base64 编码为 `data:image/{ext};base64,{data}`
-3. 调用 `client.video.generate(...)`（具体参数名以 `xai_sdk` 实际 API 为准，实现时参考 `docs/grok-docs/video-generation.md`）
+3. 调用 `client.video.generate(...)`（具体参数名以 `xai_sdk` 实际 API 为准，官方入口见 `docs/api-docs/providers/grok.md`）
 4. SDK 自动处理轮询，返回结果包含临时视频 URL
 5. 用 `httpx.AsyncClient` 异步下载视频到 `output_path`
 6. 返回 `VideoGenerationResult(video_path=output_path, provider="grok", model=model, duration_seconds=...)`
@@ -95,7 +95,7 @@ elif provider_name == PROVIDER_GROK:
 
 ```python
 GROK_VIDEO_COST = {
-    "grok-imagine-video": 0.050,  # USD/秒，不区分分辨率（来源：docs/grok-docs/models.md）
+    "grok-imagine-video": 0.050,  # USD/秒，不区分分辨率（官方来源入口见 docs/api-docs/providers/grok.md）
 }
 
 def calculate_grok_video_cost(self, duration_seconds: int, model: str) -> float:

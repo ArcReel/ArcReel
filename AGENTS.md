@@ -75,7 +75,9 @@ pnpm build       # 生产构建，含 typecheck
 
 ### 供应商能力数据
 
-生成模型供应商的能力数据按字段划分真相源：视频能力位与各类上限归对应 backend（`VideoCapabilities`，与请求构造同源，见 `docs/adr/0054`）；图片能力位归 `PROVIDER_REGISTRY` 的 `ModelInfo.capabilities`（自定义供应商归 endpoint 声明）；视频音轨的两位描述（开关可控性、恒有声）不属于上述归 backend 的视频能力位，按型号声明在 `ModelInfo` 上；其余能力数字与默认 model 归 `PROVIDER_REGISTRY`，`supported_durations` 未登记即 fail loud、无隐性 fallback（见 `docs/adr/0018`；仅时长联动约束在未登记型号上有 backend 兜底常量），自定义模型改读 DB 声明。自定义供应商（`custom-` 前缀）与智能体供应商预设的其余字段（不含图片能力位）不适用上述按 `PROVIDER_REGISTRY` 划分的真相源。prompt 模板与智能体运行配置（`agent_runtime_profile/`）不硬编码具体数值，占位符由编排层注入（供应商 API 文档镜像保留原始数值）；配置界面此类字段不预填。陷阱：个别 backend（如 vidu 的执行期分辨率白名单）独立于 registry，改 registry 分辨率声明时须同步核对对应 backend，否则用户可选但 backend 不认的档位会被静默替换为兜底档位。
+生成模型供应商的能力数据按字段划分真相源：视频能力位与各类上限归对应 backend（`VideoCapabilities`，与请求构造同源，见 `docs/adr/0054`）；图片能力位归 `PROVIDER_REGISTRY` 的 `ModelInfo.capabilities`（自定义供应商归 endpoint 声明）；视频音轨的两位描述（开关可控性、恒有声）不属于上述归 backend 的视频能力位，按型号声明在 `ModelInfo` 上；其余能力数字与默认 model 归 `PROVIDER_REGISTRY`，`supported_durations` 未登记即 fail loud、无隐性 fallback（见 `docs/adr/0018`；仅时长联动约束在未登记型号上有 backend 兜底常量），自定义模型改读 DB 声明。自定义供应商（`custom-` 前缀）与智能体供应商预设的其余字段（不含图片能力位）不适用上述按 `PROVIDER_REGISTRY` 划分的真相源。prompt 模板与智能体运行配置（`agent_runtime_profile/`）不硬编码具体数值，占位符由编排层注入；配置界面此类字段不预填。陷阱：个别 backend（如 vidu 的执行期分辨率白名单）独立于 registry，改 registry 分辨率声明时须同步核对对应 backend，否则用户可选但 backend 不认的档位会被静默替换为兜底档位。
+
+修改 provider、endpoint、供应商 API 契约、能力、参数约束或计费时，先读 `docs/api-docs/AGENTS.md`，并同步对应官方文档索引。
 
 ### 内容模式 (content_mode) 与生成模式 (generation_mode)
 

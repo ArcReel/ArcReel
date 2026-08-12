@@ -11,7 +11,7 @@
 ## 参考设计
 
 - Spec: `docs/superpowers/specs/2026-04-15-reference-to-video-mode-design.md`
-- Seedance 2.0 文档: `docs/ark-docs/seedance2.0.md`
+- Seedance 2.0 官方文档入口：`docs/api-docs/providers/ark.md`
 - 前序依赖（main 已落地）：`docs/superpowers/specs/2026-04-15-global-asset-library-design.md`（clue→scene/prop 拆分 + 全局资产库）
 
 ## PR 拆分总览

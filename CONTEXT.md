@@ -205,7 +205,7 @@ _Avoid_: tts、voice_synthesis。
 _Avoid_: dub（易与影视译制混淆）、TTS 音频（太泛）。
 
 **音色（voice）**：
-TTS 供应商内置的一组预设发音人，合成请求以 `voice` 参数携带其 id（如 DashScope 的 `Cherry`、OpenAI 的 `alloy`）。各 audio backend 以 `list_voices()` 交付自己的音色目录，目录内容一律取自供应商官方文档并在 `docs/` 下留有出处快照，不凭印象填写。解析产物随 audio lane 的 `voices` 交付（值，非 backend 实例，见 `docs/adr/0049`）。
+TTS 供应商内置的一组预设发音人，合成请求以 `voice` 参数携带其 id（如 DashScope 的 `Cherry`、OpenAI 的 `alloy`）。各 audio backend 以 `list_voices()` 交付自己的音色目录，目录内容一律取自供应商官方文档并保留可追溯的官方来源链接，不凭印象填写或在仓库内保存官方文档正文副本。解析产物随 audio lane 的 `voices` 交付（值，非 backend 实例，见 `docs/adr/0049`）。
 _Avoid_: 用 voice 指代 audio 媒体类型本身；把音色与「声音复刻（voice cloning）」混为一谈——前者选供应商预设，后者用参考音频克隆。
 
 **语音试听样本（voice sample）**：

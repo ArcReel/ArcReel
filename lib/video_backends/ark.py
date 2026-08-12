@@ -135,12 +135,12 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         model_lower = model.lower()
         return "seedance-2-5" in model_lower or "seedance-2.5" in model_lower
 
-    # docs/ark-docs/seedance2.0.md 能力表中，非 seedance-2.0 系列里明确支持首尾帧的仅这三个
+    # docs/api-docs/providers/ark.md 所列官方能力表中，非 seedance-2.0 系列里明确支持首尾帧的仅这三个
     # 1.x 型号（1.0 pro fast 与 1.0 lite t2v 标 "-"，其余未上表的型号未经验证）。改用白名单
     # 而非黑名单：自定义供应商配置或上游新增的未知型号一律保守判定为不支持尾帧，避免错误声明
     # 支持而绕过本模块新增的硬拒绝——一旦放行，真实不支持的型号会照样产生供应商侧调用与扣费，
     # 与本 issue 的验收标准直接相悖。子串同时收录连字符与点号两种版本号写法（如 "1-0" /
-    # "1.0"）——上游命名不统一，docs/ark-docs/火山方舟费用参考.md 中 doubao-seedance-1.0-pro-fast
+    # "1.0"）——上游命名不统一，docs/api-docs/providers/ark.md 所列官方价格页中 doubao-seedance-1.0-pro-fast
     # 即用点号。
     _NO_FIRST_FRAME_SUBSTRINGS = ("seedance-1-0-lite-t2v", "seedance-1.0-lite-t2v")
     _LAST_FRAME_ALLOW_SUBSTRINGS = (

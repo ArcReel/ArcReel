@@ -77,4 +77,4 @@ projects/{name}/          # ← session cwd 已在此
 └── audio/                # 旁白音频（仅 narration 内容模式，首次生成时创建）
 ```
 
-> 参考 `docs/google-genai-docs/nano-banana.md` 第 365 行起的 Prompting guide and strategies。
+> 参考 [Gemini 图像生成官方指南](https://ai.google.dev/gemini-api/docs/image-generation)的 prompting strategies。
