@@ -199,7 +199,7 @@ export function AgentCopilot() {
   const allTurns = composeAllTurns(turns, draftTurn);
   const isRunning = sessionStatus === "running";
   const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
-  const attachDisabled = inputDisabled || attachedImages.length >= MAX_ATTACHED_IMAGES;
+  const attachDisabled = inputDisabled || isReadingImages || attachedImages.length >= MAX_ATTACHED_IMAGES;
   const inputPlaceholder = pendingQuestion
     ? t("answer_above_hint")
     : isRunning

@@ -21,13 +21,14 @@ export function imagePayloadToAttachment(image: ImagePayload): AttachedImage {
 }
 
 export function attachmentToImagePayload(image: AttachedImage): ImagePayload {
+  const separatorIndex = image.dataUrl.indexOf(",");
   return {
-    data: image.dataUrl.split(",")[1] ?? "",
+    data: separatorIndex >= 0 ? image.dataUrl.slice(separatorIndex + 1) : "",
     media_type: image.mimeType,
   };
 }
 
-export function useImageAttachments(initialImages: AttachedImage[] = []) {
+export function useImageAttachments(initialImages: AttachedImage[] | (() => AttachedImage[]) = []) {
   const { t } = useTranslation("dashboard");
   const [images, setImages] = useState<AttachedImage[]>(initialImages);
   const [error, setError] = useState<string | null>(null);
@@ -41,8 +42,12 @@ export function useImageAttachments(initialImages: AttachedImage[] = []) {
   const addFiles = useCallback((files: File[]) => {
     setError(null);
     const generation = generationRef.current;
-    for (const file of files) {
-      if (!file.type.startsWith("image/")) continue;
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+    const remainingCapacity = MAX_ATTACHED_IMAGES - images.length;
+    if (imageFiles.length > remainingCapacity) {
+      setError(t("max_images_hint", { count: MAX_ATTACHED_IMAGES }));
+    }
+    for (const file of imageFiles.slice(0, remainingCapacity)) {
       if (file.size > MAX_IMAGE_BYTES) {
         setError(t("image_too_large_hint", { name: file.name }));
         continue;
@@ -68,7 +73,7 @@ export function useImageAttachments(initialImages: AttachedImage[] = []) {
       reader.onabort = finishRead;
       reader.readAsDataURL(file);
     }
-  }, [t]);
+  }, [images.length, t]);
 
   const removeImage = useCallback((id: string) => {
     setImages((current) => current.filter((image) => image.id !== id));
