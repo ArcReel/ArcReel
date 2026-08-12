@@ -66,17 +66,34 @@ def build_reference_video_visual_basis(
     project: Mapping[str, object],
     unit: Mapping[str, object],
     reference_images: Sequence[Path],
+    reference_descriptors: Sequence[Mapping[str, object]] = (),
+    reference_audio_files: Sequence[Path] = (),
+    request_context: Mapping[str, object] | None = None,
 ) -> ArtifactBasis:
-    """Describe current reference-unit visual semantics and all resolved source images."""
+    """Describe the exact projected reference request and its prompt-affecting inputs."""
 
     return _build_video_visual_basis(
         "reference",
         semantics={
-            "shots": unit.get("shots"),
-            "references": unit.get("references"),
-            "style": project.get("style"),
+            "unit": {
+                "shots": unit.get("shots"),
+                "references": unit.get("references"),
+            },
+            "project": {
+                "style": project.get("style"),
+                "aspect_ratio": project.get("aspect_ratio"),
+                "products": project.get("products"),
+                "characters": project.get("characters"),
+                "scenes": project.get("scenes"),
+                "props": project.get("props"),
+            },
+            "request_references": list(reference_descriptors),
+            "request_context": dict(request_context or {}),
         },
-        files=[(f"reference_{index}", path) for index, path in enumerate(reference_images)],
+        files=[
+            *((f"reference_image_{index}", path) for index, path in enumerate(reference_images)),
+            *((f"reference_audio_{index}", path) for index, path in enumerate(reference_audio_files)),
+        ],
     )
 
 

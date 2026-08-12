@@ -457,6 +457,7 @@ def prepare_narration_delivery(
         NarrationTtsStatus.MISSING,
         NarrationTtsStatus.STALE,
         NarrationTtsStatus.UNMEASURABLE,
+        NarrationTtsStatus.CURRENT,
     }:
         status = NarrationTtsStatus.GENERATING
         actual_duration = None

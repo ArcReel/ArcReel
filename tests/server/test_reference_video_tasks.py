@@ -1924,6 +1924,28 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     # 被裁掉的 @酒馆 / @瓶子 仍是画面主体（<X> 与图号解耦），只是没有绑定行、没随请求发图
     assert "<酒馆>" in prompt and "<瓶子>" in prompt
     assert "<酒馆>@图片" not in prompt and "<瓶子>@图片" not in prompt
+    expected_basis = build_reference_video_visual_basis(
+        project=project,
+        unit=script["video_units"][0],
+        reference_images=[proj_dir / "characters" / "张三.png"],
+        reference_descriptors=[{"type": "character", "name": "张三", "kind": "asset"}],
+        reference_audio_files=[],
+        request_context={
+            "capability": "r2v",
+            "provider_id": "openai",
+            "model_id": "sora-2",
+            "resolution": "1080p",
+            "max_reference_images": 1,
+            "generate_audio": False,
+            "requested_generate_audio": True,
+            "has_audio_track": True,
+            "audio_switch_controllable": False,
+            "voice_consistency": "soft",
+            "max_reference_audio_count": 0,
+            "reference_audio_per_image": False,
+        },
+    )
+    assert captured["visual_basis_digest"] == expected_basis.digest
 
 
 @pytest.mark.integration
@@ -2153,9 +2175,15 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
 ):
     from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
     from lib.narration_delivery import NarrationAudioEvidence, TtsSynthesisSettings, prepare_narration_delivery
+    from lib.reference_video.request_projection import (
+        ProviderProjectionCandidate,
+        reference_audio_model_facts,
+        resolve_reference_assets,
+    )
     from lib.speech_composition import admit_script_unit
     from lib.version_manager import VersionManager
     from server.services import reference_video_tasks as rvt
+    from server.services.narration_delivery_tasks import reference_video_visual_basis_digest
 
     proj_dir = _write_project(tmp_path)
     script_path = proj_dir / "scripts" / "episode_1.json"
@@ -2178,13 +2206,27 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     current.write_bytes(b"existing-paid-video")
     versions = VersionManager(proj_dir)
     project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
-    visual_basis = build_reference_video_visual_basis(
+    has_audio_track, audio_switch_controllable = reference_audio_model_facts(
+        "openai", "sora-2", voice_consistency="soft"
+    )
+    candidate = ProviderProjectionCandidate(
+        capability="r2v",
+        provider_id="openai",
+        model_id="sora-2",
+        supported_durations=(4, 8, 12),
+        max_reference_images=9,
+        resolution="1080p",
+        generate_audio=False,
+        requested_generate_audio=True,
+        has_audio_track=has_audio_track,
+        audio_switch_controllable=audio_switch_controllable,
+    )
+    visual_basis_digest = reference_video_visual_basis_digest(
         project=project,
+        project_path=proj_dir,
         unit=unit,
-        reference_images=[
-            proj_dir / "characters" / "张三.png",
-            proj_dir / "scenes" / "酒馆.png",
-        ],
+        request_assets=resolve_reference_assets(project, proj_dir, unit),
+        candidate=candidate,
     )
     selected_version = versions.add_version(
         "reference_videos",
@@ -2192,7 +2234,7 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
         "old visual",
         source_file=current,
         duration_seconds=8,
-        visual_basis_digest=visual_basis.digest,
+        visual_basis_digest=visual_basis_digest,
     )
     versions_before = (proj_dir / "versions" / "versions.json").read_bytes()
 

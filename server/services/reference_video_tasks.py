@@ -57,12 +57,12 @@ from lib.script_models import ReferenceResource
 from lib.speech_composition import video_unit_replan_problems
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
-from lib.video_visual_provenance import build_reference_video_visual_basis
 from server.services.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import get_project_manager
 from server.services.narration_delivery_tasks import (
     ResolvedTtsSettingsResolver,
     prepare_current_reference_video_request_options,
+    reference_video_visual_basis_digest,
     require_generated_video_covers_current_tts,
     reuse_current_video_for_tier,
     tts_task_in_progress,
@@ -487,14 +487,6 @@ async def execute_reference_video_task(
     resolved_assets = resolve_reference_assets(project, project_path, unit)
     asset_availability = FilesystemReferenceAssets(project_path)
     hydration = hydrate_reference_assets(declared_references, resolved_assets, asset_availability)
-    visual_basis_digest = (
-        await asyncio.to_thread(
-            build_reference_video_visual_basis,
-            project=project,
-            unit=unit,
-            reference_images=[entry.path for entry in hydration.available],
-        )
-    ).digest
 
     # 2. 单次解析生成上下文（声明 video lane）：构造 generator 并按实际 backend 身份
     #    查能力上限与 resolution。provider 身份解析收口于 GenerationContext
@@ -561,6 +553,9 @@ async def execute_reference_video_task(
                 requested_generate_audio=video.requested_generate_audio,
                 has_audio_track=has_audio_track,
                 audio_switch_controllable=audio_switch_controllable,
+                voice_consistency=video.voice_consistency,
+                max_reference_audio_count=video.max_reference_audio_count,
+                reference_audio_per_image=video.reference_audio_per_image,
             )
 
     tts_in_progress = (
@@ -601,6 +596,17 @@ async def execute_reference_video_task(
 
     constrained_entries = list(projection.request_assets)
     constrained_refs = [entry.path for entry in constrained_entries]
+    candidate = projection.provider_candidate
+    if candidate is None:
+        raise RuntimeError("allowed reference request is missing provider capabilities")
+    visual_basis_digest = await asyncio.to_thread(
+        reference_video_visual_basis_digest,
+        project=project,
+        project_path=project_path,
+        unit=unit,
+        request_assets=constrained_entries,
+        candidate=candidate,
+    )
     effective_duration = projection.request_duration.seconds
     warnings: list[dict[str, Any]] = []
     for problem in projection.problems:

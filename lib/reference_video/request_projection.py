@@ -126,6 +126,9 @@ class ProviderProjectionCandidate:
     requested_generate_audio: bool
     has_audio_track: bool
     audio_switch_controllable: bool
+    voice_consistency: str = "soft"
+    max_reference_audio_count: int = 0
+    reference_audio_per_image: bool = False
 
     @property
     def pair_key(self) -> str:
@@ -502,6 +505,9 @@ class ConfigReferenceCapabilityProjection:
             requested_generate_audio=bool(caps.get("requested_generate_audio")),
             has_audio_track=has_audio_track,
             audio_switch_controllable=audio_switch_controllable,
+            voice_consistency=str(caps.get("voice_consistency") or "soft"),
+            max_reference_audio_count=int(caps.get("max_reference_audio_count") or 0),
+            reference_audio_per_image=bool(caps.get("reference_audio_per_image") or False),
         )
         return candidate
 

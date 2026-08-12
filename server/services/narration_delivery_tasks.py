@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import filecmp
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -32,11 +32,15 @@ from lib.narration_delivery import (
 )
 from lib.path_safety import safe_join, try_safe_join
 from lib.project_manager import ProjectManager, get_project_manager
+from lib.reference_video.prompt_render import resolve_reference_audio_paths
 from lib.reference_video.request_projection import (
     USE_TTS,
     ConfigReferenceCapabilityProjection,
     FilesystemReferenceAssets,
+    ProviderProjectionCandidate,
     ReferenceRequestOptions,
+    ResolvedReferenceAsset,
+    clamp_reference_assets,
     materialize_current_reference_request_options,
     resolve_reference_assets,
 )
@@ -429,14 +433,18 @@ async def prepare_current_reference_video_request_options(
         tts_in_progress=tts_in_progress,
         episode=episode,
     )
-    visual_basis_digest = await asyncio.to_thread(
-        _reference_visual_basis_digest,
-        project=project,
-        project_path=project_path,
-        unit=unit,
-    )
-    visual_tier = (
-        await current_selected_video_tier(
+    visual_tier = None
+    if (
+        options.narration_delivery == USE_TTS
+        and prepared.narration_preparation is not None
+        and prepared.narration_preparation.actual_duration_seconds is not None
+    ):
+        visual_basis_digest = await _reference_visual_basis_digest(
+            project=project,
+            project_path=project_path,
+            unit=unit,
+        )
+        visual_tier = await current_selected_video_tier(
             project_path=project_path,
             versions=VersionManager(project_path),
             item=unit,
@@ -445,11 +453,6 @@ async def prepare_current_reference_video_request_options(
             minimum_actual_duration_seconds=prepared.narration_preparation.actual_duration_seconds,
             visual_basis_digest=visual_basis_digest,
         )
-        if options.narration_delivery == USE_TTS
-        and prepared.narration_preparation is not None
-        and prepared.narration_preparation.actual_duration_seconds is not None
-        else None
-    )
     return replace(prepared, current_visual_duration_seconds=visual_tier)
 
 
@@ -520,25 +523,74 @@ def _storyboard_visual_basis_digest(
         return None
 
 
-def _reference_visual_basis_digest(
+def reference_video_visual_basis_digest(
+    *,
+    project: dict[str, Any],
+    project_path: Path,
+    unit: dict[str, Any],
+    request_assets: Sequence[ResolvedReferenceAsset],
+    candidate: ProviderProjectionCandidate,
+) -> str:
+    """Hash the exact projected reference request and every prompt-affecting input."""
+
+    audio_paths = resolve_reference_audio_paths(project, project_path)
+    return build_reference_video_visual_basis(
+        project=project,
+        unit=unit,
+        reference_images=[asset.path for asset in request_assets],
+        reference_descriptors=[
+            {
+                "type": asset.reference.type,
+                "name": asset.reference.name,
+                "kind": asset.kind,
+            }
+            for asset in request_assets
+        ],
+        reference_audio_files=[path for _name, path in sorted(audio_paths.items())],
+        request_context={
+            "capability": candidate.capability,
+            "provider_id": candidate.provider_id,
+            "model_id": candidate.model_id,
+            "resolution": candidate.resolution,
+            "max_reference_images": candidate.max_reference_images,
+            "generate_audio": candidate.generate_audio,
+            "requested_generate_audio": candidate.requested_generate_audio,
+            "has_audio_track": candidate.has_audio_track,
+            "audio_switch_controllable": candidate.audio_switch_controllable,
+            "voice_consistency": candidate.voice_consistency,
+            "max_reference_audio_count": candidate.max_reference_audio_count,
+            "reference_audio_per_image": candidate.reference_audio_per_image,
+        },
+    ).digest
+
+
+async def _reference_visual_basis_digest(
     *,
     project: dict[str, Any],
     project_path: Path,
     unit: dict[str, Any],
 ) -> str | None:
+    """Resolve the current configured request basis; failures disable fast reuse."""
+
     try:
         availability = FilesystemReferenceAssets(project_path)
-        paths = [
-            asset.path
-            for asset in resolve_reference_assets(project, project_path, unit)
-            if availability.is_available(asset)
-        ]
-        return build_reference_video_visual_basis(
+        available = tuple(
+            asset for asset in resolve_reference_assets(project, project_path, unit) if availability.is_available(asset)
+        )
+        capability: VideoCapability = "r2v" if available else "i2v"
+        candidate = await ConfigReferenceCapabilityProjection(ConfigResolver(async_session_factory)).resolve_candidate(
+            project, capability
+        )
+        request_assets = clamp_reference_assets(available, candidate.max_reference_images)
+        return await asyncio.to_thread(
+            reference_video_visual_basis_digest,
             project=project,
+            project_path=project_path,
             unit=unit,
-            reference_images=paths,
-        ).digest
-    except (OSError, TypeError, ValueError):
+            request_assets=request_assets,
+            candidate=candidate,
+        )
+    except Exception:
         return None
 
 

@@ -470,7 +470,7 @@ async def test_current_state_adapter_blocks_an_in_progress_tts_regeneration_with
     assert [problem.code for problem in prepared.problems] == ["tts_generating"]
 
 
-async def test_current_tts_remains_usable_while_an_explicit_regeneration_runs(tmp_path: Path) -> None:
+async def test_current_tts_is_blocked_while_an_explicit_regeneration_runs(tmp_path: Path) -> None:
     project_path = tmp_path / "demo"
     audio = project_path / "audio" / "segment_E1U1.wav"
     audio.parent.mkdir(parents=True)
@@ -498,9 +498,10 @@ async def test_current_tts_remains_usable_while_an_explicit_regeneration_runs(tm
         tts_in_progress=True,
     )
 
-    assert prepared.allowed is True
-    assert prepared.tts_status is NarrationTtsStatus.CURRENT
-    assert prepared.duration_floor == 7.4
+    assert prepared.allowed is False
+    assert prepared.tts_status is NarrationTtsStatus.GENERATING
+    assert prepared.duration_floor is None
+    assert [problem.code for problem in prepared.problems] == ["tts_generating"]
 
 
 def test_narrated_video_keeps_the_visual_tier_when_tts_fits_and_leaves_a_tail() -> None:
