@@ -201,7 +201,10 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
     else:
         return WanClassification(family=None, is_image_to_video=False, is_videoedit=False, profile_key=None)
 
-    is_videoedit = bool(WAN_VIDEOEDIT_PATTERN.search(normalized))
+    # videoedit 是 wan2.7 家族内独有的模态（见 WAN_VIDEOEDIT_PATTERN 处的说明）；wan3/wan2x_dot
+    # 不受它约束，否则形如 "proxy-videoedit/wan3-turbo" 这类与 videoedit 无关的装饰前缀会被误吞，
+    # 把本应走原生路由的 wan3 模型错误排除出去。
+    is_videoedit = family == "wan2.7" and bool(WAN_VIDEOEDIT_PATTERN.search(normalized))
     is_image_to_video = bool(WAN_IMAGE_TO_VIDEO_PATTERN.search(normalized))
     profile_key: str | None = None
     if family == "wan3":

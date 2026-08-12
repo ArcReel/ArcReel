@@ -172,6 +172,14 @@ def test_wan27_videoedit_excluded_from_family_duration_preset() -> None:
     """wan2.7-videoedit 本后端未实现该模态的请求构造，时长不套用 t2v/i2v/r2v 家族档
     （落到通用预设，而非家族专属的 2-15s 全档）。"""
     assert infer_supported_durations("wan2.7-videoedit") != list(range(2, 16))
+
+
+@pytest.mark.parametrize("model_id", ["proxy-videoedit/wan3-turbo", "wan-3-turbo-videoedit"])
+def test_videoedit_exclusion_scoped_to_wan27_only(model_id: str) -> None:
+    """videoedit 排除只对 wan2.7 家族生效——wan3 的 id 即便含 "videoedit" 子串（装饰前缀或
+    其他来源），也不应被误排除出原生路由，该模态的能力欠缺只记录在 wan2.7 家族下。"""
+    assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
+    assert infer_supported_durations(model_id) == list(range(2, 31))
     assert infer_supported_durations("wan-2.7-videoedit") != list(range(2, 16))
 
 
