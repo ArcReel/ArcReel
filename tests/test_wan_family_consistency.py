@@ -202,7 +202,8 @@ def test_wan27_unrecognized_modality_with_image_substring_stays_image_variant(mo
 @pytest.mark.parametrize("model_id", ["wan2.7-i2v-s2v", "wan-2.7-r2v-v2v"])
 def test_wan27_known_token_does_not_mask_coexisting_s2v_v2v(model_id: str) -> None:
     """id 同时含已知 profile token（i2v/r2v）与 s2v/v2v 时：s2v/v2v 未实现请求构造这一事实优先于
-    已知 token 命中，不能被后者掩盖而误放行原生路由（与 videoedit 共存已知 token 的既有排除同理）。"""
+    已知 token 命中，不能被后者掩盖而误放行原生路由（videoedit 与已知 token 共存时同样按此优先级
+    排除）。"""
     assert infer_endpoint(model_id, "openai") == "openai-video"
     assert infer_supported_durations(model_id) != list(range(2, 16))
 
@@ -214,10 +215,12 @@ def test_wan27_image_variant_not_upgraded_by_s2v_v2v_decoration_before_marker(mo
     assert infer_endpoint(model_id, "openai") == "openai-images"
 
 
-def test_minimax_s2v_routing_survives_incidental_wan_substring() -> None:
+@pytest.mark.parametrize("model_id", ["minimax-s2v-swan", "minimax-s2v-swan2"])
+def test_minimax_s2v_routing_survives_incidental_wan_substring(model_id: str) -> None:
     """MiniMax S2V 二级路由的 wan 排除只认版本号相邻的 wan token，不认任意含 "wan" 子串的单词——
-    "swan" 只是恰好含 "wan" 子串的无关词形，不应被误判成 wan 家族而错过 MiniMax 路由。"""
-    assert infer_endpoint("minimax-s2v-swan", "openai") == "minimax-video"
+    "swan" 只是恰好含 "wan" 子串的无关词形，即便后面粘连数字（"swan2"）也不构成版本号形态，
+    不应被误判成 wan 家族而错过 MiniMax 路由。"""
+    assert infer_endpoint(model_id, "openai") == "minimax-video"
 
 
 def test_wan27_videoedit_excluded_from_family_duration_preset() -> None:
