@@ -348,7 +348,7 @@ async def resolve_project_duration_context(
 
 
 def precheck_unit(ctx: ProjectDurationContext, unit: dict) -> DurationSlot:
-    """旧的纯时长 helper，供新建 unit 默认值与兼容调用复用。
+    """纯时长 helper，供 unit 默认值与兼容调用复用。
 
     生成预检、报价、Agent 与 worker 不使用本函数；它们必须调用
     ``ReferenceUnitRequestProjector``，由实际可用资产定桶并对缺失能力 fail loud。
@@ -505,8 +505,8 @@ async def execute_reference_video_task(
     resolution = video.resolution_or_fallback
 
     # 当前执行 lane 适配成公共投影候选；引用展开、实际文件存在、产品优先裁剪、时长取档与
-    # 音频冲突都由同一 projector 给出。旧任务没有请求选项，按历史上已直接入队的语义视为
-    # 已确认；新任务把显式选项保存在 reference_request_options 中。
+    # 音频冲突都由同一 projector 给出。payload 未声明请求选项时按直接入队兼容语义视为
+    # 已确认；显式选项保存在 reference_request_options 中。
     class _ExecutionCapabilities:
         async def resolve_candidate(self, project: dict, capability: VideoCapability) -> ProviderProjectionCandidate:
             del project

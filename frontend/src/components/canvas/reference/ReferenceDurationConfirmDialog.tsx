@@ -15,7 +15,7 @@ interface Props {
   onCancel: () => void;
 }
 
-/** 一行「剧本编排 → 申请档位」对照，秒数等宽以便多行纵向对齐。 */
+/** 一行「请求时长基准 → 申请档位」对照，秒数等宽以便多行纵向对齐。 */
 function DurationRow({
   label,
   item,
@@ -35,7 +35,7 @@ function DurationRow({
         </span>
       )}
       <span className="tabular-nums" style={{ color: "var(--color-text-2)" }}>
-        {seconds(item.precheck.script_duration)}
+        {seconds(item.precheck.duration_input)}
       </span>
       <span aria-hidden style={{ color: "var(--color-text-4)" }}>
         →
@@ -49,7 +49,7 @@ function DurationRow({
 }
 
 /**
- * 参考视频入队前的时长确认：模型只接受离散时长档位，剧本编排落在档位之间时按能装下它
+ * 参考视频入队前的时长确认：模型只接受离散时长档位，请求时长基准落在档位之间时按能装下它
  * 的最小档位生成，成片不裁剪——秒数不一致这件事在入队前讲清楚，由用户决定是否继续。
  *
  * 单元只有一个时直接陈述两个秒数与后果；批量时逐行列出，每行自带更长/更短的差值，混合
@@ -62,8 +62,8 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
 
   const seconds = (value: number) => t("reference_duration_seconds", { value });
   const diffText = (item: DurationConfirmItem) => {
-    const { script_duration, request_duration, adjustment } = item.precheck;
-    const diff = Math.abs(request_duration - script_duration);
+    const { duration_input, request_duration, adjustment } = item.precheck;
+    const diff = Math.abs(request_duration - duration_input);
     return adjustment === "down"
       ? t("reference_duration_diff_shorter", { value: seconds(diff) })
       : t("reference_duration_diff_longer", { value: seconds(diff) });

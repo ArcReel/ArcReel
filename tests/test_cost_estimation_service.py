@@ -1,26 +1,18 @@
 """Tests for CostEstimationService."""
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.config.resolver import ConfigResolver
 from lib.cost_calculator import cost_calculator
-from lib.db.base import Base
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.providers import PROVIDER_GEMINI
-from lib.reference_video.request_projection import ProviderProjectionCandidate
+from lib.reference_video.request_projection import (
+    USE_TTS,
+    ProviderProjectionCandidate,
+    ReferenceRequestOptions,
+)
 from server.services import reference_video_tasks
 from server.services.cost_estimation import CostEstimationService
-
-
-@pytest.fixture
-async def db_factory():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield factory
-    await engine.dispose()
 
 
 async def _seed_call(
@@ -1199,6 +1191,53 @@ class TestCostEstimationService:
         assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
 
     @pytest.mark.integration
+    async def test_reference_video_quote_accepts_actual_tts_duration_floor(self, db_factory, monkeypatch):
+        class _TtsFloorCapabilities:
+            def __init__(self, _resolver):
+                pass
+
+            async def resolve_candidate(self, _project, capability):
+                return ProviderProjectionCandidate(
+                    capability=capability,
+                    provider_id="kling",
+                    model_id="kling-v3",
+                    supported_durations=(4, 8, 12),
+                    max_reference_images=4,
+                    resolution="1080p",
+                    generate_audio=True,
+                    requested_generate_audio=True,
+                    has_audio_track=True,
+                    audio_switch_controllable=True,
+                )
+
+        monkeypatch.setattr(
+            "server.services.cost_estimation.ConfigReferenceCapabilityProjection",
+            _TtsFloorCapabilities,
+        )
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
+
+        result = await service.compute(
+            project_data,
+            scripts,
+            project_name="narration-ref-tts-floor",
+            reference_request_options={
+                "E1U1": ReferenceRequestOptions(narration_delivery=USE_TTS, narration_duration_floor=9.5)
+            },
+        )
+
+        projection = result["episodes"][0]["segments"][0]["request_projection"]
+        assert projection["duration_input"] == 9.5
+        assert projection["request_duration"] == 12
+        assert projection["problems"][0]["code"] == "reference_duration_confirmation_required"
+
+    @pytest.mark.integration
     async def test_reference_video_estimate_blocks_when_duration_metadata_is_empty(self, db_factory, monkeypatch):
         class _MissingDurationCapabilities:
             def __init__(self, _resolver):
@@ -1241,7 +1280,10 @@ class TestCostEstimationService:
             {
                 "code": "reference_supported_durations_missing",
                 "blocking": True,
+                "unit_id": "E1U1",
+                "locations": [{"path": ["duration_seconds"], "line": None}],
                 "params": {"provider": "kling", "model": "kling-v3"},
+                "action": "configure_video_model",
             }
         ]
 

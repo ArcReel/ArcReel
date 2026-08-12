@@ -54,7 +54,7 @@ class ReferenceRequestOptions:
 
     @classmethod
     def from_payload(cls, payload: object, *, legacy_duration_confirmed: bool = False) -> ReferenceRequestOptions:
-        """宽容读取队列 payload；旧任务默认视为已完成时长确认。"""
+        """宽容读取队列 payload；缺少选项字段时可按调用方兼容语义完成时长确认。"""
 
         root = payload if isinstance(payload, dict) else {}
         if "reference_request_options" not in root:
@@ -134,6 +134,22 @@ class ProjectionProblem:
     def parameters(self) -> dict[str, object]:
         return dict(self.params)
 
+    def to_payload(self, *, unit_id: str) -> dict[str, object]:
+        """返回 Web、Agent 与报价共用的问题信封。"""
+
+        action, paths = _PROBLEM_PRESENTATION.get(
+            self.code,
+            ("review_request_configuration", (("video_units", unit_id),)),
+        )
+        return {
+            "code": self.code,
+            "blocking": self.blocking,
+            "unit_id": unit_id,
+            "locations": [{"path": list(path), "line": None} for path in paths],
+            "params": self.parameters(),
+            "action": action,
+        }
+
 
 @dataclass(frozen=True)
 class ReferenceUnitRequestProjection:
@@ -164,6 +180,27 @@ class ReferenceUnitRequestProjection:
     @property
     def blocking_problems(self) -> tuple[ProjectionProblem, ...]:
         return tuple(problem for problem in self.problems if problem.blocking)
+
+    def problem_payloads(self) -> list[dict[str, object]]:
+        return [problem.to_payload(unit_id=self.unit_id) for problem in self.problems]
+
+    def to_advisory_payload(self) -> dict[str, object]:
+        """序列化跨入口可比较的 current-state 投影事实。"""
+
+        return {
+            "allowed": not self.blocking_problems,
+            "kind": "reference_request_projection",
+            "advisory": True,
+            "unit_id": self.unit_id,
+            "declared_capability": self.declared_capability,
+            "hydrated_capability": self.hydrated_capability,
+            "provider_id": self.provider_id,
+            "model_id": self.model_id,
+            "planned_duration": self.planned_duration,
+            "duration_input": self.duration_input,
+            "request_duration": self.request_duration.seconds if self.request_duration is not None else None,
+            "problems": self.problem_payloads(),
+        }
 
 
 class ReferenceAssetAvailability(Protocol):
@@ -474,6 +511,24 @@ def clamp_reference_assets(
         ),
     )
     return tuple(asset for _index, asset in ordered[: max(0, max_references)])
+
+
+_PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] = {
+    "reference_asset_missing": ("repair_reference_assets", (("references",),)),
+    "reference_capability_changed": ("repair_reference_assets", (("references",),)),
+    "reference_images_clamped": ("review_reference_selection", (("references",),)),
+    "video_audio_switch_not_supported": (
+        "enable_model_audio",
+        (("generation_settings", "generate_audio"),),
+    ),
+    "reference_duration_confirmation_required": ("confirm_duration", (("duration_seconds",),)),
+    "reference_supported_durations_missing": ("configure_video_model", (("duration_seconds",),)),
+    "reference_supported_durations_invalid": ("configure_video_model", (("duration_seconds",),)),
+    "reference_supported_durations_incompatible": ("configure_video_model", (("duration_seconds",),)),
+    "reference_capability_unavailable": ("configure_video_model", (("references",),)),
+    "video_capability_missing_i2v": ("configure_video_model", (("references",),)),
+    "video_capability_missing_r2v": ("configure_video_model", (("references",),)),
+}
 
 
 def _problem(code: str, *, blocking: bool, **params: object) -> ProjectionProblem:

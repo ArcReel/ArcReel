@@ -121,6 +121,9 @@ class TestReferenceRouteGate:
         class _Projection:
             blocking_problems: tuple[object, ...] = ()
 
+            def to_advisory_payload(self):
+                return {"allowed": True, "unit_id": "test", "problems": []}
+
         async def _record(*, unit, **_kwargs):
             seen.append("r2v" if unit.get("references") else "i2v")
             return _Projection()
@@ -139,7 +142,7 @@ class TestReferenceRouteGate:
             units=units,
             skip_ids={"E1U4"},
             spec_for=_unit_spec,
-            confirm_duration=True,
+            request_options=mod.ReferenceRequestOptions(duration_confirmed=True),
         )
         assert seen == ["r2v", "r2v", "i2v"]
 
@@ -162,7 +165,7 @@ class TestReferenceRouteGate:
             units=[{"unit_id": "E1U1", "references": []}],
             skip_ids=set(),
             spec_for=_reject,
-            confirm_duration=True,
+            request_options=mod.ReferenceRequestOptions(duration_confirmed=True),
         )
         assert called is False
 

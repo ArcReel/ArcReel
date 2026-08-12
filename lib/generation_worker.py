@@ -34,9 +34,7 @@ from lib.generation_queue import (
     TASK_WORKER_LEASE_TTL_SEC,
     GenerationQueue,
     get_generation_queue,
-    reference_projection_for_queued_task,
-    video_bucket_for_queued_task,
-    without_reference_video_execution_identity,
+    resolve_video_execution_for_queued_task,
 )
 from lib.image_backends.base import ImageCapabilityError
 from lib.reference_compression import ReferencePayloadFloorError
@@ -395,31 +393,14 @@ async def _extract_provider(task: dict[str, Any]) -> str:
 
         resolver = ConfigResolver(async_session_factory)
         if is_video:
-            projection = (
-                await reference_projection_for_queued_task(
-                    project=project,
-                    project_name=project_name,
-                    payload=payload,
-                    resource_id=task.get("resource_id"),
-                )
-                if task.get("task_type") == "reference_video"
-                else None
-            )
-            if projection is not None and projection.provider_id:
-                return projection.provider_id
-            capability = await video_bucket_for_queued_task(
+            resolved, _capability = await resolve_video_execution_for_queued_task(
+                resolver=resolver,
                 project=project,
                 project_name=project_name,
                 task_type=task.get("task_type", ""),
                 payload=payload,
                 resource_id=task.get("resource_id"),
             )
-            execution_payload = (
-                without_reference_video_execution_identity(payload)
-                if task.get("task_type") == "reference_video"
-                else payload
-            )
-            resolved = await resolver.resolve_video_backend(project, execution_payload, capability=capability)
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload)
         else:
@@ -591,13 +572,21 @@ class GenerationWorker:
         claimed_any = False
 
         for media_type in ("image", "video", "audio"):
+            attempted_current_state_tasks: set[str] = set()
             while True:
                 # 每轮重算池满集合：刚 claim 的任务可能让某 provider 进入满状态
                 pool_full = self._pool_full_providers(media_type)
-                task = await self.queue.claim_next_task(
-                    media_type=media_type,
-                    pool_full_providers=pool_full,
-                )
+                if attempted_current_state_tasks:
+                    task = await self.queue.claim_next_task(
+                        media_type=media_type,
+                        pool_full_providers=pool_full,
+                        exclude_task_ids=frozenset(attempted_current_state_tasks),
+                    )
+                else:
+                    task = await self.queue.claim_next_task(
+                        media_type=media_type,
+                        pool_full_providers=pool_full,
+                    )
                 if not task:
                     break
 
@@ -646,8 +635,13 @@ class GenerationWorker:
                             "回队前投影刷新失败 task_id=%s provider=%s", task["task_id"], provider_id, exc_info=True
                         )
                     await self._requeue_single_task(task["task_id"])
-                    # break 当前 media_type 循环：下一轮 SQL 会按重算的 pool_full
-                    # 过滤掉这个 provider，避免反复 claim 同一 task
+                    if task.get("task_type") == "reference_video":
+                        # reference_video 必须先重投影才能判断当前 provider；本 cycle 排除已
+                        # 重投影且仍池满的任务，继续寻找其它 provider 的可运行任务。
+                        attempted_current_state_tasks.add(task["task_id"])
+                        continue
+                    # 其它任务的 provider 身份在队列中稳定，下一轮 SQL 会按重算的
+                    # pool_full 过滤该 provider，避免反复 claim 同一 task。
                     break
 
                 # Dispatch：登记占用（INFLIGHT），bucket 由 register 自动创建

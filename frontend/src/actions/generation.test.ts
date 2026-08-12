@@ -320,9 +320,9 @@ describe("enqueueReferenceVideoUnit", () => {
       .spyOn(API, "generateReferenceVideoUnit")
       .mockResolvedValue({ task_id: "t1", deduped: false });
 
-    const res = await enqueueReferenceVideoUnit("demo", 1, "E1U1", true);
+    const res = await enqueueReferenceVideoUnit("demo", 1, "E1U1", { duration_confirmed: true });
 
-    expect(generate).toHaveBeenCalledWith("demo", 1, "E1U1", true);
+    expect(generate).toHaveBeenCalledWith("demo", 1, "E1U1", { duration_confirmed: true });
     expect(occupied("demo", "reference_video", "E1U1")).toBe(true);
     const toast = useAppStore.getState().toast;
     expect(toast?.text).toBe(i18n.t("dashboard:reference_generate_queued"));

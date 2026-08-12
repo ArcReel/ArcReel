@@ -17,6 +17,7 @@
 import { API } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
+import type { ReferenceGenerationRequestOptions } from "@/types";
 import {
   useTasksStore,
   type ImageEditResourceKind,
@@ -288,11 +289,11 @@ export async function enqueueReferenceVideoUnit(
   projectName: string,
   episode: number,
   unitId: string,
-  durationConfirmed = false,
+  options: ReferenceGenerationRequestOptions = {},
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "reference_video", unitId, "reference_video")],
-    () => API.generateReferenceVideoUnit(projectName, episode, unitId, durationConfirmed),
+    () => API.generateReferenceVideoUnit(projectName, episode, unitId, options),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:reference_generate_queued"), "info");

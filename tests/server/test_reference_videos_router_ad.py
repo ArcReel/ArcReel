@@ -64,9 +64,13 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from server.routers import reference_videos as router_mod
 
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: ProjectManager(projects_root))
-    from tests.server.test_reference_videos_router import _projection_with_durations
+    from tests.fakes import fake_reference_request_projector
 
-    monkeypatch.setattr(router_mod, "project_reference_unit_request", _projection_with_durations([4, 8, 12]))
+    monkeypatch.setattr(
+        router_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(durations=(4, 8, 12)),
+    )
     fake_queue = AsyncMock()
     fake_queue.enqueue_task = AsyncMock(return_value={"task_id": "t1", "deduped": False})
     monkeypatch.setattr(router_mod, "get_generation_queue", lambda: fake_queue)
@@ -238,12 +242,17 @@ def test_empty_migration_shell_can_repair_body_and_duration_atomically(ad_client
 @pytest.mark.integration
 def test_precheck_uses_unit_orchestration_duration(ad_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     from server.routers import reference_videos as router_mod
-    from tests.server.test_reference_videos_router import _projection_with_durations
+    from tests.fakes import fake_reference_request_projector
 
-    monkeypatch.setattr(router_mod, "project_reference_unit_request", _projection_with_durations([4, 8, 12]))
+    monkeypatch.setattr(
+        router_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(durations=(4, 8, 12)),
+    )
     body = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/duration-precheck").json()
     assert body["needs_confirmation"] is True
     assert body["script_duration"] == 5
+    assert body["duration_input"] == 5
     assert body["request_duration"] == 8
     assert body["adjustment"] == "up"
     assert body["declared_capability"] == "r2v"

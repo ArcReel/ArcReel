@@ -19,7 +19,7 @@ from lib.db.repositories.task_repo import TaskRepository
 from lib.task_terminal_events import emit_task_terminal_events
 
 if TYPE_CHECKING:
-    from lib.config.resolver import ProviderModel, VideoCapability
+    from lib.config.resolver import ConfigResolver, ProviderModel, VideoCapability
     from lib.reference_video.request_projection import ReferenceUnitRequestProjection
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def reference_video_enqueue_payload(
 
 
 def without_reference_video_execution_identity(payload: dict[str, Any] | None) -> dict[str, Any]:
-    """移除旧任务中的 enqueue-time 视频身份，使未提交任务按当前配置投影。"""
+    """移除 payload 中的 enqueue-time 视频身份，使未提交任务按当前配置投影。"""
 
     return {key: value for key, value in (payload or {}).items() if key not in _REFERENCE_VIDEO_EXECUTION_IDENTITY_KEYS}
 
@@ -120,6 +120,46 @@ async def reference_projection_for_queued_task(
         return None
 
 
+async def resolve_video_execution_for_queued_task(
+    *,
+    resolver: ConfigResolver,
+    project: dict | None,
+    project_name: str | None,
+    task_type: str,
+    payload: dict[str, Any] | None,
+    resource_id: str | None,
+) -> tuple[ProviderModel, VideoCapability | None]:
+    """解析队列视频任务的当前身份与能力桶，供入队 advisory 和 worker 限流共用。"""
+
+    projection = (
+        await reference_projection_for_queued_task(
+            project=project,
+            project_name=project_name,
+            payload=payload,
+            resource_id=resource_id,
+        )
+        if task_type == "reference_video"
+        else None
+    )
+    if projection is not None and projection.provider_candidate is not None:
+        from lib.config.resolver import ProviderModel
+
+        return ProviderModel(projection.provider_id or "", projection.model_id or ""), projection.hydrated_capability
+
+    capability = await video_bucket_for_queued_task(
+        project=project,
+        project_name=project_name,
+        task_type=task_type,
+        payload=payload,
+        resource_id=resource_id,
+    )
+    execution_payload = (
+        without_reference_video_execution_identity(payload) if task_type == "reference_video" else payload
+    )
+    resolved = await resolver.resolve_video_backend(project, execution_payload or {}, capability=capability)
+    return resolved, capability
+
+
 async def _derive_execution_model_for_enqueue(
     *,
     project_name: str | None,
@@ -151,39 +191,14 @@ async def _derive_execution_model_for_enqueue(
 
         resolver = ConfigResolver(async_session_factory)
         if is_video:
-            projection = (
-                await reference_projection_for_queued_task(
-                    project=project,
-                    project_name=project_name,
-                    payload=payload,
-                    resource_id=resource_id,
-                )
-                if task_type == "reference_video"
-                else None
+            resolved, video_capability = await resolve_video_execution_for_queued_task(
+                resolver=resolver,
+                project=project,
+                project_name=project_name,
+                task_type=task_type,
+                payload=payload,
+                resource_id=resource_id,
             )
-            if projection is not None and projection.provider_candidate is not None:
-                from lib.config.resolver import ProviderModel
-
-                video_capability = projection.hydrated_capability
-                resolved = ProviderModel(projection.provider_id or "", projection.model_id or "")
-            else:
-                video_capability = await video_bucket_for_queued_task(
-                    project=project,
-                    project_name=project_name,
-                    task_type=task_type,
-                    payload=payload,
-                    resource_id=resource_id,
-                )
-                execution_payload = (
-                    without_reference_video_execution_identity(payload)
-                    if task_type == "reference_video"
-                    else payload or {}
-                )
-                resolved = await resolver.resolve_video_backend(
-                    project,
-                    execution_payload,
-                    capability=video_capability,
-                )
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload or {})
         else:
@@ -352,9 +367,14 @@ class GenerationQueue:
         media_type: str,
         *,
         pool_full_providers: frozenset[str] | None = None,
+        exclude_task_ids: frozenset[str] | None = None,
     ) -> dict[str, Any] | None:
         async with self._task_repo() as repo:
-            task = await repo.claim_next(media_type, pool_full_providers=pool_full_providers)
+            task = await repo.claim_next(
+                media_type,
+                pool_full_providers=pool_full_providers,
+                exclude_task_ids=exclude_task_ids,
+            )
         if task:
             logger.debug("任务被领取 task_id=%s", task["task_id"])
         return task

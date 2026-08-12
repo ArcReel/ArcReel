@@ -1026,6 +1026,10 @@ async def test_execute_reference_video_task_rechecks_audio_switch_for_latest_mod
         voice_consistency="native",
         requested_generate_audio=False,
     )
+    fake_queue = MagicMock()
+    fake_queue.persist_effective_duration = AsyncMock()
+    fake_queue.persist_execution_identity = AsyncMock()
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     with pytest.raises(ValueError, match="video_audio_switch_not_supported"):
         await rvt.execute_reference_video_task(
@@ -1033,8 +1037,11 @@ async def test_execute_reference_video_task_rechecks_audio_switch_for_latest_mod
             "E1U1",
             {"script_file": "scripts/episode_1.json"},
             user_id="u1",
+            task_id="task-1",
         )
     fake_generator.generate_video_async.assert_not_awaited()
+    fake_queue.persist_effective_duration.assert_not_awaited()
+    fake_queue.persist_execution_identity.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -2084,7 +2091,10 @@ async def test_execute_reference_video_task_persists_execution_identity(
     _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
+    events: list[str] = []
+
     async def _fake_generate_video_async(**kwargs):
+        events.append("provider_submit")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"\x00")
@@ -2105,8 +2115,15 @@ async def test_execute_reference_video_task_persists_execution_identity(
     )
 
     fake_queue = MagicMock()
-    fake_queue.persist_effective_duration = AsyncMock()
-    fake_queue.persist_execution_identity = AsyncMock()
+
+    async def _persist_duration(*_args, **_kwargs):
+        events.append("duration_identity")
+
+    async def _persist_identity(*_args, **_kwargs):
+        events.append("provider_identity")
+
+    fake_queue.persist_effective_duration = AsyncMock(side_effect=_persist_duration)
+    fake_queue.persist_execution_identity = AsyncMock(side_effect=_persist_identity)
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     await rvt.execute_reference_video_task(
@@ -2122,6 +2139,7 @@ async def test_execute_reference_video_task_persists_execution_identity(
         execution_model=ProviderModel("ark-agent-plan", "doubao-seedance-1-5-pro-251215"),
         capability="r2v",
     )
+    assert events == ["duration_identity", "provider_identity", "provider_submit"]
 
 
 @pytest.mark.unit

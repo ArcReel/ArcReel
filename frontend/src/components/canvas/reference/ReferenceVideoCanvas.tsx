@@ -42,6 +42,7 @@ import {
   normalizeAssetName,
 } from "@/utils/reference-mentions";
 import type {
+  ReferenceRequestOptions,
   ReferenceResource,
   ReferenceVideoUnit,
   UnitStatus,
@@ -69,6 +70,8 @@ export interface ReferenceVideoCanvasProps {
    * 使用——参考图约束按 unit 生效，不能因同集内其它 unit 带图就收窄这类 unit 的可选档位。
    */
   durationOptionsNoReference?: number[];
+  /** 上游旁白工作流给出的请求事实；不在画布内探测或推断 TTS 状态。 */
+  requestOptions?: ReferenceRequestOptions;
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
@@ -132,6 +135,7 @@ export function ReferenceVideoCanvas({
   freeDuration = false,
   durationOptions,
   durationOptionsNoReference,
+  requestOptions,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
 
@@ -293,7 +297,7 @@ export function ReferenceVideoCanvas({
 
   const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
-  // 时长取档闸门：申请秒数与剧本编排不一致时先确认，取消则一个都不入队
+  // 时长取档闸门：申请秒数与请求时长基准不一致时先确认，取消则一个都不入队
   const isUnitGenerationBlocked = useCallback(
     (unitId: string) =>
       Boolean(
@@ -328,7 +332,7 @@ export function ReferenceVideoCanvas({
     [isUnitLocked, projectName, episode],
   );
 
-  const durationGate = useReferenceDurationGate({ projectName, episode });
+  const durationGate = useReferenceDurationGate({ projectName, episode, requestOptions });
 
   const enqueue = useCallback(
     async (unitId: string, durationConfirmed = false) => {
@@ -345,12 +349,15 @@ export function ReferenceVideoCanvas({
       }
       try {
         // 乐观打标（请求发出前）、失败回滚与 queued/deduped 提示都在动作层内完成
-        await enqueueReferenceVideoUnit(projectName, episode, unitId, durationConfirmed);
+        await enqueueReferenceVideoUnit(projectName, episode, unitId, {
+          ...requestOptions,
+          duration_confirmed: durationConfirmed,
+        });
       } catch (e) {
         toastError(e, (msg) => t("reference_generate_request_failed", { error: msg }));
       }
     },
-    [projectName, episode, isUnitLocked, isUnitGenerationBlocked, t],
+    [projectName, episode, isUnitLocked, isUnitGenerationBlocked, requestOptions, t],
   );
 
   /**

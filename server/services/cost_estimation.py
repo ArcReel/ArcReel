@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -186,6 +187,7 @@ class CostEstimationService:
         scripts: dict[str, dict[str, Any]],
         *,
         project_name: str,
+        reference_request_options: Mapping[str, ReferenceRequestOptions] | None = None,
     ) -> dict[str, Any]:
         episodes_meta = project_data.get("episodes", [])
         is_reference_video = is_reference_video_project(project_data)
@@ -394,6 +396,7 @@ class CostEstimationService:
                     video_prices=video_prices,
                     actual_by_segment=actual_by_segment,
                     claimed_actual=claimed_actual,
+                    request_options=reference_request_options,
                 )
                 _accumulate_episode(ep_meta, segments_result, ep_est, ep_act)
                 continue
@@ -615,6 +618,7 @@ class CostEstimationService:
         video_prices: dict[tuple[str, str], Any],
         actual_by_segment: ActualBySegment,
         claimed_actual: set[tuple[str, str]],
+        request_options: Mapping[str, ReferenceRequestOptions] | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, CostBreakdown], dict[str, CostBreakdown]]:
         """reference_video 集的估值：unit 本身就是展示与计费颗粒度。
 
@@ -625,9 +629,8 @@ class CostEstimationService:
 
         取档先水合 unit 引用的当前可用图片（有图 → r2v，无图退化 unit → i2v），
         再解析该桶模型的能力；声明引用与实际资产分裂时返回结构化 blocker，不换桶伪报价。
-        对 unit 剧本时长
-        （``unit.duration_seconds``，unit 级单一真相）取档后按同桶模型计费，而非原始剧本
-        时长——与 ``execute_reference_video_task`` 实际申请的秒数对齐。
+        请求时长基准通常是 ``unit.duration_seconds``；选择 ``use_tts`` 时还会纳入上游提供的
+        实际旁白时长下限。按该基准取档后用同桶模型计费，与执行请求的秒数对齐。
 
         无图片/音频估值维度：该模式跳过分镜步骤（无分镜图），``Shot`` 没有独立的旁白/口播
         文案字段可供独立音频计价。实付按 ``actual_by_segment[unit_id]`` 三个维度原样透传——``lib/media_generator.py``
@@ -680,12 +683,9 @@ class CostEstimationService:
             projection = None
             if enqueueable:
                 # agent/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"/列表/字典）；
-                # SDK 侧入队预检（enqueue_videos.py）对每个 unit 单独 catch ValueError 跳过，
-                # 此处须跟随同一容错口径——否则一个 unit 的脏时长会让整个项目估算 500，
-                # 拖累其余正常集。int() 转换对非数值字符串抛 ValueError，对 list/dict 抛
-                # TypeError，两者都要接住。ctx 解析在 try 外：能力配置错误是项目级问题，
-                # 须 fail loud 上抛，不得被当成单 unit 脏时长静默跳过（SDK 预检同口径——
-                # 解析在批次层、逐 unit 只 catch 取档）。
+                # 单个 unit 的无效内容不应让整个项目估算失败，因此资产解析与 request projection
+                # 的 ValueError/TypeError 只跳过该 unit。能力解析错误由 projector 转为结构化 blocker，
+                # 正常保留在该 unit 的报价结果中。
                 try:
                     if self._project_path is None:
                         resolved_assets = [
@@ -702,16 +702,13 @@ class CostEstimationService:
                         script=script,
                         unit=unit,
                         resolved_assets=resolved_assets,
-                        options=ReferenceRequestOptions(),
+                        options=(request_options or {}).get(unit_id, ReferenceRequestOptions()),
                     )
                 except (ValueError, TypeError):
                     logger.warning("费用估算跳过时长非法的 unit %s", unit_id, exc_info=True)
                     projection = None
                 if projection is not None:
-                    projection_problems = [
-                        {"code": problem.code, "blocking": problem.blocking, "params": problem.parameters()}
-                        for problem in projection.problems
-                    ]
+                    projection_problems = projection.problem_payloads()
                     blockers = [
                         problem
                         for problem in projection.blocking_problems
@@ -744,19 +741,22 @@ class CostEstimationService:
                 {
                     "segment_id": unit_id,
                     "duration_seconds": unit.get("duration_seconds", 8),
-                    "request_projection": {
-                        "provider_id": projection.provider_id if enqueueable and projection is not None else None,
-                        "model_id": projection.model_id if enqueueable and projection is not None else None,
-                        "capability": (
-                            projection.hydrated_capability if enqueueable and projection is not None else None
-                        ),
-                        "request_duration": (
-                            projection.request_duration.seconds
-                            if enqueueable and projection is not None and projection.request_duration is not None
-                            else None
-                        ),
-                        "problems": projection_problems,
-                    },
+                    "request_projection": (
+                        {
+                            **projection.to_advisory_payload(),
+                            "capability": projection.hydrated_capability,
+                            "problems": projection_problems,
+                        }
+                        if enqueueable and projection is not None
+                        else {
+                            "provider_id": None,
+                            "model_id": None,
+                            "capability": None,
+                            "duration_input": None,
+                            "request_duration": None,
+                            "problems": projection_problems,
+                        }
+                    ),
                     "estimate": {"image": {}, "video": est_video, "audio": {}},
                     "actual": {"image": act_image, "video": act_video, "audio": act_audio},
                 }

@@ -187,39 +187,71 @@ class FakeImageBackend:
         )
 
 
+class FakeReferenceCapabilityProjection:
+    """Configurable provider capability adapter for reference projection tests."""
+
+    def __init__(
+        self,
+        *,
+        durations: tuple[int, ...],
+        provider_id: str = "fake",
+        model_id: str = "fake-model",
+        max_reference_images: int | None = 9,
+    ) -> None:
+        self.durations = durations
+        self.provider_id = provider_id
+        self.model_id = model_id
+        self.max_reference_images = max_reference_images
+
+    async def resolve_candidate(self, project: dict, capability):
+        from lib.reference_video.request_projection import ProviderProjectionCandidate
+
+        del project
+        return ProviderProjectionCandidate(
+            capability=capability,
+            provider_id=self.provider_id,
+            model_id=self.model_id,
+            supported_durations=self.durations,
+            max_reference_images=self.max_reference_images,
+            resolution="1080p",
+            generate_audio=True,
+            requested_generate_audio=True,
+            has_audio_track=True,
+            audio_switch_controllable=True,
+        )
+
+
 def fake_reference_request_projector(
     *,
-    durations: tuple[int, ...],
+    durations: tuple[int, ...] | None = None,
     provider_id: str = "fake",
     model_id: str = "fake-model",
+    max_reference_images: int | None = 9,
+    capabilities: FakeReferenceCapabilityProjection | None = None,
 ):
     """构造使用真实资产水合与投影规则、仅替换 provider 能力查询的 async 测试入口。"""
 
-    from lib.config.resolver import VideoCapability
     from lib.reference_video.request_projection import (
         FilesystemReferenceAssets,
-        ProviderProjectionCandidate,
         ReferenceRequestOptions,
         ReferenceUnitRequestProjection,
         ReferenceUnitRequestProjector,
         resolve_reference_assets,
     )
 
-    class _Capabilities:
-        async def resolve_candidate(self, project: dict, capability: VideoCapability) -> ProviderProjectionCandidate:
-            del project
-            return ProviderProjectionCandidate(
-                capability=capability,
-                provider_id=provider_id,
-                model_id=model_id,
-                supported_durations=durations,
-                max_reference_images=9,
-                resolution="1080p",
-                generate_audio=True,
-                requested_generate_audio=True,
-                has_audio_track=True,
-                audio_switch_controllable=True,
-            )
+    if capabilities is not None:
+        if durations is not None or provider_id != "fake" or model_id != "fake-model" or max_reference_images != 9:
+            raise ValueError("capabilities cannot be combined with candidate construction fields")
+        projection_capabilities = capabilities
+    else:
+        if durations is None:
+            raise ValueError("durations are required when capabilities are not supplied")
+        projection_capabilities = FakeReferenceCapabilityProjection(
+            durations=durations,
+            provider_id=provider_id,
+            model_id=model_id,
+            max_reference_images=max_reference_images,
+        )
 
     async def _project(
         *,
@@ -231,7 +263,7 @@ def fake_reference_request_projector(
         **_kwargs: object,
     ) -> ReferenceUnitRequestProjection:
         return await ReferenceUnitRequestProjector(
-            _Capabilities(),
+            projection_capabilities,
             FilesystemReferenceAssets(project_path),
         ).project_current(
             project=project,

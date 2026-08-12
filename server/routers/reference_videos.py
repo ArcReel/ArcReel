@@ -8,9 +8,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from lib.api_errors import ApiError, BadRequestError, NotFoundError
@@ -29,6 +29,7 @@ from lib.reference_video import (
 )
 from lib.reference_video.request_projection import (
     POST_PRODUCTION,
+    NarrationDelivery,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjection,
     project_reference_unit_request,
@@ -87,7 +88,7 @@ class AddUnitRequest(BaseModel):
 
 class GenerateUnitRequest(BaseModel):
     duration_confirmed: bool = False
-    narration_delivery: Literal["post_production", "use_tts"] = POST_PRODUCTION
+    narration_delivery: NarrationDelivery = POST_PRODUCTION
     narration_duration_floor: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
     def projection_options(self) -> ReferenceRequestOptions:
@@ -121,22 +122,33 @@ def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tup
     return project, script, script_file
 
 
-def _problem_payload(projection: ReferenceUnitRequestProjection) -> list[dict[str, Any]]:
-    return [
-        {"code": problem.code, "blocking": problem.blocking, "params": problem.parameters()}
-        for problem in projection.problems
-    ]
+def _problem_payload(projection: ReferenceUnitRequestProjection, _t: Translator) -> list[dict[str, Any]]:
+    payloads = projection.problem_payloads()
+    for payload, problem in zip(payloads, projection.problems, strict=True):
+        payload["message"] = _t(problem.code, **problem.parameters())
+    return payloads
 
 
 def _raise_projection_blocker(
     projection: ReferenceUnitRequestProjection,
+    _t: Translator,
     *,
     allow_duration_confirmation: bool,
 ) -> None:
-    for problem in projection.blocking_problems:
-        if allow_duration_confirmation and problem.code == "reference_duration_confirmation_required":
-            continue
-        raise BadRequestError(problem.code, **problem.parameters())
+    blockers = [
+        problem
+        for problem in projection.blocking_problems
+        if not (allow_duration_confirmation and problem.code == "reference_duration_confirmation_required")
+    ]
+    if not blockers:
+        return
+    detail = projection.to_advisory_payload()
+    detail["allowed"] = False
+    detail["problems"] = _problem_payload(projection, _t)
+    raise HTTPException(
+        status_code=400,
+        detail=detail,
+    )
 
 
 def _validate_references_exist(project: dict, refs: list[dict], _t: Translator) -> None:
@@ -392,10 +404,12 @@ async def precheck_unit_duration(
     episode: int,
     unit_id: str,
     _t: Translator,
+    narration_delivery: NarrationDelivery = POST_PRODUCTION,
+    narration_duration_floor: float | None = Query(default=None, gt=0, allow_inf_nan=False),
 ) -> dict[str, Any]:
-    """入队前的时长取档预检：申请秒数与剧本编排不一致时前端需先向用户确认。
+    """入队前的时长取档预检：申请秒数与请求时长基准不一致时前端需先向用户确认。
 
-    ``needs_confirmation`` 为 false 时仅表示总时长本身是当前档位成员。能力或档位元数据
+    ``needs_confirmation`` 为 false 时仅表示请求时长基准本身是当前档位成员。能力或档位元数据
     无法解析时返回结构化 blocker，不制造无约束申请。
     """
     project, script, _sf = _load_episode_script(project_name, episode, _t)
@@ -407,21 +421,27 @@ async def precheck_unit_duration(
         script=script,
         unit=unit,
         project_path=get_project_manager().get_project_path(project_name),
+        options=ReferenceRequestOptions(
+            narration_delivery=narration_delivery,
+            narration_duration_floor=narration_duration_floor,
+        ),
     )
-    _raise_projection_blocker(projection, allow_duration_confirmation=True)
+    _raise_projection_blocker(projection, _t, allow_duration_confirmation=True)
     slot = projection.request_duration
     if slot is None:
         raise BadRequestError("reference_supported_durations_missing")
     return {
+        **projection.to_advisory_payload(),
         "needs_confirmation": slot.needs_confirmation,
-        "script_duration": slot.total_seconds,
+        "script_duration": projection.planned_duration,
+        "duration_input": projection.duration_input,
         "request_duration": slot.seconds,
         "adjustment": slot.adjustment,
         "declared_capability": projection.declared_capability,
         "hydrated_capability": projection.hydrated_capability,
         "provider_id": projection.provider_id,
         "model_id": projection.model_id,
-        "problems": _problem_payload(projection),
+        "problems": _problem_payload(projection, _t),
     }
 
 
@@ -486,7 +506,7 @@ async def generate_unit(
         project_path=get_project_manager().get_project_path(project_name),
         options=request_options,
     )
-    _raise_projection_blocker(projection, allow_duration_confirmation=False)
+    _raise_projection_blocker(projection, _t, allow_duration_confirmation=False)
 
     # 经统一守卫点构造：空提示词的结构校验在此当场拒绝（400），与 SDK 入队路径一致，
     # 不再漏到执行层失败（见 ADR-0001）。
@@ -516,13 +536,7 @@ async def generate_unit(
     return {
         "task_id": result["task_id"],
         "deduped": result.get("deduped", False),
-        "projection": {
-            "request_duration": projection.request_duration.seconds if projection.request_duration else None,
-            "capability": projection.hydrated_capability,
-            "provider_id": projection.provider_id,
-            "model_id": projection.model_id,
-            "problems": _problem_payload(projection),
-        },
+        "projection": {**projection.to_advisory_payload(), "problems": _problem_payload(projection, _t)},
     }
 
 

@@ -1466,6 +1466,35 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
     assert "E1U1" in text
     assert "5" in text and "8" in text
     assert "confirm_duration" in text
+    projection = out["request_projections"][0]
+    assert projection == {
+        "allowed": False,
+        "kind": "reference_request_projection",
+        "advisory": True,
+        "unit_id": "E1U1",
+        "declared_capability": "r2v",
+        "hydrated_capability": "r2v",
+        "provider_id": "fake",
+        "model_id": "fake-r2v",
+        "planned_duration": 5,
+        "duration_input": 5,
+        "request_duration": 8,
+        "problems": [
+            {
+                "code": "reference_duration_confirmation_required",
+                "blocking": True,
+                "unit_id": "E1U1",
+                "locations": [{"path": ["duration_seconds"], "line": None}],
+                "params": {
+                    "script_duration": 5,
+                    "duration_input": 5,
+                    "request_duration": 8,
+                    "adjustment": "up",
+                },
+                "action": "confirm_duration",
+            }
+        ],
+    }
     assert enqueued == []
 
 
@@ -1482,6 +1511,7 @@ async def test_generate_video_episode_reference_returns_structured_projection_bl
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
     class _BlockedProjection:
+        unit_id = "E1U1"
         blocking_problems = (
             ProjectionProblem(
                 code="reference_supported_durations_missing",
@@ -1489,6 +1519,22 @@ async def test_generate_video_episode_reference_returns_structured_projection_bl
                 params=(("provider", "fake"), ("model", "fake-model")),
             ),
         )
+
+        def to_advisory_payload(self):
+            return {
+                "allowed": False,
+                "kind": "reference_request_projection",
+                "advisory": True,
+                "unit_id": self.unit_id,
+                "declared_capability": "i2v",
+                "hydrated_capability": "i2v",
+                "provider_id": None,
+                "model_id": None,
+                "planned_duration": 5,
+                "duration_input": 5,
+                "request_duration": None,
+                "problems": [problem.to_payload(unit_id=self.unit_id) for problem in self.blocking_problems],
+            }
 
     async def _blocked(**_kwargs):
         return _BlockedProjection()
@@ -1499,12 +1545,25 @@ async def test_generate_video_episode_reference_returns_structured_projection_bl
 
     assert out.get("is_error") is True
     assert out["request_projection"] == {
+        "allowed": False,
+        "kind": "reference_request_projection",
+        "advisory": True,
         "unit_id": "E1U1",
+        "declared_capability": "i2v",
+        "hydrated_capability": "i2v",
+        "provider_id": None,
+        "model_id": None,
+        "planned_duration": 5,
+        "duration_input": 5,
+        "request_duration": None,
         "problems": [
             {
                 "code": "reference_supported_durations_missing",
                 "blocking": True,
+                "unit_id": "E1U1",
+                "locations": [{"path": ["duration_seconds"], "line": None}],
                 "params": {"provider": "fake", "model": "fake-model"},
+                "action": "configure_video_model",
             }
         ],
     }
@@ -1550,6 +1609,57 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
 
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in enqueued] == ["E1U1"]
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_reference_tts_floor_matches_projection_and_payload(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from lib.generation_queue_client import BatchTaskResult
+    from lib.reference_video.duration_slots import UP, DurationSlot
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    _use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+
+    def fake_precheck(_ctx, _unit):
+        return DurationSlot(seconds=12, total_seconds=9.5, adjustment=UP)
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        del project_name, on_failure
+        for spec in specs:
+            enqueued.append(spec)
+            if on_success:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "project_reference_unit_request", _fake_reference_projection(fake_precheck))
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    options = {"script": "episode_1.json", "narration_delivery": "use_tts", "narration_duration_floor": 9.5}
+
+    pending = await _call(tool_obj, options)
+    assert "9.5" in pending["content"][0]["text"]
+    assert "12" in pending["content"][0]["text"]
+    assert enqueued == []
+
+    completed = await _call(tool_obj, {**options, "confirm_duration": True})
+    assert completed.get("is_error") is not True
+    assert enqueued[0].payload["reference_request_options"] == {
+        "narration_delivery": "use_tts",
+        "narration_duration_floor": 9.5,
+        "duration_confirmed": True,
+    }
 
 
 @pytest.mark.integration
@@ -2853,7 +2963,7 @@ async def test_fetch_video_caps_narrows_durations_by_constraints(monkeypatch) ->
     _default, durations = await ctx_mod.fetch_video_caps({})
     assert durations == [4, 6, 8]
 
-    # 项目显式选了无声明的分辨率：不收窄，与改动前一致
+    # 项目显式选了无声明的分辨率时不收窄。
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}}
     _default, durations = await ctx_mod.fetch_video_caps(project)
     assert durations == [4, 6, 8]

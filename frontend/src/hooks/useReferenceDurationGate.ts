@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { API, SpeechAdmissionError } from "@/api";
+import { API, ReferenceProjectionError, SpeechAdmissionError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import type { DurationConfirmItem } from "@/components/canvas/reference/ReferenceDurationConfirmDialog";
+import type { ReferenceRequestOptions } from "@/types";
 
 interface Options {
   projectName: string;
   episode: number;
+  /** 由旁白工作流提供；预检与确认后的入队必须复用同一组选项。 */
+  requestOptions?: ReferenceRequestOptions;
 }
 
 /**
@@ -30,13 +33,13 @@ interface PendingConfirm {
 type Commit = (unitIds: string[], durationConfirmed: boolean) => Promise<void>;
 
 /**
- * 参考视频生成入口的时长确认闸门：入队前预检取档，申请秒数与剧本编排不一致时先让
+ * 参考视频生成入口的时长确认闸门：入队前预检取档，申请秒数与请求时长基准不一致时先让
  * 用户确认，取消则一个都不入队。
  *
  * 批量入口聚合成一次确认（逐个弹窗会让用户为一次操作点 N 遍），单入口与批量入口共用
  * 同一条闸门——否则批量按钮会成为绕过确认的旁路。
  */
-export function useReferenceDurationGate({ projectName, episode }: Options) {
+export function useReferenceDurationGate({ projectName, episode, requestOptions }: Options) {
   const { t } = useTranslation("dashboard");
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   // 入队回调随 run 一起捕获：确认发生在 run 之后的任意时刻，不能从渲染期闭包重取
@@ -82,7 +85,7 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
               projectName,
               episode,
               unitId,
-              { signal },
+              { ...requestOptions, signal },
             );
             return { unitId, precheck };
           } catch (e) {
@@ -99,7 +102,7 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
       for (const result of results) {
         if (!result) continue;
         if ("error" in result) {
-          if (result.error instanceof SpeechAdmissionError) {
+          if (result.error instanceof SpeechAdmissionError || result.error instanceof ReferenceProjectionError) {
             admissionMessages.add(result.error.message);
           } else {
             failed += 1;
@@ -108,7 +111,7 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
         }
         ok.push(result);
       }
-      // 预检失败的单元不入队：无从判断成片时长是否与剧本一致，静默按档位生成会烧掉配额
+      // 预检失败的单元不入队：无从判断成片时长是否与请求基准一致，静默按档位生成会烧掉配额
       if (admissionMessages.size > 0) {
         useAppStore.getState().pushToast(Array.from(admissionMessages).join("\n"), "error");
       }
@@ -135,7 +138,7 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
       canEnqueueRef.current = canEnqueue;
       setPending({ items: needsConfirmation, unitIds: passing });
     },
-    [projectName, episode, t],
+    [projectName, episode, requestOptions, t],
   );
 
   const confirm = useCallback(() => {

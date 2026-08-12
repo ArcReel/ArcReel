@@ -83,15 +83,48 @@ export interface ReferenceVideoUnit {
   migration_requires_content_replan?: boolean;
 }
 
+export interface ReferenceRequestOptions {
+  narration_delivery?: "post_production" | "use_tts";
+  narration_duration_floor?: number | null;
+}
+
+export interface ReferenceGenerationRequestOptions extends ReferenceRequestOptions {
+  duration_confirmed?: boolean;
+}
+
+export interface ReferenceProjectionLocation {
+  path: (string | number)[];
+  line: number | null;
+}
+
+export interface ReferenceProjectionProblem {
+  code: string;
+  blocking: boolean;
+  unit_id: string;
+  locations: ReferenceProjectionLocation[];
+  params: Record<string, unknown>;
+  action: string;
+  message?: string;
+}
+
+export interface ReferenceProjectionAdmission {
+  allowed: false;
+  kind: "reference_request_projection";
+  unit_id: string;
+  problems: ReferenceProjectionProblem[];
+}
+
 /**
- * 时长取档预检结果。`adjustment` 说明申请秒数相对剧本编排的偏移方向：
+ * 时长取档预检结果。`adjustment` 说明申请秒数相对取档输入的偏移方向：
  * `exact` 一致、`up` 成片更长、`down` 成片更短。能力元数据不可解析时预检直接失败。
  */
 export interface ReferenceDurationPrecheck {
-  /** 申请秒数与剧本编排不一致（up / down）时为 true，需先向用户确认 */
+  /** 申请秒数与取档输入不一致（up / down）时为 true，需先向用户确认 */
   needs_confirmation: boolean;
   /** 剧本编排时长（秒） */
   script_duration: number;
+  /** 取档输入；使用 TTS 时为剧本时长与实际旁白时长下限的较大值 */
+  duration_input: number;
   /** 将向模型申请的档位秒数 */
   request_duration: number;
   adjustment: "exact" | "up" | "down";
@@ -99,7 +132,7 @@ export interface ReferenceDurationPrecheck {
   hydrated_capability: "i2v" | "r2v";
   provider_id: string | null;
   model_id: string | null;
-  problems: Array<{ code: string; blocking: boolean; params: Record<string, unknown> }>;
+  problems: ReferenceProjectionProblem[];
 }
 
 /**

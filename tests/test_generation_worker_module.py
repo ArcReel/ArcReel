@@ -179,7 +179,7 @@ class TestExtractProvider:
 
     @pytest.mark.unit
     async def test_reference_video_prefers_r2v_bucket_provider(self, monkeypatch):
-        """镜头级状态读不到时回退当前 r2v 配置，不采用旧任务里的 enqueue-time pin。"""
+        """镜头级状态读不到时回退当前 r2v 配置，不采用 payload 中的 enqueue-time pin。"""
         _patch_pm(
             monkeypatch,
             {
@@ -1230,26 +1230,40 @@ class TestGenerationWorker:
                 super().__init__()
                 self._tasks = [
                     {
+                        "task_id": "vid-ready",
+                        "task_type": "video",
+                        "media_type": "video",
+                        "provider_id": "ark",
+                        "payload": {"video_provider_i2v": "ark/model"},
+                    },
+                    {
                         "task_id": "vid-stale",
                         "task_type": "reference_video",
                         "media_type": "video",
                         "provider_id": "ark",  # 入队时的投影，与现值分裂
                         "payload": {},
-                    }
+                    },
                 ]
+                self.claim_kwargs: list[dict] = []
 
-            async def claim_next_task(self, media_type, **_kwargs):  # type: ignore[override]
+            async def claim_next_task(self, media_type, **kwargs):  # type: ignore[override]
+                self.claim_kwargs.append(kwargs)
                 if media_type == "video" and self._tasks:
                     return self._tasks.pop()
                 return None
 
         queue = _StaleProjectionQueue()
-        worker = GenerationWorker(queue=queue, capacity=_cap({"minimax": {"video": 1}}))
+        worker = GenerationWorker(queue=queue, capacity=_cap({"minimax": {"video": 1}, "ark": {"video": 1}}))
 
-        async def _current_provider(_task):
-            return "minimax"
+        async def _current_provider(task):
+            return "minimax" if task["task_id"] == "vid-stale" else "ark"
 
         monkeypatch.setattr("lib.generation_worker._extract_provider", _current_provider)
+
+        async def _execute(_task):
+            return {"ok": True}
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _execute)
 
         occupier = asyncio.create_task(asyncio.sleep(30))
         worker._slots.register("minimax", "video", "vid-running", occupier)
@@ -1261,11 +1275,14 @@ class TestGenerationWorker:
         monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
         try:
             await worker._claim_tasks()
+            await asyncio.gather(*worker._slots.all_active_tasks())
         finally:
             occupier.cancel()
 
         assert requeued == ["vid-stale"]
         assert queue.persisted_providers == [("vid-stale", "minimax")]
+        assert queue.succeeded == [("vid-ready", {"ok": True})]
+        assert any(kwargs.get("exclude_task_ids") == frozenset({"vid-stale"}) for kwargs in queue.claim_kwargs)
 
     # ------------------------------------------------------------------
     # _pool_full_providers

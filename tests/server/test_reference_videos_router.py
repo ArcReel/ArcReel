@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import fake_reference_request_projector
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
@@ -675,9 +676,31 @@ def test_generate_unit_bucket_capability_error_returns_400(client: TestClient, m
 
     resp = client.post(f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate")
     assert resp.status_code == 400, resp.text
-    assert resp.json()["detail"] == i18n_message(
-        "video_capability_missing_r2v", provider="minimax", model="MiniMax-Hailuo-2.3"
-    )
+    detail = resp.json()["detail"]
+    assert detail == {
+        "allowed": False,
+        "kind": "reference_request_projection",
+        "advisory": True,
+        "unit_id": uid,
+        "declared_capability": "r2v",
+        "hydrated_capability": "r2v",
+        "provider_id": "fake",
+        "model_id": "fake-model",
+        "planned_duration": 3,
+        "duration_input": 3,
+        "request_duration": 3,
+        "problems": [
+            {
+                "code": "video_capability_missing_r2v",
+                "blocking": True,
+                "unit_id": uid,
+                "locations": [{"path": ["references"], "line": None}],
+                "params": {"provider": "minimax", "model": "MiniMax-Hailuo-2.3"},
+                "action": "configure_video_model",
+                "message": i18n_message("video_capability_missing_r2v", provider="minimax", model="MiniMax-Hailuo-2.3"),
+            }
+        ],
+    }
     assert enqueued == []
 
 
@@ -735,38 +758,7 @@ def test_generate_unit_missing_returns_404(client: TestClient):
 
 
 def _projection_with_durations(durations: list[int]):
-    async def _project(*, project, script, unit, project_path, options=None, **_kwargs):
-        from lib.reference_video.request_projection import (
-            FilesystemReferenceAssets,
-            ProviderProjectionCandidate,
-            ReferenceUnitRequestProjector,
-            resolve_reference_assets,
-        )
-
-        class _Caps:
-            async def resolve_candidate(self, _project, capability):
-                return ProviderProjectionCandidate(
-                    capability=capability,
-                    provider_id="fake",
-                    model_id="fake-model",
-                    supported_durations=tuple(durations),
-                    max_reference_images=9,
-                    resolution="1080p",
-                    generate_audio=True,
-                    requested_generate_audio=True,
-                    has_audio_track=True,
-                    audio_switch_controllable=True,
-                )
-
-        return await ReferenceUnitRequestProjector(_Caps(), FilesystemReferenceAssets(project_path)).project_current(
-            project=project,
-            script=script,
-            unit=unit,
-            resolved_assets=resolve_reference_assets(project, project_path, unit),
-            options=options,
-        )
-
-    return _project
+    return fake_reference_request_projector(durations=tuple(durations))
 
 
 def _patch_supported_durations(monkeypatch: pytest.MonkeyPatch, durations: list[int]) -> None:
@@ -800,8 +792,14 @@ def test_precheck_slot_member_needs_no_confirmation(client: TestClient, monkeypa
 
     body = _precheck(client, uid).json()
     assert body == {
+        "allowed": True,
+        "kind": "reference_request_projection",
+        "advisory": True,
+        "unit_id": uid,
+        "planned_duration": 3,
         "needs_confirmation": False,
         "script_duration": 3,
+        "duration_input": 3,
         "request_duration": 3,
         "adjustment": "exact",
         "declared_capability": "r2v",
@@ -822,6 +820,24 @@ def test_precheck_rounds_up_and_needs_confirmation(client: TestClient, monkeypat
     assert body["needs_confirmation"] is True
     assert body["script_duration"] == 3
     assert body["request_duration"] == 4
+    assert body["adjustment"] == "up"
+
+
+@pytest.mark.integration
+def test_precheck_uses_actual_tts_duration_as_floor(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    uid = _seed_unit(client)  # 剧本 3s，实际旁白 9.5s
+    _patch_supported_durations(monkeypatch, [4, 8, 12])
+
+    response = client.get(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/duration-precheck",
+        params={"narration_delivery": "use_tts", "narration_duration_floor": 9.5},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["script_duration"] == 3
+    assert body["duration_input"] == 9.5
+    assert body["request_duration"] == 12
     assert body["adjustment"] == "up"
 
 
@@ -849,9 +865,18 @@ def test_precheck_empty_duration_metadata_returns_structured_blocker(
 
     response = _precheck(client, uid)
     assert response.status_code == 400
-    assert response.json()["detail"] == i18n_message(
-        "reference_supported_durations_missing", provider="fake", model="fake-model"
-    )
+    detail = response.json()["detail"]
+    assert detail["kind"] == "reference_request_projection"
+    assert detail["unit_id"] == uid
+    assert detail["problems"][0] == {
+        "code": "reference_supported_durations_missing",
+        "blocking": True,
+        "unit_id": uid,
+        "locations": [{"path": ["duration_seconds"], "line": None}],
+        "params": {"provider": "fake", "model": "fake-model"},
+        "action": "configure_video_model",
+        "message": i18n_message("reference_supported_durations_missing", provider="fake", model="fake-model"),
+    }
 
 
 @pytest.mark.integration

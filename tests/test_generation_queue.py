@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
-from lib.generation_queue import GenerationQueue
+from lib.generation_queue import GenerationQueue, reference_projection_for_queued_task
 from lib.task_failure import encode_failure
 
 pytestmark = pytest.mark.unit
@@ -74,6 +74,47 @@ class TestGenerationQueue:
         )
         assert not second["deduped"]
         assert second["task_id"] != first["task_id"]
+
+    async def test_reference_rate_limit_projection_reuses_narration_options(self, monkeypatch, tmp_path):
+        seen_options = []
+        sentinel = object()
+
+        class _ProjectManager:
+            def load_script(self, project_name, script_file):
+                assert (project_name, script_file) == ("demo", "ep1.json")
+                return {"video_units": [{"unit_id": "E1U1"}]}
+
+            def get_project_path(self, project_name):
+                assert project_name == "demo"
+                return tmp_path
+
+        async def _project(**kwargs):
+            seen_options.append(kwargs["options"])
+            return sentinel
+
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: _ProjectManager())
+        monkeypatch.setattr("lib.reference_video.request_projection.project_reference_unit_request", _project)
+
+        projection = await reference_projection_for_queued_task(
+            project={},
+            project_name="demo",
+            payload={
+                "script_file": "ep1.json",
+                "reference_request_options": {
+                    "narration_delivery": "use_tts",
+                    "narration_duration_floor": 9.5,
+                    "duration_confirmed": True,
+                },
+            },
+            resource_id="E1U1",
+        )
+
+        assert projection is sentinel
+        assert seen_options[0].to_payload() == {
+            "narration_delivery": "use_tts",
+            "narration_duration_floor": 9.5,
+            "duration_confirmed": True,
+        }
 
     async def test_worker_lease_takeover(self, queue):
         first_ok = await queue.acquire_or_renew_worker_lease(

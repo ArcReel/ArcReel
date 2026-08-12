@@ -263,6 +263,7 @@ class TaskRepository(BaseRepository):
         media_type: str,
         *,
         pool_full_providers: frozenset[str] | None = None,
+        exclude_task_ids: frozenset[str] | None = None,
     ) -> dict[str, Any] | None:
         """领取下一个 queued 任务。
 
@@ -283,8 +284,17 @@ class TaskRepository(BaseRepository):
         provider_filter = ""
         if pool_full_providers:
             # SQLite/PG 都支持 expanding bindparam：list 形式 + NOT IN (:providers)
-            provider_filter = "AND (tasks.provider_id IS NULL OR tasks.provider_id NOT IN :providers)"
+            # reference_video 的 provider_id 只是入队时投影；项目配置可能已改变，必须先
+            # claim 并按当前 unit 重投影，不能让过期列值在 SQL 层永久挡住任务。
+            provider_filter = (
+                "AND (tasks.task_type = 'reference_video' "
+                "OR tasks.provider_id IS NULL OR tasks.provider_id NOT IN :providers)"
+            )
             params["providers"] = tuple(pool_full_providers)
+        task_filter = ""
+        if exclude_task_ids:
+            task_filter = "AND tasks.task_id NOT IN :excluded_task_ids"
+            params["excluded_task_ids"] = tuple(exclude_task_ids)
 
         # Use raw SQL for the dependency join (clearer than ORM for self-join)
         raw_stmt = text(f"""
@@ -295,6 +305,7 @@ class TaskRepository(BaseRepository):
             WHERE tasks.status = 'queued'
               AND tasks.media_type = :media_type
               {provider_filter}
+              {task_filter}
               AND (
                 tasks.dependency_task_id IS NULL
                 OR dependency.status = 'succeeded'
@@ -304,6 +315,8 @@ class TaskRepository(BaseRepository):
         """)
         if "providers" in params:
             raw_stmt = raw_stmt.bindparams(sa_bindparam("providers", expanding=True))
+        if "excluded_task_ids" in params:
+            raw_stmt = raw_stmt.bindparams(sa_bindparam("excluded_task_ids", expanding=True))
 
         result = await self.session.execute(raw_stmt, params)
         row = result.first()
@@ -738,11 +751,11 @@ class TaskRepository(BaseRepository):
         模式更新。并发安全前提：写 payload 的路径在同一 task 的执行协程内串行——
         ``persist_effective_duration`` 与 ``persist_execution_identity`` 在向 provider 提交前
         各写一次，``persist_api_call_id`` 由 media_generator 在其后拿到 call_id 时写一次，
-        互不并发。如果未来引入真正并发写 payload 的路径，需要外层加
+        互不并发。引入真正并发写 payload 的路径时需要外层加
         ``SELECT ... FOR UPDATE`` 或单事务串行化。
         """
-        # 用 .first() 而非 scalar_one_or_none()：Task.payload_json 允许 NULL（迁移历史/
-        # 旧任务存在 payload_json IS NULL 行），scalar_one_or_none 会把"行存在但
+        # 用 .first() 而非 scalar_one_or_none()：Task.payload_json 允许 NULL（迁移输入可含
+        # payload_json IS NULL 行），scalar_one_or_none 会把"行存在但
         # payload_json=NULL"误判成"无行"。Row 解构 row[0] 后 None 由 _json_loads 兜底为 {}。
         result = await self.session.execute(select(Task.payload_json).where(Task.task_id == task_id))
         row = result.first()
@@ -785,7 +798,7 @@ class TaskRepository(BaseRepository):
         """把 worker 重投影的 provider advisory 写回 ``task.provider_id``。
 
         未提交的 reference_video 任务在排队期间可以改项目配置；worker 认领后如果发现
-        旧列与当前投影分裂，回队前刷新该列，让后续 claim 过滤与限流路由使用新 provider。
+        持久化列与当前投影分裂时，回队前刷新该列，让后续 claim 过滤与限流路由使用当前 provider。
         它不锁定 model，也不是执行身份。不带 WHERE 状态守卫，与 ``persist_provider_job_id`` 同理。
         """
         now = utc_now()

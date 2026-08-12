@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { API, SpeechAdmissionError } from "@/api";
+import { API, ReferenceProjectionError, SpeechAdmissionError } from "@/api";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { useAppStore } from "@/stores/app-store";
 
@@ -17,6 +17,7 @@ describe("useReferenceDurationGate", () => {
     vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
       needs_confirmation: false,
       script_duration: 4,
+      duration_input: 4,
       request_duration: 4,
       adjustment: "exact",
       declared_capability: "i2v",
@@ -39,6 +40,7 @@ describe("useReferenceDurationGate", () => {
     vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
       needs_confirmation: true,
       script_duration: 5,
+      duration_input: 5,
       request_duration: 8,
       adjustment: "up",
       declared_capability: "i2v",
@@ -83,6 +85,37 @@ describe("useReferenceDurationGate", () => {
     });
 
     expect(pushToast).toHaveBeenCalledWith(error.message, "error");
+    expect(pushToast).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("presents a structured reference projection repair message", async () => {
+    const error = new ReferenceProjectionError({
+      allowed: false,
+      kind: "reference_request_projection",
+      unit_id: "E1U1",
+      problems: [
+        {
+          code: "reference_asset_missing",
+          blocking: true,
+          unit_id: "E1U1",
+          locations: [{ path: ["references"], line: null }],
+          params: { missing: [["character", "张三"]] },
+          action: "repair_reference_assets",
+          message: "请补齐张三的参考图",
+        },
+      ],
+    });
+    vi.spyOn(API, "precheckReferenceVideoDuration").mockRejectedValue(error);
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    const commit = vi.fn(async () => {});
+    const { result } = renderHook(() => useReferenceDurationGate({ projectName: "demo", episode: 1 }));
+
+    await act(async () => {
+      await result.current.run(["E1U1"], commit, () => true);
+    });
+
+    expect(pushToast).toHaveBeenCalledWith("请补齐张三的参考图", "error");
     expect(pushToast).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
   });
