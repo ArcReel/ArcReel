@@ -132,15 +132,14 @@ WAN3_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?3(?![a-z0-9])", re.I)
 # endpoints.py::is_wan_family 复用同一正则，使连字符形态（"wan-2.7"）与点号形态（"wan2.7"）
 # 在图像/视频归属与端点路由上得出一致结论——这是本正则唯一确权的范围。
 #
-# 刻意只锚 2.7、不覆盖其余 2.x 小版本：本后端固定请求
+# 只锚 2.7、不覆盖其余 2.x 小版本：本后端固定请求
 # `/services/aigc/video-generation/video-synthesis`（_VIDEO_ENDPOINT），而 wan2.1 / wan2.2-s2v
 # 按 docs/research/arcreel-video-api-protocol-research.md 记录走的是旧端点
 # `/services/aigc/image2video/video-synthesis/`、payload 字段也不同（如 wan2.6 用 `size` 而非
-# 2.7 的 `resolution`+`ratio`）；若把 2.1/2.2 等连字符/下划线形态也并入本正则，会把它们从原本
-# 至少不出错的通用视频端点强改路由到这个协议不兼容的原生端点，属于把死分歧变成活缺陷。
-# 点号形态（如 "wan2.1-kf2v"）不受本正则约束，但 endpoints.py::is_wan_family 仍对其保留独立的
-# 字面量判定——那是路由到原生端点这一行为在本正则引入前就存在的既有状态，是否收窄需要供应商
-# API 事实与产品判断，本处不代为决定，留给人工评估。
+# 2.7 的 `resolution`+`ratio`），并入本正则会把协议不兼容的请求送到这个端点。
+# 点号形态（如 "wan2.1-kf2v"）不受本正则约束；endpoints.py::is_wan_family 对点号形态另有独立的
+# 字面量判定，其路由是否也应收窄到 2.7 需要供应商 API 事实与产品判断，不由本正则的匹配宽度代为
+# 决定。
 WAN2_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?2\.7(?![a-z0-9])", re.I)
 
 # wan2.7 的 image-to-video 续接别名（"wan-2.7-image-to-video" / "wan_2.7-image2video"）在归一化

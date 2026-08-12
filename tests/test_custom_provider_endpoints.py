@@ -318,11 +318,11 @@ class TestInferEndpoint:
             ("wan20", "openai", "openai-video"),
             # 万相 2.x 小版本边界：WAN2_PATTERN 只认 2.7，其余 2.x（2.1/2.2 等）的连字符/下划线
             # 形态不落原生端点——本后端固定请求的 video-generation/video-synthesis 端点与这些
-            # 小版本的实际协议不符，强行路由过去只会把死分歧变成活缺陷（见 dashscope.py
-            # WAN2_PATTERN 处的说明）。点号形态维持既有行为（既有的字面量判定，本票不碰）。
+            # 小版本的实际协议不符（见 dashscope.py WAN2_PATTERN 处的说明）。点号形态另受独立的
+            # 字面量判定约束，不受 WAN2_PATTERN 的版本锚定限制。
             ("wan-2.1-kf2v", "openai", "openai-video"),  # 连字符 + 非 2.7 → 通用端点
             ("wan_2.2-t2v", "openai", "openai-video"),  # 下划线 + 非 2.7 → 通用端点
-            ("wan2.1-kf2v", "openai", "dashscope-async-video"),  # 点号形态既有行为不变
+            ("wan2.1-kf2v", "openai", "dashscope-async-video"),  # 点号形态走字面量判定，非本正则
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),

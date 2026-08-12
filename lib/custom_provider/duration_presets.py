@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import re
 
-from lib.video_backends.dashscope import WAN3_PATTERN
+from lib.video_backends.dashscope import WAN2_PATTERN, WAN3_PATTERN
 
 DEFAULT_FALLBACK: list[int] = [4, 8]
 
-# WAN3_PATTERN（连字符可选、不锚版本号）源出 lib.video_backends.dashscope——那里是本后端
-# 请求形态分派的单一真相源，endpoints.py 路由推断与本模块的时长档位推断均复用同一份，
-# 避免三处各写一份正则、匹配宽度悄悄漂移。
+# WAN2_PATTERN（只锚 2.7）/ WAN3_PATTERN（不锚版本号，连字符可选）均源出
+# lib.video_backends.dashscope——那里是本后端请求形态分派的单一真相源，endpoints.py 路由推断
+# 与本模块的时长档位推断均复用同一份，避免多处各写一份正则、匹配宽度悄悄漂移。
 
 # 按特异性从高到低排列；命中一条即返回。range 全展开为离散集。
 PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
@@ -53,11 +53,13 @@ PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
     # 万相 3.0（2-30 任意；须先于通用 Wan 判断，否则会落入 [4, 5]）。
     # 出处：lib/config/registry.py wan3.0-video 的 supported_durations。
     (WAN3_PATTERN, list(range(2, 31))),
-    # Wan（其余系列）。分隔符接受连字符与下划线，与 WAN3_PATTERN 同宽，否则 wan_2.7-i2v 这类
-    # 下划线别名会落 DEFAULT_FALLBACK，与它在端点路由、能力档上被认作万相家族的结论相互矛盾
-    # （用户会拿到该型号并不支持的时长档）。这里不加 WAN3_PATTERN 的标识符边界：本条是兜底
-    # 启发式，"swan3"/"wan20" 一类含 wan 子串的第三方型号名落到这条比落 DEFAULT_FALLBACK 更
-    # 接近常见值，且预设本就要求用户在输入框 review。
+    # 万相 2.7（2-15 任意；须先于通用 Wan 判断，否则会落入 [4, 5]）。
+    # 出处：lib/config/registry.py wan2.7-{t2v,i2v,r2v} 的 supported_durations。
+    (WAN2_PATTERN, list(range(2, 16))),
+    # Wan（其余系列，含万相 2.x 中 2.7 以外的小版本）。分隔符接受连字符与下划线，与 WAN3_PATTERN
+    # 同宽。这里不加 WAN3_PATTERN 的标识符边界：本条是兜底启发式，"swan3"/"wan20" 一类含 wan
+    # 子串的第三方型号名落到这条比落 DEFAULT_FALLBACK 更接近常见值，且预设本就要求用户在输入框
+    # review。
     (re.compile(r"wan[-_]?\d", re.I), [4, 5]),
     # Pika
     (re.compile(r"pika", re.I), [3, 5, 10]),

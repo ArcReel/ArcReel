@@ -552,9 +552,9 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        及带版本/日期后缀的同类 id 落到既有图像家族推断；wan-3-turbo-image-to-video /
        wan3-image2video 这类显式 image-to-video 续接语法仍归视频（同 2.5 节 kling-image2video
        的处理原则），按 _WAN_IMAGE_TO_VIDEO_PATTERN 精确挑出这一种形态，不对图像变体的命名形态
-       （结尾 token 等）做任何假设。原生路由只认 2.7（含裸点号形态 "wan2.x" 的既有兼容例外，
-       见下方 is_wan_family 的说明）与 wan3；其余 2.x 连字符/下划线形态（wan-2.1、wan_2.2-s2v
-       等）落到下方 5) 的通用视频端点。
+       （结尾 token 等）做任何假设。原生路由只认 2.7（含点号形态 "wan2.x"，见下方 is_wan_family
+       的说明）与 wan3；其余 2.x 连字符/下划线形态（wan-2.1、wan_2.2-s2v 等）落到下方 5) 的通用
+       视频端点。
     2) MiniMax 原生 token → 海螺 / S2V 走 "minimax-video"，image-01 走 "minimax-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
     2.5) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
@@ -578,11 +578,11 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 本后端却被当通用型号丢失能力声明"的矛盾。wan3 分支额外与 duration_presets.WAN3_PATTERN
     # 共用同一常量，保持时长档位推断口径一致。
     #
-    # 点号形态的其余 2.x（"wan2.1-kf2v"、"wan2.2-s2v"）额外用字面量子串判定，是本正则收窄到
-    # 2.7 之前就存在的既有行为：本后端固定请求 video-generation/video-synthesis 端点，与万相
+    # 点号形态的其余 2.x（"wan2.1-kf2v"、"wan2.2-s2v"）额外用字面量子串判定："wan2." 命中即算
+    # 万相家族，不要求版本号是 2.7。本后端固定请求 video-generation/video-synthesis 端点，与万相
     # 2.1/2.2 实际使用的旧端点及不同 payload 字段不符（出处见 DashScopeVideoBackend 模块顶部
-    # WAN2_PATTERN 处的说明），继续路由到这里对这些点号形态而言不是新问题——是否收窄需要供应商
-    # API 事实与产品判断，留给人工评估，不在此处顺带处理，避免把未经核实的猜测定型为代码逻辑。
+    # WAN2_PATTERN 处的说明）；是否收窄该字面量判定需要供应商 API 事实与产品判断，不由本函数
+    # 代为决定。
     is_wan_family = bool(WAN2_PATTERN.search(model_id) or WAN3_PATTERN.search(model_id) or "wan2." in lowered)
     # wan 家族的 image-to-video 别名（如 wan-3-turbo-image-to-video / wan3-image2video）含 "image"
     # 子串但本质是视频模型，与下方 kling-image2video 同类陷阱：笼统 is_image 会把它们错判成图像
