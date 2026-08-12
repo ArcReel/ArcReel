@@ -1149,7 +1149,7 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(
 
 @pytest.mark.unit
 async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    """重生成清理规则对 SDK 路径生效：旧记录不残留在前端列表（issue #1728 回归）。
+    """重生成清理规则对 SDK 路径生效：旧记录不残留在前端列表。
 
     通过 generate_grid 重生成某组宫格后，该组旧的已完成记录（同脚本同集、
     scene_ids 是当前组子集）被清理；其它组/代与非在途无关的记录不得误删。
