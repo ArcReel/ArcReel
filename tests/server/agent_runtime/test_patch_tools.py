@@ -789,6 +789,7 @@ class TestInsertRemoveSplit:
         )
 
         assert out.get("is_error") is True
+        assert out["speech_admission"]["unit_id"] == "E1U1_2"
         assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
         assert _load(ref_ctx) == before
 
