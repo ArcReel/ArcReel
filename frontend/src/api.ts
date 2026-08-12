@@ -53,6 +53,9 @@ import type {
   TransitionType,
   AdShot,
   ReferenceDurationPrecheck,
+  ReferenceProjectionAdmission,
+  ReferenceGenerationRequestOptions,
+  ReferenceRequestOptions,
   ScriptPreview,
   ScriptReviewState,
   DramaNormalizedScript,
@@ -88,6 +91,21 @@ const ASSET_TYPE_PATH: Record<ProjectAssetType, string> = {
   product: "products",
 };
 
+function referenceRequestQuery(
+  options: ReferenceRequestOptions,
+  initial?: Record<string, string>,
+): string {
+  const query = new URLSearchParams(initial);
+  if (options.narration_delivery) {
+    query.set("narration_delivery", options.narration_delivery);
+  }
+  if (options.narration_duration_floor != null) {
+    query.set("narration_duration_floor", String(options.narration_duration_floor));
+  }
+  const serialized = query.toString();
+  return serialized ? `?${serialized}` : "";
+}
+
 /** 资产级联重命名的影响报告（dry_run 预览与执行同一结构）。 */
 export interface AssetRenameResult {
   success: boolean;
@@ -107,7 +125,13 @@ export interface LoginResponse {
 
 /** Standard error response body from backend (mirrors FastAPI HTTPException detail). */
 export interface ErrorResponse {
-  detail: string | { msg?: string }[] | AgentFailureDetail | SpeechAdmission | ScriptEditResult;
+  detail:
+    | string
+    | { msg?: string }[]
+    | AgentFailureDetail
+    | SpeechAdmission
+    | ScriptEditResult
+    | ReferenceProjectionAdmission;
 }
 
 export interface SpeechAdmissionLocation {
@@ -183,6 +207,17 @@ export class SpeechAdmissionError extends Error {
   constructor(public readonly admission: SpeechAdmission) {
     super(formatSpeechAdmission(admission));
     this.name = "SpeechAdmissionError";
+  }
+}
+
+/** Preserves reference request blockers so the UI can show a repair action. */
+export class ReferenceProjectionError extends Error {
+  readonly code = "reference_request_projection_blocked" as const;
+
+  constructor(public readonly projection: ReferenceProjectionAdmission) {
+    const firstBlocking = projection.problems.find(({ blocking }) => blocking);
+    super(firstBlocking?.message || firstBlocking?.code || "reference_request_projection_blocked");
+    this.name = "ReferenceProjectionError";
   }
 }
 
@@ -396,6 +431,9 @@ async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<vo
       .json()
       .catch(() => ({ detail: response.statusText })) as ErrorResponse;
     const detail = error.detail;
+    if (isReferenceProjectionAdmission(detail)) {
+      throw new ReferenceProjectionError(detail);
+    }
     if (isSpeechAdmission(detail)) {
       throw new SpeechAdmissionError(detail);
     }
@@ -469,6 +507,42 @@ function isScriptEditResult(value: unknown): value is ScriptEditResult {
     && typeof result.revision === "string"
     && Array.isArray(result.problems)
     && result.problems.length > 0
+  );
+}
+
+function isReferenceProjectionAdmission(value: unknown): value is ReferenceProjectionAdmission {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const detail = value as Record<string, unknown>;
+  return (
+    detail.allowed === false
+    && detail.kind === "reference_request_projection"
+    && typeof detail.unit_id === "string"
+    && Array.isArray(detail.problems)
+    && detail.problems.length > 0
+    && detail.problems.every((problem) => {
+      if (!problem || typeof problem !== "object" || Array.isArray(problem)) return false;
+      const entry = problem as Record<string, unknown>;
+      return (
+        typeof entry.code === "string"
+        && typeof entry.blocking === "boolean"
+        && typeof entry.unit_id === "string"
+        && Array.isArray(entry.locations)
+        && entry.locations.every((location) => {
+          if (!location || typeof location !== "object" || Array.isArray(location)) return false;
+          const field = location as Record<string, unknown>;
+          return (
+            Array.isArray(field.path)
+            && field.path.every((part) => typeof part === "string" || typeof part === "number")
+            && (field.line === null || typeof field.line === "number")
+          );
+        })
+        && Boolean(entry.params)
+        && typeof entry.params === "object"
+        && !Array.isArray(entry.params)
+        && typeof entry.action === "string"
+        && (entry.message === undefined || typeof entry.message === "string")
+      );
+    })
   );
 }
 
@@ -628,6 +702,9 @@ class API {
       }
       if (isAgentFailureDetail(error.detail)) {
         throw new AgentFailureError(error.detail.message, error.detail.failure);
+      }
+      if (isReferenceProjectionAdmission(error.detail)) {
+        throw new ReferenceProjectionError(error.detail);
       }
       if (isSpeechAdmission(error.detail)) {
         throw new SpeechAdmissionError(error.detail);
@@ -2498,9 +2575,13 @@ class API {
    */
   static async getCostEstimate(
     projectName: string,
-    options: { signal?: AbortSignal } = {}
+    options: ReferenceRequestOptions & { referenceUnitId?: string; signal?: AbortSignal } = {}
   ): Promise<CostEstimateResponse> {
-    return this.request(`/projects/${encodeURIComponent(projectName)}/cost-estimate`, {
+    const suffix = referenceRequestQuery(
+      options,
+      options.referenceUnitId ? { reference_unit_id: options.referenceUnitId } : undefined,
+    );
+    return this.request(`/projects/${encodeURIComponent(projectName)}/cost-estimate${suffix}`, {
       signal: options.signal,
     });
   }
@@ -2789,18 +2870,19 @@ class API {
   }
 
   /**
-   * 入队前的时长取档预检：申请秒数与剧本编排不一致时需先向用户确认。
+   * 入队前的时长取档预检：申请秒数与请求时长基准不一致时需先向用户确认。
    *
-   * 取档按项目当前配置近似解析，实际档位以执行时的模型能力为准。
+   * 预检按请求时的项目、剧本与资产状态解析；worker 启动时重新投影当前状态。
    */
   static async precheckReferenceVideoDuration(
     projectName: string,
     episode: number,
     unitId: string,
-    options?: { signal?: AbortSignal },
+    options?: ReferenceRequestOptions & { signal?: AbortSignal },
   ): Promise<ReferenceDurationPrecheck> {
+    const suffix = referenceRequestQuery(options ?? {});
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/duration-precheck`,
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/duration-precheck${suffix}`,
       { signal: options?.signal },
     );
   }
@@ -2828,10 +2910,11 @@ class API {
     projectName: string,
     episode: number,
     unitId: string,
+    options: ReferenceGenerationRequestOptions = {},
   ): Promise<{ task_id: string; deduped: boolean }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/generate`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify(options) },
     );
   }
 

@@ -3,7 +3,7 @@
 import pytest
 
 from lib.i18n import _ as translate_message
-from lib.task_failure import FAILURE_CODE_KEYS, bound_reason, encode_failure, render_failure
+from lib.task_failure import FAILURE_CODE_KEYS, bound_reason, encode_failure, parse_failure, render_failure
 
 
 def _translator(locale: str):
@@ -37,6 +37,19 @@ class TestEncodeFailure:
             rendered = render_failure(encoded, translate)
             assert rendered
             assert not rendered.startswith("["), f"{code} rendered to raw code: {rendered}"
+
+    @pytest.mark.unit
+    def test_parse_known_code_preserves_params(self):
+        encoded = encode_failure("provider_unsupported_media", provider_id="grok", media_type="image")
+        assert parse_failure(encoded) == (
+            "provider_unsupported_media",
+            {"media_type": "image", "provider_id": "grok"},
+        )
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("raw", [None, "", "provider failed", '[unknown] {"x": 1}'])
+    def test_parse_rejects_non_machine_failures(self, raw: str | None):
+        assert parse_failure(raw) is None
 
 
 class TestRenderKnownCodes:

@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from lib.api_errors import NotFoundError
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.i18n import Translator
 from lib.project_manager import get_project_manager
+from lib.reference_video import find_reference_unit
+from lib.reference_video.request_projection import POST_PRODUCTION, NarrationDelivery, ReferenceRequestOptions
 from server.services.cost_estimation import CostEstimationService
 
 router = APIRouter()
@@ -19,7 +21,13 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/projects/{project_name}/cost-estimate")
-async def get_cost_estimate(project_name: str, _t: Translator):
+async def get_cost_estimate(
+    project_name: str,
+    _t: Translator,
+    reference_unit_id: str | None = None,
+    narration_delivery: NarrationDelivery = POST_PRODUCTION,
+    narration_duration_floor: float | None = Query(default=None, gt=0, allow_inf_nan=False),
+):
     """获取项目费用估算（预估 + 实际）。"""
 
     def _sync():
@@ -47,10 +55,34 @@ async def get_cost_estimate(project_name: str, _t: Translator):
     project_data, scripts = await asyncio.to_thread(_sync)
 
     resolver = ConfigResolver(async_session_factory)
-    service = CostEstimationService(resolver, async_session_factory)
+    service = CostEstimationService(
+        resolver,
+        async_session_factory,
+        project_path=get_project_manager().get_project_path(project_name),
+    )
+
+    if narration_duration_floor is not None and not reference_unit_id:
+        raise HTTPException(status_code=400, detail=_t("request_invalid"))
+    if reference_unit_id and not any(find_reference_unit(script, reference_unit_id) for script in scripts.values()):
+        raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=reference_unit_id))
+    reference_request_options = (
+        {
+            reference_unit_id: ReferenceRequestOptions(
+                narration_delivery=narration_delivery,
+                narration_duration_floor=narration_duration_floor,
+            )
+        }
+        if reference_unit_id
+        else None
+    )
 
     try:
-        return await service.compute(project_data, scripts, project_name=project_name)
+        return await service.compute(
+            project_data,
+            scripts,
+            project_name=project_name,
+            reference_request_options=reference_request_options,
+        )
     except Exception:
         logger.exception("费用估算失败")
         raise HTTPException(status_code=500, detail=_t("cost_estimation_failed"))

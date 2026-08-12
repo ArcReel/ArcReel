@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unicodedata
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import fake_reference_request_projector
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
@@ -30,8 +32,8 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
                 "content_mode": "narration",
                 "generation_mode": "reference_video",
                 "style": "s",
-                "characters": {"张三": {"description": "x"}},
-                "scenes": {"酒馆": {"description": "x"}},
+                "characters": {"张三": {"description": "x", "character_sheet": "characters/张三.png"}},
+                "scenes": {"酒馆": {"description": "x", "scene_sheet": "scenes/酒馆.png"}},
                 "props": {},
                 "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
             },
@@ -39,6 +41,10 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         ),
         encoding="utf-8",
     )
+    (proj_dir / "characters").mkdir()
+    (proj_dir / "characters" / "张三.png").write_bytes(b"image")
+    (proj_dir / "scenes").mkdir()
+    (proj_dir / "scenes" / "酒馆.png").write_bytes(b"image")
     (proj_dir / "scripts" / "episode_1.json").write_text(
         json.dumps(
             {
@@ -62,10 +68,8 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     custom_pm = ProjectManager(projects_root)
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
-    # 视频桶预检需要 DB（system_settings）；router 单测无 DB，能力闸行为由
-    # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
-    monkeypatch.setattr(router_mod, "require_video_bucket_capability", AsyncMock(return_value=None))
-    monkeypatch.setattr(router_mod, "require_audio_switch_supported", AsyncMock(return_value=None))
+    # 公共 request projection 的 resolver 需要 DB；路由测试注入 in-process 能力适配器。
+    monkeypatch.setattr(router_mod, "project_reference_unit_request", _projection_with_durations([3, 6, 9]))
 
     app = FastAPI()
     register_error_handlers(app)
@@ -545,9 +549,47 @@ def test_generate_unit_enqueues_task(client: TestClient, monkeypatch: pytest.Mon
     assert enqueued[0]["task_type"] == "reference_video"
     assert enqueued[0]["media_type"] == "video"
     assert enqueued[0]["resource_id"] == uid
-    # 经统一守卫点构造：shots[*].text 拼接出的 prompt 随 payload 入队（见 ADR-0001）。
-    # parse_prompt 已剥离 `Shot N (Xs):` header，存盘的 shot text 仅余正文。
-    assert enqueued[0]["payload"]["prompt"] == "@张三 推门"
+    # 当前文本只作结构守卫，任务只保定位与请求选项；worker 执行前重读最新剧本。
+    assert "prompt" not in enqueued[0]["payload"]
+    assert enqueued[0]["payload"]["reference_request_options"]["duration_confirmed"] is False
+
+
+@pytest.mark.integration
+def test_generate_unit_requires_and_persists_explicit_duration_confirmation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    uid = _seed_unit(client)  # 3s
+    _patch_supported_durations(monkeypatch, [4, 8])
+    enqueued: list[dict[str, object]] = []
+
+    class _FakeQueue:
+        async def enqueue_task(self, **kwargs):
+            enqueued.append(kwargs)
+            return {"task_id": "task-confirmed", "deduped": False}
+
+    from server.routers import reference_videos as router_mod
+
+    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: _FakeQueue())
+
+    unconfirmed = client.post(f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate")
+    assert unconfirmed.status_code == 400
+    assert enqueued == []
+
+    confirmed = client.post(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate",
+        json={"duration_confirmed": True},
+    )
+    assert confirmed.status_code == 202, confirmed.text
+    assert confirmed.json()["projection"]["request_duration"] == 4
+    payload = enqueued[0]["payload"]
+    assert isinstance(payload, dict)
+    assert payload == {
+        "script_file": "scripts/episode_1.json",
+        "reference_request_options": {
+            "narration_delivery": "post_production",
+            "duration_confirmed": True,
+        },
+    }
 
 
 @pytest.mark.integration
@@ -598,9 +640,9 @@ def test_three_reference_route_web_video_entries_share_structured_speech_admissi
 
 @pytest.mark.unit
 def test_generate_unit_bucket_capability_error_returns_400(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    """r2v 桶预检失败（如默认模型缺参考图能力）→ 提交入口 400 + 修复指引，不入队。"""
-    from lib.api_errors import BadRequestError
+    """公共投影返回 r2v 能力 blocker 时提交入口不入队。"""
     from lib.i18n import _ as i18n_message
+    from lib.reference_video.request_projection import ProjectionProblem
 
     uid = _seed_unit(client)
     enqueued: list[dict] = []
@@ -614,17 +656,51 @@ def test_generate_unit_bucket_capability_error_returns_400(client: TestClient, m
 
     monkeypatch.setattr(router_mod, "get_generation_queue", lambda: _FakeQueue())
 
-    async def _reject(project, capability):
-        assert capability == "r2v"
-        raise BadRequestError("video_capability_missing_r2v", provider="minimax", model="MiniMax-Hailuo-2.3")
+    base_project = _projection_with_durations([3, 6, 9])
 
-    monkeypatch.setattr(router_mod, "require_video_bucket_capability", _reject)
+    async def _reject(**kwargs):
+        projection = await base_project(**kwargs)
+        assert projection.hydrated_capability == "r2v"
+        return replace(
+            projection,
+            problems=(
+                ProjectionProblem(
+                    code="video_capability_missing_r2v",
+                    blocking=True,
+                    params=(("provider", "minimax"), ("model", "MiniMax-Hailuo-2.3")),
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(router_mod, "project_reference_unit_request", _reject)
 
     resp = client.post(f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate")
     assert resp.status_code == 400, resp.text
-    assert resp.json()["detail"] == i18n_message(
-        "video_capability_missing_r2v", provider="minimax", model="MiniMax-Hailuo-2.3"
-    )
+    detail = resp.json()["detail"]
+    assert detail == {
+        "allowed": False,
+        "kind": "reference_request_projection",
+        "advisory": True,
+        "unit_id": uid,
+        "declared_capability": "r2v",
+        "hydrated_capability": "r2v",
+        "provider_id": "fake",
+        "model_id": "fake-model",
+        "planned_duration": 3,
+        "duration_input": 3,
+        "request_duration": 3,
+        "problems": [
+            {
+                "code": "video_capability_missing_r2v",
+                "blocking": True,
+                "unit_id": uid,
+                "locations": [{"path": ["references"], "line": None}],
+                "params": {"provider": "minimax", "model": "MiniMax-Hailuo-2.3"},
+                "action": "configure_video_model",
+                "message": i18n_message("video_capability_missing_r2v", provider="minimax", model="MiniMax-Hailuo-2.3"),
+            }
+        ],
+    }
     assert enqueued == []
 
 
@@ -649,11 +725,14 @@ def test_generate_unit_degenerate_precheck_uses_i2v_bucket(
     monkeypatch.setattr(router_mod, "get_generation_queue", lambda: _FakeQueue())
 
     checked: list[str] = []
+    base_project = _projection_with_durations([3, 6, 9])
 
-    async def _record(project, capability):
-        checked.append(capability)
+    async def _record(**kwargs):
+        projection = await base_project(**kwargs)
+        checked.append(projection.hydrated_capability)
+        return projection
 
-    monkeypatch.setattr(router_mod, "require_video_bucket_capability", _record)
+    monkeypatch.setattr(router_mod, "project_reference_unit_request", _record)
 
     resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate")
     assert resp.status_code == 202, resp.text
@@ -678,12 +757,27 @@ def test_generate_unit_missing_returns_404(client: TestClient):
     assert resp.status_code == 404
 
 
+def _projection_with_durations(durations: list[int]):
+    return fake_reference_request_projector(durations=tuple(durations))
+
+
 def _patch_supported_durations(monkeypatch: pytest.MonkeyPatch, durations: list[int]) -> None:
     from server.routers import reference_videos as router_mod
     from server.services.reference_video_tasks import ProjectDurationContext
 
-    ctx = ProjectDurationContext(supported_durations=tuple(durations), resolution=None, provider_id="", model_name=None)
-    monkeypatch.setattr(router_mod, "resolve_project_duration_context", AsyncMock(return_value=ctx))
+    monkeypatch.setattr(router_mod, "project_reference_unit_request", _projection_with_durations(durations))
+    monkeypatch.setattr(
+        router_mod,
+        "resolve_project_duration_context",
+        AsyncMock(
+            return_value=ProjectDurationContext(
+                supported_durations=tuple(durations),
+                resolution="1080p",
+                provider_id="fake",
+                model_name="fake-model",
+            )
+        ),
+    )
 
 
 def _precheck(client: TestClient, unit_id: str):
@@ -698,10 +792,21 @@ def test_precheck_slot_member_needs_no_confirmation(client: TestClient, monkeypa
 
     body = _precheck(client, uid).json()
     assert body == {
+        "allowed": True,
+        "kind": "reference_request_projection",
+        "advisory": True,
+        "unit_id": uid,
+        "planned_duration": 3,
         "needs_confirmation": False,
         "script_duration": 3,
+        "duration_input": 3,
         "request_duration": 3,
         "adjustment": "exact",
+        "declared_capability": "r2v",
+        "hydrated_capability": "r2v",
+        "provider_id": "fake",
+        "model_id": "fake-model",
+        "problems": [],
     }
 
 
@@ -719,6 +824,24 @@ def test_precheck_rounds_up_and_needs_confirmation(client: TestClient, monkeypat
 
 
 @pytest.mark.integration
+def test_precheck_uses_actual_tts_duration_as_floor(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    uid = _seed_unit(client)  # 剧本 3s，实际旁白 9.5s
+    _patch_supported_durations(monkeypatch, [4, 8, 12])
+
+    response = client.get(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/duration-precheck",
+        params={"narration_delivery": "use_tts", "narration_duration_floor": 9.5},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["script_duration"] == 3
+    assert body["duration_input"] == 9.5
+    assert body["request_duration"] == 12
+    assert body["adjustment"] == "up"
+
+
+@pytest.mark.integration
 def test_precheck_over_largest_slot_reports_shorter_clip(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     """总时长超过最大档位 → 需确认，按最大档位申请（成片短于剧本编排）。"""
     uid = _seed_unit(client)  # 3s
@@ -731,15 +854,46 @@ def test_precheck_over_largest_slot_reports_shorter_clip(client: TestClient, mon
 
 
 @pytest.mark.integration
-def test_precheck_unresolvable_capability_passes_through(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    """能力不可解析（档位集为空）→ 沿用现状放行，无确认。"""
+def test_precheck_empty_duration_metadata_returns_structured_blocker(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """档位集为空时 fail loud，不返回伪可执行的 unconstrained 结果。"""
+    from lib.i18n import _ as i18n_message
+
     uid = _seed_unit(client)
     _patch_supported_durations(monkeypatch, [])
 
-    body = _precheck(client, uid).json()
-    assert body["needs_confirmation"] is False
-    assert body["adjustment"] == "unconstrained"
-    assert body["request_duration"] == 3
+    response = _precheck(client, uid)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["kind"] == "reference_request_projection"
+    assert detail["unit_id"] == uid
+    assert detail["problems"][0] == {
+        "code": "reference_supported_durations_missing",
+        "blocking": True,
+        "unit_id": uid,
+        "locations": [{"path": ["duration_seconds"], "line": None}],
+        "params": {"provider": "fake", "model": "fake-model"},
+        "action": "configure_video_model",
+        "message": i18n_message("reference_supported_durations_missing", provider="fake", model="fake-model"),
+    }
+
+
+@pytest.mark.integration
+def test_precheck_formats_missing_asset_message_for_people(client: TestClient, tmp_path: Path) -> None:
+    from lib.i18n import _ as i18n_message
+
+    uid = _seed_unit(client)
+    (tmp_path / "projects" / "demo" / "characters" / "张三.png").unlink()
+
+    response = _precheck(client, uid)
+
+    assert response.status_code == 400, response.text
+    problems = response.json()["detail"]["problems"]
+    missing = next(problem for problem in problems if problem["code"] == "reference_asset_missing")
+    assert missing["params"]["missing"] == [["character", "张三"]]
+    assert missing["params"]["missing_text"] == "character: 张三"
+    assert missing["message"] == i18n_message("reference_asset_missing", missing_text="character: 张三")
 
 
 @pytest.mark.integration

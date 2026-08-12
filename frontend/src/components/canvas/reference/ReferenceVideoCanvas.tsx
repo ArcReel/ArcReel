@@ -42,6 +42,7 @@ import {
   normalizeAssetName,
 } from "@/utils/reference-mentions";
 import type {
+  ReferenceRequestOptions,
   ReferenceResource,
   ReferenceVideoUnit,
   UnitStatus,
@@ -69,6 +70,8 @@ export interface ReferenceVideoCanvasProps {
    * 使用——参考图约束按 unit 生效，不能因同集内其它 unit 带图就收窄这类 unit 的可选档位。
    */
   durationOptionsNoReference?: number[];
+  /** 上游旁白工作流给出的请求事实；不在画布内探测或推断 TTS 状态。 */
+  requestOptions?: ReferenceRequestOptions;
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
@@ -132,6 +135,7 @@ export function ReferenceVideoCanvas({
   freeDuration = false,
   durationOptions,
   durationOptionsNoReference,
+  requestOptions,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
 
@@ -293,7 +297,7 @@ export function ReferenceVideoCanvas({
 
   const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
-  // 时长取档闸门：申请秒数与剧本编排不一致时先确认，取消则一个都不入队
+  // 时长取档闸门：申请秒数与请求时长基准不一致时先确认，取消则一个都不入队
   const isUnitGenerationBlocked = useCallback(
     (unitId: string) =>
       Boolean(
@@ -328,10 +332,10 @@ export function ReferenceVideoCanvas({
     [isUnitLocked, projectName, episode],
   );
 
-  const durationGate = useReferenceDurationGate({ projectName, episode });
+  const durationGate = useReferenceDurationGate({ projectName, episode, requestOptions });
 
   const enqueue = useCallback(
-    async (unitId: string) => {
+    async (unitId: string, durationConfirmed = false) => {
       // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的占用态未必是最新的
       // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）；
       // 时长确认弹窗打开期间同样会经过这段窗口，故复核落在入队这一刻。
@@ -345,12 +349,15 @@ export function ReferenceVideoCanvas({
       }
       try {
         // 乐观打标（请求发出前）、失败回滚与 queued/deduped 提示都在动作层内完成
-        await enqueueReferenceVideoUnit(projectName, episode, unitId);
+        await enqueueReferenceVideoUnit(projectName, episode, unitId, {
+          ...requestOptions,
+          duration_confirmed: durationConfirmed,
+        });
       } catch (e) {
         toastError(e, (msg) => t("reference_generate_request_failed", { error: msg }));
       }
     },
-    [projectName, episode, isUnitLocked, isUnitGenerationBlocked, t],
+    [projectName, episode, isUnitLocked, isUnitGenerationBlocked, requestOptions, t],
   );
 
   /**
@@ -360,10 +367,10 @@ export function ReferenceVideoCanvas({
    * 单元可能在此期间由别处生成完成，只在循环开始前过滤一次拦不住它。
    */
   const makeEnqueueSerially = useCallback(
-    (canEnqueue: (unitId: string) => boolean) => async (unitIds: string[]) => {
+    (canEnqueue: (unitId: string) => boolean) => async (unitIds: string[], durationConfirmed: boolean) => {
       for (const id of unitIds) {
         if (!canEnqueue(id)) continue;
-        await enqueue(id);
+        await enqueue(id, durationConfirmed);
       }
     },
     [enqueue],

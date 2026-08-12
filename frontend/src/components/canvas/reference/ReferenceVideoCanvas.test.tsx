@@ -7,7 +7,7 @@ import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { API } from "@/api";
-import type { ReferenceVideoUnit } from "@/types";
+import type { ReferenceDurationPrecheck, ReferenceVideoUnit } from "@/types";
 import type { ProjectData } from "@/types";
 
 // useActiveResourceIds / useLatestTasksByResource 默认包裹真实实现，仅在个别用例里
@@ -89,12 +89,18 @@ describe("ReferenceVideoCanvas", () => {
       optimisticActiveScriptFile: new Set(),
     });
     useAppStore.setState({ toast: null });
-    // 时长取档预检默认「与剧本编排一致」：生成入口无确认步骤，与改动前的路径等价
+    // 时长取档预检默认「与请求时长基准一致」：生成入口无需确认。
     vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
       needs_confirmation: false,
       script_duration: 3,
+      duration_input: 3,
       request_duration: 3,
       adjustment: "exact",
+      declared_capability: "i2v",
+      hydrated_capability: "i2v",
+      provider_id: "kling",
+      model_id: "kling-v2-1-master",
+      problems: [],
     });
   });
   afterEach(() => vi.restoreAllMocks());
@@ -642,7 +648,7 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled();
     });
-    // 旧任务行仍是 failed，statusMap 未变；预览区不能同时叠出「生成中」占位与
+    // 失败任务行仍在，statusMap 未变；预览区不能同时叠出「生成中」占位与
     // 失败覆盖层——inFlight 展示应覆盖 failed 状态。
     expect(screen.queryByText(/Generation failed|生成失败/)).not.toBeInTheDocument();
     resolveGen({ task_id: "t2", deduped: false });
@@ -745,7 +751,7 @@ describe("ReferenceVideoCanvas", () => {
 
     fireEvent.click(batch);
     await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
-    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2");
+    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2", { duration_confirmed: false });
   });
 
   // 上传与生成回写同一个成片文件：文件选择对话框打开期间同一 unit 可能已被占用，
@@ -798,24 +804,32 @@ describe("ReferenceVideoCanvas", () => {
 
     fireEvent.click(batch);
     await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
-    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2");
+    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2", { duration_confirmed: false });
   });
 
-  // 时长取档确认：模型只接受离散档位，剧本编排落在档位之间时按能装下它的最小档位生成，
+  // 时长取档确认：模型只接受离散档位，请求时长基准落在档位之间时按能装下它的最小档位生成，
   // 成片不裁剪——秒数不一致这件事必须在入队前讲清楚，由用户决定是否继续。
   describe("时长取档确认", () => {
     const CONFIRM_CTA = /Generate at this length|按此时长生成/;
 
-    function stubPrecheck(precheck: {
-      needs_confirmation: boolean;
-      script_duration: number;
-      request_duration: number;
-      adjustment: "exact" | "up" | "down" | "unconstrained";
-    }) {
-      vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue(precheck);
+    function stubPrecheck(
+      precheck: Pick<
+        ReferenceDurationPrecheck,
+        "needs_confirmation" | "script_duration" | "request_duration" | "adjustment"
+      >,
+    ) {
+      vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
+        ...precheck,
+        duration_input: precheck.script_duration,
+        declared_capability: "i2v",
+        hydrated_capability: "i2v",
+        provider_id: "kling",
+        model_id: "kling-v2-1-master",
+        problems: [],
+      });
     }
 
-    it("申请秒数与剧本编排不一致时先确认，确认后才入队", async () => {
+    it("申请秒数与请求时长基准不一致时先确认，确认后才入队", async () => {
       vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
       const genSpy = vi
         .spyOn(API, "generateReferenceVideoUnit")
@@ -833,13 +847,62 @@ describe("ReferenceVideoCanvas", () => {
       // 确认前不得入队
       const confirm = await screen.findByRole("button", { name: CONFIRM_CTA });
       expect(genSpy).not.toHaveBeenCalled();
-      // 弹窗内容含剧本编排秒数、申请秒数与「成片更长」的说明
+      // 弹窗内容含请求时长基准、申请秒数与「成片更长」的说明。
       expect(screen.getByText(/5 秒|5s/)).toBeInTheDocument();
       expect(screen.getByText(/8 秒|8s/)).toBeInTheDocument();
       expect(screen.getByText(/长 3 秒|3s longer/)).toBeInTheDocument();
 
       fireEvent.click(confirm);
-      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
+      await waitFor(() =>
+        expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_confirmed: true }),
+      );
+    });
+
+    it("复用上游 TTS 时长选项完成预检、确认与入队", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+      const precheckSpy = vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
+        needs_confirmation: true,
+        script_duration: 3,
+        duration_input: 9.5,
+        request_duration: 12,
+        adjustment: "up",
+        declared_capability: "i2v",
+        hydrated_capability: "i2v",
+        provider_id: "kling",
+        model_id: "kling-v2-1-master",
+        problems: [],
+      });
+      const generateSpy = vi.spyOn(API, "generateReferenceVideoUnit").mockResolvedValue({
+        task_id: "t1",
+        deduped: false,
+      } as never);
+      const requestOptions = {
+        narration_delivery: "use_tts" as const,
+        narration_duration_floor: 9.5,
+      };
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} requestOptions={requestOptions} />);
+      fireEvent.click(await screen.findByRole("button", { name: UNIT_GENERATE_CTA }));
+
+      await waitFor(() =>
+        expect(precheckSpy).toHaveBeenCalledWith(
+          "proj",
+          1,
+          "E1U1",
+          expect.objectContaining(requestOptions),
+        ),
+      );
+      const dialog = within(screen.getByRole("dialog"));
+      expect(dialog.getByText(/9\.5 秒|9\.5s/)).toBeInTheDocument();
+      expect(dialog.queryByText(/^3 秒$|^3s$/)).not.toBeInTheDocument();
+
+      fireEvent.click(await screen.findByRole("button", { name: CONFIRM_CTA }));
+      await waitFor(() =>
+        expect(generateSpy).toHaveBeenCalledWith("proj", 1, "E1U1", {
+          ...requestOptions,
+          duration_confirmed: true,
+        }),
+      );
     });
 
     it("取消确认则不入队", async () => {
@@ -884,7 +947,7 @@ describe("ReferenceVideoCanvas", () => {
 
       await screen.findByRole("button", { name: CONFIRM_CTA });
       expect(screen.getByText(/短 8 秒|8s shorter/)).toBeInTheDocument();
-      expect(screen.getByText(/放不下完整的剧本编排|cannot hold the full script/)).toBeInTheDocument();
+      expect(screen.getByText(/放不下完整的请求时长基准|cannot hold the full request basis/)).toBeInTheDocument();
     });
 
     it("批量入口把需确认的单元聚合成一次确认，不逐个弹窗", async () => {
@@ -952,8 +1015,10 @@ describe("ReferenceVideoCanvas", () => {
       fireEvent.click(confirm);
       // 先等清单里最后一个单元入队完毕，再断言已完成的那个自始至终没被提交——
       // 直接 waitFor 调用次数为 1 会在第一次调用时就满足，捕获不到多出来的那次。
-      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2"));
-      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1");
+      await waitFor(() =>
+        expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2", { duration_confirmed: true }),
+      );
+      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1", { duration_confirmed: true });
       expect(genSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -993,8 +1058,10 @@ describe("ReferenceVideoCanvas", () => {
       fireEvent.click(batch);
       fireEvent.click(await screen.findByRole("button", { name: CONFIRM_CTA }));
 
-      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
-      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U2");
+      await waitFor(() =>
+        expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_confirmed: true }),
+      );
+      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U2", { duration_confirmed: true });
       expect(genSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -1017,7 +1084,9 @@ describe("ReferenceVideoCanvas", () => {
       fireEvent.click(await screen.findByRole("button", { name: /Regenerate|重新生成/ }));
 
       fireEvent.click(await screen.findByRole("button", { name: CONFIRM_CTA }));
-      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
+      await waitFor(() =>
+        expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_confirmed: true }),
+      );
     });
 
     // 预检是一段 await 窗口：其间被别处占用的 unit 若仍列进确认清单，就是请用户为一件
@@ -1039,8 +1108,14 @@ describe("ReferenceVideoCanvas", () => {
         return {
           needs_confirmation: true,
           script_duration: 3,
+          duration_input: 3,
           request_duration: 4,
           adjustment: "up" as const,
+          declared_capability: "i2v" as const,
+          hydrated_capability: "i2v" as const,
+          provider_id: "kling",
+          model_id: "kling-v2-1-master",
+          problems: [],
         };
       });
 
@@ -1058,7 +1133,7 @@ describe("ReferenceVideoCanvas", () => {
 
       fireEvent.click(confirm);
       await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(2));
-      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1");
+      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1", { duration_confirmed: true });
     });
 
     // 折叠计数会藏起被折叠单元的调整方向：其中可能有成片更短的单元，而用户是在看不到

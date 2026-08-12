@@ -32,12 +32,14 @@ from lib.generation_queue import (
     TASK_POLL_INTERVAL_SEC,
     TASK_WORKER_HEARTBEAT_SEC,
     TASK_WORKER_LEASE_TTL_SEC,
+    DispatchProviderChanged,
     GenerationQueue,
     get_generation_queue,
-    video_bucket_for_queued_task,
+    resolve_video_execution_for_queued_task,
 )
 from lib.image_backends.base import ImageCapabilityError
 from lib.reference_compression import ReferencePayloadFloorError
+from lib.reference_video.request_projection import ReferenceProjectionBlockedError
 from lib.script_editor import ScriptEditError
 from lib.task_failure import encode_failure
 from lib.video_backends.base import VideoCapabilityError
@@ -74,7 +76,7 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
 
 
 def _encode_task_failure_message(exc: Exception) -> str:
-    """把任务执行异常编码为落库的 error_message：ScriptEditError 与后端能力类异常走
+    """把任务执行异常编码为落库的 error_message：ScriptEditError 与结构化执行拒绝走
     code/params 结构化，其余异常沿用 str(exc)。normal（_process_task）与 resume
     （_process_resume_task）两条独立的任务执行路径都会捕获这些异常（前者经常规 finalize，
     后者经 resume_executor 复用同一批 finalize helper），共用这份编码逻辑避免同一处理漂移成两份。
@@ -86,9 +88,14 @@ def _encode_task_failure_message(exc: Exception) -> str:
         # 编不出来时退到通用 script_edit_error，保住"是剧本编辑失败"这一层信息。
         return _try_encode_failure(exc.key, exc.params) or encode_failure("script_edit_error")
     if isinstance(
-        exc, ImageCapabilityError | VideoCapabilityError | ReferencePayloadFloorError | VideoBucketCapabilityError
+        exc,
+        ImageCapabilityError
+        | VideoCapabilityError
+        | ReferencePayloadFloorError
+        | VideoBucketCapabilityError
+        | ReferenceProjectionBlockedError,
     ):
-        # 能力类异常没有通用兜底 code 可退，退回 str(exc)（即 code 本身）——
+        # 结构化执行拒绝没有通用兜底 code 可退，退回 str(exc)（即 code 本身）——
         # 非结构化文本在读侧原样透传，不会丢失原因。
         return _try_encode_failure(exc.code, exc.params) or str(exc)
     return str(exc)
@@ -367,11 +374,10 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``capability="t2i"`` 取一个
     **代表性** provider——worker 认领时拿不到真实 capability（见 ``docs/adr/0001``），这点近似不影响
     生成正确性（执行层会独立精确再解析一次）；``image_edit`` 是唯一例外（必然 i2i、入队即知），
-    按 i2i 槽精确解析。视频定桶经 ``video_bucket_for_queued_task`` 与入队派生共用：
-    参考生视频按参考集分流（无引用退化镜头 → i2v）——ad 从成员镜头现算（与执行侧同源，
-    索引里的 references 只是可能落后于镜头的展示缓存），其余按 unit **声明**的参考集近似。
-    投影只服务 claim 过滤与限流路由；执行侧按解析后的**实际**参考图精确定桶，ad 参考集
-    非空但资产缺图时两者允许分裂（执行前经 ``persist_execution_identity`` 把实际身份写回投影列与锁定键）。
+    按 i2i 槽精确解析。分镜视频定桶经 ``video_bucket_for_queued_task`` 与入队派生共用；
+    reference_video 则重读最新 project/script/unit，以实际可用资产调用公共 request projection。
+    这份 provider 投影只服务 claim 过滤与限流路由，不是执行身份；正常 executor 会在开始时
+    再按同一最新状态物化请求。
     解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
@@ -394,14 +400,14 @@ async def _extract_provider(task: dict[str, Any]) -> str:
 
         resolver = ConfigResolver(async_session_factory)
         if is_video:
-            capability = await video_bucket_for_queued_task(
+            resolved, _capability = await resolve_video_execution_for_queued_task(
+                resolver=resolver,
                 project=project,
                 project_name=project_name,
                 task_type=task.get("task_type", ""),
                 payload=payload,
                 resource_id=task.get("resource_id"),
             )
-            resolved = await resolver.resolve_video_backend(project, payload, capability=capability)
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload)
         else:
@@ -573,13 +579,21 @@ class GenerationWorker:
         claimed_any = False
 
         for media_type in ("image", "video", "audio"):
+            attempted_current_state_tasks: set[str] = set()
             while True:
                 # 每轮重算池满集合：刚 claim 的任务可能让某 provider 进入满状态
                 pool_full = self._pool_full_providers(media_type)
-                task = await self.queue.claim_next_task(
-                    media_type=media_type,
-                    pool_full_providers=pool_full,
-                )
+                if attempted_current_state_tasks:
+                    task = await self.queue.claim_next_task(
+                        media_type=media_type,
+                        pool_full_providers=pool_full,
+                        exclude_task_ids=frozenset(attempted_current_state_tasks),
+                    )
+                else:
+                    task = await self.queue.claim_next_task(
+                        media_type=media_type,
+                        pool_full_providers=pool_full,
+                    )
                 if not task:
                     break
 
@@ -628,31 +642,41 @@ class GenerationWorker:
                             "回队前投影刷新失败 task_id=%s provider=%s", task["task_id"], provider_id, exc_info=True
                         )
                     await self._requeue_single_task(task["task_id"])
-                    # break 当前 media_type 循环：下一轮 SQL 会按重算的 pool_full
-                    # 过滤掉这个 provider，避免反复 claim 同一 task
+                    if task.get("task_type") == "reference_video":
+                        # reference_video 必须先重投影才能判断当前 provider；本 cycle 排除已
+                        # 重投影且仍池满的任务，继续寻找其它 provider 的可运行任务。
+                        attempted_current_state_tasks.add(task["task_id"])
+                        continue
+                    # 其它任务的 provider 身份在队列中稳定，下一轮 SQL 会按重算的
+                    # pool_full 过滤该 provider，避免反复 claim 同一 task。
                     break
 
                 # Dispatch：登记占用（INFLIGHT），bucket 由 register 自动创建
                 claimed_any = True
+                if task.get("task_type") == "reference_video":
+                    process_task = self._process_task(task, claimed_provider_id=provider_id)
+                else:
+                    process_task = self._process_task(task)
                 self._slots.register(
                     provider_id,
                     media_type,
                     task["task_id"],
                     asyncio.create_task(
-                        self._process_task(task),
+                        process_task,
                         name=f"generation-{media_type}-{task['task_id']}",
                     ),
                 )
 
         return claimed_any
 
-    async def _requeue_single_task(self, task_id: str) -> None:
+    async def _requeue_single_task(self, task_id: str) -> bool:
         """Put a claimed (running) task back to queued status.
 
         正常路径下大多数池满任务通过 ``pool_full_providers`` SQL 过滤在 claim 阶段被
         排除；当 ``provider_id IS NULL`` 走 IS NULL 兜底而 worker 二次校验发现池满时，
         本方法把任务放回 queued 等下次 cycle 重试（不可 mark_failed——派生 provider 在
-        入队后才发生，NULL 不等于"无效任务"）。
+        入队后才发生，NULL 不等于"无效任务"）。执行入口发现 provider 漂移时也复用
+        同一条 guarded UPDATE，并根据返回值决定能否安全退出当前执行槽。
         """
         try:
             from datetime import datetime
@@ -661,9 +685,10 @@ class GenerationWorker:
 
             from lib.db import safe_session_factory
             from lib.db.models.task import Task
+            from lib.db.repositories.base import rowcount
 
             async with safe_session_factory() as session:
-                await session.execute(
+                result = await session.execute(
                     update(Task)
                     .where(Task.task_id == task_id, Task.status == "running")
                     .values(
@@ -672,10 +697,16 @@ class GenerationWorker:
                         updated_at=datetime.now(UTC),
                     )
                 )
+                affected = rowcount(result)
                 await session.commit()
+            if affected == 0:
+                logger.info("回队任务 %s 未命中 running 状态", task_id)
+                return False
             logger.debug("回队任务 %s (供应商池已满)", task_id)
+            return True
         except Exception:
             logger.warning("回队任务 %s 失败", task_id, exc_info=True)
+            return False
 
     # ------------------------------------------------------------------
     # Task lifecycle
@@ -716,7 +747,7 @@ class GenerationWorker:
         await asyncio.gather(*active_tasks, return_exceptions=True)
         self._slots.clear()
 
-    async def _process_task(self, task: dict[str, Any]) -> None:
+    async def _process_task(self, task: dict[str, Any], *, claimed_provider_id: str | None = None) -> None:
         """Run a generation task with 0-rows-cancelled finally protocol (ADR 0006).
 
         所有 DB 写入（mark_succeeded / mark_failed / mark_cancelled）都用 ``asyncio.shield``
@@ -725,17 +756,61 @@ class GenerationWorker:
         """
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
-        provider_id = await _extract_provider(task)
+        provider_id = claimed_provider_id or await _extract_provider(task)
         logger.info("开始处理任务 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
 
         from server.services.generation_tasks import execute_generation_task
 
         try:
-            result = await execute_generation_task(task)
+            if task_type == "reference_video":
+                result = await execute_generation_task(task, claimed_provider_id=provider_id)
+            else:
+                result = await execute_generation_task(task)
         except asyncio.CancelledError:
             # 用户/级联取消：worker.request_cancel 触发 asyncio.Task.cancel()
             await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
             raise
+        except DispatchProviderChanged as exc:
+            # reference_video 在执行入口重新读取当前状态；若 provider 已从认领时的槽漂移，
+            # 不得占着旧槽提交到新 provider。刷新 advisory 列并回队，让下一 cycle 在新槽
+            # 完成容量校验后再执行。此处尚未调用 provider，不会造成重复扣费。
+            try:
+                await asyncio.shield(self.queue.persist_execution_provider_id(task_id, exc.actual_provider_id))
+            except Exception:
+                logger.warning(
+                    "执行 provider 漂移后的投影刷新失败 task_id=%s provider=%s",
+                    task_id,
+                    exc.actual_provider_id,
+                    exc_info=True,
+                )
+            requeued = await asyncio.shield(self._requeue_single_task(task_id))
+            if not requeued:
+                logger.error(
+                    "任务 %s 执行 provider 从 %s 变为 %s，但回队失败",
+                    task_id,
+                    exc.claimed_provider_id,
+                    exc.actual_provider_id,
+                )
+                rows = await asyncio.shield(
+                    self.queue.mark_task_failed(
+                        task_id,
+                        encode_failure(
+                            "dispatch_provider_requeue_failed",
+                            claimed_provider_id=exc.claimed_provider_id,
+                            actual_provider_id=exc.actual_provider_id,
+                        ),
+                    )
+                )
+                if rows == 0:
+                    await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+                return
+            logger.info(
+                "任务 %s 执行 provider 从 %s 变为 %s，已回队等待新槽",
+                task_id,
+                exc.claimed_provider_id,
+                exc.actual_provider_id,
+            )
+            return
         except Exception as exc:
             logger.exception("任务失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
             rows = await asyncio.shield(self.queue.mark_task_failed(task_id, _encode_task_failure_message(exc)))
@@ -765,10 +840,9 @@ class GenerationWorker:
     async def _process_resume_task(self, task: dict[str, Any]) -> None:
         """重启自愈入口：直接调 backend.resume_video，绕过 normal executor 流水线。
 
-        身份锁定：视频任务的 provider 与 model 由入队时锁进 payload 能力桶键的执行身份负责
-        （``lib.generation_queue``），``ConfigResolver`` 据此按提交时的身份而非当前项目配置解析
-        backend——否则任务提交后到重启前若项目 provider 配置切换，会拿旧 ``provider_job_id``
-        去新 provider 轮询，导致可恢复任务被误判失败。
+        身份锁定：分镜视频在入队时写入 payload 能力桶键；reference_video 在 worker
+        开始时按最新状态物化，并在 provider 提交前写入同样的实际身份。``ConfigResolver``
+        因此能在任务已提交且进程重启后，按提交时的身份而非当前项目配置恢复 backend。
 
         非视频媒体退到把持久化的 ``task["provider_id"]`` 注入 payload 的 ``image_provider``
         字段（只锁 provider、锁不住 model）。孤儿扫描只把 video 交到这里，image / audio 孤儿
@@ -788,7 +862,7 @@ class GenerationWorker:
             return
 
         # 非视频媒体：锁定持久化 provider 到 payload（resolver 优先级：payload > project > 默认）。
-        # 视频任务的身份走入队锁定的能力桶键，不在此注入——注入只覆盖 provider、盖不住 model。
+        # 已提交视频任务的身份走能力桶键，不在此注入——注入只覆盖 provider、盖不住 model。
         persisted_provider_id = task.get("provider_id")
         is_video = task.get("media_type") == "video" or task_type in ("video", "reference_video")
         if persisted_provider_id and not is_video:

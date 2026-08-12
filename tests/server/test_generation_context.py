@@ -219,6 +219,7 @@ class TestVideoLane:
         assert ctx.video.supported_durations == tuple(expected.supported_durations or [])
         assert ctx.video.max_duration == max(expected.supported_durations or [0])
         assert ctx.video.max_reference_images == _backend_video_caps("ark", video_model).max_reference_images
+        assert isinstance(ctx.video.generate_audio, bool)
         assert ctx.video.resolution is None
         assert ctx.video.resolution_or_fallback == get_provider_fallback("ark")
 
@@ -248,6 +249,7 @@ class TestVideoLane:
         assert ctx.video.supported_durations == ()
         assert ctx.video.max_duration is None
         assert ctx.video.max_reference_images is None
+        assert ctx.video.generate_audio is False
         assert ctx.video.backend_model == "mystery-model"
 
     @pytest.mark.integration

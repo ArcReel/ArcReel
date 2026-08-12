@@ -113,8 +113,9 @@ async def _patch_empty_db(monkeypatch):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    monkeypatch.setattr("lib.db.async_session_factory", async_sessionmaker(engine, expire_on_commit=False))
-    yield
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr("lib.db.async_session_factory", factory)
+    yield factory
     await engine.dispose()
 
 
@@ -178,7 +179,7 @@ class TestExtractProvider:
 
     @pytest.mark.unit
     async def test_reference_video_prefers_r2v_bucket_provider(self, monkeypatch):
-        """payload 无 script_file、镜头级参考集无从判定时，reference_video 投影回退代表桶 r2v。"""
+        """镜头级状态读不到时回退当前 r2v 配置，不采用 payload 中的 enqueue-time pin。"""
         _patch_pm(
             monkeypatch,
             {
@@ -186,7 +187,11 @@ class TestExtractProvider:
                 "video_provider_r2v": "minimax/S2V-01",
             },
         )
-        task = {"payload": {}, "project_name": "demo", "task_type": "reference_video"}
+        task = {
+            "payload": {"video_provider_r2v": "ark/doubao-seedance-1-5-pro-251215"},
+            "project_name": "demo",
+            "task_type": "reference_video",
+        }
         assert await _extract_provider(task) == "minimax"
 
     @pytest.mark.unit
@@ -194,13 +199,19 @@ class TestExtractProvider:
         ("references", "expected_provider"),
         [([{"type": "character", "name": "A"}], "minimax"), ([], "ark")],
     )
-    async def test_reference_video_routes_by_unit_reference_bucket(self, monkeypatch, references, expected_provider):
-        """reference_video 投影按 unit 声明的参考集分桶：有参考图 → r2v 桶 provider，
+    async def test_reference_video_routes_by_hydrated_reference_bucket(
+        self, tmp_path, monkeypatch, references, expected_provider
+    ):
+        """reference_video 投影按 unit 当前实际可用参考图分桶：有图 → r2v 桶 provider，
         无参考图退化镜头 → i2v 桶 provider，与执行层降级定桶同口径。"""
         project = {
             "video_provider_i2v": "ark/doubao-seedance-1-5-pro-251215",
             "video_provider_r2v": "minimax/S2V-01",
+            "video_generate_audio": True,
+            "characters": {"A": {"character_sheet": "characters/A.png"}},
         }
+        (tmp_path / "characters").mkdir()
+        (tmp_path / "characters" / "A.png").write_bytes(b"image")
         script = {"video_units": [{"unit_id": "E1U1", "references": references, "shots": [{"text": "t"}]}]}
         pm_cls = type(
             "PM",
@@ -208,6 +219,7 @@ class TestExtractProvider:
             {
                 "load_project": lambda self, name: project,
                 "load_script": lambda self, name, filename: script,
+                "get_project_path": lambda self, name: tmp_path,
             },
         )
         monkeypatch.setattr("lib.config.resolver.get_project_manager", pm_cls)
@@ -239,6 +251,80 @@ class TestExtractProvider:
             "resource_id": "E1U1",
         }
         assert await _extract_provider(task) == "minimax"
+
+    @pytest.mark.unit
+    async def test_queued_reference_video_reprojects_provider_after_project_edit(
+        self, tmp_path, monkeypatch, _patch_empty_db
+    ):
+        """队列行只保存 advisory provider；领取/执行前按项目最新 provider/model 重新投影。"""
+
+        from lib.generation_queue import GenerationQueue, reference_projection_for_queued_task
+
+        holder = {"model": "ark/doubao-seedance-1-5-pro-251215"}
+        script = {
+            "video_units": [{"unit_id": "E1U1", "references": [], "shots": [{"text": "空镜"}], "duration_seconds": 5}]
+        }
+
+        class _PM:
+            def load_project(self, _name):
+                return {
+                    "generation_mode": "reference_video",
+                    "video_provider_i2v": holder["model"],
+                    "video_generate_audio": True,
+                }
+
+            def load_script(self, _name, _filename):
+                return script
+
+            def get_project_path(self, _name):
+                return tmp_path
+
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", _PM)
+        queue = GenerationQueue(session_factory=_patch_empty_db)
+        enqueued = await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={"script_file": "ep1.json"},
+            script_file="ep1.json",
+        )
+        task = await queue.get_task(enqueued["task_id"])
+        assert task is not None
+        assert task["provider_id"] == "ark"
+        assert "video_provider_i2v" not in task["payload"]
+        assert "video_provider_r2v" not in task["payload"]
+
+        first = await reference_projection_for_queued_task(
+            project=_PM().load_project(task["project_name"]),
+            project_name=task["project_name"],
+            payload=task["payload"],
+            resource_id=task["resource_id"],
+        )
+        assert first is not None
+        assert (first.provider_id, first.model_id) == ("ark", "doubao-seedance-1-5-pro-251215")
+        assert await _extract_provider(task) == "ark"
+
+        holder["model"] = "ark/doubao-seedance-2-0-260128"
+        second = await reference_projection_for_queued_task(
+            project=_PM().load_project(task["project_name"]),
+            project_name=task["project_name"],
+            payload=task["payload"],
+            resource_id=task["resource_id"],
+        )
+        assert second is not None
+        assert (second.provider_id, second.model_id) == ("ark", "doubao-seedance-2-0-260128")
+
+        holder["model"] = "grok/grok-imagine-video"
+        third = await reference_projection_for_queued_task(
+            project=_PM().load_project(task["project_name"]),
+            project_name=task["project_name"],
+            payload=task["payload"],
+            resource_id=task["resource_id"],
+        )
+        assert third is not None
+        assert (third.provider_id, third.model_id) == ("grok", "grok-imagine-video")
+        assert await _extract_provider(task) == "grok"
 
     @pytest.mark.unit
     async def test_payload_provider_takes_precedence_over_project(self, monkeypatch):
@@ -641,6 +727,111 @@ class TestGenerationWorker:
         monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _raise)
         await worker._process_task({"task_id": "t2"})
         assert queue.failed and queue.failed[0][0] == "t2"
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_process_reference_task_requeues_when_execution_provider_changes(self, monkeypatch):
+        """执行入口解析到别的 provider 时不占旧槽提交，而是刷新投影并回队重认领。"""
+
+        from lib.generation_queue import DispatchProviderChanged
+
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+
+        async def _changed(_task, *, claimed_provider_id):
+            assert claimed_provider_id == "ark"
+            raise DispatchProviderChanged(claimed_provider_id="ark", actual_provider_id="minimax")
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _changed)
+        requeued: list[str] = []
+
+        async def _capture_requeue(self, task_id):
+            requeued.append(task_id)
+            return True
+
+        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
+
+        await worker._process_task(
+            {"task_id": "ref-provider-changed", "task_type": "reference_video"},
+            claimed_provider_id="ark",
+        )
+
+        assert queue.persisted_providers == [("ref-provider-changed", "minimax")]
+        assert requeued == ["ref-provider-changed"]
+        assert queue.succeeded == []
+        assert queue.failed == []
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failed_rows", [1, 0])
+    async def test_process_reference_task_closes_terminal_state_when_provider_requeue_fails(
+        self, monkeypatch, failed_rows: int
+    ):
+        from lib.generation_queue import DispatchProviderChanged
+
+        queue = _FakeQueue(failed_rows=failed_rows)
+        worker = GenerationWorker(queue=queue)
+
+        async def _changed(_task, *, claimed_provider_id):
+            raise DispatchProviderChanged(claimed_provider_id=claimed_provider_id, actual_provider_id="minimax")
+
+        async def _cannot_requeue(_self, _task_id):
+            return False
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _changed)
+        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _cannot_requeue)
+
+        await worker._process_task(
+            {"task_id": "ref-provider-changed", "task_type": "reference_video"},
+            claimed_provider_id="ark",
+        )
+
+        assert queue.succeeded == []
+        assert queue.failed == [
+            (
+                "ref-provider-changed",
+                '[dispatch_provider_requeue_failed] {"actual_provider_id": "minimax", "claimed_provider_id": "ark"}',
+            )
+        ]
+        assert queue.cancelled == ([] if failed_rows else [("ref-provider-changed", "user")])
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("affected", "expected"), [(1, True), (0, False)])
+    async def test_requeue_single_task_reports_guarded_update_result(self, monkeypatch, affected: int, expected: bool):
+        from contextlib import asynccontextmanager
+
+        class _Result:
+            rowcount = affected
+
+        class _Session:
+            async def execute(self, _statement):
+                return _Result()
+
+            async def commit(self):
+                return None
+
+        @asynccontextmanager
+        async def _session_factory():
+            yield _Session()
+
+        monkeypatch.setattr("lib.db.safe_session_factory", _session_factory)
+
+        assert await GenerationWorker(queue=_FakeQueue())._requeue_single_task("candidate") is expected
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_requeue_single_task_reports_database_failure(self, monkeypatch):
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def _session_factory():
+            raise RuntimeError("database unavailable")
+            yield  # pragma: no cover
+
+        monkeypatch.setattr("lib.db.safe_session_factory", _session_factory)
+
+        assert await GenerationWorker(queue=_FakeQueue())._requeue_single_task("running") is False
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -1144,26 +1335,40 @@ class TestGenerationWorker:
                 super().__init__()
                 self._tasks = [
                     {
+                        "task_id": "vid-ready",
+                        "task_type": "video",
+                        "media_type": "video",
+                        "provider_id": "ark",
+                        "payload": {"video_provider_i2v": "ark/model"},
+                    },
+                    {
                         "task_id": "vid-stale",
                         "task_type": "reference_video",
                         "media_type": "video",
                         "provider_id": "ark",  # 入队时的投影，与现值分裂
                         "payload": {},
-                    }
+                    },
                 ]
+                self.claim_kwargs: list[dict] = []
 
-            async def claim_next_task(self, media_type, **_kwargs):  # type: ignore[override]
+            async def claim_next_task(self, media_type, **kwargs):  # type: ignore[override]
+                self.claim_kwargs.append(kwargs)
                 if media_type == "video" and self._tasks:
                     return self._tasks.pop()
                 return None
 
         queue = _StaleProjectionQueue()
-        worker = GenerationWorker(queue=queue, capacity=_cap({"minimax": {"video": 1}}))
+        worker = GenerationWorker(queue=queue, capacity=_cap({"minimax": {"video": 1}, "ark": {"video": 1}}))
 
-        async def _current_provider(_task):
-            return "minimax"
+        async def _current_provider(task):
+            return "minimax" if task["task_id"] == "vid-stale" else "ark"
 
         monkeypatch.setattr("lib.generation_worker._extract_provider", _current_provider)
+
+        async def _execute(_task):
+            return {"ok": True}
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _execute)
 
         occupier = asyncio.create_task(asyncio.sleep(30))
         worker._slots.register("minimax", "video", "vid-running", occupier)
@@ -1175,11 +1380,14 @@ class TestGenerationWorker:
         monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
         try:
             await worker._claim_tasks()
+            await asyncio.gather(*worker._slots.all_active_tasks())
         finally:
             occupier.cancel()
 
         assert requeued == ["vid-stale"]
         assert queue.persisted_providers == [("vid-stale", "minimax")]
+        assert queue.succeeded == [("vid-ready", {"ok": True})]
+        assert any(kwargs.get("exclude_task_ids") == frozenset({"vid-stale"}) for kwargs in queue.claim_kwargs)
 
     # ------------------------------------------------------------------
     # _pool_full_providers

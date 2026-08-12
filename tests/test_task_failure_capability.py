@@ -23,9 +23,11 @@ from lib.i18n import MESSAGES
 from lib.i18n import _ as i18n_translate
 from lib.image_backends.base import ImageCapabilityError
 from lib.reference_compression import ReferencePayloadFloorError
+from lib.reference_video.request_projection import ProjectionProblem, ReferenceProjectionBlockedError
 from lib.task_failure import (
     CAPABILITY_FAILURE_CODES,
     FAILURE_CODE_KEYS,
+    REFERENCE_PROJECTION_FAILURE_CODES,
     bound_reason,
     collapse_cascade_reason,
     encode_failure,
@@ -388,6 +390,50 @@ def test_encode_covers_every_capability_exception_type():
         stored = _encode_task_failure_message(exc)
         assert stored.startswith(f"[{exc.code}]")
         assert render_failure(stored, _translator("en")) != stored
+
+
+@pytest.mark.parametrize("code", sorted(REFERENCE_PROJECTION_FAILURE_CODES))
+def test_projection_failure_codes_are_machine_encodable_in_all_locales(code: str):
+    assert FAILURE_CODE_KEYS[code] == code
+    for locale in ("zh", "en", "vi"):
+        assert code in MESSAGES[locale], f"{locale} 缺少 {code}"
+
+
+@pytest.mark.parametrize(
+    ("problem", "expected_params"),
+    [
+        (
+            ProjectionProblem(
+                code="reference_supported_durations_invalid",
+                blocking=True,
+                params=(("provider", "fake"), ("model", "bad-model")),
+            ),
+            {"provider": "fake", "model": "bad-model"},
+        ),
+        (
+            ProjectionProblem(
+                code="reference_asset_missing",
+                blocking=True,
+                params=(
+                    ("missing", (("character", "张三"),)),
+                    ("missing_text", "character: 张三"),
+                ),
+            ),
+            {
+                "missing": (("character", "张三"),),
+                "missing_text": "character: 张三",
+            },
+        ),
+    ],
+)
+def test_projection_failure_preserves_canonical_code_and_params_for_localized_tasks(
+    problem: ProjectionProblem, expected_params: dict[str, object]
+):
+    stored = _encode_task_failure_message(ReferenceProjectionBlockedError(problem))
+    assert json.loads(stored.split("] ", 1)[1]) == json.loads(json.dumps(expected_params, ensure_ascii=False))
+    for locale in ("zh", "en", "vi"):
+        expected = MESSAGES[locale][problem.code].format(**expected_params)
+        assert render_failure(stored, _translator(locale)) == expected
 
 
 @pytest.mark.parametrize(

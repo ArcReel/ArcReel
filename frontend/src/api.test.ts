@@ -3,6 +3,7 @@ import {
   AgentFailureError,
   API,
   ConflictError,
+  ReferenceProjectionError,
   ScriptEditCommandError,
   SpeechAdmissionError,
 } from "@/api";
@@ -199,6 +200,45 @@ describe("API", () => {
       } catch (error) {
         expect(error).toBeInstanceOf(ScriptEditCommandError);
         expect((error as ScriptEditCommandError).result).toEqual(result);
+      }
+    });
+
+    it("preserves a structured reference request projection blocker", async () => {
+      const projection = {
+        allowed: false as const,
+        kind: "reference_request_projection" as const,
+        unit_id: "E1U1",
+        problems: [
+          {
+            code: "reference_images_clamped",
+            blocking: false,
+            unit_id: "E1U1",
+            locations: [{ path: ["references"], line: null }],
+            params: { count: 4, max_count: 3 },
+            action: "review_reference_selection",
+            message: "参考图片将被裁剪",
+          },
+          {
+            code: "reference_asset_missing",
+            blocking: true,
+            unit_id: "E1U1",
+            locations: [{ path: ["references"], line: null }],
+            params: { missing: [["character", "张三"]] },
+            action: "repair_reference_assets",
+            message: "参考资产缺失",
+          },
+        ],
+      };
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+        mockResponse({ ok: false, status: 400, jsonData: { detail: projection } }),
+      ));
+
+      try {
+        await API.precheckReferenceVideoDuration("demo", 1, "E1U1");
+        expect.fail("request should fail");
+      } catch (error) {
+        expect(error).toBeInstanceOf(ReferenceProjectionError);
+        expect(error).toMatchObject({ message: "参考资产缺失", projection });
       }
     });
 
@@ -1140,8 +1180,45 @@ describe("API.referenceVideos", () => {
 
   it("generateReferenceVideoUnit returns task id", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ task_id: "t-1", deduped: false }), { status: 202 }));
-    const res = await API.generateReferenceVideoUnit("proj", 1, "E1U1");
+    const res = await API.generateReferenceVideoUnit("proj", 1, "E1U1", {
+      duration_confirmed: true,
+      narration_delivery: "use_tts",
+      narration_duration_floor: 9.5,
+    });
     expect(res.task_id).toBe("t-1");
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+    expect(body).toEqual({
+      duration_confirmed: true,
+      narration_delivery: "use_tts",
+      narration_duration_floor: 9.5,
+    });
+  });
+
+  it("precheckReferenceVideoDuration sends narration projection options", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
+
+    await API.precheckReferenceVideoDuration("proj", 1, "E1U1", {
+      narration_delivery: "use_tts",
+      narration_duration_floor: 9.5,
+    });
+
+    expect(fetchMock.mock.calls[0]![0]).toContain(
+      "duration-precheck?narration_delivery=use_tts&narration_duration_floor=9.5",
+    );
+  });
+
+  it("getCostEstimate sends unit-scoped narration projection options", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
+
+    await API.getCostEstimate("proj", {
+      referenceUnitId: "E1U1",
+      narration_delivery: "use_tts",
+      narration_duration_floor: 9.5,
+    });
+
+    expect(fetchMock.mock.calls[0]![0]).toContain(
+      "cost-estimate?reference_unit_id=E1U1&narration_delivery=use_tts&narration_duration_floor=9.5",
+    );
   });
 
   it("deleteReferenceVideoUnit returns void on 204", async () => {

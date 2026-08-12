@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -12,7 +13,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.config.resolver import VideoCapability, video_bucket_for_generation_mode
+from lib.config.resolver import video_bucket_for_generation_mode
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
@@ -29,7 +30,13 @@ from lib.prompt_utils import (
     video_prompt_to_yaml,
 )
 from lib.reference_video import assemble_shots_text
-from lib.reference_video.units import reference_unit_video_bucket
+from lib.reference_video.request_projection import (
+    POST_PRODUCTION,
+    USE_TTS,
+    ReferenceRequestOptions,
+    ReferenceUnitRequestProjection,
+    project_reference_unit_request,
+)
 from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton, resolve_script_kind
 from lib.speech_composition import (
@@ -43,20 +50,49 @@ from server.agent_runtime.sdk_tools._context import (
     tool_error,
     validate_script_filename,
 )
-from server.services.reference_video_tasks import (
-    ProjectDurationContext,
-    precheck_unit,
-    resolve_project_duration_context,
-)
 from server.services.video_caps import assert_audio_switch_supported, resolve_project_is_silent
 
 _CONFIRM_DURATION_SCHEMA_PROPERTY = {
     "type": "boolean",
     "description": (
-        "参考生视频时长确认：unit 申请时长与剧本编排不一致时首次调用不入队，"
+        "参考生视频时长确认：unit 申请档位与请求时长基准不一致时首次调用不入队，"
         "返回待确认清单；用户同意后带 confirm_duration=true 再次调用完成入队。"
     ),
 }
+
+_NARRATION_DELIVERY_SCHEMA_PROPERTY = {
+    "type": "string",
+    "enum": [POST_PRODUCTION, USE_TTS],
+    "description": "旁白交付方式；use_tts 时可用 narration_duration_floor 约束成片时长。",
+}
+
+_NARRATION_DURATION_FLOOR_SCHEMA_PROPERTY = {
+    "type": "number",
+    "exclusiveMinimum": 0,
+    "description": "use_tts 时上游已生成旁白音频的实际秒数；post_production 时忽略。",
+}
+
+
+def _reference_request_options(args: dict[str, Any]) -> ReferenceRequestOptions:
+    delivery = args.get("narration_delivery", POST_PRODUCTION)
+    if delivery not in (POST_PRODUCTION, USE_TTS):
+        delivery = POST_PRODUCTION
+    raw_floor = args.get("narration_duration_floor")
+    floor: float | None = None
+    if raw_floor is not None:
+        if not isinstance(raw_floor, (int, float)) or isinstance(raw_floor, bool):
+            raise ValueError(f"narration_duration_floor 必须是大于 0 的有限秒数，收到 {raw_floor!r}")
+        try:
+            floor = float(raw_floor)
+        except (OverflowError, ValueError) as exc:
+            raise ValueError(f"narration_duration_floor 必须是大于 0 的有限秒数，收到 {raw_floor!r}") from exc
+        if not math.isfinite(floor) or floor <= 0:
+            raise ValueError(f"narration_duration_floor 必须是大于 0 的有限秒数，收到 {raw_floor!r}")
+    return ReferenceRequestOptions(
+        narration_delivery=delivery,
+        narration_duration_floor=floor,
+        duration_confirmed=bool(args.get("confirm_duration")),
+    )
 
 
 def _speech_admission_error(name: str, exc: SpeechAdmissionError, log: list[str] | None = None) -> dict[str, Any]:
@@ -73,9 +109,42 @@ def _speech_admission_error(name: str, exc: SpeechAdmissionError, log: list[str]
 
 @dataclass(frozen=True)
 class DurationConfirmationPending:
-    """待确认的 unit 时长清单：申请秒数与剧本编排不一致，尚未入队任何任务。"""
+    """待确认的 unit 时长清单：申请档位与请求时长基准不一致，尚未入队任何任务。"""
 
     items: list[dict[str, Any]]
+    projections: list[dict[str, object]]
+
+
+@dataclass(frozen=True)
+class ReferenceGenerationComplete:
+    """参考单元生成结果与入队前 current-state 投影。"""
+
+    paths: list[Path]
+    projections: list[dict[str, object]]
+
+
+class ReferenceProjectionBlocked(ValueError):
+    """参考单元的公共投影未通过；保留结构化 problems 供 Agent 错误信封返回。"""
+
+    def __init__(self, projection: dict[str, object]) -> None:
+        self.projection = projection
+        super().__init__(f"unit {projection['unit_id']} 请求投影未通过")
+
+
+def _reference_projection_error(
+    name: str,
+    exc: ReferenceProjectionBlocked,
+    log: list[str] | None = None,
+) -> dict[str, Any]:
+    details = json.dumps(exc.projection["problems"], ensure_ascii=False)
+    text = f"{name} 失败: {exc}；problems={details}"
+    if log:
+        text = "\n".join([text, *log])
+    return {
+        "content": [{"type": "text", "text": text}],
+        "is_error": True,
+        "request_projection": exc.projection,
+    }
 
 
 def _duration_confirmation_response(pending: DurationConfirmationPending, log: list[str]) -> dict[str, Any]:
@@ -84,39 +153,42 @@ def _duration_confirmation_response(pending: DurationConfirmationPending, log: l
     log 携带的是同样影响生成范围的事实（如 scene_id 被忽略转整集、ad 派生出的 unit 数），
     确认时一并呈现，用户才知道自己同意的是什么范围。
     """
-    lines = [*log, "以下 unit 申请时长与剧本编排不一致，需先向用户确认，本次未入队任何任务："]
+    lines = [*log, "以下 unit 申请档位与请求时长基准不一致，需先向用户确认，本次未入队任何任务："]
     for item in pending.items:
         longer_or_shorter = "更长" if item["adjustment"] == "up" else "更短"
-        lines.append(
-            f"- {item['unit_id']}：剧本总时长 {item['script_duration']}s，"
-            f"将申请 {item['request_duration']}s（成片{longer_or_shorter}）"
+        duration_input = item["duration_input"]
+        script_duration = item["script_duration"]
+        basis = (
+            f"剧本 {script_duration}s、含实际旁白后的时长基准 {duration_input}s"
+            if duration_input != script_duration
+            else f"剧本总时长 {script_duration}s"
         )
+        lines.append(f"- {item['unit_id']}：{basis}，将申请 {item['request_duration']}s（成片{longer_or_shorter}）")
     lines.append("用户同意后，带 confirm_duration=true 再次调用本工具完成入队。")
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {
+        "content": [{"type": "text", "text": "\n".join(lines)}],
+        "request_projections": pending.projections,
+    }
 
 
-async def _pending_duration_confirmations(
+def _agent_projection_payload(projection: ReferenceUnitRequestProjection) -> dict[str, object]:
+    return projection.to_advisory_payload()
+
+
+async def _reference_projection_preflight(
     *,
     project: dict[str, Any],
-    episode: int | None,
+    project_path: Path,
+    script: dict[str, Any],
     units: list[Any],
     skip_ids: set[str],
     spec_for: Callable[[Any], TaskSpec],
-) -> list[dict[str, Any]]:
-    """收集本批将入队的 unit 中，申请时长与剧本编排不一致的清单。
+    request_options: ReferenceRequestOptions,
+) -> tuple[list[dict[str, Any]], list[dict[str, object]]]:
+    """用公共投影一次性完成 Agent 入口的资产、能力、音频与时长预检。"""
 
-    项目视频能力（档位 + 分辨率）按能力桶至多各解析一次（:func:`resolve_project_duration_context`；
-    unit 按自身参考集分桶，与执行侧同口径），批内
-    逐 unit 取档改用纯函数 :func:`precheck_unit`——避免整批 N 个 unit 各自触发一轮
-    DB 往返。解析推迟到第一个真正需要取档的 unit：整批都已完成或都被跳过时不触发任何 IO。
-
-    悬空索引 / 结构异常 / 空提示词的 unit 在此复用与 ``build_specs`` 同一份 spec 构造
-    （``spec_for``）判定可入队性并静默跳过，不在预检阶段重复报错——不合法的 unit
-    ``build_specs`` 阶段本就会拒绝，若仍纳入确认清单或触发 ctx 解析，会让批次卡在一个
-    注定不会入队的 unit 上，且申请时长的转述本身就是失实的（该 unit 根本不会被生成）。
-    """
-    ctxs: dict[VideoCapability, ProjectDurationContext] = {}
     items: list[dict[str, Any]] = []
+    projections: list[dict[str, object]] = []
     for unit in units:
         if not isinstance(unit, dict):
             continue
@@ -127,54 +199,34 @@ async def _pending_duration_confirmations(
             spec_for(unit)
         except ValueError:
             continue
-        bucket = reference_unit_video_bucket(unit)
-        if bucket not in ctxs:
-            ctxs[bucket] = await resolve_project_duration_context(project, capability=bucket)
-        try:
-            slot = precheck_unit(ctxs[bucket], unit)
-        except ValueError:
-            continue
-        if slot.needs_confirmation:
+        projection = await project_reference_unit_request(
+            project=project,
+            script=script,
+            unit=unit,
+            project_path=project_path,
+            options=request_options,
+        )
+        projection_payload = _agent_projection_payload(projection)
+        projections.append(projection_payload)
+        duration_problem = next(
+            (p for p in projection.blocking_problems if p.code == "reference_duration_confirmation_required"),
+            None,
+        )
+        other_blockers = [p for p in projection.blocking_problems if p is not duration_problem]
+        if other_blockers:
+            raise ReferenceProjectionBlocked(projection_payload)
+        if duration_problem is not None:
+            params = duration_problem.parameters()
             items.append(
                 {
                     "unit_id": unit_id,
-                    "script_duration": slot.total_seconds,
-                    "request_duration": slot.seconds,
-                    "adjustment": slot.adjustment,
+                    "script_duration": params["script_duration"],
+                    "duration_input": params["duration_input"],
+                    "request_duration": params["request_duration"],
+                    "adjustment": params["adjustment"],
                 }
             )
-    return items
-
-
-async def _assert_audio_switch_for_units(
-    *,
-    project: dict[str, Any],
-    units: list[Any],
-    skip_ids: set[str],
-    spec_for: Callable[[Any], TaskSpec],
-) -> None:
-    """参考路线入队前的音频闸门，按本批真正要入队的 unit 所属能力桶逐桶检查。
-
-    定桶口径与 :func:`_pending_duration_confirmations` 一致（同一份 ``spec_for`` 判可入队性、
-    unit 以自身参考集定桶），同一桶只解析一次。放在时长确认之前：确认轮次走完再拒
-    等于让用户白确认一遍；整批都已完成或都不可入队时不触发任何 IO。
-    """
-    checked: set[VideoCapability] = set()
-    for unit in units:
-        if not isinstance(unit, dict):
-            continue
-        unit_id = str(unit.get("unit_id") or "")
-        if not unit_id or unit_id in skip_ids:
-            continue
-        try:
-            spec_for(unit)
-        except ValueError:
-            continue
-        bucket = reference_unit_video_bucket(unit)
-        if bucket in checked:
-            continue
-        checked.add(bucket)
-        await assert_audio_switch_supported(project, bucket)
+    return items, projections
 
 
 def _get_video_prompt(
@@ -216,7 +268,7 @@ async def _assert_audio_switch_for_storyboard(ctx: ToolContext) -> None:
 
     调用点固定在「确有任务要入队」之后、提交之前：整集已完成、或条目全被
     :func:`_build_video_specs` 过滤时本就不会产生任何请求，此时拒绝等于把一次正常的空转变成报错。
-    参考路线的 :func:`_assert_audio_switch_for_units` 是同一语义。
+    参考路线由公共 request projection 给出同一音频能力判定。
     """
     project = ctx.pm.load_project(ctx.project_name)
     await assert_audio_switch_supported(project, video_bucket_for_generation_mode(project.get("generation_mode")))
@@ -502,9 +554,10 @@ async def _generate_reference_units(
     build_specs: Callable[[list[Any], list[str], list[str]], tuple[list[TaskSpec], dict[str, int]]],
     spec_for: Callable[[Any], TaskSpec],
     project: dict[str, Any],
-    confirm_duration: bool,
+    script: dict[str, Any],
+    request_options: ReferenceRequestOptions,
     reuse_existing: Callable[[dict[str, Any]], bool],
-) -> list[Path] | DurationConfirmationPending:
+) -> ReferenceGenerationComplete | DurationConfirmationPending:
     """unit 批量生成的共享骨架：时长确认 + checkpoint 续传 + 已产出扫描 + 入队等待。
 
     所有内容模式的 ``video_units`` 共用同一构造路径。``spec_for``
@@ -515,8 +568,8 @@ async def _generate_reference_units(
     现行产物复用。调用方必须用持久化资产归属判定，不能只凭同名文件存在猜测；共享
     骨架还会先应用重规划闸门，迁移保留的旧产物不能让 ``needs_replan`` 单元绕过修复。
 
-    ``confirm_duration`` 为 false 时，若待入队 unit 中有申请时长与剧本编排不一致的
-    （见 :func:`server.services.reference_video_tasks.resolve_duration_slot`），该调用
+    ``request_options.duration_confirmed`` 为 false 时，若待入队 unit 中有申请档位与请求时长基准不一致的
+    （见 :class:`lib.reference_video.request_projection.ReferenceUnitRequestProjector`），该调用
     调用不产生任何任务，返回 :class:`DurationConfirmationPending` 供调用方转述给用户；
     用户同意后调用方带 ``confirm_duration=True`` 重新调用完成入队（与 Web 端
     ``duration-precheck`` 预检共用同一取档规则）。
@@ -555,25 +608,21 @@ async def _generate_reference_units(
         elif unit_id in completed:
             completed.remove(unit_id)
 
-    await _assert_audio_switch_for_units(
+    pending, projections = await _reference_projection_preflight(
         project=project,
+        project_path=project_dir,
+        script=script,
         units=units,
         skip_ids=set(already_done),
         spec_for=spec_for,
+        request_options=request_options,
     )
-
-    if not confirm_duration:
-        pending = await _pending_duration_confirmations(
-            project=project,
-            episode=episode,
-            units=units,
-            skip_ids=set(already_done),
-            spec_for=spec_for,
-        )
-        if pending:
-            return DurationConfirmationPending(items=pending)
+    if pending:
+        return DurationConfirmationPending(items=pending, projections=projections)
 
     specs, order_map = build_specs(units, already_done, log)
+    for spec in specs:
+        spec.payload = {**(spec.payload or {}), "reference_request_options": request_options.to_payload()}
     if specs:
         failures = await _submit_with_checkpoint(
             project_name=ctx.project_name,
@@ -605,7 +654,7 @@ async def _generate_reference_units(
         raise RuntimeError("没有生成任何 video_unit")
     if ckpt_path is not None:
         _clear_checkpoint_at(ckpt_path)
-    return final
+    return ReferenceGenerationComplete(paths=final, projections=projections)
 
 
 async def _run_reference_episode(
@@ -614,7 +663,7 @@ async def _run_reference_episode(
     script: dict[str, Any],
     script_filename: str,
     resume: bool,
-    confirm_duration: bool,
+    request_options: ReferenceRequestOptions,
     log: list[str],
 ) -> dict[str, Any]:
     """Run reference_video-mode generation and format the tool response.
@@ -644,15 +693,19 @@ async def _run_reference_episode(
         ),
         spec_for=lambda u: _reference_unit_spec(u, script_filename),
         project=project,
-        confirm_duration=confirm_duration,
+        script=script,
+        request_options=request_options,
         reuse_existing=lambda unit: (
             get_generated_assets(unit).get("video_clip") == _reference_fallback_relpath(str(unit.get("unit_id") or ""))
         ),
     )
     if isinstance(result, DurationConfirmationPending):
         return _duration_confirmation_response(result, log)
-    header = f"第 {episode} 集参考视频生成完成，共 {len(result)} 个 unit"
-    return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
+    header = f"第 {episode} 集参考视频生成完成，共 {len(result.paths)} 个 unit"
+    return {
+        "content": [{"type": "text", "text": "\n".join([header, *log])}],
+        "request_projections": result.projections,
+    }
 
 
 def _select_reference_units(script: dict[str, Any], unit_ids: list[str], log: list[str]) -> list[dict[str, Any]]:
@@ -720,7 +773,7 @@ async def _run_reference_units(
     ctx: ToolContext,
     script_filename: str,
     unit_ids: list[str],
-    confirm_duration: bool,
+    request_options: ReferenceRequestOptions,
     log: list[str],
 ) -> dict[str, Any]:
     """对点名的参考生视频 unit 强制重新生成成片。"""
@@ -750,14 +803,18 @@ async def _run_reference_units(
         ),
         spec_for=lambda u: _reference_unit_spec(u, script_filename),
         project=project,
-        confirm_duration=confirm_duration,
+        script=script,
+        request_options=request_options,
         # 点名即强制：磁盘上的同名成片一律不复用。
         reuse_existing=lambda _u: False,
     )
     if isinstance(result, DurationConfirmationPending):
         return _duration_confirmation_response(result, log)
-    header = f"参考生视频重新生成完成，共 {len(result)} 个 unit"
-    return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
+    header = f"参考生视频重新生成完成，共 {len(result.paths)} 个 unit"
+    return {
+        "content": [{"type": "text", "text": "\n".join([header, *log])}],
+        "request_projections": result.projections,
+    }
 
 
 def generate_video_episode_tool(ctx: ToolContext):
@@ -774,6 +831,8 @@ def generate_video_episode_tool(ctx: ToolContext):
                 },
                 "resume": {"type": "boolean", "description": "是否从上次中断处继续"},
                 "confirm_duration": _CONFIRM_DURATION_SCHEMA_PROPERTY,
+                "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
+                "narration_duration_floor": _NARRATION_DURATION_FLOOR_SCHEMA_PROPERTY,
             },
             "required": ["script"],
         },
@@ -783,7 +842,7 @@ def generate_video_episode_tool(ctx: ToolContext):
         try:
             script_filename = validate_script_filename(args["script"])
             resume = bool(args.get("resume"))
-            confirm_duration = bool(args.get("confirm_duration"))
+            request_options = _reference_request_options(args)
 
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
@@ -795,7 +854,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                     script=script,
                     script_filename=script_filename,
                     resume=resume,
-                    confirm_duration=confirm_duration,
+                    request_options=request_options,
                     log=log,
                 )
             episode = ProjectManager.resolve_episode_from_script(script, script_filename)
@@ -851,6 +910,8 @@ def generate_video_episode_tool(ctx: ToolContext):
             _clear_checkpoint_at(ckpt_path)
             header = f"第 {episode} 集视频生成完成，共 {len(scene_videos)} 个片段"
             return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
+        except ReferenceProjectionBlocked as exc:
+            return _reference_projection_error("generate_video_episode", exc, log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error("generate_video_episode", exc, log)
         except Exception as exc:  # noqa: BLE001
@@ -875,6 +936,8 @@ def generate_video_scene_tool(ctx: ToolContext):
                     "description": "场景或片段 ID；reference_video 项目传 video_unit 的 unit_id（如 E1U2）",
                 },
                 "confirm_duration": _CONFIRM_DURATION_SCHEMA_PROPERTY,
+                "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
+                "narration_duration_floor": _NARRATION_DURATION_FLOOR_SCHEMA_PROPERTY,
             },
             "required": ["script", "scene_id"],
         },
@@ -884,7 +947,7 @@ def generate_video_scene_tool(ctx: ToolContext):
         try:
             script_filename = validate_script_filename(args["script"])
             scene_id = args["scene_id"]
-            confirm_duration = bool(args.get("confirm_duration"))
+            request_options = _reference_request_options(args)
 
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
@@ -895,7 +958,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                     ctx=ctx,
                     script_filename=script_filename,
                     unit_ids=[scene_id],
-                    confirm_duration=confirm_duration,
+                    request_options=request_options,
                     log=log,
                 )
 
@@ -952,6 +1015,8 @@ def generate_video_scene_tool(ctx: ToolContext):
             rel = result.get("file_path") or f"videos/scene_{item_id}.mp4"
             output_path = project_dir / rel
             return {"content": [{"type": "text", "text": f"✅ 视频已保存: {output_path}"}]}
+        except ReferenceProjectionBlocked as exc:
+            return _reference_projection_error("generate_video_scene", exc, log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error("generate_video_scene", exc, log)
         except Exception as exc:  # noqa: BLE001
@@ -972,6 +1037,8 @@ def generate_video_all_tool(ctx: ToolContext):
                     "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
                 },
                 "confirm_duration": _CONFIRM_DURATION_SCHEMA_PROPERTY,
+                "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
+                "narration_duration_floor": _NARRATION_DURATION_FLOOR_SCHEMA_PROPERTY,
             },
             "required": ["script"],
         },
@@ -980,7 +1047,7 @@ def generate_video_all_tool(ctx: ToolContext):
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])
-            confirm_duration = bool(args.get("confirm_duration"))
+            request_options = _reference_request_options(args)
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
@@ -991,7 +1058,7 @@ def generate_video_all_tool(ctx: ToolContext):
                     script=script,
                     script_filename=script_filename,
                     resume=False,
-                    confirm_duration=confirm_duration,
+                    request_options=request_options,
                     log=log,
                 )
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
@@ -1027,6 +1094,8 @@ def generate_video_all_tool(ctx: ToolContext):
                 "content": [{"type": "text", "text": "\n".join([header, *log, *details])}],
                 "is_error": bool(failures),
             }
+        except ReferenceProjectionBlocked as exc:
+            return _reference_projection_error("generate_video_all", exc, log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error("generate_video_all", exc, log)
         except Exception as exc:  # noqa: BLE001
@@ -1057,6 +1126,8 @@ def generate_video_selected_tool(ctx: ToolContext):
                     "description": "是否从上次中断处继续；reference_video 项目的点名重新生成会忽略此参数",
                 },
                 "confirm_duration": _CONFIRM_DURATION_SCHEMA_PROPERTY,
+                "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
+                "narration_duration_floor": _NARRATION_DURATION_FLOOR_SCHEMA_PROPERTY,
             },
             "required": ["script", "scene_ids"],
         },
@@ -1069,7 +1140,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             # checkpoint hash 再单独排序（见下方 ``canonical_scene_ids``）。
             scene_ids: list[str] = list(dict.fromkeys(args["scene_ids"]))
             resume = bool(args.get("resume"))
-            confirm_duration = bool(args.get("confirm_duration"))
+            request_options = _reference_request_options(args)
 
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
@@ -1084,7 +1155,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                     ctx=ctx,
                     script_filename=script_filename,
                     unit_ids=scene_ids,
-                    confirm_duration=confirm_duration,
+                    request_options=request_options,
                     log=log,
                 )
 
@@ -1171,6 +1242,8 @@ def generate_video_selected_tool(ctx: ToolContext):
             _clear_checkpoint_at(ckpt_path)
             header = f"generate_video_selected 完成：{len(final_results)} 个"
             return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
+        except ReferenceProjectionBlocked as exc:
+            return _reference_projection_error("generate_video_selected", exc, log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error("generate_video_selected", exc, log)
         except Exception as exc:  # noqa: BLE001

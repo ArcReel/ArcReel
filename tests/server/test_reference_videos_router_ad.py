@@ -30,13 +30,15 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
                 "characters": {"小美": {}},
                 "scenes": {},
                 "props": {},
-                "products": {"按摩仪": {"reference_images": []}},
+                "products": {"按摩仪": {"product_sheet": "products/按摩仪.png", "reference_images": []}},
                 "episodes": [{"episode": 1, "title": "短片", "script_file": "scripts/episode_1.json"}],
             },
             ensure_ascii=False,
         ),
         encoding="utf-8",
     )
+    (project_dir / "products").mkdir()
+    (project_dir / "products" / "按摩仪.png").write_bytes(b"image")
     (project_dir / "scripts/episode_1.json").write_text(
         json.dumps(
             {
@@ -62,8 +64,13 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from server.routers import reference_videos as router_mod
 
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: ProjectManager(projects_root))
-    monkeypatch.setattr(router_mod, "require_video_bucket_capability", AsyncMock(return_value=None))
-    monkeypatch.setattr(router_mod, "require_audio_switch_supported", AsyncMock(return_value=None))
+    from tests.fakes import fake_reference_request_projector
+
+    monkeypatch.setattr(
+        router_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(durations=(4, 8, 12)),
+    )
     fake_queue = AsyncMock()
     fake_queue.enqueue_task = AsyncMock(return_value={"task_id": "t1", "deduped": False})
     monkeypatch.setattr(router_mod, "get_generation_queue", lambda: fake_queue)
@@ -124,11 +131,16 @@ def test_ad_units_support_crud_and_product_references(ad_client: TestClient) -> 
 
 @pytest.mark.integration
 def test_generate_enqueues_self_contained_unit(ad_client: TestClient) -> None:
-    response = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/generate")
+    response = ad_client.post(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/generate",
+        json={"duration_confirmed": True},
+    )
     assert response.status_code == 202, response.text
     kwargs = ad_client.fake_queue.enqueue_task.call_args.kwargs  # type: ignore[attr-defined]
     assert kwargs["resource_id"] == "E1U1"
     assert kwargs["script_file"] == "scripts/episode_1.json"
+    assert "prompt" not in kwargs["payload"]
+    assert kwargs["payload"]["reference_request_options"]["duration_confirmed"] is True
 
 
 @pytest.mark.integration
@@ -230,14 +242,21 @@ def test_empty_migration_shell_can_repair_body_and_duration_atomically(ad_client
 @pytest.mark.integration
 def test_precheck_uses_unit_orchestration_duration(ad_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     from server.routers import reference_videos as router_mod
-    from server.services.reference_video_tasks import ProjectDurationContext
+    from tests.fakes import fake_reference_request_projector
 
-    context = ProjectDurationContext((4, 8, 12), None, "", None)
-    monkeypatch.setattr(router_mod, "resolve_project_duration_context", AsyncMock(return_value=context))
+    monkeypatch.setattr(
+        router_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(durations=(4, 8, 12)),
+    )
     body = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/duration-precheck").json()
-    assert body == {
-        "needs_confirmation": True,
-        "script_duration": 5,
-        "request_duration": 8,
-        "adjustment": "up",
-    }
+    assert body["needs_confirmation"] is True
+    assert body["script_duration"] == 5
+    assert body["duration_input"] == 5
+    assert body["request_duration"] == 8
+    assert body["adjustment"] == "up"
+    assert body["declared_capability"] == "r2v"
+    assert body["hydrated_capability"] == "r2v"
+    assert body["provider_id"] == "fake"
+    assert body["model_id"] == "fake-model"
+    assert [problem["code"] for problem in body["problems"]] == ["reference_duration_confirmation_required"]

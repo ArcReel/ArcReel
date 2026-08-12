@@ -57,16 +57,33 @@ CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 
+# Blocking codes emitted by ``ReferenceUnitRequestProjector``. The executor raises the
+# canonical ``ProjectionProblem`` through ``ReferenceProjectionBlockedError``; this
+# registry only authorizes those same codes for the persisted task-failure envelope.
+REFERENCE_PROJECTION_FAILURE_CODES: frozenset[str] = frozenset(
+    {
+        "reference_asset_missing",
+        "reference_capability_changed",
+        "reference_capability_unavailable",
+        "reference_declaration_invalid",
+        "reference_duration_confirmation_required",
+        "reference_supported_durations_incompatible",
+        "reference_supported_durations_invalid",
+        "reference_supported_durations_missing",
+        "video_audio_switch_not_supported",
+        "video_capability_missing_i2v",
+        "video_capability_missing_r2v",
+        "video_capability_reference_unavailable",
+    }
+)
+
 # Stable failure code -> i18n errors key. The code is agent-facing and persisted
 # in the DB; the key resolves to zh/en/vi templates rendered at read time.
 FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in CAPABILITY_FAILURE_CODES},
-    # 视频解析闸（``VideoBucketCapabilityError``，lib/config/resolver.py）：code 即 errors
-    # 目录 key，与后端能力异常同为身份映射，但抛点在解析层而非 backend，不在上面的 AST 扫描集内。
-    "video_capability_missing_i2v": "video_capability_missing_i2v",
-    "video_capability_missing_r2v": "video_capability_missing_r2v",
-    "video_capability_reference_unavailable": "video_capability_reference_unavailable",
+    **{code: code for code in REFERENCE_PROJECTION_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
+    "dispatch_provider_requeue_failed": "task_fail_dispatch_provider_requeue_failed",
     "restart_lost_image": "task_fail_restart_lost_image",
     "restart_lost_audio": "task_fail_restart_lost_audio",
     "restart_lost_no_job_id": "task_fail_restart_lost_no_job_id",
@@ -150,7 +167,7 @@ def collapse_cascade_reason(reason: str) -> str:
     """
     seen = 0
     while True:
-        parsed = _parse_structured(reason)
+        parsed = parse_failure(reason)
         if parsed is None or parsed[0] != _CASCADE_CODE:
             return reason
         nested = parsed[1].get("reason")
@@ -237,7 +254,7 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
     """
     if not error_message:
         return error_message
-    parsed = _parse_structured(error_message)
+    parsed = parse_failure(error_message)
     if parsed is None:
         return error_message
     code, params = parsed
@@ -248,8 +265,10 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
     return translate(FAILURE_CODE_KEYS[code], **params)
 
 
-def _parse_structured(error_message: str) -> tuple[str, dict[str, Any]] | None:
-    """把 ``[code] {params}`` 拆成 (code, params)，识别不了或 params 畸形时返回 ``None``。"""
+def parse_failure(error_message: str | None) -> tuple[str, dict[str, Any]] | None:
+    """把已登记的 ``[code] {params}`` 拆成机器码与参数；原始/畸形原因返回 ``None``。"""
+    if not error_message:
+        return None
     match = _STRUCTURED_RE.match(error_message)
     if match is None:
         return None

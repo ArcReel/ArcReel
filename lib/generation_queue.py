@@ -19,9 +19,47 @@ from lib.db.repositories.task_repo import TaskRepository
 from lib.task_terminal_events import emit_task_terminal_events
 
 if TYPE_CHECKING:
-    from lib.config.resolver import ProviderModel, VideoCapability
+    from lib.config.resolver import ConfigResolver, ProviderModel, VideoCapability
+    from lib.reference_video.request_projection import ReferenceUnitRequestProjection
 
 logger = logging.getLogger(__name__)
+
+
+_REFERENCE_VIDEO_EXECUTION_IDENTITY_KEYS = frozenset({"video_provider_i2v", "video_provider_r2v"})
+_REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS = frozenset({"script_file", "reference_request_options"})
+
+
+class DispatchProviderChanged(RuntimeError):
+    """执行投影与 worker 已占用的 provider 槽不一致，需要回队重认领。"""
+
+    def __init__(self, *, claimed_provider_id: str, actual_provider_id: str) -> None:
+        self.claimed_provider_id = claimed_provider_id
+        self.actual_provider_id = actual_provider_id
+        super().__init__(f"dispatch provider changed: {claimed_provider_id} -> {actual_provider_id}")
+
+
+def reference_video_enqueue_payload(
+    payload: dict[str, Any] | None,
+    *,
+    script_file: str | None,
+) -> dict[str, Any]:
+    """把新入队的参考视频载荷收窄为定位与请求选项。
+
+    prompt、references、style、duration 等可变请求事实不是任务快照；worker 开始时
+    从当前 project/script/unit 重新投影。执行开始后为已提交任务写入的有效时长与
+    provider/model 身份不经过该入队边界。
+    """
+
+    normalized = {key: value for key, value in (payload or {}).items() if key in _REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS}
+    if script_file is not None:
+        normalized["script_file"] = script_file
+    return normalized
+
+
+def without_reference_video_execution_identity(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """移除 payload 中的 enqueue-time 视频身份，使未提交任务按当前配置投影。"""
+
+    return {key: value for key, value in (payload or {}).items() if key not in _REFERENCE_VIDEO_EXECUTION_IDENTITY_KEYS}
 
 
 async def video_bucket_for_queued_task(
@@ -34,28 +72,101 @@ async def video_bucket_for_queued_task(
 ) -> VideoCapability | None:
     """视频任务的定桶口径，入队派生与 worker 限流投影共用、与执行侧同步（docs/adr/0054）。
 
-    图生视频 / 宫格 → i2v；参考生视频按自包含 unit 的参考集分流——无参考图的退化镜头
-    降级 → i2v，其余 → r2v。剧本 / unit 读不到时回退代表桶 r2v：这只影响 claim 池过滤与限流槽
-    路由的精度，执行层会按解析后的实际参考图独立精确定桶。表外任务类型返回 None（不定桶）。
+    图生视频 / 宫格 → i2v；参考生视频调公共 request projection 按当前实际可用资产分流——
+    无参考图的退化镜头 → i2v，其余 → r2v。剧本 / unit / 能力读不到时回退代表桶 r2v；
+    回退只影响 claim 池过滤与限流槽路由的精度，执行层仍在处理开始时重新投影。
+    表外任务类型返回 None（不定桶）。
     """
-    from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE, get_project_manager
-    from lib.reference_video.units import find_reference_unit, reference_unit_video_bucket
+    from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE
 
     if task_type != "reference_video":
         return VIDEO_BUCKET_BY_TASK_TYPE.get(task_type)
     fallback = VIDEO_BUCKET_BY_TASK_TYPE["reference_video"]
+    projection = await reference_projection_for_queued_task(
+        project=project,
+        project_name=project_name,
+        payload=payload,
+        resource_id=resource_id,
+    )
+    return projection.hydrated_capability if projection is not None else fallback
+
+
+async def reference_projection_for_queued_task(
+    *,
+    project: dict | None,
+    project_name: str | None,
+    payload: dict[str, Any] | None,
+    resource_id: str | None,
+) -> ReferenceUnitRequestProjection | None:
+    """按任务定位信息读取当前 unit，并生成 claim/限流共用的 current-state 投影。"""
+
+    from lib.config.resolver import get_project_manager
+    from lib.reference_video.request_projection import (
+        ReferenceRequestOptions,
+        project_reference_unit_request,
+    )
+    from lib.reference_video.units import find_reference_unit
+
     script_file = (payload or {}).get("script_file")
-    if not project_name or not script_file or not resource_id:
-        return fallback
+    if project is None or not project_name or not script_file or not resource_id:
+        return None
     try:
-        script = await asyncio.to_thread(get_project_manager().load_script, project_name, str(script_file))
+        pm = get_project_manager()
+        script = await asyncio.to_thread(pm.load_script, project_name, str(script_file))
+        project_path = await asyncio.to_thread(pm.get_project_path, project_name)
+        unit = find_reference_unit(script, str(resource_id))
+        if unit is None:
+            return None
+        return await project_reference_unit_request(
+            project=project,
+            script=script,
+            unit=unit,
+            project_path=project_path,
+            options=ReferenceRequestOptions.from_payload(payload, legacy_duration_confirmed=True),
+        )
     except Exception:
-        logger.debug("reference_video 定桶读取剧本失败，回退 %s 桶", fallback, exc_info=True)
-        return fallback
-    unit = find_reference_unit(script, str(resource_id))
-    if unit is None:
-        return fallback
-    return reference_unit_video_bucket(unit)
+        logger.debug("reference_video 当前请求投影失败，限流路由回退代表桶", exc_info=True)
+        return None
+
+
+async def resolve_video_execution_for_queued_task(
+    *,
+    resolver: ConfigResolver,
+    project: dict | None,
+    project_name: str | None,
+    task_type: str,
+    payload: dict[str, Any] | None,
+    resource_id: str | None,
+) -> tuple[ProviderModel, VideoCapability | None]:
+    """解析队列视频任务的当前身份与能力桶，供入队 advisory 和 worker 限流共用。"""
+
+    projection = (
+        await reference_projection_for_queued_task(
+            project=project,
+            project_name=project_name,
+            payload=payload,
+            resource_id=resource_id,
+        )
+        if task_type == "reference_video"
+        else None
+    )
+    if projection is not None and projection.provider_candidate is not None:
+        from lib.config.resolver import ProviderModel
+
+        return ProviderModel(projection.provider_id or "", projection.model_id or ""), projection.hydrated_capability
+
+    capability = await video_bucket_for_queued_task(
+        project=project,
+        project_name=project_name,
+        task_type=task_type,
+        payload=payload,
+        resource_id=resource_id,
+    )
+    execution_payload = (
+        without_reference_video_execution_identity(payload) if task_type == "reference_video" else payload
+    )
+    resolved = await resolver.resolve_video_backend(project, execution_payload or {}, capability=capability)
+    return resolved, capability
 
 
 async def _derive_execution_model_for_enqueue(
@@ -68,8 +179,9 @@ async def _derive_execution_model_for_enqueue(
 ) -> tuple[ProviderModel, VideoCapability | None] | None:
     """入队时按 project + payload 派生该任务的执行身份，视频任务连同定桶结果一并返回。
 
-    ``provider_id`` 落 task 行供 claim SQL 池过滤使用；视频任务的完整身份另锁进 payload
-    （见 ``_pin_video_execution_model``）。与 worker ``_extract_provider`` 同套解析逻辑，
+    ``provider_id`` 落 task 行供 claim SQL 池过滤使用；分镜视频的完整身份另锁进 payload
+    （见 ``_pin_video_execution_model``）。reference_video 只保存 advisory provider，worker
+    开始处理时重新投影当前状态。与 worker ``_extract_provider`` 同套解析逻辑，
     但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
     兜底分支，由 worker claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
     """
@@ -88,14 +200,14 @@ async def _derive_execution_model_for_enqueue(
 
         resolver = ConfigResolver(async_session_factory)
         if is_video:
-            video_capability = await video_bucket_for_queued_task(
+            resolved, video_capability = await resolve_video_execution_for_queued_task(
+                resolver=resolver,
                 project=project,
                 project_name=project_name,
                 task_type=task_type,
                 payload=payload,
                 resource_id=resource_id,
             )
-            resolved = await resolver.resolve_video_backend(project, payload or {}, capability=video_capability)
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload or {})
         else:
@@ -117,13 +229,12 @@ def _pin_video_execution_model(
     capability: VideoCapability | None,
     execution_model: ProviderModel,
 ) -> dict[str, Any] | None:
-    """把入队解析出的执行身份锁进视频任务 payload 的能力桶键，返回新 payload（不改调用方的 dict）。
+    """把入队解析出的执行身份锁进分镜视频任务 payload 的能力桶键。
 
     锁定的是「任务真正会执行的 model」，执行与中断续跑据此走同一身份：task 行只存
     provider_id，锁不住 model（``docs/adr/0054``「不静默换模型」）。桶键与复合值形态和解析侧
-    payload 层同源（``lib.config.resolver``），此处是该组键的唯一写入方。``capability`` 取
-    入队派生的定桶结果（参考路线内逐镜头分流后的桶），锁定键因此与解析用的桶一致——resolver
-    的 payload 层只认「任务所属那一个桶」的键。
+    payload 层同源（``lib.config.resolver``）。reference_video 不调用本函数：它在 worker 开始时重新
+    投影当前 project/script/unit 与资产，排队期间的编辑必须生效。
 
     非视频任务与不定桶的任务（``capability`` 为 None）、以及解析不出 model 时原样返回。
     """
@@ -195,9 +306,13 @@ class GenerationQueue:
         user_id: str = DEFAULT_USER_ID,
         provider_id: str | None = None,
     ) -> dict[str, Any]:
+        if task_type == "reference_video":
+            payload = reference_video_enqueue_payload(payload, script_file=script_file)
+
         # caller 没传 provider_id → 入队时主动派生一次，让 claim 走 SQL 池过滤快路径；
         # 派生失败留 NULL，走 IS NULL 兜底，由 worker claim 后 _extract_provider 二次校验。
-        # 派生成功时视频任务同时把执行 model 锁进 payload，中断续跑据此沿用同一 model。
+        # 派生成功时分镜视频任务同时把执行 model 锁进 payload；reference_video 只保留
+        # provider_id 作为 claim/rate-limit advisory，model 不在入队时冻结。
         # 锁定只发生在这条派生分支上：显式传 provider_id 的调用没有配套的 model 可锁，
         # 需要锁定视频执行 model 的入队点走派生路径。
         if provider_id is None:
@@ -211,9 +326,10 @@ class GenerationQueue:
             if derived is not None:
                 execution_model, video_capability = derived
                 provider_id = execution_model.provider_id
-                payload = _pin_video_execution_model(
-                    payload, capability=video_capability, execution_model=execution_model
-                )
+                if task_type != "reference_video":
+                    payload = _pin_video_execution_model(
+                        payload, capability=video_capability, execution_model=execution_model
+                    )
 
         async with self._task_repo() as repo:
             result = await repo.enqueue(
@@ -260,9 +376,14 @@ class GenerationQueue:
         media_type: str,
         *,
         pool_full_providers: frozenset[str] | None = None,
+        exclude_task_ids: frozenset[str] | None = None,
     ) -> dict[str, Any] | None:
         async with self._task_repo() as repo:
-            task = await repo.claim_next(media_type, pool_full_providers=pool_full_providers)
+            task = await repo.claim_next(
+                media_type,
+                pool_full_providers=pool_full_providers,
+                exclude_task_ids=exclude_task_ids,
+            )
         if task:
             logger.debug("任务被领取 task_id=%s", task["task_id"])
         return task
@@ -304,13 +425,11 @@ class GenerationQueue:
     async def persist_execution_identity(
         self, task_id: str, *, execution_model: ProviderModel, capability: VideoCapability
     ) -> None:
-        """执行前把实际执行身份写回投影列与 payload 锁定键。
+        """提交前把 reference_video 当次物化的实际身份写回。
 
-        入队按 unit 声明近似定桶锁定身份（``_pin_video_execution_model``），执行按解析后的
-        实际参考图定桶，二者分裂时（ad 声明了参考但资产全缺图：锁定 r2v、执行 i2v）陈旧
-        桶键在 resume 解析里优先于 ``provider_id`` 列注入，只刷新列锁不住轮询 backend——
-        故连同锁定键一起改写：清掉其它桶的键、把实际执行身份写进实际桶的键。非分裂场景
-        等值改写，幂等。
+        参考视频入队不锁定 provider/model；worker 开始时从最新状态解析实际桶与身份。
+        在向 provider 提交前，列与 payload 桶键以同一次写入记录这个已物化身份，供已提交任务的
+        既有 resume 路径续跑；清掉其它桶的键避免解析时命中陈旧身份。等值改写幂等。
         """
         from typing import get_args
 

@@ -1538,11 +1538,19 @@ async def _execute_reference_video_task_proxy(
     *,
     user_id: str,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     """Lazy proxy to avoid circular import: reference_video_tasks imports from this module."""
     from server.services.reference_video_tasks import execute_reference_video_task
 
-    return await execute_reference_video_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
+    return await execute_reference_video_task(
+        project_name,
+        resource_id,
+        payload,
+        user_id=user_id,
+        task_id=task_id,
+        claimed_provider_id=claimed_provider_id,
+    )
 
 
 async def _execute_image_edit_task_proxy(
@@ -1574,7 +1582,7 @@ _TASK_EXECUTORS = {
 }
 
 
-async def execute_generation_task(task: dict[str, Any]) -> dict[str, Any]:
+async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: str | None = None) -> dict[str, Any]:
     task_type = task.get("task_type")
     project_name = task.get("project_name")
     resource_id = str(task.get("resource_id"))
@@ -1595,7 +1603,17 @@ async def execute_generation_task(task: dict[str, Any]) -> dict[str, Any]:
         # 能力类异常（Image/VideoCapabilityError、ReferencePayloadFloorError）原样上抛：
         # worker 的 _encode_task_failure_message 按 code + params 落库，渲染留到读侧
         # Translator，同一失败任务按 Accept-Language 显示 zh/en/vi。
-        result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)
+        if task_type == "reference_video":
+            result = await _execute_reference_video_task_proxy(
+                project_name,
+                resource_id,
+                payload,
+                user_id=user_id,
+                task_id=queue_task_id,
+                claimed_provider_id=claimed_provider_id,
+            )
+        else:
+            result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)
         emit_generation_success_batch(
             task_type=task_type,
             project_name=project_name,

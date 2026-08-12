@@ -12,7 +12,6 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.asset_types import BUCKET_KEY, SHEET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.config.resolver import (
     ConfigResolver,
     ProviderModel,
@@ -22,7 +21,11 @@ from lib.config.resolver import (
 )
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
-from lib.generation_queue import get_generation_queue
+from lib.generation_queue import (
+    DispatchProviderChanged,
+    get_generation_queue,
+    without_reference_video_execution_identity,
+)
 from lib.prompt_builders import append_product_fidelity_tail
 from lib.reference_video import assemble_shots_text, assemble_shots_text_for_render
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
@@ -32,6 +35,20 @@ from lib.reference_video.prompt_render import (
     render_unit_prompt,
     resolve_reference_audio_paths,
 )
+from lib.reference_video.request_projection import (
+    FilesystemReferenceAssets,
+    ProviderProjectionCandidate,
+    ReferenceProjectionBlockedError,
+    ReferenceRequestOptions,
+    ReferenceUnitRequestProjector,
+    ResolvedReferenceAsset,
+    canonicalize_references,
+    clamp_reference_assets,
+    hydrate_reference_assets,
+    reference_audio_model_facts,
+    resolve_reference_assets,
+    strict_reference_durations,
+)
 from lib.reference_video.units import reference_video_bucket
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_editor import ScriptEditError
@@ -40,7 +57,7 @@ from lib.speech_composition import video_unit_replan_problems
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
 from server.services.generation_context import VideoLaneRequest, resolve_generation_context
-from server.services.generation_tasks import collect_product_references_for_names, get_project_manager
+from server.services.generation_tasks import get_project_manager
 from server.services.video_caps import project_video_caps
 
 logger = logging.getLogger(__name__)
@@ -81,34 +98,10 @@ def _dedupe_typed_references(references: list[dict]) -> list[dict]:
     prompt 渲染前的裁剪必须共用同一份去重结果——否则图片列表与逻辑引用列表长度不一致，
     ``@图片N`` 的编号会与实际图片错位、按图号绑定的参考音频也会挂到错的图上。
     """
-    priority = {"product": 0, "character": 1, "scene": 2, "prop": 3}
-    ordered = sorted(
-        enumerate(references),
-        key=lambda pair: (priority.get(str(pair[1].get("type")), len(priority)), pair[0]),
-    )
-    seen: set[tuple[str, str]] = set()
-    deduped: list[dict] = []
-    for _index, ref in ordered:
-        key = (str(ref.get("type")), asset_name_comparison_key(str(ref.get("name"))))
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(ref)
-    return deduped
+    return [reference.model_dump() for reference in canonicalize_references(references)]
 
 
-@dataclass(frozen=True)
-class ResolvedReferenceImage:
-    """一张实际随视频请求发出的图片及其逻辑主体。
-
-    一个产品引用可展开成标准 sheet 与多张实拍原图，故逻辑 reference 与请求图片不再是
-    一一对应。``reference`` 供 prompt 按同一顺序生成 ``@图片N`` 绑定，``kind`` 供超过
-    供应商上限时让各产品的标准 sheet 跨产品优先存活。
-    """
-
-    path: Path
-    reference: ReferenceResource
-    kind: str
+ResolvedReferenceImage = ResolvedReferenceAsset
 
 
 def _resolve_unit_reference_entries(
@@ -122,53 +115,17 @@ def _resolve_unit_reference_entries(
     sheet 与原图均不可用、或其它资产缺少可用 sheet 时统一 fail loud：``video_units`` 的
     references 是自包含的显式执行契约，不应静默把有参考的单元降成纯文本生成。
     """
-    deduped = _dedupe_typed_references(references)
-    product_refs = [ref for ref in deduped if ref.get("type") == "product"]
-    product_names = [str(ref.get("name")) for ref in product_refs]
-    raw_product_entries = collect_product_references_for_names(project, project_path, product_names)
-
-    entries = [
-        ResolvedReferenceImage(
-            path=entry["image"],
-            reference=ReferenceResource(type="product", name=entry["name"]),
-            kind=str(entry["kind"]),
-        )
-        for entry in raw_product_entries
-    ]
-    injected_products = {asset_name_comparison_key(entry.reference.name) for entry in entries}
+    unit = {"references": references}
+    declared = canonicalize_references(references)
+    candidates = resolve_reference_assets(project, project_path, unit)
+    availability = FilesystemReferenceAssets(project_path)
+    entries = [entry for entry in candidates if availability.is_available(entry)]
+    available_keys = {(entry.reference.type, entry.reference.name) for entry in entries}
     missing: list[tuple[str, str | None]] = [
-        ("product", str(ref.get("name")))
-        for ref in product_refs
-        if asset_name_comparison_key(str(ref.get("name"))) not in injected_products
+        (reference.type, reference.name)
+        for reference in declared
+        if (reference.type, reference.name) not in available_keys
     ]
-
-    for ref in deduped:
-        rtype = ref.get("type")
-        rname = ref.get("name")
-        if rtype == "product":
-            continue
-        if rtype not in BUCKET_KEY:
-            missing.append((str(rtype), str(rname)))
-            continue
-        bucket = normalize_asset_bucket(project.get(BUCKET_KEY[rtype]))
-        canonical = asset_name_comparison_key(str(rname))
-        item = bucket.get(canonical)
-        sheet_rel = item.get(SHEET_KEY[rtype]) if isinstance(item, dict) else None
-        if not sheet_rel:
-            missing.append((rtype, str(rname)))
-            continue
-        path = project_path / sheet_rel
-        if not path.exists():
-            missing.append((rtype, str(rname)))
-            continue
-        entries.append(
-            ResolvedReferenceImage(
-                path=path,
-                reference=ReferenceResource(type=rtype, name=canonical),
-                kind="asset",
-            )
-        )
-
     if missing:
         raise MissingReferenceError(missing=missing)
     return entries
@@ -251,20 +208,10 @@ def _clamp_resolved_reference_images(
     未超限时保留原始稳定顺序；只有必须裁剪时才重排，避免在容量足够时无谓改变同一产品
     sheet 与原图的邻接顺序。``max_refs == 0`` 表示模型不支持参考图，返回空集。
     """
-    if max_refs is None or len(entries) <= max_refs:
-        return list(entries), []
-    ordered = sorted(
-        enumerate(entries),
-        key=lambda pair: (
-            0
-            if pair[1].reference.type == "product" and pair[1].kind == "sheet"
-            else 1
-            if pair[1].reference.type == "product" and pair[1].kind == "original"
-            else 2,
-            pair[0],
-        ),
-    )
-    clamped = [entry for _index, entry in ordered[:max_refs]]
+    clamped = list(clamp_reference_assets(entries, max_refs))
+    if len(clamped) == len(entries):
+        return clamped, []
+    assert max_refs is not None
     return clamped, [_reference_limit_warning(provider=provider, model=model, count=len(entries), max_refs=max_refs)]
 
 
@@ -322,8 +269,8 @@ def _apply_provider_constraints(
     return new_refs, new_duration, warnings
 
 
-#: unit 时长缺值时的兜底秒数。执行层取档、入队前预检与新建 unit 的默认时长共用此口径，
-#: 避免用户确认的秒数与实际申请的秒数因各处各自兜底而不一致。
+#: unit 时长缺值时的兼容兜底秒数，也作为能力暂不可解析时的新建 unit 默认值。
+#: 可执行请求另由 request projection 对当前非空档位集 fail loud，不使用该兜底报价或生成。
 FALLBACK_UNIT_DURATION = 8
 
 
@@ -344,15 +291,16 @@ def effective_reference_durations(
 
     型号可能对「带参考图」与「按某分辨率下发」各自声明更窄的时长档位。按全集取档会选中
     执行期必然被拒的秒数（如 Veo 3.1 带参考图只接受 8 秒，5 秒剧本按全集取档得 6 秒），
-    预检也会向用户展示这个申请不到的秒数。取档与预检因此都要先收窄再取档。
+    取档预览也会向用户展示这个申请不到的秒数，因此要先收窄再取档。
 
     ``with_reference_images`` 为 false 时不施加参考图约束：单元可以声明空 references，
     backend 同样只在 ``reference_images`` 非空时施加该约束——无图单元
     套用它会把 720p 下本可申请的 4 秒错误抬到 8 秒。
 
     ``provider_id`` 必须是规范 registry provider id（backend 族名不是 registry key）。两条约束
-    都遵循「无声明或交集为空时不收窄」的降级口径（见 :func:`lib.config.resolver.constrain_durations`），
-    故本函数在能力声明缺位时退化为原全集，不比收窄前更严。
+    都遵循「无声明或交集为空时不收窄」的兼容口径（见
+    :func:`lib.config.resolver.constrain_durations`）。可执行请求不依赖该降级：公共投影对能力声明缺位、
+    空集或约束交集为空均返回结构化 blocker。
     """
     return constrain_durations(
         provider_id, model, durations, resolution=resolution, uses_reference_images=with_reference_images
@@ -363,8 +311,8 @@ def effective_reference_durations(
 class ProjectDurationContext:
     """项目视频能力的一次性 IO 解析结果：档位全集（未按单个 unit 条件收窄）+ 分辨率 + provider/model 身份。
 
-    由 :func:`resolve_project_duration_context` 产出，供 :func:`precheck_unit` 对批次内每个
-    unit 反复调用而不重新触发 DB IO——批量预检 N 个 unit 时项目能力/分辨率解析各只发生一次。
+    供新建 unit 默认值与存量纯时长 helper 复用；生成预检、报价与执行均使用
+    ``ReferenceUnitRequestProjector``。
     """
 
     supported_durations: tuple[int, ...]
@@ -384,11 +332,11 @@ async def resolve_project_duration_context(
     ``capability`` 未给定时按项目路线定桶；给定时按指定桶解析——参考路线内按镜头分流的
     调用方（费用估算、逐 unit 预检）以此对无参考图退化镜头按 i2v 桶模型取档。
 
-    解析失败按空档位处理（沿用现状放行，不弹确认）；分辨率仅在档位非空时才解析，
-    空档位下分辨率约束无意义。``max_duration`` 与 :func:`resolve_max_unit_duration`
-    取自同一份能力解析结果，供需要现推分组的调用方复用而不再触发一次 IO。
+    解析失败时返回空档位，仅让新建 unit 选用兼容默认值；不代表生成可执行。
+    分辨率仅在档位非空时才解析，空档位下分辨率约束无意义。``max_duration`` 与
+    :func:`resolve_max_unit_duration` 取自同一份能力解析结果。
     """
-    caps = await project_video_caps(project, degraded_to="时长取档不施加档位约束", capability=capability)
+    caps = await project_video_caps(project, degraded_to="新建 unit 使用兼容默认时长", capability=capability)
     durations = tuple(int(d) for d in caps.get("supported_durations") or [])
     provider_id = str(caps.get("provider_id") or "")
     model = caps.get("model")
@@ -405,13 +353,10 @@ async def resolve_project_duration_context(
 
 
 def precheck_unit(ctx: ProjectDurationContext, unit: dict) -> DurationSlot:
-    """按已解析的项目能力 context 为单个 unit 取档。纯函数，无 IO——批量调用方一次
-    :func:`resolve_project_duration_context` 后对每个 unit 反复调用，不重复 DB 往返。
+    """纯时长 helper，供 unit 默认值与兼容调用复用。
 
-    provider 按 ADR-0001 在执行时才解析，故 ``ctx`` 只是近似：实际档位以执行时的 model
-    能力为准。
-
-    「是否带参考图」按 unit 声明的 references 近似；执行层仍按实际解析到的图片判定。
+    生成预检、报价、Agent 与 worker 不使用本函数；它们必须调用
+    ``ReferenceUnitRequestProjector``，由实际可用资产定桶并对缺失能力 fail loud。
     """
     with_reference_images = bool(unit.get("references"))
     durations = (
@@ -503,6 +448,7 @@ async def execute_reference_video_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     """处理一个 reference_video unit 的生成。
 
@@ -524,71 +470,117 @@ async def execute_reference_video_task(
             raise ValueError(f"unit not found: {resource_id}")
         if video_unit_replan_problems(unit):
             raise ValueError(f"unit needs replanning: {resource_id}")
-        return project, project_path, unit
+        return project, project_path, script, unit
 
-    project, project_path, unit = await asyncio.to_thread(_load)
+    project, project_path, script, unit = await asyncio.to_thread(_load)
 
-    # 2. 产品优先后解析 references；任一声明引用缺图即 fail-loud。产品引用按保真注入规则
-    #    展开成标准 sheet + 全量原图，请求图片与逻辑主体一并保留，供裁剪和 prompt 共享。
-    source_entries = _resolve_unit_reference_entries(project, project_path, unit.get("references") or [])
-    source_refs = [entry.path for entry in source_entries]
+    declared_references = canonicalize_references(unit.get("references"))
+    resolved_assets = resolve_reference_assets(project, project_path, unit)
+    asset_availability = FilesystemReferenceAssets(project_path)
+    hydration = hydrate_reference_assets(declared_references, resolved_assets, asset_availability)
 
-    # 3. 单次解析生成上下文（声明 video lane）：构造 generator 并按实际 backend 身份
+    # 2. 单次解析生成上下文（声明 video lane）：构造 generator 并按实际 backend 身份
     #    查能力上限与 resolution。provider 身份解析收口于 GenerationContext
     #    （docs/adr/0049）——executor 不再触碰 MediaGenerator 私有属性、不再手工重建
     #    registry provider_id。桶按本 unit 解析后的实际参考图分流（docs/adr/0054）：
     #    有参考图 → r2v；无参考图的退化镜头降级 → i2v，不送入拒空参考的 r2v 桶模型。
     #    判据取解析结果而非声明，与 backend 的实际请求同源。
-    execution_capability = reference_video_bucket(with_references=bool(source_refs))
+    execution_capability = reference_video_bucket(with_references=bool(hydration.available))
+    execution_payload = without_reference_video_execution_identity(payload)
     ctx = await resolve_generation_context(
         project_name,
-        payload,
+        execution_payload,
         project=project,
         user_id=user_id,
         video=VideoLaneRequest(capability=execution_capability),
     )
     generator = ctx.generator
     video = ctx.video
+    actual_provider_id = video.provider_model.provider_id
+    if claimed_provider_id is not None and actual_provider_id != claimed_provider_id:
+        raise DispatchProviderChanged(
+            claimed_provider_id=claimed_provider_id,
+            actual_provider_id=actual_provider_id,
+        )
     provider_name = video.backend_name
     model_name = video.backend_model
 
-    # 4. model 粒度能力上限（单一真相源：model.supported_durations）。能力按实际 backend
+    # 3. model 粒度能力上限（单一真相源：model.supported_durations）。能力按实际 backend
     #    身份（provider_id + backend.model）查得：自定义模型禁用回退时也直接命中活跃 model
     #    的能力，不再出现"按旧模型裁剪、按新模型生成"的错位，原 caps.model 一致性防御分支
-    #    随之消解。查询失败时 lane 已把能力降级为空值/None——守卫遇空集放行、clamp 不施加
-    #    上限，把决策推给 backend，与 ScriptGenerator._fetch_video_capabilities 的口径一致。
-    max_refs = video.max_reference_images
-
-    supported_durations = list(video.supported_durations)
-
+    #    随之消解。查询失败时 lane 会把能力降级为空值/None，公共投影把空时长集转换为
+    #    结构化 blocker，避免制造无约束申请。
     # 参考视频是唯一需要非空 resolution 档位的调用方：lane 已按 registry provider_id
     # 兜底（resolution 命中空档位时取 provider fallback），executor 直接取非空档位。
     resolution = video.resolution_or_fallback
 
-    # 条件档位收窄读 registry 声明，查询键必须是规范 registry provider_id：backend_name 是
-    # 族名（ark-agent-plan 族复用 Ark backend），拿它查表会静默落空、收窄失效。
-    registry_provider_id = video.provider_model.provider_id
+    # 当前执行 lane 适配成公共投影候选；引用展开、实际文件存在、产品优先裁剪、时长取档与
+    # 音频冲突都由同一 projector 给出。payload 未声明请求选项时按直接入队兼容语义视为
+    # 已确认；显式选项保存在 reference_request_options 中。
+    class _ExecutionCapabilities:
+        async def resolve_candidate(self, project: dict, capability: VideoCapability) -> ProviderProjectionCandidate:
+            del project
+            has_audio_track, audio_switch_controllable = reference_audio_model_facts(
+                video.provider_model.provider_id,
+                video.backend_model,
+                voice_consistency=video.voice_consistency,
+            )
+            return ProviderProjectionCandidate(
+                capability=capability,
+                provider_id=video.provider_model.provider_id,
+                model_id=video.backend_model,
+                supported_durations=strict_reference_durations(
+                    provider_id=video.provider_model.provider_id,
+                    model_id=video.backend_model,
+                    durations=video.supported_durations,
+                    resolution=video.resolution_or_fallback,
+                    capability=capability,
+                ),
+                max_reference_images=video.max_reference_images,
+                resolution=video.resolution_or_fallback,
+                generate_audio=video.generate_audio,
+                requested_generate_audio=video.requested_generate_audio,
+                has_audio_track=has_audio_track,
+                audio_switch_controllable=audio_switch_controllable,
+            )
 
-    # 5. 图片超过后端上限时，让各产品的标准 sheet 跨产品优先存活，再保留产品原图与其它
-    #    资产。随后仅取时长档位，不让通用路径按路径列表二次裁剪而丢失条目/主体对齐。
-    base_duration = unit_script_duration(unit)
-    constrained_entries, clamp_warnings = _clamp_resolved_reference_images(
-        source_entries,
-        max_refs,
-        provider=provider_name,
-        model=model_name,
+    options = ReferenceRequestOptions.from_payload(payload, legacy_duration_confirmed=True)
+    projection = await ReferenceUnitRequestProjector(_ExecutionCapabilities(), asset_availability).project_current(
+        project=project,
+        script=script,
+        unit=unit,
+        resolved_assets=resolved_assets,
+        options=options,
     )
-    constrained_refs, effective_duration, duration_warnings = _apply_provider_constraints(
-        provider=provider_name,
-        model=model_name,
-        max_refs=None,
-        supported_durations=supported_durations,
-        references=[entry.path for entry in constrained_entries],
-        duration_seconds=base_duration,
-        registry_provider_id=registry_provider_id,
-        resolution=resolution,
-    )
-    warnings = [*clamp_warnings, *duration_warnings]
+    if projection.blocking_problems:
+        raise ReferenceProjectionBlockedError(projection.blocking_problems[0])
+    if projection.request_duration is None:
+        raise ValueError("reference request projection has no duration tier")
+
+    constrained_entries = list(projection.request_assets)
+    constrained_refs = [entry.path for entry in constrained_entries]
+    effective_duration = projection.request_duration.seconds
+    warnings: list[dict[str, Any]] = []
+    for problem in projection.problems:
+        params = problem.parameters()
+        if problem.code == "reference_images_clamped":
+            count = params.get("count")
+            max_count = params.get("max_count")
+            if not isinstance(count, int) or isinstance(count, bool):
+                continue
+            if not isinstance(max_count, int) or isinstance(max_count, bool):
+                continue
+            warnings.append(
+                _reference_limit_warning(
+                    provider=provider_name,
+                    model=model_name,
+                    count=count,
+                    max_refs=max_count,
+                )
+            )
+    duration_warning = projection.request_duration.warning(model=model_name)
+    if duration_warning is not None:
+        warnings.append(duration_warning)
 
     # 把实际申请的秒数写回 task payload：resume 路径（server.services.resume_executor）
     # 读 payload["duration_seconds"] 重建申请参数，回退顺序是 payload > project.default_duration
@@ -599,18 +591,17 @@ async def execute_reference_video_task(
     # 时长，即回退路径本身的行为），不影响当前生成结果，不 fail-fast。
     if task_id is not None:
         await _persist_effective_duration(task_id, effective_duration)
-        # task.provider_id 列与 payload 锁定键都是入队时按 unit 声明近似的投影，执行按
-        # 解析后实际参考图分桶后两者可能与实际分裂。resume 解析里锁定键优先于列注入——
-        # 提交前把实际执行身份写回列与锁定键，否则重启后会按陈旧身份去轮实际 backend 的 provider_job_id，
-        # 已提交任务的恢复丢失。
+        # 入队行里的 provider_id 只是 claim/rate-limit advisory，payload 不锁定 model。
+        # 提交前把当前最新投影已物化的实际身份写回列与桶键，供已提交
+        # 任务的既有 resume 路径在重启后继续轮询同一 backend。
         await _persist_execution_identity(task_id, video.provider_model, execution_capability)
 
-    # 6. 所有内容模式共用三段论渲染。解析条目同时携带请求路径与逻辑主体；产品的一条逻辑
+    # 4. 所有内容模式共用三段论渲染。解析条目同时携带请求路径与逻辑主体；产品的一条逻辑
     #    引用可展开成多张图片，裁剪后直接按条目传给渲染，保证 `图片N` 的 1-based 索引与
     #    backend 实际收到的 reference_images 一一对应。产品高保真尾注也只点名仍实际发图的产品。
     #    prompt 始终从执行期新读取的剧本重组（脚本可变 + 队列 dedup 不看 payload，
-    #    用入队快照会丢失入队后对镜头文本的编辑）；入队 payload 里的 prompt 仅作守卫点的
-    #    校验记录，执行期不使用。
+    #    用入队快照会丢失入队后对镜头文本的编辑）；prompt 只在入队边界用于结构校验，
+    #    不写进任务 payload。
     #    参考音频路径先解析再渲染：渲染层按「确实可用」判定绑定，`@音频N` 的编号与随请求
     #    发出的段数因此严格等长（字段指向已删文件时不会留下指向不存在段的编号）。
     audio_paths = await asyncio.to_thread(resolve_reference_audio_paths, project, project_path)
@@ -635,7 +626,7 @@ async def execute_reference_video_task(
     # 解析派生的降级提示与生成结果同屏可见：与解析预览面板同一批 {key, params} 条目。
     warnings = [*warnings, *rendered.warnings]
 
-    # 7. 直接把源路径交给咽喉层 generate_video_async —— 参考上传副本的压缩、降档梯子与 413 兜底
+    # 5. 直接把源路径交给咽喉层 generate_video_async —— 参考上传副本的压缩、降档梯子与 413 兜底
     #    统一由 MediaGenerator 负责（发完即删的临时字节），此处不再预压缩、不再管理临时文件，
     #    避免双压。数量裁剪 + 参考图索引对齐已在上游完成，咽喉层压缩 1:1 保序保数，职责不重叠。
     output_path, version, _, video_uri = await generator.generate_video_async(

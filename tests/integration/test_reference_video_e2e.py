@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import fake_reference_request_projector
 
 pytestmark = pytest.mark.unit
 
@@ -92,10 +93,12 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
     monkeypatch.setattr(gt_mod, "get_project_manager", lambda: custom_pm)
     monkeypatch.setattr(rvt_mod, "get_project_manager", lambda: custom_pm)
-    # 视频桶预检需要 DB（system_settings）；本用例无 DB，能力闸行为由
-    # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
-    monkeypatch.setattr(router_mod, "require_video_bucket_capability", AsyncMock(return_value=None))
-    monkeypatch.setattr(router_mod, "require_audio_switch_supported", AsyncMock(return_value=None))
+    # 保留真实资产水合、定桶与时长投影，只隔离本用例不关心的 DB 能力查询。
+    monkeypatch.setattr(
+        router_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(durations=(3, 7)),
+    )
 
     app = FastAPI()
     app.include_router(router_mod.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
@@ -177,9 +180,10 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
             backend_model="doubao-seedance-2-0-260128",
             resolution=None,
             resolution_or_fallback="1080p",
-            supported_durations=(),
-            max_duration=None,
+            supported_durations=(7,),
+            max_duration=7,
             max_reference_images=None,
+            generate_audio=True,
         ),
     )
 
@@ -233,7 +237,7 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
 
 @pytest.mark.asyncio
 async def test_e2e_missing_reference_raises(three_bucket_client):
-    """把 scenes/酒馆.png 删掉，executor 应抛 MissingReferenceError。"""
+    """把 scenes/酒馆.png 删掉，executor 应保留 projector 的结构化 blocker。"""
     client, proj_dir, monkeypatch = three_bucket_client
     (proj_dir / "scenes" / "酒馆.png").unlink()
 
@@ -241,6 +245,7 @@ async def test_e2e_missing_reference_raises(three_bucket_client):
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={
             "prompt": "Shot 1 (3s): @张三 进 @酒馆",
+            "duration_seconds": 3,
             "references": [
                 {"type": "character", "name": "张三"},
                 {"type": "scene", "name": "酒馆"},
@@ -249,10 +254,33 @@ async def test_e2e_missing_reference_raises(three_bucket_client):
     )
     uid = resp.json()["unit"]["unit_id"]
 
-    from lib.reference_video.errors import MissingReferenceError
+    from lib.config.resolver import ProviderModel
+    from lib.reference_video.request_projection import ReferenceProjectionBlockedError
+    from server.services import reference_video_tasks as rvt_mod
+    from server.services.generation_context import GenerationContext, VideoLaneResult
     from server.services.generation_tasks import execute_generation_task
 
-    with pytest.raises(MissingReferenceError) as exc:
+    context = GenerationContext(
+        generator=MagicMock(),
+        video_lane=VideoLaneResult(
+            provider_model=ProviderModel(provider_id="ark", model_id="doubao-seedance-2-0-260128"),
+            backend_name="ark",
+            backend_model="doubao-seedance-2-0-260128",
+            resolution=None,
+            resolution_or_fallback="1080p",
+            supported_durations=(3,),
+            max_duration=3,
+            max_reference_images=None,
+            generate_audio=True,
+        ),
+    )
+
+    async def _fake_resolve(*_args, **_kwargs):
+        return context
+
+    monkeypatch.setattr(rvt_mod, "resolve_generation_context", _fake_resolve)
+
+    with pytest.raises(ReferenceProjectionBlockedError) as exc:
         await execute_generation_task(
             {
                 "task_type": "reference_video",
@@ -262,4 +290,7 @@ async def test_e2e_missing_reference_raises(three_bucket_client):
                 "user_id": "u1",
             }
         )
-    assert any(name == "酒馆" for _, name in exc.value.missing)
+    assert exc.value.code == "reference_asset_missing"
+    missing = exc.value.params["missing"]
+    assert isinstance(missing, tuple)
+    assert ("scene", "酒馆") in missing

@@ -364,6 +364,36 @@ class TestRepoStateMachineGuards:
         assert third is not None
         assert third["task_id"] == t1["task_id"]
 
+    async def test_claim_next_reprojects_reference_task_despite_stale_full_provider(self, db_session):
+        """参考任务的缓存 provider 不能在读取当前 unit 前参与排除。"""
+        repo = TaskRepository(db_session)
+        reference = await repo.enqueue(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={"script_file": "ep1.json"},
+            script_file="ep1.json",
+            provider_id="provider-before-edit",
+        )
+        await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S1",
+            payload={},
+            script_file="ep1.json",
+            provider_id="provider-ready",
+        )
+
+        claimed = await repo.claim_next(
+            "video",
+            pool_full_providers=frozenset({"provider-before-edit"}),
+        )
+
+        assert claimed is not None
+        assert claimed["task_id"] == reference["task_id"]
+
     async def test_finalize_cancelled_from_running(self, db_session):
         """finalize_cancelled 也能从 running 直接落 cancelled。
 

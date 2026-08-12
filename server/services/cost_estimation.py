@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -23,17 +24,21 @@ from lib.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed, plan_g
 from lib.pricing.strategies import PricingParams
 from lib.project_manager import grid_storyboard_enabled, is_reference_video_project
 from lib.reference_video import assemble_shots_text
-from lib.reference_video.units import reference_unit_video_bucket
+from lib.reference_video.request_projection import (
+    ConfigReferenceCapabilityProjection,
+    FilesystemReferenceAssets,
+    ProviderProjectionCandidate,
+    ReferenceRequestOptions,
+    ReferenceUnitRequestProjector,
+    ResolvedReferenceAsset,
+    canonicalize_references,
+    resolve_reference_assets,
+)
 from lib.script_editor import ScriptEditError
 from lib.script_models import get_generated_assets
 from lib.speech_composition import video_unit_replan_problems
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.services.grid_resolution import resolve_image_resolution
-from server.services.reference_video_tasks import (
-    ProjectDurationContext,
-    precheck_unit,
-    resolve_project_duration_context,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +48,8 @@ ActualBySegment = dict[str, dict[str, CostBreakdown]]
 ACTUAL_COST_TYPES = ("image", "video", "audio")
 
 
-#: 读侧定桶要枚举的全部视频能力桶。分镜路线整项目走 i2v 桶；参考路线按 unit 声明的参考集
-#: 逐 unit 分桶（有参考图 → r2v，无参考图退化镜头 → i2v）。两个桶都在这里预解析，省去按
+#: 读侧定桶要枚举的全部视频能力桶。分镜路线整项目走 i2v 桶；参考路线由公共
+#: request projection 按每个 unit 当前实际可用资产分桶。两个桶都在这里预解析，省去按
 #: 路线与镜头分支判断该解析哪个桶的复杂度——桶只有两个，代价有界。
 _VIDEO_BUCKETS: tuple[VideoCapability, ...] = ("i2v", "r2v")
 
@@ -158,10 +163,23 @@ def _estimate_unit_video_cost(
     return est_video
 
 
+class _AssumeResolvedAssetsAvailable:
+    def is_available(self, asset: ResolvedReferenceAsset) -> bool:
+        del asset
+        return True
+
+
 class CostEstimationService:
-    def __init__(self, resolver: ConfigResolver, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        resolver: ConfigResolver,
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        project_path: Path | None = None,
+    ) -> None:
         self._resolver = resolver
         self._session_factory = session_factory
+        self._project_path = project_path
 
     async def compute(
         self,
@@ -169,13 +187,28 @@ class CostEstimationService:
         scripts: dict[str, dict[str, Any]],
         *,
         project_name: str,
+        reference_request_options: Mapping[str, ReferenceRequestOptions] | None = None,
     ) -> dict[str, Any]:
         episodes_meta = project_data.get("episodes", [])
+        is_reference_video = is_reference_video_project(project_data)
 
         # Resolve current model config（共享单一 session）。估价以 T2I 为准（T2I/I2I 是正交能力槽，
         # T2I 缺失不应回落 I2I —— 那会拿错误能力的价目算费用）。
         # image/video 的项目覆盖优先级由 ConfigResolver 统一解析，与执行路径共用同一套
         # payload>project>全局默认 链路，此处 payload 传 None（预估无历史任务 payload 可排空）。
+        projection_capabilities = ConfigReferenceCapabilityProjection(self._resolver)
+        reference_candidates: dict[VideoCapability, ProviderProjectionCandidate] = {}
+        if is_reference_video:
+            for capability in _VIDEO_BUCKETS:
+                try:
+                    reference_candidates[capability] = await projection_capabilities.resolve_candidate(
+                        project_data,
+                        capability,
+                    )
+                except Exception:
+                    # 真正使用该 bucket 的 unit 会由 projector 返回结构化 blocker；未使用 bucket
+                    # 的配置问题不应拖垮整份费用页。
+                    logger.debug("reference_video %s bucket 投影预解析失败", capability, exc_info=True)
         async with self._resolver.session() as r:
             try:
                 resolved_image = await r.resolve_image_backend(project_data, None, capability="t2i")
@@ -194,22 +227,34 @@ class CostEstimationService:
             grid_allow_large = large_grid_allowed(image_resolution)
 
             # 视频按能力桶解析（``docs/adr/0054``），与执行扣费同一个模型：图生视频 / 宫格算
-            # i2v 桶的价；参考生视频按 unit 声明的参考集逐 unit 分桶（有参考图 → r2v，无参考图
-            # 退化镜头 → i2v）。两个桶都在这里解析出来（见 ``_VIDEO_BUCKETS``），分辨率与
+            # i2v 桶的价；参考生视频逐 unit 水合当前资产后分桶。两个桶都在这里
+            # 解析出来（见 ``_VIDEO_BUCKETS``），分辨率与
             # generate_audio 随各自的模型身份求值。
             video_identity: dict[VideoCapability, tuple[str, str, str | None, bool]] = {}
             for capability in _VIDEO_BUCKETS:
-                try:
-                    resolved_video = await r.resolve_video_backend(project_data, None, capability=capability)
-                    bucket_provider, bucket_model = resolved_video.provider_id, resolved_video.model_id
-                except Exception:
-                    bucket_provider, bucket_model = "unknown", "unknown"
-                # 有效 generate_audio 是 backend 实现内知识，此处只消费解析结果、不自行推断。
-                bucket_audio = await r.video_pricing_generate_audio(bucket_provider, bucket_model, project_data)
-                try:
-                    bucket_resolution = await r.resolve_resolution(project_data, bucket_provider, bucket_model or "")
-                except Exception:
-                    bucket_resolution = None
+                candidate = reference_candidates.get(capability)
+                if candidate is not None:
+                    bucket_provider = candidate.provider_id
+                    bucket_model = candidate.model_id
+                    bucket_resolution = candidate.resolution
+                    bucket_audio = candidate.generate_audio
+                else:
+                    try:
+                        resolved_video = await r.resolve_video_backend(project_data, None, capability=capability)
+                        bucket_provider, bucket_model = resolved_video.provider_id, resolved_video.model_id
+                    except Exception:
+                        bucket_provider, bucket_model = "unknown", "unknown"
+                    # 分镜路线保持既有宽容报价；参考路线逐 unit 的严格能力校验由 request projector
+                    # 完成，能力元数据异常时不会产生 unit 报价。
+                    bucket_audio = await r.video_pricing_generate_audio(bucket_provider, bucket_model, project_data)
+                    try:
+                        bucket_resolution = await r.resolve_resolution(
+                            project_data,
+                            bucket_provider,
+                            bucket_model or "",
+                        )
+                    except Exception:
+                        bucket_resolution = None
                 video_identity[capability] = (
                     bucket_provider,
                     bucket_model,
@@ -309,17 +354,6 @@ class CostEstimationService:
         proj_act: dict[str, CostBreakdown] = {}
         claimed_actual: set[tuple[str, str]] = set()
 
-        # 惰性解析、按能力桶各至多一次：只有项目里真出现按 unit 计费的参考视频集时才触发这次
-        # 额外 IO（见 :func:`server.services.reference_video_tasks.resolve_project_duration_context`）。
-        # unit 按声明的参考集分桶取档 / 计价（无参考图退化镜头 → i2v 桶模型），i2v 桶的 ctx
-        # 只在真出现退化 unit 时才解析。
-        duration_ctxs: dict[VideoCapability, ProjectDurationContext] = {}
-
-        async def _duration_ctx(bucket: VideoCapability) -> ProjectDurationContext:
-            if bucket not in duration_ctxs:
-                duration_ctxs[bucket] = await resolve_project_duration_context(project_data, capability=bucket)
-            return duration_ctxs[bucket]
-
         def _accumulate_episode(
             ep_meta: dict[str, Any],
             segments_result: list[dict[str, Any]],
@@ -342,9 +376,7 @@ class CostEstimationService:
         # 参考生视频路径跳过分镜步骤，所有内容模式都按自包含 reference_unit 计费与展示。
         #
         # 生成路径以项目路线为唯一真相源，整个项目同一条路线、逐集不变（剧本不携带路线信息）；
-        # 参考路线内的定桶再按 unit 声明的参考集逐 unit 分流，与执行侧同口径。
-        is_reference_video = is_reference_video_project(project_data)
-
+        # 参考路线内的定桶再由 request projection 按当前资产逐 unit 分流。
         for ep_meta in episodes_meta:
             script_file = ep_meta.get("script_file", "")
             script = scripts.get(script_file)
@@ -357,18 +389,19 @@ class CostEstimationService:
 
             if estimate_by_unit:
                 segments_result, ep_est, ep_act = await self._estimate_unit_reference_video_episode(
+                    project=project_data,
+                    script=script,
                     units=video_units,
-                    get_duration_ctx=_duration_ctx,
-                    video_pricing=video_pricing,
+                    projection_capabilities=projection_capabilities,
+                    video_prices=video_prices,
                     actual_by_segment=actual_by_segment,
                     claimed_actual=claimed_actual,
+                    request_options=reference_request_options,
                 )
                 _accumulate_episode(ep_meta, segments_result, ep_est, ep_act)
                 continue
 
-            # 算价的桶与执行同源：分镜路径入队 i2v 桶；参考视频路径按 unit 声明的参考集
-            # 逐 unit 分桶（有参考图 → r2v，无参考图退化镜头 → i2v），在上方两条 unit
-            # 估算路径内完成。
+            # 分镜路径固定用 i2v 桶；参考路径已在上方的 unit 投影分支完成定桶。
             episode_video = video_pricing["i2v"]
 
             try:
@@ -578,11 +611,14 @@ class CostEstimationService:
     async def _estimate_unit_reference_video_episode(
         self,
         *,
+        project: dict[str, Any],
+        script: dict[str, Any],
         units: list[Any],
-        get_duration_ctx: Callable[[VideoCapability], Awaitable[ProjectDurationContext]],
-        video_pricing: dict[VideoCapability, _VideoPricing],
+        projection_capabilities: ConfigReferenceCapabilityProjection,
+        video_prices: dict[tuple[str, str], Any],
         actual_by_segment: ActualBySegment,
         claimed_actual: set[tuple[str, str]],
+        request_options: Mapping[str, ReferenceRequestOptions] | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, CostBreakdown], dict[str, CostBreakdown]]:
         """reference_video 集的估值：unit 本身就是展示与计费颗粒度。
 
@@ -591,10 +627,10 @@ class CostEstimationService:
         ``cost-store`` 的 ``_segmentIndex.get(unit.unit_id)``），故此处不需要
         ``_split_cost_across`` 这一步。
 
-        取档按 unit 声明的参考集定桶（有参考图 → r2v，无参考图退化
-        unit → i2v，与执行侧同口径）解析该桶模型的能力，对 unit 剧本时长
-        （``unit.duration_seconds``，unit 级单一真相）取档后按同桶模型计费，而非原始剧本
-        时长——与 ``execute_reference_video_task`` 实际申请的秒数对齐。
+        取档先水合 unit 引用的当前可用图片（有图 → r2v，无图退化 unit → i2v），
+        再解析该桶模型的能力；声明引用与实际资产分裂时返回结构化 blocker，不换桶伪报价。
+        请求时长基准通常是 ``unit.duration_seconds``；选择 ``use_tts`` 时还会纳入上游提供的
+        实际旁白时长下限。按该基准取档后用同桶模型计费，与执行请求的秒数对齐。
 
         无图片/音频估值维度：该模式跳过分镜步骤（无分镜图），``Shot`` 没有独立的旁白/口播
         文案字段可供独立音频计价。实付按 ``actual_by_segment[unit_id]`` 三个维度原样透传——``lib/media_generator.py``
@@ -613,6 +649,12 @@ class CostEstimationService:
         segments_result: list[dict[str, Any]] = []
         ep_est: dict[str, CostBreakdown] = {}
         ep_act: dict[str, CostBreakdown] = {}
+
+        if self._project_path is None:
+            availability = _AssumeResolvedAssetsAvailable()
+        else:
+            availability = FilesystemReferenceAssets(self._project_path)
+        projector = ReferenceUnitRequestProjector(projection_capabilities, availability)
 
         for unit in units:
             if not isinstance(unit, dict):
@@ -637,27 +679,58 @@ class CostEstimationService:
             )
 
             est_video: CostBreakdown = {}
+            projection_problems: list[dict[str, Any]] = []
+            projection = None
             if enqueueable:
                 # agent/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"/列表/字典）；
-                # SDK 侧入队预检（enqueue_videos.py）对每个 unit 单独 catch ValueError 跳过，
-                # 此处须跟随同一容错口径——否则一个 unit 的脏时长会让整个项目估算 500，
-                # 拖累其余正常集。int() 转换对非数值字符串抛 ValueError，对 list/dict 抛
-                # TypeError，两者都要接住。ctx 解析在 try 外：能力配置错误是项目级问题，
-                # 须 fail loud 上抛，不得被当成单 unit 脏时长静默跳过（SDK 预检同口径——
-                # 解析在批次层、逐 unit 只 catch 取档）。
-                bucket = reference_unit_video_bucket(unit)
-                duration_ctx = await get_duration_ctx(bucket)
+                # 单个 unit 的无效内容不应让整个项目估算失败，因此资产解析与 request projection
+                # 的 ValueError/TypeError 只跳过该 unit。能力解析错误由 projector 转为结构化 blocker，
+                # 正常保留在该 unit 的报价结果中。
                 try:
-                    slot = precheck_unit(duration_ctx, unit)
+                    if self._project_path is None:
+                        resolved_assets = [
+                            ResolvedReferenceAsset(
+                                path=Path(f"{reference.type}/{reference.name}.png"),
+                                reference=reference,
+                            )
+                            for reference in canonicalize_references(unit.get("references"))
+                        ]
+                    else:
+                        resolved_assets = resolve_reference_assets(project, self._project_path, unit)
+                    projection = await projector.project_current(
+                        project=project,
+                        script=script,
+                        unit=unit,
+                        resolved_assets=resolved_assets,
+                        options=(request_options or {}).get(unit_id, ReferenceRequestOptions()),
+                    )
                 except (ValueError, TypeError):
                     logger.warning("费用估算跳过时长非法的 unit %s", unit_id, exc_info=True)
-                    slot = None
-                if slot is not None:
-                    est_video = _estimate_unit_video_cost(
-                        unit_id=unit_id,
-                        duration_seconds=slot.seconds,
-                        video=video_pricing[bucket],
-                    )
+                    projection = None
+                if projection is not None:
+                    projection_problems = projection.problem_payloads()
+                    blockers = [
+                        problem
+                        for problem in projection.blocking_problems
+                        if problem.code != "reference_duration_confirmation_required"
+                    ]
+                else:
+                    blockers = []
+                if projection is not None and projection.cost is not None and not blockers:
+                    cost = projection.cost
+                    price = video_prices.get((cost.provider_id, cost.model_id))
+                    if price is not None:
+                        est_video = _estimate_unit_video_cost(
+                            unit_id=unit_id,
+                            duration_seconds=cost.duration_seconds,
+                            video=_VideoPricing(
+                                provider=cost.provider_id,
+                                model=cost.model_id,
+                                resolution=cost.resolution,
+                                generate_audio=cost.generate_audio,
+                                price=price,
+                            ),
+                        )
 
             unit_actual = _claim_actual(actual_by_segment, claimed_actual, unit_id)
             act_image: CostBreakdown = unit_actual.get("image", {})
@@ -668,6 +741,22 @@ class CostEstimationService:
                 {
                     "segment_id": unit_id,
                     "duration_seconds": unit.get("duration_seconds", 8),
+                    "request_projection": (
+                        {
+                            **projection.to_advisory_payload(),
+                            "capability": projection.hydrated_capability,
+                            "problems": projection_problems,
+                        }
+                        if enqueueable and projection is not None
+                        else {
+                            "provider_id": None,
+                            "model_id": None,
+                            "capability": None,
+                            "duration_input": None,
+                            "request_duration": None,
+                            "problems": projection_problems,
+                        }
+                    ),
                     "estimate": {"image": {}, "video": est_video, "audio": {}},
                     "actual": {"image": act_image, "video": act_video, "audio": act_audio},
                 }
