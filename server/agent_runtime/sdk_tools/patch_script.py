@@ -13,6 +13,7 @@ filename↔episode 一致性。结构错误当场以「不更坏」语义挡下�
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -123,6 +124,11 @@ def patch_episode_script_tool(ctx: ToolContext):
                         None,
                     )
                     previous_shots = unit.get("shots") if unit is not None else None
+                    previous_speech = (
+                        {field: deepcopy(unit.get(field)) for field in _SPEECH_CONTENT_FIELDS[kind]}
+                        if unit is not None
+                        else {}
+                    )
                     fields: list[str] = []
                     for raw_field, value in field_map.items():
                         field = str(raw_field)
@@ -135,7 +141,11 @@ def patch_episode_script_tool(ctx: ToolContext):
                             regen_ids.append(scene_id)
                     edited_roots = {field.split(".", 1)[0] for field in fields}
                     if unit is not None:
-                        if edited_roots.intersection(_SPEECH_CONTENT_FIELDS[kind]):
+                        speech_changed = any(
+                            field in edited_roots and unit.get(field) != previous_speech[field]
+                            for field in _SPEECH_CONTENT_FIELDS[kind]
+                        )
+                        if speech_changed:
                             require_script_unit_admitted(kind, unit, ignore_marker=True)
                             if kind != "video_units":
                                 unit.pop("needs_replan", None)

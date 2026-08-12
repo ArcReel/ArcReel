@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
 @pytest.fixture
@@ -185,7 +186,14 @@ def test_patch_unit_prompt_keeps_duration(client: TestClient):
 
 
 @pytest.mark.integration
-def test_patch_mixed_speech_preserves_existing_unit_and_paid_media(client: TestClient):
+@pytest.mark.parametrize(
+    "case",
+    [case for case in SPEECH_CONTRACT_CASES if case.generation_mode == "reference_video"],
+    ids=lambda case: case.route_id,
+)
+def test_three_reference_route_web_manual_edits_atomically_reject_mixed_speech_on_save(
+    client: TestClient, tmp_path: Path, case: SpeechContractCase
+):
     uid = _seed_unit(client)
     before = client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()["units"][0]
     before["generated_assets"] = {"video_clip": f"reference_videos/{uid}.mp4", "status": "completed"}
@@ -193,7 +201,12 @@ def test_patch_mixed_speech_preserves_existing_unit_and_paid_media(client: TestC
     from server.routers import reference_videos as router_mod
 
     pm = router_mod.get_project_manager()
+    project_file = tmp_path / "projects" / "demo" / "project.json"
+    project = json.loads(project_file.read_text(encoding="utf-8"))
+    project["content_mode"] = case.content_mode
+    project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     script = pm.load_script("demo", "episode_1.json")
+    script["content_mode"] = case.content_mode
     script["video_units"][0]["generated_assets"] = before["generated_assets"]
     pm.save_script("demo", script, "episode_1.json")
 
@@ -207,6 +220,28 @@ def test_patch_mixed_speech_preserves_existing_unit_and_paid_media(client: TestC
     after = client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()["units"][0]
     assert after["shots"] == before["shots"]
     assert after["generated_assets"] == before["generated_assets"]
+
+
+@pytest.mark.integration
+def test_patch_allows_unchanged_legacy_mixed_prompt(client: TestClient):
+    uid = _seed_unit(client)
+    prompt = "镜头1：张三推门\n@[张三]：{快走。}\n{风吹过旷野。}"
+    from server.routers import reference_videos as router_mod
+
+    pm = router_mod.get_project_manager()
+    script = pm.load_script("demo", "episode_1.json")
+    script["video_units"][0]["shots"] = [{"text": "张三推门\n@[张三]：{快走。}\n{风吹过旷野。}"}]
+    script["video_units"][0]["needs_replan"] = True
+    pm.save_script("demo", script, "episode_1.json")
+
+    response = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"prompt": prompt, "note": "保留历史媒体"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["unit"]["note"] == "保留历史媒体"
+    assert response.json()["unit"]["needs_replan"] is True
 
 
 @pytest.mark.integration
@@ -404,6 +439,48 @@ def test_generate_unit_enqueues_task(client: TestClient, monkeypatch: pytest.Mon
     # 经统一守卫点构造：shots[*].text 拼接出的 prompt 随 payload 入队（见 ADR-0001）。
     # parse_prompt 已剥离 `Shot N (Xs):` header，存盘的 shot text 仅余正文。
     assert enqueued[0]["payload"]["prompt"] == "@张三 推门"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "case",
+    [case for case in SPEECH_CONTRACT_CASES if case.generation_mode == "reference_video"],
+    ids=lambda case: case.route_id,
+)
+def test_three_reference_route_web_video_entries_share_structured_speech_admission(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: SpeechContractCase,
+):
+    project_path = tmp_path / "projects" / "demo"
+    project_file = project_path / "project.json"
+    project = json.loads(project_file.read_text(encoding="utf-8"))
+    project["content_mode"] = case.content_mode
+    project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    script_file = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_file.read_text(encoding="utf-8"))
+    script.update(case.script())
+    script_file.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.routers import reference_videos as router_mod
+
+    enqueue = AsyncMock()
+    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: type("Queue", (), {"enqueue_task": enqueue})())
+
+    response = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate")
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    problem = detail["problems"][0]
+    assert detail["allowed"] is False
+    assert detail["unit_id"] == "E1U1"
+    assert problem["code"] == "mixed_speech"
+    assert [tuple(location["path"]) for location in problem["locations"]] == list(case.expected_locations)
+    assert [location["line"] for location in problem["locations"]] == [0, 1]
+    assert problem["reason"] == "character_and_narrator_mixed"
+    assert problem["action"] == "replan_unit"
+    enqueue.assert_not_awaited()
 
 
 @pytest.mark.unit

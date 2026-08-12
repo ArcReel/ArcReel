@@ -51,6 +51,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     validate_and_promote_reference_draft_tool,
 )
 from tests.fakes import fake_reference_caps_fetcher
+from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1823,23 +1824,34 @@ async def test_generate_video_scene_happy(fake_ctx: ToolContext, monkeypatch) ->
 
 
 @pytest.mark.unit
-async def test_generate_video_scene_returns_structured_speech_admission_without_enqueuing(
-    fake_ctx: ToolContext, monkeypatch
+@pytest.mark.parametrize("case", SPEECH_CONTRACT_CASES, ids=lambda case: case.route_id)
+async def test_six_route_agent_single_video_generation_returns_structured_admission_without_enqueuing(
+    fake_ctx: ToolContext,
+    monkeypatch,
+    case: SpeechContractCase,
 ) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    fake_ctx.pm.script_payload["segments"][0]["video_prompt"]["dialogue"] = [  # type: ignore[attr-defined]
-        {"speaker": "张三", "line": "快走。"}
-    ]
+    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+        {"content_mode": case.content_mode, "generation_mode": case.generation_mode}
+    )
+    fake_ctx.pm.script_payload = case.script()  # type: ignore[attr-defined]
     enqueue = AsyncMock()
+    batch_enqueue = AsyncMock()
     monkeypatch.setattr(mod, "enqueue_and_wait", enqueue)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", batch_enqueue)
 
-    out = await _call(generate_video_scene_tool(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
+    out = await _call(generate_video_scene_tool(fake_ctx), {"script": "episode_1.json", "scene_id": case.unit_id})
 
     assert out.get("is_error") is True
-    assert out["speech_admission"]["unit_id"] == "E1S01"
-    assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
+    problem = out["speech_admission"]["problems"][0]
+    assert out["speech_admission"]["unit_id"] == case.unit_id
+    assert problem["code"] == "mixed_speech"
+    assert [tuple(location["path"]) for location in problem["locations"]] == list(case.expected_locations)
+    assert problem["reason"] == "character_and_narrator_mixed"
+    assert problem["action"] == "replan_unit"
     enqueue.assert_not_awaited()
+    batch_enqueue.assert_not_awaited()
 
 
 @pytest.mark.unit

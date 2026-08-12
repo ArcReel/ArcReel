@@ -171,6 +171,86 @@ def _text(out: dict[str, Any]) -> str:
 
 
 class TestPatchEpisodeScript:
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        ("content_mode", "generation_mode", "script_factory", "item_id", "edits", "kind"),
+        [
+            (
+                "narration",
+                "storyboard",
+                _script,
+                "E1S01",
+                {"video_prompt.dialogue": [{"speaker": "角色A", "line": "快走。"}]},
+                "segments",
+            ),
+            (
+                "drama",
+                "storyboard",
+                _drama_script,
+                "E1S01",
+                {
+                    "utterances": [
+                        {"kind": "dialogue", "speaker": "角色A", "text": "快走。"},
+                        {"kind": "voiceover", "speaker": None, "text": "风吹过旷野。"},
+                    ]
+                },
+                "scenes",
+            ),
+            (
+                "ad",
+                "storyboard",
+                _ad_script,
+                "E1S01",
+                {"video_prompt.dialogue": [{"speaker": "角色A", "line": "快走。"}]},
+                "shots",
+            ),
+            *[
+                (
+                    content_mode,
+                    "reference_video",
+                    _reference_script,
+                    "E1U1",
+                    {"shots": [{"text": "@[角色A]：{快走。}\n{风吹过旷野。}"}]},
+                    "video_units",
+                )
+                for content_mode in ("narration", "drama", "ad")
+            ],
+        ],
+    )
+    async def test_six_route_agent_manual_edits_atomically_reject_mixed_speech_on_save(
+        self,
+        tmp_path: Path,
+        content_mode: str,
+        generation_mode: str,
+        script_factory,
+        item_id: str,
+        edits: dict[str, Any],
+        kind: str,
+    ) -> None:
+        pm = ProjectManager(str(tmp_path))
+        pm.create_project("demo", content_mode=content_mode)
+        pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
+        pm.update_project("demo", lambda project: project.update({"generation_mode": generation_mode}))
+        script = script_factory()
+        script["content_mode"] = content_mode
+        pm.save_script("demo", script, "episode_1.json")
+        tool_ctx = ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
+        before = _load(tool_ctx)
+
+        out = await _call(
+            patch_episode_script_tool(tool_ctx),
+            {"script": "episode_1.json", "edits": {item_id: edits}},
+        )
+
+        assert out.get("is_error") is True
+        detail = out["speech_admission"]
+        assert detail["unit_id"] == item_id
+        assert detail["problems"][0]["code"] == "mixed_speech"
+        assert detail["problems"][0]["reason"] == "character_and_narrator_mixed"
+        assert detail["problems"][0]["action"] == "replan_unit"
+        assert kind in before
+        assert _load(tool_ctx) == before
+
     @pytest.mark.unit
     async def test_batch_multi_segment_multi_field(self, ctx: ToolContext) -> None:
         """一次调用改多分镜 × 多字段，全部落盘。"""
@@ -298,6 +378,27 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is True
         assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
         assert _load(ctx) == before
+
+    @pytest.mark.unit
+    async def test_unchanged_legacy_mixed_speech_allows_metadata_patch(self, ctx: ToolContext) -> None:
+        script = _script()
+        prompt = {**script["segments"][0]["video_prompt"], "dialogue": [{"speaker": "甲", "line": "台词"}]}
+        script["segments"][0]["video_prompt"] = prompt
+        script["segments"][0]["needs_replan"] = True
+        ctx.pm.save_script("demo", script, "episode_1.json")
+
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {"E1S01": {"video_prompt": prompt, "note": "保留历史媒体"}},
+            },
+        )
+
+        assert out.get("is_error") is not True
+        saved = _load(ctx)["segments"][0]
+        assert saved["note"] == "保留历史媒体"
+        assert saved["needs_replan"] is True
 
     @pytest.mark.unit
     async def test_repairing_machine_candidate_clears_replan_marker(self, ctx: ToolContext) -> None:

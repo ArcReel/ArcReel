@@ -9,6 +9,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
 class _FakeQueue:
@@ -209,10 +210,18 @@ class TestGenerateRouter:
             assert call["payload"]["duration_seconds"] == 5
 
     @pytest.mark.unit
-    def test_video_generation_returns_structured_speech_admission_without_enqueuing(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize(
+        "case",
+        [case for case in SPEECH_CONTRACT_CASES if case.generation_mode == "storyboard"],
+        ids=lambda case: case.route_id,
+    )
+    def test_three_storyboard_web_video_entries_return_structured_speech_admission_without_enqueuing(
+        self, tmp_path, monkeypatch, case: SpeechContractCase
+    ):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_pm.script["segments"][0]["video_prompt"] = {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}
+        fake_pm.project.update({"content_mode": case.content_mode, "generation_mode": "storyboard"})
+        fake_pm.script = case.script()
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
 
@@ -223,23 +232,14 @@ class TestGenerateRouter:
             )
 
         assert response.status_code == 409
-        assert response.json()["detail"] == {
-            "allowed": False,
-            "unit_id": "E1S01",
-            "mode": None,
-            "problems": [
-                {
-                    "code": "mixed_speech",
-                    "unit_id": "E1S01",
-                    "locations": [
-                        {"path": ["video_prompt", "dialogue", 0, "line"], "line": None},
-                        {"path": ["novel_text"], "line": None},
-                    ],
-                    "reason": "character_and_narrator_mixed",
-                    "action": "replan_unit",
-                }
-            ],
-        }
+        detail = response.json()["detail"]
+        problem = detail["problems"][0]
+        assert detail["allowed"] is False
+        assert detail["unit_id"] == "E1S01"
+        assert problem["code"] == "mixed_speech"
+        assert [tuple(location["path"]) for location in problem["locations"]] == list(case.expected_locations)
+        assert problem["reason"] == "character_and_narrator_mixed"
+        assert problem["action"] == "replan_unit"
         assert fake_queue.calls == []
 
     @pytest.mark.unit

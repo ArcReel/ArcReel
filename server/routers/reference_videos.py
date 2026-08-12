@@ -211,7 +211,7 @@ def _build_unit_dict(
     return unit
 
 
-def _require_unit_ready(unit: dict, _t: Translator, *, ignore_marker: bool = False) -> None:
+def _require_unit_ready(unit: dict, *, ignore_marker: bool = False) -> None:
     admission = admit_script_unit("video_units", unit, ignore_marker=ignore_marker)
     if not admission.allowed:
         raise HTTPException(status_code=409, detail=admission.to_dict())
@@ -266,7 +266,7 @@ async def add_unit(
             transition=req.transition_to_next,
             note=req.note,
         )
-        _require_unit_ready(unit, _t, ignore_marker=True)
+        _require_unit_ready(unit, ignore_marker=True)
         script.setdefault("video_units", []).append(unit)
     return {"unit": unit}
 
@@ -327,8 +327,8 @@ async def patch_unit(
         # 只有正文重写能证明迁移留下的镜头归属问题已被重新规划；仅改时长或引用
         # 不能解除 overlapping / dangling legacy shot 对应的 durable marker。
         body_changed = req.prompt is not None and unit.get("shots") != previous_shots
-        if req.prompt is not None:
-            _require_unit_ready(unit, _t, ignore_marker=True)
+        if body_changed:
+            _require_unit_ready(unit, ignore_marker=True)
         if body_changed and refs is None:
             # references 是正文的机械派生物。调用方显式给 references 时尊重其人工排序；只改正文
             # 时则必须用持锁复核后的 project 资产表重派生，避免旧引用继续决定 @图片N 绑定。
@@ -405,7 +405,7 @@ async def precheck_unit_duration(
     """
     project, script, _sf = _load_episode_script(project_name, episode, _t)
     unit = _find_unit(script, unit_id, _t)
-    _require_unit_ready(unit, _t)
+    _require_unit_ready(unit)
 
     # ctx 按 unit 定桶解析（无参考图退化镜头 → i2v），与执行期实际取档的模型同桶。
     slot = precheck_unit(
@@ -470,7 +470,7 @@ async def generate_unit(
 ) -> dict[str, Any]:
     project, script, script_file = _load_episode_script(project_name, episode, _t)
     unit = _find_unit(script, unit_id, _t)  # raises 404 if missing
-    _require_unit_ready(unit, _t)
+    _require_unit_ready(unit)
     guard_prompt = assemble_shots_text(unit.get("shots") or [])
 
     # 经统一守卫点构造：空提示词的结构校验在此当场拒绝（400），与 SDK 入队路径一致，

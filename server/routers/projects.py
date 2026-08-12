@@ -1013,6 +1013,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
                     for scene in script.get("scenes", []):
                         if scene.get("scene_id") == scene_id:
                             matched_scene = scene
+                            previous_utterances = scene.get("utterances")
                             # 更新允许的字段
                             for key, value in req.updates.items():
                                 if key in [
@@ -1034,7 +1035,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
                                             for name in value
                                         ]
                                     scene[key] = value
-                            if "utterances" in req.updates:
+                            if "utterances" in req.updates and scene.get("utterances") != previous_utterances:
                                 admission = admit_script_unit("scenes", scene, ignore_marker=True)
                                 if not admission.allowed:
                                     raise HTTPException(status_code=409, detail=admission.to_dict())
@@ -1128,13 +1129,15 @@ async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Trans
                     for shot in _require_ad_script(script, _t):
                         if shot.get("shot_id") == shot_id:
                             matched_shot = shot
+                            previous_speech = (shot.get("voiceover_text"), shot.get("video_prompt"))
                             for key, value in req.updates.items():
                                 if key in _SHOT_UPDATABLE_FIELDS:
                                     # note 允许显式置 None（清空备注），其余字段 None 视为未提供
                                     if value is None and key != "note":
                                         continue
                                     shot[key] = value
-                            if {"voiceover_text", "video_prompt"}.intersection(req.updates):
+                            speech_changed = previous_speech != (shot.get("voiceover_text"), shot.get("video_prompt"))
+                            if speech_changed:
                                 admission = admit_script_unit("shots", shot, ignore_marker=True)
                                 if not admission.allowed:
                                     raise HTTPException(status_code=409, detail=admission.to_dict())
@@ -1254,6 +1257,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                     for segment in script.get("segments", []):
                         if segment.get("segment_id") == segment_id:
                             matched_segment = segment
+                            previous_video_prompt = segment.get("video_prompt")
                             if req.duration_seconds is not None:
                                 segment["duration_seconds"] = req.duration_seconds
                             if req.segment_break is not None:
@@ -1271,7 +1275,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                                     segment[field] = [
                                         asset_name_comparison_key(name) for name in (getattr(req, field) or [])
                                     ]
-                            if req.video_prompt is not None:
+                            if req.video_prompt is not None and segment.get("video_prompt") != previous_video_prompt:
                                 admission = admit_script_unit("segments", segment, ignore_marker=True)
                                 if not admission.allowed:
                                     raise HTTPException(status_code=409, detail=admission.to_dict())

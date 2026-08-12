@@ -8,6 +8,7 @@ import lib.script_review as script_review
 from lib.config.resolver import ConfigResolver
 from lib.script_generator import ScriptGenerator, _units_use_references
 from lib.script_structure_validator import ScriptStructureValidationError
+from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
 def _write(path: Path, text: str):
@@ -769,13 +770,16 @@ class TestAddMetadataRewritesEpisodePrefix:
     """_add_metadata 兜底改写 segment/scene/unit ID 的 E\\d+ 前缀。"""
 
     @staticmethod
-    def _make_generator(tmp_path: Path, content_mode: str = "narration") -> ScriptGenerator:
+    def _make_generator(
+        tmp_path: Path, content_mode: str = "narration", generation_mode: str = "storyboard"
+    ) -> ScriptGenerator:
         project_path = tmp_path / "demo"
         _write_json(
             project_path / "project.json",
             {
                 "title": "项目",
                 "content_mode": content_mode,
+                "generation_mode": generation_mode,
             },
         )
         return ScriptGenerator(project_path)
@@ -808,18 +812,20 @@ class TestAddMetadataRewritesEpisodePrefix:
         assert out["segments"][1]["segment_id"] == "E3S02_1"
 
     @pytest.mark.unit
-    def test_storyboard_machine_candidate_preserves_mixed_speech_and_marks_replan(self, tmp_path: Path) -> None:
-        sg = self._make_generator(tmp_path, content_mode="drama")
-        utterances = [
-            {"kind": "dialogue", "speaker": "阿离", "text": "快走。"},
-            {"kind": "voiceover", "speaker": None, "text": "风吹过旷野。"},
-        ]
-        data = {"scenes": [{"scene_id": "E1S01", "utterances": utterances}]}
+    @pytest.mark.parametrize("case", SPEECH_CONTRACT_CASES, ids=lambda case: case.route_id)
+    def test_six_route_machine_candidates_preserve_mixed_speech_and_mark_replan(
+        self,
+        tmp_path: Path,
+        case: SpeechContractCase,
+    ) -> None:
+        sg = self._make_generator(tmp_path, content_mode=case.content_mode, generation_mode=case.generation_mode)
+        original = case.unit()
+        data = {case.kind: [case.unit()]}
 
         out = sg._add_metadata(data, episode=1)
 
-        assert out["scenes"][0]["needs_replan"] is True
-        assert out["scenes"][0]["utterances"] == utterances
+        assert out[case.kind][0]["needs_replan"] is True
+        assert {key: value for key, value in out[case.kind][0].items() if key != "needs_replan"} == original
 
     @pytest.mark.unit
     def test_reference_video_rewrites_unit_ids(self, tmp_path: Path) -> None:
