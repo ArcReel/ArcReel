@@ -16,7 +16,15 @@ TEMPLATE_PATH = SKILL_ROOT / "assets" / "report.html"
 BATCH_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 REPORT_ID_RE = re.compile(r"^\S+$")
 KNOWLEDGE_KEYS = ("CONTEXT", "ADR", "INST")
-RESERVED_REPORT_IDS = {f"{key}-EMPTY" for key in KNOWLEDGE_KEYS}
+RESERVED_REPORT_IDS = {"BATCH-OVERVIEW", *(f"{key}-EMPTY" for key in KNOWLEDGE_KEYS)}
+ISSUE_STATES = ("merged", "shelved", "not_started", "done")
+RECOMMENDATIONS = ("强烈建议", "值得探索", "推测性", "无需处理")
+KNOWLEDGE_ACTIONS = {
+    "CONTEXT": ("create", "revise", "retire", "none"),
+    "ADR": ("create", "revise", "retire", "supersede", "none"),
+    "INST": ("create", "revise", "retire", "none"),
+}
+TARGET_REF_ACTIONS = ("revise", "retire", "supersede")
 
 
 class ReportError(ValueError):
@@ -53,16 +61,25 @@ def require(mapping: dict[str, Any], key: str, path: str) -> Any:
 
 def validate_analysis(value: Any) -> dict[str, Any]:
     analysis = expect_mapping(value, "analysis")
-    if analysis.get("version") != 1:
-        fail("analysis.version must be 1")
+    if analysis.get("version") != 2:
+        fail("analysis.version must be 2")
 
-    expect_mapping(require(analysis, "batch", "analysis"), "analysis.batch")
+    batch = expect_mapping(require(analysis, "batch", "analysis"), "analysis.batch")
+    expect_string(require(batch, "title", "analysis.batch"), "analysis.batch.title")
     issues = expect_list(require(analysis, "issues", "analysis"), "analysis.issues")
     followups = expect_list(require(analysis, "followups", "analysis"), "analysis.followups")
-    knowledge = expect_mapping(require(analysis, "knowledge", "analysis"), "analysis.knowledge")
+    knowledge_reviewed = expect_list(require(analysis, "knowledge_reviewed", "analysis"), "analysis.knowledge_reviewed")
+    reviewed_targets = [
+        expect_string(target, f"analysis.knowledge_reviewed[{index}]")
+        for index, target in enumerate(knowledge_reviewed)
+    ]
+    if len(reviewed_targets) != len(set(reviewed_targets)) or set(reviewed_targets) != set(KNOWLEDGE_KEYS):
+        fail(f"analysis.knowledge_reviewed must contain each target exactly once: {', '.join(KNOWLEDGE_KEYS)}")
+    knowledge = expect_list(require(analysis, "knowledge", "analysis"), "analysis.knowledge")
     pending = expect_list(require(analysis, "pending", "analysis"), "analysis.pending")
 
     ids: set[str] = set()
+    actionable_ids: set[str] = set()
 
     def validate_sources(item: dict[str, Any], path: str) -> None:
         sources = expect_list(require(item, "sources", path), f"{path}.sources")
@@ -80,34 +97,64 @@ def validate_analysis(value: Any) -> dict[str, Any]:
             fail(f"duplicate report id: {raw_id}")
         ids.add(raw_id)
 
+    def validate_recommendation(item: dict[str, Any], path: str) -> str:
+        recommendation = expect_string(require(item, "recommendation", path), f"{path}.recommendation")
+        if recommendation not in RECOMMENDATIONS:
+            fail(f"{path}.recommendation must be one of: {', '.join(RECOMMENDATIONS)}")
+        return recommendation
+
     for index, value in enumerate(issues):
-        expect_mapping(value, f"analysis.issues[{index}]")
+        path = f"analysis.issues[{index}]"
+        item = expect_mapping(value, path)
+        require(item, "number", path)
+        expect_string(require(item, "title", path), f"{path}.title")
+        state = expect_string(require(item, "state", path), f"{path}.state")
+        if state not in ISSUE_STATES:
+            fail(f"{path}.state must be one of: {', '.join(ISSUE_STATES)}")
 
     for index, value in enumerate(followups):
         path = f"analysis.followups[{index}]"
         item = expect_mapping(value, path)
-        register(require(item, "id", path), f"{path}.id")
-        expect_string(require(item, "priority", path), f"{path}.priority")
-        evaluations = expect_mapping(require(item, "evaluations", path), f"{path}.evaluations")
-        for axis in ("architecture", "product_user", "knowledge"):
-            expect_mapping(require(evaluations, axis, f"{path}.evaluations"), f"{path}.evaluations.{axis}")
+        report_id = require(item, "id", path)
+        register(report_id, f"{path}.id")
+        recommendation = validate_recommendation(item, path)
+        if recommendation != "无需处理":
+            actionable_ids.add(report_id)
+        expect_string(require(item, "title", path), f"{path}.title")
+        expect_string(require(item, "body_markdown", path), f"{path}.body_markdown")
         validate_sources(item, path)
 
-    for key in KNOWLEDGE_KEYS:
-        items = expect_list(require(knowledge, key, "analysis.knowledge"), f"analysis.knowledge.{key}")
-        for index, value in enumerate(items):
-            item = expect_mapping(value, f"analysis.knowledge.{key}[{index}]")
-            register(require(item, "id", f"analysis.knowledge.{key}[{index}]"), f"analysis.knowledge.{key}[{index}].id")
-            expect_string(
-                require(item, "verdict", f"analysis.knowledge.{key}[{index}]"),
-                f"analysis.knowledge.{key}[{index}].verdict",
-            )
-            validate_sources(item, f"analysis.knowledge.{key}[{index}]")
+    for index, value in enumerate(knowledge):
+        path = f"analysis.knowledge[{index}]"
+        item = expect_mapping(value, path)
+        report_id = require(item, "id", path)
+        register(report_id, f"{path}.id")
+        target = expect_string(require(item, "target", path), f"{path}.target")
+        if target not in KNOWLEDGE_ACTIONS:
+            fail(f"{path}.target must be one of: {', '.join(KNOWLEDGE_KEYS)}")
+        action = expect_string(require(item, "action", path), f"{path}.action")
+        if action not in KNOWLEDGE_ACTIONS[target]:
+            fail(f"{path}.action must be one of for {target}: {', '.join(KNOWLEDGE_ACTIONS[target])}")
+        recommendation = validate_recommendation(item, path)
+        if (action == "none") != (recommendation == "无需处理"):
+            fail(f"{path}.action none must pair with recommendation 无需处理")
+        if action in TARGET_REF_ACTIONS:
+            expect_string(require(item, "target_ref", path), f"{path}.target_ref")
+        elif "target_ref" in item:
+            fail(f"{path}.target_ref must be omitted for action {action}")
+        if action != "none":
+            actionable_ids.add(report_id)
+        expect_string(require(item, "title", path), f"{path}.title")
+        expect_string(require(item, "body_markdown", path), f"{path}.body_markdown")
+        validate_sources(item, path)
 
     for index, value in enumerate(pending):
         path = f"analysis.pending[{index}]"
         item = expect_mapping(value, path)
-        register(require(item, "id", path), f"{path}.id")
+        decision_id = expect_string(require(item, "id", path), f"{path}.id")
+        register(decision_id, f"{path}.id")
+        for field in ("kind", "title", "body_markdown", "current_state"):
+            expect_string(require(item, field, path), f"{path}.{field}")
         validate_sources(item, path)
         positions = expect_list(require(item, "positions", path), f"{path}.positions")
         if len(positions) < 2:
@@ -115,17 +162,33 @@ def validate_analysis(value: Any) -> dict[str, Any]:
         for option_index, option_value in enumerate(positions):
             option_path = f"{path}.positions[{option_index}]"
             option = expect_mapping(option_value, option_path)
-            register(require(option, "id", option_path), f"{option_path}.id")
+            option_id = expect_string(require(option, "id", option_path), f"{option_path}.id")
+            if not re.fullmatch(rf"{re.escape(decision_id)}-[A-Z]+", option_id):
+                fail(f"{option_path}.id must use decision prefix {decision_id}- and an uppercase suffix")
+            register(option_id, f"{option_path}.id")
             for field in ("label", "stance", "reason"):
                 expect_string(require(option, field, option_path), f"{option_path}.{field}")
+
+    top_value = batch.get("top_recommendation")
+    if actionable_ids:
+        top = expect_mapping(top_value, "analysis.batch.top_recommendation")
+        top_id = expect_string(
+            require(top, "id", "analysis.batch.top_recommendation"), "analysis.batch.top_recommendation.id"
+        )
+        expect_string(
+            require(top, "reason", "analysis.batch.top_recommendation"),
+            "analysis.batch.top_recommendation.reason",
+        )
+        if top_id not in actionable_ids:
+            fail("analysis.batch.top_recommendation.id must reference an actionable follow-up or knowledge item")
+    elif top_value is not None:
+        fail("analysis.batch.top_recommendation must be omitted when there are no actionable items")
 
     return analysis
 
 
 def validate_source_references(analysis: dict[str, Any], available: set[str]) -> None:
-    items = list(analysis["followups"]) + list(analysis["pending"])
-    for key in KNOWLEDGE_KEYS:
-        items.extend(analysis["knowledge"][key])
+    items = list(analysis["followups"]) + list(analysis["knowledge"]) + list(analysis["pending"])
     event_ids = {source for source in available if source.startswith("EV-")}
     report_ids = [item["id"] for item in items]
     report_ids.extend(option["id"] for item in analysis["pending"] for option in item["positions"])
@@ -167,6 +230,8 @@ def load_ledger(path: Path) -> tuple[list[dict[str, Any]], str]:
             fail(f"ledger line {line_number} is invalid JSON: {exc}")
         event["_line"] = line_number
         event["_raw"] = raw_line
+        event["kind"] = event.get("kind") or "decision"
+        expect_string(event["kind"], f"ledger line {line_number}.kind")
         events.append(event)
     if events[-1].get("kind") != "closed":
         fail("the latest ledger event is not closed")
@@ -203,8 +268,9 @@ def build_report_data(repo_root: Path, batch_id: str, analysis_path: Path) -> di
         for path in handoff_paths
     )
     available_sources = {f"EV-{event['_line']:04d}" for event in events}
-    available_sources.update(source["name"] for source in snapshots)
-    available_sources.update(source["path"] for source in snapshots)
+    handoff_sources = [source for source in snapshots if source["kind"] == "handoff"]
+    available_sources.update(source["name"] for source in handoff_sources)
+    available_sources.update(source["path"] for source in handoff_sources)
     validate_source_references(analysis, available_sources)
 
     report = dict(analysis)
