@@ -491,7 +491,8 @@ async def _generate_reference_units(
     第二份校验口径。
 
     ``reuse_existing`` 决定磁盘上已存在的 ``{unit_id}.mp4`` 能否当作该 unit 的
-    现行产物复用。调用方必须用持久化资产归属判定，不能只凭同名文件存在猜测。
+    现行产物复用。调用方必须用持久化资产归属判定，不能只凭同名文件存在猜测；共享
+    骨架还会先应用重规划闸门，迁移保留的旧产物不能让 ``needs_replan`` 单元绕过修复。
 
     ``confirm_duration`` 为 false 时，若待入队 unit 中有申请时长与剧本编排不一致的
     （见 :func:`server.services.reference_video_tasks.resolve_duration_slot`），该调用
@@ -525,7 +526,7 @@ async def _generate_reference_units(
         if not unit_id:
             continue
         candidate = output_dir / f"{unit_id}.mp4"
-        if candidate.exists() and reuse_existing(unit):
+        if candidate.exists() and not video_unit_replan_problems(unit) and reuse_existing(unit):
             ordered_paths[idx] = candidate
             already_done.append(unit_id)
             if unit_id not in completed:

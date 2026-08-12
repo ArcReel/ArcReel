@@ -3413,6 +3413,42 @@ async def test_generate_video_episode_ad_reference_replan_shell_cannot_enqueue(
     assert not called
 
 
+@pytest.mark.unit
+async def test_generate_video_episode_ad_reference_replan_unit_cannot_reuse_owned_clip(
+    ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """迁移保留的已归属视频不能绕过 needs_replan 生成闸门。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    ad_reference_ctx.pm.script_payload["video_units"] = [  # type: ignore[attr-defined]
+        _ad_reference_unit(
+            needs_replan=True,
+            migration_requires_content_replan=True,
+            generated_assets={"video_clip": "reference_videos/E1U1.mp4"},
+        )
+    ]
+    owned = ad_reference_ctx.project_path / "reference_videos/E1U1.mp4"
+    owned.parent.mkdir(parents=True, exist_ok=True)
+    owned.write_bytes(b"legacy")
+    called = False
+
+    async def _fail_if_enqueued(*args: Any, **kwargs: Any):
+        nonlocal called
+        called = True
+        raise AssertionError("needs_replan unit must not enqueue")
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fail_if_enqueued)
+
+    out = await _call(
+        generate_video_episode_tool(ad_reference_ctx),
+        {"script": "episode_1.json", "confirm_duration": True},
+    )
+
+    assert out.get("is_error") is True
+    assert "E1U1" in out["content"][0]["text"]
+    assert not called
+
+
 @pytest.mark.integration
 async def test_generate_video_selected_ad_reference_regenerates_named_unit(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
