@@ -866,8 +866,8 @@ async def execute_tts_task(
                 raise RuntimeError("narration changed before TTS commit")
             assets = item.get("generated_assets")
             prior_narration_audio = (
-                copy.deepcopy(assets.get("narration_audio", missing_narration_audio))
-                if isinstance(assets, dict)
+                copy.deepcopy(assets["narration_audio"])
+                if isinstance(assets, dict) and "narration_audio" in assets
                 else missing_narration_audio
             )
             if not isinstance(assets, dict):

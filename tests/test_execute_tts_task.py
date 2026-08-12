@@ -548,6 +548,23 @@ class TestExecuteTtsTask:
         )
         assert comparison.status is ArtifactStatus.CURRENT
 
+    async def test_cancel_after_first_tts_commit_removes_the_new_script_binding(self, tts_env):
+        pm, gen = tts_env
+        pm.script["segments"][0]["generated_assets"] = {"status": "pending"}
+
+        result = await generation_tasks.execute_tts_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json"},
+            task_id="first-tts-task",
+        )
+
+        assert isinstance(result, CompensableGenerationResult)
+        result.compensate_cancelled()
+
+        assert not (pm.project_path / "audio" / "segment_E1S01.wav").exists()
+        assert "narration_audio" not in pm.script["segments"][0]["generated_assets"]
+
     async def test_narration_speed_passed_to_generator(self, tts_env, monkeypatch):
         pm, gen = tts_env
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _audio_ctx(gen, speed=1.5))
