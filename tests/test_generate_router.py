@@ -291,12 +291,14 @@ class TestGenerateRouter:
                     # 客户端快照可以落后于盘上剧本；use_tts 执行不会持久化这个覆盖值。
                     "duration_seconds": 8,
                     "prompt": {"action": "风吹草动", "camera_motion": "Static"},
+                    "seed": 739,
                     "narration_delivery": "use_tts",
                 },
             )
 
         assert response.status_code == 200, response.text
         assert captured["planned_duration_seconds"] == 4
+        assert captured["seed"] == 739
         assert "duration_seconds" not in fake_queue.calls[0]["payload"]
 
     @pytest.mark.integration

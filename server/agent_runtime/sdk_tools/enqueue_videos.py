@@ -338,6 +338,7 @@ async def _prepare_storyboard_delivery_for_item(
         script_file=script_filename,
         item=item,
         visual_prompt=visual_prompt,
+        seed=None,
         capability=video_bucket_for_generation_mode(project.get("generation_mode")),
         planned_duration_seconds=(
             planned if isinstance(planned, int) and not isinstance(planned, bool) and planned > 0 else None

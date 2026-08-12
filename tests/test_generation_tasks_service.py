@@ -193,6 +193,7 @@ def test_storyboard_visual_basis_tracks_effective_request_context(tmp_path: Path
         "provider_id": "ark",
         "model_id": "seedance",
         "resolution": "720p",
+        "seed": 7,
     }
 
     portrait = build_storyboard_video_visual_basis(**common, aspect_ratio="9:16")
@@ -212,10 +213,15 @@ def test_storyboard_visual_basis_tracks_effective_request_context(tmp_path: Path
         **{**common, "resolution": "1080p"},
         aspect_ratio="9:16",
     )
+    other_seed = build_storyboard_video_visual_basis(
+        **{**common, "seed": 8},
+        aspect_ratio="9:16",
+    )
 
     assert portrait.digest != other_provider.digest
     assert portrait.digest != other_model.digest
     assert portrait.digest != other_resolution.digest
+    assert portrait.digest != other_seed.digest
 
 
 class _FakePM:
@@ -864,6 +870,7 @@ class TestGenerationTasks:
             provider_id="ark",
             model_id="seedance",
             resolution="720p",
+            seed=None,
             content_mode="narration",
             utterances=None,
             voice_characters=None,

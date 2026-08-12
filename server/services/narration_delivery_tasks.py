@@ -333,6 +333,7 @@ async def prepare_current_storyboard_narrated_video_duration(
     script_file: str,
     item: dict[str, Any],
     visual_prompt: object,
+    seed: int | None,
     capability: VideoCapability,
     planned_duration_seconds: int | None,
     confirmed_request_duration_seconds: int | None,
@@ -376,6 +377,7 @@ async def prepare_current_storyboard_narrated_video_duration(
         provider_id=candidate.provider_id,
         model_id=candidate.model_id,
         resolution=request_resolution,
+        seed=seed,
         content_mode=resolve_content_mode(script, project),
         is_silent=not candidate.has_audio_track or not candidate.requested_generate_audio,
     )
@@ -514,6 +516,7 @@ def _storyboard_visual_basis_digest(
     provider_id: str,
     model_id: str,
     resolution: str | None,
+    seed: object,
     content_mode: str,
     is_silent: bool,
 ) -> str | None:
@@ -531,6 +534,7 @@ def _storyboard_visual_basis_digest(
             provider_id=provider_id,
             model_id=model_id,
             resolution=resolution,
+            seed=seed,
             content_mode=content_mode,
             utterances=item.get("utterances") if content_mode == "drama" else None,
             voice_characters=(None if is_silent else project.get("characters")) if content_mode == "drama" else None,

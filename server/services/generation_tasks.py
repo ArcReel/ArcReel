@@ -1205,6 +1205,7 @@ async def execute_video_task(
         item=item,
     )
     aspect_ratio = get_aspect_ratio(project, "videos")
+    seed = payload.get("seed")
     visual_basis_digest = (
         await asyncio.to_thread(
             build_storyboard_video_visual_basis,
@@ -1215,6 +1216,7 @@ async def execute_video_task(
             provider_id=registry_provider_id,
             model_id=model_name,
             resolution=resolution,
+            seed=seed,
             content_mode=content_mode,
             utterances=item.get("utterances") if content_mode == "drama" else None,
             voice_characters=(None if ctx.video.is_silent else project.get("characters"))
@@ -1245,7 +1247,6 @@ async def execute_video_task(
             prompt = build_drama_video_prompt_from_legacy_dialogue(prompt, characters=voice_characters)
 
     prompt_text = _normalize_video_prompt(prompt)
-    seed = payload.get("seed")
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
     # provider / model / 能力 / 分辨率均取自单次解析的 video lane：能力按 backend 实际身份
