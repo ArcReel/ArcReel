@@ -16,7 +16,7 @@ TEMPLATE_PATH = SKILL_ROOT / "assets" / "report.html"
 BATCH_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 REPORT_ID_RE = re.compile(r"^\S+$")
 KNOWLEDGE_KEYS = ("CONTEXT", "ADR", "INST")
-RESERVED_REPORT_IDS = {f"{key}-EMPTY" for key in KNOWLEDGE_KEYS}
+RESERVED_REPORT_IDS = {"BATCH-OVERVIEW", *(f"{key}-EMPTY" for key in KNOWLEDGE_KEYS)}
 RECOMMENDATIONS = ("强烈建议", "值得探索", "推测性", "无需处理")
 KNOWLEDGE_ACTIONS = {
     "CONTEXT": ("create", "revise", "retire", "none"),

@@ -201,6 +201,13 @@ class RenderReportTest(unittest.TestCase):
             MODULE.build_report_data(self.root, "batch-one", self.analysis)
 
         data = analysis_fixture()
+        data["followups"][0]["id"] = "BATCH-OVERVIEW"
+        data["batch"]["top_recommendation"]["id"] = "BATCH-OVERVIEW"
+        self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ReportError, "reserved by the renderer"):
+            MODULE.build_report_data(self.root, "batch-one", self.analysis)
+
+        data = analysis_fixture()
         decision["positions"][0]["reason"] = "有收益"
         decision["positions"][0]["id"] = "EV-0001"
         data["pending"] = [decision]
