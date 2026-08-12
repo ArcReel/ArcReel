@@ -11,6 +11,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
+from lib.db.migration_helpers import preserve_sqlite_indexes
 
 # revision identifiers, used by Alembic.
 revision: str = "c4a91f7d2b18"
@@ -27,5 +28,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-    with op.batch_alter_table("tasks", schema=None) as batch_op:
-        batch_op.drop_column("provider_endpoint")
+    with preserve_sqlite_indexes("tasks"):
+        with op.batch_alter_table("tasks", schema=None) as batch_op:
+            batch_op.drop_column("provider_endpoint")

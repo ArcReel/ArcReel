@@ -11,6 +11,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
+from lib.db.migration_helpers import preserve_sqlite_indexes
 
 # revision identifiers, used by Alembic.
 revision: str = "ea2e1a477bbf"
@@ -100,7 +101,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
+    """Downgrade schema.
+
+    tasks 上自己建的索引在重建表之外先删——``preserve_sqlite_indexes`` 分不清有意删除与静默
+    丢失，放在它里面会被当作丢失回放，而 user_id 此时已不在表上，回放必然报错。
+    """
     with op.batch_alter_table("agent_sessions", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_agent_sessions_user_id"))
         batch_op.drop_column("user_id")
@@ -116,8 +121,9 @@ def downgrade() -> None:
         batch_op.drop_column("user_id")
         batch_op.drop_column("updated_at")
 
-    with op.batch_alter_table("tasks", schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f("ix_tasks_user_id"))
-        batch_op.drop_column("user_id")
+    op.drop_index(op.f("ix_tasks_user_id"), table_name="tasks")
+    with preserve_sqlite_indexes("tasks"):
+        with op.batch_alter_table("tasks", schema=None) as batch_op:
+            batch_op.drop_column("user_id")
 
     op.drop_table("users")
