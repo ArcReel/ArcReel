@@ -205,6 +205,7 @@ function MessageEditor({
   }, []);
 
   const hasContent = Boolean(draft.trim()) || images.length > 0;
+  const attachDisabled = submitting || isReadingImages || images.length >= MAX_ATTACHED_IMAGES;
 
   const submit = useCallback(() => {
     if (submitting || !canSubmit || !hasContent || isReadingImages) return;
@@ -220,6 +221,14 @@ function MessageEditor({
     onSubmit,
     invalidatePendingReaders,
   ]);
+
+  const handlePaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (attachDisabled) return;
+    const imageItems = Array.from(event.clipboardData.items).filter((item) => item.type.startsWith("image/"));
+    if (imageItems.length === 0) return;
+    event.preventDefault();
+    addFiles(imageItems.map((item) => item.getAsFile()).filter(Boolean) as File[]);
+  }, [addFiles, attachDisabled]);
 
   return (
     <div className={`${USER_BUBBLE_LAYOUT_CLASS} ${BUBBLE_SHELL_CLASS}`} style={USER_BUBBLE_STYLE}>
@@ -260,7 +269,7 @@ function MessageEditor({
       <div className="mb-2 flex items-center gap-2">
         <button
           type="button"
-          disabled={submitting || isReadingImages || images.length >= MAX_ATTACHED_IMAGES}
+          disabled={attachDisabled}
           onClick={() => fileInputRef.current?.click()}
           className="focus-ring flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           style={{ color: "var(--color-text-3)", border: "1px solid var(--color-hairline-soft)" }}
@@ -297,6 +306,7 @@ function MessageEditor({
           e.currentTarget.style.height = "auto";
           e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
         }}
+        onPaste={handlePaste}
         onCompositionStart={() => {
           isComposingRef.current = true;
         }}

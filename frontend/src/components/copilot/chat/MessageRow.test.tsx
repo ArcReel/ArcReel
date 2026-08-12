@@ -36,6 +36,15 @@ const imageOnlyTurn: Turn = {
   content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } }],
 };
 
+const fullImageTurn: Turn = {
+  ...userTurn,
+  uuid: "u-4",
+  content: Array.from({ length: 5 }, (_, index) => ({
+    type: "image" as const,
+    source: { type: "base64" as const, media_type: "image/png", data: `IMAGE-${index}` },
+  })),
+};
+
 describe("MessageRow", () => {
   it("renders the edit entry on an editable user message", () => {
     render(<MessageRow turn={userTurn} editable />);
@@ -128,6 +137,98 @@ describe("MessageRow", () => {
       { data: "AAAA", media_type: "image/png" },
       { data: "bmV3LWltYWdl", media_type: "image/png" },
     ]);
+  });
+
+  it("adds a pasted image and includes it in the rewrite payload", async () => {
+    const onSubmitEdit = vi.fn();
+    render(<MessageRow turn={userTurn} editable editing onSubmitEdit={onSubmitEdit} />);
+
+    const pasted = new File(["pasted-image"], "paste.png", { type: "image/png" });
+    const defaultWasPrevented = fireEvent.paste(screen.getByLabelText("改写消息内容"), {
+      clipboardData: {
+        items: [{ type: "image/png", getAsFile: () => pasted }],
+      },
+    });
+
+    expect(defaultWasPrevented).toBe(false);
+
+    await waitFor(() => {
+      expect(screen.getByRole("img", { name: "编辑中的附件 1/1" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "重新发送" }));
+
+    expect(onSubmitEdit).toHaveBeenCalledWith("u-1", "只改第 3 集", [
+      { data: "cGFzdGVkLWltYWdl", media_type: "image/png" },
+    ]);
+  });
+
+  it("keeps the browser's default paste behavior for text-only clipboard data", () => {
+    render(<MessageRow turn={userTurn} editable editing />);
+
+    const defaultWasAllowed = fireEvent.paste(screen.getByLabelText("改写消息内容"), {
+      clipboardData: {
+        items: [{ type: "text/plain", getAsFile: () => null }],
+      },
+    });
+
+    expect(defaultWasAllowed).toBe(true);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("does not intercept image paste while a rewrite is submitting", () => {
+    render(<MessageRow turn={userTurn} editable editing submitting />);
+
+    const defaultWasAllowed = fireEvent.paste(screen.getByLabelText("改写消息内容"), {
+      clipboardData: {
+        items: [{ type: "image/png", getAsFile: () => new File(["image"], "paste.png", { type: "image/png" }) }],
+      },
+    });
+
+    expect(defaultWasAllowed).toBe(true);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("does not intercept image paste while another image is being read", () => {
+    const originalFileReader = globalThis.FileReader;
+    class DeferredReader {
+      onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onabort: (() => void) | null = null;
+
+      readAsDataURL() {}
+    }
+    vi.stubGlobal("FileReader", DeferredReader);
+
+    try {
+      render(<MessageRow turn={userTurn} editable editing />);
+      fireEvent.change(screen.getByLabelText("上传附件图片"), {
+        target: { files: [new File(["reading"], "reading.png", { type: "image/png" })] },
+      });
+
+      const defaultWasAllowed = fireEvent.paste(screen.getByLabelText("改写消息内容"), {
+        clipboardData: {
+          items: [{ type: "image/png", getAsFile: () => new File(["image"], "paste.png", { type: "image/png" }) }],
+        },
+      });
+
+      expect(defaultWasAllowed).toBe(true);
+      expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    } finally {
+      vi.stubGlobal("FileReader", originalFileReader);
+    }
+  });
+
+  it("does not intercept image paste once five attachments are present", () => {
+    render(<MessageRow turn={fullImageTurn} editable editing />);
+
+    const defaultWasAllowed = fireEvent.paste(screen.getByLabelText("改写消息内容"), {
+      clipboardData: {
+        items: [{ type: "image/png", getAsFile: () => new File(["image"], "paste.png", { type: "image/png" }) }],
+      },
+    });
+
+    expect(defaultWasAllowed).toBe(true);
+    expect(screen.getAllByRole("img")).toHaveLength(5);
   });
 
   it("keeps resend disabled until a newly selected image finishes loading", () => {
