@@ -208,15 +208,26 @@ describe("API", () => {
         allowed: false as const,
         kind: "reference_request_projection" as const,
         unit_id: "E1U1",
-        problems: [{
-          code: "reference_asset_missing",
-          blocking: true,
-          unit_id: "E1U1",
-          locations: [{ path: ["references"], line: null }],
-          params: { missing: [["character", "张三"]] },
-          action: "repair_reference_assets",
-          message: "参考资产缺失",
-        }],
+        problems: [
+          {
+            code: "reference_images_clamped",
+            blocking: false,
+            unit_id: "E1U1",
+            locations: [{ path: ["references"], line: null }],
+            params: { count: 4, max_count: 3 },
+            action: "review_reference_selection",
+            message: "参考图片将被裁剪",
+          },
+          {
+            code: "reference_asset_missing",
+            blocking: true,
+            unit_id: "E1U1",
+            locations: [{ path: ["references"], line: null }],
+            params: { missing: [["character", "张三"]] },
+            action: "repair_reference_assets",
+            message: "参考资产缺失",
+          },
+        ],
       };
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
         mockResponse({ ok: false, status: 400, jsonData: { detail: projection } }),

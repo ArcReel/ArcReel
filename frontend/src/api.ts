@@ -215,8 +215,8 @@ export class ReferenceProjectionError extends Error {
   readonly code = "reference_request_projection_blocked" as const;
 
   constructor(public readonly projection: ReferenceProjectionAdmission) {
-    const first = projection.problems[0];
-    super(first?.message || first?.code || "reference_request_projection_blocked");
+    const firstBlocking = projection.problems.find(({ blocking }) => blocking);
+    super(firstBlocking?.message || firstBlocking?.code || "reference_request_projection_blocked");
     this.name = "ReferenceProjectionError";
   }
 }
