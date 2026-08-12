@@ -32,6 +32,7 @@ from lib.generation_queue import (
     TASK_POLL_INTERVAL_SEC,
     TASK_WORKER_HEARTBEAT_SEC,
     TASK_WORKER_LEASE_TTL_SEC,
+    DispatchProviderChanged,
     GenerationQueue,
     get_generation_queue,
     resolve_video_execution_for_queued_task,
@@ -646,12 +647,16 @@ class GenerationWorker:
 
                 # Dispatch：登记占用（INFLIGHT），bucket 由 register 自动创建
                 claimed_any = True
+                if task.get("task_type") == "reference_video":
+                    process_task = self._process_task(task, claimed_provider_id=provider_id)
+                else:
+                    process_task = self._process_task(task)
                 self._slots.register(
                     provider_id,
                     media_type,
                     task["task_id"],
                     asyncio.create_task(
-                        self._process_task(task),
+                        process_task,
                         name=f"generation-{media_type}-{task['task_id']}",
                     ),
                 )
@@ -728,7 +733,7 @@ class GenerationWorker:
         await asyncio.gather(*active_tasks, return_exceptions=True)
         self._slots.clear()
 
-    async def _process_task(self, task: dict[str, Any]) -> None:
+    async def _process_task(self, task: dict[str, Any], *, claimed_provider_id: str | None = None) -> None:
         """Run a generation task with 0-rows-cancelled finally protocol (ADR 0006).
 
         所有 DB 写入（mark_succeeded / mark_failed / mark_cancelled）都用 ``asyncio.shield``
@@ -737,17 +742,41 @@ class GenerationWorker:
         """
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
-        provider_id = await _extract_provider(task)
+        provider_id = claimed_provider_id or await _extract_provider(task)
         logger.info("开始处理任务 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
 
         from server.services.generation_tasks import execute_generation_task
 
         try:
-            result = await execute_generation_task(task)
+            if task_type == "reference_video":
+                result = await execute_generation_task(task, claimed_provider_id=provider_id)
+            else:
+                result = await execute_generation_task(task)
         except asyncio.CancelledError:
             # 用户/级联取消：worker.request_cancel 触发 asyncio.Task.cancel()
             await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
             raise
+        except DispatchProviderChanged as exc:
+            # reference_video 在执行入口重新读取当前状态；若 provider 已从认领时的槽漂移，
+            # 不得占着旧槽提交到新 provider。刷新 advisory 列并回队，让下一 cycle 在新槽
+            # 完成容量校验后再执行。此处尚未调用 provider，不会造成重复扣费。
+            try:
+                await asyncio.shield(self.queue.persist_execution_provider_id(task_id, exc.actual_provider_id))
+            except Exception:
+                logger.warning(
+                    "执行 provider 漂移后的投影刷新失败 task_id=%s provider=%s",
+                    task_id,
+                    exc.actual_provider_id,
+                    exc_info=True,
+                )
+            await asyncio.shield(self._requeue_single_task(task_id))
+            logger.info(
+                "任务 %s 执行 provider 从 %s 变为 %s，已回队等待新槽",
+                task_id,
+                exc.claimed_provider_id,
+                exc.actual_provider_id,
+            )
+            return
         except Exception as exc:
             logger.exception("任务失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
             rows = await asyncio.shield(self.queue.mark_task_failed(task_id, _encode_task_failure_message(exc)))

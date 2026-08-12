@@ -730,6 +730,38 @@ class TestGenerationWorker:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
+    async def test_process_reference_task_requeues_when_execution_provider_changes(self, monkeypatch):
+        """执行入口解析到别的 provider 时不占旧槽提交，而是刷新投影并回队重认领。"""
+
+        from lib.generation_queue import DispatchProviderChanged
+
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+
+        async def _changed(_task, *, claimed_provider_id):
+            assert claimed_provider_id == "ark"
+            raise DispatchProviderChanged(claimed_provider_id="ark", actual_provider_id="minimax")
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _changed)
+        requeued: list[str] = []
+
+        async def _capture_requeue(self, task_id):
+            requeued.append(task_id)
+
+        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
+
+        await worker._process_task(
+            {"task_id": "ref-provider-changed", "task_type": "reference_video"},
+            claimed_provider_id="ark",
+        )
+
+        assert queue.persisted_providers == [("ref-provider-changed", "minimax")]
+        assert requeued == ["ref-provider-changed"]
+        assert queue.succeeded == []
+        assert queue.failed == []
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
     async def test_process_task_script_edit_error_encodes_key_and_params(self, monkeypatch):
         """apply_unit_video_assets 经异步任务队列（非 upload_unit_video 同步路由）抛出时，
         error_message 落成可翻译的 [key] {params} 结构而非 str(exc) 的固定中文，任务状态

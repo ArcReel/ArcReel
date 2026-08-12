@@ -29,6 +29,15 @@ _REFERENCE_VIDEO_EXECUTION_IDENTITY_KEYS = frozenset({"video_provider_i2v", "vid
 _REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS = frozenset({"script_file", "reference_request_options"})
 
 
+class DispatchProviderChanged(RuntimeError):
+    """执行投影与 worker 已占用的 provider 槽不一致，需要回队重认领。"""
+
+    def __init__(self, *, claimed_provider_id: str, actual_provider_id: str) -> None:
+        self.claimed_provider_id = claimed_provider_id
+        self.actual_provider_id = actual_provider_id
+        super().__init__(f"dispatch provider changed: {claimed_provider_id} -> {actual_provider_id}")
+
+
 def reference_video_enqueue_payload(
     payload: dict[str, Any] | None,
     *,

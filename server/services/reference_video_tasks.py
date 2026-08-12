@@ -21,7 +21,11 @@ from lib.config.resolver import (
 )
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
-from lib.generation_queue import get_generation_queue, without_reference_video_execution_identity
+from lib.generation_queue import (
+    DispatchProviderChanged,
+    get_generation_queue,
+    without_reference_video_execution_identity,
+)
 from lib.prompt_builders import append_product_fidelity_tail
 from lib.reference_video import assemble_shots_text, assemble_shots_text_for_render
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
@@ -443,6 +447,7 @@ async def execute_reference_video_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     """处理一个 reference_video unit 的生成。
 
@@ -492,6 +497,12 @@ async def execute_reference_video_task(
     )
     generator = ctx.generator
     video = ctx.video
+    actual_provider_id = video.provider_model.provider_id
+    if claimed_provider_id is not None and actual_provider_id != claimed_provider_id:
+        raise DispatchProviderChanged(
+            claimed_provider_id=claimed_provider_id,
+            actual_provider_id=actual_provider_id,
+        )
     provider_name = video.backend_name
     model_name = video.backend_model
 

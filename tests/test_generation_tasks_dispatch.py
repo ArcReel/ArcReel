@@ -40,6 +40,50 @@ async def test_execute_generation_task_rejects_unknown_type():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_execute_generation_task_passes_claimed_provider_to_reference_proxy(monkeypatch):
+    from server.services import generation_tasks
+
+    captured: dict[str, object] = {}
+
+    async def _fake_reference_proxy(
+        project_name,
+        resource_id,
+        payload,
+        *,
+        user_id,
+        task_id=None,
+        claimed_provider_id=None,
+    ):
+        captured.update(
+            project_name=project_name,
+            resource_id=resource_id,
+            payload=payload,
+            user_id=user_id,
+            task_id=task_id,
+            claimed_provider_id=claimed_provider_id,
+        )
+        return {"ok": True}
+
+    monkeypatch.setattr(generation_tasks, "_execute_reference_video_task_proxy", _fake_reference_proxy)
+
+    result = await generation_tasks.execute_generation_task(
+        {
+            "task_id": "ref-1",
+            "task_type": "reference_video",
+            "project_name": "demo",
+            "resource_id": "E1U1",
+            "payload": {"script_file": "episode_1.json"},
+            "user_id": "u1",
+        },
+        claimed_provider_id="ark",
+    )
+
+    assert result == {"ok": True}
+    assert captured["claimed_provider_id"] == "ark"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "error",
     [
