@@ -64,6 +64,9 @@ pytestmark = pytest.mark.unit
         # 万相 3.0（不落入通用 Wan 的 [4, 5] 预设）
         ("wan3.0-video", list(range(2, 31))),
         ("Wan3.0-Video", list(range(2, 31))),
+        # 连字符形态（第三方聚合命名）与点号形态匹配宽度一致，均识别为万相 3.0
+        ("wan-3-turbo", list(range(2, 31))),
+        ("wan3-turbo", list(range(2, 31))),
         # Pika
         ("pika-2.0", [3, 5, 10]),
         # 未知模型 → fallback

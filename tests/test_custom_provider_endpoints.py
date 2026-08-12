@@ -285,8 +285,11 @@ class TestInferEndpoint:
             ("wan3.0-video", "openai", "dashscope-async-video"),
             ("Wan3.0-Video", "openai", "dashscope-async-video"),  # 大小写不敏感
             ("proxy/wan3.0-video", "openai", "dashscope-async-video"),
+            ("wan-3-turbo", "openai", "dashscope-async-video"),  # 连字符形态与点号形态匹配宽度一致
+            ("wan3-turbo", "openai", "dashscope-async-video"),
             ("wan2.7-image", "openai", "openai-images"),  # image 变体不受影响
             ("wan3.0-video-image", "openai", "openai-images"),  # 含 image 语义不受影响
+            ("wan-3-turbo-image", "openai", "openai-images"),  # 连字符形态的 image 变体同样不受影响
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),

@@ -13,6 +13,10 @@ import re
 
 DEFAULT_FALLBACK: list[int] = [4, 8]
 
+# 万相 3.0 家族 model_id 识别（连字符可选、不锚版本号），供 endpoints.py 路由推断复用，
+# 避免两处各写一份正则、匹配宽度悄悄漂移。
+WAN3_PATTERN = re.compile(r"wan-?3", re.I)
+
 # 按特异性从高到低排列；命中一条即返回。range 全展开为离散集。
 PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
     # OpenAI Sora 第一方（严格 regex：可选 -pro，可选 -YYYY-MM-DD 日期后缀）
@@ -46,7 +50,7 @@ PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
     (re.compile(r"hailuo", re.I), [6]),
     # 万相 3.0（2-30 任意；须先于通用 Wan 判断，否则会落入 [4, 5]）。
     # 出处：lib/config/registry.py wan3.0-video 的 supported_durations。
-    (re.compile(r"wan-?3", re.I), list(range(2, 31))),
+    (WAN3_PATTERN, list(range(2, 31))),
     # Wan（其余系列）
     (re.compile(r"wan-?\d", re.I), [4, 5]),
     # Pika
