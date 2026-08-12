@@ -41,17 +41,28 @@
       .tone-muted { color: var(--muted); }
       .source { background: #f3f3f6; border-left: 2px solid #a9a9b5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
       .timeline { background: #1e1e24; color: #c6c6d0; }
-      .timeline-line { background: #52525e; height: 1px; left: 0; position: absolute; right: 0; top: 42px; }
-      .mark { background: var(--rail); border: 1px solid #656576; color: #d2d2da; cursor: pointer; display: grid; font-size: 9px; height: 18px; line-height: 1; place-items: center; position: absolute; transform: translateX(-50%); width: 18px; }
-      .mark:hover, .mark[aria-current="true"] { background: var(--accent); border-color: #fff; color: var(--rail); z-index: 2; }
-      .mark.fault { border-color: #d07636; color: #e9a371; }
-      .evaluator + .evaluator { border-left: 1px solid #e2e2e8; }
-      .markdown-body { color: #33333c; font-size: 12px; line-height: 1.75; }
-      .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { color: #1b1b1f; font-weight: 700; line-height: 1.35; margin: 1.1em 0 .45em; }
-      .markdown-body h1 { font-size: 18px; }
-      .markdown-body h2 { font-size: 16px; }
-      .markdown-body h3 { font-size: 14px; }
-      .markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body pre, .markdown-body table { margin: .65em 0; }
+      .time-axis { height: 27px; position: relative; }
+      .time-axis-line { background: #494954; height: 1px; left: 0; position: absolute; right: 0; top: 6px; }
+      .time-axis-tick { border-left: 1px solid #666672; height: 6px; position: absolute; top: 3px; }
+      .time-axis-label { color: #858592; font-size: 9px; left: 0; position: absolute; top: 9px; transform: translateX(-50%); white-space: nowrap; }
+      .time-axis-label.start { transform: none; }
+      .time-axis-label.end { transform: translateX(-100%); }
+      .event-line { background: #494954; height: 1px; left: 0; position: absolute; right: 0; top: 50%; }
+      .event-cluster { align-items: center; border: 2px solid #1e1e24; border-radius: 999px; color: white; cursor: pointer; display: flex; height: 17px; justify-content: center; position: absolute; top: 50%; transform: translate(-50%, -50%); width: 17px; }
+      .event-cluster:hover, .event-cluster:focus-visible { outline: 2px solid white; outline-offset: 1px; z-index: 2; }
+      .event-cluster.multi { height: 21px; width: 21px; }
+      .event-count { align-items: center; background: #1e1e24; border-radius: 999px; display: flex; font-size: 8px; height: 13px; justify-content: center; min-width: 13px; padding: 0 2px; }
+      .kind-filter[aria-pressed="false"] { opacity: .38; text-decoration: line-through; }
+      .evidence-tab[aria-selected="true"] { border-bottom-color: var(--ink); color: var(--ink); }
+      .evidence-pane[hidden] { display: none; }
+      .ledger-row { border-left: 3px solid transparent; }
+      .ledger-row.is-target { background: #fff4cc; border-left-color: #b7791f; }
+      .markdown-body { color: #33333c; font-size: 13px; line-height: 1.75; }
+      .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { color: #1b1b1f; font-weight: 700; line-height: 1.35; margin: 1.15em 0 .45em; }
+      .markdown-body h1 { font-size: 20px; }
+      .markdown-body h2 { font-size: 17px; }
+      .markdown-body h3 { font-size: 15px; }
+      .markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body pre, .markdown-body table { margin: .7em 0; }
       .markdown-body ul, .markdown-body ol { padding-left: 1.5em; }
       .markdown-body ul { list-style: disc; }
       .markdown-body ol { list-style: decimal; }
@@ -62,183 +73,333 @@
       .markdown-body table { border-collapse: collapse; width: 100%; }
       .markdown-body th, .markdown-body td { border: 1px solid #d5d5dc; padding: 5px 7px; text-align: left; }
       .markdown-body a { color: #35358a; text-decoration: underline; }
-      @media (max-width: 1023px) {
-        .evaluator + .evaluator { border-left: 0; border-top: 1px solid #e2e2e8; }
-      }
+      .markdown-body .mermaid { background: #fafafa; border: 1px solid #d5d5dc; margin: 1em 0; overflow: auto; padding: 16px; text-align: center; }
     </style>
   </head>
   <body>
     <div id="app"></div>
     <script id="report-data" type="application/json">__AFK_REPORT_DATA__</script>
-    <script>
-      (() => {
-        "use strict";
-        const D = JSON.parse(document.getElementById("report-data").textContent);
-        const app = document.getElementById("app");
-        const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
-        const ROUTES = {
-          P0: "tone-critical", P1: "tone-warning", P2: "tone-action", "无需处理": "tone-muted",
-          "应更新": "tone-critical", "应记录": "tone-critical", "无需更新": "tone-muted", "无需记录": "tone-muted",
-          "待裁决": "tone-warning", "无候选": "tone-muted"
-        };
-        const AXES = {
-          architecture: ["架构", "ETC · DRY · module depth"],
-          product_user: ["产品与用户", "真实路径 · 收益 · 成本"],
-          knowledge: ["知识维护", "CONTEXT · ADR · agent instructions"]
-        };
-        const KNOWLEDGE = {
-          CONTEXT: ["CONTEXT.md", "领域术语的当前形状"],
-          ADR: ["ADR", "值得长期保留的架构取舍"],
-          INST: ["Agent instructions", "可检查的返工预防规则"]
-        };
-        const GROUP_LABELS = { pending: "需要你决定", followup: "工程建议", CONTEXT: "CONTEXT.md", ADR: "ADR", INST: "Agent instructions" };
-        const GLYPHS = { decision: "◆", authorization: "◇", fault: "▲", gap: "◇", shelve: "■", merge: "●", retrospective: "◌", closed: "▣" };
-        const PRIORITY = { P0: 0, P1: 1, P2: 2, "无需处理": 3 };
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
 
-        const items = [];
-        D.pending.forEach((item) => items.push({ id: item.id, group: "pending", route: "待裁决", kind: "pending", raw: item }));
-        [...D.followups].sort((a, b) => (PRIORITY[a.priority] ?? 9) - (PRIORITY[b.priority] ?? 9)).forEach((item) => items.push({ id: item.id, group: "followup", route: item.priority, kind: "followup", raw: item }));
-        Object.keys(KNOWLEDGE).forEach((key) => {
-          const values = D.knowledge[key] || [];
-          values.forEach((item) => items.push({ id: item.id, group: key, route: item.verdict, kind: "knowledge", raw: item }));
-          if (!values.length) items.push({ id: `${key}-EMPTY`, group: key, route: "无候选", kind: "empty", raw: { title: "未发现候选" } });
+      const D = JSON.parse(document.getElementById("report-data").textContent);
+      const app = document.getElementById("app");
+      const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+      const ROUTES = {
+        "强烈建议": "tone-critical", "值得探索": "tone-warning", "推测性": "tone-action", "无需处理": "tone-muted",
+        "待裁决": "tone-warning", "无候选": "tone-muted"
+      };
+      const KNOWLEDGE = {
+        CONTEXT: ["CONTEXT.md", "领域术语的当前形状"],
+        ADR: ["ADR", "值得长期保留的架构取舍"],
+        INST: ["Agent instructions", "可检查的返工预防规则"]
+      };
+      const GROUP_LABELS = { pending: "需要你决定", followup: "工程建议", CONTEXT: "CONTEXT.md", ADR: "ADR", INST: "Agent instructions" };
+      const ACTION_LABELS = {
+        CONTEXT: { create: "新增词条", revise: "更新词条", retire: "移除词条", none: "无需处理" },
+        ADR: { create: "记录决策", revise: "更新 ADR", retire: "废弃 ADR", supersede: "取代 ADR", none: "无需处理" },
+        INST: { create: "补充规则", revise: "更新规则", retire: "移除规则", none: "无需处理" }
+      };
+      const RECOMMENDATION = { "强烈建议": 0, "值得探索": 1, "推测性": 2, "无需处理": 3 };
+      const EVENT_GROUPS = [
+        { id: "control", label: "控制", kinds: ["decision", "authorization"] },
+        { id: "exception", label: "异常", kinds: ["fault", "gap"] },
+        { id: "result", label: "结果", kinds: ["shelve", "merge", "closed"] },
+        { id: "retrospective", label: "复盘", kinds: ["retrospective"] },
+        { id: "other", label: "其他", kinds: [] }
+      ];
+      const EVENT_KIND_LABELS = {
+        decision: "决策",
+        authorization: "授权",
+        fault: "故障",
+        gap: "缺口",
+        shelve: "搁置",
+        merge: "合并",
+        retrospective: "复盘",
+        closed: "收口"
+      };
+
+      mermaid.initialize({ startOnLoad: false, theme: "neutral", securityLevel: "strict" });
+      const markdownRenderer = new marked.Renderer();
+      markdownRenderer.html = (token) => esc(token.text ?? token.raw ?? "");
+      marked.use({ renderer: markdownRenderer });
+
+      const renderMarkdown = (content) => DOMPurify.sanitize(marked.parse(content));
+      const hydrateMermaid = (scope) => {
+        const nodes = [...scope.querySelectorAll("pre code.language-mermaid")].map((code) => {
+          const node = document.createElement("div");
+          node.className = "mermaid";
+          node.textContent = code.textContent;
+          code.parentElement.replaceWith(node);
+          return node;
         });
-        const journeyItems = D.operational.journey.map((event) => ({ id: event.id, group: "journey", route: "执行历程", kind: "journey", raw: event }));
-        const all = items.concat(journeyItems);
-        const state = { selected: items[0]?.id || journeyItems[0]?.id };
-        const itemById = (id) => all.find((item) => item.id === id);
-        const muted = (route) => route.startsWith("无需") || route === "无候选";
+        if (nodes.length) mermaid.run({ nodes });
+      };
+      const formatDate = (value) => {
+        const date = new Date(value);
+        return Number.isNaN(date.valueOf()) ? value : date.toLocaleString();
+      };
+      const shortTime = (value) => {
+        const date = new Date(value);
+        return Number.isNaN(date.valueOf()) ? value : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      };
+      const hashHue = (value) => {
+        let hash = 0;
+        for (const char of value) hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+        return Math.abs(hash) % 360;
+      };
+      const kindColor = (kind) => `hsl(${hashHue(kind)} 64% 56%)`;
+      const kindLabel = (kind) => EVENT_KIND_LABELS[kind] || kind;
+      const eventGroup = (kind) => EVENT_GROUPS.find((group) => group.kinds.includes(kind)) || EVENT_GROUPS.at(-1);
 
-        const validTimes = D.operational.journey.map((event) => Date.parse(event.ts)).filter(Number.isFinite);
-        const t0 = validTimes.length ? Math.min(...validTimes) : 0;
-        const t1 = validTimes.length ? Math.max(...validTimes) : 1;
-        const eventPct = (event) => {
-          const value = Date.parse(event.ts);
-          return Number.isFinite(value) && validTimes.length > 1 ? Math.max(1, Math.min(99, ((value - t0) / Math.max(1, t1 - t0)) * 100)) : 50;
+      const items = [];
+      D.pending.forEach((item) => items.push({ id: item.id, group: "pending", route: "待裁决", kind: "pending", raw: item }));
+      [...D.followups].sort((a, b) => (RECOMMENDATION[a.recommendation] ?? 9) - (RECOMMENDATION[b.recommendation] ?? 9)).forEach((item) => items.push({ id: item.id, group: "followup", route: item.recommendation, kind: "followup", raw: item }));
+      D.knowledge_reviewed.forEach((key) => {
+        const values = D.knowledge.filter((item) => item.target === key).sort((a, b) => (RECOMMENDATION[a.recommendation] ?? 9) - (RECOMMENDATION[b.recommendation] ?? 9));
+        values.forEach((item) => items.push({ id: item.id, group: key, route: item.recommendation, kind: "knowledge", raw: item }));
+        if (!values.length) items.push({ id: `${key}-EMPTY`, group: key, route: "无候选", kind: "empty", raw: { title: "未发现候选" } });
+      });
+      const journeyItems = D.operational.journey.map((event) => ({ id: event.id, kind: "journey", route: "执行历程", raw: event }));
+      const handoffSources = D.operational.snapshots.map((source, index) => ({ source, index })).filter(({ source }) => source.kind === "handoff");
+      const all = items.concat(journeyItems);
+      const actualKinds = [...new Set(D.operational.journey.map((event) => event.kind))];
+      const state = {
+        selected: items.find((item) => item.kind !== "empty")?.id || "BATCH-OVERVIEW",
+        timelineExpanded: true,
+        enabledKinds: new Set(actualKinds),
+        evidenceTab: "handoff",
+        handoffIndex: handoffSources[0]?.index ?? null
+      };
+      const itemById = (id) => all.find((item) => item.id === id);
+      const muted = (route) => route.startsWith("无需") || route === "无候选";
+
+      const issueCounts = D.issues.reduce((counts, issue) => {
+        counts[issue.state] = (counts[issue.state] || 0) + 1;
+        return counts;
+      }, {});
+      const anomalyCount = D.operational.journey.filter((event) => ["fault", "gap"].includes(event.kind)).length;
+      const validTimes = D.operational.journey.map((event) => Date.parse(event.ts)).filter(Number.isFinite);
+      const t0 = validTimes.length ? Math.min(...validTimes) : 0;
+      const t1 = validTimes.length ? Math.max(...validTimes) : 1;
+      const eventPct = (event) => {
+        const value = Date.parse(event.ts);
+        return Number.isFinite(value) && validTimes.length > 1 ? Math.max(0, Math.min(100, ((value - t0) / Math.max(1, t1 - t0)) * 100)) : 50;
+      };
+      const formatTimelineTick = (value) => new Date(value).toLocaleString([], {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+      const timelineTicks = () => {
+        if (!validTimes.length) return [];
+        if (t0 === t1) return [{ pct: 50, value: t0 }];
+        return Array.from({ length: 5 }, (_, index) => ({ pct: index * 25, value: t0 + ((t1 - t0) * index) / 4 }));
+      };
+      const timeAxis = () => `<div class="time-axis-line"></div>${timelineTicks().map((tick, index, ticks) => {
+        const edge = index === 0 ? "start" : index === ticks.length - 1 ? "end" : "";
+        return `<span class="time-axis-tick" style="left:${tick.pct}%"><span class="time-axis-label ${edge}">${esc(formatTimelineTick(tick.value))}</span></span>`;
+      }).join("")}`;
+      document.title = `${D.operational.batch_id} · AFK 复盘`;
+
+      const sourceLink = (ref) => {
+        if (journeyItems.some((item) => item.id === ref)) return `<button class="mono underline" data-event="${esc(ref)}">${esc(ref)}</button>`;
+        const index = D.operational.snapshots.findIndex((source) => source.name === ref || source.path === ref);
+        return index >= 0 ? `<button class="mono underline" data-handoff-index="${index}">${esc(ref)}</button>` : `<span class="mono">${esc(ref)}</span>`;
+      };
+      const sourcesHtml = (sources) => sources?.length
+        ? `<div class="mt-5 border-t border-[#d4d4dc] pt-3"><div class="label">来源</div><div class="mt-2 flex flex-wrap gap-2 text-[11px]">${sources.map(sourceLink).join("")}</div></div>`
+        : "";
+      const issueRows = D.issues.map((issue) => `<tr class="border-t border-[#ededf1]"><td class="mono py-2 pr-3">#${esc(issue.number)}</td><td class="py-2 pr-3">${esc(issue.title)}</td><td class="mono py-2 pr-3">${issue.pr ? `PR #${esc(issue.pr)}` : "—"}</td><td class="py-2 font-semibold">${esc(issue.state)}</td></tr>`).join("");
+      const topRecommendation = () => D.batch.top_recommendation ? `<section class="mt-6 border-l-2 border-[#17171b] bg-[#f3f3f6] px-4 py-3"><div class="label">Top recommendation</div><button class="mt-1 text-left text-[14px] font-bold underline" data-select="${esc(D.batch.top_recommendation.id)}">${esc(D.batch.top_recommendation.id)} · ${esc(itemById(D.batch.top_recommendation.id)?.raw.title || "查看候选")}</button><p class="mt-1.5 text-[12px] leading-[1.7] text-[#44444e]">${esc(D.batch.top_recommendation.reason)}</p></section>` : "";
+
+      const overview = () => ({
+        meta: "本批次概览",
+        main: `<h2 class="text-[20px] font-bold">${esc(D.batch.title)}</h2>${topRecommendation()}${D.issues.length ? `<div class="label mt-6">Issue 结果</div><div class="mt-1 overflow-auto"><table class="w-full text-left text-[12px]"><tbody>${issueRows}</tbody></table></div>` : ""}`
+      });
+      const detail = (item) => {
+        if (!item) return overview();
+        const value = item.raw;
+        if (item.kind === "empty") return { meta: KNOWLEDGE[item.group][1], main: '<h2 class="text-[20px] font-bold">未发现候选</h2><p class="mt-2 text-[13px] text-[#71717d]">该类别已检查，本批次无需更新。</p>' };
+        if (item.kind === "journey") return {
+          meta: `${shortTime(value.ts)} · ${value.kind}${value.issue ? ` · #${value.issue}` : ""}${value.pr ? ` · PR #${value.pr}` : ""}`,
+          main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.detail || value.kind)}</h2><div class="label mt-4">ledger 第 ${value.line} 行</div><pre class="source mt-1 px-3 py-2">${esc(value.raw)}</pre>`
         };
-        const formatDate = (value) => {
-          const date = new Date(value);
-          return Number.isNaN(date.valueOf()) ? value : date.toLocaleString();
+        const positions = item.kind === "pending" ? `<div class="mt-6 grid grid-cols-2 gap-3 max-lg:grid-cols-1">${value.positions.map((position) => `<section class="border border-[#17171b] p-3.5"><div class="flex items-center gap-2"><span class="label">${esc(position.label)}</span><span class="mono text-[10px] text-[#71717d]">${esc(position.id)}</span></div><div class="mt-1 text-[14px] font-bold">${esc(position.stance)}</div><p class="mt-2 text-[12px] leading-[1.7] text-[#44444e]">${esc(position.reason)}</p></section>`).join("")}</div><p class="mt-3 text-[12px] text-[#5a5a66]">当前状态：${esc(value.current_state)}</p>` : "";
+        const meta = item.kind === "followup" ? "" : item.kind === "pending" ? `${value.kind} · 需要你决定` : `${KNOWLEDGE[item.group][1]} · ${ACTION_LABELS[item.group][value.action]}`;
+        const targetRef = item.kind === "knowledge" && value.target_ref ? `<div class="mt-3"><div class="label">目标</div><div class="mono mt-1 text-[11px] text-[#555560]">${esc(value.target_ref)}</div></div>` : "";
+        return {
+          meta,
+          main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.title)}</h2>${targetRef}<div class="markdown-body mt-3">${renderMarkdown(value.body_markdown)}</div>${positions}${sourcesHtml(value.sources)}`
         };
-        const shortTime = (value) => {
-          const date = new Date(value);
-          return Number.isNaN(date.valueOf()) ? value : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-        };
-        document.title = `${D.operational.batch_id} · AFK 复盘`;
+      };
 
-        const issueCounts = D.issues.reduce((counts, issue) => {
-          counts[issue.state] = (counts[issue.state] || 0) + 1;
-          return counts;
-        }, {});
-
-        const sourceLink = (ref) => {
-          if (journeyItems.some((item) => item.id === ref)) return `<button class="mono underline" data-select="${esc(ref)}">${esc(ref)}</button>`;
-          const index = D.operational.snapshots.findIndex((source) => source.name === ref || source.path === ref);
-          return index >= 0 ? `<a class="mono underline" href="#source-${index}">${esc(ref)}</a>` : `<span class="mono">${esc(ref)}</span>`;
-        };
-        const sourcesHtml = (sources) => sources?.length
-          ? `<div class="mt-4 border-t border-[#d4d4dc] pt-3"><div class="label">来源</div><div class="mt-2 flex flex-wrap gap-2 text-[11px]">${sources.map(sourceLink).join("")}</div></div>`
-          : "";
-
-        const detail = (item) => {
-          if (!item) return { meta: "", main: '<p class="text-[#75757F]">本批次没有复盘事项。</p>' };
-          const value = item.raw;
-          if (item.kind === "followup") {
-            const evaluations = Object.entries(AXES).map(([key, labels]) => {
-              const evaluation = value.evaluations[key];
-              return `<section class="evaluator p-4"><div class="label">${labels[0]}</div><div class="mt-0.5 text-[10px] text-[#9999a5]">${labels[1]}</div><div class="mt-2 text-[12px] font-bold">${esc(evaluation.verdict)}</div><p class="mt-1.5 text-[12px] leading-[1.7] text-[#44444e]">${esc(evaluation.summary)}</p></section>`;
-            }).join("");
-            return {
-              meta: "三轴评估",
-              main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.title)}</h2><p class="mt-2 text-[13.5px] leading-[1.75] text-[#44444e]">${esc(value.summary)}</p><div class="mt-5 grid grid-cols-3 border-y border-[#c9c9d1] max-lg:grid-cols-1">${evaluations}</div><section class="mt-4 border-l-2 border-[#17171b] bg-[#f3f3f6] px-4 py-3"><div class="label">综合结论</div><p class="mt-1 text-[13.5px] leading-[1.75]">${esc(value.conclusion)}</p></section>${sourcesHtml(value.sources)}`
-            };
-          }
-          if (item.kind === "knowledge") {
-            return {
-              meta: KNOWLEDGE[item.group][1],
-              main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.title)}</h2><p class="mt-2 text-[13.5px] leading-[1.75] text-[#44444e]">${esc(value.summary)}</p>${value.suggestion ? `<div class="mt-4"><div class="label">建议内容</div><pre class="source mt-1 px-3 py-2">${esc(value.suggestion)}</pre></div>` : ""}${sourcesHtml(value.sources)}`
-            };
-          }
-          if (item.kind === "pending") {
-            const positions = value.positions.map((position) => `<section class="border border-[#17171b] p-3.5"><div class="flex items-center gap-2"><span class="label">${esc(position.label)}</span><span class="mono text-[10px] text-[#71717d]">${esc(position.id)}</span></div><div class="mt-1 text-[14px] font-bold">${esc(position.stance)}</div><p class="mt-2 text-[12px] leading-[1.7] text-[#44444e]">${esc(position.reason)}</p></section>`).join("");
-            return {
-              meta: `${value.kind} · 需要你决定`,
-              main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.title)}</h2><p class="mt-2 text-[13.5px] leading-[1.75] text-[#44444e]">${esc(value.context)}</p><div class="mt-4 grid grid-cols-2 gap-3 max-lg:grid-cols-1">${positions}</div><p class="mt-3 text-[12px] text-[#5a5a66]">当前状态：${esc(value.current_state)}</p>${sourcesHtml(value.sources)}`
-            };
-          }
-          if (item.kind === "empty") {
-            return { meta: KNOWLEDGE[item.group][1], main: '<h2 class="text-[20px] font-bold">未发现候选</h2><p class="mt-2 text-[13px] text-[#71717d]">该类别已检查，本批次无需更新。</p>' };
-          }
-          return {
-            meta: `${shortTime(value.ts)} · ${value.kind}${value.issue ? ` · #${value.issue}` : ""}${value.pr ? ` · PR #${value.pr}` : ""}`,
-            main: `<h2 class="text-[20px] font-bold leading-snug">${esc(value.detail || value.kind)}</h2><div class="label mt-4">ledger 第 ${value.line} 行</div><pre class="source mt-1 px-3 py-2">${esc(value.raw)}</pre>`
-          };
-        };
-
-        const renderMarkdown = (content) => {
-          try {
-            if (window.marked && window.DOMPurify) return window.DOMPurify.sanitize(window.marked.parse(content));
-          } catch (_) {}
-          return `<pre class="source px-3 py-2">${esc(content)}</pre>`;
-        };
-        const sourceDocuments = () => D.operational.snapshots.map((source, index) => ({ source, index })).sort((a, b) => (a.source.kind === "handoff" ? 0 : 1) - (b.source.kind === "handoff" ? 0 : 1)).map(({ source, index }) => {
-          if (source.kind === "handoff") {
-            return `<section class="border-b border-[#d5d5dc] py-4" id="source-${index}"><div class="mono text-[11px] font-semibold">${esc(source.path)}</div><div class="markdown-body mt-3">${renderMarkdown(source.content)}</div><details class="mt-4"><summary class="text-[11px] font-semibold">查看原始 Markdown</summary><pre class="source mt-2 max-h-[42vh] overflow-auto px-3 py-2">${esc(source.content)}</pre></details></section>`;
-          }
-          return `<details class="border-b border-[#d5d5dc] py-4" id="source-${index}"><summary class="mono text-[11px] font-semibold">${esc(source.path)}</summary><pre class="source mt-3 max-h-[55vh] overflow-auto px-3 py-2">${esc(source.content)}</pre></details>`;
-        }).join("");
-
-        const issueRows = D.issues.map((issue) => `<tr class="border-t border-[#ededf1]"><td class="mono py-2 pr-3">#${esc(issue.number)}</td><td class="py-2 pr-3">${esc(issue.title)}</td><td class="mono py-2 pr-3">${issue.pr ? `PR #${esc(issue.pr)}` : "—"}</td><td class="py-2 font-semibold">${esc(issue.state)}</td></tr>`).join("");
-        const marks = D.operational.journey.map((event, index) => `<button class="mark ${event.kind === "fault" ? "fault" : ""}" style="left:${eventPct(event)}%;top:${10 + (index % 3) * 24}px" data-select="${esc(event.id)}" title="${esc(`${formatDate(event.ts)} · ${event.kind}`)}">${GLYPHS[event.kind] || "◆"}</button>`).join("");
-
-        app.innerHTML = `<div class="flex h-screen flex-col">
-          <header class="rail flex shrink-0 flex-wrap items-center gap-5 border-b border-[#2c2c36] px-4 py-2.5">
-            <div><span class="mono text-[12px] font-bold text-white">${esc(D.operational.batch_id)}</span><span class="ml-2 text-[12px] text-[#aaaab5]">${esc(D.batch.title)}</span></div>
-            <div class="text-[11px] text-[#aaaab5]">已合并 <b class="text-white">${issueCounts.merged || 0}</b> · 待人工 <b class="text-white">${issueCounts.shelved || 0}</b> · 未启动 <b class="text-white">${issueCounts.not_started || 0}</b> · 已完成 <b class="text-white">${issueCounts.done || 0}</b></div>
-            <div class="ml-auto text-[11px] text-[#7f7f8b]">生成于 ${esc(formatDate(D.operational.generated_at))}</div>
-          </header>
-
-          <section class="timeline shrink-0 border-b border-[#2c2c36] px-4 py-2">
-            <div class="flex items-center gap-3"><span class="label text-[#aaaab5]">执行历程</span><span class="text-[10px] text-[#858592]">${esc(formatDate(D.operational.started_at))} → ${esc(formatDate(D.operational.closed_at))}</span><span class="ml-auto text-[10px] text-[#686875]">◆ 裁决　▲ 故障　■ 搁置　● 合并　▣ 收尾</span></div>
-            <div class="relative mt-1 h-[78px] px-3"><div class="timeline-line"></div>${marks}</div>
-          </section>
-
-          <div class="grid min-h-0 flex-1 grid-cols-[265px_minmax(0,1fr)_390px] max-xl:grid-cols-[245px_1fr] max-lg:block max-lg:overflow-auto">
-            <nav class="rail scroll max-lg:max-h-[45vh]" aria-label="复盘事项"><div id="index"></div></nav>
-            <main class="scroll bg-[#e8e8ec] p-4">
-              <section class="pane border-t-2 border-t-[#17171b] p-5"><div class="label">批次结论</div><p class="mt-1.5 max-w-[78ch] text-[14.5px] leading-[1.8]">${esc(D.batch.summary)}</p>${D.issues.length ? `<div class="label mt-5">Issue 结果</div><div class="mt-1 overflow-auto"><table class="w-full text-left text-[12px]"><tbody>${issueRows}</tbody></table></div>` : ""}</section>
-              <section class="pane mt-4 p-5" id="detail"></section>
-              <section class="pane mt-4 p-4"><p class="text-[11.5px] text-[#71717d]">报告只提供建议。请在会话中按报告 ID 或选项 ID 回复，确认后再修改文档或创建 issue。</p></section>
-            </main>
-            <aside class="scroll border-l border-[#c9c9d1] bg-[#f3f3f6] px-4 max-xl:col-span-2 max-xl:border-l-0 max-lg:overflow-visible"><div class="label sticky top-0 z-10 bg-[#f3f3f6] py-3">账本与 handoff</div>${sourceDocuments()}</aside>
-          </div>
-        </div>`;
-
-        const index = document.getElementById("index");
-        const detailEl = document.getElementById("detail");
-
-        const bindSelect = (scope) => scope.querySelectorAll("[data-select]").forEach((control) => control.addEventListener("click", () => select(control.dataset.select)));
-        const paintIndex = () => {
-          const groups = [...new Set(items.map((item) => item.group))];
-          index.innerHTML = groups.map((group) => `<section class="pt-3"><div class="label px-3 pb-1 text-[#aaaab5]">${esc(GROUP_LABELS[group])}</div>${items.filter((item) => item.group === group).map((item) => `<button class="index-row ${muted(item.route) ? "is-muted" : ""}" data-select="${esc(item.id)}" aria-selected="${item.id === state.selected}"><span class="mono w-[68px] shrink-0 text-[11px]">${item.kind === "empty" ? "—" : esc(item.id)}</span><span class="flex-1 text-[12px] leading-[1.45]">${esc(item.raw.title || "未发现候选")}</span></button>`).join("")}</section>`).join("");
-          bindSelect(index);
-        };
-        const paint = () => {
-          paintIndex();
-          const item = itemById(state.selected) || items[0] || journeyItems[0];
-          const view = detail(item);
-          detailEl.innerHTML = item ? `<div class="flex flex-wrap items-center gap-2"><span class="mono text-[12px] font-bold">${esc(item.id)}</span><span class="tag ${ROUTES[item.route] || "tone-action"}">${esc(item.route)}</span><span class="text-[11.5px] text-[#71717d]">${esc(view.meta)}</span></div><div class="mt-3">${view.main}</div>` : view.main;
-          bindSelect(detailEl);
-          document.querySelectorAll(".mark").forEach((control) => control.setAttribute("aria-current", String(control.dataset.select === state.selected)));
-        };
-        function select(id) {
-          if (!itemById(id)) return;
-          state.selected = id;
-          paint();
+      const ledgerRows = () => D.operational.journey.map((event) => `<article class="ledger-row border-b border-[#d5d5dc] px-3 py-3" id="ledger-${esc(event.id)}"><div class="flex flex-wrap items-center gap-x-2 gap-y-1"><span class="mono text-[11px] font-bold">${esc(event.id)}</span><span class="rounded-full px-2 py-0.5 text-[10px] text-white" style="background:${kindColor(event.kind)}">${esc(kindLabel(event.kind))}</span><span class="text-[10px] text-[#71717d]">${esc(formatDate(event.ts))}</span>${event.issue ? `<span class="mono text-[10px]">#${esc(event.issue)}</span>` : ""}${event.pr ? `<span class="mono text-[10px]">PR #${esc(event.pr)}</span>` : ""}</div><p class="mt-2 text-[12px] leading-[1.6] text-[#3f3f48]">${esc(event.detail || "无详情")}</p><details class="mt-2"><summary class="text-[10px] font-semibold text-[#71717d]">原始 JSON</summary><pre class="source mt-2 px-3 py-2">${esc(event.raw)}</pre></details></article>`).join("");
+      const handoffOptions = () => handoffSources.map(({ source, index }) => `<option value="${index}">${esc(source.name || source.path)}</option>`).join("");
+      const renderHandoff = () => {
+        const entry = handoffSources.find(({ index }) => index === state.handoffIndex);
+        const select = document.getElementById("handoff-select");
+        const documentHost = document.getElementById("handoff-document");
+        if (!select || !documentHost) return;
+        if (!entry) {
+          select.disabled = true;
+          documentHost.innerHTML = '<p class="p-4 text-[12px] text-[#71717d]">没有可用的 Handoff。</p>';
+          return;
         }
-        bindSelect(app);
+        select.value = String(entry.index);
+        const source = entry.source;
+        documentHost.innerHTML = `<section class="px-4 py-4" id="source-${entry.index}"><div class="mono text-[11px] font-semibold">${esc(source.path)}</div><div class="markdown-body mt-3">${renderMarkdown(source.content)}</div><details class="mt-4"><summary class="text-[11px] font-semibold">查看原始 Markdown</summary><pre class="source mt-2 max-h-[42vh] overflow-auto px-3 py-2">${esc(source.content)}</pre></details></section>`;
+        documentHost.scrollTop = 0;
+        hydrateMermaid(documentHost);
+      };
+      const clustersFor = (events, width) => {
+        const threshold = (18 / Math.max(1, width)) * 100;
+        return [...events].sort((a, b) => eventPct(a) - eventPct(b)).reduce((clusters, event) => {
+          const pct = eventPct(event);
+          const last = clusters.at(-1);
+          if (last && pct - last.end <= threshold) {
+            last.events.push(event);
+            last.end = pct;
+            last.pct = last.events.reduce((sum, value) => sum + eventPct(value), 0) / last.events.length;
+          } else {
+            clusters.push({ events: [event], pct, end: pct });
+          }
+          return clusters;
+        }, []);
+      };
+      const clusterBackground = (events) => {
+        const kinds = [...new Set(events.map((event) => event.kind))];
+        if (kinds.length === 1) return kindColor(kinds[0]);
+        const slice = 100 / kinds.length;
+        return `conic-gradient(${kinds.map((kind, index) => `${kindColor(kind)} ${index * slice}% ${(index + 1) * slice}%`).join(",")})`;
+      };
+      const renderTimelineTracks = () => {
+        const host = document.getElementById("timeline-tracks");
+        if (!host || !state.timelineExpanded) return;
+        const width = Math.max(1, host.clientWidth - 84);
+        host.innerHTML = EVENT_GROUPS.map((group) => {
+          const events = D.operational.journey.filter((event) => state.enabledKinds.has(event.kind) && eventGroup(event.kind).id === group.id);
+          if (!events.length) return "";
+          const clusters = clustersFor(events, width);
+          const marks = clusters.map((cluster) => {
+            const ids = cluster.events.map((event) => event.id);
+            const kinds = [...new Set(cluster.events.map((event) => event.kind))];
+            const labels = kinds.map(kindLabel);
+            const label = cluster.events.length === 1 ? `${ids[0]} · ${labels[0]}` : `${ids.join("、")} · ${labels.join("、")}`;
+            return `<button class="event-cluster ${cluster.events.length > 1 ? "multi" : ""}" style="left:${cluster.pct}%;background:${clusterBackground(cluster.events)}" data-event-cluster="${esc(ids.join(","))}" aria-label="${esc(label)}" title="${esc(label)}">${cluster.events.length > 1 ? `<span class="event-count">${cluster.events.length}</span>` : ""}</button>`;
+          }).join("");
+          return `<div class="grid grid-cols-[70px_minmax(0,1fr)] items-center gap-3"><div class="text-right text-[10px] font-semibold text-[#aaaab5]">${group.label}</div><div class="relative h-7"><div class="event-line"></div>${marks}</div></div>`;
+        }).join("");
+        bindControls(host);
+      };
+      const paintTimeline = () => {
+        const panel = document.getElementById("timeline-panel");
+        const toggle = document.getElementById("timeline-toggle");
+        panel.hidden = !state.timelineExpanded;
+        toggle.setAttribute("aria-expanded", String(state.timelineExpanded));
+        toggle.querySelector("[data-chevron]").textContent = state.timelineExpanded ? "收起 ▴" : "展开 ▾";
+        if (!state.timelineExpanded) return;
+        document.getElementById("kind-filters").innerHTML = actualKinds.map((kind) => `<button class="kind-filter flex items-center gap-1.5 rounded-full border border-[#555560] px-2 py-1 text-[10px]" data-kind="${esc(kind)}" aria-pressed="${state.enabledKinds.has(kind)}"><span class="h-2 w-2 rounded-full" style="background:${kindColor(kind)}"></span>${esc(kindLabel(kind))}</button>`).join("");
+        bindControls(document.getElementById("kind-filters"));
+        renderTimelineTracks();
+      };
+
+      app.innerHTML = `<div class="flex h-screen flex-col">
+        <header class="rail flex shrink-0 flex-wrap items-center gap-5 border-b border-[#2c2c36] px-4 py-2.5">
+          <div><span class="mono text-[12px] font-bold text-white">${esc(D.operational.batch_id)}</span><span class="ml-2 text-[12px] text-[#aaaab5]">${esc(D.batch.title)}</span></div>
+          <div class="text-[11px] text-[#aaaab5]">已合并 <b class="text-white">${issueCounts.merged || 0}</b> · 待人工 <b class="text-white">${issueCounts.shelved || 0}</b> · 未启动 <b class="text-white">${issueCounts.not_started || 0}</b> · 已完成 <b class="text-white">${issueCounts.done || 0}</b></div>
+          <div class="ml-auto text-[11px] text-[#7f7f8b]">生成于 ${esc(formatDate(D.operational.generated_at))}</div>
+        </header>
+
+        <section class="timeline shrink-0 border-b border-[#2c2c36] px-4 py-2">
+          <button id="timeline-toggle" class="flex w-full items-center gap-3 text-left" aria-expanded="true"><span class="label text-[#aaaab5]">执行历程</span><span class="text-[10px] text-[#858592]">${esc(formatDate(D.operational.started_at))} → ${esc(formatDate(D.operational.closed_at))}</span><span class="text-[10px] text-[#858592]">${D.operational.journey.length} EV · ${anomalyCount} 异常</span><span class="ml-auto text-[10px] text-[#aaaab5]" data-chevron>收起 ▴</span></button>
+          <div id="timeline-panel" class="pt-2">
+            <div id="kind-filters" class="flex flex-wrap justify-end gap-1.5"></div>
+            <div class="mt-1 grid grid-cols-[70px_minmax(0,1fr)] items-start gap-3"><div class="pt-1 text-right text-[9px] text-[#858592]">时间</div><div id="timeline-axis" class="time-axis" aria-label="时间轴">${timeAxis()}</div></div>
+            <div id="timeline-tracks" class="mt-1 space-y-0.5"></div>
+          </div>
+        </section>
+
+        <div class="grid min-h-0 flex-1 grid-cols-[265px_minmax(0,1fr)_410px] max-xl:grid-cols-[245px_1fr] max-lg:block max-lg:overflow-auto">
+          <nav class="rail scroll max-lg:max-h-[45vh]" aria-label="复盘事项"><div id="index"></div></nav>
+          <main class="scroll bg-[#e8e8ec] p-4"><section class="pane p-5" id="detail"></section><section class="pane mt-4 p-4"><p class="text-[11.5px] text-[#71717d]">报告只提供建议。请在会话中按报告 ID 或选项 ID 回复，确认后再修改文档或创建 issue。</p></section></main>
+          <aside class="flex min-h-0 flex-col border-l border-[#c9c9d1] bg-[#f3f3f6] max-xl:col-span-2 max-xl:border-l-0">
+            <div class="flex shrink-0 border-b border-[#c9c9d1] bg-[#f3f3f6] px-4">
+              <button class="evidence-tab border-b-2 border-transparent px-3 py-3 text-[11px] font-semibold text-[#71717d]" data-evidence-tab="ledger" aria-selected="false">Ledger</button>
+              <button class="evidence-tab border-b-2 border-transparent px-3 py-3 text-[11px] font-semibold text-[#71717d]" data-evidence-tab="handoff" aria-selected="true">Handoff</button>
+            </div>
+            <div class="evidence-pane scroll min-h-0 flex-1" id="evidence-ledger" hidden>${ledgerRows()}</div>
+            <div class="evidence-pane flex min-h-0 flex-1 flex-col" id="evidence-handoff">
+              <div class="shrink-0 border-b border-[#d5d5dc] px-4 py-2.5"><label class="label block" for="handoff-select">Handoff 文档</label><select id="handoff-select" class="mt-1 w-full border border-[#b8b8c1] bg-white px-2 py-1.5 text-[11px]">${handoffOptions()}</select></div>
+              <div class="scroll min-h-0 flex-1" id="handoff-document"></div>
+            </div>
+          </aside>
+        </div>
+      </div>`;
+
+      const index = document.getElementById("index");
+      const detailEl = document.getElementById("detail");
+      const activateEvidenceTab = (tab) => {
+        state.evidenceTab = tab;
+        document.getElementById("evidence-ledger").hidden = tab !== "ledger";
+        document.getElementById("evidence-handoff").hidden = tab !== "handoff";
+        document.querySelectorAll("[data-evidence-tab]").forEach((control) => control.setAttribute("aria-selected", String(control.dataset.evidenceTab === tab)));
+      };
+      const focusLedger = (ids) => {
+        activateEvidenceTab("ledger");
+        document.querySelectorAll(".ledger-row").forEach((row) => row.classList.toggle("is-target", ids.includes(row.id.replace("ledger-", ""))));
+        requestAnimationFrame(() => document.getElementById(`ledger-${ids[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+      };
+      const focusHandoff = (index) => {
+        const target = Number(index);
+        if (!handoffSources.some((entry) => entry.index === target)) return;
+        state.handoffIndex = target;
+        activateEvidenceTab("handoff");
+        renderHandoff();
+      };
+      function bindControls(scope) {
+        scope.querySelectorAll("[data-select]").forEach((control) => control.addEventListener("click", () => select(control.dataset.select)));
+        scope.querySelectorAll("[data-event]").forEach((control) => control.addEventListener("click", () => focusLedger([control.dataset.event])));
+        scope.querySelectorAll("[data-event-cluster]").forEach((control) => control.addEventListener("click", () => focusLedger(control.dataset.eventCluster.split(","))));
+        scope.querySelectorAll("[data-handoff-index]").forEach((control) => control.addEventListener("click", () => focusHandoff(control.dataset.handoffIndex)));
+        scope.querySelectorAll("[data-evidence-tab]").forEach((control) => control.addEventListener("click", () => activateEvidenceTab(control.dataset.evidenceTab)));
+        scope.querySelectorAll("[data-kind]").forEach((control) => control.addEventListener("click", () => {
+          const kind = control.dataset.kind;
+          if (state.enabledKinds.has(kind)) state.enabledKinds.delete(kind); else state.enabledKinds.add(kind);
+          paintTimeline();
+        }));
+      }
+      const paintIndex = () => {
+        const groups = [...new Set(items.map((item) => item.group))];
+        index.innerHTML = `<section class="pt-3"><div class="label px-3 pb-1 text-[#aaaab5]">批次</div><button class="index-row" data-select="BATCH-OVERVIEW" aria-selected="${state.selected === "BATCH-OVERVIEW"}"><span class="mono w-[68px] shrink-0 text-[11px]">概览</span><span class="flex-1 text-[12px] leading-[1.45]">Issue 结果</span></button></section>${groups.map((group) => `<section class="pt-3"><div class="label px-3 pb-1 text-[#aaaab5]">${esc(GROUP_LABELS[group])}</div>${items.filter((item) => item.group === group).map((item) => `<button class="index-row ${muted(item.route) ? "is-muted" : ""}" data-select="${esc(item.id)}" aria-selected="${item.id === state.selected}"><span class="mono w-[68px] shrink-0 text-[11px]">${item.kind === "empty" ? "—" : esc(item.id)}</span><span class="flex-1 text-[12px] leading-[1.45]">${esc(item.raw.title || "未发现候选")}</span></button>`).join("")}</section>`).join("")}`;
+        bindControls(index);
+      };
+      const paint = () => {
+        paintIndex();
+        const item = state.selected === "BATCH-OVERVIEW" ? null : itemById(state.selected) || items[0];
+        const view = detail(item);
+        const meta = view.meta ? `<span class="text-[11.5px] text-[#71717d]">${esc(view.meta)}</span>` : "";
+        detailEl.innerHTML = item ? `<div class="flex flex-wrap items-center gap-2"><span class="mono text-[12px] font-bold">${esc(item.id)}</span><span class="tag ${ROUTES[item.route] || "tone-action"}">${esc(item.route)}</span>${meta}</div><div class="mt-3">${view.main}</div>` : `<div class="label">批次概览</div><div class="mt-3">${view.main}</div>`;
+        bindControls(detailEl);
+        hydrateMermaid(detailEl);
+      };
+      function select(id) {
+        if (id !== "BATCH-OVERVIEW" && !itemById(id)) return;
+        state.selected = id;
         paint();
-      })();
+      }
+
+      document.getElementById("timeline-toggle").addEventListener("click", () => {
+        state.timelineExpanded = !state.timelineExpanded;
+        paintTimeline();
+      });
+      document.getElementById("handoff-select").addEventListener("change", (event) => focusHandoff(event.target.value));
+      bindControls(app);
+      renderHandoff();
+      paintTimeline();
+      paint();
+      window.addEventListener("resize", renderTimelineTracks);
     </script>
   </body>
 </html>

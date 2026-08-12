@@ -16,11 +16,11 @@ disable-model-invocation: true
 
 ## 2. 独立评估
 
-有候选时，读取 [evaluator-prompts.md](references/evaluator-prompts.md)，同时委派三个干净上下文的只读 evaluator；没有候选时跳过。team-lead 按临时 ID 汇总事实与分歧，不把临时 ID 写入报告。
+有候选时，读取 [evaluator-prompts.md](references/evaluator-prompts.md)，同时委派三个干净上下文的只读 evaluator；没有候选时跳过。team-lead 确认每个临时 ID 收齐三个结果并复查冲突事实；无法消解的冲突写入对应候选的未知项。每个临时 ID 收齐三个结果后，本步骤完成。
 
 ## 3. 生成报告
 
-读取 [analysis-contract.md](references/analysis-contract.md)，在操作系统临时目录写 `analysis.json`，然后运行：
+读取 [report-content-contract.md](references/report-content-contract.md) 决定推荐强度、知识动作并编写正文，再按 [analysis-contract.md](references/analysis-contract.md) 在操作系统临时目录写 `analysis.json`。待裁决项同时写结构化互斥选项。确认每个报告 ID、来源和保留候选都已纳入后运行：
 
 ```bash
 uv run python .agents/skills/afk-retrospective/scripts/render_report.py \
@@ -29,6 +29,6 @@ uv run python .agents/skills/afk-retrospective/scripts/render_report.py \
   --analysis <analysis-json>
 ```
 
-renderer 负责校验批次边界、可渲染字段与来源引用，嵌入 ledger/handoff 快照并生成 HTML。失败时报告错误并停止；成功后删除临时 JSON、打开报告并提供绝对路径。
+renderer 负责校验批次边界、可渲染字段与来源引用，嵌入 ledger/handoff 快照并生成 HTML。失败时报告错误并停止；成功条件是报告覆盖所有保留候选、每篇正文满足内容契约、所有来源可到达对应 ledger 事件或 handoff、每个待裁决项至少有两个互斥选项，且存在可行动候选时已给出 Top recommendation。达成后删除临时 JSON、打开报告并提供绝对路径。
 
-最终报告须覆盖所有保留候选，来源链接可到达对应 ledger 事件或 handoff。只问用户要处理哪些报告 ID；待裁决项接受 `DEC-01 = DEC-01-A` 形式的回答。用户裁决前保持仓库内容不变。
+只问用户要处理哪些报告 ID；待裁决项接受 `DEC-01 = DEC-01-A` 形式的回答。用户裁决前保持仓库内容不变。
