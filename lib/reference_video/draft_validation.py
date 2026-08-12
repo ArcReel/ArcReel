@@ -279,6 +279,7 @@ def validate_unit_text(
     text: str,
     project: dict[str, Any],
     *,
+    unit_id: str | None = None,
     max_refs: int | None,
 ) -> tuple[list[Shot], list[ReferenceResource]]:
     """校验一个 unit 的正文并机械派生 ``(shots, references)``。
@@ -339,11 +340,11 @@ def validate_unit_text(
             code="refs_over_limit",
             label=label,
         )
-    unit_id = label.removeprefix("unit ").strip()
+    canonical_unit_id = unit_id if unit_id is not None else label.removeprefix("unit ").strip()
     admission = admit_script_unit(
         "video_units",
         {
-            "unit_id": unit_id,
+            "unit_id": canonical_unit_id,
             "shots": [shot.model_dump() for shot in shots],
             "references": [reference.model_dump() for reference in refs],
         },

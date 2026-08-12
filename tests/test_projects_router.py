@@ -891,6 +891,36 @@ class TestProjectsRouter:
         assert response.json()["segment"]["needs_replan"] is True
 
     @pytest.mark.unit
+    def test_update_segment_allows_visual_prompt_edit_on_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "narration.json")] = {
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "duration_seconds": 4,
+                    "novel_text": "风吹过旷野。",
+                    "video_prompt": {"action": "转身", "dialogue": [{"speaker": "Alice", "line": "快走。"}]},
+                    "needs_replan": True,
+                }
+            ],
+        }
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={
+                    "script_file": "narration.json",
+                    "video_prompt": {"action": "慢慢转身", "dialogue": [{"speaker": "Alice", "line": "快走。"}]},
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["segment"]["video_prompt"]["action"] == "慢慢转身"
+        assert response.json()["segment"]["needs_replan"] is True
+
+    @pytest.mark.unit
     def test_update_segment_rejects_drama_script_with_residual_segments(self, tmp_path, monkeypatch):
         # drama 脚本残留 segments 键不应被当 narration 改写：须返回 400 而非放行
         fake_pm = _FakePM(tmp_path)
@@ -1114,6 +1144,36 @@ class TestProjectsRouter:
 
         assert response.status_code == 200
         assert response.json()["shot"]["note"] == "保留历史媒体"
+
+    @pytest.mark.unit
+    def test_update_shot_allows_visual_prompt_edit_on_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        script = self._ad_script(["E1S01"])
+        script["shots"][0]["video_prompt"] = {
+            "action": "转身",
+            "dialogue": [{"speaker": "Alice", "line": "快走。"}],
+        }
+        script["shots"][0]["needs_replan"] = True
+        fake_pm.scripts[("ad-ready", "episode_1.json")] = script
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ad-ready/script-shots/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {
+                        "video_prompt": {
+                            "action": "慢慢转身",
+                            "dialogue": [{"speaker": "Alice", "line": "快走。"}],
+                        }
+                    },
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["shot"]["video_prompt"]["action"] == "慢慢转身"
+        assert response.json()["shot"]["needs_replan"] is True
 
     @pytest.mark.unit
     def test_update_shot_ignores_non_whitelisted_fields(self, tmp_path, monkeypatch):

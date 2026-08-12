@@ -401,6 +401,23 @@ class TestPatchEpisodeScript:
         assert saved["needs_replan"] is True
 
     @pytest.mark.unit
+    async def test_legacy_mixed_speech_allows_visual_prompt_patch(self, ctx: ToolContext) -> None:
+        script = _script()
+        script["segments"][0]["video_prompt"]["dialogue"] = [{"speaker": "甲", "line": "台词"}]
+        script["segments"][0]["needs_replan"] = True
+        ctx.pm.save_script("demo", script, "episode_1.json")
+
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {"script": "episode_1.json", "edits": {"E1S01": {"video_prompt.action": "慢慢转身"}}},
+        )
+
+        assert out.get("is_error") is not True
+        saved = _load(ctx)["segments"][0]
+        assert saved["video_prompt"]["action"] == "慢慢转身"
+        assert saved["needs_replan"] is True
+
+    @pytest.mark.unit
     async def test_repairing_machine_candidate_clears_replan_marker(self, ctx: ToolContext) -> None:
         script = _script()
         script["segments"][0]["video_prompt"]["dialogue"] = [{"speaker": "甲", "line": "台词"}]

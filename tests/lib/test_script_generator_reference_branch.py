@@ -784,6 +784,32 @@ async def test_step1_text_violation_is_caught_before_the_paid_step2_call(referen
 
 
 @pytest.mark.integration
+def test_step1_speech_violation_preserves_canonical_unit_and_locations(reference_project: Path):
+    gen = ScriptGenerator(reference_project)
+    units = [
+        {
+            "unit_id": "E1U01",
+            "duration_seconds": 4,
+            "shots": [{"text": "门被推开\n@[主角]：{快走。}\n{风吹过旷野。}"}],
+        }
+    ]
+
+    with pytest.raises(DraftViolation) as exc_info:
+        gen._assert_reference_step1_text_valid(units, max_refs=None)
+
+    problem = exc_info.value
+    assert problem.code == "mixed_speech"
+    assert "unit E1U01 发声准入未通过" in str(problem)
+    assert "unit step1 的 unit" not in str(problem)
+    assert problem.locations == (
+        {"path": ["shots", 0, "text"], "line": 1},
+        {"path": ["shots", 0, "text"], "line": 2},
+    )
+    assert problem.reason == "character_and_narrator_mixed"
+    assert problem.action == "replan_unit"
+
+
+@pytest.mark.integration
 async def test_step1_dialogue_overload_is_caught_before_the_paid_step2_call(reference_project: Path):
     """审阅 gate 上改短时长 / 补写台词绕开了拆分时的口播量校验，生成前复判把它拦下。
 

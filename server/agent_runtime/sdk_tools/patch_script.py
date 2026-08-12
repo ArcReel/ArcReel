@@ -13,7 +13,6 @@ filename↔episode 一致性。结构错误当场以「不更坏」语义挡下�
 
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -27,17 +26,16 @@ from lib.script_editor import (
     resolve_items,
     split_segment,
 )
-from lib.speech_composition import SpeechAdmissionError, refresh_video_unit_replan_state, require_script_unit_admitted
+from lib.speech_composition import (
+    SpeechAdmissionError,
+    admit_script_unit,
+    refresh_video_unit_replan_state,
+    require_script_unit_admitted,
+)
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 
 # 改了这些顶层字段路径的分镜须紧接着重新生成对应图/视频（工具不自动作废旧资产）。
 _REGEN_TRIGGER_FIELDS = ("image_prompt", "video_prompt")
-_SPEECH_CONTENT_FIELDS: dict[str, frozenset[str]] = {
-    "segments": frozenset({"novel_text", "video_prompt"}),
-    "scenes": frozenset({"utterances"}),
-    "shots": frozenset({"voiceover_text", "video_prompt"}),
-    "video_units": frozenset({"shots"}),
-}
 
 
 def _speech_admission_error(name: str, exc: SpeechAdmissionError) -> dict[str, Any]:
@@ -125,9 +123,7 @@ def patch_episode_script_tool(ctx: ToolContext):
                     )
                     previous_shots = unit.get("shots") if unit is not None else None
                     previous_speech = (
-                        {field: deepcopy(unit.get(field)) for field in _SPEECH_CONTENT_FIELDS[kind]}
-                        if unit is not None
-                        else {}
+                        admit_script_unit(kind, unit, ignore_marker=True).preparation if unit is not None else None
                     )
                     fields: list[str] = []
                     for raw_field, value in field_map.items():
@@ -142,17 +138,15 @@ def patch_episode_script_tool(ctx: ToolContext):
                     edited_roots = {field.split(".", 1)[0] for field in fields}
                     body_changed = False
                     if unit is not None:
-                        speech_changed = any(
-                            field in edited_roots and unit.get(field) != previous_speech[field]
-                            for field in _SPEECH_CONTENT_FIELDS[kind]
-                        )
                         body_changed = (
                             kind == "video_units" and "shots" in edited_roots and unit.get("shots") != previous_shots
                         )
                         if body_changed:
                             rederive_unit_references([unit], project)
-                        if speech_changed:
-                            require_script_unit_admitted(kind, unit, ignore_marker=True)
+                        admission = admit_script_unit(kind, unit, ignore_marker=True)
+                        if admission.preparation != previous_speech:
+                            if not admission.allowed:
+                                raise SpeechAdmissionError(admission)
                             if kind != "video_units":
                                 unit.pop("needs_replan", None)
                     if unit is not None and kind == "video_units":

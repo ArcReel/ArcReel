@@ -1104,7 +1104,13 @@ class ScriptGenerator:
             stored_shots = unit.get("shots") or []
             text = render_shots_text(stored_shots)
             try:
-                parsed_shots, _refs = validate_unit_text(label, text, self.project_json, max_refs=max_refs)
+                parsed_shots, _refs = validate_unit_text(
+                    label,
+                    text,
+                    self.project_json,
+                    unit_id=str(unit["unit_id"]),
+                    max_refs=max_refs,
+                )
                 if len(parsed_shots) != len(stored_shots):
                     # 落盘的单个 shot 正文里又嵌了 `镜头N：`（Agent 可裸写剧本 JSON）：渲染回书写层
                     # 再解析会多切出镜头，step2 按多出来的镜头数展开，而合并时比对的是落盘的 shots
@@ -1118,13 +1124,23 @@ class ScriptGenerator:
                 validate_dialogue_load(
                     label, text, int(unit["duration_seconds"]), source_language, speech_rate_override
                 )
-            except DraftViolation as e:
-                raise DraftViolation(
-                    f"{e}；这段正文来自 step1（拆分产出或手工编辑），step2 会逐字保留它，"
-                    "请先在 Web 端修正该 unit 的 step1 正文或时长并重新审阅确认",
-                    code=e.code,
-                    label=label,
-                ) from e
+            except DraftViolation as exc:
+                enriched = [
+                    DraftViolation(
+                        f"{item}；这段正文来自 step1（拆分产出或手工编辑），step2 会逐字保留它，"
+                        "请先在 Web 端修正该 unit 的 step1 正文或时长并重新审阅确认",
+                        code=item.code,
+                        label=label,
+                        line=item.line,
+                        locations=item.locations,
+                        reason=item.reason,
+                        action=item.action,
+                    )
+                    for item in violation_items(exc)
+                ]
+                if len(enriched) == 1:
+                    raise enriched[0] from exc
+                raise DraftViolations(enriched) from exc
 
     def _merge_reference_visual(
         self,
