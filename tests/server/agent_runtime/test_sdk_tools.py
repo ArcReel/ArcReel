@@ -2299,6 +2299,32 @@ def test_build_reference_specs_skips_blank_prompt(tmp_path) -> None:
 
 
 @pytest.mark.unit
+def test_build_reference_specs_skips_mixed_speech_without_aborting_batch(tmp_path) -> None:
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+
+    units = [
+        {
+            "unit_id": "E1U1",
+            "shots": [{"text": "@[张三]：{快走。}\n{风吹过旷野。}"}],
+            "references": [],
+        },
+        {"unit_id": "E1U2", "shots": [{"text": "@李四 转身"}], "references": []},
+    ]
+    log: list[str] = []
+
+    specs, order_map = _build_reference_specs(
+        units=units,
+        script_filename="episode_1.json",
+        skip_ids=None,
+        log=log,
+    )
+
+    assert [spec.resource_id for spec in specs] == ["E1U2"]
+    assert order_map == {"E1U2": 1}
+    assert any("E1U1" in message and "mixed_speech" in message for message in log)
+
+
+@pytest.mark.unit
 def test_build_reference_specs_skips_bad_unit_id_without_aborting_batch(tmp_path) -> None:
     """unit_id 为空或键缺失（Agent 裸写 JSON 可致）都跳过该 unit 而非中断整批：
     空串经 from_request 抛 ValueError 被捕获，缺键经 .get 归一化为空串后同样被拒。"""

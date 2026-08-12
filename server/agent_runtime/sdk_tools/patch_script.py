@@ -197,11 +197,19 @@ def insert_segment_tool(ctx: ToolContext):
             script_filename = validate_script_filename(args["script"])
             after_id = str(args["after_id"])
             item = args["item"]
-            with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
+            project_out: dict[str, dict[str, Any]] = {}
+
+            def _resolve_script(project: dict[str, Any]) -> str:
+                project_out["project"] = project
+                return script_filename
+
+            with ctx.pm.locked_episode_script(ctx.project_name, _resolve_script) as script:
                 insert_segment(script, after_id, item)
                 items, _id_field, kind = resolve_items(script)
                 anchor_index = next(i for i, entry in enumerate(items) if str(entry.get(_id_field)) == after_id)
                 inserted = items[anchor_index + 1]
+                if kind == "video_units":
+                    rederive_unit_references([inserted], project_out["project"])
                 require_script_unit_admitted(kind, inserted, ignore_marker=True)
                 new_ids = _item_ids(script)
             return {
@@ -271,11 +279,20 @@ def split_segment_tool(ctx: ToolContext):
             script_filename = validate_script_filename(args["script"])
             item_id = str(args["id"])
             parts = args["parts"]
-            with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
+            project_out: dict[str, dict[str, Any]] = {}
+
+            def _resolve_script(project: dict[str, Any]) -> str:
+                project_out["project"] = project
+                return script_filename
+
+            with ctx.pm.locked_episode_script(ctx.project_name, _resolve_script) as script:
                 split_segment(script, item_id, parts)
                 items, id_field, kind = resolve_items(script)
                 anchor_index = next(i for i, item in enumerate(items) if str(item.get(id_field)) == item_id)
-                for item in items[anchor_index : anchor_index + len(parts)]:
+                generated = items[anchor_index : anchor_index + len(parts)]
+                if kind == "video_units":
+                    rederive_unit_references(generated, project_out["project"])
+                for item in generated:
                     require_script_unit_admitted(kind, item, ignore_marker=True)
                 new_ids = _item_ids(script)
             return {

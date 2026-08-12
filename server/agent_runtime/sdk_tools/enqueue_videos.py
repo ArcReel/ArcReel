@@ -400,8 +400,6 @@ def _build_reference_specs(
         try:
             spec = _reference_unit_spec(unit, script_filename)
         except SpeechAdmissionError as exc:
-            if any(problem.code.value != "parse_failed" for problem in exc.admission.problems):
-                raise
             log.append(f"⚠️  {unit_id} 发声准入未通过，跳过：{json.dumps(exc.admission.to_dict(), ensure_ascii=False)}")
             continue
         except ValueError as exc:

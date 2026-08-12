@@ -710,6 +710,25 @@ class TestInsertRemoveSplit:
         assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
         assert _load(ctx) == before
 
+    @pytest.mark.integration
+    async def test_reference_insert_derives_non_character_references_before_admission(
+        self, ref_ctx: ToolContext
+    ) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["scenes"] = {"酒馆": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+        inserted = _unit("ignored")
+        inserted["shots"] = [{"text": "@[酒馆]：木门被风吹开"}]
+        inserted.pop("references")
+
+        out = await _call(
+            insert_segment_tool(ref_ctx),
+            {"script": "episode_1.json", "after_id": "E1U1", "item": inserted},
+        )
+
+        assert out.get("is_error") is not True, out
+        assert _load(ref_ctx)["video_units"][1]["references"] == [{"type": "scene", "name": "酒馆"}]
+
     @pytest.mark.unit
     async def test_remove_by_id(self, ctx: ToolContext) -> None:
         out = await _call(remove_segment_tool(ctx), {"script": "episode_1.json", "id": "E1S01"})
@@ -772,6 +791,29 @@ class TestInsertRemoveSplit:
         assert out.get("is_error") is True
         assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
         assert _load(ref_ctx) == before
+
+    @pytest.mark.integration
+    async def test_reference_split_derives_non_character_references_before_admission(
+        self, ref_ctx: ToolContext
+    ) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["scenes"] = {"酒馆": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+        parts = [_unit("ignored"), _unit("ignored")]
+        for part in parts:
+            part["shots"] = [{"text": "@[酒馆]：木门被风吹开"}]
+            part.pop("references")
+
+        out = await _call(
+            split_segment_tool(ref_ctx),
+            {"script": "episode_1.json", "id": "E1U1", "parts": parts},
+        )
+
+        assert out.get("is_error") is not True, out
+        assert [unit["references"] for unit in _load(ref_ctx)["video_units"][:2]] == [
+            [{"type": "scene", "name": "酒馆"}],
+            [{"type": "scene", "name": "酒馆"}],
+        ]
 
     @pytest.mark.unit
     async def test_split_too_few_parts_errors(self, ctx: ToolContext) -> None:
