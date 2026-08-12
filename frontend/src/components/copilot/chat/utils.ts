@@ -101,7 +101,7 @@ export function canEditUserTurn(
   // 问答答复是智能体问卷的回执，不是用户自己写的消息。投影产出的 Turn 不带
   // subtype，按内容块类型识别。
   if ((turn.content ?? []).some((block) => block.type === "question_answer")) return false;
-  if (!turnPlainText(turn).trim()) return false;
+  if (!turnPlainText(turn).trim() && turnImageAttachments(turn).length === 0) return false;
   if (context.sessionStatus === "running") return false;
   if (context.hasPendingQuestion) return false;
   // 已有发送或改写在途：此刻放行别处的编辑入口，点下去会顶掉正在提交的编辑器，
