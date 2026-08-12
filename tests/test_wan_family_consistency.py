@@ -174,6 +174,13 @@ def test_wan27_videoedit_excluded_from_family_duration_preset() -> None:
     assert infer_supported_durations("wan2.7-videoedit") != list(range(2, 16))
 
 
+def test_wan27_videoedit_excluded_even_alongside_recognized_modality_token() -> None:
+    """ "wan2.7-i2v-videoedit" 同时含已知 profile token（i2v）与 videoedit 标记：videoedit
+    未实现请求构造这一事实优先于已知 token 命中，不能被后者掩盖而误放行原生路由。"""
+    assert infer_endpoint("wan2.7-i2v-videoedit", "openai") == "openai-video"
+    assert infer_supported_durations("wan2.7-i2v-videoedit") != list(range(2, 16))
+
+
 @pytest.mark.parametrize("model_id", ["proxy-videoedit/wan3-turbo", "wan-3-turbo-videoedit"])
 def test_videoedit_exclusion_scoped_to_wan27_only(model_id: str) -> None:
     """videoedit 排除只对 wan2.7 家族生效——wan3 的 id 即便含 "videoedit" 子串（装饰前缀或

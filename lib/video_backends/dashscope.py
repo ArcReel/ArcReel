@@ -226,7 +226,7 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
         # s2v/v2v 等其余未实现模态同样不能落原生路由。按标识符边界匹配 _MODEL_PROFILES 里的
         # wan2.7 已知 key（而非要求 profile_key 与某个 key 完全相等）：profile_key 保留了代理
         # 中转的装饰前后缀（"proxy/wan2.7-r2v"），精确相等会把这些合法装饰名也判成未知模态。
-        has_known_modality = (
+        has_known_modality = not is_videoedit and (
             _find_known_profile_key(profile_key, (k for k in _MODEL_PROFILES if k.startswith("wan2.7-"))) is not None
         )
     elif family == "wan2x_dot" and is_image_to_video:
