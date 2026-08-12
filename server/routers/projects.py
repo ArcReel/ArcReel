@@ -1001,14 +1001,26 @@ async def get_script(name: str, script_file: str, _t: Translator):
 async def edit_script_batch(name: str, command: ScriptBatchEditCommand, _t: Translator) -> JSONResponse:
     """Execute the same revisioned script-edit command exposed to the in-process Agent."""
 
+    manager = None
     try:
-        result = await asyncio.to_thread(get_script_batch_editor().execute, name, command)
+        manager = get_project_manager()
+        try:
+            manager.get_project_path(name)
+        except ValueError as exc:
+            raise BadRequestError("invalid_project_name", name=name) from exc
+        except FileNotFoundError as exc:
+            raise NotFoundError("project_not_found", name=name) from exc
+
+        with project_change_source("webui"):
+            result = await asyncio.to_thread(get_script_batch_editor(manager).execute, name, command)
         return JSONResponse(status_code=script_batch_status(result), content=result.model_dump(mode="json"))
     except FileNotFoundError as exc:
-        if not get_project_manager().project_exists(name):
+        if manager is None or not manager.project_exists(name):
             raise NotFoundError("project_not_found", name=name) from exc
         target = command.script or str(command.episode)
         raise NotFoundError("script_not_found", name=target) from exc
+    except ApiError:
+        raise
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc

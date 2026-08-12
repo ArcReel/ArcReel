@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from lib.i18n.zh import errors as zh_errors
+from lib.project_change_hints import get_project_change_source
 from lib.project_manager import EmptySourceError, ProjectManager
 from lib.script_batch_edit import (
     InsertAfterOperation,
@@ -801,6 +802,56 @@ class TestProjectsRouter:
             assert stale.status_code == 409
             assert stale.json()["problems"][0]["code"] == "revision_conflict"
             assert pm.load_script("demo", "episode_1.json")["segments"][0]["note"] == "first"
+
+    @pytest.mark.unit
+    def test_revisioned_batch_endpoint_tags_webui_source_across_worker_thread(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        observed_sources: list[str] = []
+        revision = f"sha256-v1:{'0' * 64}"
+
+        class CapturingEditor:
+            def execute(self, _project_name, _command):
+                observed_sources.append(get_project_change_source())
+                return ScriptBatchEditResult(
+                    success=True,
+                    script="episode_1.json",
+                    episode=1,
+                    before_revision=revision,
+                    revision=revision,
+                )
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        monkeypatch.setattr(projects, "get_script_batch_editor", lambda _manager=None: CapturingEditor())
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/ready/script-edits",
+                json={
+                    "script": "episode_1.json",
+                    "expected_revision": revision,
+                    "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "first"}}],
+                },
+            )
+
+        assert response.status_code == 200
+        assert observed_sources == ["webui"]
+
+    @pytest.mark.unit
+    def test_revisioned_batch_endpoint_rejects_invalid_project_name(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/illegal-name/script-edits",
+                json={
+                    "script": "episode_1.json",
+                    "expected_revision": f"sha256-v1:{'0' * 64}",
+                    "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "first"}}],
+                },
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
 
     @pytest.mark.unit
     def test_create_ad_project(self, tmp_path, monkeypatch):

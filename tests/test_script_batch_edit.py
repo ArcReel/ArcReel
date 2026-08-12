@@ -400,6 +400,47 @@ def test_unrelated_video_unit_edit_does_not_reject_unmarked_legacy_mixed_speech(
     }
 
 
+def test_malformed_video_unit_shots_returns_structured_failure_without_writes(tmp_path: Path) -> None:
+    pm = ProjectManager(str(tmp_path))
+    pm.create_project("demo", content_mode="narration")
+    pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    pm.update_project("demo", lambda project: project.update({"generation_mode": "reference_video"}))
+    pm.save_script(
+        "demo",
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "video_units": [
+                {
+                    "unit_id": "E1U1",
+                    "shots": [{"text": "{风吹过旷野。}"}],
+                    "references": [],
+                    "duration_seconds": 8,
+                    "generated_assets": {},
+                }
+            ],
+        },
+        "episode_1.json",
+    )
+    service = ScriptBatchEditor(pm)
+    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+    before = script_path.read_bytes()
+
+    result = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1U1", "fields": {"shots": 123}}]),
+    )
+
+    assert result.success is False
+    problem = result.problems[0]
+    assert problem.code == "parse_failed"
+    assert problem.operation_index == 0
+    assert problem.unit_id == "E1U1"
+    assert problem.locations[0].path == ("shots",)
+    assert script_path.read_bytes() == before
+
+
 def test_remove_then_reinsert_same_id_preserves_anchor_media(
     editor: tuple[ProjectManager, ScriptBatchEditor, Path],
 ) -> None:

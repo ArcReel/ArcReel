@@ -516,6 +516,13 @@ def _admission_for(script: dict[str, Any], item_id: str) -> SpeechAdmission | No
     return None
 
 
+def _rederive_video_unit_references(item: dict[str, Any], project: dict[str, Any]) -> None:
+    """Derive only from a shot list; structured preflight reports malformed containers."""
+
+    if isinstance(item.get("shots"), list):
+        rederive_unit_references([item], project)
+
+
 def _apply_operation(
     script: dict[str, Any],
     operation: ScriptBatchOperation,
@@ -546,7 +553,7 @@ def _apply_operation(
         if kind == "video_units":
             body_changed = "shots" in roots and item.get("shots") != previous_shots
             if body_changed and "references" not in roots:
-                rederive_unit_references([item], project)
+                _rederive_video_unit_references(item, project)
             references_changed = "references" in roots and item.get("references") != previous_references
             if roots & {"shots", "references", "duration_seconds"}:
                 refresh_video_unit_replan_state(
@@ -594,7 +601,7 @@ def _apply_operation(
                 item["end_frame_image"] = removed["end_frame_image"]
         if kind == "video_units":
             if "references" not in item:
-                rederive_unit_references([item], project)
+                _rederive_video_unit_references(item, project)
             refresh_video_unit_replan_state(item, content_changed=True)
         items.insert(insert_at, item)
         return item_id, None, _admission_for(script, item_id)
