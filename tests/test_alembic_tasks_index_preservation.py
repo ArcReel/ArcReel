@@ -25,6 +25,7 @@ REBUILD_MIGRATIONS = [
     ("c4a91f7d2b18", "b7f2c41d9a30", frozenset()),
     ("285dbe1e9824", "8b1e8a1290ca", frozenset({"idx_tasks_status_provider_queued"})),
     ("548f6ca3e91c", "c9b24204c0de", frozenset()),
+    ("ea2e1a477bbf", "802fa55d8aff", frozenset({"ix_tasks_user_id"})),
 ]
 
 
@@ -59,8 +60,9 @@ def _tasks_indexes(db_path: Path) -> set[str]:
 def test_downgrade_keeps_indexes(alembic_cfg, revision, down_revision, intentional_drops):
     """降级一步后，除该迁移自身显式删除的索引外，降级前的索引一个不少。
 
-    从 head 逐级降到被测迁移，而不是从 base 升上来：``b942e8c5d545`` 的升级路径本身就会丢掉
-    去重索引（直到 ``a3f1c9b27e54`` 重建），从 base 升起来的断言在早期迁移上是空的。
+    从 head 逐级降到被测迁移，而不是从 base 升上来：升级路径在 ``ea2e1a477bbf`` 处同样会丢掉
+    去重索引、直到 ``a3f1c9b27e54`` 才重建，从 base 升起来时它在早期迁移上根本不存在，断言会
+    是空的。改回从 base 升会让这些用例静默失去意义。
     """
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, "head")
