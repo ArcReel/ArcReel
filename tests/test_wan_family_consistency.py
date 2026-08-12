@@ -137,6 +137,22 @@ def test_boundary_false_positives_are_rejected(model_id: str) -> None:
     assert caps.max_prompt_chars is None
 
 
+@pytest.mark.parametrize("model_id", ["swan2.7-image", "vendorwan2.7-image"])
+def test_wan_substring_image_variant_routes_to_image_endpoint_despite_rejected_family(
+    model_id: str,
+) -> None:
+    """不满足家族标识符边界的 id（如 "swan2.7-image"）仍含 "wan" 子串，会被通用 _VIDEO_PATTERN
+    命中——排除到图像端点的判定不能拿严格家族边界做门槛，否则会被误推到 openai-video。"""
+    assert infer_endpoint(model_id, "openai") == "openai-images"
+
+
+def test_wan27_videoedit_excluded_from_family_duration_preset() -> None:
+    """wan2.7-videoedit 本后端未实现该模态的请求构造，时长不套用 t2v/i2v/r2v 家族档
+    （落到通用预设，而非家族专属的 2-15s 全档）。"""
+    assert infer_supported_durations("wan2.7-videoedit") != list(range(2, 16))
+    assert infer_supported_durations("wan-2.7-videoedit") != list(range(2, 16))
+
+
 @pytest.mark.parametrize(
     ("model_id", "expected_max_reference_images"),
     [

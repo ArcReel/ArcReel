@@ -581,8 +581,15 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 带日期后缀的 wan3.0-video-image-20260801 这类真图像别名不以 "image" 结尾，会被误判成视频。
     # 故只把 image-to-video 续接语法（"image" 后紧跟 "to"/"2" 再接 "video"）当例外挑出来，其余
     # 含 image 语义一律按图像变体处理，不对图像变体的命名形态做任何假设。
+    #
+    # 该排除不能拿 is_wan_family（严格标识符边界）做门槛：_VIDEO_PATTERN 的 "wan" 分支本身无边界，
+    # "swan2.7-image" / "vendorwan2.7-image" 这类不满足家族边界的 id 依然会命中 _VIDEO_PATTERN，
+    # 若排除逻辑要求先通过严格家族判定，这类 id 就会被 is_video 误判为视频而不是落到图像家族推断。
+    # 因此排除只看"是否含 wan 子串"（与 _VIDEO_PATTERN 的宽度一致），不要求满足家族标识符边界；
+    # 家族边界只用于下面原生路由（dashscope-async-video）的资格判定。
+    contains_wan_token = "wan" in lowered
     wan_video_continuation = is_wan_family and classification.is_image_to_video
-    wan_image_variant = is_wan_family and is_image and not wan_video_continuation
+    wan_image_variant = contains_wan_token and is_image and not wan_video_continuation
     # videoedit 模态本后端未实现请求构造，即便命中家族正则也不走原生端点（见 classify_wan_model
     # 的 is_videoedit 处的说明），落到下方 5) 的通用视频端点。
     wan_unsupported_modality = is_wan_family and classification.is_videoedit

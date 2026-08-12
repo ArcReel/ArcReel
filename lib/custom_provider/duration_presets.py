@@ -72,12 +72,14 @@ def infer_supported_durations(model_id: str) -> list[int]:
 
     返回值始终是非空升序去重的正整数列表，且为独立 list（caller 可安全修改）。
     """
-    family = classify_wan_model(model_id).family
-    if family == "wan3":
+    classification = classify_wan_model(model_id)
+    if classification.family == "wan3":
         return list(_WAN3_DURATIONS)
-    if family == "wan2.7":
+    # wan2.7-videoedit 时长上限与 t2v/i2v/r2v 不同，且本后端未实现该模态的请求构造（同
+    # endpoints.py::infer_endpoint 排除出原生路由的处理），不套用家族档，落到下方通用预设。
+    if classification.family == "wan2.7" and not classification.is_videoedit:
         return list(_WAN27_DURATIONS)
-    if family == "happyhorse":
+    if classification.family == "happyhorse":
         return list(_HAPPYHORSE_DURATIONS)
     for pattern, durations in PRESETS:
         if pattern.search(model_id):
