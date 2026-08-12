@@ -294,6 +294,12 @@ class TestInferEndpoint:
             # kling-image2video 的"video 语义优先"原则），不能被笼统 is_image 误判成图像变体。
             ("wan-3-turbo-image-to-video", "openai", "dashscope-async-video"),
             ("wan3-image2video", "openai", "dashscope-async-video"),
+            # 反向陷阱：真图像别名不保证以 "image" 结尾（版本/日期/变体后缀），不能靠"结尾是不是
+            # image"反推是不是图像——只有显式 image-to-video 续接语法才算视频例外，其余含 image
+            # 语义一律仍是图像。
+            ("wan3.0-image-edit", "openai", "openai-images"),
+            ("wan-3-turbo-image-preview", "openai", "openai-images"),
+            ("wan3.0-video-image-20260801", "openai", "openai-images"),
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),
