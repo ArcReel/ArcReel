@@ -144,6 +144,8 @@ MESSAGES = {
         "thể xác định muốn chuyển sang nhóm nào. Vui lòng chỉ điền một nhóm."
     ),
     # Assistant
+    "assistant_image_too_large": "Mỗi ảnh gốc không được lớn hơn 5 MB",
+    "assistant_images_total_too_large": "Tổng dung lượng ảnh gốc không được lớn hơn 25 MB",
     "session_not_found": "Phiên '{session_id}' không tồn tại",
     "session_or_project_not_found": "Phiên hoặc dự án không tồn tại",
     "sdk_session_timeout": "Tạo phiên SDK quá thời gian",
