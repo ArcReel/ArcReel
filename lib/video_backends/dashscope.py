@@ -166,6 +166,11 @@ WAN_IMAGE_TO_VIDEO_PATTERN = re.compile(r"(?<![a-z0-9])image[-_]?(?:to|2)[-_]?vi
 # 避免 "videoeditor" 一类无关词形（"edit" 后紧邻字母）被误判命中。
 WAN_VIDEOEDIT_PATTERN = re.compile(r"(?<![a-z0-9])video[-_]?edit(?![a-z0-9])", re.I)
 
+# wan2.7-s2v（图生视频续接语音）/ wan2.7-v2v（视频生视频）：命中家族正则但同 videoedit 一样未
+# 实现请求构造的模态。与 has_known_modality 的语义区分：本模式只标记"这是已知的视频模态"（供路由
+# 判定是否落图像端点用），不代表已实现该模态的请求构造（仍须落 has_known_modality 的排除路径）。
+WAN_S2V_V2V_PATTERN = re.compile(r"(?<![a-z0-9])[sv]2v(?![a-z0-9])", re.I)
+
 WanFamily = Literal["happyhorse", "wan2.7", "wan3", "wan2x_dot"]
 
 
@@ -190,6 +195,14 @@ class WanClassification:
     # True：wan3 单模型覆盖全部模态、happyhorse 与 wan2x_dot 的模态收窄不由本字段判定（前者未见
     # 需要排除的模态，后者见 profile_key 处的说明）。
     has_known_modality: bool
+    # wan2.7 家族是否可确认属于视频模态（t2v/i2v/r2v/s2v/v2v/videoedit 任一），即便本后端未实现
+    # 其中部分模态（s2v/v2v/videoedit）的请求构造。与 has_known_modality 语义不同：后者只对已实现
+    # 请求构造的 t2v/i2v/r2v 为真，本字段额外把已知但未实现的视频模态也计入，用于和真图像变体
+    # （wan2.7-image 等未落入任何已知模态 token 的情形）区分——id 别处若另含无关 "image" 装饰
+    # （如代理命名空间前缀），不能让笼统 image 判定盖过已确认的视频语义。该区分只对 wan2.7 生效，
+    # 恒为 False：wan3 单模型覆盖全部模态、happyhorse/wan2x_dot 的图像/视频归属不由本字段判定
+    # （见 profile_key 与 has_known_modality 处的说明）。
+    is_known_video_modality: bool
 
 
 def classify_wan_model(model_id: str | None) -> WanClassification:
@@ -204,7 +217,12 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
         # happyhorse 无 image-to-video 续接语法与 videoedit 模态；t2v/i2v/r2v 具体档位交由
         # _profile_for_model 末尾的兜底子串匹配解析，此处不预先归一化。
         return WanClassification(
-            family="happyhorse", is_image_to_video=False, is_videoedit=False, profile_key=None, has_known_modality=True
+            family="happyhorse",
+            is_image_to_video=False,
+            is_videoedit=False,
+            profile_key=None,
+            has_known_modality=True,
+            is_known_video_modality=False,
         )
     if WAN3_PATTERN.search(normalized):
         family: WanFamily = "wan3"
@@ -219,14 +237,17 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
             is_videoedit=False,
             profile_key=None,
             has_known_modality=True,
+            is_known_video_modality=False,
         )
 
     # videoedit 是 wan2.7 家族内独有的模态（见 WAN_VIDEOEDIT_PATTERN 处的说明）；wan3/wan2x_dot
     # 不受它约束，否则形如 "proxy-videoedit/wan3-turbo" 这类与 videoedit 无关的装饰前缀会被误吞，
     # 把本应走原生路由的 wan3 模型错误排除出去。
     is_videoedit = family == "wan2.7" and bool(WAN_VIDEOEDIT_PATTERN.search(normalized))
+    is_s2v_or_v2v = family == "wan2.7" and bool(WAN_S2V_V2V_PATTERN.search(normalized))
     profile_key: str | None = None
     has_known_modality = True
+    is_known_video_modality = False
     if family == "wan3":
         profile_key = _WAN3_MODEL_KEY
     elif family == "wan2.7":
@@ -238,6 +259,10 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
         has_known_modality = not is_videoedit and (
             _find_known_profile_key(profile_key, (k for k in _MODEL_PROFILES if k.startswith("wan2.7-"))) is not None
         )
+        # t2v/i2v/r2v（has_known_modality）/ videoedit / s2v / v2v 均是已确认的视频模态，即便部分
+        # 未实现请求构造；其余未收敛命名（不落入任一已知模态 token）保守按图像变体处理，不做假设
+        # （见字段处的说明与 endpoints.py 里"不对图像变体的命名形态做任何假设"的既有原则一致）。
+        is_known_video_modality = has_known_modality or is_videoedit or is_s2v_or_v2v
     elif family == "wan2x_dot" and is_image_to_video:
         # wan2x_dot 没有登记任何 VideoCapabilities（profile_key 恒 None，下条注释），image-to-video
         # 续接语法命中时若仍放行原生路由，_profile_for_model 会回落 _DEFAULT_PROFILE（first_frame
@@ -253,6 +278,7 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
         is_videoedit=is_videoedit,
         profile_key=profile_key,
         has_known_modality=has_known_modality,
+        is_known_video_modality=is_known_video_modality,
     )
 
 

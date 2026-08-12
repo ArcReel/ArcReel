@@ -182,6 +182,23 @@ def test_wan3_image_variant_still_routes_to_image_endpoint(model_id: str) -> Non
     assert infer_endpoint(model_id, "openai") == "openai-images"
 
 
+@pytest.mark.parametrize("model_id", ["image-proxy/wan-2.7-s2v", "image-proxy/wan-2.7-v2v", "wan2.7-videoedit"])
+def test_wan27_known_unsupported_video_modality_not_downgraded_by_unrelated_image_decoration(
+    model_id: str,
+) -> None:
+    """s2v/v2v/videoedit 命中家族正则但本后端未实现请求构造（has_known_modality=False），仍是
+    已确认的视频模态——id 别处另含无关 "image" 子串时不应被误判成图像变体，须落通用视频端点
+    （而非图像端点）。"""
+    assert infer_endpoint(model_id, "openai") == "openai-video"
+
+
+@pytest.mark.parametrize("model_id", ["wan-2.7-fooimage-to-video", "wan-2.7-image-to-videofoo"])
+def test_wan27_unrecognized_modality_with_image_substring_stays_image_variant(model_id: str) -> None:
+    """未落入任一已知模态 token（t2v/i2v/r2v/s2v/v2v/videoedit）的其余命名，即便命中家族正则，
+    仍保守按图像变体处理，不能被"family==wan2.7 即视为视频"的宽泛判定误吞。"""
+    assert infer_endpoint(model_id, "openai") == "openai-images"
+
+
 def test_wan27_videoedit_excluded_from_family_duration_preset() -> None:
     """wan2.7-videoedit 本后端未实现该模态的请求构造，时长不套用 t2v/i2v/r2v 家族档
     （落到通用预设，而非家族专属的 2-15s 全档）。"""

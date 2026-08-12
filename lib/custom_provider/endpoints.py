@@ -588,18 +588,21 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 因此排除只看"是否含 wan 子串"（与 _VIDEO_PATTERN 的宽度一致），不要求满足家族标识符边界；
     # 家族边界只用于下面原生路由（dashscope-async-video）的资格判定。
     contains_wan_token = "wan" in lowered
-    # wan2.7 已解析出已知 t2v/i2v/r2v profile（has_known_modality）时，该 profile 本身已确立视频
-    # 语义——即便 id 别处（如代理命名空间前缀 "image-proxy/wan-2.7-i2v"）另含无关 "image" 子串，
-    # 也不应被判成图像变体。不对 wan3 套用同一判定：wan3 只有单一 profile key，不区分 t2v/i2v/r2v
-    # 与 image-edit 等真图像别名，has_known_modality 对 wan3 恒真，会反过来误伤 wan3.0-image-edit
-    # 一类真图像别名（见上方注释）。
+    # wan2.7 家族已确认属于视频模态（t2v/i2v/r2v/s2v/v2v/videoedit 任一，即便部分未实现请求构造，
+    # 见 classify_wan_model 的 is_known_video_modality 处的说明）时，该 profile 本身已确立视频
+    # 语义——即便 id 别处（如代理命名空间前缀 "image-proxy/wan-2.7-s2v"）另含无关 "image" 子串，
+    # 也不应被判成图像变体。未落入任一已知模态 token 的其余命名（如 "wan2.7-image"）保守按图像
+    # 变体处理。不对 wan3 套用同一判定：wan3 只有单一 profile key，不区分 t2v/i2v/r2v/s2v 与
+    # image-edit 等真图像别名，套用同一判定会反过来误伤 wan3.0-image-edit 一类真图像别名（见上方
+    # 注释）。
     #
     # 该判定同样不能拿 is_wan_family 做门槛，理由与上面 wan_image_variant 的排除范围一致：
     # "wan-2.2-image-to-video" 一类不满足家族严格边界（连字符隔开 wan 与版本号）的 id，
     # classify_wan_model 仍会按标识符边界识别出其 image-to-video 续接语法（is_image_to_video），
     # 若在这里再要求先通过家族判定，这类显式 i2v 命名会被误判成图像变体。
     wan_video_continuation = contains_wan_token and (
-        classification.is_image_to_video or (classification.family == "wan2.7" and classification.has_known_modality)
+        classification.is_image_to_video
+        or (classification.family == "wan2.7" and classification.is_known_video_modality)
     )
     wan_image_variant = contains_wan_token and is_image and not wan_video_continuation
     # 未实现请求构造的模态（wan2.7-videoedit / wan2.7-s2v / wan2.7-v2v 等）即便命中家族正则也不
