@@ -276,6 +276,8 @@ class TestRewriteHappyPath:
             {"type": "text", "text": "只改第 3 集"},
         ]
         assert entries[-1]["uuid"] == result["entry"]["uuid"]
+        # 正文非空时 echo 匹配仍按改写后的文本落链——SDK 回放丢掉图块，只剩这段文本
+        assert runtime.dispatched[0]["echo_text"] == "只改第 3 集"
 
     async def test_text_only_rewrite_stays_a_plain_string_prompt(self, rewriting):
         """不带附件的改写不因附件透传而改变形态。"""

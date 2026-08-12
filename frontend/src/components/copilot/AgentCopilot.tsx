@@ -288,7 +288,7 @@ export function AgentCopilot() {
   // 改写成功后由会话切换重建时间线（编辑态随 resetTimeline 清空）；失败保留编辑态，
   // 用户可以改完再试，错误经消息区上方的错误条呈现
   const handleSubmitEdit = useCallback((turnUuid: string, text: string, images: ImagePayload[]) => {
-    voidCall(rewriteMessage(turnUuid, text, images.length > 0 ? images : undefined));
+    voidCall(rewriteMessage(turnUuid, text, images));
   }, [rewriteMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {

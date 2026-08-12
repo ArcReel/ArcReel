@@ -16,6 +16,7 @@ import type {
   TaskItem,
   TaskStats,
   SessionMeta,
+  ImagePayload,
   EntriesResponse,
   TimelineEntry,
   FailureObservation,
@@ -1906,7 +1907,7 @@ class API {
     projectName: string,
     content: string,
     sessionId?: string | null,
-    images?: Array<{ data: string; media_type: string }>,
+    images?: ImagePayload[],
     clientKey?: string
   ): Promise<{ session_id: string; status: string; entry: TimelineEntry | null }> {
     return this.request(`${this.assistantBase(projectName)}/sessions/send`, {
@@ -1934,7 +1935,7 @@ class API {
     sessionId: string,
     anchorEntryUuid: string,
     content: string,
-    images?: Array<{ data: string; media_type: string }>,
+    images?: ImagePayload[],
     clientKey?: string
   ): Promise<{ status: string; session_id: string; origin_session_id: string | null; entry: TimelineEntry | null }> {
     return this.request(
