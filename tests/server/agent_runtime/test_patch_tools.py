@@ -738,7 +738,7 @@ class TestPatchEpisodeScript:
         project["products"] = {"产品B": {"description": ""}}
         ref_ctx.pm.save_project("demo", project)
 
-        original_load_project = ref_ctx.pm.load_project
+        original_load_project = ref_ctx.pm.load_project_readonly
         first_load = True
 
         def _load_then_remove_product(project_name: str) -> dict[str, Any]:
@@ -750,7 +750,7 @@ class TestPatchEpisodeScript:
                 ref_ctx.pm.save_project(project_name, current)
             return stale
 
-        monkeypatch.setattr(ref_ctx.pm, "load_project", _load_then_remove_product)
+        monkeypatch.setattr(ref_ctx.pm, "load_project_readonly", _load_then_remove_product)
 
         changed = await _call(
             patch_episode_script_tool(ref_ctx),

@@ -342,6 +342,11 @@ class ScriptBatchEditor:
                     message = structure.error_messages[0]
                     location = _validation_location(message)
                     item_id = _unit_id_at_location(candidate, location.path)
+                    operation_index = _responsible_operation(
+                        item_id,
+                        location.path,
+                        command.operations,
+                    )
                     raise _AbortEdit(
                         self._failure(
                             script=resolved_script,
@@ -349,13 +354,8 @@ class ScriptBatchEditor:
                             revision=before_revision,
                             code="schema_invalid",
                             reason="candidate_schema_invalid",
-                            next_action="fix_operation",
-                            operation_index=_responsible_operation(
-                                item_id,
-                                location.path,
-                                last_touch,
-                                command.operations,
-                            ),
+                            next_action="fix_operation" if operation_index is not None else "repair_script",
+                            operation_index=operation_index,
                             unit_id=item_id,
                             locations=(location,),
                         )
@@ -374,6 +374,11 @@ class ScriptBatchEditor:
                     message = validation_errors[0]
                     location = _validation_location(message)
                     item_id = _unit_id_at_location(candidate, location.path)
+                    operation_index = _responsible_operation(
+                        item_id,
+                        location.path,
+                        command.operations,
+                    )
                     raise _AbortEdit(
                         self._failure(
                             script=resolved_script,
@@ -381,13 +386,8 @@ class ScriptBatchEditor:
                             revision=before_revision,
                             code="references_invalid",
                             reason="candidate_references_invalid",
-                            next_action="fix_operation",
-                            operation_index=_responsible_operation(
-                                item_id,
-                                location.path,
-                                last_touch,
-                                command.operations,
-                            ),
+                            next_action="fix_operation" if operation_index is not None else "repair_script",
+                            operation_index=operation_index,
                             unit_id=item_id,
                             locations=(location,),
                         )
@@ -793,7 +793,6 @@ def _unit_id_at_location(script: dict[str, Any], path: tuple[str | int, ...]) ->
 def _responsible_operation(
     item_id: str | None,
     location: tuple[str | int, ...],
-    last_touch: dict[str, int],
     operations: list[ScriptBatchOperation],
 ) -> int | None:
     relative_path = location[2:] if len(location) >= 3 and isinstance(location[1], int) else ()
@@ -805,9 +804,7 @@ def _responsible_operation(
                     return index
             elif isinstance(operation, InsertAfterOperation) and _operation_id(operation) == item_id:
                 return index
-    if item_id is not None and item_id in last_touch:
-        return last_touch[item_id]
-    return len(operations) - 1 if operations else None
+    return None
 
 
 def _operation_field_affects_location(field: str, location: tuple[str | int, ...]) -> bool:

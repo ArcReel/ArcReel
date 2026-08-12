@@ -478,6 +478,31 @@ def test_reference_failure_is_attributed_to_the_operation_that_changed_the_field
     assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before
 
 
+@pytest.mark.parametrize("edited_id", ["E1S01", "E1S02"])
+def test_preexisting_reference_failure_is_not_attributed_to_unrelated_operation(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+    edited_id: str,
+) -> None:
+    pm, service, project_dir = editor
+    with pm.locked_script("demo", "episode_1.json", validate=False) as script:
+        script["segments"][0]["characters_in_segment"] = ["missing"]
+    script_path = project_dir / "scripts" / "episode_1.json"
+    before = script_path.read_bytes()
+
+    result = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": edited_id, "fields": {"note": "unrelated"}}]),
+    )
+
+    assert result.success is False
+    problem = result.problems[0]
+    assert problem.code == "references_invalid"
+    assert problem.operation_index is None
+    assert problem.unit_id == "E1S01"
+    assert problem.next_action == "repair_script"
+    assert script_path.read_bytes() == before
+
+
 def test_unrelated_video_unit_edit_does_not_reject_unmarked_legacy_mixed_speech(tmp_path: Path) -> None:
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo", content_mode="narration")
