@@ -138,6 +138,12 @@ class RenderReportTest(unittest.TestCase):
             MODULE.build_report_data(self.root, "batch-one", self.analysis)
 
         data = analysis_fixture()
+        data["issues"][0]["state"] = "closed"
+        self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ReportError, "state must be one of"):
+            MODULE.build_report_data(self.root, "batch-one", self.analysis)
+
+        data = analysis_fixture()
         del data["batch"]["top_recommendation"]
         self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         with self.assertRaisesRegex(MODULE.ReportError, "top_recommendation must be an object"):
@@ -209,10 +215,10 @@ class RenderReportTest(unittest.TestCase):
 
         data = analysis_fixture()
         decision["positions"][0]["reason"] = "有收益"
-        decision["positions"][0]["id"] = "EV-0001"
+        decision["positions"][0]["id"] = "DEC-02-A"
         data["pending"] = [decision]
         self.analysis.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        with self.assertRaisesRegex(MODULE.ReportError, "collides with a ledger event"):
+        with self.assertRaisesRegex(MODULE.ReportError, "must use decision prefix DEC-01-"):
             MODULE.build_report_data(self.root, "batch-one", self.analysis)
 
     def test_accepts_markdown_body_and_structured_decision_options(self) -> None:

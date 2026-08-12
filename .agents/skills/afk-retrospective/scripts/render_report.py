@@ -17,6 +17,7 @@ BATCH_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 REPORT_ID_RE = re.compile(r"^\S+$")
 KNOWLEDGE_KEYS = ("CONTEXT", "ADR", "INST")
 RESERVED_REPORT_IDS = {"BATCH-OVERVIEW", *(f"{key}-EMPTY" for key in KNOWLEDGE_KEYS)}
+ISSUE_STATES = ("merged", "shelved", "not_started", "done")
 RECOMMENDATIONS = ("强烈建议", "值得探索", "推测性", "无需处理")
 KNOWLEDGE_ACTIONS = {
     "CONTEXT": ("create", "revise", "retire", "none"),
@@ -106,8 +107,10 @@ def validate_analysis(value: Any) -> dict[str, Any]:
         path = f"analysis.issues[{index}]"
         item = expect_mapping(value, path)
         require(item, "number", path)
-        for field in ("title", "state"):
-            expect_string(require(item, field, path), f"{path}.{field}")
+        expect_string(require(item, "title", path), f"{path}.title")
+        state = expect_string(require(item, "state", path), f"{path}.state")
+        if state not in ISSUE_STATES:
+            fail(f"{path}.state must be one of: {', '.join(ISSUE_STATES)}")
 
     for index, value in enumerate(followups):
         path = f"analysis.followups[{index}]"
@@ -148,7 +151,8 @@ def validate_analysis(value: Any) -> dict[str, Any]:
     for index, value in enumerate(pending):
         path = f"analysis.pending[{index}]"
         item = expect_mapping(value, path)
-        register(require(item, "id", path), f"{path}.id")
+        decision_id = expect_string(require(item, "id", path), f"{path}.id")
+        register(decision_id, f"{path}.id")
         for field in ("kind", "title", "body_markdown", "current_state"):
             expect_string(require(item, field, path), f"{path}.{field}")
         validate_sources(item, path)
@@ -158,7 +162,10 @@ def validate_analysis(value: Any) -> dict[str, Any]:
         for option_index, option_value in enumerate(positions):
             option_path = f"{path}.positions[{option_index}]"
             option = expect_mapping(option_value, option_path)
-            register(require(option, "id", option_path), f"{option_path}.id")
+            option_id = expect_string(require(option, "id", option_path), f"{option_path}.id")
+            if not re.fullmatch(rf"{re.escape(decision_id)}-[A-Z]+", option_id):
+                fail(f"{option_path}.id must use decision prefix {decision_id}- and an uppercase suffix")
+            register(option_id, f"{option_path}.id")
             for field in ("label", "stance", "reason"):
                 expect_string(require(option, field, option_path), f"{option_path}.{field}")
 
