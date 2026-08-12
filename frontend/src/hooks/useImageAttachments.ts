@@ -31,6 +31,7 @@ export function useImageAttachments(initialImages: AttachedImage[] = []) {
   const { t } = useTranslation("dashboard");
   const [images, setImages] = useState<AttachedImage[]>(initialImages);
   const [error, setError] = useState<string | null>(null);
+  const [pendingReads, setPendingReads] = useState(0);
   const generationRef = useRef(0);
 
   useEffect(() => () => {
@@ -47,15 +48,24 @@ export function useImageAttachments(initialImages: AttachedImage[] = []) {
         continue;
       }
       const reader = new FileReader();
+      setPendingReads((current) => current + 1);
+      const finishRead = () => {
+        if (generationRef.current !== generation) return;
+        setPendingReads((current) => Math.max(0, current - 1));
+      };
       reader.onload = (event) => {
         if (generationRef.current !== generation) return;
         const dataUrl = event.target?.result;
-        if (typeof dataUrl !== "string") return;
-        setImages((current) => {
-          if (current.length >= MAX_ATTACHED_IMAGES) return current;
-          return [...current, { id: uid(), dataUrl, mimeType: file.type }];
-        });
+        if (typeof dataUrl === "string") {
+          setImages((current) => {
+            if (current.length >= MAX_ATTACHED_IMAGES) return current;
+            return [...current, { id: uid(), dataUrl, mimeType: file.type }];
+          });
+        }
+        finishRead();
       };
+      reader.onerror = finishRead;
+      reader.onabort = finishRead;
       reader.readAsDataURL(file);
     }
   }, [t]);
@@ -69,11 +79,21 @@ export function useImageAttachments(initialImages: AttachedImage[] = []) {
     generationRef.current += 1;
     setImages([]);
     setError(null);
+    setPendingReads(0);
   }, []);
 
   const invalidatePendingReaders = useCallback(() => {
     generationRef.current += 1;
+    setPendingReads(0);
   }, []);
 
-  return { images, error, addFiles, removeImage, resetImages, invalidatePendingReaders };
+  return {
+    images,
+    error,
+    isReading: pendingReads > 0,
+    addFiles,
+    removeImage,
+    resetImages,
+    invalidatePendingReaders,
+  };
 }

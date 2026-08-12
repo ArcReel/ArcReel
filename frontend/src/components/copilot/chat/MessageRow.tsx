@@ -184,6 +184,7 @@ function MessageEditor({
   const {
     images,
     error: attachError,
+    isReading: isReadingImages,
     addFiles,
     removeImage,
     invalidatePendingReaders,
@@ -206,10 +207,19 @@ function MessageEditor({
   const hasContent = Boolean(draft.trim()) || images.length > 0;
 
   const submit = useCallback(() => {
-    if (submitting || !canSubmit || !hasContent) return;
+    if (submitting || !canSubmit || !hasContent || isReadingImages) return;
     invalidatePendingReaders();
     onSubmit(draft, images.map(attachmentToImagePayload));
-  }, [draft, images, hasContent, submitting, canSubmit, onSubmit, invalidatePendingReaders]);
+  }, [
+    draft,
+    images,
+    hasContent,
+    isReadingImages,
+    submitting,
+    canSubmit,
+    onSubmit,
+    invalidatePendingReaders,
+  ]);
 
   return (
     <div className={`${USER_BUBBLE_LAYOUT_CLASS} ${BUBBLE_SHELL_CLASS}`} style={USER_BUBBLE_STYLE}>
@@ -329,7 +339,7 @@ function MessageEditor({
         </button>
         <button
           type="button"
-          disabled={submitting || !canSubmit || !hasContent}
+          disabled={submitting || !canSubmit || !hasContent || isReadingImages}
           onClick={submit}
           title={t("message_edit_resend_hint")}
           className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"

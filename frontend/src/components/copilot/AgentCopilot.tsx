@@ -188,6 +188,7 @@ export function AgentCopilot() {
   const {
     images: attachedImages,
     error: attachError,
+    isReading: isReadingImages,
     addFiles: addImages,
     removeImage,
     resetImages,
@@ -239,7 +240,7 @@ export function AgentCopilot() {
   }, [addImages]);
 
   const handleSend = useCallback(() => {
-    if (inputDisabled || (!localInput.trim() && attachedImages.length === 0)) return;
+    if (inputDisabled || isReadingImages || (!localInput.trim() && attachedImages.length === 0)) return;
     invalidatePendingReaders();
     setShowSlashMenu(false);
     // 发送期间输入锁定（sending 置位）；受理成功才清空，失败保留内容供重试
@@ -256,7 +257,15 @@ export function AgentCopilot() {
         },
       ),
     );
-  }, [inputDisabled, localInput, attachedImages, sendMessage, invalidatePendingReaders, resetImages]);
+  }, [
+    inputDisabled,
+    isReadingImages,
+    localInput,
+    attachedImages,
+    sendMessage,
+    invalidatePendingReaders,
+    resetImages,
+  ]);
 
   // 改写成功后由会话切换重建时间线（编辑态随 resetTimeline 清空）；失败保留编辑态，
   // 用户可以改完再试，错误经消息区上方的错误条呈现
@@ -682,7 +691,9 @@ export function AgentCopilot() {
           ) : (
             <button
               onClick={handleSend}
-              disabled={(!localInput.trim() && attachedImages.length === 0) || inputDisabled}
+              disabled={
+                (!localInput.trim() && attachedImages.length === 0) || inputDisabled || isReadingImages
+              }
               className="shrink-0 rounded-md p-1.5 transition-opacity focus-ring disabled:cursor-not-allowed disabled:opacity-30"
               style={{
                 color: "oklch(0.14 0 0)",

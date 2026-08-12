@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Turn } from "@/types";
 import { MessageRow } from "./MessageRow";
@@ -128,6 +128,38 @@ describe("MessageRow", () => {
       { data: "AAAA", media_type: "image/png" },
       { data: "bmV3LWltYWdl", media_type: "image/png" },
     ]);
+  });
+
+  it("keeps resend disabled until a newly selected image finishes loading", () => {
+    const originalFileReader = globalThis.FileReader;
+    let finishRead: (() => void) | undefined;
+    class DeferredReader {
+      onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onabort: (() => void) | null = null;
+
+      readAsDataURL() {
+        finishRead = () => {
+          this.onload?.({
+            target: { result: "data:image/png;base64,bmV3LWltYWdl" },
+          } as unknown as ProgressEvent<FileReader>);
+        };
+      }
+    }
+    vi.stubGlobal("FileReader", DeferredReader);
+    const onSubmitEdit = vi.fn();
+    render(<MessageRow turn={imageTurn} editable editing onSubmitEdit={onSubmitEdit} />);
+
+    fireEvent.change(screen.getByLabelText("上传附件图片"), {
+      target: { files: [new File(["new-image"], "new.png", { type: "image/png" })] },
+    });
+    expect(screen.getByRole("button", { name: "重新发送" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByLabelText("改写消息内容"), { key: "Enter", metaKey: true });
+    expect(onSubmitEdit).not.toHaveBeenCalled();
+
+    act(() => finishRead?.());
+    expect(screen.getByRole("button", { name: "重新发送" })).toBeEnabled();
+    vi.stubGlobal("FileReader", originalFileReader);
   });
 
   it("disables resend when removing the final attachment leaves an empty draft", () => {
