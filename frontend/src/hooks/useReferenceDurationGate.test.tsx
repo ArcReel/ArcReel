@@ -38,6 +38,7 @@ describe("useReferenceDurationGate", () => {
     });
 
     expect(pushToast).toHaveBeenCalledWith(error.message, "error");
+    expect(pushToast).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
   });
 

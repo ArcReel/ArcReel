@@ -1824,6 +1824,37 @@ async def test_generate_video_scene_happy(fake_ctx: ToolContext, monkeypatch) ->
 
 
 @pytest.mark.unit
+async def test_generate_video_scene_accepts_legacy_drama_dialogue(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+        "content_mode": "drama",
+        "scenes": [
+            {
+                "scene_id": "E1S01",
+                "video_prompt": {
+                    "action": "阿离转身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                    "dialogue": [{"speaker": "张三", "line": "跟紧我。"}],
+                },
+                "voiceover": [],
+                "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+            }
+        ],
+    }
+
+    async def fake_enqueue(**kwargs):
+        return {"task": {}, "result": {"file_path": "videos/scene_E1S01.mp4"}}
+
+    monkeypatch.setattr(mod, "enqueue_and_wait", fake_enqueue)
+    out = await _call(generate_video_scene_tool(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
+
+    assert out.get("is_error") is not True, out
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("case", SPEECH_CONTRACT_CASES, ids=lambda case: case.route_id)
 async def test_six_route_agent_single_video_generation_returns_structured_admission_without_enqueuing(
     fake_ctx: ToolContext,

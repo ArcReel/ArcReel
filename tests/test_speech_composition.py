@@ -124,6 +124,22 @@ def test_character_dialogue_inner_monologue_and_offscreen_speech_share_character
     ]
 
 
+def test_legacy_drama_dialogue_is_admitted_from_its_persisted_field() -> None:
+    source = {
+        "scene_id": "E1S02",
+        "video_prompt": {"dialogue": [{"speaker": "阿离", "line": "跟紧我。"}]},
+        "voiceover": [],
+    }
+
+    result = SpeechComposition.prepare(adapt_drama_scene(source))
+
+    assert result.mode is SpeechMode.CHARACTER_SPEECH
+    assert [(entry.owner, entry.speaker, entry.text) for entry in result.utterances] == [
+        (SpeechOwner.CHARACTER, "阿离", "跟紧我。")
+    ]
+    assert result.problems == ()
+
+
 @pytest.mark.parametrize(
     ("adapter", "source"),
     [

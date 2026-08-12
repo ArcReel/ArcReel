@@ -210,6 +210,39 @@ class TestGenerateRouter:
             assert call["payload"]["duration_seconds"] == 5
 
     @pytest.mark.unit
+    def test_legacy_drama_dialogue_can_enqueue_single_video(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["content_mode"] = "drama"
+        fake_pm.script = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "video_prompt": {
+                        "action": "阿离转身",
+                        "camera_motion": "Static",
+                        "ambiance_audio": "风声",
+                        "dialogue": [{"speaker": "Alice", "line": "跟紧我。"}],
+                    },
+                    "voiceover": [],
+                    "generated_assets": {},
+                }
+            ],
+        }
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "阿离转身"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert len(fake_queue.calls) == 1
+
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         "case",
         [case for case in SPEECH_CONTRACT_CASES if case.generation_mode == "storyboard"],

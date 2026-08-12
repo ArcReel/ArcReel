@@ -16,14 +16,19 @@ from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from lib.api_errors import ApiError, NotFoundError
-from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
+from lib.asset_types import asset_name_comparison_key
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import EpisodeScriptReboundError, get_project_manager, is_reference_video_project
-from lib.reference_video import assemble_shots_text, parse_prompt, rederive_unit_references
+from lib.reference_video import (
+    assemble_shots_text,
+    missing_registered_references,
+    parse_prompt,
+    rederive_unit_references,
+)
 from lib.reference_video.script_preview import build_script_preview
 from lib.reference_video.units import reference_unit_video_bucket, reference_video_bucket
 from lib.reference_video.voice_settings import VoiceRenderSettings
@@ -163,11 +168,7 @@ def _locked_episode_script(project_name: str, resolver: Callable[[dict], str], _
 
 def _validate_references_exist(project: dict, refs: list[dict], _t: Translator) -> None:
     """确保 references 都在 project.json 对应 bucket 中。"""
-    missing: list[str] = []
-    for r in refs:
-        bucket = normalize_asset_bucket(project.get(BUCKET_KEY.get(r["type"], "")))
-        if asset_name_comparison_key(r["name"]) not in bucket:
-            missing.append(f"{r['type']}:{r['name']}")
+    missing = missing_registered_references(refs, project)
     if missing:
         raise HTTPException(status_code=400, detail=_t("ref_not_registered", missing=", ".join(missing)))
 

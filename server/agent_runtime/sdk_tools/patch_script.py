@@ -17,7 +17,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.reference_video import rederive_unit_references
+from lib.reference_video import missing_registered_references, rederive_unit_references
 from lib.script_editor import (
     ScriptEditError,
     insert_segment,
@@ -137,6 +137,10 @@ def patch_episode_script_tool(ctx: ToolContext):
                         if field.split(".", 1)[0] in _REGEN_TRIGGER_FIELDS and scene_id not in regen_ids:
                             regen_ids.append(scene_id)
                     edited_roots = {field.split(".", 1)[0] for field in fields}
+                    if unit is not None and kind == "video_units" and "references" in edited_roots:
+                        missing = missing_registered_references(unit.get("references"), project)
+                        if missing:
+                            raise ScriptEditError(f"references 包含未登记资产: {', '.join(missing)}")
                     body_changed = False
                     if unit is not None:
                         body_changed = (
