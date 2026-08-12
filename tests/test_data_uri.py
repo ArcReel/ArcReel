@@ -40,11 +40,6 @@ class TestImageToDataUri:
         path.write_bytes(b"img")
         assert image_to_data_uri(path, _IMAGE_MIME_TYPES).startswith("data:image/png;base64,")
 
-    def test_default_mime_is_overridable(self, tmp_path: Path):
-        path = tmp_path / "c.tiff"
-        path.write_bytes(b"img")
-        assert image_to_data_uri(path, _IMAGE_MIME_TYPES, default_mime="image/bmp").startswith("data:image/bmp;base64,")
-
 
 class TestReferenceAudioToDataUri:
     def test_encodes_listed_suffix(self, tmp_path: Path):

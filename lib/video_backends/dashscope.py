@@ -15,7 +15,6 @@ schema 的确权程度按型号分两档：happyhorse 与 wan2.7 依据 docs/das
 
 from __future__ import annotations
 
-import base64
 import logging
 from pathlib import Path
 
@@ -35,6 +34,7 @@ from lib.dashscope_shared import (
     resolve_dashscope_api_key,
     safe_body_for_log,
 )
+from lib.data_uri import file_to_data_uri
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_DASHSCOPE
 from lib.retry import (
@@ -85,7 +85,7 @@ def _read_reference_audio_or_none(path: Path) -> str | None:
     if not path.is_file():
         return None
     try:
-        return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+        return file_to_data_uri(path, mime)
     except OSError as exc:
         logger.warning("DashScope 参考音频读取失败: %s (%s)", path, exc)
         return None
