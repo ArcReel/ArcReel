@@ -211,7 +211,9 @@ def _build_unit_dict(
     return unit
 
 
-def _require_unit_ready(unit: dict, *, ignore_marker: bool = False) -> None:
+def _require_unit_ready(unit: dict, *, ignore_marker: bool = False, allow_blank_draft: bool = False) -> None:
+    if allow_blank_draft and not assemble_shots_text(unit.get("shots") or []).strip():
+        return
     admission = admit_script_unit("video_units", unit, ignore_marker=ignore_marker)
     if not admission.allowed:
         raise HTTPException(status_code=409, detail=admission.to_dict())
@@ -266,7 +268,7 @@ async def add_unit(
             transition=req.transition_to_next,
             note=req.note,
         )
-        _require_unit_ready(unit, ignore_marker=True)
+        _require_unit_ready(unit, ignore_marker=True, allow_blank_draft=True)
         script.setdefault("video_units", []).append(unit)
     return {"unit": unit}
 

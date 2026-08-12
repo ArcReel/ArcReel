@@ -105,6 +105,17 @@ def test_add_unit_creates_minimal_entry(client: TestClient):
 
 
 @pytest.mark.integration
+def test_add_unit_allows_blank_editor_draft(client: TestClient):
+    response = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "", "duration_seconds": 3, "references": []},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["unit"]["shots"] == [{"text": ""}]
+
+
+@pytest.mark.integration
 def test_add_unit_without_duration_falls_back_to_model_slot(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     """请求不给时长 → 取项目能力解析出的档位首项（与执行层解析申请秒数的回退序同源）。"""
     _patch_supported_durations(monkeypatch, [6, 9])
