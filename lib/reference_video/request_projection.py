@@ -206,13 +206,15 @@ class ReferenceUnitRequestProjection:
 class ReferenceAssetAvailability(Protocol):
     """资产可用性适配器；生产实现检查项目内文件，测试可用内存替身。"""
 
-    def is_available(self, asset: ResolvedReferenceAsset) -> bool: ...
+    def is_available(self, asset: ResolvedReferenceAsset) -> bool:
+        raise NotImplementedError
 
 
 class ReferenceCapabilityProjection(Protocol):
     """当前 provider/model 能力的异步适配器。"""
 
-    async def resolve_candidate(self, project: dict, capability: VideoCapability) -> ProviderProjectionCandidate: ...
+    async def resolve_candidate(self, project: dict, capability: VideoCapability) -> ProviderProjectionCandidate:
+        raise NotImplementedError
 
 
 @dataclass(frozen=True)
