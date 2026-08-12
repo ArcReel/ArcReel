@@ -141,7 +141,7 @@ GET  https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1/tasks/{task_id}
 - `lib/custom_provider/duration_presets.py` 的 `happyhorse` 正则(3–15)与 `lib/custom_provider/endpoints.py` 的 `"happyhorse"` 子串路由(dashscope-async-video)天然覆盖 1.1,无需改动
 - 首尾帧需求不要落在 happyhorse 上(全系无尾帧);官方首尾帧推荐 `wan2.7-i2v-2026-04-25`
 - Token Plan 接入:视频走原生异步路径且 schema 同构,理论上现有 `DashScopeVideoBackend` 换 `base_url`(`https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1`)+ `sk-sp-` Key 即可复用;但额度用尽是 429 硬阻断而非转按量,若接入需把该错误映射成用户可读的配额提示,且仅北京地域可用
-- HappyHorse 全系的官方来源入口已登记在 `docs/api-docs/providers/dashscope.md`；本研究保留下方逐页来源清单，不再维护官方正文副本
+- 仓库登记的 HappyHorse 模型官方来源入口已登记在 `docs/api-docs/providers/dashscope.md`；本研究保留下方逐页来源清单，不再维护官方正文副本
 
 ## 来源清单
 
