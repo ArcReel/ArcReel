@@ -11,16 +11,13 @@ from typing import Protocol
 
 import httpx
 
+from lib.data_uri import image_to_data_uri as _image_to_data_uri
 from lib.video_backends.base import IMAGE_MIME_TYPES
 
 
 def image_to_base64_data_uri(image_path: Path) -> str:
     """将本地图片转为 base64 data URI。"""
-    suffix = image_path.suffix.lower()
-    mime_type = IMAGE_MIME_TYPES.get(suffix, "image/png")
-    image_data = image_path.read_bytes()
-    b64 = base64.b64encode(image_data).decode("ascii")
-    return f"data:{mime_type};base64,{b64}"
+    return _image_to_data_uri(image_path, IMAGE_MIME_TYPES)
 
 
 async def download_image_to_path(url: str, output_path: Path, *, timeout: int = 60) -> None:

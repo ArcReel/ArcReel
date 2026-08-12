@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 from datetime import timedelta
 from pathlib import Path
 
+from lib.data_uri import image_to_data_uri
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.grok_shared import create_grok_client, grok_should_retry
 from lib.logging_utils import format_kwargs_for_log
@@ -114,21 +114,17 @@ class GrokVideoBackend:
         if request.resolution is not None:
             generate_kwargs["resolution"] = request.resolution
 
-        def _encode_to_data_uri(path: Path) -> str:
-            suffix = path.suffix.lower()
-            mime_type = IMAGE_MIME_TYPES.get(suffix, "image/png")
-            b64 = base64.b64encode(path.read_bytes()).decode("ascii")
-            return f"data:{mime_type};base64,{b64}"
-
         if request.start_image and Path(request.start_image).exists():
             image_path = Path(request.start_image)
-            generate_kwargs["image_url"] = await asyncio.to_thread(_encode_to_data_uri, image_path)
+            generate_kwargs["image_url"] = await asyncio.to_thread(image_to_data_uri, image_path, IMAGE_MIME_TYPES)
 
         if request.reference_images:
             ref_paths = [Path(p) if not isinstance(p, Path) else p for p in request.reference_images]
             existing_paths = [p for p in ref_paths if p.exists()]
             if existing_paths:
-                ref_urls = await asyncio.gather(*[asyncio.to_thread(_encode_to_data_uri, p) for p in existing_paths])
+                ref_urls = await asyncio.gather(
+                    *[asyncio.to_thread(image_to_data_uri, p, IMAGE_MIME_TYPES) for p in existing_paths]
+                )
                 generate_kwargs["reference_image_urls"] = list(ref_urls)
 
         logger.info("Grok 视频生成开始: model=%s, duration=%ds", self._model, request.duration_seconds)

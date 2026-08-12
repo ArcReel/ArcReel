@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -14,6 +14,7 @@ from typing import Protocol
 import httpx
 from sqlalchemy.exc import InterfaceError, OperationalError
 
+from lib.data_uri import file_to_data_uri
 from lib.retry import BASE_RETRYABLE_ERRORS, _should_retry, with_retry_async
 
 # `_should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
@@ -412,6 +413,30 @@ class VideoCapabilityError(RuntimeError):
         self.code = code
         self.params = params
         super().__init__(code)
+
+
+def reference_audio_to_data_uri(path: Path, *, model: str, mime_types: Mapping[str, str]) -> str:
+    """参考音频 → base64 data URI；格式不受支持或文件不可读一律抛错。
+
+    音频不能像参考图那样「缺失即跳过」：prompt 里的「音频N」按 content 数组中音频条目的
+    出现顺序编号，跳过一段会让其后所有编号整体前移，把某个角色的音色安到另一个角色头上
+    ——错得无声无息，且照常扣费。
+
+    ``mime_types`` 由各 backend 传入：同一个扩展名各家接受的 MIME 写法不一致（mp3 有
+    ``audio/mp3`` 与 ``audio/mpeg`` 两种口径），合表会让其中一家收到没验证过的 MIME。
+    """
+    mime = mime_types.get(path.suffix.lower())
+    if mime is None:
+        raise VideoCapabilityError(
+            "video_reference_audio_format_unsupported",
+            model=model,
+            name=path.name,
+            supported=", ".join(sorted(mime_types)),
+        )
+    try:
+        return file_to_data_uri(path, mime)
+    except OSError as exc:
+        raise VideoCapabilityError("video_reference_audio_unreadable", model=model, names=path.name) from exc
 
 
 class ReferenceAudioMode(StrEnum):
