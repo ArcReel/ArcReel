@@ -12,6 +12,7 @@ import copy
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -75,7 +76,8 @@ class _FakePM:
                 {
                     "segment_id": "E1S01",
                     "image_prompt": "村口黄昏",
-                    "video_prompt": "镜头平移",
+                    "novel_text": "黄昏时分，风吹过村口。",
+                    "video_prompt": {"action": "镜头平移", "camera_motion": "Pan", "ambiance_audio": "风声"},
                     "duration_seconds": 4,
                     "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
                 },
@@ -1821,6 +1823,26 @@ async def test_generate_video_scene_happy(fake_ctx: ToolContext, monkeypatch) ->
 
 
 @pytest.mark.unit
+async def test_generate_video_scene_returns_structured_speech_admission_without_enqueuing(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload["segments"][0]["video_prompt"]["dialogue"] = [  # type: ignore[attr-defined]
+        {"speaker": "张三", "line": "快走。"}
+    ]
+    enqueue = AsyncMock()
+    monkeypatch.setattr(mod, "enqueue_and_wait", enqueue)
+
+    out = await _call(generate_video_scene_tool(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
+
+    assert out.get("is_error") is True
+    assert out["speech_admission"]["unit_id"] == "E1S01"
+    assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
+    enqueue.assert_not_awaited()
+
+
+@pytest.mark.unit
 async def test_generate_video_scene_missing(fake_ctx: ToolContext) -> None:
     tool_obj = generate_video_scene_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "NO_SUCH"})
@@ -3409,6 +3431,10 @@ async def test_generate_video_episode_ad_reference_replan_shell_cannot_enqueue(
     )
 
     assert out.get("is_error") is True
+    assert out["speech_admission"]["allowed"] is False
+    assert out["speech_admission"]["unit_id"] == "E1U1"
+    assert out["speech_admission"]["problems"][0]["code"] == "needs_replan"
+    assert out["speech_admission"]["problems"][0]["action"] == "replan_unit"
     assert "E1U1" in out["content"][0]["text"]
     assert not called
 

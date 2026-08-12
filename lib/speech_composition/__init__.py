@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -113,6 +113,59 @@ class SpeechPreparation:
     mode: SpeechMode | None
     utterances: tuple[SpeechUtterance, ...]
     problems: tuple[SpeechProblem, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SpeechAdmission:
+    """Structured generation admission derived from one script unit."""
+
+    preparation: SpeechPreparation
+
+    @property
+    def allowed(self) -> bool:
+        return not self.preparation.problems
+
+    @property
+    def unit_id(self) -> str:
+        return self.preparation.unit_id
+
+    @property
+    def mode(self) -> SpeechMode | None:
+        return self.preparation.mode
+
+    @property
+    def problems(self) -> tuple[SpeechProblem, ...]:
+        return self.preparation.problems
+
+    def to_dict(self) -> dict[str, object]:
+        """Return the transport-neutral payload shared by Web and Agent adapters."""
+
+        return {
+            "allowed": self.allowed,
+            "unit_id": self.unit_id,
+            "mode": self.mode.value if self.mode is not None else None,
+            "problems": [
+                {
+                    "code": problem.code.value,
+                    "unit_id": problem.unit_id,
+                    "locations": [
+                        {"path": list(location.path), "line": location.line} for location in problem.locations
+                    ],
+                    "reason": problem.reason.value,
+                    "action": problem.action.value,
+                }
+                for problem in self.problems
+            ],
+        }
+
+
+class SpeechAdmissionError(ValueError):
+    """A structured speech blocker that transport adapters can serialize."""
+
+    def __init__(self, admission: SpeechAdmission) -> None:
+        self.admission = admission
+        codes = ", ".join(problem.code.value for problem in admission.problems)
+        super().__init__(f"unit {admission.unit_id} speech admission blocked: {codes}")
 
 
 class SpeechComposition:
@@ -433,6 +486,46 @@ def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
     return SpeechUnitSnapshot(normalized_unit_id, tuple(entries), tuple(problems))
 
 
+_SKELETON_ADAPTERS: dict[str, Callable[[Mapping[str, object]], SpeechUnitSnapshot]] = {
+    "segments": adapt_narration_segment,
+    "scenes": adapt_drama_scene,
+    "shots": adapt_ad_shot,
+    "video_units": adapt_video_unit,
+}
+
+
+def admit_script_unit(
+    skeleton_kind: str,
+    unit: Mapping[str, object],
+    *,
+    ignore_marker: bool = False,
+) -> SpeechAdmission:
+    """Evaluate one script unit through the adapter registered for its skeleton."""
+
+    try:
+        adapter = _SKELETON_ADAPTERS[skeleton_kind]
+    except KeyError as exc:
+        raise ValueError(f"未知剧本骨架: {skeleton_kind!r}") from exc
+    source = dict(unit)
+    if ignore_marker:
+        source.pop("needs_replan", None)
+    return SpeechAdmission(SpeechComposition.prepare(adapter(source)))
+
+
+def require_script_unit_admitted(
+    skeleton_kind: str,
+    unit: Mapping[str, object],
+    *,
+    ignore_marker: bool = False,
+) -> SpeechAdmission:
+    """Return admission or raise a structured blocker before any side effect."""
+
+    admission = admit_script_unit(skeleton_kind, unit, ignore_marker=ignore_marker)
+    if not admission.allowed:
+        raise SpeechAdmissionError(admission)
+    return admission
+
+
 def video_unit_replan_problems(
     unit: Mapping[str, object],
     *,
@@ -443,10 +536,7 @@ def video_unit_replan_problems(
     ``ignore_marker`` is for repair flows that must evaluate the edited content without
     letting the durable ``needs_replan`` marker make itself impossible to clear.
     """
-    source = dict(unit)
-    if ignore_marker:
-        source.pop("needs_replan", None)
-    return SpeechComposition.prepare(adapt_video_unit(source)).problems
+    return admit_script_unit("video_units", unit, ignore_marker=ignore_marker).problems
 
 
 def refresh_video_unit_replan_state(
@@ -477,6 +567,8 @@ def refresh_video_unit_replan_state(
 
 
 __all__ = [
+    "SpeechAdmission",
+    "SpeechAdmissionError",
     "SpeechComposition",
     "SpeechFieldLocation",
     "SpeechInputUtterance",
@@ -493,6 +585,8 @@ __all__ = [
     "adapt_drama_scene",
     "adapt_narration_segment",
     "adapt_video_unit",
+    "admit_script_unit",
     "refresh_video_unit_replan_state",
+    "require_script_unit_admitted",
     "video_unit_replan_problems",
 ]

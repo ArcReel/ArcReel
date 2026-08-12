@@ -238,12 +238,32 @@ class TestDramaGateFlow:
 
         # 内容变更（指纹漂移）→ 自动重新待审
         edited = _drama_step1()
-        edited["scenes"][0]["utterances"][1]["text"] = "你怎么才回来。"
+        edited["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
         await svc.save_content("demo", 1, edited)
 
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
-        assert state["content"]["scenes"][0]["utterances"][1]["text"] == "你怎么才回来。"
+        assert state["content"]["scenes"][0]["scene_description"] == "雨势渐急，阿离仍站在屋檐下"
+
+    @pytest.mark.unit
+    async def test_legacy_mixed_scene_allows_metadata_edit_but_rejects_speech_edit_atomically(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        path = _write_step1(pm, "drama", _drama_step1())
+
+        metadata_edit = _drama_step1()
+        metadata_edit["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
+        await svc.save_content("demo", 1, metadata_edit)
+
+        speech_edit = json.loads(json.dumps(metadata_edit, ensure_ascii=False))
+        speech_edit["scenes"][0]["utterances"][1]["text"] = "别过来。"
+        with pytest.raises(ScriptReviewError) as exc_info:
+            await svc.save_content("demo", 1, speech_edit)
+
+        assert exc_info.value.code == "speech_admission"
+        assert exc_info.value.admission is not None
+        assert exc_info.value.admission.problems[0].code == "mixed_speech"
+        assert json.loads(path.read_text(encoding="utf-8")) == metadata_edit
 
     @pytest.mark.unit
     async def test_whitespace_reformat_keeps_confirmed(self, tmp_path):

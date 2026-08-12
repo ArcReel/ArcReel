@@ -31,6 +31,7 @@ from lib.reference_video.shot_parser import (
 )
 from lib.reference_video.writing_syntax import MAX_SHOTS_PER_UNIT
 from lib.script_models import ReferenceResource, Shot
+from lib.speech_composition import SpeechProblem, admit_script_unit
 from lib.speech_rate import estimate_spoken_seconds
 
 #: 台词口播时长相对 unit 时长的宽容系数：估算超出 unit 时长这个比例才判超载。
@@ -53,11 +54,24 @@ class DraftViolation(ValueError):
     呈现层区分「行内锚定」与「落卡内聚合区」两条路径。
     """
 
-    def __init__(self, message: str, *, code: str = "", label: str = "", line: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "",
+        label: str = "",
+        line: int | None = None,
+        locations: tuple[dict[str, object], ...] = (),
+        reason: str | None = None,
+        action: str | None = None,
+    ):
         super().__init__(message)
         self.code = code
         self.label = label
         self.line = line
+        self.locations = locations
+        self.reason = reason
+        self.action = action
 
 
 class DraftViolations(DraftViolation):
@@ -325,7 +339,36 @@ def validate_unit_text(
             code="refs_over_limit",
             label=label,
         )
+    unit_id = label.removeprefix("unit ").strip()
+    admission = admit_script_unit(
+        "video_units",
+        {
+            "unit_id": unit_id,
+            "shots": [shot.model_dump() for shot in shots],
+            "references": [reference.model_dump() for reference in refs],
+        },
+    )
+    if not admission.allowed:
+        raise DraftViolations([_speech_problem_violation(problem) for problem in admission.problems])
     return shots, refs
+
+
+def _speech_problem_violation(problem: SpeechProblem) -> DraftViolation:
+    locations = ", ".join(
+        ".".join(str(part) for part in location.path) + (f" line {location.line}" if location.line is not None else "")
+        for location in problem.locations
+    )
+    line = problem.locations[0].line if len(problem.locations) == 1 else None
+    return DraftViolation(
+        f"unit {problem.unit_id} 发声准入未通过（{problem.reason.value}，定位：{locations}）；"
+        f"下一步：{problem.action.value}",
+        code=problem.code.value,
+        label=f"unit {problem.unit_id}",
+        line=line,
+        locations=tuple({"path": list(location.path), "line": location.line} for location in problem.locations),
+        reason=problem.reason.value,
+        action=problem.action.value,
+    )
 
 
 def validate_dialogue_load(

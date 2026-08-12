@@ -121,13 +121,31 @@ class TestScriptReviewRouter:
             client.post(f"{base}/confirm")
 
             edited = _drama_step1()
-            edited["scenes"][0]["utterances"][1]["text"] = "你怎么才回来。"
+            edited["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
             put = client.put(f"{base}/content", json=edited)
             assert put.status_code == 200
             assert put.json()["status"] == "pending_review"
 
             got = client.get(base)
-            assert got.json()["content"]["scenes"][0]["utterances"][1]["text"] == "你怎么才回来。"
+            assert got.json()["content"]["scenes"][0]["scene_description"] == "雨势渐急，阿离仍站在屋檐下"
+
+    @pytest.mark.unit
+    def test_editing_legacy_mixed_speech_returns_structured_atomic_rejection(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            original = _drama_step1()
+            _write_step1(pm, original)
+            edited = _drama_step1()
+            edited["scenes"][0]["utterances"][1]["text"] = "你怎么才回来。"
+
+            put = client.put(f"{base}/content", json=edited)
+
+            assert put.status_code == 409
+            detail = put.json()["detail"]
+            assert detail["unit_id"] == "E1S01"
+            assert detail["problems"][0]["code"] == "mixed_speech"
+            assert client.get(base).json()["content"] == original
 
     @pytest.mark.unit
     def test_put_invalid_content_422(self, tmp_path, monkeypatch):

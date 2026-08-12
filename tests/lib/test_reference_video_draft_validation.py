@@ -6,6 +6,7 @@ import pytest
 
 from lib.reference_video.draft_validation import (
     DraftViolation,
+    DraftViolations,
     assert_dialogue_preserved,
     dialogue_speakers,
     normative_lines,
@@ -13,6 +14,7 @@ from lib.reference_video.draft_validation import (
     validate_source_text_anchor,
     validate_unit_text,
 )
+from lib.reference_video.quarantine import violation_entries
 
 pytestmark = pytest.mark.unit
 
@@ -51,6 +53,35 @@ class TestSourceTextAnchor:
 
 
 class TestUnitText:
+    def test_mixed_speech_is_a_structured_planning_violation(self):
+        with pytest.raises(DraftViolations) as exc_info:
+            validate_unit_text(
+                "unit E1U01",
+                "镜头1：门被推开\n@[李明]：{快走。}\n{风吹过旷野。}",
+                PROJECT,
+                max_refs=None,
+            )
+
+        problem = exc_info.value.items[0]
+        assert problem.code == "mixed_speech"
+        assert problem.label == "unit E1U01"
+        assert violation_entries([problem]) == [
+            {
+                "code": "mixed_speech",
+                "label": "unit E1U01",
+                "message": str(problem),
+                "line": None,
+                "locations": [
+                    {"path": ["shots", 0, "text"], "line": 1},
+                    {"path": ["shots", 0, "text"], "line": 2},
+                ],
+                "reason": "character_and_narrator_mixed",
+                "action": "replan_unit",
+            }
+        ]
+        assert "character_and_narrator_mixed" in str(problem)
+        assert "replan_unit" in str(problem)
+
     def test_derives_shots_and_references(self):
         shots, refs = validate_unit_text(
             "unit E1U01",

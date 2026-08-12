@@ -29,7 +29,7 @@ from lib.reference_video.units import reference_unit_video_bucket, reference_vid
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
-from lib.speech_composition import refresh_video_unit_replan_state, video_unit_replan_problems
+from lib.speech_composition import admit_script_unit, refresh_video_unit_replan_state
 from lib.version_manager import VersionManager
 from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
@@ -211,9 +211,10 @@ def _build_unit_dict(
     return unit
 
 
-def _require_unit_ready(unit: dict, _t: Translator) -> None:
-    if video_unit_replan_problems(unit):
-        raise HTTPException(status_code=409, detail=_t("ref_unit_needs_replan"))
+def _require_unit_ready(unit: dict, _t: Translator, *, ignore_marker: bool = False) -> None:
+    admission = admit_script_unit("video_units", unit, ignore_marker=ignore_marker)
+    if not admission.allowed:
+        raise HTTPException(status_code=409, detail=admission.to_dict())
 
 
 # ============ 端点：列出 + 新建 ============
@@ -265,6 +266,7 @@ async def add_unit(
             transition=req.transition_to_next,
             note=req.note,
         )
+        _require_unit_ready(unit, _t, ignore_marker=True)
         script.setdefault("video_units", []).append(unit)
     return {"unit": unit}
 
@@ -325,6 +327,8 @@ async def patch_unit(
         # 只有正文重写能证明迁移留下的镜头归属问题已被重新规划；仅改时长或引用
         # 不能解除 overlapping / dangling legacy shot 对应的 durable marker。
         body_changed = req.prompt is not None and unit.get("shots") != previous_shots
+        if req.prompt is not None:
+            _require_unit_ready(unit, _t, ignore_marker=True)
         if body_changed and refs is None:
             # references 是正文的机械派生物。调用方显式给 references 时尊重其人工排序；只改正文
             # 时则必须用持锁复核后的 project 资产表重派生，避免旧引用继续决定 @图片N 绑定。

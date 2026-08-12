@@ -1691,4 +1691,8 @@ export default {
   'end_frame_picker_group_grid_cells': '本集宫格切图',
   'end_frame_picker_storyboard_label': '镜头 {{id}}',
   'end_frame_picker_grid_cell_label': '{{grid}} 第 {{index}} 格',
+  'speech_admission_mixed_speech': '视频单元 {{unitId}} 在 {{location}} 同时包含角色台词和旁白。请重新规划，让一个单元只由一种发声主体负责。',
+  'speech_admission_needs_replan': '视频单元 {{unitId}} 正在等待重新规划（{{location}}）。请先重新规划发声内容，再生成视频。',
+  'speech_admission_parse_failed': '视频单元 {{unitId}} 在 {{location}} 的发声内容无法解析。请先修正该字段，再生成视频。',
+  'speech_admission_empty_speaker': '视频单元 {{unitId}} 在 {{location}} 有未指定角色的台词。请先指定发声角色，再生成视频。',
 } satisfies Record<keyof typeof enDashboard, string>;

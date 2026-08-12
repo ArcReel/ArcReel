@@ -285,8 +285,9 @@ class TestPatchEpisodeScript:
         assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S01", "E1S02"]
 
     @pytest.mark.unit
-    async def test_create_missing_optional_leaf(self, ctx: ToolContext) -> None:
-        """叶子字段不存在可创建（补 LLM 漏写的 optional 字段 video_prompt.dialogue）。"""
+    async def test_creating_character_dialogue_on_narration_segment_is_atomic_rejection(self, ctx: ToolContext) -> None:
+        """补入角色台词会与 novel_text 旁白混合，因此拒绝且不落盘。"""
+        before = _load(ctx)
         out = await _call(
             patch_episode_script_tool(ctx),
             {
@@ -294,8 +295,29 @@ class TestPatchEpisodeScript:
                 "edits": {"E1S01": {"video_prompt.dialogue": [{"speaker": "甲", "line": "台词"}]}},
             },
         )
+        assert out.get("is_error") is True
+        assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
+        assert _load(ctx) == before
+
+    @pytest.mark.unit
+    async def test_repairing_machine_candidate_clears_replan_marker(self, ctx: ToolContext) -> None:
+        script = _script()
+        script["segments"][0]["video_prompt"]["dialogue"] = [{"speaker": "甲", "line": "台词"}]
+        script["segments"][0]["needs_replan"] = True
+        ctx.pm.save_script("demo", script, "episode_1.json")
+
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {
+                    "E1S01": {"video_prompt": {"action": "转身", "camera_motion": "Static", "ambiance_audio": "风声"}}
+                },
+            },
+        )
+
         assert out.get("is_error") is not True
-        assert _load(ctx)["segments"][0]["video_prompt"]["dialogue"] == [{"speaker": "甲", "line": "台词"}]
+        assert _load(ctx)["segments"][0].get("needs_replan") is not True
 
     @pytest.mark.unit
     async def test_rejects_path_in_script_arg(self, ctx: ToolContext) -> None:
@@ -366,6 +388,29 @@ class TestPatchEpisodeScript:
         )
         assert out.get("is_error") is not True
         assert _load(ref_ctx)["video_units"][0]["note"] == "单元备注"
+
+    @pytest.mark.unit
+    async def test_reference_mixed_speech_patch_is_atomic_and_structured(self, ref_ctx: ToolContext) -> None:
+        before = _load(ref_ctx)
+
+        out = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {
+                    "E1U1": {
+                        "shots": [
+                            {"text": "镜头1\n@[角色A]：{快走。}\n{风吹过旷野。}"},
+                        ]
+                    }
+                },
+            },
+        )
+
+        assert out.get("is_error") is True
+        assert out["speech_admission"]["unit_id"] == "E1U1"
+        assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
+        assert _load(ref_ctx) == before
 
     @pytest.mark.integration
     async def test_reference_replan_marker_requires_planning_edit(self, ref_ctx: ToolContext) -> None:
@@ -517,6 +562,21 @@ class TestInsertRemoveSplit:
         assert ids == ["E1S01", "E1S01_1", "E1S02"]
 
     @pytest.mark.unit
+    async def test_insert_mixed_speech_is_structured_and_atomic(self, ctx: ToolContext) -> None:
+        before = _load(ctx)
+        mixed = _segment("IGN")
+        mixed["video_prompt"]["dialogue"] = [{"speaker": "角色A", "line": "快走。"}]
+
+        out = await _call(
+            insert_segment_tool(ctx),
+            {"script": "episode_1.json", "after_id": "E1S01", "item": mixed},
+        )
+
+        assert out.get("is_error") is True
+        assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
+        assert _load(ctx) == before
+
+    @pytest.mark.unit
     async def test_remove_by_id(self, ctx: ToolContext) -> None:
         out = await _call(remove_segment_tool(ctx), {"script": "episode_1.json", "id": "E1S01"})
         assert out.get("is_error") is not True
@@ -537,6 +597,27 @@ class TestInsertRemoveSplit:
         assert ids == ["E1S01", "E1S01_1", "E1S02"]
         assert not saved[0].get("generated_assets")
         assert not saved[1].get("generated_assets")
+
+    @pytest.mark.unit
+    async def test_split_mixed_speech_preserves_original_and_generated_assets(self, ctx: ToolContext) -> None:
+        script = _script()
+        script["segments"][0]["generated_assets"] = {
+            "video_clip": "paid-video.mp4",
+            "status": "completed",
+        }
+        ctx.pm.save_script("demo", script, "episode_1.json")
+        before = _load(ctx)
+        mixed = _segment("b")
+        mixed["video_prompt"]["dialogue"] = [{"speaker": "角色A", "line": "快走。"}]
+
+        out = await _call(
+            split_segment_tool(ctx),
+            {"script": "episode_1.json", "id": "E1S01", "parts": [_segment("a"), mixed]},
+        )
+
+        assert out.get("is_error") is True
+        assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
+        assert _load(ctx) == before
 
     @pytest.mark.unit
     async def test_split_too_few_parts_errors(self, ctx: ToolContext) -> None:

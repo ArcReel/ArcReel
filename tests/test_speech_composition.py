@@ -2,7 +2,9 @@ from copy import deepcopy
 
 import pytest
 
+from lib.script_skeleton import resolve_declared_kind
 from lib.speech_composition import (
+    SpeechAdmission,
     SpeechComposition,
     SpeechFieldLocation,
     SpeechMode,
@@ -14,9 +16,123 @@ from lib.speech_composition import (
     adapt_drama_scene,
     adapt_narration_segment,
     adapt_video_unit,
+    admit_script_unit,
 )
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.mark.parametrize(
+    ("content_mode", "generation_mode", "item", "expected_locations"),
+    [
+        (
+            "narration",
+            "storyboard",
+            {
+                "segment_id": "E1S01",
+                "novel_text": "风吹过旷野。",
+                "video_prompt": {"dialogue": [{"speaker": "阿离", "line": "快走。"}]},
+            },
+            (
+                SpeechFieldLocation(("video_prompt", "dialogue", 0, "line")),
+                SpeechFieldLocation(("novel_text",)),
+            ),
+        ),
+        (
+            "drama",
+            "storyboard",
+            {
+                "scene_id": "E1S01",
+                "utterances": [
+                    {"kind": "dialogue", "speaker": "阿离", "text": "快走。"},
+                    {"kind": "voiceover", "speaker": None, "text": "风吹过旷野。"},
+                ],
+            },
+            (
+                SpeechFieldLocation(("utterances", 0, "text")),
+                SpeechFieldLocation(("utterances", 1, "text")),
+            ),
+        ),
+        (
+            "ad",
+            "storyboard",
+            {
+                "shot_id": "E1S01",
+                "video_prompt": {"dialogue": [{"speaker": "阿离", "line": "快走。"}]},
+                "voiceover_text": "风吹过旷野。",
+            },
+            (
+                SpeechFieldLocation(("video_prompt", "dialogue", 0, "line")),
+                SpeechFieldLocation(("voiceover_text",)),
+            ),
+        ),
+        *[
+            (
+                content_mode,
+                "reference_video",
+                {
+                    "unit_id": "E1U01",
+                    "shots": [{"text": "@[阿离]：{快走。}\n{风吹过旷野。}"}],
+                },
+                (
+                    SpeechFieldLocation(("shots", 0, "text"), line=0),
+                    SpeechFieldLocation(("shots", 0, "text"), line=1),
+                ),
+            )
+            for content_mode in ("narration", "drama", "ad")
+        ],
+    ],
+)
+def test_six_content_route_combinations_share_one_structured_speech_admission(
+    content_mode: str,
+    generation_mode: str,
+    item: dict,
+    expected_locations: tuple[SpeechFieldLocation, ...],
+) -> None:
+    kind = resolve_declared_kind(content_mode, generation_mode)
+
+    admission = admit_script_unit(kind, item)
+
+    assert isinstance(admission, SpeechAdmission)
+    assert admission.allowed is False
+    assert admission.mode is None
+    assert admission.unit_id in {"E1S01", "E1U01"}
+    assert [(problem.code, problem.reason, problem.action, problem.locations) for problem in admission.problems] == [
+        (
+            SpeechProblemCode.MIXED_SPEECH,
+            SpeechProblemReason.CHARACTER_AND_NARRATOR_MIXED,
+            SpeechProblemAction.REPLAN_UNIT,
+            expected_locations,
+        )
+    ]
+
+
+def test_speech_admission_serializes_stable_problem_codes_and_locations() -> None:
+    admission = admit_script_unit(
+        "video_units",
+        {
+            "unit_id": "E2U03",
+            "shots": [{"text": "@[阿离]：{快走。}\n{风吹过旷野。}"}],
+        },
+    )
+
+    assert admission.to_dict() == {
+        "allowed": False,
+        "unit_id": "E2U03",
+        "mode": None,
+        "problems": [
+            {
+                "code": "mixed_speech",
+                "unit_id": "E2U03",
+                "locations": [
+                    {"path": ["shots", 0, "text"], "line": 0},
+                    {"path": ["shots", 0, "text"], "line": 1},
+                ],
+                "reason": "character_and_narrator_mixed",
+                "action": "replan_unit",
+            }
+        ],
+    }
 
 
 def test_narration_novel_text_is_materialized_as_narrator_voiceover() -> None:

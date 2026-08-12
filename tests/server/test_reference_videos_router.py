@@ -140,6 +140,22 @@ def test_add_unit_rejects_unknown_asset_reference(client: TestClient):
     assert "未知角色" in resp.json()["detail"]
 
 
+@pytest.mark.unit
+def test_add_unit_atomically_rejects_mixed_speech(client: TestClient):
+    response = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={
+            "prompt": "镜头1：张三推门\n@[张三]：{快走。}\n{风吹过旷野。}",
+            "duration_seconds": 3,
+            "references": [{"type": "character", "name": "张三"}],
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["problems"][0]["code"] == "mixed_speech"
+    assert client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json() == {"units": []}
+
+
 def _seed_unit(client: TestClient) -> str:
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
@@ -166,6 +182,31 @@ def test_patch_unit_prompt_keeps_duration(client: TestClient):
     assert len(unit["shots"]) == 2
     assert unit["duration_seconds"] == 3
     assert unit["references"] == [{"type": "scene", "name": "酒馆"}]
+
+
+@pytest.mark.integration
+def test_patch_mixed_speech_preserves_existing_unit_and_paid_media(client: TestClient):
+    uid = _seed_unit(client)
+    before = client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()["units"][0]
+    before["generated_assets"] = {"video_clip": f"reference_videos/{uid}.mp4", "status": "completed"}
+    # 模拟已有付费生成历史；人工正文修改失败时 locked_script 不得写回任何候选字段。
+    from server.routers import reference_videos as router_mod
+
+    pm = router_mod.get_project_manager()
+    script = pm.load_script("demo", "episode_1.json")
+    script["video_units"][0]["generated_assets"] = before["generated_assets"]
+    pm.save_script("demo", script, "episode_1.json")
+
+    response = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"prompt": "镜头1：张三推门\n@[张三]：{快走。}\n{风吹过旷野。}"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["problems"][0]["code"] == "mixed_speech"
+    after = client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()["units"][0]
+    assert after["shots"] == before["shots"]
+    assert after["generated_assets"] == before["generated_assets"]
 
 
 @pytest.mark.integration

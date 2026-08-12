@@ -808,6 +808,20 @@ class TestAddMetadataRewritesEpisodePrefix:
         assert out["segments"][1]["segment_id"] == "E3S02_1"
 
     @pytest.mark.unit
+    def test_storyboard_machine_candidate_preserves_mixed_speech_and_marks_replan(self, tmp_path: Path) -> None:
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        utterances = [
+            {"kind": "dialogue", "speaker": "阿离", "text": "快走。"},
+            {"kind": "voiceover", "speaker": None, "text": "风吹过旷野。"},
+        ]
+        data = {"scenes": [{"scene_id": "E1S01", "utterances": utterances}]}
+
+        out = sg._add_metadata(data, episode=1)
+
+        assert out["scenes"][0]["needs_replan"] is True
+        assert out["scenes"][0]["utterances"] == utterances
+
+    @pytest.mark.unit
     def test_reference_video_rewrites_unit_ids(self, tmp_path: Path) -> None:
         project_path = tmp_path / "demo"
         _write_json(

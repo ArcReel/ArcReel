@@ -31,8 +31,12 @@ from lib.prompt_utils import (
 from lib.reference_video import assemble_shots_text
 from lib.reference_video.units import reference_unit_video_bucket
 from lib.script_models import get_generated_assets, resolve_content_mode
-from lib.script_skeleton import ensure_route_skeleton
-from lib.speech_composition import video_unit_replan_problems
+from lib.script_skeleton import ensure_route_skeleton, resolve_script_kind
+from lib.speech_composition import (
+    SpeechAdmissionError,
+    require_script_unit_admitted,
+    video_unit_replan_problems,
+)
 from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
@@ -53,6 +57,18 @@ _CONFIRM_DURATION_SCHEMA_PROPERTY = {
         "返回待确认清单；用户同意后带 confirm_duration=true 再次调用完成入队。"
     ),
 }
+
+
+def _speech_admission_error(name: str, exc: SpeechAdmissionError, log: list[str] | None = None) -> dict[str, Any]:
+    payload = exc.admission.to_dict()
+    text = f"{name} 失败: unit {exc.admission.unit_id} 发声准入未通过；请按 problems 的 action 修复"
+    if log:
+        text = "\n".join([text, *log])
+    return {
+        "content": [{"type": "text", "text": text}],
+        "is_error": True,
+        "speech_admission": payload,
+    }
 
 
 @dataclass(frozen=True)
@@ -349,17 +365,19 @@ def _reference_unit_spec(unit: Any, script_filename: str) -> TaskSpec:
     if not isinstance(unit, dict):
         raise ValueError("unit 必须是对象")
     unit_id = str(unit.get("unit_id") or "")
-    if video_unit_replan_problems(unit):
-        raise ValueError("needs_replan 或口播归属无法安全生成")
+    if unit.get("needs_replan") is True:
+        require_script_unit_admitted("video_units", unit)
     if not unit.get("shots"):
         raise ValueError("没有 shots")
-    return TaskSpec.from_request(
+    spec = TaskSpec.from_request(
         task_type="reference_video",
         media_type="video",
         resource_id=unit_id,
         prompt=assemble_shots_text(unit["shots"]),
         script_file=script_filename,
     )
+    require_script_unit_admitted("video_units", unit)
+    return spec
 
 
 def _build_reference_specs(
@@ -381,6 +399,11 @@ def _build_reference_specs(
         # 是 ValueError 子类，捕 ValueError 同时覆盖两者。
         try:
             spec = _reference_unit_spec(unit, script_filename)
+        except SpeechAdmissionError as exc:
+            if any(problem.code.value != "parse_failed" for problem in exc.admission.problems):
+                raise
+            log.append(f"⚠️  {unit_id} 发声准入未通过，跳过：{json.dumps(exc.admission.to_dict(), ensure_ascii=False)}")
+            continue
         except ValueError as exc:
             log.append(f"⚠️  {unit_id} 入队校验未通过，跳过：{exc}")
             continue
@@ -657,6 +680,8 @@ def _assert_reference_units_generatable(units: list[dict[str, Any]], script_file
     for unit in units:
         try:
             _reference_unit_spec(unit, script_filename)
+        except SpeechAdmissionError:
+            raise
         except ValueError as exc:
             raise ValueError(f"unit {unit.get('unit_id')} 无法生成：{exc}") from exc
 
@@ -819,6 +844,8 @@ def generate_video_episode_tool(ctx: ToolContext):
             _clear_checkpoint_at(ckpt_path)
             header = f"第 {episode} 集视频生成完成，共 {len(scene_videos)} 个片段"
             return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
+        except SpeechAdmissionError as exc:
+            return _speech_admission_error("generate_video_episode", exc, log)
         except Exception as exc:  # noqa: BLE001
             return tool_error("generate_video_episode", exc, log)
 
@@ -873,6 +900,7 @@ def generate_video_scene_tool(ctx: ToolContext):
             # 必须用脚本里的规范 ``id_field`` 值，否则下游 generate_video_all 和
             # checkpoint 扫描会找不到产物。
             item_id = str(item[id_field])
+            require_script_unit_admitted(resolve_script_kind(script), item)
 
             storyboard_image = get_generated_assets(item).get("storyboard_image")
             # 字段值来自磁盘剧本 JSON，不可信任：resolve_storyboard_image_ref 统一做类型检查 +
@@ -917,6 +945,8 @@ def generate_video_scene_tool(ctx: ToolContext):
             rel = result.get("file_path") or f"videos/scene_{item_id}.mp4"
             output_path = project_dir / rel
             return {"content": [{"type": "text", "text": f"✅ 视频已保存: {output_path}"}]}
+        except SpeechAdmissionError as exc:
+            return _speech_admission_error("generate_video_scene", exc, log)
         except Exception as exc:  # noqa: BLE001
             return tool_error("generate_video_scene", exc, log)
 
@@ -990,6 +1020,8 @@ def generate_video_all_tool(ctx: ToolContext):
                 "content": [{"type": "text", "text": "\n".join([header, *log, *details])}],
                 "is_error": bool(failures),
             }
+        except SpeechAdmissionError as exc:
+            return _speech_admission_error("generate_video_all", exc, log)
         except Exception as exc:  # noqa: BLE001
             return tool_error("generate_video_all", exc, log)
 
@@ -1132,6 +1164,8 @@ def generate_video_selected_tool(ctx: ToolContext):
             _clear_checkpoint_at(ckpt_path)
             header = f"generate_video_selected 完成：{len(final_results)} 个"
             return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
+        except SpeechAdmissionError as exc:
+            return _speech_admission_error("generate_video_selected", exc, log)
         except Exception as exc:  # noqa: BLE001
             return tool_error("generate_video_selected", exc, log)
 

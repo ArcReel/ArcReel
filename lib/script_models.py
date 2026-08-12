@@ -257,6 +257,7 @@ class NarrationSegment(BaseModel):
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
 
 
 class NovelInfo(BaseModel):
@@ -506,6 +507,7 @@ class DramaScene(BaseModel):
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
 
 
 class DramaEpisodeScript(BaseModel):
@@ -700,6 +702,7 @@ class AdShot(BaseModel):
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
 
 
 class AdEpisodeScript(BaseModel):

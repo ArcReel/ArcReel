@@ -874,8 +874,8 @@ class TestProjectsRouter:
             assert update_overview.json()["overview"]["synopsis"] == "new synopsis"
 
     @pytest.mark.unit
-    def test_update_scene_accepts_utterances(self, tmp_path, monkeypatch):
-        # drama 分镜详情编辑场景级发声序列：utterances 在白名单内，PATCH 写回并持久化
+    def test_update_scene_atomically_rejects_mixed_utterances(self, tmp_path, monkeypatch):
+        # 人工编辑不能把一次视频请求写成角色发声 + 叙述旁白混合单元。
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "episode_1.json")] = {
             "content_mode": "drama",
@@ -898,14 +898,15 @@ class TestProjectsRouter:
         ]
 
         with client:
-            patched = client.patch(
+            rejected = client.patch(
                 "/api/v1/projects/ready/script-scenes/001",
                 json={"script_file": "episode_1.json", "updates": {"utterances": utterances}},
             )
-            assert patched.status_code == 200
-            assert patched.json()["scene"]["utterances"] == utterances
-            # 落库持久化（不被白名单静默丢弃）
-            assert fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]["utterances"] == utterances
+            assert rejected.status_code == 409
+            detail = rejected.json()["detail"]
+            assert detail["problems"][0]["code"] == "mixed_speech"
+            assert detail["problems"][0]["action"] == "replan_unit"
+            assert fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]["utterances"] == []
 
     @staticmethod
     def _ad_script(shot_ids: list[str]) -> dict:
@@ -917,6 +918,7 @@ class TestProjectsRouter:
                     "section": "hook",
                     "duration_seconds": 4,
                     "voiceover_text": f"口播 {sid}",
+                    "video_prompt": {},
                     "products_in_shot": [],
                 }
                 for sid in shot_ids

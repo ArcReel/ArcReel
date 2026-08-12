@@ -40,6 +40,7 @@ from lib.json_io import domain_error_on_value_error
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
 from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
+from lib.speech_composition import admit_script_unit
 from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
@@ -1033,6 +1034,11 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
                                             for name in value
                                         ]
                                     scene[key] = value
+                            if "utterances" in req.updates:
+                                admission = admit_script_unit("scenes", scene, ignore_marker=True)
+                                if not admission.allowed:
+                                    raise HTTPException(status_code=409, detail=admission.to_dict())
+                                scene.pop("needs_replan", None)
                             break
 
                     if matched_scene is None:
@@ -1128,6 +1134,11 @@ async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Trans
                                     if value is None and key != "note":
                                         continue
                                     shot[key] = value
+                            if {"voiceover_text", "video_prompt"}.intersection(req.updates):
+                                admission = admit_script_unit("shots", shot, ignore_marker=True)
+                                if not admission.allowed:
+                                    raise HTTPException(status_code=409, detail=admission.to_dict())
+                                shot.pop("needs_replan", None)
                             break
 
                     if matched_shot is None:
@@ -1260,6 +1271,11 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                                     segment[field] = [
                                         asset_name_comparison_key(name) for name in (getattr(req, field) or [])
                                     ]
+                            if req.video_prompt is not None:
+                                admission = admit_script_unit("segments", segment, ignore_marker=True)
+                                if not admission.allowed:
+                                    raise HTTPException(status_code=409, detail=admission.to_dict())
+                                segment.pop("needs_replan", None)
                             break
 
                     if matched_segment is None:

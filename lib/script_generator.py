@@ -60,7 +60,7 @@ from lib.reference_video.quarantine import (
     quarantine_path,
     read_quarantine,
 )
-from lib.reference_video.shot_parser import render_shots_text
+from lib.reference_video.shot_parser import derive_references_from_text, parse_prompt, render_shots_text
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     AdEpisodeScript,
@@ -85,7 +85,7 @@ from lib.script_review import (
     migrate_step1_draft_in_place,
 )
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
-from lib.speech_composition import video_unit_replan_problems
+from lib.speech_composition import admit_script_unit, video_unit_replan_problems
 from lib.speech_rate import project_speech_rate_override
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
@@ -1366,12 +1366,20 @@ class ScriptGenerator:
         units: list[dict] = []
         for ordinal, source in enumerate(flat.units, start=1):
             unit_id = f"E{episode}U{ordinal}"
-            shots, references = validate_unit_text(
-                f"unit {unit_id}",
-                source.text,
-                self.project_json,
-                max_refs=None,
-            )
+            try:
+                shots, references = validate_unit_text(
+                    f"unit {unit_id}",
+                    source.text,
+                    self.project_json,
+                    max_refs=None,
+                )
+            except DraftViolations as exc:
+                if not exc.items or any(
+                    item.code not in {"mixed_speech", "empty_speaker", "parse_failed"} for item in exc.items
+                ):
+                    raise
+                shots, _mentions = parse_prompt(source.text)
+                references, _missing = derive_references_from_text(source.text, self.project_json)
             unit: dict = {
                 "unit_id": unit_id,
                 "shots": [shot.model_dump() for shot in shots],
@@ -1489,6 +1497,15 @@ class ScriptGenerator:
                 s[id_field] = _rewrite_episode_prefix(s.get(id_field), ep)
                 if reference_unit_durations is not None:
                     rewritten_output_ids.append(str(s[id_field]))
+
+        for item in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
+            if not isinstance(item, dict):
+                continue
+            admission = admit_script_unit(kind, item, ignore_marker=True)
+            if admission.allowed:
+                item.pop("needs_replan", None)
+            else:
+                item["needs_replan"] = True
 
         if reference_unit_durations is not None:
             # unit_id 集合须与 step1 完全一致才覆盖时长：LLM 漏写某个已确认 unit、或输出

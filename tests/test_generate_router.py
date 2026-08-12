@@ -64,6 +64,8 @@ class _FakePM:
                 {
                     "segment_id": "E1S01",
                     "duration_seconds": 4,
+                    "novel_text": "风吹过旷野。",
+                    "video_prompt": {},
                     "segment_break": False,
                     "characters_in_segment": [],
                     "scenes": [],
@@ -73,6 +75,8 @@ class _FakePM:
                 {
                     "segment_id": "E1S02",
                     "duration_seconds": 4,
+                    "novel_text": "风吹过旷野。",
+                    "video_prompt": {},
                     "segment_break": False,
                     "characters_in_segment": ["Alice"],
                     "scenes": ["祠堂"],
@@ -82,6 +86,8 @@ class _FakePM:
                 {
                     "segment_id": "E1S03",
                     "duration_seconds": 4,
+                    "novel_text": "风吹过旷野。",
+                    "video_prompt": {},
                     "segment_break": True,
                     "characters_in_segment": ["Alice"],
                     "scenes": ["祠堂"],
@@ -201,6 +207,40 @@ class TestGenerateRouter:
             assert call["task_type"] == "video"
             assert call["media_type"] == "video"
             assert call["payload"]["duration_seconds"] == 5
+
+    @pytest.mark.unit
+    def test_video_generation_returns_structured_speech_admission_without_enqueuing(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["video_prompt"] = {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "奔跑"},
+            )
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == {
+            "allowed": False,
+            "unit_id": "E1S01",
+            "mode": None,
+            "problems": [
+                {
+                    "code": "mixed_speech",
+                    "unit_id": "E1S01",
+                    "locations": [
+                        {"path": ["video_prompt", "dialogue", 0, "line"], "line": None},
+                        {"path": ["novel_text"], "line": None},
+                    ],
+                    "reason": "character_and_narrator_mixed",
+                    "action": "replan_unit",
+                }
+            ],
+        }
+        assert fake_queue.calls == []
 
     @pytest.mark.unit
     def test_video_enqueue_bucket_capability_error_returns_400(self, tmp_path, monkeypatch):
