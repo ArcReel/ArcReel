@@ -210,7 +210,7 @@ function MessageEditor({
             <div key={`${image.media_type}:${image.data}:${index}`} className="relative">
               <img
                 src={`data:${image.media_type};base64,${image.data}`}
-                alt={t("message_edit_attachment")}
+                alt={t("message_edit_attachment", { index: index + 1, total: images.length })}
                 className="h-14 w-14 rounded-md object-cover"
                 style={{ border: "1px solid var(--color-hairline)" }}
               />
@@ -224,7 +224,7 @@ function MessageEditor({
                   color: "var(--color-text-2)",
                   border: "1px solid var(--color-hairline)",
                 }}
-                aria-label={t("message_edit_remove_attachment")}
+                aria-label={t("message_edit_remove_attachment", { index: index + 1, total: images.length })}
               >
                 <X aria-hidden className="h-2.5 w-2.5" />
               </button>

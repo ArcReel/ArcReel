@@ -86,11 +86,12 @@ describe("MessageRow", () => {
     const onSubmitEdit = vi.fn();
     render(<MessageRow turn={twoImageTurn} editable editing onSubmitEdit={onSubmitEdit} />);
 
-    expect(screen.getAllByRole("img", { name: "编辑中的附件" })).toHaveLength(2);
+    expect(screen.getByRole("img", { name: "编辑中的附件 1/2" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "编辑中的附件 2/2" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "移除编辑中的图片" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "移除编辑中的图片 1/2" }));
 
-    expect(screen.getAllByRole("img", { name: "编辑中的附件" })).toHaveLength(1);
+    expect(screen.getByRole("img", { name: "编辑中的附件 1/1" })).toBeInTheDocument();
     fireEvent.keyDown(screen.getByLabelText("改写消息内容"), { key: "Enter", metaKey: true });
     expect(onSubmitEdit).toHaveBeenCalledWith("u-2", "按这两张图改人设", [
       { data: "BBBB", media_type: "image/jpeg" },
@@ -101,7 +102,7 @@ describe("MessageRow", () => {
     render(<MessageRow turn={imageTurn} editable editing />);
 
     fireEvent.change(screen.getByLabelText("改写消息内容"), { target: { value: "  " } });
-    fireEvent.click(screen.getByRole("button", { name: "移除编辑中的图片" }));
+    fireEvent.click(screen.getByRole("button", { name: "移除编辑中的图片 1/1" }));
 
     expect(screen.getByRole("button", { name: "重新发送" })).toBeDisabled();
   });
