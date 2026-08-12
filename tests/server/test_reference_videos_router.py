@@ -186,6 +186,19 @@ def test_patch_unit_prompt_keeps_duration(client: TestClient):
 
 
 @pytest.mark.integration
+def test_patch_unit_rederives_non_character_references_before_speech_admission(client: TestClient):
+    uid = _seed_unit(client)
+
+    response = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"prompt": "镜头1：@[酒馆]：木门被风吹开"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["unit"]["references"] == [{"type": "scene", "name": "酒馆"}]
+
+
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "case",
     [case for case in SPEECH_CONTRACT_CASES if case.generation_mode == "reference_video"],

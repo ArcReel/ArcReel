@@ -586,6 +586,22 @@ class TestPatchEpisodeScript:
         assert _load(ref_ctx)["video_units"][0]["references"] == [{"type": "product", "name": "产品B"}]
 
     @pytest.mark.integration
+    async def test_reference_shot_edit_rederives_non_character_references_before_admission(
+        self, ref_ctx: ToolContext
+    ) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["scenes"] = {"酒馆": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+
+        changed = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "@[酒馆]：木门被风吹开"}]}}},
+        )
+
+        assert changed.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["references"] == [{"type": "scene", "name": "酒馆"}]
+
+    @pytest.mark.integration
     async def test_reference_shot_edit_rederives_from_locked_project_snapshot(
         self, ref_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -719,6 +735,26 @@ class TestInsertRemoveSplit:
         assert out.get("is_error") is True
         assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
         assert _load(ctx) == before
+
+    @pytest.mark.unit
+    async def test_reference_split_validates_contiguous_replacement_after_reordered_derived_id(
+        self, ref_ctx: ToolContext
+    ) -> None:
+        script = _reference_script()
+        script["video_units"] = [_unit("E1U1_1"), _unit("E1U1"), _unit("E1U2")]
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+        before = _load(ref_ctx)
+        mixed = _unit("ignored")
+        mixed["shots"] = [{"text": "@[角色A]：{快走。}\n{风吹过旷野。}"}]
+
+        out = await _call(
+            split_segment_tool(ref_ctx),
+            {"script": "episode_1.json", "id": "E1U1", "parts": [_unit("ignored"), mixed]},
+        )
+
+        assert out.get("is_error") is True
+        assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
+        assert _load(ref_ctx) == before
 
     @pytest.mark.unit
     async def test_split_too_few_parts_errors(self, ctx: ToolContext) -> None:

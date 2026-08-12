@@ -140,19 +140,22 @@ def patch_episode_script_tool(ctx: ToolContext):
                         if field.split(".", 1)[0] in _REGEN_TRIGGER_FIELDS and scene_id not in regen_ids:
                             regen_ids.append(scene_id)
                     edited_roots = {field.split(".", 1)[0] for field in fields}
+                    body_changed = False
                     if unit is not None:
                         speech_changed = any(
                             field in edited_roots and unit.get(field) != previous_speech[field]
                             for field in _SPEECH_CONTENT_FIELDS[kind]
                         )
+                        body_changed = (
+                            kind == "video_units" and "shots" in edited_roots and unit.get("shots") != previous_shots
+                        )
+                        if body_changed:
+                            rederive_unit_references([unit], project)
                         if speech_changed:
                             require_script_unit_admitted(kind, unit, ignore_marker=True)
                             if kind != "video_units":
                                 unit.pop("needs_replan", None)
                     if unit is not None and kind == "video_units":
-                        body_changed = "shots" in edited_roots and unit.get("shots") != previous_shots
-                        if body_changed:
-                            rederive_unit_references([unit], project)
                         refresh_video_unit_replan_state(
                             unit,
                             allow_clear=body_changed or "duration_seconds" in edited_roots,
@@ -277,13 +280,8 @@ def split_segment_tool(ctx: ToolContext):
             with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
                 split_segment(script, item_id, parts)
                 items, id_field, kind = resolve_items(script)
-                generated = [
-                    item
-                    for item in items
-                    if isinstance(item, dict)
-                    and (str(item.get(id_field)) == item_id or str(item.get(id_field)).startswith(f"{item_id}_"))
-                ]
-                for item in generated[: len(parts)]:
+                anchor_index = next(i for i, item in enumerate(items) if str(item.get(id_field)) == item_id)
+                for item in items[anchor_index : anchor_index + len(parts)]:
                     require_script_unit_admitted(kind, item, ignore_marker=True)
                 new_ids = _item_ids(script)
             return {

@@ -327,12 +327,13 @@ async def patch_unit(
         # 只有正文重写能证明迁移留下的镜头归属问题已被重新规划；仅改时长或引用
         # 不能解除 overlapping / dangling legacy shot 对应的 durable marker。
         body_changed = req.prompt is not None and unit.get("shots") != previous_shots
-        if body_changed:
-            _require_unit_ready(unit, ignore_marker=True)
         if body_changed and refs is None:
             # references 是正文的机械派生物。调用方显式给 references 时尊重其人工排序；只改正文
-            # 时则必须用持锁复核后的 project 资产表重派生，避免旧引用继续决定 @图片N 绑定。
+            # 时则必须用持锁复核后的 project 资产表重派生，既让准入识别已登记的非人物 mention，
+            # 也避免旧引用继续决定 @图片N 绑定。
             rederive_unit_references([unit], project_out["project"])
+        if body_changed:
+            _require_unit_ready(unit, ignore_marker=True)
         refresh_video_unit_replan_state(
             unit,
             allow_clear=body_changed or req.duration_seconds is not None,
