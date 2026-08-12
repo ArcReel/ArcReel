@@ -138,17 +138,23 @@ def test_boundary_false_positives_are_rejected(model_id: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "model_id",
+    ("model_id", "expected_endpoint"),
     [
-        "wan2.7foo-r2v",  # WAN_DOT_FORM_PATTERN 右边界：紧跟字母不算 2.x 点号形态
-        "happyhorsefoo-t2v",  # HAPPYHORSE_PATTERN 右边界：紧跟字母不算 happyhorse 家族
-        "wan-2.7-fooimage-to-video",  # WAN_IMAGE_TO_VIDEO_PATTERN 左边界：紧邻字母不算续接语法
-        "wan-2.7-image-to-videofoo",  # WAN_IMAGE_TO_VIDEO_PATTERN 右边界：紧邻字母不算续接语法
+        # WAN_DOT_FORM_PATTERN 右边界：紧跟字母不算 2.x 点号形态，落通用视频端点（裸 "wan" 子串
+        # 仍命中 _VIDEO_PATTERN）。
+        ("wan2.7foo-r2v", "openai-video"),
+        # HAPPYHORSE_PATTERN 右边界：紧跟字母不算 happyhorse 家族，不含视频/图像关键字，落默认
+        # 文本端点。
+        ("happyhorsefoo-t2v", "openai-chat"),
+        # WAN_IMAGE_TO_VIDEO_PATTERN 左边界：紧邻字母不算续接语法，按含 image 语义的图像变体处理。
+        ("wan-2.7-fooimage-to-video", "openai-images"),
+        # WAN_IMAGE_TO_VIDEO_PATTERN 右边界：同上。
+        ("wan-2.7-image-to-videofoo", "openai-images"),
     ],
 )
-def test_adjacent_letters_do_not_qualify_as_classification_tokens(model_id: str) -> None:
+def test_adjacent_letters_do_not_qualify_as_classification_tokens(model_id: str, expected_endpoint: str) -> None:
     """分类 token 两侧标识符边界须完整：紧邻字母/数字的相似子串不应被误判命中。"""
-    assert infer_endpoint(model_id, "openai") != "dashscope-async-video"
+    assert infer_endpoint(model_id, "openai") == expected_endpoint
     caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
     assert caps is _DEFAULT_PROFILE
 
