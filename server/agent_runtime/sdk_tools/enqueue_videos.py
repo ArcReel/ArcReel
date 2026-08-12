@@ -593,6 +593,15 @@ async def _generate_reference_units(
 
     final = [p for p in ordered_paths if p is not None]
     if not final:
+        # 批量路径保留「坏 unit 跳过、有效 sibling 继续」；若整批唯一结果是发声准入阻塞，
+        # 则把首个结构化原因还给调用方，避免降级成无法指导修复的通用空批错误。
+        for unit in units:
+            try:
+                spec_for(unit)
+            except SpeechAdmissionError:
+                raise
+            except (TypeError, ValueError):
+                continue
         raise RuntimeError("没有生成任何 video_unit")
     if ckpt_path is not None:
         _clear_checkpoint_at(ckpt_path)
