@@ -327,6 +327,11 @@ class TestInferEndpoint:
             ("wan-2.1-kf2v", "openai", "openai-video"),  # 连字符 + 非 2.7 → 通用端点
             ("wan_2.2-t2v", "openai", "openai-video"),  # 下划线 + 非 2.7 → 通用端点
             ("wan2.1-kf2v", "openai", "dashscope-async-video"),  # 点号形态走字面量判定，非本正则
+            # 2.7 家族内 videoedit 模态：命中家族正则但 DashScopeVideoBackend 未实现其请求构造，
+            # 排除出原生路由（见 _WAN_VIDEOEDIT_PATTERN 处的说明）。
+            ("wan-2.7-videoedit", "openai", "openai-video"),
+            ("wan_2.7-videoedit", "openai", "openai-video"),
+            ("wan2.7-videoedit", "openai", "openai-video"),
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),

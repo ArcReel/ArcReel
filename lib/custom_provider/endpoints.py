@@ -541,6 +541,12 @@ _WAN_IMAGE_TO_VIDEO_PATTERN = re.compile(r"image[-_]?(?:to|2)[-_]?video", re.IGN
 # "swan2.7-r2v"、"vendorwan2.7-t2v" 这类含 "wan2." 子串但并非该家族的第三方型号名被误判。
 _WAN_DOT_FORM_PATTERN = re.compile(r"(?<![a-z0-9])wan2\.\d", re.IGNORECASE)
 
+# wan2.7-videoedit（指令式视频编辑，见 docs/research/arcreel-vendor-integration-research.md）是
+# 万相家族内真实存在的独立模态，但 DashScopeVideoBackend 只实现了 t2v/i2v/r2v 三档的请求构造，
+# 没有该模态所需的输入视频传输字段。命中家族正则但落这个模态的 id 须排除出原生路由，否则会带着
+# _DEFAULT_PROFILE（丢失该模态实际所需的能力声明）发出本后端无法正确构造的请求。
+_WAN_VIDEOEDIT_PATTERN = re.compile(r"video[-_]?edit", re.IGNORECASE)
+
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
     """根据模型 id 与 discovery_format 推默认 endpoint（content-first）。
@@ -558,7 +564,8 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        的处理原则），按 _WAN_IMAGE_TO_VIDEO_PATTERN 精确挑出这一种形态，不对图像变体的命名形态
        （结尾 token 等）做任何假设。原生路由只认 2.7（含点号形态 "wan2.x"，见下方 is_wan_family
        的说明）与 wan3；其余 2.x 连字符/下划线形态（wan-2.1、wan_2.2-s2v 等）落到下方 5) 的通用
-       视频端点。
+       视频端点。2.7 家族内 videoedit 模态（wan2.7-videoedit）本后端未实现请求构造，同样排除出
+       原生路由（见 _WAN_VIDEOEDIT_PATTERN 处的说明）。
     2) MiniMax 原生 token → 海螺 / S2V 走 "minimax-video"，image-01 走 "minimax-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
     2.5) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
@@ -598,11 +605,14 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 含 image 语义一律按图像变体处理，不对图像变体的命名形态做任何假设。
     wan_video_continuation = is_wan_family and bool(_WAN_IMAGE_TO_VIDEO_PATTERN.search(model_id))
     wan_image_variant = is_wan_family and is_image and not wan_video_continuation
+    # videoedit 模态本后端未实现请求构造，即便命中家族正则也不走原生端点（见
+    # _WAN_VIDEOEDIT_PATTERN 处的说明），落到下方 5) 的通用视频端点。
+    wan_unsupported_modality = is_wan_family and bool(_WAN_VIDEOEDIT_PATTERN.search(model_id))
 
     # 阿里百炼视频先于通用 is_video 拦截到原生异步端点
     if "happyhorse" in lowered:
         return "dashscope-async-video"
-    if is_wan_family and not wan_image_variant:
+    if is_wan_family and not wan_image_variant and not wan_unsupported_modality:
         return "dashscope-async-video"
 
     # MiniMax 原生 token 二级路由：海螺（含 minimax-hailuo）/ S2V / H3 → 两步或单步取回的视频端点；
