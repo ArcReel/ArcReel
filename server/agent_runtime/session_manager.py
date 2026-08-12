@@ -676,6 +676,12 @@ class SessionManager:
                     "send_disconnect on error path failed session_id=%s",
                     temp_id,
                 )
+            # 断开成功时 send_disconnect 已把 status 落到 "closed"；失败或超时则停在
+            # "running"，而下面取消 _process_task 会让 _process_inbox 的 CancelledError
+            # 分支据此写 interrupted 终态，并把待回放登记记为未认领。启动失败既不是中断、
+            # 也无回放可言，先落 error 收口这条判断。
+            if managed.status == "running":
+                managed.status = "error"
             if managed._process_task is not None and not managed._process_task.done():
                 managed._process_task.cancel()
                 await asyncio.gather(managed._process_task, return_exceptions=True)
