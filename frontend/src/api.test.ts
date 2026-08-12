@@ -1,5 +1,11 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentFailureError, API, ConflictError, SpeechAdmissionError } from "@/api";
+import {
+  AgentFailureError,
+  API,
+  ConflictError,
+  ScriptEditCommandError,
+  SpeechAdmissionError,
+} from "@/api";
 
 type JsonResponseOptions = {
   ok?: boolean;
@@ -166,6 +172,36 @@ describe("API", () => {
       }
     });
 
+    it("preserves the shared script-edit result from compatibility endpoints", async () => {
+      const result = {
+        success: false,
+        script: "episode_1.json",
+        episode: 1,
+        before_revision: `sha256-v1:${"0".repeat(64)}`,
+        revision: `sha256-v1:${"0".repeat(64)}`,
+        affected_ids: [],
+        problems: [{
+          code: "mixed_speech",
+          operation_index: 2,
+          unit_id: "E1S01",
+          locations: [{ path: ["utterances", 0, "text"], line: null }],
+          reason: "character_and_narrator_mixed",
+          next_action: "replan_unit",
+        }],
+      };
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+        mockResponse({ ok: false, status: 409, jsonData: { detail: result } }),
+      ));
+
+      try {
+        await API.updateScene("demo", "E1S01", "episode_1.json", { note: "keep" });
+        expect.fail("request should fail");
+      } catch (error) {
+        expect(error).toBeInstanceOf(ScriptEditCommandError);
+        expect((error as ScriptEditCommandError).result).toEqual(result);
+      }
+    });
+
     it("clears auth and redirects on unauthorized responses", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({
@@ -231,6 +267,11 @@ describe("API", () => {
       await API.renameProjectAsset("demo", "product", "Phone", "Tablet", { dryRun: true });
 
       await API.getScript("demo", "episode 1.json");
+      await API.editScriptBatch("demo", {
+        script: "episode_1.json",
+        expected_revision: `sha256-v1:${"0".repeat(64)}`,
+        operations: [{ op: "update", id: "E1S01", fields: { note: "keep" } }],
+      });
       await API.updateScene("demo", "scene-1", "episode_1.json", { x: 1 });
       await API.updateSegment("demo", "segment-1", { y: 2 });
       await API.updateShot("demo", "E1S01", "episode_1.json", { voiceover_text: "新口播" });
@@ -319,6 +360,14 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/scripts/episode%201.json",
       );
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/script-edits", {
+        method: "POST",
+        body: JSON.stringify({
+          script: "episode_1.json",
+          expected_revision: `sha256-v1:${"0".repeat(64)}`,
+          operations: [{ op: "update", id: "E1S01", fields: { note: "keep" } }],
+        }),
+      });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/script-scenes/scene-1", {
         method: "PATCH",
         body: JSON.stringify({ script_file: "episode_1.json", updates: { x: 1 } }),

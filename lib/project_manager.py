@@ -54,7 +54,7 @@ from lib.episode_paths import (
     STEP1_FILENAMES,
     episode_script_relpath,
 )
-from lib.json_io import atomic_write_json, load_json, load_json_or_none
+from lib.json_io import atomic_write_bytes, atomic_write_json, load_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import (
     VALID_CONTENT_MODES,
@@ -660,6 +660,7 @@ class ProjectManager:
         *,
         validate: bool = True,
         before: dict | None | _Unset = _UNSET,
+        emit_change: bool = True,
     ) -> Path:
         """剧本写盘主体：校验 + 更新元数据 + 原子写 + 同步 project.json。
 
@@ -737,10 +738,11 @@ class ProjectManager:
         if sync_project and self.project_exists(project_name) and isinstance(script.get("episode"), int):
             self.sync_episode_from_script(project_name, filename)
 
-        emit_project_change_hint(
-            project_name,
-            changed_paths=[f"scripts/{output_path.name}"],
-        )
+        if emit_change:
+            emit_project_change_hint(
+                project_name,
+                changed_paths=[f"scripts/{output_path.name}"],
+            )
 
         return output_path
 
@@ -786,7 +788,12 @@ class ProjectManager:
 
     @contextmanager
     def locked_episode_script(
-        self, project_name: str, resolve_script_file: Callable[[dict], str], *, validate: bool = True
+        self,
+        project_name: str,
+        resolve_script_file: Callable[[dict], str],
+        *,
+        validate: bool = True,
+        on_commit: Callable[[Path], None] | None = None,
     ):
         """统一「脚本锁 → 项目锁」顺序下，解析 episode→script_file 并对剧本做读-改-写。
 
@@ -802,8 +809,16 @@ class ProjectManager:
         与旧 `locked_script` → sync 路径行为一致（刷新 episodes 元数据与 `updated_at`）。
 
         若加锁前后绑定指向了不同脚本（并发改绑），抛 `EpisodeScriptReboundError` 让调用方重试。
+
+        ``on_commit`` 在脚本与 project 索引写入后、锁释放前执行，供同一领域提交追加 Artifact
+        Manifest 等最后一步。提交前逐字快照两份 JSON；脚本、project 或 hook 任一步失败都在同一
+        临界区原子恢复旧字节。hook 必须把自身写入设计为「成功后不再抛错」，否则它已经落下的
+        外部状态无法由本方法推断如何撤销。
         """
-        candidate = resolve_script_file(self.load_project(project_name))
+        # 候选解析只用于确定脚本锁身份，不得触发 load_project 的持久化迁移；命令若随后因
+        # revision / schema 等预检被拒，project.json 必须保持逐字不变。成功提交时，迁移会在
+        # 下方项目锁内与脚本、索引一起落盘并受同一份旧字节快照补偿。
+        candidate = resolve_script_file(self.load_project_readonly(project_name))
         norm = self.normalize_script_filename(candidate)
         with self._script_lock(project_name, norm):
             with self._project_lock(project_name):
@@ -814,22 +829,53 @@ class ProjectManager:
                 cur_norm = self.normalize_script_filename(current)
                 if cur_norm != norm:
                     raise EpisodeScriptReboundError(f"episode script binding changed: {norm} -> {cur_norm}")
+                script_path = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
+                project_path = self._get_project_file_path(project_name)
+                before_script_bytes = script_path.read_bytes()
+                before_project_bytes = project_path.read_bytes()
                 script, _migrated = self._read_script_unlocked(project_name, norm)
                 before = copy.deepcopy(script) if validate else None
                 yield script
-                self._write_script_unlocked(
-                    project_name, script, norm, sync_project=False, validate=validate, before=before
+                try:
+                    self._write_script_unlocked(
+                        project_name,
+                        script,
+                        norm,
+                        sync_project=False,
+                        validate=validate,
+                        before=before,
+                        emit_change=False,
+                    )
+                    # 在已持项目锁内联同步 project.json（等价 update_project 写路径，但不二次取锁）
+                    if isinstance(script.get("episode"), int):
+                        self._apply_episode_sync(project, script, norm)
+                    self._migrate_legacy_resolution_on_save(project)
+                    self._migrate_legacy_style(project)
+                    self._touch_metadata(project)
+                    if self._requires_unique_asset_namespace(project):
+                        ensure_project_asset_namespace(project)
+                    atomic_write_json(project_path, project)
+                    if on_commit is not None:
+                        on_commit(script_path)
+                except BaseException:
+                    rollback_errors: list[OSError] = []
+                    for path, snapshot in (
+                        (script_path, before_script_bytes),
+                        (project_path, before_project_bytes),
+                    ):
+                        try:
+                            atomic_write_bytes(path, snapshot)
+                        except OSError as rollback_error:
+                            rollback_errors.append(rollback_error)
+                    if rollback_errors:
+                        raise RuntimeError(
+                            "episode script transaction failed and durable rollback was incomplete"
+                        ) from rollback_errors[0]
+                    raise
+                emit_project_change_hint(
+                    project_name,
+                    changed_paths=[f"scripts/{script_path.name}", self.PROJECT_FILE],
                 )
-                # 在已持项目锁内联同步 project.json（等价 update_project 写路径，但不二次取锁）
-                if isinstance(script.get("episode"), int):
-                    self._apply_episode_sync(project, script, norm)
-                self._migrate_legacy_resolution_on_save(project)
-                self._migrate_legacy_style(project)
-                self._touch_metadata(project)
-                if self._requires_unique_asset_namespace(project):
-                    ensure_project_asset_namespace(project)
-                atomic_write_json(self._get_project_file_path(project_name), project)
-                emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
 
     @staticmethod
     def _require_filename_episode_consistency(script: dict, script_filename: str) -> None:

@@ -49,6 +49,7 @@ from lib.script_skeleton import (
     SkeletonRouteMismatchError,
     ensure_route_skeleton,
     resolve_declared_kind,
+    resolve_script_kind,
 )
 from lib.speech_rate import (
     MAX_SPEECH_RATE_UPS,
@@ -1307,6 +1308,7 @@ class DataValidator:
         warnings: list[ValidationMessage],
         *,
         validate_artifacts: bool = True,
+        validate_route: bool = True,
     ) -> None:
         project_characters = set(project.get("characters", {}).keys())
         project_scenes = set(project.get("scenes", {}).keys())
@@ -1350,16 +1352,21 @@ class DataValidator:
                 _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
             )
             return
-        try:
-            # 闸门放行族内历史形态（narration 数据落 scenes 键）并返回剧本的实际骨架，后续按
-            # 该实际种类分派——用声明种类会让这类剧本按不存在的 segments 空读，数据一条都不校验。
-            kind = ensure_route_skeleton(episode, content_mode, gen_mode)
-        except SkeletonRouteMismatchError as exc:
-            # 失配剧本（骨架与项目路线跨族）：按路线该读的数组根本不在剧本里，
-            # 逐字段报"缺少 segments"会把成因埋掉——直接给结构结论与重拆指引，并跳过后续
-            # 按骨架的检查。同一闸门在生成入口拒绝生成，此处只是把同一事实报告出来。
-            errors.append(exc.to_validation_message())
-            return
+        if validate_route:
+            try:
+                # 闸门放行族内历史形态（narration 数据落 scenes 键）并返回剧本的实际骨架，后续按
+                # 该实际种类分派——用声明种类会让这类剧本按不存在的 segments 空读，数据一条都不校验。
+                kind = ensure_route_skeleton(episode, content_mode, gen_mode)
+            except SkeletonRouteMismatchError as exc:
+                # 失配剧本（骨架与项目路线跨族）：按路线该读的数组根本不在剧本里，
+                # 逐字段报"缺少 segments"会把成因埋掉——直接给结构结论与重拆指引，并跳过后续
+                # 按骨架的检查。同一闸门在生成入口拒绝生成，此处只是把同一事实报告出来。
+                errors.append(exc.to_validation_message())
+                return
+        else:
+            # 编辑/查看流程必须能修正路线失配的存量剧本；引用校验按磁盘实际骨架分派，生成入口
+            # 仍通过默认开启的路线闸门拒绝将这类剧本投入生产。
+            kind = resolve_script_kind(episode)
         artifact_root = project_dir if validate_artifacts else None
         if kind == "video_units":
             self._validate_reference_video_script(
@@ -1421,11 +1428,14 @@ class DataValidator:
         episode: dict[str, Any],
         *,
         validate_artifacts: bool = True,
+        validate_route: bool = True,
     ) -> ValidationResult:
         """Validate an already loaded episode without reading or rewriting project files.
 
         Callers that classify artifact readiness separately can disable filesystem artifact
-        checks while retaining the shared episode structure and reference validation.
+        checks while retaining the shared episode structure and reference validation. Editing
+        flows can also disable the generation-route gate while validating references against
+        the supplied episode's actual skeleton.
         """
         errors: list[ValidationMessage] = []
         warnings: list[ValidationMessage] = []
@@ -1436,6 +1446,7 @@ class DataValidator:
             errors,
             warnings,
             validate_artifacts=validate_artifacts,
+            validate_route=validate_route,
         )
         return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
 

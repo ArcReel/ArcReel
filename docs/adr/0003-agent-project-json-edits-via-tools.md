@@ -8,8 +8,8 @@ Agent 今天能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`
 
 工具集（均为 in-process MCP `arcreel`，跑在 server 进程、不在 agent sandbox 内）：
 
-- `patch_episode_script` — 批量字段编辑：传 `script` + `{segment_id/scene_id/unit_id/shot_id: {字段路径: 值}}` 映射，一次改多分镜 × 多字段（单条编辑写成长度 1 的 map），**按 `segment_id`/`scene_id`/`unit_id`/`shot_id` 定位**（与 `update_scene_asset` 一致；序号仅生成时约定，运行时排序靠数组位，compose/`resolve_episode_from_script` 都不解析序号），各内容/生成模式通用。纯 setter；all-or-nothing 原子——整批在同一 `locked_script` 上下文内逐条复用 `patch_field`，任一编辑非法即整批不落盘（原子性由 `locked_script` 的「正常退出才写/异常不写/写前不更坏校验」承重，无新事务管线）。
-- `insert_segment` / `remove_segment` / `split_segment` — 结构性增删拆，三模式全覆盖（reference 模式作用于 `video_units`/`shots`）。**id 稳定不重排**，插入/拆分**按模式**发新 id 并加 `_{子序号}` 后缀：narration/drama 的 segments/scenes 用 `E{集}S{序号}`、reference 的 units 用 `E{集}U{序号}`（见 `script_models.py` 的 `segment_id`/`scene_id`/`unit_id` 定义；前缀不能统一成 `S`，否则 reference 走 Pydantic 校验会失败）。
+- `get_episode_script_revision` + `patch_episode_script` — 先读取 canonical JSON `sha256-v1` revision，再提交 `{script, expected_revision, operations[]}`。operations 是有序的 `update` / `insert_after` / `move_after` / `remove`，按 `segment_id` / `scene_id` / `unit_id` / `shot_id` 定位，各内容/生成模式通用。服务在项目锁内复核 revision，对内存 candidate 顺序应用全批，再统一预检结构、项目引用、适用的 Artifact Manifest basis 与 SpeechComposition；任一失败返回稳定 `code`、`operation_index`、unit/field location、`next_action`，整批零写入。
+- `insert_segment` / `remove_segment` / `split_segment` — Agent 的结构性便捷工具保留原调用形状，但只负责机械投影成上述正式 operations，提交与 result 都委托同一编辑服务。**id 稳定不重排**，插入/拆分按模式发新 id 并加 `_{子序号}` 后缀：narration/drama 的 segments/scenes 用 `E{集}S{序号}`、reference 的 units 用 `E{集}U{序号}`。split 的首份以 remove + 同 id reinsert 表达，服务从被移除的原条目恢复其 `generated_assets` / `end_frame_image`；其余新身份清空资产。
 - `patch_project` — `project.json` 加+改（按 table+name），**取代** `add_assets.py`（删除该脚本，`analyze-assets` subagent 改调本工具，顺带消灭其脆弱的单行 CLI-JSON 调用）。
 - `generate_episode_script` — 整集生成，改为**经 `_write_script_unlocked` 写盘**（替代 `ScriptGenerator` 原先的裸 `json.dump`）。
 
@@ -17,17 +17,17 @@ Agent 今天能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`
 
 - **Bash 子进程**（Linux/macOS，内核级）：`sandbox.filesystem.denyWrite` 覆盖 `scripts/` 目录与 `project.json`。SDK 文档（sandboxing.md）明确 `denyWrite` 是 OS 级（Seatbelt / bwrap profile），对 sandbox 内**所有子进程（含 Bash 及其 child）生效**——堵住 `echo>`/`sed`/`python -c` 旁路。选 `denyWrite` 而非「Edit-deny 规则下推」：前者是文档化的 write-deny 字段，与现有 `denyRead` 同一 `filesystem` passthrough，不依赖 Edit allow/deny 规则被 SDK 派生进 Bash FS profile 这一未明文保证的行为。
 - **内置 Write/Edit**（全平台）：内置文件工具不走 sandbox（走权限系统），由 `_check_write_access` hook 拒绝 `scripts/*.json` + `project.json`。与上面的 denyWrite 同源（同两类路径），构成双层。
-- 剧本写入全 funnel 进 `_write_script_unlocked`：继承 ADR-0002 的「不更坏」语义 + metadata 重算（`total_scenes`/`estimated_duration_seconds`）+ 加锁 + filename↔episode 一致性。`project.json` 走 `update_project(_mutate)`，并在 mutation 内对结果 payload 做**同款「不更坏」校验**（改前已非法的历史脏数据放行，仅当本次 upsert 把合法 project 改非法时拒写）——与剧本统一入口的 `_guard_no_worse` 同源；若改成「结果必须绝对合法」会让带历史问题（如空 `style`）的项目整条 `patch_project` 路径不可用（旧 `add_assets.py` 报告校验错误也不阻断写入）。
+- 剧本写入全 funnel 进 `_write_script_unlocked`。批量人工编辑在其外增加 `ScriptBatchEditor` 深模块：同一项目/剧本临界区内做 OCC、candidate 预检，并把 script、project episode 索引与适用的 episode-script Manifest entry 作为可补偿提交；后一步失败时在锁释放前逐字恢复 script/project，Manifest hook 自行恢复旧 entry。底层写入口仍保留 ADR-0002 的「不更坏」兼容策略，批量命令则要求本次 candidate 通过完整结构与引用预检；唯一兼容例外是未被本批改变的 legacy speech blocker，不阻塞无关编辑。
 
 ## Consequences
 
 - in-process MCP 工具跑在 server 进程、**不在 agent sandbox 内**，故 FS write-deny profile 不约束它们，工具照常写盘；删掉 `add_assets.py` 后，sandbox 内已**无任何合法的 Bash 写 `scripts/*.json`/`project.json`**（`split_episode` 写 `source/`、compose 写视频输出，均不碰），内核级 write-deny 不会误伤。
 - **无 sandbox 回退**（Windows，或 Linux bwrap 探测失败）：内核级堵法不可用，回退到 `_check_write_access` deny（Write/Edit，全平台生效）+ 现有 `_WINDOWS_BASH_PREFIX_WHITELIST`（只放行 `python .claude/skills/`、ffmpeg、ffprobe，任意 `echo>`/`sed`/`python -c` 本就不在白名单）。已复核：删除 `add_assets.py` 后，白名单放行的 `python .claude/skills/` 脚本中无一写 `scripts/*.json`/`project.json`（split 写 `source/`、compose 写视频输出、peek 只读），故无沙箱回退无需额外特殊防御。
 - **denyWrite 内核级生效的实测**：`denyWrite` 走与 `denyRead` 相同的 `filesystem` passthrough（后者已在生产用于保护 `.env` 等，机制可信）。其对 Bash 子进程的内核级写拒绝是 SDK 文档承诺的同字段行为；落地后建议做一次 live smoke test（sandbox 启用时在 Bash 工具内 `echo > scripts/x.json` 应被内核拒、而 MCP 工具写盘正常）以翻 `accepted`。
-- **`patch` 不作废 `generated_assets`**（纯字段 setter）。系统无新鲜度/陈旧检测（`status` 仅由路径有无算出），故改了 `image_prompt` 又不重生时，会出现「新 prompt + 旧图 + status=completed」的静默陈旧。这是刻意取舍：场景本就是「改 prompt **并**重新生成」，regen 会覆盖资产；自动作废需在 patch 里硬编码字段→资产依赖链，且可能误删用户想留的图。代价由 agent profile 的「改 prompt 必重生」纪律 + 本 ADR 承接。一个更轻的备选是改关键字段时把 `generated_assets.status` 重置为 `pending`（不删路径）——**不采纳**：剧本 JSON 编辑与资产生命周期**解耦**，patch 不对资产状态作任何声明，资产的生成/重生是独立的显式动作。
-- **结构工具（split/remove）清受影响分镜的 `generated_assets`**：与字段编辑相反，结构改动改变了分镜身份（`E1S3` 拆成两个，旧资产无合理归属），故必须清空使其退回 pending。
+- **编辑不删除已有媒体，也不改写 `generated_assets`**。改 prompt 后旧媒体由显式重新生成替换；结构 remove 只移除剧本引用，项目内已有文件继续保留。split 的同 id 锚点延续旧资产，新派生 id 清空资产。Manifest currency 在读时由 basis 比较推导，不把 stale 状态写进剧本。
+- **structured basis 只登记正式直接输入**：narration / drama（包括 reference_video 路线）存在 canonical step1 时，用该 step1 构造 episode-script basis；无 step1 时不登记。ad 当前没有 canonical step1，编辑服务不以修改后的 script 自身制造 basis，避免产物自引用。
 - 工具**返回文本**是 agent-facing（免 i18n）；工具**显示名**是 user-facing，须在 `ARCREEL_MCP_TOOL_IDS` 注册并补 `tool_name_<id>` 三语（zh/en/vi）。
-- 与 ADR-0002 同源：本 ADR 是其「Agent 裸写入面收归」承诺的兑现。reference_video 切分的精确语义（切 unit 还是切 shots）留作实现细节，约束是结果必须满足 `ReferenceVideoUnit` 的 `duration==sum(shots)` 校验（结构校验 `_select_model` 已将 `video_units` 路由到 `ReferenceVideoScript`、由其 model_validator 兜住）。`_write_script_unlocked` 的 metadata 重算（`total_scenes`/`estimated_duration_seconds`）原先只识别 `segments`/`scenes`（`video_units` 落入 segments 兜底、错算为 0），#604 已把该判别收敛到与 `_select_model` 同款的 `script_editor.resolve_items`，三处（结构校验 / 编辑核心 / metadata 重算）共用一处判别。
+- 与 ADR-0002 同源：本 ADR 是其「Agent 裸写入面收归」承诺的兑现。reference_video 的结构工具作用于顶层 `video_units`；unit 的 `duration_seconds` 是独立编排字段，不从成员 shots 求和。结构校验 / 编辑核心 / metadata 重算共用 `script_editor.resolve_items` 判别。
 
 ## 「不更坏」语义的边界限定（post-#604 根因迭代）
 

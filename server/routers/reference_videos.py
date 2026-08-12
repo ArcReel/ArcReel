@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -22,13 +20,12 @@ from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
-from lib.project_manager import EpisodeScriptReboundError, get_project_manager, is_reference_video_project
+from lib.project_manager import get_project_manager, is_reference_video_project
 from lib.reference_video import (
     assemble_shots_text,
     derive_references_from_text,
     missing_registered_references,
     parse_prompt,
-    rederive_unit_references,
 )
 from lib.reference_video.script_preview import build_script_preview
 from lib.reference_video.units import reference_unit_video_bucket, reference_video_bucket
@@ -40,6 +37,7 @@ from lib.version_manager import VersionManager
 from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
 from server.routers._reorder import full_permutation_error
+from server.routers._script_edits import execute_current_episode_edit, require_script_edit_result
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
 from server.services.generation_tasks import emit_generation_success_batch
 from server.services.reference_video_tasks import (
@@ -104,67 +102,6 @@ def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tup
     if not is_reference_video_project(project):
         raise HTTPException(status_code=409, detail=_t("ref_not_reference_video_mode"))
     return project, script, script_file
-
-
-def _episode_script_resolver(
-    episode: int,
-    _t: Translator,
-    refs: list[dict] | None = None,
-    project_out: dict[str, dict] | None = None,
-) -> Callable[[dict], str]:
-    """构造一个解析器：从 project.json 解析并校验指定集，返回其 script_file。
-
-    解析器在 `locked_episode_script` 的项目锁内被调用（候选解析 + 持锁复核各一次），
-    把「找 episode + reference_video 模式校验 + 可选 references 存在性校验」收进
-    同一临界区，避免锁外快照与并发写者不一致。``project_out`` 会在每次解析时接收当前
-    project；进入 ``locked_episode_script`` 的 with 体前，最后一次写入来自持锁复核，供同一
-    临界区内需要资产表的派生逻辑使用。
-    """
-
-    def _resolve(project: dict) -> str:
-        episodes = project.get("episodes") or []
-        meta = next((e for e in episodes if e.get("episode") == episode), None)
-        if meta is None or not meta.get("script_file"):
-            raise HTTPException(status_code=404, detail=_t("ref_episode_not_found", episode=episode))
-        if not is_reference_video_project(project):
-            raise HTTPException(status_code=409, detail=_t("ref_not_reference_video_mode"))
-        if refs is not None:
-            _validate_references_exist(project, refs, _t)
-        if project_out is not None:
-            project_out["project"] = project
-        return meta["script_file"]
-
-    return _resolve
-
-
-@contextmanager
-def _locked_episode_script(project_name: str, resolver: Callable[[dict], str], _t: Translator) -> Iterator[dict]:
-    """进入 `locked_episode_script`，把缺失文件归一为 404、并发改绑归一为 409。
-
-    project.json 可能残留指向已删除/移动文件的 script_file；此时锁内 load_script 抛
-    FileNotFoundError，需转成 404 而非 500。加锁前后 episode→script_file 绑定被并发 PATCH
-    改动时抛 EpisodeScriptReboundError，转成 409（前端可重试，不外泄内部绑定细节）。
-    """
-    try:
-        with get_project_manager().locked_episode_script(project_name, resolver) as script:
-            yield script
-    except FileNotFoundError as exc:
-        # 区分「项目缺失」与「project.json 指向的脚本文件缺失（stale 绑定）」
-        if not get_project_manager().project_exists(project_name):
-            raise NotFoundError("project_not_found", name=project_name) from exc
-        raise NotFoundError("ref_script_missing") from exc
-    except EpisodeScriptReboundError as exc:
-        logger.info("episode script rebound during write: %s", exc)
-        raise HTTPException(status_code=409, detail=_t("ref_script_rebound")) from exc
-    except ValueError as exc:
-        # 结构非法（如 shots↔duration 不一致）、集号错配、非法文件名都抛 ValueError
-        # （ScriptStructureValidationError 即其子类）：当场转 422，而非生成时才炸。
-        # EpisodeScriptReboundError(RuntimeError) 与 FileNotFoundError 不是 ValueError，
-        # 已被上面的 409 / 404 分支先行接住，不会落到这里。
-        raise HTTPException(
-            status_code=422,
-            detail=_t("script_validation_failed", details=str(exc)),
-        ) from exc
 
 
 def _validate_references_exist(project: dict, refs: list[dict], _t: Translator) -> None:
@@ -249,13 +186,16 @@ async def add_unit(
     refs = _normalized_refs(req.references)
     references_supplied = "references" in req.model_fields_set
 
+    project, current, script_file = _load_episode_script(project_name, episode, _t)
+    if references_supplied:
+        _validate_references_exist(project, refs, _t)
+    else:
+        derived_refs, _missing = derive_references_from_text(req.prompt, project)
+        refs = [reference.model_dump() for reference in derived_refs]
+
     # 时长是 unit 级单一真相：请求未给出时按项目能力解析默认档位（异步 IO 不进项目锁临界区）
     duration_seconds = req.duration_seconds
     if duration_seconds is None:
-        project, _script, _sf = _load_episode_script(project_name, episode, _t)
-        if not references_supplied:
-            derived_refs, _missing = derive_references_from_text(req.prompt, project)
-            refs = [reference.model_dump() for reference in derived_refs]
         duration_seconds = default_unit_duration(
             await resolve_project_duration_context(
                 project, capability=reference_video_bucket(with_references=bool(refs))
@@ -264,23 +204,31 @@ async def add_unit(
             with_references=bool(refs),
         )
 
-    project_out: dict[str, dict] = {}
-    resolver = _episode_script_resolver(episode, _t, refs, project_out=project_out)
-    with _locked_episode_script(project_name, resolver, _t) as script:
-        # unit_id 在锁内基于 fresh script 计算，避免并发新增撞 ID
-        unit = _build_unit_dict(
-            unit_id=_next_unit_id(script, episode),
-            prompt=req.prompt,
-            references=refs,
-            duration_seconds=int(duration_seconds),
-            transition=req.transition_to_next,
-            note=req.note,
-        )
-        if not references_supplied:
-            rederive_unit_references([unit], project_out["project"])
-        _require_unit_ready(unit, ignore_marker=True, allow_blank_draft=True)
-        script.setdefault("video_units", []).append(unit)
-    return {"unit": unit}
+    units = current.get("video_units") if isinstance(current.get("video_units"), list) else []
+    unit = _build_unit_dict(
+        unit_id=_next_unit_id(current, episode),
+        prompt=req.prompt,
+        references=refs,
+        duration_seconds=int(duration_seconds),
+        transition=req.transition_to_next,
+        note=req.note,
+    )
+    if not references_supplied:
+        # Omission means mechanical derivation. Let the shared editor do it from the
+        # project snapshot held by the commit lock, rather than persisting this preview.
+        unit.pop("references", None)
+    result = execute_current_episode_edit(
+        get_project_manager(),
+        project_name,
+        episode,
+        script_file,
+        current,
+        [{"op": "insert_after", "after_id": units[-1].get("unit_id") if units else None, "item": unit}],
+    )
+    require_script_edit_result(result)
+    saved = get_project_manager().load_script(project_name, result.script)
+    inserted = _find_unit(saved, unit["unit_id"], _t)
+    return {"unit": inserted, "edit_result": result.model_dump(mode="json")}
 
 
 # ============ 端点：PATCH + DELETE ============
@@ -313,51 +261,37 @@ async def patch_unit(
     req: PatchUnitRequest,
     _t: Translator,
 ) -> dict[str, Any]:
-    # references 存在性校验在解析器内、项目锁内进行，失败 raise 400
     refs: list[dict] | None = _normalized_refs(req.references) if req.references is not None else None
-
-    project_out: dict[str, dict] = {}
-    resolver = _episode_script_resolver(episode, _t, refs, project_out=project_out)
-    with _locked_episode_script(project_name, resolver, _t) as script:
-        unit = _find_unit(script, unit_id, _t)  # 未找到 raise 404 → 跳过写回
-        previous_shots = unit.get("shots")
-        previous_references = unit.get("references")
-        previous_speech = admit_script_unit("video_units", unit, ignore_marker=True).preparation
-
-        if refs is not None:
-            unit["references"] = refs
-
-        if req.prompt is not None:
-            shots, _mentions = parse_prompt(req.prompt)
-            unit["shots"] = [s.model_dump() for s in shots]
-        # 时长与正文互不牵连：镜头不承载时长，改文案不改时长、改时长不动镜头
-        if req.duration_seconds is not None:
-            unit["duration_seconds"] = req.duration_seconds
-
-        if req.transition_to_next is not None:
-            unit["transition_to_next"] = req.transition_to_next
-        if req.note is not None:
-            unit["note"] = req.note
-        # 只有正文重写能证明迁移留下的镜头归属问题已被重新规划；仅改时长或引用
-        # 不能解除 overlapping / dangling legacy shot 对应的 durable marker。
-        body_changed = req.prompt is not None and unit.get("shots") != previous_shots
-        if body_changed and refs is None:
-            # references 是正文的机械派生物。调用方显式给 references 时尊重其人工排序；只改正文
-            # 时则必须用持锁复核后的 project 资产表重派生，既让准入识别已登记的非人物 mention，
-            # 也避免旧引用继续决定 @图片N 绑定。
-            rederive_unit_references([unit], project_out["project"])
-        references_changed = refs is not None and unit.get("references") != previous_references
-        if body_changed or references_changed:
-            admission = admit_script_unit("video_units", unit, ignore_marker=True)
-            if admission.preparation != previous_speech and not admission.allowed:
-                raise HTTPException(status_code=409, detail=admission.to_dict())
-        refresh_video_unit_replan_state(
-            unit,
-            allow_clear=body_changed or references_changed or req.duration_seconds is not None,
-            content_changed=body_changed,
-        )
-
-    return {"unit": unit}
+    project, current, script_file = _load_episode_script(project_name, episode, _t)
+    _find_unit(current, unit_id, _t)
+    if refs is not None:
+        _validate_references_exist(project, refs, _t)
+    fields: dict[str, Any] = {}
+    if refs is not None:
+        fields["references"] = refs
+    if req.prompt is not None:
+        shots, _mentions = parse_prompt(req.prompt)
+        fields["shots"] = [shot.model_dump() for shot in shots]
+    if req.duration_seconds is not None:
+        fields["duration_seconds"] = req.duration_seconds
+    if req.transition_to_next is not None:
+        fields["transition_to_next"] = req.transition_to_next
+    if req.note is not None:
+        fields["note"] = req.note
+    if not fields:
+        return {"unit": _find_unit(current, unit_id, _t)}
+    result = execute_current_episode_edit(
+        get_project_manager(),
+        project_name,
+        episode,
+        script_file,
+        current,
+        [{"op": "update", "id": unit_id, "fields": fields}],
+    )
+    require_script_edit_result(result, operation_not_found=True)
+    saved = get_project_manager().load_script(project_name, result.script)
+    unit = _find_unit(saved, unit_id, _t)
+    return {"unit": unit, "edit_result": result.model_dump(mode="json")}
 
 
 @router.delete("/episodes/{episode}/units/{unit_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -367,13 +301,17 @@ async def delete_unit(
     unit_id: str,
     _t: Translator,
 ) -> Response:
-    with _locked_episode_script(project_name, _episode_script_resolver(episode, _t), _t) as script:
-        units = script.get("video_units") or []
-        new_units = [u for u in units if u.get("unit_id") != unit_id]
-        if len(new_units) == len(units):
-            # 未找到 → 在锁内 raise，跳过写回
-            raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=unit_id))
-        script["video_units"] = new_units
+    _project, current, script_file = _load_episode_script(project_name, episode, _t)
+    _find_unit(current, unit_id, _t)
+    result = execute_current_episode_edit(
+        get_project_manager(),
+        project_name,
+        episode,
+        script_file,
+        current,
+        [{"op": "remove", "id": unit_id}],
+    )
+    require_script_edit_result(result, operation_not_found=True)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -388,24 +326,29 @@ async def reorder_units(
     req: ReorderRequest,
     _t: Translator,
 ) -> dict[str, Any]:
-    with _locked_episode_script(project_name, _episode_script_resolver(episode, _t), _t) as script:
-        units = script.get("video_units") or []
-        existing_ids = [u.get("unit_id") for u in units]
-
-        # 校验失败 → 在锁内 raise 400，跳过写回
-        error_kind = full_permutation_error(existing_ids, req.unit_ids)
-        if error_kind is not None:
-            detail_key = {
-                "length": "ref_unit_ids_length_mismatch",
-                "duplicate": "ref_duplicate_unit_ids",
-                "mismatch": "ref_unit_ids_mismatch",
-            }[error_kind]
-            raise HTTPException(status_code=400, detail=_t(detail_key))
-
-        by_id = {u["unit_id"]: u for u in units}
-        reordered = [by_id[uid] for uid in req.unit_ids]
-        script["video_units"] = reordered
-    return {"units": reordered}
+    _project, current, script_file = _load_episode_script(project_name, episode, _t)
+    units = current.get("video_units") or []
+    existing_ids = [unit.get("unit_id") for unit in units]
+    error_kind = full_permutation_error(existing_ids, req.unit_ids)
+    if error_kind is not None:
+        detail_key = {
+            "length": "ref_unit_ids_length_mismatch",
+            "duplicate": "ref_duplicate_unit_ids",
+            "mismatch": "ref_unit_ids_mismatch",
+        }[error_kind]
+        raise HTTPException(status_code=400, detail=_t(detail_key))
+    if existing_ids == req.unit_ids:
+        return {"units": units}
+    operations = [
+        {"op": "move_after", "id": unit_id, "after_id": req.unit_ids[index - 1] if index else None}
+        for index, unit_id in enumerate(req.unit_ids)
+    ]
+    result = execute_current_episode_edit(
+        get_project_manager(), project_name, episode, script_file, current, operations
+    )
+    require_script_edit_result(result)
+    reordered = get_project_manager().load_script(project_name, result.script)["video_units"]
+    return {"units": reordered, "edit_result": result.model_dump(mode="json")}
 
 
 @router.get("/episodes/{episode}/units/{unit_id}/duration-precheck")

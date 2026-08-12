@@ -36,7 +36,7 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 6. **sheet 过目（软门禁）**：产品有 `product_sheet` 时，请用户在首次分镜或参考视频生成前确认它与真品一致；只有原图时直接继续。
 7. **编排与生成**：
 
-   - `repair_video_units`：Read `target.script`，只处理 `requested_ids` 对应的 unit。用一次 `mcp__arcreel__patch_episode_script({"script": target.script_filename, "edits": {unit_id: {"shots": [...], "references": [...], "duration_seconds": ...}}})` 写回完整规划；由工具重算 `needs_replan`，不要直接编辑标记。每个 unit 保持单一发声归属，产品/角色/场景/道具都用 `@[名称]`。修复后立即用 `generate_video_selected` 点名重做这些 unit，再刷新状态。
+   - `repair_video_units`：Read `target.script`，只处理 `requested_ids` 对应的 unit。先调用 `mcp__arcreel__get_episode_script_revision({"script": target.script_filename})`；再用一次 `mcp__arcreel__patch_episode_script({"script": target.script_filename, "expected_revision": revision, "operations": [{"op": "update", "id": unit_id, "fields": {"shots": [...], "references": [...], "duration_seconds": ...}}]})` 写回全部 unit 的完整规划（每个 unit 一条有序 update）；由工具重算 `needs_replan`，不要直接编辑标记。每个 unit 保持单一发声归属，产品/角色/场景/道具都用 `@[名称]`。修复后立即用 `generate_video_selected` 点名重做这些 unit，再刷新状态。
    - `next_action.type == "generate_storyboards"` → 调
      `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
    - `next_action.type == "generate_grid"` → 调

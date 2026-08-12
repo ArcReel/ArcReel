@@ -113,6 +113,9 @@ class ArtifactManifestAdapter(Protocol):
     def put_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> bool:
         raise NotImplementedError
 
+    def delete_entry(self, key: ArtifactKey) -> bool:
+        raise NotImplementedError
+
 
 class ArtifactManifest:
     """Register and compare canonical artifact bases through one storage seam."""
@@ -201,6 +204,10 @@ class InMemoryArtifactManifestAdapter:
                 return False
             self._entries[encoded] = entry
             return True
+
+    def delete_entry(self, key: ArtifactKey) -> bool:
+        with self._lock:
+            return self._entries.pop(key.encode(), None) is not None
 
     def remove_artifact(self, artifact_path: str) -> None:
         normalized = _normalize_relative_path(artifact_path)
@@ -517,6 +524,28 @@ class ProjectArtifactManifestAdapter:
             if entries.get(encoded) == entry and original_bytes is not None:
                 return False
             entries[encoded] = entry
+            new_bytes = _serialize_manifest(entries)
+            if original_bytes == new_bytes:
+                return False
+            self._atomic_replace(new_bytes, root_fd)
+            return True
+
+    def delete_entry(self, key: ArtifactKey) -> bool:
+        with self._locked() as root_fd:
+            entries, original_bytes = self._load_unlocked(root_fd)
+            if entries.pop(key.encode(), None) is None:
+                return False
+            if not entries:
+                try:
+                    if root_fd is None:
+                        (self._project_dir / MANIFEST_FILENAME).unlink()
+                    else:
+                        os.unlink(MANIFEST_FILENAME, dir_fd=root_fd)
+                except FileNotFoundError:
+                    return True
+                except OSError as exc:
+                    raise ArtifactManifestError(f"cannot remove empty artifact manifest: {exc}") from exc
+                return True
             new_bytes = _serialize_manifest(entries)
             if original_bytes == new_bytes:
                 return False

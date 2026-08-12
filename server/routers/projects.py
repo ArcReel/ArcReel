@@ -40,13 +40,18 @@ from lib.json_io import domain_error_on_value_error
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
 from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
-from lib.speech_composition import admit_script_unit
+from lib.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, script_revision
 from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from lib.workflow_state import WorkflowStateService, WorkflowStatus
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.routers._reorder import full_permutation_error
+from server.routers._script_edits import (
+    execute_current_script_edit,
+    require_script_edit_result,
+    script_batch_status,
+)
 from server.routers._validators import validate_backend_value
 from server.services.project_archive import (
     ProjectArchiveService,
@@ -73,6 +78,10 @@ def get_status_calculator() -> StatusCalculator:
 
 def get_archive_service() -> ProjectArchiveService:
     return ProjectArchiveService(get_project_manager())
+
+
+def get_script_batch_editor(manager: Any | None = None) -> ScriptBatchEditor:
+    return ScriptBatchEditor(manager or get_project_manager())
 
 
 # 项目级模型字段：创建时逐一校验并写入 project.json，PATCH 时另加 audio_backend。
@@ -978,7 +987,7 @@ async def get_script(name: str, script_file: str, _t: Translator):
     """获取剧本内容"""
     try:
         script = await asyncio.to_thread(get_project_manager().load_script, name, script_file)
-        return {"script": script}
+        return {"script": script, "revision": script_revision(script)}
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=script_file) from exc
     except HTTPException:
@@ -986,6 +995,35 @@ async def get_script(name: str, script_file: str, _t: Translator):
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
+@router.post("/projects/{name}/script-edits", response_model=None)
+async def edit_script_batch(name: str, command: ScriptBatchEditCommand, _t: Translator) -> JSONResponse:
+    """Execute the same revisioned script-edit command exposed to the in-process Agent."""
+
+    manager = None
+    try:
+        manager = get_project_manager()
+        try:
+            manager.get_project_path(name)
+        except ValueError as exc:
+            raise BadRequestError("invalid_project_name", name=name) from exc
+        except FileNotFoundError as exc:
+            raise NotFoundError("project_not_found", name=name) from exc
+
+        with project_change_source("webui"):
+            result = await asyncio.to_thread(get_script_batch_editor(manager).execute, name, command)
+        return JSONResponse(status_code=script_batch_status(result), content=result.model_dump(mode="json"))
+    except FileNotFoundError as exc:
+        if manager is None or not manager.project_exists(name):
+            raise NotFoundError("project_not_found", name=name) from exc
+        target = command.script or str(command.episode)
+        raise NotFoundError("script_not_found", name=target) from exc
+    except ApiError:
+        raise
+    except Exception as exc:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
 class UpdateSceneRequest(BaseModel):
@@ -1005,46 +1043,49 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
 
         def _sync():
             manager = get_project_manager()
-
-            # 整段 RMW 在单一 _script_lock 内完成；未命中时在锁内 raise，跳过写回
-            matched_scene: dict[str, Any] | None = None
+            current = manager.load_script(name, req.script_file)
+            scenes = current.get("scenes")
+            if not isinstance(scenes, list) or not any(
+                isinstance(scene, dict) and scene.get("scene_id") == scene_id for scene in scenes
+            ):
+                raise HTTPException(status_code=404, detail=_t("scene_not_found", id=scene_id))
+            allowed = {
+                "duration_seconds",
+                "image_prompt",
+                "video_prompt",
+                "characters_in_scene",
+                "scenes",
+                "props",
+                "segment_break",
+                "utterances",
+                "note",
+            }
+            fields: dict[str, Any] = {}
+            for key, raw_value in req.updates.items():
+                if key not in allowed or (raw_value is None and key != "note"):
+                    continue
+                value = raw_value
+                if key in {"characters_in_scene", "scenes", "props"} and isinstance(value, list):
+                    value = [asset_name_comparison_key(entry) if isinstance(entry, str) else entry for entry in value]
+                fields[key] = value
+            if not fields:
+                matched = next(scene for scene in scenes if scene.get("scene_id") == scene_id)
+                return {"success": True, "scene": matched}
             with project_change_source("webui"):
-                with manager.locked_script(name, req.script_file) as script:
-                    for scene in script.get("scenes", []):
-                        if scene.get("scene_id") == scene_id:
-                            matched_scene = scene
-                            previous_speech = admit_script_unit("scenes", scene, ignore_marker=True).preparation
-                            # 更新允许的字段
-                            for key, value in req.updates.items():
-                                if key in [
-                                    "duration_seconds",
-                                    "image_prompt",
-                                    "video_prompt",
-                                    "characters_in_scene",
-                                    "scenes",
-                                    "props",
-                                    "segment_break",
-                                    "utterances",
-                                    "note",
-                                ]:
-                                    if value is None and key != "note":
-                                        continue
-                                    if key in {"characters_in_scene", "scenes", "props"} and isinstance(value, list):
-                                        value = [
-                                            asset_name_comparison_key(name) if isinstance(name, str) else name
-                                            for name in value
-                                        ]
-                                    scene[key] = value
-                            admission = admit_script_unit("scenes", scene, ignore_marker=True)
-                            if admission.preparation != previous_speech:
-                                if not admission.allowed:
-                                    raise HTTPException(status_code=409, detail=admission.to_dict())
-                                scene.pop("needs_replan", None)
-                            break
-
-                    if matched_scene is None:
-                        raise HTTPException(status_code=404, detail=_t("scene_not_found", id=scene_id))
-            return {"success": True, "scene": matched_scene}
+                result = execute_current_script_edit(
+                    manager,
+                    name,
+                    req.script_file,
+                    [{"op": "update", "id": scene_id, "fields": fields}],
+                    editor=get_script_batch_editor(manager),
+                )
+            require_script_edit_result(
+                result,
+                operation_not_found=True,
+            )
+            saved = manager.load_script(name, req.script_file)
+            matched = next(scene for scene in saved["scenes"] if scene.get("scene_id") == scene_id)
+            return {"success": True, "scene": matched, "edit_result": result.model_dump(mode="json")}
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:
@@ -1121,31 +1162,33 @@ async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Trans
 
         def _sync():
             manager = get_project_manager()
-
-            # 整段 RMW 在单一 _script_lock 内完成；模式不符 / 未命中时在锁内 raise，跳过写回
-            matched_shot: dict[str, Any] | None = None
+            current = manager.load_script(name, req.script_file)
+            shots = _require_ad_script(current, _t)
+            matched = next((shot for shot in shots if shot.get("shot_id") == shot_id), None)
+            if matched is None:
+                raise HTTPException(status_code=404, detail=_t("shot_not_found", id=shot_id))
+            fields = {
+                key: value
+                for key, value in req.updates.items()
+                if key in _SHOT_UPDATABLE_FIELDS and (value is not None or key == "note")
+            }
+            if not fields:
+                return {"success": True, "shot": matched}
             with project_change_source("webui"):
-                with manager.locked_script(name, req.script_file) as script:
-                    for shot in _require_ad_script(script, _t):
-                        if shot.get("shot_id") == shot_id:
-                            matched_shot = shot
-                            previous_speech = admit_script_unit("shots", shot, ignore_marker=True).preparation
-                            for key, value in req.updates.items():
-                                if key in _SHOT_UPDATABLE_FIELDS:
-                                    # note 允许显式置 None（清空备注），其余字段 None 视为未提供
-                                    if value is None and key != "note":
-                                        continue
-                                    shot[key] = value
-                            admission = admit_script_unit("shots", shot, ignore_marker=True)
-                            if admission.preparation != previous_speech:
-                                if not admission.allowed:
-                                    raise HTTPException(status_code=409, detail=admission.to_dict())
-                                shot.pop("needs_replan", None)
-                            break
-
-                    if matched_shot is None:
-                        raise HTTPException(status_code=404, detail=_t("shot_not_found", id=shot_id))
-            return {"success": True, "shot": matched_shot}
+                result = execute_current_script_edit(
+                    manager,
+                    name,
+                    req.script_file,
+                    [{"op": "update", "id": shot_id, "fields": fields}],
+                    editor=get_script_batch_editor(manager),
+                )
+            require_script_edit_result(
+                result,
+                operation_not_found=True,
+            )
+            saved = manager.load_script(name, req.script_file)
+            matched = next(shot for shot in saved["shots"] if shot.get("shot_id") == shot_id)
+            return {"success": True, "shot": matched, "edit_result": result.model_dump(mode="json")}
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:
@@ -1176,26 +1219,34 @@ async def reorder_shots(name: str, req: ReorderShotsRequest, _t: Translator):
 
         def _sync():
             manager = get_project_manager()
-
+            current = manager.load_script(name, req.script_file)
+            shots = _require_ad_script(current, _t)
+            existing_ids = [shot.get("shot_id") for shot in shots]
+            error_kind = full_permutation_error(existing_ids, req.shot_ids)
+            if error_kind is not None:
+                detail_key = {
+                    "length": "shot_ids_length_mismatch",
+                    "duplicate": "duplicate_shot_ids",
+                    "mismatch": "shot_ids_mismatch",
+                }[error_kind]
+                raise HTTPException(status_code=400, detail=_t(detail_key))
+            if existing_ids == req.shot_ids:
+                return {"success": True, "shots": shots}
+            operations = [
+                {"op": "move_after", "id": shot_id, "after_id": req.shot_ids[index - 1] if index else None}
+                for index, shot_id in enumerate(req.shot_ids)
+            ]
             with project_change_source("webui"):
-                with manager.locked_script(name, req.script_file) as script:
-                    shots = _require_ad_script(script, _t)
-                    existing_ids = [s.get("shot_id") for s in shots]
-
-                    # 校验失败 → 在锁内 raise 400，跳过写回
-                    error_kind = full_permutation_error(existing_ids, req.shot_ids)
-                    if error_kind is not None:
-                        detail_key = {
-                            "length": "shot_ids_length_mismatch",
-                            "duplicate": "duplicate_shot_ids",
-                            "mismatch": "shot_ids_mismatch",
-                        }[error_kind]
-                        raise HTTPException(status_code=400, detail=_t(detail_key))
-
-                    by_id = {s["shot_id"]: s for s in shots}
-                    reordered = [by_id[sid] for sid in req.shot_ids]
-                    script["shots"] = reordered
-            return {"success": True, "shots": reordered}
+                result = execute_current_script_edit(
+                    manager,
+                    name,
+                    req.script_file,
+                    operations,
+                    editor=get_script_batch_editor(manager),
+                )
+            require_script_edit_result(result)
+            reordered = manager.load_script(name, req.script_file)["shots"]
+            return {"success": True, "shots": reordered, "edit_result": result.model_dump(mode="json")}
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:
@@ -1243,47 +1294,55 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
 
         def _sync():
             manager = get_project_manager()
-
-            # 整段 RMW 在单一 _script_lock 内完成；模式不符 / 未命中时在锁内 raise，跳过写回
-            matched_segment: dict[str, Any] | None = None
+            current = manager.load_script(name, req.script_file)
+            if current.get("content_mode") != "narration" or "segments" not in current:
+                raise HTTPException(status_code=400, detail=_t("narration_mode_required"))
+            segments = current.get("segments")
+            if not isinstance(segments, list):
+                raise ValueError("narration script field 'segments' must be a list")
+            matched = next(
+                (
+                    segment
+                    for segment in segments
+                    if isinstance(segment, dict) and segment.get("segment_id") == segment_id
+                ),
+                None,
+            )
+            if matched is None:
+                raise HTTPException(status_code=404, detail=_t("segment_not_found", id=segment_id))
+            fields: dict[str, Any] = {}
+            for field in (
+                "duration_seconds",
+                "segment_break",
+                "image_prompt",
+                "video_prompt",
+                "transition_to_next",
+            ):
+                value = getattr(req, field)
+                if value is not None:
+                    fields[field] = value
+            if "note" in req.model_fields_set:
+                fields["note"] = req.note
+            for field in ("characters_in_segment", "scenes", "props"):
+                if field in req.model_fields_set:
+                    fields[field] = [asset_name_comparison_key(value) for value in (getattr(req, field) or [])]
+            if not fields:
+                return {"success": True, "segment": matched}
             with project_change_source("webui"):
-                with manager.locked_script(name, req.script_file) as script:
-                    # 检查是否为说书模式：仅 narration 且含 segments 键才放行；
-                    # drama 脚本即使残留 segments 键也拒绝，避免被当 narration 改写
-                    if script.get("content_mode") != "narration" or "segments" not in script:
-                        raise HTTPException(status_code=400, detail=_t("narration_mode_required"))
-
-                    for segment in script.get("segments", []):
-                        if segment.get("segment_id") == segment_id:
-                            matched_segment = segment
-                            previous_speech = admit_script_unit("segments", segment, ignore_marker=True).preparation
-                            if req.duration_seconds is not None:
-                                segment["duration_seconds"] = req.duration_seconds
-                            if req.segment_break is not None:
-                                segment["segment_break"] = req.segment_break
-                            if req.image_prompt is not None:
-                                segment["image_prompt"] = req.image_prompt
-                            if req.video_prompt is not None:
-                                segment["video_prompt"] = req.video_prompt
-                            if req.transition_to_next is not None:
-                                segment["transition_to_next"] = req.transition_to_next
-                            if "note" in req.model_fields_set:
-                                segment["note"] = req.note
-                            for field in ("characters_in_segment", "scenes", "props"):
-                                if field in req.model_fields_set:
-                                    segment[field] = [
-                                        asset_name_comparison_key(name) for name in (getattr(req, field) or [])
-                                    ]
-                            admission = admit_script_unit("segments", segment, ignore_marker=True)
-                            if admission.preparation != previous_speech:
-                                if not admission.allowed:
-                                    raise HTTPException(status_code=409, detail=admission.to_dict())
-                                segment.pop("needs_replan", None)
-                            break
-
-                    if matched_segment is None:
-                        raise HTTPException(status_code=404, detail=_t("segment_not_found", id=segment_id))
-            return {"success": True, "segment": matched_segment}
+                result = execute_current_script_edit(
+                    manager,
+                    name,
+                    req.script_file,
+                    [{"op": "update", "id": segment_id, "fields": fields}],
+                    editor=get_script_batch_editor(manager),
+                )
+            require_script_edit_result(
+                result,
+                operation_not_found=True,
+            )
+            saved = manager.load_script(name, req.script_file)
+            matched = next(segment for segment in saved["segments"] if segment.get("segment_id") == segment_id)
+            return {"success": True, "segment": matched, "edit_result": result.model_dump(mode="json")}
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:

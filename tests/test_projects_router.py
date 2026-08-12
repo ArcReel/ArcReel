@@ -12,7 +12,19 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from lib.i18n.zh import errors as zh_errors
-from lib.project_manager import EmptySourceError
+from lib.project_change_hints import get_project_change_source
+from lib.project_manager import EmptySourceError, ProjectManager
+from lib.script_batch_edit import (
+    InsertAfterOperation,
+    MoveAfterOperation,
+    RemoveOperation,
+    ScriptBatchEditLocation,
+    ScriptBatchEditProblem,
+    ScriptBatchEditResult,
+    script_revision,
+)
+from lib.script_editor import ScriptEditError, patch_field, resolve_items
+from lib.speech_composition import admit_script_unit
 
 
 class _OverviewProbe(BaseModel):
@@ -30,6 +42,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 class _FakePM:
     def __init__(self, base: Path):
         self.base = base
+        self.projects_root = base
         self.project_data = {
             "ready": {
                 "title": "Ready",
@@ -66,6 +79,7 @@ class _FakePM:
         self.generated_names = ["project-aa11bb22", "project-cc33dd44"]
         self.profile_reset_calls: list[str] = []
         (self.base / "ready" / "storyboards").mkdir(parents=True, exist_ok=True)
+        (self.base / "ad-ready" / "scripts").mkdir(parents=True, exist_ok=True)
         (self.base / "ready" / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
         (self.base / "empty").mkdir(parents=True, exist_ok=True)
         (self.base / "remove-me").mkdir(parents=True, exist_ok=True)
@@ -183,6 +197,10 @@ class _FakePM:
             raise FileNotFoundError(script_file)
         return self.scripts[key]
 
+    @staticmethod
+    def normalize_script_filename(script_file):
+        return script_file.removeprefix("scripts/")
+
     def save_script(self, name, payload, script_file):
         if script_file.startswith("scripts/"):
             script_file = script_file[len("scripts/") :]
@@ -207,7 +225,7 @@ class _FakePM:
         self.save_script(name, script, script_file)
 
     @contextmanager
-    def locked_episode_script(self, name, resolve_script_file, *, validate=True):
+    def locked_episode_script(self, name, resolve_script_file, *, validate=True, on_commit=None):
         # 复刻真实 ProjectManager.locked_episode_script：解析 episode→script_file →
         # 锁内读改写脚本 → 内联把 title/script_file 镜像回 project.json episodes[]
         # （仅当脚本含 episode int，与真实 _apply_episode_sync 触发条件一致）。
@@ -226,6 +244,8 @@ class _FakePM:
             entry["title"] = script.get("title", "")
             entry["script_file"] = f"scripts/{norm}"
             self.save_project(name, project)
+        if on_commit is not None:
+            on_commit(self.base / name / "scripts" / norm)
 
     async def generate_overview(self, name):
         if name == "ready":
@@ -274,9 +294,140 @@ class _FakeCalc:
         return script
 
 
+class _RejectedFakeEdit(Exception):
+    def __init__(self, result: ScriptBatchEditResult):
+        self.result = result
+
+
+class _FakeBatchEditor:
+    """Router-unit-test adapter; aggregate validation is covered against the real service separately."""
+
+    def __init__(self, pm: _FakePM):
+        self.pm = pm
+
+    def execute(self, project_name, command):
+        script_file = command.script
+        assert script_file is not None
+        before_revision = script_revision(self.pm.load_script(project_name, script_file))
+        if command.expected_revision != before_revision:
+            return self._failure(script_file, before_revision, "revision_conflict", None, None)
+        affected: list[str] = []
+        try:
+            with self.pm.locked_script(project_name, script_file) as script:
+                for index, operation in enumerate(command.operations):
+                    items, id_field, kind = resolve_items(script)
+                    item_id = getattr(operation, "id", None)
+                    if isinstance(operation, InsertAfterOperation):
+                        raise AssertionError("insert is not used by project router unit tests")
+                    try:
+                        item_index = next(i for i, item in enumerate(items) if item.get(id_field) == item_id)
+                    except StopIteration:
+                        raise _RejectedFakeEdit(
+                            self._failure(script_file, before_revision, "operation_invalid", index, item_id)
+                        ) from None
+                    before = admit_script_unit(kind, items[item_index])
+                    if isinstance(operation, MoveAfterOperation):
+                        item = items.pop(item_index)
+                        if operation.after_id is None:
+                            insert_at = 0
+                        else:
+                            try:
+                                insert_at = (
+                                    next(
+                                        i
+                                        for i, existing in enumerate(items)
+                                        if existing.get(id_field) == operation.after_id
+                                    )
+                                    + 1
+                                )
+                            except StopIteration:
+                                raise _RejectedFakeEdit(
+                                    self._failure(script_file, before_revision, "operation_invalid", index, item_id)
+                                ) from None
+                        items.insert(insert_at, item)
+                    elif isinstance(operation, RemoveOperation):
+                        items.pop(item_index)
+                    else:
+                        before_content = admit_script_unit(kind, items[item_index], ignore_marker=True)
+                        try:
+                            for field, value in operation.fields.items():
+                                patch_field(script, operation.id, field, value)
+                        except ScriptEditError:
+                            raise _RejectedFakeEdit(
+                                self._failure(script_file, before_revision, "operation_invalid", index, item_id)
+                            ) from None
+                        after_content = admit_script_unit(kind, items[item_index], ignore_marker=True)
+                        if before_content.preparation != after_content.preparation and after_content.allowed:
+                            items[item_index].pop("needs_replan", None)
+                    if item_id not in affected:
+                        affected.append(item_id)
+                    if not isinstance(operation, RemoveOperation):
+                        after = admit_script_unit(
+                            kind, items[next(i for i, v in enumerate(items) if v.get(id_field) == item_id)]
+                        )
+                        if after.preparation != before.preparation and not after.allowed:
+                            problems = tuple(
+                                ScriptBatchEditProblem(
+                                    code=problem.code.value,
+                                    operation_index=index,
+                                    unit_id=problem.unit_id,
+                                    locations=tuple(
+                                        ScriptBatchEditLocation(path=location.path, line=location.line)
+                                        for location in problem.locations
+                                    ),
+                                    reason=problem.reason.value,
+                                    next_action=problem.action.value,
+                                )
+                                for problem in after.problems
+                                if problem.code.value != "needs_replan"
+                                or not any(p.code.value != "needs_replan" for p in after.problems)
+                            )
+                            raise _RejectedFakeEdit(
+                                ScriptBatchEditResult(
+                                    success=False,
+                                    script=script_file,
+                                    episode=None,
+                                    before_revision=before_revision,
+                                    revision=before_revision,
+                                    problems=problems,
+                                )
+                            )
+        except _RejectedFakeEdit as exc:
+            return exc.result
+        revision = script_revision(self.pm.load_script(project_name, script_file))
+        return ScriptBatchEditResult(
+            success=True,
+            script=script_file,
+            episode=None,
+            before_revision=before_revision,
+            revision=revision,
+            affected_ids=tuple(affected),
+        )
+
+    @staticmethod
+    def _failure(script_file, revision, code, index, item_id):
+        return ScriptBatchEditResult(
+            success=False,
+            script=script_file,
+            episode=None,
+            before_revision=revision,
+            revision=revision,
+            problems=(
+                ScriptBatchEditProblem(
+                    code=code,
+                    operation_index=index,
+                    unit_id=item_id,
+                    reason="operation_invalid",
+                    next_action="fix_operation",
+                ),
+            ),
+        )
+
+
 def _client(monkeypatch, fake_pm, fake_calc):
     monkeypatch.setattr(projects, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(projects, "get_status_calculator", lambda: fake_calc)
+    monkeypatch.setattr(projects, "get_script_batch_editor", lambda manager=None: _FakeBatchEditor(manager or fake_pm))
 
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -368,10 +519,13 @@ class TestProjectsRouter:
             response = client.patch(endpoint, json=body)
 
         assert response.status_code == 409
-        problem = response.json()["detail"]["problems"][0]
+        detail = response.json()["detail"]
+        assert detail["success"] is False
+        problem = detail["problems"][0]
         assert problem["code"] == "mixed_speech"
+        assert problem["operation_index"] == 0
         assert problem["reason"] == "character_and_narrator_mixed"
-        assert problem["action"] == "replan_unit"
+        assert problem["next_action"] == "replan_unit"
         assert kind in before
         assert fake_pm.scripts[(project_name, script_file)] == before
 
@@ -570,9 +724,134 @@ class TestProjectsRouter:
 
             get_script = client.get("/api/v1/projects/ready/scripts/episode_1.json")
             assert get_script.status_code == 200
+            assert get_script.json()["revision"].startswith("sha256-v1:")
 
             get_script_missing = client.get("/api/v1/projects/ready/scripts/missing.json")
             assert get_script_missing.status_code == 404
+
+    @pytest.mark.integration
+    def test_revisioned_batch_endpoint_returns_shared_result_and_rejects_stale_write(self, tmp_path, monkeypatch):
+        pm = ProjectManager(str(tmp_path))
+        pm.create_project("demo", content_mode="narration")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "summary": "摘要",
+                "novel": {"title": "小说", "chapter": "第一章"},
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "风吹过旷野。",
+                        "characters_in_segment": [],
+                        "scenes": [],
+                        "props": [],
+                        "image_prompt": {
+                            "scene": "荒野",
+                            "composition": {
+                                "shot_type": "Medium Shot",
+                                "lighting": "暖光",
+                                "ambiance": "薄雾",
+                            },
+                        },
+                        "video_prompt": {
+                            "action": "转身",
+                            "camera_motion": "Static",
+                            "ambiance_audio": "风声",
+                        },
+                        "generated_assets": {},
+                    }
+                ],
+            },
+            "episode_1.json",
+        )
+        monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(
+            id="default",
+            sub="testuser",
+            role="admin",
+        )
+        app.include_router(projects.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        client = TestClient(app)
+        with client:
+            snapshot = client.get("/api/v1/projects/demo/scripts/episode_1.json").json()
+            command = {
+                "script": "episode_1.json",
+                "expected_revision": snapshot["revision"],
+                "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "first"}}],
+            }
+
+            edited = client.post("/api/v1/projects/demo/script-edits", json=command)
+
+            assert edited.status_code == 200, edited.text
+            result = edited.json()
+            assert result["success"] is True
+            assert result["before_revision"] == snapshot["revision"]
+            assert result["revision"] != snapshot["revision"]
+            assert result["affected_ids"] == ["E1S01"]
+
+            command["operations"] = [{"op": "update", "id": "E1S01", "fields": {"note": "stale"}}]
+            stale = client.post("/api/v1/projects/demo/script-edits", json=command)
+
+            assert stale.status_code == 409
+            assert stale.json()["problems"][0]["code"] == "revision_conflict"
+            assert pm.load_script("demo", "episode_1.json")["segments"][0]["note"] == "first"
+
+    @pytest.mark.unit
+    def test_revisioned_batch_endpoint_tags_webui_source_across_worker_thread(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        observed_sources: list[str] = []
+        revision = f"sha256-v1:{'0' * 64}"
+
+        class CapturingEditor:
+            def execute(self, _project_name, _command):
+                observed_sources.append(get_project_change_source())
+                return ScriptBatchEditResult(
+                    success=True,
+                    script="episode_1.json",
+                    episode=1,
+                    before_revision=revision,
+                    revision=revision,
+                )
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        monkeypatch.setattr(projects, "get_script_batch_editor", lambda _manager=None: CapturingEditor())
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/ready/script-edits",
+                json={
+                    "script": "episode_1.json",
+                    "expected_revision": revision,
+                    "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "first"}}],
+                },
+            )
+
+        assert response.status_code == 200
+        assert observed_sources == ["webui"]
+
+    @pytest.mark.unit
+    def test_revisioned_batch_endpoint_rejects_invalid_project_name(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/illegal-name/script-edits",
+                json={
+                    "script": "episode_1.json",
+                    "expected_revision": f"sha256-v1:{'0' * 64}",
+                    "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "first"}}],
+                },
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
 
     @pytest.mark.unit
     def test_create_ad_project(self, tmp_path, monkeypatch):
@@ -1051,7 +1330,8 @@ class TestProjectsRouter:
             assert rejected.status_code == 409
             detail = rejected.json()["detail"]
             assert detail["problems"][0]["code"] == "mixed_speech"
-            assert detail["problems"][0]["action"] == "replan_unit"
+            assert detail["problems"][0]["operation_index"] == 0
+            assert detail["problems"][0]["next_action"] == "replan_unit"
             assert fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]["utterances"] == []
 
     @pytest.mark.unit
