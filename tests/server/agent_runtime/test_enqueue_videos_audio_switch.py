@@ -142,7 +142,7 @@ class TestReferenceRouteGate:
             units=units,
             skip_ids={"E1U4"},
             spec_for=_unit_spec,
-            request_options=mod.ReferenceRequestOptions(duration_confirmed=True),
+            request_options=mod.ReferenceRequestOptions(),
         )
         assert seen == ["r2v", "r2v", "i2v"]
 
@@ -165,7 +165,7 @@ class TestReferenceRouteGate:
             units=[{"unit_id": "E1U1", "references": []}],
             skip_ids=set(),
             spec_for=_reject,
-            request_options=mod.ReferenceRequestOptions(duration_confirmed=True),
+            request_options=mod.ReferenceRequestOptions(),
         )
         assert called is False
 

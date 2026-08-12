@@ -6,18 +6,23 @@
 """
 
 import json
+import os
 import shutil
+import tempfile
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lib.api_errors import BadRequestError, NotFoundError
+from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.resource_paths import RESOURCE_TYPES as _RESOURCE_TYPES
 from lib.resource_paths import resource_extension
 
 _LOCKS_GUARD = threading.Lock()
 _LOCKS_BY_VERSIONS_FILE: dict[str, threading.RLock] = {}
+_PREVIOUS_CURRENT_VERSION = "_previous_current_version"
 
 
 def _get_versions_file_lock(versions_file: Path) -> threading.RLock:
@@ -70,8 +75,7 @@ class VersionManager:
     def _save_versions(self, data: dict) -> None:
         """保存版本元数据"""
         self._ensure_dirs()
-        with open(self.versions_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        atomic_write_json(self.versions_file, data)
 
     def _generate_timestamp(self) -> str:
         """生成时间戳字符串（用于文件名）"""
@@ -158,6 +162,9 @@ class VersionManager:
 
             resource_data = data[resource_type][resource_id]
             existing_versions = resource_data.get("versions", [])
+            previous_current_version = resource_data.get("current_version", 0)
+            if not isinstance(previous_current_version, int) or isinstance(previous_current_version, bool):
+                previous_current_version = 0
             max_version = max(
                 (item.get("version", 0) for item in existing_versions),
                 default=0,
@@ -183,6 +190,7 @@ class VersionManager:
                 "prompt": prompt,
                 "created_at": self._generate_iso_timestamp(),
                 **metadata,
+                _PREVIOUS_CURRENT_VERSION: previous_current_version,
             }
 
             resource_data["versions"].append(version_record)
@@ -190,6 +198,255 @@ class VersionManager:
 
             self._save_versions(data)
             return new_version
+
+    def commit_staged_version(
+        self,
+        resource_type: str,
+        resource_id: str,
+        prompt: str,
+        *,
+        staged_file: Path,
+        current_file: Path,
+        on_commit: Callable[[], None] | None = None,
+        **metadata,
+    ) -> int:
+        """Atomically activate staged media with its version record.
+
+        The caller may append one final synchronous registration through
+        ``on_commit``.  If activation, metadata persistence, or that registration
+        fails (including cancellation raised by the callback), the prior formal
+        file and current-version pointer are restored.  An untracked prior formal
+        file is first copied into history in the same transaction.
+        """
+
+        if resource_type not in self.RESOURCE_TYPES:
+            raise ValueError(f"不支持的资源类型: {resource_type}")
+        staged_file = Path(staged_file)
+        current_file = Path(current_file)
+        if not staged_file.is_file():
+            raise FileNotFoundError(f"staged version file does not exist: {staged_file}")
+
+        with self._lock:
+            versions_existed = self.versions_file.is_file()
+            versions_snapshot = self.versions_file.read_bytes() if versions_existed else None
+            data = self._load_versions()
+            bucket = data.setdefault(resource_type, {})
+            resource_data = bucket.setdefault(resource_id, {"current_version": 0, "versions": []})
+            records = resource_data.setdefault("versions", [])
+            created_snapshots: list[Path] = []
+            current_backup: Path | None = None
+
+            def _append_version(source: Path, version_prompt: str, version_metadata: dict) -> int:
+                previous_current_version = resource_data.get("current_version", 0)
+                if not isinstance(previous_current_version, int) or isinstance(previous_current_version, bool):
+                    previous_current_version = 0
+                new_version = max((item.get("version", 0) for item in records), default=0) + 1
+                timestamp = self._generate_timestamp()
+                ext = self.EXTENSIONS.get(resource_type, ".png")
+                filename = f"{resource_id}_v{new_version}_{timestamp}{ext}"
+                rel_path = f"versions/{resource_type}/{filename}"
+                abs_path = self.project_path / rel_path
+                self._ensure_dirs()
+                shutil.copy2(source, abs_path)
+                created_snapshots.append(abs_path)
+                records.append(
+                    {
+                        "version": new_version,
+                        "file": rel_path,
+                        "prompt": version_prompt,
+                        "created_at": self._generate_iso_timestamp(),
+                        **version_metadata,
+                        _PREVIOUS_CURRENT_VERSION: previous_current_version,
+                    }
+                )
+                resource_data["current_version"] = new_version
+                return new_version
+
+            try:
+                current_file.parent.mkdir(parents=True, exist_ok=True)
+                if current_file.is_file():
+                    fd, backup_name = tempfile.mkstemp(
+                        prefix=f".{current_file.stem}.",
+                        suffix=f"{current_file.suffix}.rollback",
+                        dir=current_file.parent,
+                    )
+                    os.close(fd)
+                    current_backup = Path(backup_name)
+                    shutil.copy2(current_file, current_backup)
+                    if not resource_data.get("current_version"):
+                        _append_version(current_file, "", {})
+
+                new_version = _append_version(staged_file, prompt, metadata)
+                os.replace(staged_file, current_file)
+                self._save_versions(data)
+                if on_commit is not None:
+                    on_commit()
+                return new_version
+            except BaseException:
+                rollback_errors: list[OSError] = []
+                try:
+                    if current_backup is None:
+                        current_file.unlink(missing_ok=True)
+                    else:
+                        os.replace(current_backup, current_file)
+                        current_backup = None
+                except OSError as exc:
+                    rollback_errors.append(exc)
+                try:
+                    if versions_snapshot is None:
+                        self.versions_file.unlink(missing_ok=True)
+                    else:
+                        atomic_write_bytes(self.versions_file, versions_snapshot)
+                except OSError as exc:
+                    rollback_errors.append(exc)
+                for path in created_snapshots:
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError as exc:
+                        rollback_errors.append(exc)
+                if rollback_errors:
+                    raise RuntimeError(
+                        "version activation failed and durable rollback was incomplete"
+                    ) from rollback_errors[0]
+                raise
+            finally:
+                if current_backup is not None:
+                    current_backup.unlink(missing_ok=True)
+
+    def reject_current_version(
+        self,
+        resource_type: str,
+        resource_id: str,
+        *,
+        rejected_version: int,
+        restore_version: int | None = None,
+        current_file: Path,
+        on_reject: Callable[[], None] | None = None,
+    ) -> bool:
+        """Keep a rejected paid result in history while restoring its prior selection.
+
+        New records retain the current-version coordinate that was selected when
+        they were appended.  This matters when a user restored an older version
+        before regenerating: numeric adjacency is not the same as the selected
+        predecessor.  ``restore_version`` may override that recorded coordinate
+        for callers that captured it explicitly.
+
+        ``on_reject`` extends the rollback boundary to a final synchronous
+        registration update. If it raises, media and the version pointer return
+        to the rejected result.
+
+        """
+
+        if resource_type not in self.RESOURCE_TYPES:
+            raise ValueError(f"不支持的资源类型: {resource_type}")
+        current_file = Path(current_file)
+        with self._lock:
+            data = self._load_versions()
+            resource_data = data.get(resource_type, {}).get(resource_id)
+            if not isinstance(resource_data, dict) or resource_data.get("current_version") != rejected_version:
+                return False
+            records = resource_data.get("versions")
+            if not isinstance(records, list):
+                return False
+            rejected_record = next(
+                (
+                    record
+                    for record in records
+                    if isinstance(record, dict) and record.get("version") == rejected_version
+                ),
+                None,
+            )
+            if rejected_record is None:
+                return False
+            if restore_version is None:
+                recorded_previous = rejected_record.get(_PREVIOUS_CURRENT_VERSION)
+                if (
+                    isinstance(recorded_previous, int)
+                    and not isinstance(recorded_previous, bool)
+                    and recorded_previous >= 0
+                ):
+                    restore_version = recorded_previous
+                else:
+                    legacy_previous = max(
+                        (
+                            record["version"]
+                            for record in records
+                            if isinstance(record, dict)
+                            and isinstance(record.get("version"), int)
+                            and not isinstance(record.get("version"), bool)
+                            and record["version"] < rejected_version
+                        ),
+                        default=0,
+                    )
+                    restore_version = legacy_previous
+            if not isinstance(restore_version, int) or isinstance(restore_version, bool) or restore_version < 0:
+                raise ValueError("restore_version must be a non-negative integer")
+            previous = next(
+                (record for record in records if isinstance(record, dict) and record.get("version") == restore_version),
+                None,
+            )
+            if restore_version > 0 and previous is None:
+                raise ValueError(f"restore version does not exist: {restore_version}")
+            versions_snapshot = self.versions_file.read_bytes()
+            current_backup: Path | None = None
+            replacement: Path | None = None
+            try:
+                current_file.parent.mkdir(parents=True, exist_ok=True)
+                if current_file.is_file():
+                    fd, backup_name = tempfile.mkstemp(
+                        prefix=f".{current_file.stem}.",
+                        suffix=f"{current_file.suffix}.rollback",
+                        dir=current_file.parent,
+                    )
+                    os.close(fd)
+                    current_backup = Path(backup_name)
+                    shutil.copy2(current_file, current_backup)
+                if previous is None:
+                    current_file.unlink(missing_ok=True)
+                    resource_data["current_version"] = 0
+                else:
+                    previous_file = self.project_path / previous["file"]
+                    if not previous_file.is_file():
+                        raise FileNotFoundError(f"版本文件不存在: {previous_file}")
+                    fd, replacement_name = tempfile.mkstemp(
+                        prefix=f".{current_file.stem}.",
+                        suffix=current_file.suffix,
+                        dir=current_file.parent,
+                    )
+                    os.close(fd)
+                    replacement = Path(replacement_name)
+                    shutil.copy2(previous_file, replacement)
+                    os.replace(replacement, current_file)
+                    replacement = None
+                    resource_data["current_version"] = previous["version"]
+                self._save_versions(data)
+                if on_reject is not None:
+                    on_reject()
+                return True
+            except BaseException:
+                rollback_errors: list[OSError] = []
+                try:
+                    if current_backup is None:
+                        current_file.unlink(missing_ok=True)
+                    else:
+                        os.replace(current_backup, current_file)
+                        current_backup = None
+                except OSError as exc:
+                    rollback_errors.append(exc)
+                try:
+                    atomic_write_bytes(self.versions_file, versions_snapshot)
+                except OSError as exc:
+                    rollback_errors.append(exc)
+                if rollback_errors:
+                    raise RuntimeError(
+                        "version rejection failed and durable rollback was incomplete"
+                    ) from rollback_errors[0]
+                raise
+            finally:
+                if current_backup is not None:
+                    current_backup.unlink(missing_ok=True)
+                if replacement is not None:
+                    replacement.unlink(missing_ok=True)
 
     def rename_resource(self, resource_type: str, old_id: str, new_id: str, *, dry_run: bool = False) -> int:
         """把资源的版本历史整体迁移到新 id：re-key 元数据、重命名快照文件、改写记录内路径。

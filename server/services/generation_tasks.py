@@ -5,11 +5,13 @@ Task execution service for queued generation jobs.
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.asset_types import (
     ASSET_SPECS,
     normalize_asset_bucket,
@@ -22,13 +24,26 @@ from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_SECONDS,
     AUDIO_REFERENCE_MIN_SECONDS,
     probe_audio_duration_seconds,
+    probe_existing_audio_duration_seconds,
 )
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import constrain_durations, video_bucket_for_generation_mode
 from lib.db.base import DEFAULT_USER_ID
+from lib.generation_queue import CompensableGenerationResult
+from lib.narration_delivery import (
+    USE_TTS,
+    NarratedVideoDurationBlockedError,
+    NarrationDeliveryRequestOptions,
+    TtsSynthesisSettings,
+    build_narration_audio_basis,
+    canonical_narration_text,
+    prepare_current_narrated_video_duration,
+    prepare_narrated_video_duration,
+    register_narration_audio_transactionally,
+)
 from lib.path_safety import safe_exists, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
-from lib.project_manager import get_project_manager
+from lib.project_manager import EpisodeScriptReboundError, ProjectManager, find_episode, get_project_manager
 from lib.prompt_builders import (
     append_product_fidelity_tail,
     build_character_prompt,
@@ -46,8 +61,10 @@ from lib.prompt_utils import (
     video_prompt_to_yaml,
 )
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
+from lib.script_editor import resolve_items
 from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
+from lib.speech_composition import SpeechAdmissionError, admit_script_unit
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
@@ -63,6 +80,13 @@ from server.services.generation_context import (
     ImageLaneRequest,
     VideoLaneRequest,
     resolve_generation_context,
+)
+from server.services.narration_delivery_tasks import (
+    CurrentTtsSettingsResolver,
+    current_selected_video_tier,
+    require_generated_video_covers_current_tts,
+    reuse_current_video_for_tier,
+    tts_task_in_progress,
 )
 
 logger = logging.getLogger(__name__)
@@ -506,7 +530,6 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
 # video_units）动态派生 entity_type 与条目名词，见 _SKELETON_DRIVEN_TASK_ACTIONS，避免恒发
 # ``segment``/「分镜」而与分镜级事件（project_events.py）名词不一致。
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
-    "tts": ("segment", "tts_ready", "旁白「{}」", True),
     "grid": ("grid", "grid_ready", "宫格「{}」", True),
     "grid_split": ("grid", "grid_split_done", "宫格「{}」切分", True),
     "voice_sample": ("character", "voice_sample_ready", "「{}」试听样本", False),
@@ -519,6 +542,7 @@ _SKELETON_DRIVEN_TASK_ACTIONS: dict[str, str] = {
     "storyboard": "storyboard_ready",
     "video": "video_ready",
     "reference_video": "reference_video_ready",
+    "tts": "tts_ready",
 }
 
 # reference_video 的条目标签沿用「参考视频」措辞（区别于分镜级事件的骨架名词「视频单元」，
@@ -526,6 +550,7 @@ _SKELETON_DRIVEN_TASK_ACTIONS: dict[str, str] = {
 # 回退到骨架名词本身（分镜/场景/镜头），与同项目分镜级事件同口径。
 _SKELETON_TASK_LABEL_NOUNS: dict[str, str] = {
     "reference_video": "参考视频",
+    "tts": "旁白",
 }
 
 
@@ -708,31 +733,43 @@ async def execute_tts_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    """为说书模式单个 segment 合成旁白音频（同步 TTS，无续传）。
-
-    文本来源：payload.text 显式优先；否则从脚本 segment 的 novel_text 读取。文本为空 /
-    segment 找不到 / 脚本未生成一律显式 raise，绝不把空串送给 backend 合成。
-    """
+    """为一个 narrator-owned script unit 合成独立旁白音频。"""
     script_file = payload.get("script_file")
 
-    def _prepare() -> tuple[dict, str]:
-        _project = get_project_manager().load_project(project_name)
-        _text = payload.get("text") or payload.get("prompt")
-        if not _text:
-            if not script_file:
-                raise ValueError("tts task 需要 payload.text 或 payload.script_file 之一")
-            _script = get_project_manager().load_script(project_name, script_file)
-            _items, _id_field, *_ = get_storyboard_items(_script)
-            _resolved = find_storyboard_item(_items, _id_field, resource_id)
-            if _resolved is None:
+    def _prepare() -> tuple[dict, Path, str, Any | None, int | None]:
+        pm = get_project_manager()
+        current_project = pm.load_project(project_name)
+        project_path = pm.get_project_path(project_name)
+        if script_file:
+            script = pm.load_script(project_name, script_file)
+            items, id_field, kind = resolve_items(script)
+            item = next(
+                (
+                    candidate
+                    for candidate in items
+                    if isinstance(candidate, dict) and str(candidate.get(id_field)) == str(resource_id)
+                ),
+                None,
+            )
+            if item is None:
                 raise ValueError(f"segment not found: {resource_id}")
-            _segment, _ = _resolved
-            _text = _segment.get("novel_text")
-        if not isinstance(_text, str) or not _text.strip():
-            raise ValueError(f"segment {resource_id} 无可合成的旁白文本（novel_text 为空）")
-        return _project, _text.strip()
+            admission = admit_script_unit(kind, item)
+            text = canonical_narration_text(admission.preparation)
+            if not admission.allowed:
+                if not text:
+                    raise ValueError(f"segment {resource_id} 无可合成的旁白文本")
+                raise SpeechAdmissionError(admission)
+            if not text:
+                raise ValueError(f"segment {resource_id} 无可合成的旁白文本")
+            episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
+            return current_project, project_path, text, admission.preparation, episode
 
-    project, text = await asyncio.to_thread(_prepare)
+        legacy_text = payload.get("text") or payload.get("prompt")
+        if not isinstance(legacy_text, str) or not legacy_text.strip():
+            raise ValueError("tts task 需要 payload.text 或 payload.script_file 之一")
+        return current_project, project_path, legacy_text.strip(), None, None
+
+    project, project_path, text, preparation, episode = await asyncio.to_thread(_prepare)
 
     ctx = await resolve_generation_context(
         project_name,
@@ -744,36 +781,228 @@ async def execute_tts_task(
     generator = ctx.generator
     voice = ctx.audio.narration_voice
     speed = ctx.audio.narration_speed
+    settings = TtsSynthesisSettings(
+        provider_id=ctx.audio.provider_model.provider_id,
+        model_id=ctx.audio.backend_model,
+        voice=voice,
+        speed=speed,
+    )
+    basis = build_narration_audio_basis(preparation, settings) if preparation is not None else None
 
-    _, version = await generator.generate_audio_async(
+    audio_rel = resource_relative_path("audio", resource_id)
+    duration_seconds: float | None = None
+    missing_narration_audio = object()
+    prior_narration_audio: object = missing_narration_audio
+    prior_manifest_entry: ArtifactManifestEntry | None = None
+    prior_manifest_captured = False
+
+    async def _measure_staged(staged_path: Path) -> None:
+        nonlocal duration_seconds
+        duration_seconds = await probe_existing_audio_duration_seconds(staged_path)
+
+    def _commit_staged(staged_path: Path, output_path: Path) -> int:
+        nonlocal prior_narration_audio
+        if script_file is None or preparation is None or episode is None or basis is None:
+            return generator.versions.commit_staged_version(
+                resource_type="audio",
+                resource_id=resource_id,
+                prompt=text,
+                staged_file=staged_path,
+                current_file=output_path,
+                tts_provider_id=settings.provider_id,
+                tts_model_id=settings.model_id,
+                tts_voice=settings.voice,
+                tts_speed=settings.speed,
+                tts_basis_digest=None,
+            )
+
+        committed_preparation = preparation
+        committed_episode = episode
+        committed_basis = basis
+        pm = get_project_manager()
+        committed_version: int | None = None
+
+        def _register_basis() -> None:
+            register_narration_audio_transactionally(
+                project_path=project_path,
+                episode=committed_episode,
+                preparation=committed_preparation,
+                settings=settings,
+            )
+
+        def _activate(_script_path: Path) -> None:
+            nonlocal committed_version, prior_manifest_captured, prior_manifest_entry
+            manifest_adapter = ProjectArtifactManifestAdapter(project_path)
+            prior_manifest_entry = manifest_adapter.get_entry(ArtifactKey.episode_audio(committed_episode, resource_id))
+            prior_manifest_captured = True
+            committed_version = generator.versions.commit_staged_version(
+                resource_type="audio",
+                resource_id=resource_id,
+                prompt=text,
+                staged_file=staged_path,
+                current_file=output_path,
+                on_commit=_register_basis,
+                tts_provider_id=settings.provider_id,
+                tts_model_id=settings.model_id,
+                tts_voice=settings.voice,
+                tts_speed=settings.speed,
+                tts_basis_digest=committed_basis.digest,
+            )
+
+        def _same_script(_project: dict) -> str:
+            entry = find_episode(_project, committed_episode)
+            current_binding = entry.get("script_file") if isinstance(entry, dict) else None
+            if current_binding is None and not (_project.get("episodes") or []):
+                return str(script_file)
+            if not isinstance(current_binding, str) or (
+                ProjectManager.normalize_script_filename(current_binding)
+                != ProjectManager.normalize_script_filename(str(script_file))
+            ):
+                raise EpisodeScriptReboundError(f"episode {committed_episode} script binding changed before TTS commit")
+            return current_binding
+
+        with pm.locked_episode_script(
+            project_name,
+            _same_script,
+            validate=False,
+            on_commit=_activate,
+        ) as current_script:
+            items, id_field, _kind = resolve_items(current_script)
+            item = next(
+                (
+                    candidate
+                    for candidate in items
+                    if isinstance(candidate, dict) and str(candidate.get(id_field)) == str(resource_id)
+                ),
+                None,
+            )
+            if item is None:
+                raise ValueError(f"segment not found: {resource_id}")
+            assets = item.get("generated_assets")
+            prior_narration_audio = (
+                copy.deepcopy(assets.get("narration_audio", missing_narration_audio))
+                if isinstance(assets, dict)
+                else missing_narration_audio
+            )
+            if not isinstance(assets, dict):
+                assets = ProjectManager.create_generated_assets(str(current_script.get("content_mode") or "narration"))
+                item["generated_assets"] = assets
+            assets["narration_audio"] = audio_rel
+            pm.update_scene_status(item)
+
+        if committed_version is None:
+            raise RuntimeError("TTS commit completed without a version")
+        return committed_version
+
+    output_path, version = await generator.generate_audio_async(
         text=text,
         resource_id=resource_id,
         voice=voice,
         speed=speed,
+        before_commit=_measure_staged,
+        commit_staged=_commit_staged,
+        tts_provider_id=settings.provider_id,
+        tts_model_id=settings.model_id,
+        tts_voice=settings.voice,
+        tts_speed=settings.speed,
+        tts_basis_digest=basis.digest if basis is not None else None,
     )
 
-    audio_rel = resource_relative_path("audio", resource_id)
+    try:
+        records = generator.versions.get_versions("audio", resource_id)["versions"]
+        created_at = next(
+            (record.get("created_at") for record in reversed(records) if record.get("version") == version),
+            records[-1].get("created_at") if records else None,
+        )
+    except Exception:
+        logger.warning("读取 TTS 版本入库时间失败 resource_id=%s", resource_id, exc_info=True)
+        created_at = None
 
-    def _finalize():
-        if script_file:
-            get_project_manager().update_scene_asset(
-                project_name=project_name,
-                script_filename=script_file,
-                scene_id=resource_id,
-                asset_type="narration_audio",
-                asset_path=audio_rel,
-            )
-        return generator.versions.get_versions("audio", resource_id)["versions"][-1]["created_at"]
-
-    created_at = await asyncio.to_thread(_finalize)
-
-    return {
+    result = {
         "version": version,
         "file_path": audio_rel,
         "created_at": created_at,
         "resource_type": "audio",
         "resource_id": resource_id,
+        "duration_seconds": duration_seconds,
+        "tts_basis_digest": basis.digest if basis is not None else None,
     }
+    if task_id is None:
+        return result
+
+    def _compensate_cancelled_tts() -> None:
+        def _reject_with_manifest_restore() -> None:
+            def _restore_manifest() -> None:
+                if not prior_manifest_captured or episode is None or basis is None:
+                    return
+                adapter = ProjectArtifactManifestAdapter(project_path)
+                key = ArtifactKey.episode_audio(episode, resource_id)
+                expected = ArtifactManifestEntry(artifact_path=audio_rel, basis_digest=basis.digest)
+                if adapter.get_entry(key) != expected:
+                    raise RuntimeError("current TTS basis changed before cancellation compensation")
+                if prior_manifest_entry is None:
+                    adapter.delete_entry(key)
+                else:
+                    adapter.put_entry(key, prior_manifest_entry)
+
+            restored = generator.versions.reject_current_version(
+                "audio",
+                resource_id,
+                rejected_version=version,
+                current_file=output_path,
+                on_reject=_restore_manifest,
+            )
+            if not restored:
+                raise RuntimeError("current TTS version changed before cancellation compensation")
+
+        if script_file is None or preparation is None or episode is None or basis is None:
+            _reject_with_manifest_restore()
+            return
+
+        pm = get_project_manager()
+
+        def _same_script(_project: dict) -> str:
+            entry = find_episode(_project, episode)
+            current_binding = entry.get("script_file") if isinstance(entry, dict) else None
+            if current_binding is None and not (_project.get("episodes") or []):
+                return str(script_file)
+            if not isinstance(current_binding, str) or (
+                ProjectManager.normalize_script_filename(current_binding)
+                != ProjectManager.normalize_script_filename(str(script_file))
+            ):
+                raise EpisodeScriptReboundError(f"episode {episode} script binding changed before TTS cancellation")
+            return current_binding
+
+        with pm.locked_episode_script(
+            project_name,
+            _same_script,
+            validate=False,
+            on_commit=lambda _script_path: _reject_with_manifest_restore(),
+        ) as current_script:
+            items, id_field, _kind = resolve_items(current_script)
+            item = next(
+                (
+                    candidate
+                    for candidate in items
+                    if isinstance(candidate, dict) and str(candidate.get(id_field)) == str(resource_id)
+                ),
+                None,
+            )
+            if item is None:
+                raise ValueError(f"segment not found during TTS cancellation: {resource_id}")
+            assets = item.get("generated_assets")
+            if not isinstance(assets, dict):
+                assets = ProjectManager.create_generated_assets(str(current_script.get("content_mode") or "narration"))
+                item["generated_assets"] = assets
+            if assets.get("narration_audio") != audio_rel:
+                raise RuntimeError("narration audio changed before cancellation compensation")
+            if prior_narration_audio is missing_narration_audio:
+                assets.pop("narration_audio", None)
+            else:
+                assets["narration_audio"] = copy.deepcopy(prior_narration_audio)
+            pm.update_scene_status(item)
+
+    return CompensableGenerationResult(result, cancel_compensation=_compensate_cancelled_tts)
 
 
 # character_name 经 validate_asset_name 校验合法字符，但不限长度；task_id 固定是 uuid4().hex
@@ -915,9 +1144,11 @@ async def execute_video_task(
             _project_path,
             _item,
             resolve_content_mode(_script, _project),
+            resolve_script_kind(_script),
+            ProjectManager.resolve_episode_from_script(_script, str(script_file)),
         )
 
-    project, project_path, item, content_mode = await asyncio.to_thread(_load)
+    project, project_path, item, content_mode, script_kind, episode = await asyncio.to_thread(_load)
     # lane 归桶按项目路线求值，与提交入口（``generate_video``）同源：入口挡掉参考路线后
     # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免路线口径分叉。
     ctx = await resolve_generation_context(
@@ -991,9 +1222,102 @@ async def execute_video_task(
         duration_seconds = (
             candidates[0] if candidates else _get_model_default_duration(registry_provider_id, model_name)
         )
+
+    delivery_options = NarrationDeliveryRequestOptions.from_payload(payload)
+    delivery_projection = None
+    if delivery_options.narration_delivery == USE_TTS:
+        current_planned_duration = item.get("duration_seconds") if isinstance(item, dict) else None
+        if (
+            not isinstance(current_planned_duration, int)
+            or isinstance(current_planned_duration, bool)
+            or current_planned_duration <= 0
+        ):
+            current_planned_duration = project.get("default_duration")
+        if (
+            not isinstance(current_planned_duration, int)
+            or isinstance(current_planned_duration, bool)
+            or current_planned_duration <= 0
+        ):
+            candidates = constrain_durations(
+                registry_provider_id,
+                model_name,
+                supported_durations,
+                resolution=resolution,
+            )
+            if not candidates:
+                raise ValueError("TTS video request requires a current integer planned duration")
+            current_planned_duration = candidates[0]
+        constrained_durations = constrain_durations(
+            registry_provider_id,
+            model_name,
+            supported_durations,
+            resolution=resolution,
+        )
+        delivery_projection = await prepare_current_narrated_video_duration(
+            project=project,
+            episode=episode,
+            preparation=admit_script_unit(script_kind, item).preparation,
+            project_path=project_path,
+            delivery=delivery_options.narration_delivery,
+            planned_duration_seconds=current_planned_duration,
+            supported_durations=constrained_durations,
+            confirmed_request_duration_seconds=delivery_options.confirmed_request_duration_seconds,
+            resolver=CurrentTtsSettingsResolver(project_name),
+            tts_in_progress=await tts_task_in_progress(
+                project_name=project_name,
+                resource_id=resource_id,
+                script_file=str(script_file),
+            ),
+        )
+        narration_actual_duration = delivery_projection.narration.actual_duration_seconds
+        current_visual_duration = (
+            await current_selected_video_tier(
+                project_path=project_path,
+                versions=generator.versions,
+                item=item,
+                resource_type="videos",
+                resource_id=resource_id,
+                minimum_actual_duration_seconds=narration_actual_duration,
+            )
+            if narration_actual_duration is not None
+            else None
+        )
+        delivery_projection = prepare_narrated_video_duration(
+            narration=delivery_projection.narration,
+            planned_duration_seconds=current_planned_duration,
+            supported_durations=constrained_durations,
+            confirmed_request_duration_seconds=delivery_options.confirmed_request_duration_seconds,
+            current_visual_duration_seconds=current_visual_duration,
+        )
+        if not delivery_projection.allowed:
+            raise NarratedVideoDurationBlockedError(delivery_projection)
+        request_duration = delivery_projection.request_duration_seconds
+        if request_duration is None:
+            raise RuntimeError("allowed narrated video projection is missing a request duration")
+        duration_seconds = request_duration
+    if not isinstance(duration_seconds, (int, str)) or isinstance(duration_seconds, bool):
+        raise ValueError("video request duration must be an integer or integer string")
     # 能力守卫：provider 解析之后的唯一权威家（见 ADR-0001）。安全解析交给守卫，
     # 此处不预先 int() 截断，避免把非整数秒静默修正成「碰巧合法」的值。
     assert_duration_supported(duration_seconds, supported_durations)
+
+    if delivery_projection is not None:
+        if not isinstance(duration_seconds, int) or isinstance(duration_seconds, bool):
+            raise RuntimeError("allowed TTS video projection produced a non-integer request duration")
+        narration_actual_duration = delivery_projection.narration.actual_duration_seconds
+        if narration_actual_duration is None:
+            raise RuntimeError("allowed TTS video projection is missing actual narration duration")
+        reused = await reuse_current_video_for_tier(
+            project_path=project_path,
+            versions=generator.versions,
+            item=item,
+            resource_type="videos",
+            resource_id=resource_id,
+            request_duration_seconds=duration_seconds,
+            minimum_actual_duration_seconds=narration_actual_duration,
+        )
+        if reused is not None:
+            return reused
 
     # end_frame_image 是镜头持久属性（见 server/services/end_frame.py），剧本每次加载都带出，
     # 重新生成无需额外操作即可沿用。能力是否支持尾帧由 generate_video_async 内的 plan_frame_slots
@@ -1039,7 +1363,7 @@ async def execute_video_task(
             raise ValueError(f"end frame snapshot not found: {end_frame_file.name}")
         end_image = end_frame_file
 
-    _, version, _, video_uri = await generator.generate_video_async(
+    output_path, version, _, video_uri = await generator.generate_video_async(
         prompt=prompt_text,
         resource_type="videos",
         resource_id=resource_id,
@@ -1052,6 +1376,19 @@ async def execute_video_task(
         seed=seed,
         service_tier=service_tier,
     )
+
+    if delivery_projection is not None:
+        if not isinstance(duration_seconds, int) or isinstance(duration_seconds, bool):
+            raise RuntimeError("allowed TTS video projection produced a non-integer request duration")
+        await require_generated_video_covers_current_tts(
+            narration=delivery_projection.narration,
+            request_duration_seconds=duration_seconds,
+            output_path=output_path,
+            versions=generator.versions,
+            resource_type="videos",
+            resource_id=resource_id,
+            version=version,
+        )
 
     return await _finalize_video_task(
         project_name=project_name,

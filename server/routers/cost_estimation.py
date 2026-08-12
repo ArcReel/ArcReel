@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 
 from lib.api_errors import NotFoundError
 from lib.config.resolver import ConfigResolver
@@ -26,7 +26,6 @@ async def get_cost_estimate(
     _t: Translator,
     reference_unit_id: str | None = None,
     narration_delivery: NarrationDelivery = POST_PRODUCTION,
-    narration_duration_floor: float | None = Query(default=None, gt=0, allow_inf_nan=False),
 ):
     """获取项目费用估算（预估 + 实际）。"""
 
@@ -61,15 +60,12 @@ async def get_cost_estimate(
         project_path=get_project_manager().get_project_path(project_name),
     )
 
-    if narration_duration_floor is not None and not reference_unit_id:
-        raise HTTPException(status_code=400, detail=_t("request_invalid"))
     if reference_unit_id and not any(find_reference_unit(script, reference_unit_id) for script in scripts.values()):
         raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=reference_unit_id))
     reference_request_options = (
         {
             reference_unit_id: ReferenceRequestOptions(
                 narration_delivery=narration_delivery,
-                narration_duration_floor=narration_duration_floor,
             )
         }
         if reference_unit_id

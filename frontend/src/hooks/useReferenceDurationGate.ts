@@ -30,7 +30,8 @@ interface PendingConfirm {
   unitIds: string[];
 }
 
-type Commit = (unitIds: string[], durationConfirmed: boolean) => Promise<void>;
+type ConfirmedDurations = ReadonlyMap<string, number>;
+type Commit = (unitIds: string[], confirmedDurations: ConfirmedDurations) => Promise<void>;
 
 /**
  * 参考视频生成入口的时长确认闸门：入队前预检取档，申请秒数与请求时长基准不一致时先让
@@ -131,7 +132,7 @@ export function useReferenceDurationGate({ projectName, episode, requestOptions 
       const needsConfirmation = available.filter((item) => item.precheck.needs_confirmation);
       const passing = available.map((item) => item.unitId);
       if (needsConfirmation.length === 0) {
-        await commit(passing, false);
+        await commit(passing, new Map());
         return;
       }
       commitRef.current = commit;
@@ -154,7 +155,10 @@ export function useReferenceDurationGate({ projectName, episode, requestOptions 
     const targets = canEnqueue ? current.unitIds.filter(canEnqueue) : current.unitIds;
     if (targets.length === 0) return;
     // commit 自身已按入口口径提示失败，这里只兜住漏出的意外异常
-    void commit(targets, true).catch((e: unknown) => {
+    const confirmedDurations = new Map(
+      current.items.map((item) => [item.unitId, item.precheck.request_duration]),
+    );
+    void commit(targets, confirmedDurations).catch((e: unknown) => {
       useAppStore
         .getState()
         .pushToast(t("reference_generate_request_failed", { error: errMsg(e) }), "error");

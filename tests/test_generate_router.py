@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -207,6 +208,217 @@ class TestGenerateRouter:
             assert call["task_type"] == "video"
             assert call["media_type"] == "video"
             assert call["payload"]["duration_seconds"] == 5
+
+    @pytest.mark.integration
+    def test_video_use_tts_requires_fresh_audio_without_enqueuing_tts(self, tmp_path, monkeypatch):
+        from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+        from lib.narration_delivery import (
+            USE_TTS,
+            NarrationAudioEvidence,
+            TtsSynthesisSettings,
+            prepare_narrated_video_duration,
+            prepare_narration_delivery,
+        )
+        from lib.speech_composition import admit_script_unit
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+        speech = admit_script_unit("segments", fake_pm.script["segments"][0]).preparation
+
+        async def _missing(**_kwargs):
+            narration = prepare_narration_delivery(
+                delivery=USE_TTS,
+                preparation=speech,
+                artifact_path="audio/segment_E1S01.wav",
+                settings=TtsSynthesisSettings("audio", "tts-model", "voice", None),
+                evidence=NarrationAudioEvidence(
+                    comparison=ArtifactComparison(
+                        status=ArtifactStatus.MISSING,
+                        artifact_path="audio/segment_E1S01.wav",
+                    ),
+                    present=False,
+                    duration_seconds=None,
+                ),
+            )
+            return prepare_narrated_video_duration(
+                narration=narration,
+                planned_duration_seconds=4,
+                supported_durations=(4, 8),
+                confirmed_request_duration_seconds=None,
+            )
+
+        monkeypatch.setattr(generate, "prepare_current_storyboard_narrated_video_duration", _missing)
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "duration_seconds": 4,
+                    "prompt": {"action": "风吹草动", "camera_motion": "Static"},
+                    "narration_delivery": "use_tts",
+                },
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"]["problems"][0]["code"] == "tts_missing"
+        assert fake_queue.calls == []
+
+    @pytest.mark.integration
+    def test_video_use_tts_confirms_only_the_current_higher_tier(self, tmp_path, monkeypatch):
+        from dataclasses import replace
+
+        from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+        from lib.narration_delivery import (
+            USE_TTS,
+            NarrationAudioEvidence,
+            TtsSynthesisSettings,
+            VideoRequestCostFacts,
+            prepare_narrated_video_duration,
+            prepare_narration_delivery,
+        )
+        from lib.speech_composition import admit_script_unit
+        from server.services.cost_estimation import VideoRequestQuote
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+        speech = admit_script_unit("segments", fake_pm.script["segments"][0]).preparation
+
+        async def _fresh(**kwargs):
+            narration = prepare_narration_delivery(
+                delivery=USE_TTS,
+                preparation=speech,
+                artifact_path="audio/segment_E1S01.wav",
+                settings=TtsSynthesisSettings("audio", "tts-model", "voice", None),
+                evidence=NarrationAudioEvidence(
+                    comparison=ArtifactComparison(
+                        status=ArtifactStatus.CURRENT,
+                        artifact_path="audio/segment_E1S01.wav",
+                    ),
+                    present=True,
+                    duration_seconds=6.2,
+                ),
+            )
+            return replace(
+                prepare_narrated_video_duration(
+                    narration=narration,
+                    planned_duration_seconds=4,
+                    supported_durations=(4, 8),
+                    confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
+                ),
+                cost=VideoRequestCostFacts("openai", "sora-2", "720p", 8, True),
+            )
+
+        async def _quote(*_args, **_kwargs):
+            return VideoRequestQuote(0.8, "USD", "openai", "sora-2", 8)
+
+        monkeypatch.setattr(generate, "prepare_current_storyboard_narrated_video_duration", _fresh)
+        monkeypatch.setattr(generate, "quote_video_request", _quote)
+        request = {
+            "script_file": "episode_1.json",
+            "duration_seconds": 4,
+            "prompt": {"action": "风吹草动", "camera_motion": "Static"},
+            "narration_delivery": "use_tts",
+        }
+        with client:
+            pending = client.post("/api/v1/projects/demo/generate/video/E1S01", json=request)
+            accepted = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={**request, "confirmed_request_duration_seconds": 8},
+            )
+
+        assert pending.status_code == 400
+        assert pending.json()["detail"]["request_duration"] == 8
+        assert pending.json()["detail"]["request_cost"] == {
+            "amount": 0.8,
+            "currency": "USD",
+            "provider_id": "openai",
+            "model_id": "sora-2",
+            "request_duration_seconds": 8,
+        }
+        assert accepted.status_code == 200, accepted.text
+        payload = fake_queue.calls[0]["payload"]
+        assert "duration_seconds" not in payload
+        assert payload["narration_delivery_options"] == {
+            "narration_delivery": "use_tts",
+            "confirmed_request_duration_seconds": 8,
+        }
+        assert set(payload["narration_delivery_options"]) == {
+            "narration_delivery",
+            "confirmed_request_duration_seconds",
+        }
+
+    @pytest.mark.integration
+    def test_video_use_tts_blocks_when_cross_tier_cost_is_unavailable(self, tmp_path, monkeypatch):
+        from dataclasses import replace
+
+        from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+        from lib.narration_delivery import (
+            USE_TTS,
+            NarrationAudioEvidence,
+            TtsSynthesisSettings,
+            VideoRequestCostFacts,
+            prepare_narrated_video_duration,
+            prepare_narration_delivery,
+        )
+        from lib.speech_composition import admit_script_unit
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+        speech = admit_script_unit("segments", fake_pm.script["segments"][0]).preparation
+
+        async def _fresh(**kwargs):
+            narration = prepare_narration_delivery(
+                delivery=USE_TTS,
+                preparation=speech,
+                artifact_path="audio/segment_E1S01.wav",
+                settings=TtsSynthesisSettings("audio", "tts-model", "voice", None),
+                evidence=NarrationAudioEvidence(
+                    comparison=ArtifactComparison(
+                        status=ArtifactStatus.CURRENT,
+                        artifact_path="audio/segment_E1S01.wav",
+                    ),
+                    present=True,
+                    duration_seconds=6.2,
+                ),
+            )
+            return replace(
+                prepare_narrated_video_duration(
+                    narration=narration,
+                    planned_duration_seconds=4,
+                    supported_durations=(4, 8),
+                    confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
+                ),
+                cost=VideoRequestCostFacts("openai", "sora-2", "720p", 8, True),
+            )
+
+        monkeypatch.setattr(generate, "prepare_current_storyboard_narrated_video_duration", _fresh)
+        monkeypatch.setattr(generate, "quote_video_request", AsyncMock(return_value=None))
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "duration_seconds": 4,
+                    "prompt": {"action": "风吹草动", "camera_motion": "Static"},
+                    "narration_delivery": "use_tts",
+                },
+            )
+
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert detail["allowed"] is False
+        assert [problem["code"] for problem in detail["problems"]] == [
+            "reference_duration_confirmation_required",
+            "video_request_cost_unavailable",
+        ]
+        assert fake_queue.calls == []
 
     @pytest.mark.unit
     def test_legacy_drama_dialogue_can_enqueue_single_video(self, tmp_path, monkeypatch):

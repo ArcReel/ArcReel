@@ -54,6 +54,7 @@ import type {
   AdShot,
   ReferenceDurationPrecheck,
   ReferenceProjectionAdmission,
+  NarratedVideoDurationAdmission,
   ReferenceGenerationRequestOptions,
   ReferenceRequestOptions,
   ScriptPreview,
@@ -99,9 +100,6 @@ function referenceRequestQuery(
   if (options.narration_delivery) {
     query.set("narration_delivery", options.narration_delivery);
   }
-  if (options.narration_duration_floor != null) {
-    query.set("narration_duration_floor", String(options.narration_duration_floor));
-  }
   const serialized = query.toString();
   return serialized ? `?${serialized}` : "";
 }
@@ -131,7 +129,8 @@ export interface ErrorResponse {
     | AgentFailureDetail
     | SpeechAdmission
     | ScriptEditResult
-    | ReferenceProjectionAdmission;
+    | ReferenceProjectionAdmission
+    | NarratedVideoDurationAdmission;
 }
 
 export interface SpeechAdmissionLocation {
@@ -218,6 +217,17 @@ export class ReferenceProjectionError extends Error {
     const firstBlocking = projection.problems.find(({ blocking }) => blocking);
     super(firstBlocking?.message || firstBlocking?.code || "reference_request_projection_blocked");
     this.name = "ReferenceProjectionError";
+  }
+}
+
+/** Preserves current TTS/duration blockers so callers can perform an exact-tier retry. */
+export class NarratedVideoDurationError extends Error {
+  readonly code = "narrated_video_duration_blocked" as const;
+
+  constructor(public readonly admission: NarratedVideoDurationAdmission) {
+    const firstBlocking = admission.problems.find(({ blocking }) => blocking);
+    super(firstBlocking?.message || firstBlocking?.code || "narrated_video_duration_blocked");
+    this.name = "NarratedVideoDurationError";
   }
 }
 
@@ -434,6 +444,9 @@ async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<vo
     if (isReferenceProjectionAdmission(detail)) {
       throw new ReferenceProjectionError(detail);
     }
+    if (isNarratedVideoDurationAdmission(detail)) {
+      throw new NarratedVideoDurationError(detail);
+    }
     if (isSpeechAdmission(detail)) {
       throw new SpeechAdmissionError(detail);
     }
@@ -536,6 +549,45 @@ function isReferenceProjectionAdmission(value: unknown): value is ReferenceProje
             && (field.line === null || typeof field.line === "number")
           );
         })
+        && Boolean(entry.params)
+        && typeof entry.params === "object"
+        && !Array.isArray(entry.params)
+        && typeof entry.action === "string"
+        && (entry.message === undefined || typeof entry.message === "string")
+      );
+    })
+  );
+}
+
+function isNarratedVideoDurationAdmission(value: unknown): value is NarratedVideoDurationAdmission {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const detail = value as Record<string, unknown>;
+  return (
+    detail.allowed === false
+    && detail.kind === "narrated_video_duration"
+    && typeof detail.unit_id === "string"
+    && typeof detail.narration_delivery === "object"
+    && detail.narration_delivery !== null
+    && !Array.isArray(detail.narration_delivery)
+    && typeof detail.planned_duration === "number"
+    && typeof detail.duration_input === "number"
+    && (detail.request_duration === null || typeof detail.request_duration === "number")
+    && (
+      detail.adjustment === null
+      || detail.adjustment === "exact"
+      || detail.adjustment === "up"
+      || detail.adjustment === "down"
+    )
+    && Array.isArray(detail.problems)
+    && detail.problems.length > 0
+    && detail.problems.every((problem) => {
+      if (!problem || typeof problem !== "object" || Array.isArray(problem)) return false;
+      const entry = problem as Record<string, unknown>;
+      return (
+        typeof entry.code === "string"
+        && typeof entry.blocking === "boolean"
+        && typeof entry.unit_id === "string"
+        && Array.isArray(entry.locations)
         && Boolean(entry.params)
         && typeof entry.params === "object"
         && !Array.isArray(entry.params)
@@ -705,6 +757,9 @@ class API {
       }
       if (isReferenceProjectionAdmission(error.detail)) {
         throw new ReferenceProjectionError(error.detail);
+      }
+      if (isNarratedVideoDurationAdmission(error.detail)) {
+        throw new NarratedVideoDurationError(error.detail);
       }
       if (isSpeechAdmission(error.detail)) {
         throw new SpeechAdmissionError(error.detail);
@@ -1678,7 +1733,8 @@ class API {
     segmentId: string,
     prompt: string | Record<string, unknown>,
     scriptFile: string,
-    durationSeconds: number = 4
+    durationSeconds: number = 4,
+    requestOptions: ReferenceGenerationRequestOptions = {},
   ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/video/${encodeURIComponent(segmentId)}`,
@@ -1688,6 +1744,7 @@ class API {
           prompt,
           script_file: scriptFile,
           duration_seconds: durationSeconds,
+          ...requestOptions,
         }),
       }
     );

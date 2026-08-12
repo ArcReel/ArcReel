@@ -18,11 +18,12 @@ import { deriveUnitStatus } from "./unit-status";
 import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
+import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { ReferenceStep1PreviewPanel } from "@/components/canvas/reference/ReferenceStep1PreviewPanel";
 import { API } from "@/api";
-import { enqueueReferenceVideoUnit } from "@/actions/generation";
+import { enqueueNarration, enqueueReferenceVideoUnit } from "@/actions/generation";
 import {
   useReferenceVideoStore,
   referenceVideoCacheKey,
@@ -39,7 +40,10 @@ import { errMsg } from "@/utils/async";
 import {
   buildMentionLookup,
   mergeReferences,
+  matchDialogueLine,
+  matchVoiceoverLine,
   normalizeAssetName,
+  splitScriptLines,
 } from "@/utils/reference-mentions";
 import type {
   ReferenceRequestOptions,
@@ -124,6 +128,23 @@ function isUnitBusy(projectName: string, unitId: string): boolean {
   return isResourceBusy("reference_video", projectName, unitId);
 }
 
+function unitNarrationText(unit: ReferenceVideoUnit | null): string {
+  if (!unit) return "";
+  const narration: string[] = [];
+  let hasCharacterSpeech = false;
+  for (const shot of unit.shots) {
+    for (const line of splitScriptLines(shot.text)) {
+      if (matchDialogueLine(line)) {
+        hasCharacterSpeech = true;
+        continue;
+      }
+      const voiceover = matchVoiceoverLine(line);
+      if (voiceover) narration.push(voiceover.trim());
+    }
+  }
+  return hasCharacterSpeech ? "" : narration.join("\n");
+}
+
 export function ReferenceVideoCanvas({
   projectName,
   episode,
@@ -138,6 +159,16 @@ export function ReferenceVideoCanvas({
   requestOptions,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
+  const [narrationDelivery, setNarrationDelivery] = useState<"post_production" | "use_tts">(
+    requestOptions?.narration_delivery ?? "post_production",
+  );
+  const effectiveRequestOptions = useMemo<ReferenceRequestOptions>(
+    () =>
+      requestOptions || narrationDelivery !== "post_production"
+        ? { ...requestOptions, narration_delivery: narrationDelivery }
+        : {},
+    [narrationDelivery, requestOptions],
+  );
 
   const loadUnits = useReferenceVideoStore((s) => s.loadUnits);
   const addUnit = useReferenceVideoStore((s) => s.addUnit);
@@ -227,6 +258,7 @@ export function ReferenceVideoCanvas({
   // 乐观占用来自 tasks-store：入队动作层在请求发出前打标、失败回滚，真实任务行落库后
   // 让位，故「请求发出 → 任务行落库」全程都被覆盖，画布无须自备请求在途标记。
   const busyUnitIds = useActiveResourceIds("reference_video", projectName);
+  const ttsBusyUnitIds = useActiveResourceIds("tts", projectName);
 
   // 成片上传、版本恢复与时长保存都不产生任务行，进不了 tasks-store 占用集，故在画布层按 unit 记录。
   // 存在这里而非 UnitPreviewPanel 内：该面板有窄屏 sub-tab 与宽屏右栏两处挂载点，切换子页
@@ -332,10 +364,23 @@ export function ReferenceVideoCanvas({
     [isUnitLocked, projectName, episode],
   );
 
-  const durationGate = useReferenceDurationGate({ projectName, episode, requestOptions });
+  const durationGate = useReferenceDurationGate({
+    projectName,
+    episode,
+    requestOptions: effectiveRequestOptions,
+  });
+  const batchDurationGate = useReferenceDurationGate({
+    projectName,
+    episode,
+    requestOptions: {},
+  });
 
   const enqueue = useCallback(
-    async (unitId: string, durationConfirmed = false) => {
+    async (
+      unitId: string,
+      confirmedRequestDuration: number | undefined,
+      options: ReferenceRequestOptions,
+    ) => {
       // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的占用态未必是最新的
       // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）；
       // 时长确认弹窗打开期间同样会经过这段窗口，故复核落在入队这一刻。
@@ -350,14 +395,16 @@ export function ReferenceVideoCanvas({
       try {
         // 乐观打标（请求发出前）、失败回滚与 queued/deduped 提示都在动作层内完成
         await enqueueReferenceVideoUnit(projectName, episode, unitId, {
-          ...requestOptions,
-          duration_confirmed: durationConfirmed,
+          ...options,
+          ...(confirmedRequestDuration == null
+            ? {}
+            : { confirmed_request_duration_seconds: confirmedRequestDuration }),
         });
       } catch (e) {
         toastError(e, (msg) => t("reference_generate_request_failed", { error: msg }));
       }
     },
-    [projectName, episode, isUnitLocked, isUnitGenerationBlocked, requestOptions, t],
+    [projectName, episode, isUnitLocked, isUnitGenerationBlocked, t],
   );
 
   /**
@@ -367,10 +414,11 @@ export function ReferenceVideoCanvas({
    * 单元可能在此期间由别处生成完成，只在循环开始前过滤一次拦不住它。
    */
   const makeEnqueueSerially = useCallback(
-    (canEnqueue: (unitId: string) => boolean) => async (unitIds: string[], durationConfirmed: boolean) => {
+    (canEnqueue: (unitId: string) => boolean, options: ReferenceRequestOptions) =>
+      async (unitIds: string[], confirmedDurations: ReadonlyMap<string, number>) => {
       for (const id of unitIds) {
         if (!canEnqueue(id)) continue;
-        await enqueue(id, durationConfirmed);
+        await enqueue(id, confirmedDurations.get(id), options);
       }
     },
     [enqueue],
@@ -387,9 +435,21 @@ export function ReferenceVideoCanvas({
         useAppStore.getState().pushToast(t("reference_needs_replan"), "error");
         return;
       }
-      await durationGate.run([unitId], makeEnqueueSerially(canEnqueueUnit), canEnqueueUnit);
+      await durationGate.run(
+        [unitId],
+        makeEnqueueSerially(canEnqueueUnit, effectiveRequestOptions),
+        canEnqueueUnit,
+      );
     },
-    [durationGate, makeEnqueueSerially, isUnitLocked, isUnitGenerationBlocked, canEnqueueUnit, t],
+    [
+      durationGate,
+      makeEnqueueSerially,
+      isUnitLocked,
+      isUnitGenerationBlocked,
+      canEnqueueUnit,
+      effectiveRequestOptions,
+      t,
+    ],
   );
 
   const handleUploadVideo = useCallback(
@@ -428,6 +488,30 @@ export function ReferenceVideoCanvas({
     [loadUnits, projectName, episode],
   );
 
+  const handleGenerateNarration = useCallback(
+    async (unitId: string) => {
+      const scriptFile = useProjectsStore
+        .getState()
+        .currentProjectData?.episodes?.find((item) => item.episode === episode)?.script_file;
+      if (!scriptFile) {
+        useAppStore.getState().pushToast(t("timeline_script_not_ready"), "error");
+        return;
+      }
+      try {
+        await enqueueNarration(projectName, unitId, scriptFile);
+      } catch (error) {
+        toastError(error, (message) => t("generate_narration_failed", { message }));
+      }
+    },
+    [episode, projectName, t],
+  );
+  const onGenerateNarrationVoid = useCallback(
+    (unitId: string) => {
+      void handleGenerateNarration(unitId);
+    },
+    [handleGenerateNarration],
+  );
+
   // 批量生成的作用对象：全部待生成 unit。按钮禁用须与它同一口径——只看当前选中
   // unit 是否在跑、与作用对象无关的判定会脱节：选中项空闲时按钮会在没有任何待生成
   // unit 的情况下仍可点击，选中项在跑时又会挡住其余 unit 的批量生成。
@@ -448,8 +532,12 @@ export function ReferenceVideoCanvas({
     const targets = batchTargets.map((u) => u.unit_id).filter((id) => !isUnitLocked(id));
     if (targets.length === 0) return;
     // 与单元入口共用同一条闸门：需确认的单元聚合成一次确认，否则批量按钮会成为绕过确认的旁路
-    await durationGate.run(targets, makeEnqueueSerially(canEnqueueBatchUnit), canEnqueueBatchUnit);
-  }, [batchTargets, durationGate, makeEnqueueSerially, isUnitLocked, canEnqueueBatchUnit, t]);
+    await batchDurationGate.run(
+      targets,
+      makeEnqueueSerially(canEnqueueBatchUnit, {}),
+      canEnqueueBatchUnit,
+    );
+  }, [batchTargets, batchDurationGate, makeEnqueueSerially, isUnitLocked, canEnqueueBatchUnit, t]);
 
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
 
@@ -772,7 +860,10 @@ export function ReferenceVideoCanvas({
     selected ? s._segmentIndex.get(selected.unit_id) : undefined,
   );
   const estimatedCost = segCost?.estimate.video;
+  const displayedEstimatedCost = narrationDelivery === "use_tts" ? undefined : estimatedCost;
   const actualCost = segCost?.actual.video;
+  const narrationEstimatedCost = segCost?.estimate.audio;
+  const selectedNarrationText = unitNarrationText(selected);
 
   const selectedIndex = selected ? units.findIndex((u) => u.unit_id === selected.unit_id) : -1;
   const goPrev = useCallback(() => {
@@ -794,65 +885,70 @@ export function ReferenceVideoCanvas({
         canEditTitle={canEditTitle}
       />
 
-      {/* Tab + 批量生成 */}
-      <div
-        role="tablist"
-        aria-label={t("reference_main_tab_aria")}
-        className="flex items-center gap-0.5 border-b border-[var(--color-hairline)] bg-[oklch(0.19_0.012_250_/_0.5)] px-5"
-      >
-        {showPreprocess && <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "preproc"}
-          onClick={() => setTab("preproc")}
-          className={`focus-ring relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium ${
-            tab === "preproc" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
-          }`}
-        >
-          <span>{t("reference_tab_preprocess")}</span>
-          {preprocStatus === "loading" ? (
-            <Loader2 className="h-3 w-3 animate-spin text-[var(--color-text-4)]" aria-hidden="true" />
-          ) : (
-            <span
-              aria-hidden="true"
-              className={`h-1.5 w-1.5 rounded-full ${preprocDot[preprocStatus]}`}
-            />
-          )}
-          {tab === "preproc" && (
-            <span
-              aria-hidden="true"
-              className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
-            />
-          )}
-        </button>}
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "units"}
-          onClick={() => setTab("units")}
-          className={`focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium ${
-            tab === "units" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
-          }`}
-        >
-          {t("reference_tab_units")}
-          {tab === "units" && (
-            <span
-              aria-hidden="true"
-              className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
-            />
-          )}
-        </button>
-        <span className="flex-1" />
-        {tab === "units" && (
+      {/* Tabs + request-local generation controls */}
+      <div className="flex items-center gap-0.5 border-b border-[var(--color-hairline)] bg-[oklch(0.19_0.012_250_/_0.5)] px-5">
+        <div role="tablist" aria-label={t("reference_main_tab_aria")} className="flex items-center gap-0.5">
+          {showPreprocess && <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "preproc"}
+            onClick={() => setTab("preproc")}
+            className={`focus-ring relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium ${
+              tab === "preproc" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
+            }`}
+          >
+            <span>{t("reference_tab_preprocess")}</span>
+            {preprocStatus === "loading" ? (
+              <Loader2 className="h-3 w-3 animate-spin text-[var(--color-text-4)]" aria-hidden="true" />
+            ) : (
+              <span
+                aria-hidden="true"
+                className={`h-1.5 w-1.5 rounded-full ${preprocDot[preprocStatus]}`}
+              />
+            )}
+            {tab === "preproc" && (
+              <span
+                aria-hidden="true"
+                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+              />
+            )}
+          </button>}
           <button
             type="button"
-            onClick={() => void handleBatchGenerate()}
-            disabled={batchTargets.length === 0}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-60"
+            role="tab"
+            aria-selected={tab === "units"}
+            onClick={() => setTab("units")}
+            className={`focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium ${
+              tab === "units" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
+            }`}
           >
-            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>{t("reference_batch_generate")}</span>
+            {t("reference_tab_units")}
+            {tab === "units" && (
+              <span
+                aria-hidden="true"
+                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+              />
+            )}
           </button>
+        </div>
+        <span className="flex-1" />
+        {tab === "units" && (
+          <>
+            <NarrationDeliveryChoice
+              value={narrationDelivery}
+              onChange={setNarrationDelivery}
+              compact
+            />
+            <button
+              type="button"
+              onClick={() => void handleBatchGenerate()}
+              disabled={batchTargets.length === 0}
+              className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{t("reference_batch_generate")}</span>
+            </button>
+          </>
         )}
       </div>
 
@@ -1213,8 +1309,12 @@ export function ReferenceVideoCanvas({
                           errorMessage={failureMessage}
                           busy={selectedBusy}
                           cancelling={selectedCancelling}
-                          estimatedCost={estimatedCost}
+                          estimatedCost={displayedEstimatedCost}
                           actualCost={actualCost}
+                          narrationText={selectedNarrationText}
+                          narrationGenerating={ttsBusyUnitIds.has(selected.unit_id)}
+                          narrationEstimatedCost={narrationEstimatedCost}
+                          onGenerateNarration={onGenerateNarrationVoid}
                           onGenerate={onGenerateVoid}
                           generationBlocked={Boolean(selected.needs_replan)}
                           onUploadVideo={handleUploadVideo}
@@ -1245,8 +1345,12 @@ export function ReferenceVideoCanvas({
                   errorMessage={failureMessage}
                   busy={selectedBusy}
                   cancelling={selectedCancelling}
-                  estimatedCost={estimatedCost}
+                  estimatedCost={displayedEstimatedCost}
                   actualCost={actualCost}
+                  narrationText={selectedNarrationText}
+                  narrationGenerating={selected ? ttsBusyUnitIds.has(selected.unit_id) : false}
+                  narrationEstimatedCost={narrationEstimatedCost}
+                  onGenerateNarration={onGenerateNarrationVoid}
                   onGenerate={onGenerateVoid}
                   generationBlocked={Boolean(selected?.needs_replan)}
                   onUploadVideo={handleUploadVideo}
@@ -1290,6 +1394,7 @@ export function ReferenceVideoCanvas({
       )}
 
       <ReferenceDurationConfirmDialog {...durationGate.dialogProps} />
+      <ReferenceDurationConfirmDialog {...batchDurationGate.dialogProps} />
     </div>
   );
 }

@@ -51,6 +51,12 @@ def reference_video_enqueue_payload(
     """
 
     normalized = {key: value for key, value in (payload or {}).items() if key in _REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS}
+    if "reference_request_options" in normalized:
+        from lib.reference_video.request_projection import ReferenceRequestOptions
+
+        normalized["reference_request_options"] = ReferenceRequestOptions.from_payload(
+            {"reference_request_options": normalized["reference_request_options"]}
+        ).to_payload()
     if script_file is not None:
         normalized["script_file"] = script_file
     return normalized
@@ -122,7 +128,10 @@ async def reference_projection_for_queued_task(
             script=script,
             unit=unit,
             project_path=project_path,
-            options=ReferenceRequestOptions.from_payload(payload, legacy_duration_confirmed=True),
+            # Claim/rate-limit routing only needs hydrated visual capability.
+            # Narration currency belongs to Web/Agent/worker projections, whose
+            # server adapter can assemble the effective audio backend identity.
+            options=ReferenceRequestOptions(),
         )
     except Exception:
         logger.debug("reference_video 当前请求投影失败，限流路由回退代表桶", exc_info=True)
@@ -254,6 +263,26 @@ _QUEUE_INSTANCE: GenerationQueue | None = None
 
 
 WorkerCancelCallback = Callable[[str], bool]
+
+
+class CompensableGenerationResult(dict[str, Any]):
+    """Runtime-only result whose activated media can be undone if cancellation wins.
+
+    The callback is intentionally absent from the JSON payload persisted for a
+    succeeded task.  It only spans the executor-return → terminal-UPDATE window,
+    where a user cancellation may already have moved the row to ``cancelling``.
+    """
+
+    def __init__(self, result: dict[str, Any], *, cancel_compensation: Callable[[], None]) -> None:
+        super().__init__(result)
+        self._cancel_compensation = cancel_compensation
+        self._compensated = False
+
+    def compensate_cancelled(self) -> None:
+        if self._compensated:
+            return
+        self._cancel_compensation()
+        self._compensated = True
 
 
 class GenerationQueue:
@@ -450,6 +479,8 @@ class GenerationQueue:
             logger.info("任务成功 task_id=%s", task_id)
         else:
             logger.info("mark_succeeded 0 rows task_id=%s (已被外部翻状态)", task_id)
+            if isinstance(result, CompensableGenerationResult):
+                await asyncio.to_thread(result.compensate_cancelled)
         return affected
 
     async def mark_task_failed(self, task_id: str, error_message: str) -> int:

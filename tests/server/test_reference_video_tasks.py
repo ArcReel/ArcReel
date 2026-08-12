@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 from contextlib import asynccontextmanager, contextmanager
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -1747,16 +1748,11 @@ async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, m
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_clamps_via_lane_caps(
+async def test_execute_reference_video_task_rejects_duration_above_lane_maximum(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """executor 的 duration/refs clamp 走 video lane 的 model 粒度 caps。
-
-    lane 喂入自定义 caps (max_duration=6, max_reference_images=1)，传入
-    duration_seconds=15 / 2 张 refs，期望 generate_video_async 实际收到
-    duration=6 且 reference_images 只有 1 张。
-    """
+    """Executor never truncates a unit whose duration exceeds the current model tier."""
     proj_dir = _write_project(tmp_path)
 
     # 改造 unit 让它有 2 张 refs + 15s duration，便于验证 clamp
@@ -1804,15 +1800,18 @@ async def test_execute_reference_video_task_clamps_via_lane_caps(
 
     monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
 
-    await rvt.execute_reference_video_task(
-        "demo",
-        "E1U1",
-        {"script_file": "scripts/episode_1.json"},
-        user_id="u1",
-    )
+    from lib.reference_video.request_projection import ReferenceProjectionBlockedError
 
-    assert captured["duration_seconds"] == 6
-    assert len(captured["reference_images"]) == 1
+    with pytest.raises(ReferenceProjectionBlockedError) as exc_info:
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "scripts/episode_1.json"},
+            user_id="u1",
+        )
+
+    assert exc_info.value.code == "needs_replan"
+    assert captured == {}
 
 
 @pytest.mark.unit
@@ -1995,18 +1994,16 @@ async def test_execute_reference_video_task_prompt_matches_deduped_refs(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_rounds_up_non_member_duration(
+async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_confirmation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """执行层取档：unit 总时长落在区间内但不是档位成员时，按能装下它的最小档位申请生成，
-    不再抛 VideoCapabilityError；成片不裁剪，取档结果记入任务 warning。
-    """
+    """Worker only trusts current TTS media and rejects an accepted tier after it changes."""
     proj_dir = _write_project(tmp_path)
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     # 5 不是 [4,8,12] 成员 → 按 8 秒申请
-    script["video_units"][0]["shots"] = [{"text": "@张三 推门"}]
+    script["video_units"][0]["shots"] = [{"text": "镜头1：海面\n{旁白正文。}"}]
     script["video_units"][0]["duration_seconds"] = 5
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
@@ -2041,16 +2038,207 @@ async def test_execute_reference_video_task_rounds_up_non_member_duration(
         supported_durations=(4, 8, 12),
     )
 
+    from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+    from lib.narration_delivery import NarrationAudioEvidence, TtsSynthesisSettings, prepare_narration_delivery
+    from lib.reference_video.request_projection import ReferenceProjectionBlockedError
+    from lib.speech_composition import admit_script_unit
+
+    actual_duration = 6.2
+
+    async def _materialize(**kwargs):
+        options = kwargs["options"]
+        assert options.to_payload() == {
+            "narration_delivery": "use_tts",
+            "confirmed_request_duration_seconds": 8,
+        }
+        preparation = admit_script_unit("video_units", kwargs["unit"]).preparation
+        delivery = prepare_narration_delivery(
+            delivery="use_tts",
+            preparation=preparation,
+            artifact_path="audio/segment_E1U1.wav",
+            settings=TtsSynthesisSettings("fake-audio", "tts-model", "voice", None),
+            evidence=NarrationAudioEvidence(
+                comparison=ArtifactComparison(
+                    status=ArtifactStatus.CURRENT,
+                    artifact_path="audio/segment_E1U1.wav",
+                ),
+                present=True,
+                duration_seconds=actual_duration,
+            ),
+        )
+        return replace(
+            options,
+            current_tts_duration_seconds=delivery.duration_floor,
+            narration_preparation=delivery,
+        )
+
+    monkeypatch.setattr(rvt, "prepare_current_reference_video_request_options", _materialize)
+    monkeypatch.setattr(rvt, "tts_task_in_progress", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        "server.services.narration_delivery_tasks.probe_existing_media_duration_seconds",
+        AsyncMock(return_value=8.0),
+    )
+    output_guard = AsyncMock()
+    monkeypatch.setattr(rvt, "require_generated_video_covers_current_tts", output_guard)
+
     result = await rvt.execute_reference_video_task(
         "demo",
         "E1U1",
-        {"script_file": "scripts/episode_1.json"},
+        {
+            "script_file": "scripts/episode_1.json",
+            "reference_request_options": {
+                "narration_delivery": "use_tts",
+                "confirmed_request_duration_seconds": 8,
+            },
+        },
         user_id="u1",
     )
     assert captured["duration_seconds"] == 8
+    output_guard.assert_awaited_once()
     warnings = result["warnings"]
     assert [w["key"] for w in warnings] == ["ref_duration_rounded_up"]
-    assert warnings[0]["params"] == {"total": 5, "duration": 8, "model": "sora-2"}
+    assert warnings[0]["params"] == {"total": 6.2, "duration": 8, "model": "sora-2"}
+
+    actual_duration = 9.5
+    with pytest.raises(ReferenceProjectionBlockedError) as exc_info:
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {
+                "script_file": "scripts/episode_1.json",
+                "reference_request_options": {
+                    "narration_delivery": "use_tts",
+                    "confirmed_request_duration_seconds": 8,
+                },
+            },
+            user_id="u1",
+        )
+    assert exc_info.value.code == "reference_duration_confirmation_required"
+    assert fake_generator.generate_video_async.await_count == 1
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_reuses_same_tier_visual_without_provider_or_state_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+    from lib.narration_delivery import NarrationAudioEvidence, TtsSynthesisSettings, prepare_narration_delivery
+    from lib.speech_composition import admit_script_unit
+    from lib.version_manager import VersionManager
+    from server.services import reference_video_tasks as rvt
+
+    proj_dir = _write_project(tmp_path)
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    unit = script["video_units"][0]
+    unit["shots"] = [{"text": "镜头1：海面\n{旁白正文。}"}]
+    unit["duration_seconds"] = 5
+    unit["generated_assets"].update(
+        {
+            "video_clip": "reference_videos/E1U1.mp4",
+            "video_uri": "provider://existing",
+            "status": "completed",
+        }
+    )
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    script_before = script_path.read_bytes()
+
+    current = proj_dir / "reference_videos" / "E1U1.mp4"
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"existing-paid-video")
+    versions = VersionManager(proj_dir)
+    selected_version = versions.add_version(
+        "reference_videos",
+        "E1U1",
+        "old visual",
+        source_file=current,
+        duration_seconds=8,
+    )
+    versions_before = (proj_dir / "versions" / "versions.json").read_bytes()
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    fake_generator = MagicMock()
+    fake_generator.versions = versions
+    fake_generator.generate_video_async = AsyncMock()
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="openai",
+        backend_model="sora-2",
+        max_refs=9,
+        max_duration=12,
+        supported_durations=(4, 8, 12),
+    )
+
+    async def _materialize(**kwargs):
+        options = kwargs["options"]
+        preparation = admit_script_unit("video_units", kwargs["unit"]).preparation
+        delivery = prepare_narration_delivery(
+            delivery="use_tts",
+            preparation=preparation,
+            artifact_path="audio/segment_E1U1.wav",
+            settings=TtsSynthesisSettings("fake-audio", "tts-model", "voice", None),
+            evidence=NarrationAudioEvidence(
+                comparison=ArtifactComparison(
+                    status=ArtifactStatus.CURRENT,
+                    artifact_path="audio/segment_E1U1.wav",
+                ),
+                present=True,
+                duration_seconds=6.2,
+            ),
+        )
+        return replace(
+            options,
+            current_tts_duration_seconds=delivery.duration_floor,
+            narration_preparation=delivery,
+        )
+
+    monkeypatch.setattr(rvt, "prepare_current_reference_video_request_options", _materialize)
+    monkeypatch.setattr(rvt, "tts_task_in_progress", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        "server.services.narration_delivery_tasks.probe_existing_media_duration_seconds",
+        AsyncMock(return_value=8.0),
+    )
+    output_guard = AsyncMock()
+    monkeypatch.setattr(rvt, "require_generated_video_covers_current_tts", output_guard)
+    fake_queue = MagicMock()
+    fake_queue.persist_effective_duration = AsyncMock()
+    fake_queue.persist_execution_identity = AsyncMock()
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
+
+    result = await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {
+            "script_file": "scripts/episode_1.json",
+            "reference_request_options": {
+                "narration_delivery": "use_tts",
+                "confirmed_request_duration_seconds": 8,
+            },
+        },
+        user_id="u1",
+        task_id="task-reuse",
+    )
+
+    assert result["reused_existing"] is True
+    assert result["version"] == selected_version
+    assert result["request_duration_seconds"] == 8
+    fake_generator.generate_video_async.assert_not_awaited()
+    output_guard.assert_not_awaited()
+    fake_queue.persist_effective_duration.assert_not_awaited()
+    fake_queue.persist_execution_identity.assert_not_awaited()
+    assert script_path.read_bytes() == script_before
+    assert (proj_dir / "versions" / "versions.json").read_bytes() == versions_before
+    assert current.read_bytes() == b"existing-paid-video"
 
 
 @pytest.mark.unit

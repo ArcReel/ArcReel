@@ -26,6 +26,7 @@ from lib.generation_queue import (
     get_generation_queue,
     without_reference_video_execution_identity,
 )
+from lib.narration_delivery import USE_TTS
 from lib.prompt_builders import append_product_fidelity_tail
 from lib.reference_video import assemble_shots_text, assemble_shots_text_for_render
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
@@ -58,6 +59,12 @@ from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
 from server.services.generation_context import VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import get_project_manager
+from server.services.narration_delivery_tasks import (
+    prepare_current_reference_video_request_options,
+    require_generated_video_covers_current_tts,
+    reuse_current_video_for_tier,
+    tts_task_in_progress,
+)
 from server.services.video_caps import project_video_caps
 
 logger = logging.getLogger(__name__)
@@ -544,7 +551,25 @@ async def execute_reference_video_task(
                 audio_switch_controllable=audio_switch_controllable,
             )
 
-    options = ReferenceRequestOptions.from_payload(payload, legacy_duration_confirmed=True)
+    request_options = ReferenceRequestOptions.from_payload(payload, legacy_duration_confirmed=True)
+    tts_in_progress = (
+        await tts_task_in_progress(
+            project_name=project_name,
+            resource_id=resource_id,
+            script_file=str(script_file),
+        )
+        if request_options.narration_delivery == USE_TTS
+        else False
+    )
+    options = await prepare_current_reference_video_request_options(
+        project=project,
+        script=script,
+        unit=unit,
+        project_path=project_path,
+        options=request_options,
+        project_name=project_name,
+        tts_in_progress=tts_in_progress,
+    )
     projection = await ReferenceUnitRequestProjector(_ExecutionCapabilities(), asset_availability).project_current(
         project=project,
         script=script,
@@ -581,6 +606,23 @@ async def execute_reference_video_task(
     duration_warning = projection.request_duration.warning(model=model_name)
     if duration_warning is not None:
         warnings.append(duration_warning)
+
+    if request_options.narration_delivery == USE_TTS:
+        narration = options.narration_preparation
+        if narration is None or narration.actual_duration_seconds is None:
+            raise RuntimeError("allowed TTS reference request is missing actual narration duration")
+        reused = await reuse_current_video_for_tier(
+            project_path=project_path,
+            versions=generator.versions,
+            item=unit,
+            resource_type="reference_videos",
+            resource_id=resource_id,
+            request_duration_seconds=effective_duration,
+            minimum_actual_duration_seconds=narration.actual_duration_seconds,
+            warnings=warnings,
+        )
+        if reused is not None:
+            return reused
 
     # 把实际申请的秒数写回 task payload：resume 路径（server.services.resume_executor）
     # 读 payload["duration_seconds"] 重建申请参数，回退顺序是 payload > project.default_duration
@@ -641,6 +683,20 @@ async def execute_reference_video_task(
         resolution=resolution,
         task_id=task_id,
     )
+
+    if request_options.narration_delivery == USE_TTS:
+        narration = options.narration_preparation
+        if narration is None:
+            raise RuntimeError("allowed TTS reference request is missing current narration preparation")
+        await require_generated_video_covers_current_tts(
+            narration=narration,
+            request_duration_seconds=effective_duration,
+            output_path=output_path,
+            versions=generator.versions,
+            resource_type="reference_videos",
+            resource_id=resource_id,
+            version=version,
+        )
 
     return await _finalize_reference_video_unit(
         project_name=project_name,

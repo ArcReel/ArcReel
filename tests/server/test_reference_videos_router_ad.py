@@ -64,6 +64,7 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from server.routers import reference_videos as router_mod
 
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: ProjectManager(projects_root))
+    monkeypatch.setattr(router_mod, "tts_task_in_progress", AsyncMock(return_value=False))
     from tests.fakes import fake_reference_request_projector
 
     monkeypatch.setattr(
@@ -133,14 +134,17 @@ def test_ad_units_support_crud_and_product_references(ad_client: TestClient) -> 
 def test_generate_enqueues_self_contained_unit(ad_client: TestClient) -> None:
     response = ad_client.post(
         "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/generate",
-        json={"duration_confirmed": True},
+        json={"confirmed_request_duration_seconds": 8},
     )
     assert response.status_code == 202, response.text
     kwargs = ad_client.fake_queue.enqueue_task.call_args.kwargs  # type: ignore[attr-defined]
     assert kwargs["resource_id"] == "E1U1"
     assert kwargs["script_file"] == "scripts/episode_1.json"
     assert "prompt" not in kwargs["payload"]
-    assert kwargs["payload"]["reference_request_options"]["duration_confirmed"] is True
+    assert kwargs["payload"]["reference_request_options"] == {
+        "narration_delivery": "post_production",
+        "confirmed_request_duration_seconds": 8,
+    }
 
 
 @pytest.mark.integration

@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { NarratedVideoDurationError } from "@/api";
 import { ShotDetail } from "./ShotDetail";
 import { useCostStore } from "@/stores/cost-store";
 import type { AdShot } from "@/types";
@@ -174,6 +175,95 @@ describe("ShotDetail ad 模式", () => {
   it("接了 onGenerateVideo 时渲染尾帧设置行", () => {
     renderDetail({ onGenerateVideo: vi.fn() });
     expect(screen.getByText("尾帧")).toBeInTheDocument();
+  });
+
+  it("TTS 视频跨档时先确认，并仅用服务端返回的精确档位重试", async () => {
+    const onGenerateVideo = vi
+      .fn()
+      .mockRejectedValueOnce(new NarratedVideoDurationError({
+        allowed: false,
+        kind: "narrated_video_duration",
+        unit_id: "E1S01",
+        narration_delivery: {},
+        planned_duration: 4,
+        duration_input: 6.2,
+        request_duration: 8,
+        adjustment: "up",
+        problems: [{
+          code: "reference_duration_confirmation_required",
+          blocking: true,
+          unit_id: "E1S01",
+          locations: [{ path: ["duration_seconds"], line: null }],
+          params: { duration_input: 6.2, request_duration: 8 },
+          reason: "request_duration_uses_different_tier",
+          action: "confirm_duration",
+          message: "本次时长基准 6.2s 将按 8s 档位生成，请确认后重试",
+        }],
+      }))
+      .mockResolvedValueOnce(undefined);
+    renderDetail({
+      segment: makeShot({
+        generated_assets: {
+          storyboard_image: "storyboards/E1S01.png",
+          storyboard_last_image: null,
+          grid_id: null,
+          grid_cell_index: null,
+          video_clip: null,
+          video_thumbnail: null,
+          video_uri: null,
+          status: "storyboard_ready",
+        },
+      }),
+      onGenerateVideo,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "使用当前 TTS" }));
+    fireEvent.click(screen.getByRole("button", { name: "生成视频" }));
+
+    await waitFor(() => {
+      expect(onGenerateVideo).toHaveBeenNthCalledWith(1, "E1S01", {
+        narration_delivery: "use_tts",
+      });
+    });
+    expect(screen.getByText(/6\.2 秒|6\.2s/)).toBeInTheDocument();
+    expect(screen.getByText("8 秒")).toBeInTheDocument();
+    expect(screen.getByText(/视频费用按申请的 8 秒\s*档位计算/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "按此时长生成" }));
+    await waitFor(() => {
+      expect(onGenerateVideo).toHaveBeenNthCalledWith(2, "E1S01", {
+        narration_delivery: "use_tts",
+        confirmed_request_duration_seconds: 8,
+      });
+    });
+  });
+
+  it("后期配音是请求默认值，生成视频不会暗中触发 TTS", () => {
+    const onGenerateVideo = vi.fn();
+    const onGenerateNarration = vi.fn();
+    renderDetail({
+      segment: makeShot({
+        generated_assets: {
+          storyboard_image: "storyboards/E1S01.png",
+          storyboard_last_image: null,
+          grid_id: null,
+          grid_cell_index: null,
+          video_clip: null,
+          video_thumbnail: null,
+          video_uri: null,
+          status: "storyboard_ready",
+        },
+      }),
+      onGenerateVideo,
+      onGenerateNarration,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "生成视频" }));
+
+    expect(onGenerateVideo).toHaveBeenCalledWith("E1S01", {
+      narration_delivery: "post_production",
+    });
+    expect(onGenerateNarration).not.toHaveBeenCalled();
   });
 
   it("重排请求在途时移动按钮禁用（movePending）", () => {

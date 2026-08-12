@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 describe("useReferenceDurationGate", () => {
-  it("marks direct submissions as not explicitly confirmed", async () => {
+  it("submits exact-tier requests without a confirmation coordinate", async () => {
     vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
       needs_confirmation: false,
       script_duration: 4,
@@ -26,17 +26,18 @@ describe("useReferenceDurationGate", () => {
       model_id: "kling-v2-1-master",
       problems: [],
     });
-    const commit = vi.fn(async () => {});
+    const commit = vi.fn(async (_unitIds: string[], _confirmed: ReadonlyMap<string, number>) => {});
     const { result } = renderHook(() => useReferenceDurationGate({ projectName: "demo", episode: 1 }));
 
     await act(async () => {
       await result.current.run(["E1U1"], commit, () => true);
     });
 
-    expect(commit).toHaveBeenCalledWith(["E1U1"], false);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect([...commit.mock.calls[0]![1]]).toEqual([]);
   });
 
-  it("marks submissions after the duration dialog as explicitly confirmed", async () => {
+  it("submits the exact accepted tier after the duration dialog", async () => {
     vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
       needs_confirmation: true,
       script_duration: 5,
@@ -49,7 +50,7 @@ describe("useReferenceDurationGate", () => {
       model_id: "kling-v2-1-master",
       problems: [],
     });
-    const commit = vi.fn(async () => {});
+    const commit = vi.fn(async (_unitIds: string[], _confirmed: ReadonlyMap<string, number>) => {});
     const { result } = renderHook(() => useReferenceDurationGate({ projectName: "demo", episode: 1 }));
 
     await act(async () => {
@@ -57,7 +58,9 @@ describe("useReferenceDurationGate", () => {
     });
     act(() => result.current.dialogProps.onConfirm());
 
-    await waitFor(() => expect(commit).toHaveBeenCalledWith(["E1U1"], true));
+    await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
+    expect(commit.mock.calls[0]![0]).toEqual(["E1U1"]);
+    expect([...commit.mock.calls[0]![1]]).toEqual([["E1U1", 8]]);
   });
 
   it("preserves structured speech admission details from precheck", async () => {

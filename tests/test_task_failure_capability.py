@@ -22,11 +22,19 @@ from lib.generation_worker import _encode_task_failure_message
 from lib.i18n import MESSAGES
 from lib.i18n import _ as i18n_translate
 from lib.image_backends.base import ImageCapabilityError
+from lib.narration_delivery import (
+    USE_TTS,
+    NarratedVideoDurationBlockedError,
+    NarrationDeliveryPreparation,
+    NarrationTtsStatus,
+    prepare_narrated_video_duration,
+)
 from lib.reference_compression import ReferencePayloadFloorError
 from lib.reference_video.request_projection import ProjectionProblem, ReferenceProjectionBlockedError
 from lib.task_failure import (
     CAPABILITY_FAILURE_CODES,
     FAILURE_CODE_KEYS,
+    NARRATION_DELIVERY_FAILURE_CODES,
     REFERENCE_PROJECTION_FAILURE_CODES,
     bound_reason,
     collapse_cascade_reason,
@@ -434,6 +442,43 @@ def test_projection_failure_preserves_canonical_code_and_params_for_localized_ta
     for locale in ("zh", "en", "vi"):
         expected = MESSAGES[locale][problem.code].format(**expected_params)
         assert render_failure(stored, _translator(locale)) == expected
+
+
+@pytest.mark.parametrize("code", sorted(NARRATION_DELIVERY_FAILURE_CODES))
+def test_narration_delivery_failure_codes_are_machine_encodable_in_all_locales(code: str) -> None:
+    assert FAILURE_CODE_KEYS[code] == code
+    for locale in ("zh", "en", "vi"):
+        assert code in MESSAGES[locale], f"{locale} 缺少 {code}"
+
+
+def test_changed_tts_tier_worker_rejection_preserves_confirmation_coordinates() -> None:
+    narration = NarrationDeliveryPreparation(
+        delivery=USE_TTS,
+        unit_id="E1S01",
+        speech_mode=None,
+        tts_status=NarrationTtsStatus.CURRENT,
+        artifact_path="audio/segment_E1S01.wav",
+        basis_digest="basis",
+        actual_duration_seconds=9.5,
+        problems=(),
+    )
+    preparation = prepare_narrated_video_duration(
+        narration=narration,
+        planned_duration_seconds=4,
+        supported_durations=(4, 8, 12),
+        confirmed_request_duration_seconds=8,
+    )
+
+    stored = _encode_task_failure_message(NarratedVideoDurationBlockedError(preparation))
+
+    assert stored.startswith("[reference_duration_confirmation_required]")
+    assert json.loads(stored.split("] ", 1)[1]) == {
+        "adjustment": "up",
+        "current_visual_duration": None,
+        "duration_input": 9.5,
+        "request_duration": 12,
+        "script_duration": 4,
+    }
 
 
 @pytest.mark.parametrize(

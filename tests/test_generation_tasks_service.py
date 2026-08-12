@@ -1,9 +1,18 @@
+import copy
 import re
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
 from lib.config.resolver import ProviderModel
+from lib.narration_delivery import (
+    USE_TTS,
+    NarratedVideoDurationBlockedError,
+    NarrationDeliveryPreparation,
+    NarrationTtsStatus,
+    prepare_narrated_video_duration,
+)
 from lib.prompt_builders import append_image_negative_tail
 from lib.prompt_utils import image_prompt_to_yaml
 from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
@@ -448,6 +457,47 @@ class TestGenerationTasks:
             )
 
     @pytest.mark.unit
+    async def test_reused_video_result_emits_the_normal_generation_success_event(self, monkeypatch):
+        reused = {
+            "version": 3,
+            "file_path": "videos/scene_E1S01.mp4",
+            "resource_type": "videos",
+            "resource_id": "E1S01",
+            "reused_existing": True,
+        }
+
+        async def _executor(*_args, **_kwargs):
+            return reused
+
+        emitted: list[dict] = []
+        monkeypatch.setitem(generation_tasks._TASK_EXECUTORS, "video", _executor)
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_generation_success_batch",
+            lambda **kwargs: emitted.append(kwargs) or {},
+        )
+
+        result = await generation_tasks.execute_generation_task(
+            {
+                "task_id": "task-reuse",
+                "task_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1S01",
+                "payload": {"script_file": "episode_1.json"},
+            }
+        )
+
+        assert result is reused
+        assert emitted == [
+            {
+                "task_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1S01",
+                "payload": {"script_file": "episode_1.json"},
+            }
+        ]
+
+    @pytest.mark.unit
     async def test_execute_product_task_injects_reference_images(self, tmp_path, monkeypatch):
         """product sheet 生成把用户上传原图作为参考注入（标准化整理的输入），缺失文件跳过；
         完成后回写 product_sheet。"""
@@ -625,6 +675,158 @@ class TestGenerationTasks:
         )
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
+
+    @pytest.mark.integration
+    async def test_execute_video_task_reprojects_current_tts_and_rejects_changed_tier(self, monkeypatch, tmp_path):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        current_tts_duration = 6.2
+
+        async def fake_prepare_current_narrated_video_duration(**kwargs):
+            narration = NarrationDeliveryPreparation(
+                delivery=USE_TTS,
+                unit_id="E1S01",
+                speech_mode=None,
+                tts_status=NarrationTtsStatus.CURRENT,
+                artifact_path="audio/segment_E1S01.wav",
+                basis_digest="current-basis",
+                actual_duration_seconds=current_tts_duration,
+                problems=(),
+            )
+            return prepare_narrated_video_duration(
+                narration=narration,
+                planned_duration_seconds=kwargs["planned_duration_seconds"],
+                supported_durations=kwargs["supported_durations"],
+                confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
+            )
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, supported_durations=(4, 8, 12)),
+        )
+        monkeypatch.setattr(
+            generation_tasks,
+            "prepare_current_narrated_video_duration",
+            fake_prepare_current_narrated_video_duration,
+        )
+        monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
+        output_guard = AsyncMock()
+        monkeypatch.setattr(generation_tasks, "require_generated_video_covers_current_tts", output_guard)
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        payload = {
+            "script_file": "episode_1.json",
+            "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+            "narration_delivery_options": {
+                "narration_delivery": USE_TTS,
+                "confirmed_request_duration_seconds": 8,
+            },
+        }
+
+        await generation_tasks.execute_video_task("demo", "E1S01", payload)
+        assert fake_generator.video_calls[0]["duration_seconds"] == 8
+        output_guard.assert_awaited_once()
+
+        # Worker 必须从执行时最新 unit 重新取规划时长；队列不保存预检派生档位。
+        fake_pm.script["segments"][0]["duration_seconds"] = 8
+        current_tts_duration = 9.5
+        with pytest.raises(NarratedVideoDurationBlockedError) as exc:
+            await generation_tasks.execute_video_task("demo", "E1S01", payload)
+
+        assert exc.value.preparation.problem_payloads()[0]["code"] == "reference_duration_confirmation_required"
+        assert exc.value.preparation.request_duration_seconds == 12
+        assert len(fake_generator.video_calls) == 1
+
+    @pytest.mark.integration
+    async def test_execute_video_task_reuses_selected_visual_in_the_latest_tts_tier_without_side_effects(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        from lib.version_manager import VersionManager
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_generator.versions = VersionManager(project_path)
+        item = fake_pm.script["segments"][0]
+        item["novel_text"] = "current narration"
+        item["generated_assets"] = {
+            "status": "completed",
+            "video_clip": "videos/scene_E1S01.mp4",
+            "video_uri": "provider://existing",
+        }
+        current = project_path / "videos" / "scene_E1S01.mp4"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"existing-paid-video")
+        selected_version = fake_generator.versions.add_version(
+            "videos",
+            "E1S01",
+            "old visual",
+            source_file=current,
+            duration_seconds=8,
+        )
+        script_before = copy.deepcopy(fake_pm.script)
+        history_before = copy.deepcopy(fake_generator.versions.get_versions("videos", "E1S01"))
+
+        async def _prepare(**kwargs):
+            narration = NarrationDeliveryPreparation(
+                delivery=USE_TTS,
+                unit_id="E1S01",
+                speech_mode=None,
+                tts_status=NarrationTtsStatus.CURRENT,
+                artifact_path="audio/segment_E1S01.wav",
+                basis_digest="current-basis",
+                actual_duration_seconds=6.2,
+                problems=(),
+            )
+            return prepare_narrated_video_duration(
+                narration=narration,
+                planned_duration_seconds=kwargs["planned_duration_seconds"],
+                supported_durations=kwargs["supported_durations"],
+                confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
+            )
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, supported_durations=(4, 8, 12)),
+        )
+        monkeypatch.setattr(generation_tasks, "prepare_current_narrated_video_duration", _prepare)
+        monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
+        monkeypatch.setattr(
+            "server.services.narration_delivery_tasks.probe_existing_media_duration_seconds",
+            AsyncMock(return_value=8.0),
+        )
+        output_guard = AsyncMock()
+        monkeypatch.setattr(generation_tasks, "require_generated_video_covers_current_tts", output_guard)
+
+        result = await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                "narration_delivery_options": {
+                    "narration_delivery": USE_TTS,
+                    "confirmed_request_duration_seconds": 8,
+                },
+            },
+            task_id="task-reuse",
+        )
+
+        assert result["reused_existing"] is True
+        assert result["version"] == selected_version
+        assert result["request_duration_seconds"] == 8
+        assert fake_generator.video_calls == []
+        output_guard.assert_not_awaited()
+        assert fake_pm.script == script_before
+        assert fake_generator.versions.get_versions("videos", "E1S01") == history_before
+        assert current.read_bytes() == b"existing-paid-video"
 
     @pytest.mark.integration
     async def test_execute_video_task_storyboard_image_legacy_grid_filename_resolves(self, monkeypatch, tmp_path):

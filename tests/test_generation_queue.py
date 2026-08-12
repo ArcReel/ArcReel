@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
-from lib.generation_queue import GenerationQueue, reference_projection_for_queued_task
+from lib.generation_queue import CompensableGenerationResult, GenerationQueue, reference_projection_for_queued_task
 from lib.task_failure import encode_failure
 
 pytestmark = pytest.mark.unit
@@ -75,7 +75,28 @@ class TestGenerationQueue:
         assert not second["deduped"]
         assert second["task_id"] != first["task_id"]
 
-    async def test_reference_rate_limit_projection_reuses_narration_options(self, monkeypatch, tmp_path):
+    async def test_cancel_that_wins_completion_compensates_activated_result(self, queue):
+        task = await queue.enqueue_task(
+            project_name="demo",
+            task_type="tts",
+            media_type="audio",
+            resource_id="E1S01",
+            payload={"script_file": "episode_01.json"},
+        )
+        assert await queue.claim_next_task(media_type="audio") is not None
+        compensated: list[str] = []
+        result = CompensableGenerationResult(
+            {"file_path": "audio/segment_E1S01.wav"},
+            cancel_compensation=lambda: compensated.append("restored"),
+        )
+
+        cancelled = await queue.cancel_task(task["task_id"])
+        assert cancelled["cancelling"] == [task["task_id"]]
+        assert await queue.mark_task_succeeded(task["task_id"], result) == 0
+
+        assert compensated == ["restored"]
+
+    async def test_reference_rate_limit_projection_ignores_narration_delivery(self, monkeypatch, tmp_path):
         seen_options = []
         sentinel = object()
 
@@ -104,17 +125,14 @@ class TestGenerationQueue:
                     "narration_delivery": "use_tts",
                     "narration_duration_floor": 9.5,
                     "duration_confirmed": True,
+                    "confirmed_request_duration_seconds": 12,
                 },
             },
             resource_id="E1U1",
         )
 
         assert projection is sentinel
-        assert seen_options[0].to_payload() == {
-            "narration_delivery": "use_tts",
-            "narration_duration_floor": 9.5,
-            "duration_confirmed": True,
-        }
+        assert seen_options[0].to_payload() == {"narration_delivery": "post_production"}
 
     async def test_worker_lease_takeover(self, queue):
         first_ok = await queue.acquire_or_renew_worker_lease(
@@ -520,14 +538,23 @@ class TestPinExecutionModelOnEnqueue:
                 "references": [{"type": "character", "name": "A"}],
                 "style": "snapshot",
                 "duration_seconds": 9,
-                "reference_request_options": {"duration_confirmed": True},
+                "reference_request_options": {
+                    "narration_delivery": "use_tts",
+                    "duration_confirmed": True,
+                    "narration_duration_floor": 9.5,
+                    "confirmed_request_duration_seconds": 12,
+                    "basis_digest": "must-not-freeze",
+                },
             },
             script_file="ep1.json",
         )
         task = await queue.get_task(enqueued["task_id"])
         assert task["payload"] == {
             "script_file": "ep1.json",
-            "reference_request_options": {"duration_confirmed": True},
+            "reference_request_options": {
+                "narration_delivery": "use_tts",
+                "confirmed_request_duration_seconds": 12,
+            },
         }
         assert "video_provider_r2v" not in task["payload"]
         assert "video_provider_i2v" not in task["payload"]

@@ -173,6 +173,42 @@ describe("API", () => {
       }
     });
 
+    it("preserves a narrated-video duration blocker for an exact-tier retry", async () => {
+      const admission = {
+        allowed: false as const,
+        kind: "narrated_video_duration" as const,
+        unit_id: "E1S01",
+        narration_delivery: {},
+        planned_duration: 8,
+        duration_input: 10.4,
+        request_duration: 12,
+        adjustment: "up" as const,
+        problems: [{
+          code: "reference_duration_confirmation_required",
+          blocking: true,
+          unit_id: "E1S01",
+          locations: [{ path: ["duration_seconds"], line: null }],
+          params: { duration_input: 10.4, request_duration: 12 },
+          reason: "request_duration_uses_different_tier",
+          action: "confirm_duration",
+          message: "Confirm the 12s tier",
+        }],
+      };
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+        mockResponse({ ok: false, status: 400, jsonData: { detail: admission } }),
+      ));
+
+      await expect(
+        API.generateVideo("demo", "E1S01", "vid", "episode_1.json", 8, {
+          narration_delivery: "use_tts",
+        }),
+      ).rejects.toMatchObject({
+        name: "NarratedVideoDurationError",
+        admission,
+        message: "Confirm the 12s tier",
+      });
+    });
+
     it("preserves the shared script-edit result from compatibility endpoints", async () => {
       const result = {
         success: false,
@@ -440,6 +476,21 @@ describe("API", () => {
           prompt: "vid",
           script_file: "episode_1.json",
           duration_seconds: 4,
+        }),
+      });
+
+      await API.generateVideo("demo", "seg-1", "vid", "episode_1.json", 8, {
+        narration_delivery: "use_tts",
+        confirmed_request_duration_seconds: 12,
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/video/seg-1", {
+        method: "POST",
+        body: JSON.stringify({
+          prompt: "vid",
+          script_file: "episode_1.json",
+          duration_seconds: 8,
+          narration_delivery: "use_tts",
+          confirmed_request_duration_seconds: 12,
         }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/tts/seg-1", {
@@ -1181,16 +1232,14 @@ describe("API.referenceVideos", () => {
   it("generateReferenceVideoUnit returns task id", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ task_id: "t-1", deduped: false }), { status: 202 }));
     const res = await API.generateReferenceVideoUnit("proj", 1, "E1U1", {
-      duration_confirmed: true,
       narration_delivery: "use_tts",
-      narration_duration_floor: 9.5,
+      confirmed_request_duration_seconds: 12,
     });
     expect(res.task_id).toBe("t-1");
     const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
     expect(body).toEqual({
-      duration_confirmed: true,
       narration_delivery: "use_tts",
-      narration_duration_floor: 9.5,
+      confirmed_request_duration_seconds: 12,
     });
   });
 
@@ -1199,11 +1248,10 @@ describe("API.referenceVideos", () => {
 
     await API.precheckReferenceVideoDuration("proj", 1, "E1U1", {
       narration_delivery: "use_tts",
-      narration_duration_floor: 9.5,
     });
 
     expect(fetchMock.mock.calls[0]![0]).toContain(
-      "duration-precheck?narration_delivery=use_tts&narration_duration_floor=9.5",
+      "duration-precheck?narration_delivery=use_tts",
     );
   });
 
@@ -1213,11 +1261,10 @@ describe("API.referenceVideos", () => {
     await API.getCostEstimate("proj", {
       referenceUnitId: "E1U1",
       narration_delivery: "use_tts",
-      narration_duration_floor: 9.5,
     });
 
     expect(fetchMock.mock.calls[0]![0]).toContain(
-      "cost-estimate?reference_unit_id=E1U1&narration_delivery=use_tts&narration_duration_floor=9.5",
+      "cost-estimate?reference_unit_id=E1U1&narration_delivery=use_tts",
     );
   });
 

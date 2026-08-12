@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -142,7 +143,12 @@ def _stub_audio_switch_guard(monkeypatch):
     monkeypatch.setattr(_mod, "assert_audio_switch_supported", _noop)
 
 
-def _fake_reference_projection(slot_for=None, calls: list[str] | None = None):
+def _fake_reference_projection(
+    slot_for=None,
+    calls: list[str] | None = None,
+    *,
+    current_tts_duration_seconds: float | None = None,
+):
     """Agent 工具测试用的 in-process request projection adapter。"""
 
     async def _project(*, project, script, unit, options=None, **_kwargs):
@@ -187,6 +193,8 @@ def _fake_reference_projection(slot_for=None, calls: list[str] | None = None):
             ResolvedReferenceAsset(path=Path(f"{reference.type}/{reference.name}.png"), reference=reference)
             for reference in references
         ]
+        if options is not None and current_tts_duration_seconds is not None:
+            options = replace(options, current_tts_duration_seconds=current_tts_duration_seconds)
         return await ReferenceUnitRequestProjector(_Capabilities(), _Available()).project_current(
             project=project,
             script=script,
@@ -347,11 +355,13 @@ def _narration_audio_script() -> dict[str, Any]:
             {
                 "segment_id": "E1S01",
                 "novel_text": "却说天下大势，分久必合。",
+                "video_prompt": {},
                 "generated_assets": {},
             },
             {
                 "segment_id": "E1S02",
                 "novel_text": "话说周末七国分争。",
+                "video_prompt": {},
                 "generated_assets": {"narration_audio": "audio/segment_E1S02.wav"},
             },
         ],
@@ -390,7 +400,7 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
     spec = captured[0]
     assert spec.task_type == "tts"
     assert spec.media_type == "audio"
-    assert spec.payload["prompt"] == "却说天下大势，分久必合。"
+    assert spec.payload["prompt"] is None
     assert spec.payload["script_file"] == "episode_1.json"
     text = out["content"][0]["text"]
     assert "1 succeeded" in text
@@ -462,7 +472,7 @@ async def test_generate_narration_audio_blank_text_reported(fake_ctx: ToolContex
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
     script = _narration_audio_script()
-    script["segments"].append({"segment_id": "E1S03", "novel_text": "   ", "generated_assets": {}})
+    script["segments"].append({"segment_id": "E1S03", "novel_text": "   ", "video_prompt": {}, "generated_assets": {}})
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
     captured: list[Any] = []
 
@@ -517,56 +527,108 @@ async def test_generate_narration_audio_partial_unmatched_reported(fake_ctx: Too
     assert [s.resource_id for s in captured] == ["E1S01"]
     text = out["content"][0]["text"]
     assert "1 succeeded, 1 failed" in text
-    assert "E1S99" in text and "片段不存在" in text
+    assert "E1S99" in text and "单元不存在" in text
 
 
 @pytest.mark.unit
-async def test_generate_narration_audio_rejects_drama_script(fake_ctx: ToolContext) -> None:
+async def test_generate_narration_audio_accepts_drama_narrator_scene(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
+    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
         "content_mode": "drama",
         "episode": 1,
-        "scenes": [{"scene_id": "E1S01", "generated_assets": {}}],
+        "scenes": [
+            {
+                "scene_id": "E1S01",
+                "utterances": [{"kind": "voiceover", "speaker": None, "text": "夜幕降临。"}],
+                "generated_assets": {},
+            }
+        ],
     }
+    captured: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        del project_name, on_success, on_failure
+        captured.extend(specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
-    assert out.get("is_error") is True
-    assert "narration" in out["content"][0]["text"]
+    assert out.get("is_error") is not True, out
+    assert [spec.resource_id for spec in captured] == ["E1S01"]
+    assert captured[0].payload == {"prompt": None, "script_file": "episode_1.json"}
 
 
 @pytest.mark.integration
-async def test_generate_narration_audio_rejects_drama_script_without_content_mode(fake_ctx: ToolContext) -> None:
-    """剧本缺 content_mode 时按项目内容模式判适用性：drama 项目下同样拒绝，
-    而不是绕过模式检查落进「0 succeeded, 0 failed」的空转（scenes 没有 novel_text）。"""
+async def test_generate_narration_audio_uses_project_mode_for_drama_without_content_mode(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
     fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
         "episode": 1,
-        "scenes": [{"scene_id": "E1S01", "generated_assets": {}}],
+        "scenes": [
+            {
+                "scene_id": "E1S01",
+                "utterances": [{"kind": "voiceover", "speaker": None, "text": "夜幕降临。"}],
+                "generated_assets": {},
+            }
+        ],
     }
+    captured: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        del project_name, on_success, on_failure
+        captured.extend(specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
-    assert out.get("is_error") is True
-    assert "narration" in out["content"][0]["text"]
+    assert out.get("is_error") is not True, out
+    assert [spec.resource_id for spec in captured] == ["E1S01"]
 
 
 @pytest.mark.integration
-async def test_generate_narration_audio_rejects_reference_route(fake_ctx: ToolContext) -> None:
-    """参考生视频路线无 segments，必须显式报错而非假装'已全部生成'。"""
+async def test_generate_narration_audio_accepts_reference_narrator_unit(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
         "content_mode": "narration",
         "episode": 1,
-        "video_units": [{"unit_id": "E1U1"}],
+        "video_units": [
+            {
+                "unit_id": "E1U1",
+                "shots": [{"text": "镜头1：海面\n{风从远方吹来。}"}],
+                "references": [],
+                "duration_seconds": 8,
+                "generated_assets": {},
+            }
+        ],
     }
+    captured: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        del project_name, on_success, on_failure
+        captured.extend(specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
-    assert out.get("is_error") is True
-    assert "reference_video" in out["content"][0]["text"]
+    assert out.get("is_error") is not True, out
+    assert [spec.resource_id for spec in captured] == ["E1U1"]
 
 
 @pytest.mark.integration
@@ -651,7 +713,7 @@ async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolC
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
     script = _narration_audio_script()
-    script["segments"].append({"novel_text": "有文本但缺 id 的片段。", "generated_assets": {}})
+    script["segments"].append({"novel_text": "有文本但缺 id 的片段。", "video_prompt": {}, "generated_assets": {}})
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
     captured: list[Any] = []
 
@@ -669,7 +731,7 @@ async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolC
 
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in captured] == ["E1S01"]
-    assert "跳过 1 个缺少 segment_id 的片段" in out["content"][0]["text"]
+    assert "跳过 1 个缺少 segment_id 的单元" in out["content"][0]["text"]
 
 
 @pytest.mark.unit
@@ -680,7 +742,7 @@ async def test_generate_narration_audio_no_match_error(fake_ctx: ToolContext) ->
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "segment_ids": ["NO_SUCH"]})
     assert out.get("is_error") is True
-    assert "没有找到匹配的片段" in out["content"][0]["text"]
+    assert "没有找到匹配的单元" in out["content"][0]["text"]
 
 
 @pytest.mark.unit
@@ -693,7 +755,7 @@ async def test_generate_narration_audio_all_done(fake_ctx: ToolContext) -> None:
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
-    assert "所有片段的旁白音频都已生成" in out["content"][0]["text"]
+    assert "所有 narrator 单元的旁白音频都已生成" in out["content"][0]["text"]
 
 
 @pytest.mark.unit
@@ -1465,7 +1527,8 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
     text = out["content"][0]["text"]
     assert "E1U1" in text
     assert "5" in text and "8" in text
-    assert "confirm_duration" in text
+    assert "费用" in text and "本次请求" in text
+    assert "confirmed_request_duration_seconds" in text
     projection = out["request_projections"][0]
     assert projection == {
         "allowed": False,
@@ -1477,6 +1540,7 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
         "provider_id": "fake",
         "model_id": "fake-r2v",
         "planned_duration": 5,
+        "current_visual_duration": None,
         "duration_input": 5,
         "request_duration": 8,
         "problems": [
@@ -1490,6 +1554,7 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
                     "duration_input": 5,
                     "request_duration": 8,
                     "adjustment": "up",
+                    "current_visual_duration": None,
                 },
                 "action": "confirm_duration",
             }
@@ -1569,9 +1634,31 @@ async def test_generate_video_episode_reference_returns_structured_projection_bl
     }
 
 
+@pytest.mark.unit
+def test_only_single_video_agent_tool_exposes_narration_delivery(fake_ctx: ToolContext) -> None:
+    batch_tools = (
+        generate_video_episode_tool(fake_ctx),
+        generate_video_all_tool(fake_ctx),
+        generate_video_selected_tool(fake_ctx),
+    )
+
+    for tool_obj in batch_tools:
+        schema = tool_obj.input_schema
+        assert isinstance(schema, dict)
+        properties = schema.get("properties")
+        assert isinstance(properties, dict)
+        assert "narration_delivery" not in properties
+        assert "confirmed_request_duration_seconds" in properties
+    scene_schema = generate_video_scene_tool(fake_ctx).input_schema
+    assert isinstance(scene_schema, dict)
+    scene_properties = scene_schema.get("properties")
+    assert isinstance(scene_properties, dict)
+    assert "narration_delivery" in scene_properties
+
+
 @pytest.mark.integration
 async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_ctx: ToolContext, monkeypatch) -> None:
-    """带 confirm_duration=true 的再次调用按取档结果入队并生成成功。"""
+    """带精确申请档位的再次调用按取档结果入队并生成成功。"""
     from lib.generation_queue_client import BatchTaskResult
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
@@ -1605,26 +1692,25 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json", "confirm_duration": True})
+    out = await _call(
+        tool_obj,
+        {"script": "episode_1.json", "confirmed_request_duration_seconds": 8},
+    )
 
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in enqueued] == ["E1U1"]
 
 
 @pytest.mark.integration
-async def test_generate_video_episode_reference_tts_floor_matches_projection_and_payload(
+async def test_generate_video_episode_reference_ignores_out_of_schema_tts_choice(
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
     from lib.generation_queue_client import BatchTaskResult
-    from lib.reference_video.duration_slots import UP, DurationSlot
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
-
-    def fake_precheck(_ctx, _unit):
-        return DurationSlot(seconds=12, total_seconds=9.5, adjustment=UP)
 
     enqueued: list[Any] = []
 
@@ -1643,39 +1729,46 @@ async def test_generate_video_episode_reference_tts_floor_matches_projection_and
                 )
         return [], []
 
-    monkeypatch.setattr(mod, "project_reference_unit_request", _fake_reference_projection(fake_precheck))
+    projected_deliveries: list[str] = []
+    base_projection = _fake_reference_projection()
+
+    async def _capture_delivery(**kwargs):
+        projected_deliveries.append(kwargs["options"].narration_delivery)
+        return await base_projection(**kwargs)
+
+    active_tts = AsyncMock(return_value=frozenset())
+    monkeypatch.setattr(mod, "project_reference_unit_request", _capture_delivery)
+    monkeypatch.setattr(mod, "active_tts_resource_ids", active_tts)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = generate_video_episode_tool(fake_ctx)
-    options = {"script": "episode_1.json", "narration_delivery": "use_tts", "narration_duration_floor": 9.5}
 
-    pending = await _call(tool_obj, options)
-    assert "9.5" in pending["content"][0]["text"]
-    assert "12" in pending["content"][0]["text"]
-    assert enqueued == []
+    completed = await _call(
+        tool_obj,
+        {"script": "episode_1.json", "narration_delivery": "use_tts"},
+    )
 
-    completed = await _call(tool_obj, {**options, "confirm_duration": True})
     assert completed.get("is_error") is not True
+    assert projected_deliveries == ["post_production"]
+    active_tts.assert_not_awaited()
     assert enqueued[0].payload["reference_request_options"] == {
-        "narration_delivery": "use_tts",
-        "narration_duration_floor": 9.5,
-        "duration_confirmed": True,
+        "narration_delivery": "post_production",
     }
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "invalid_floor",
-    [0, -1, float("nan"), float("inf"), True, "9.5"],
-    ids=["zero", "negative", "nan", "infinity", "boolean", "string"],
+    "invalid_confirmation",
+    [0, -1, 9.5, True, "12"],
+    ids=["zero", "negative", "fraction", "boolean", "string"],
 )
-def test_reference_request_options_rejects_invalid_tts_floor(invalid_floor: object) -> None:
+def test_reference_request_options_rejects_invalid_confirmed_duration(invalid_confirmation: object) -> None:
     from server.agent_runtime.sdk_tools.enqueue_videos import _reference_request_options
 
-    with pytest.raises(ValueError, match="narration_duration_floor 必须是大于 0 的有限秒数"):
+    with pytest.raises(ValueError, match="confirmed_request_duration_seconds 必须是大于 0 的整数秒档位"):
         _reference_request_options(
             {
                 "narration_delivery": "use_tts",
-                "narration_duration_floor": invalid_floor,
+                "confirmed_request_duration_seconds": invalid_confirmation,
             }
         )
 
@@ -2018,12 +2111,101 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     assert pending.get("is_error") is not True, pending
     assert enqueued == []
     text = pending["content"][0]["text"]
-    assert "confirm_duration" in text
+    assert "费用" in text and "本次请求" in text
+    assert "confirmed_request_duration_seconds" in text
 
-    confirmed = await _call(tool_obj, {"script": "episode_1.json", **extra_args, "confirm_duration": True})
+    confirmed = await _call(
+        tool_obj,
+        {"script": "episode_1.json", **extra_args, "confirmed_request_duration_seconds": 8},
+    )
 
     assert confirmed.get("is_error") is not True, confirmed
     assert [s.resource_id for s in enqueued] == ["E1U1"]
+
+
+@pytest.mark.integration
+async def test_generate_video_scene_reference_use_tts_exposes_the_shared_cross_tier_quote(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from lib.generation_queue_client import BatchTaskResult
+    from lib.reference_video.duration_slots import EXACT, DurationSlot
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.services.cost_estimation import VideoRequestQuote
+
+    _use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+
+    def fake_precheck(_ctx, _unit):
+        return DurationSlot(seconds=8, total_seconds=8, adjustment=EXACT)
+
+    async def _current_options(**kwargs):
+        return replace(
+            kwargs["options"],
+            current_tts_duration_seconds=8.0,
+            current_visual_duration_seconds=4,
+        )
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        del project_name, on_failure
+        for spec in specs:
+            enqueued.append(spec)
+            if on_success:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "prepare_current_reference_video_request_options", _current_options)
+    monkeypatch.setattr(mod, "project_reference_unit_request", _fake_reference_projection(fake_precheck))
+    monkeypatch.setattr(mod, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
+    monkeypatch.setattr(mod, "get_active_tasks_for_resources", AsyncMock(return_value=[]))
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    monkeypatch.setattr(
+        mod,
+        "quote_video_request",
+        AsyncMock(return_value=VideoRequestQuote(0.8, "USD", "fake", "fake-r2v", 8)),
+    )
+    tool_obj = generate_video_scene_tool(fake_ctx)
+
+    pending = await _call(
+        tool_obj,
+        {"script": "episode_1.json", "scene_id": "E1U1", "narration_delivery": "use_tts"},
+    )
+
+    assert pending.get("is_error") is not True, pending
+    assert pending["request_projections"][0]["request_cost"] == {
+        "amount": 0.8,
+        "currency": "USD",
+        "provider_id": "fake",
+        "model_id": "fake-r2v",
+        "request_duration_seconds": 8,
+    }
+    assert "0.8 USD" in pending["content"][0]["text"]
+    assert "现有视觉档位 4s，将申请 8s（成片更长 4s）" in pending["content"][0]["text"]
+    assert enqueued == []
+
+    accepted = await _call(
+        tool_obj,
+        {
+            "script": "episode_1.json",
+            "scene_id": "E1U1",
+            "narration_delivery": "use_tts",
+            "confirmed_request_duration_seconds": 8,
+        },
+    )
+    assert accepted.get("is_error") is not True, accepted
+    assert enqueued[0].payload["reference_request_options"] == {
+        "narration_delivery": "use_tts",
+        "confirmed_request_duration_seconds": 8,
+    }
 
 
 @pytest.mark.unit
@@ -2037,6 +2219,197 @@ async def test_generate_video_scene_happy(fake_ctx: ToolContext, monkeypatch) ->
     tool_obj = generate_video_scene_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1S01"})
     assert out.get("is_error") is not True
+
+
+@pytest.mark.integration
+async def test_generate_video_scene_use_tts_returns_structured_blocker_without_enqueuing(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from lib.narration_delivery import (
+        USE_TTS,
+        NarrationDeliveryPreparation,
+        NarrationDeliveryProblem,
+        NarrationTtsStatus,
+        prepare_narrated_video_duration,
+    )
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    async def fake_prepare(**kwargs):
+        narration = NarrationDeliveryPreparation(
+            delivery=USE_TTS,
+            unit_id="E1S01",
+            speech_mode=None,
+            tts_status=NarrationTtsStatus.MISSING,
+            artifact_path="audio/segment_E1S01.wav",
+            basis_digest="basis",
+            actual_duration_seconds=None,
+            problems=(
+                NarrationDeliveryProblem(
+                    code="tts_missing",
+                    reason="tts_audio_missing",
+                    action="generate_tts",
+                    locations=(),
+                ),
+            ),
+        )
+        return prepare_narrated_video_duration(
+            narration=narration,
+            planned_duration_seconds=4,
+            supported_durations=(4, 8, 12),
+            confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
+        )
+
+    enqueue = AsyncMock()
+    monkeypatch.setattr(mod, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
+    monkeypatch.setattr(mod, "_prepare_storyboard_delivery_for_item", fake_prepare, raising=False)
+    monkeypatch.setattr(mod, "enqueue_and_wait", enqueue)
+
+    out = await _call(
+        generate_video_scene_tool(fake_ctx),
+        {"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": "use_tts"},
+    )
+
+    assert out["is_error"] is True
+    assert out["request_projection"]["problems"][0]["code"] == "tts_missing"
+    enqueue.assert_not_awaited()
+
+
+@pytest.mark.integration
+async def test_generate_video_scene_use_tts_requires_exact_tier_and_queues_only_request_facts(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from lib.narration_delivery import (
+        USE_TTS,
+        NarrationDeliveryPreparation,
+        NarrationTtsStatus,
+        VideoRequestCostFacts,
+        prepare_narrated_video_duration,
+    )
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.services.cost_estimation import VideoRequestQuote
+
+    async def fake_prepare(**kwargs):
+        narration = NarrationDeliveryPreparation(
+            delivery=USE_TTS,
+            unit_id="E1S01",
+            speech_mode=None,
+            tts_status=NarrationTtsStatus.CURRENT,
+            artifact_path="audio/segment_E1S01.wav",
+            basis_digest="basis",
+            actual_duration_seconds=9.5,
+            problems=(),
+        )
+        return replace(
+            prepare_narrated_video_duration(
+                narration=narration,
+                planned_duration_seconds=4,
+                supported_durations=(4, 8, 12),
+                confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
+            ),
+            cost=VideoRequestCostFacts("openai", "sora-2", "720p", 12, True),
+        )
+
+    enqueue = AsyncMock(return_value={"task": {}, "result": {"file_path": "videos/scene_E1S01.mp4"}})
+    monkeypatch.setattr(mod, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
+    monkeypatch.setattr(mod, "_prepare_storyboard_delivery_for_item", fake_prepare, raising=False)
+    monkeypatch.setattr(
+        mod,
+        "quote_video_request",
+        AsyncMock(return_value=VideoRequestQuote(1.2, "USD", "openai", "sora-2", 12)),
+    )
+    monkeypatch.setattr(mod, "enqueue_and_wait", enqueue)
+    tool_obj = generate_video_scene_tool(fake_ctx)
+
+    pending = await _call(
+        tool_obj,
+        {"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": "use_tts"},
+    )
+    assert pending.get("is_error") is not True
+    assert pending["request_projections"][0]["problems"][0]["code"] == "reference_duration_confirmation_required"
+    assert pending["request_projections"][0]["request_cost"] == {
+        "amount": 1.2,
+        "currency": "USD",
+        "provider_id": "openai",
+        "model_id": "sora-2",
+        "request_duration_seconds": 12,
+    }
+    assert "1.2 USD" in pending["content"][0]["text"]
+    enqueue.assert_not_awaited()
+
+    completed = await _call(
+        tool_obj,
+        {
+            "script": "episode_1.json",
+            "scene_id": "E1S01",
+            "narration_delivery": "use_tts",
+            "confirmed_request_duration_seconds": 12,
+        },
+    )
+
+    assert completed.get("is_error") is not True
+    payload = enqueue.await_args.kwargs["payload"]
+    assert "duration_seconds" not in payload
+    assert payload["narration_delivery_options"] == {
+        "narration_delivery": "use_tts",
+        "confirmed_request_duration_seconds": 12,
+    }
+    assert "basis_digest" not in payload["narration_delivery_options"]
+    assert "actual_duration_seconds" not in payload["narration_delivery_options"]
+
+
+@pytest.mark.integration
+async def test_generate_video_scene_use_tts_blocks_when_exact_cost_is_unavailable(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from lib.narration_delivery import (
+        USE_TTS,
+        NarrationDeliveryPreparation,
+        NarrationTtsStatus,
+        VideoRequestCostFacts,
+        prepare_narrated_video_duration,
+    )
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    async def fake_prepare(**kwargs):
+        narration = NarrationDeliveryPreparation(
+            delivery=USE_TTS,
+            unit_id="E1S01",
+            speech_mode=None,
+            tts_status=NarrationTtsStatus.CURRENT,
+            artifact_path="audio/segment_E1S01.wav",
+            basis_digest="basis",
+            actual_duration_seconds=9.5,
+            problems=(),
+        )
+        return replace(
+            prepare_narrated_video_duration(
+                narration=narration,
+                planned_duration_seconds=4,
+                supported_durations=(4, 8, 12),
+                confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
+            ),
+            cost=VideoRequestCostFacts("openai", "sora-2", "720p", 12, True),
+        )
+
+    enqueue = AsyncMock()
+    monkeypatch.setattr(mod, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
+    monkeypatch.setattr(mod, "_prepare_storyboard_delivery_for_item", fake_prepare, raising=False)
+    monkeypatch.setattr(mod, "quote_video_request", AsyncMock(return_value=None))
+    monkeypatch.setattr(mod, "enqueue_and_wait", enqueue)
+
+    result = await _call(
+        generate_video_scene_tool(fake_ctx),
+        {"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": "use_tts"},
+    )
+
+    assert result["is_error"] is True
+    assert result["request_projection"]["allowed"] is False
+    assert [problem["code"] for problem in result["request_projection"]["problems"]] == [
+        "reference_duration_confirmation_required",
+        "video_request_cost_unavailable",
+    ]
+    enqueue.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -3745,7 +4118,7 @@ async def test_generate_video_episode_reference_skips_malformed_unit_entries(
 
     out = await _call(
         generate_video_episode_tool(ad_reference_ctx),
-        {"script": "episode_1.json", "confirm_duration": True},
+        {"script": "episode_1.json"},
     )
 
     assert out.get("is_error") is not True, out
@@ -3765,7 +4138,7 @@ async def test_generate_video_episode_ad_reference_enqueues_existing_video_units
 
     out = await _call(
         generate_video_episode_tool(ad_reference_ctx),
-        {"script": "episode_1.json", "confirm_duration": True},
+        {"script": "episode_1.json"},
     )
 
     assert out.get("is_error") is not True, out
@@ -3790,7 +4163,7 @@ async def test_generate_video_episode_ad_reference_does_not_claim_orphan_file(
 
     out = await _call(
         generate_video_episode_tool(ad_reference_ctx),
-        {"script": "episode_1.json", "confirm_duration": True},
+        {"script": "episode_1.json"},
     )
 
     assert out.get("is_error") is not True, out
@@ -3824,7 +4197,7 @@ async def test_generate_video_episode_ad_reference_replan_shell_cannot_enqueue(
 
     out = await _call(
         generate_video_episode_tool(ad_reference_ctx),
-        {"script": "episode_1.json", "confirm_duration": True},
+        {"script": "episode_1.json"},
     )
 
     assert out.get("is_error") is True
@@ -3864,7 +4237,7 @@ async def test_generate_video_episode_ad_reference_replan_unit_cannot_reuse_owne
 
     out = await _call(
         generate_video_episode_tool(ad_reference_ctx),
-        {"script": "episode_1.json", "confirm_duration": True},
+        {"script": "episode_1.json"},
     )
 
     assert out.get("is_error") is True
@@ -3884,7 +4257,7 @@ async def test_generate_video_selected_ad_reference_regenerates_named_unit(
 
     out = await _call(
         generate_video_selected_tool(ad_reference_ctx),
-        {"script": "episode_1.json", "scene_ids": ["E1U1"], "confirm_duration": True},
+        {"script": "episode_1.json", "scene_ids": ["E1U1"]},
     )
 
     assert out.get("is_error") is not True, out

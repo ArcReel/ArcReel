@@ -95,13 +95,44 @@ class _FakeAudioBackend:
 class _FakeVersions:
     def __init__(self):
         self.add_calls = []
+        self.ensure_calls = []
 
     def ensure_current_tracked(self, **kwargs):
-        pass
+        self.ensure_calls.append(kwargs)
 
     def add_version(self, **kwargs):
         self.add_calls.append(kwargs)
         return len(self.add_calls)
+
+    def commit_staged_version(
+        self,
+        *,
+        resource_type,
+        resource_id,
+        prompt,
+        staged_file,
+        current_file,
+        on_commit=None,
+        **metadata,
+    ):
+        if current_file.exists():
+            self.ensure_current_tracked(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                current_file=current_file,
+                prompt="",
+            )
+        staged_file.replace(current_file)
+        version = self.add_version(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            prompt=prompt,
+            source_file=current_file,
+            **metadata,
+        )
+        if on_commit is not None:
+            on_commit()
+        return version
 
 
 class _FakeLedgerCall:
@@ -164,6 +195,8 @@ class TestGenerateAudioAsync:
         output_path, version = await gen.generate_audio_async(text="你好世界", resource_id="E1S01", voice="Cherry")
         assert output_path.name == "segment_E1S01.wav"
         assert output_path.read_bytes() == b"RIFFfakewav"
+        assert gen._audio_backend.calls[0].output_path != output_path
+        assert not gen._audio_backend.calls[0].output_path.exists()
         assert version == 1
         # 记账括号用 call_type=audio；合成字符数由真 Ledger union 分发从 result.characters 转写
         assert gen.ledger.started[0]["call_type"] == "audio"
@@ -183,6 +216,44 @@ class TestGenerateAudioAsync:
             await gen.generate_audio_async(text="x", resource_id="E1S02", voice="Cherry")
         assert gen.ledger.outcomes[-1]["status"] == "failed"
 
+    async def test_backend_failure_preserves_existing_formal_audio(self, tmp_path: Path):
+        gen = _build_generator(tmp_path)
+        formal = gen.project_path / "audio" / "segment_E1S04.wav"
+        formal.parent.mkdir(parents=True)
+        formal.write_bytes(b"paid-old-audio")
+
+        async def _overwrite_then_raise(request):
+            request.output_path.write_bytes(b"broken-new-audio")
+            raise RuntimeError("boom")
+
+        gen._audio_backend.synthesize = _overwrite_then_raise
+        with pytest.raises(RuntimeError, match="boom"):
+            await gen.generate_audio_async(text="new", resource_id="E1S04", voice="Cherry")
+
+        assert formal.read_bytes() == b"paid-old-audio"
+        assert list(formal.parent.iterdir()) == [formal]
+        assert gen.versions.ensure_calls == []
+        assert gen.versions.add_calls == []
+
+    async def test_cancellation_preserves_existing_formal_audio(self, tmp_path: Path):
+        gen = _build_generator(tmp_path)
+        formal = gen.project_path / "audio" / "segment_E1S06.wav"
+        formal.parent.mkdir(parents=True)
+        formal.write_bytes(b"paid-old-audio")
+
+        async def _overwrite_then_cancel(request):
+            request.output_path.write_bytes(b"cancelled-new-audio")
+            raise asyncio.CancelledError
+
+        gen._audio_backend.synthesize = _overwrite_then_cancel
+        with pytest.raises(asyncio.CancelledError):
+            await gen.generate_audio_async(text="new", resource_id="E1S06", voice="Cherry")
+
+        assert formal.read_bytes() == b"paid-old-audio"
+        assert list(formal.parent.iterdir()) == [formal]
+        assert gen.versions.ensure_calls == []
+        assert gen.versions.add_calls == []
+
     async def test_no_backend_raises(self, tmp_path: Path):
         gen = _build_generator(tmp_path)
         gen._audio_backend = None
@@ -199,6 +270,46 @@ class TestGenerateAudioAsync:
         assert tracked == []
         await gen.generate_audio_async(text="第二次", resource_id="E1S05", voice="Cherry")
         assert tracked and tracked[0]["resource_type"] == "audio"
+
+    @pytest.mark.parametrize("failure", [RuntimeError("manifest failed"), asyncio.CancelledError()])
+    async def test_finalize_failure_or_cancellation_preserves_formal_audio_and_current_version(
+        self,
+        tmp_path: Path,
+        failure: BaseException,
+    ):
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        formal = gen.project_path / "audio" / "segment_E1S07.wav"
+        formal.parent.mkdir(parents=True)
+        formal.write_bytes(b"paid-old-audio")
+        old_version = gen.versions.add_version("audio", "E1S07", "old text", source_file=formal)
+
+        def _commit(staged_path: Path, output_path: Path) -> int:
+            def _fail_after_promotion() -> None:
+                raise failure
+
+            return gen.versions.commit_staged_version(
+                resource_type="audio",
+                resource_id="E1S07",
+                prompt="new text",
+                staged_file=staged_path,
+                current_file=output_path,
+                on_commit=_fail_after_promotion,
+            )
+
+        with pytest.raises(type(failure)):
+            await gen.generate_audio_async(
+                text="new text",
+                resource_id="E1S07",
+                voice="Cherry",
+                commit_staged=_commit,
+            )
+
+        assert formal.read_bytes() == b"paid-old-audio"
+        history = gen.versions.get_versions("audio", "E1S07")
+        assert history["current_version"] == old_version
+        assert [record["prompt"] for record in history["versions"]] == ["old text"]
+        assert not any(path.name.startswith(".segment_E1S07") for path in formal.parent.iterdir())
 
 
 # ── 用量聚合 audio_count ────────────────────────────────────────────────────────
