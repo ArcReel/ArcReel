@@ -15,6 +15,8 @@ import logging
 from collections.abc import Callable, Sequence
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from lib.api_errors import ApiError
@@ -88,6 +90,16 @@ def register_error_handlers(
     async def _handle_api_error(request: Request, exc: ApiError) -> JSONResponse:
         _t = get_translator(request)
         return JSONResponse(status_code=exc.status_code, content={"detail": _t(exc.key, **exc.params)})
+
+    @app.exception_handler(RequestValidationError)
+    async def _handle_request_validation(request: Request, exc: RequestValidationError) -> JSONResponse:
+        _t = get_translator(request)
+        error_types = {error["type"] for error in exc.errors()}
+        if "assistant_image_too_large" in error_types:
+            return JSONResponse(status_code=422, content={"detail": _t("assistant_image_too_large")})
+        if "assistant_images_total_too_large" in error_types:
+            return JSONResponse(status_code=422, content={"detail": _t("assistant_images_total_too_large")})
+        return JSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors())})
 
     @app.exception_handler(TaskSpecValidationError)
     async def _handle_task_spec_error(request: Request, exc: TaskSpecValidationError) -> JSONResponse:

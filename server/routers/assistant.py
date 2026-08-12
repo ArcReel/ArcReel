@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from lib import PROJECT_ROOT
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError, ServiceUnavailableError
@@ -36,6 +37,12 @@ router = APIRouter()
 self_auth_router = APIRouter()
 
 assistant_service = AssistantService(project_root=PROJECT_ROOT)
+
+MAX_IMAGE_SOURCE_BYTES = 5 * 1024 * 1024
+# Base64 needs four characters for every three source bytes, rounded up to a full quartet.
+MAX_IMAGE_BASE64_CHARS = 4 * ((MAX_IMAGE_SOURCE_BYTES + 2) // 3)
+MAX_IMAGES_PER_REQUEST = 5
+MAX_IMAGES_TOTAL_BASE64_CHARS = MAX_IMAGES_PER_REQUEST * MAX_IMAGE_BASE64_CHARS
 
 
 def get_assistant_service() -> AssistantService:
@@ -83,23 +90,50 @@ async def _assistant_service_for_stream(
 
 
 class ImageAttachment(BaseModel):
-    data: str
+    data: str = Field(max_length=MAX_IMAGE_BASE64_CHARS)
     media_type: str
 
+    @field_validator("data", mode="before")
+    @classmethod
+    def validate_data_size(cls, value: object) -> object:
+        if isinstance(value, str) and len(value) > MAX_IMAGE_BASE64_CHARS:
+            raise PydanticCustomError(
+                "assistant_image_too_large", "assistant image exceeds the base64 character budget"
+            )
+        return value
 
-class SendRequest(BaseModel):
+
+class ImageRequest(BaseModel):
+    images: list[ImageAttachment] = Field(default_factory=list, max_length=MAX_IMAGES_PER_REQUEST)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_total_image_size(cls, value: object) -> object:
+        images = value.get("images", []) if isinstance(value, dict) else []
+        total_chars = sum(
+            len(image.get("data", ""))
+            for image in images
+            if isinstance(image, dict) and isinstance(image.get("data", ""), str)
+        )
+        if total_chars > MAX_IMAGES_TOTAL_BASE64_CHARS:
+            raise PydanticCustomError(
+                "assistant_images_total_too_large",
+                "assistant images exceed the total base64 character budget",
+            )
+        return value
+
+
+class SendRequest(ImageRequest):
     content: str = ""
-    images: list[ImageAttachment] = Field(default_factory=list, max_length=5)
     session_id: str | None = None
     # 请求侧幂等键：同键重试返回既有权威条目，不产生重复。
     client_key: str | None = Field(default=None, max_length=128)
 
 
-class RewriteRequest(BaseModel):
+class RewriteRequest(ImageRequest):
     # 锚点：被改写的那条用户消息在事件日志里的条目 uuid。
     anchor_entry_uuid: str = Field(min_length=1, max_length=256)
     content: str = ""
-    images: list[ImageAttachment] = Field(default_factory=list, max_length=5)
     client_key: str | None = Field(default=None, max_length=128)
 
 

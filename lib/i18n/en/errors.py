@@ -144,6 +144,8 @@ MESSAGES = {
         "switch target is ambiguous. Please fill in only one group."
     ),
     # Assistant
+    "assistant_image_too_large": "Each original image must be no larger than 5 MB",
+    "assistant_images_total_too_large": "The original images must be no larger than 25 MB in total",
     "session_not_found": "Session '{session_id}' does not exist",
     "session_or_project_not_found": "Session or project does not exist",
     "sdk_session_timeout": "SDK session creation timed out",
