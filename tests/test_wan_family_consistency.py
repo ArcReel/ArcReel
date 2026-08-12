@@ -199,6 +199,27 @@ def test_wan27_unrecognized_modality_with_image_substring_stays_image_variant(mo
     assert infer_endpoint(model_id, "openai") == "openai-images"
 
 
+@pytest.mark.parametrize("model_id", ["wan2.7-i2v-s2v", "wan-2.7-r2v-v2v"])
+def test_wan27_known_token_does_not_mask_coexisting_s2v_v2v(model_id: str) -> None:
+    """id 同时含已知 profile token（i2v/r2v）与 s2v/v2v 时：s2v/v2v 未实现请求构造这一事实优先于
+    已知 token 命中，不能被后者掩盖而误放行原生路由（与 videoedit 共存已知 token 的既有排除同理）。"""
+    assert infer_endpoint(model_id, "openai") == "openai-video"
+    assert infer_supported_durations(model_id) != list(range(2, 16))
+
+
+@pytest.mark.parametrize("model_id", ["s2v-proxy/wan2.7-image", "v2v-service/wan-2.7-image"])
+def test_wan27_image_variant_not_upgraded_by_s2v_v2v_decoration_before_marker(model_id: str) -> None:
+    """s2v/v2v 的识别只在 wan2.7 标记之后的模态段内生效，不含标记前的装饰前缀——真图像变体
+    （模态段字面即 "image"）不应被装饰前缀里恰好出现的 "s2v"/"v2v" 误判成已知视频模态。"""
+    assert infer_endpoint(model_id, "openai") == "openai-images"
+
+
+def test_minimax_s2v_routing_survives_incidental_wan_substring() -> None:
+    """MiniMax S2V 二级路由的 wan 排除只认版本号相邻的 wan token，不认任意含 "wan" 子串的单词——
+    "swan" 只是恰好含 "wan" 子串的无关词形，不应被误判成 wan 家族而错过 MiniMax 路由。"""
+    assert infer_endpoint("minimax-s2v-swan", "openai") == "minimax-video"
+
+
 def test_wan27_videoedit_excluded_from_family_duration_preset() -> None:
     """wan2.7-videoedit 本后端未实现该模态的请求构造，时长不套用 t2v/i2v/r2v 家族档
     （落到通用预设，而非家族专属的 2-15s 全档）。"""
@@ -213,11 +234,18 @@ def test_wan27_videoedit_excluded_even_alongside_recognized_modality_token() -> 
 
 
 @pytest.mark.parametrize("model_id", ["proxy-videoeditor/wan2.7-i2v", "proxy-videoedit-service/wan_2.7-r2v"])
-def test_videoedit_token_requires_identifier_boundary(model_id: str) -> None:
-    """ "videoedit" 判定须按标识符边界匹配："videoeditor" 一类无关词形不应误判命中；真正的
-    "videoedit" 装饰前缀（如 "-service" 后缀分隔）仍要正确命中并排除出原生路由。"""
-    is_editor_typo = "videoeditor" in model_id
-    assert infer_endpoint(model_id, "openai") == ("dashscope-async-video" if is_editor_typo else "openai-video")
+def test_videoedit_detection_ignores_decoration_before_wan27_marker(model_id: str) -> None:
+    """ "videoedit" 判定只在 wan2.7 标记之后的模态段内生效，不含标记前的装饰前缀："videoeditor"
+    一类无关词形本就不满足标识符边界；"videoedit-service" 这类装饰前缀即便满足边界也不计入——
+    与代理命名空间无关的真实模态（如 i2v/r2v）应正常落原生路由。"""
+    assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
+
+
+@pytest.mark.parametrize("model_id", ["wan2.7-r2v-videoedit", "wan_2.7-videoedit-0715"])
+def test_videoedit_detected_within_modality_segment_after_marker(model_id: str) -> None:
+    """真正的 videoedit 标记出现在 wan2.7 标记之后的模态段内（无论是否伴随已知 token 或后缀
+    装饰）时，仍要正确命中并排除出原生路由。"""
+    assert infer_endpoint(model_id, "openai") == "openai-video"
 
 
 @pytest.mark.parametrize("model_id", ["proxy-videoedit/wan3-turbo", "wan-3-turbo-videoedit"])

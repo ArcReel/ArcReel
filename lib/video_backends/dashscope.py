@@ -240,11 +240,12 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
             is_known_video_modality=False,
         )
 
-    # videoedit 是 wan2.7 家族内独有的模态（见 WAN_VIDEOEDIT_PATTERN 处的说明）；wan3/wan2x_dot
-    # 不受它约束，否则形如 "proxy-videoedit/wan3-turbo" 这类与 videoedit 无关的装饰前缀会被误吞，
-    # 把本应走原生路由的 wan3 模型错误排除出去。
-    is_videoedit = family == "wan2.7" and bool(WAN_VIDEOEDIT_PATTERN.search(normalized))
-    is_s2v_or_v2v = family == "wan2.7" and bool(WAN_S2V_V2V_PATTERN.search(normalized))
+    # videoedit/s2v/v2v 是 wan2.7 家族内的模态标记，只在 wan2.7 恒定标记之后的模态段内搜索，不含
+    # 标记前的装饰前缀——否则 "videoedit-proxy/wan2.7-image" / "s2v-proxy/wan2.7-image" 这类与
+    # 模态无关的代理命名空间前缀会被误判成对应模态，掩盖其真实（图像）模态。wan3/wan2x_dot 不受
+    # 二者约束（field 默认 False），否则形如 "proxy-videoedit/wan3-turbo" 这类前缀会把本应走原生
+    # 路由的 wan3 模型错误排除出去。
+    is_videoedit = False
     profile_key: str | None = None
     has_known_modality = True
     is_known_video_modality = False
@@ -252,16 +253,26 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
         profile_key = _WAN3_MODEL_KEY
     elif family == "wan2.7":
         profile_key = _normalize_wan27_alias(normalized)
-        # wan2.7 的 payload 构造只实现了 t2v/i2v/r2v；videoedit 已由 is_videoedit 单独标记，
-        # s2v/v2v 等其余未实现模态同样不能落原生路由。按标识符边界匹配 _MODEL_PROFILES 里的
-        # wan2.7 已知 key（而非要求 profile_key 与某个 key 完全相等）：profile_key 保留了代理
-        # 中转的装饰前后缀（"proxy/wan2.7-r2v"），精确相等会把这些合法装饰名也判成未知模态。
-        has_known_modality = not is_videoedit and (
-            _find_known_profile_key(profile_key, (k for k in _MODEL_PROFILES if k.startswith("wan2.7-"))) is not None
+        # _normalize_wan27_alias 保证 profile_key 里恒含字面 "wan2.7" 标记，据此切出标记之后的
+        # 模态段供 videoedit/s2v/v2v 搜索。
+        wan27_suffix = profile_key[profile_key.index("wan2.7") :]
+        is_videoedit = bool(WAN_VIDEOEDIT_PATTERN.search(wan27_suffix))
+        is_s2v_or_v2v = bool(WAN_S2V_V2V_PATTERN.search(wan27_suffix))
+        # wan2.7 的 payload 构造只实现了 t2v/i2v/r2v；videoedit/s2v/v2v 等其余已知但未实现模态
+        # 同样不能落原生路由。按标识符边界匹配 _MODEL_PROFILES 里的 wan2.7 已知 key（而非要求
+        # profile_key 与某个 key 完全相等）：profile_key 保留了代理中转的装饰前后缀
+        # （"proxy/wan2.7-r2v"），精确相等会把这些合法装饰名也判成未知模态。命中已知 key 的同时
+        # 若又命中 videoedit/s2v/v2v（如 "wan2.7-i2v-s2v"），已实现的 token 不能掩盖未实现模态
+        # 段共存的事实，一并排除出已实现范围。
+        has_known_modality = (
+            not is_videoedit
+            and not is_s2v_or_v2v
+            and _find_known_profile_key(profile_key, (k for k in _MODEL_PROFILES if k.startswith("wan2.7-")))
+            is not None
         )
         # t2v/i2v/r2v（has_known_modality）/ videoedit / s2v / v2v 均是已确认的视频模态，即便部分
-        # 未实现请求构造；其余未收敛命名（不落入任一已知模态 token）保守按图像变体处理，不做假设
-        # （见字段处的说明与 endpoints.py 里"不对图像变体的命名形态做任何假设"的既有原则一致）。
+        # 未实现请求构造；其余未收敛命名（不落入任一已知模态 token）保守按图像变体处理，不对图像
+        # 变体的命名形态做任何假设（与 endpoints.py 的判定原则一致）。
         is_known_video_modality = has_known_modality or is_videoedit or is_s2v_or_v2v
     elif family == "wan2x_dot" and is_image_to_video:
         # wan2x_dot 没有登记任何 VideoCapabilities（profile_key 恒 None，下条注释），image-to-video

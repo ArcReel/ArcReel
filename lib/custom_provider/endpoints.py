@@ -531,6 +531,11 @@ _VIDEO_PATTERN = re.compile(
 _AUDIO_PATTERN = re.compile(r"tts|speech|cosyvoice", re.IGNORECASE)
 # 裸 "speech" 会撞上 ASR（语音转文字）家族 id，按内容排除，避免把识别模型默认归到 TTS 端点
 _ASR_PATTERN = re.compile(r"transcribe|speech.?to.?text|recognition", re.IGNORECASE)
+# wan 版本号 token："wan" 后紧跟（可选分隔符）数字，用于 MiniMax S2V 二级路由的排除判定：既要
+# 认出 "wan-2.2-s2v"/"vendorwan2.7-s2v" 一类版本号相邻 wan token（无需满足家族严格标识符边界），
+# 又要排除 "swan" 这类只是把 "wan" 作为普通单词一部分的无关子串——裸 "wan" in lowered 分不出这两
+# 者，会把恰好含 "swan" 的 MiniMax id 误判成 wan 家族而错过 MiniMax 路由。
+_WAN_VERSION_TOKEN_PATTERN = re.compile(r"wan[-_]?\d", re.IGNORECASE)
 
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
@@ -544,7 +549,7 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        image-to-video 续接别名）走 "dashscope-async-video"（原生异步端点）。happyhorse 不在
        _VIDEO_PATTERN 须显式；万相视频抢在通用 is_video 前拦截。真正的图像变体不自动推 dashscope
        （中转可能是 OpenAI 兼容）：qwen-image / wan2.7-image / wan-2.7-image / wan3.0-video-image
-       及带版本/日期后缀的同类 id 落到既有图像家族推断；wan-3-turbo-image-to-video /
+       及带版本/日期后缀的同类 id 落到图像家族推断；wan-3-turbo-image-to-video /
        wan3-image2video 这类显式 image-to-video 续接语法仍归视频（同 2.5 节 kling-image2video
        的处理原则），按 classify_wan_model 的 is_image_to_video 精确挑出这一种形态，不对图像变体
        的命名形态（结尾 token 等）做任何假设。原生路由只认 2.7（含点号形态 "wan2.x"，见下方
@@ -619,11 +624,17 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # MiniMax 原生 token 二级路由：海螺（含 minimax-hailuo）/ S2V / H3 → 两步或单步取回的视频端点；
     # image-01 → 单步图像端点。先于通用 is_video/is_image：s2v 与 h3 均不被 _VIDEO_PATTERN 覆盖，
     # image-01 含 "image" 否则会被通用图像家族抢走。匹配 "minimax-h3" 而非裸 "h3"——后者过短，
-    # 容易撞上其它厂商恰好含 h3 子串的型号 id。裸 "s2v" 排除含 wan 子串的 id（如未落原生路由的
-    # "wan2.7-s2v"、家族边界未满足的 "wan-2.2-s2v"，本后端均未实现该模态请求构造）：这类 id 应落
-    # 下方 5) 的通用视频端点，而非被误吞成 MiniMax S2V 协议——用 contains_wan_token 而非
-    # is_wan_family 做门槛，理由同上方 wan_image_variant/wan_video_continuation 的排除范围说明。
-    if "hailuo" in lowered or ("s2v" in lowered and not contains_wan_token) or "minimax-h3" in lowered:
+    # 容易撞上其它厂商恰好含 h3 子串的型号 id。裸 "s2v" 排除含 wan 版本号 token 的 id（如未落原生
+    # 路由的 "wan2.7-s2v"、家族边界未满足的 "wan-2.2-s2v"，本后端均未实现该模态请求构造）：这类 id
+    # 应落下方 5) 的通用视频端点，而非被误吞成 MiniMax S2V 协议——用 _WAN_VERSION_TOKEN_PATTERN
+    # 而非 contains_wan_token/is_wan_family 做门槛：前者会把 "minimax-s2v-swan" 这类只是恰好含
+    # "swan" 子串的 MiniMax id 误判成 wan 家族而错过 MiniMax 路由，后者的严格边界又会漏判
+    # "wan-2.2-s2v" 一类版本号相邻但未满足家族边界的 id。
+    if (
+        "hailuo" in lowered
+        or ("s2v" in lowered and not _WAN_VERSION_TOKEN_PATTERN.search(lowered))
+        or "minimax-h3" in lowered
+    ):
         return "minimax-video"
     if "image-01" in lowered:
         return "minimax-image"
