@@ -1201,6 +1201,29 @@ class TestProjectEventService:
         scene_changes = service._diff_snapshots(after_text, after_scene)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in scene_changes)
 
+        # 同类型引用仅交换顺序：派生实体集合不变，但参考图编号与稳定裁剪优先级已变，仍须发 updated。
+        script = pm.load_script("ref-edit", "episode_1.json")
+        script["video_units"][0]["references"].extend(
+            [
+                {"type": "product", "name": "产品甲"},
+                {"type": "product", "name": "产品乙"},
+            ]
+        )
+        with project_change_source("filesystem"):
+            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
+        before_reorder = service._build_snapshot("ref-edit")
+
+        script = pm.load_script("ref-edit", "episode_1.json")
+        references = script["video_units"][0]["references"]
+        references[-2:] = reversed(references[-2:])
+        with project_change_source("filesystem"):
+            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
+        after_reorder = service._build_snapshot("ref-edit")
+        reordered_item = after_reorder["scripts"]["episode_1.json"]["items"]["E1U01"]
+        assert [ref["name"] for ref in reordered_item["references"][-2:]] == ["产品乙", "产品甲"]
+        reorder_changes = service._diff_snapshots(before_reorder, after_reorder)
+        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in reorder_changes)
+
     @pytest.mark.unit
     @pytest.mark.parametrize("kind", sorted(SKELETONS))
     def test_normalize_snapshot_covers_every_skeleton_kind(self, tmp_path, kind):

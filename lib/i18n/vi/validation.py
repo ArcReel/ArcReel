@@ -110,6 +110,7 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id trùng lặp '{value}'",
     "val_video_units_missing": "Kịch bản reference_video thiếu mảng video_units hoặc mảng rỗng",
     "val_unit_duration_range": "{prefix}: duration_seconds phải là số nguyên trong khoảng {low}-{high}",
+    "val_unit_shots_too_many": "{prefix}: shots có {count} mục; chỉ cho phép tối đa {max}",
     "val_migration_content_replan_requires_needs_replan": (
         "{prefix}: migration_requires_content_replan=true yêu cầu needs_replan=true"
     ),

@@ -23,7 +23,7 @@ from lib.i18n import Translator
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import EpisodeScriptReboundError, get_project_manager, is_reference_video_project
-from lib.reference_video import assemble_shots_text, parse_prompt
+from lib.reference_video import assemble_shots_text, parse_prompt, rederive_unit_references
 from lib.reference_video.script_preview import build_script_preview
 from lib.reference_video.units import reference_unit_video_bucket, reference_video_bucket
 from lib.reference_video.voice_settings import VoiceRenderSettings
@@ -104,12 +104,15 @@ def _episode_script_resolver(
     episode: int,
     _t: Translator,
     refs: list[dict] | None = None,
+    project_out: dict[str, dict] | None = None,
 ) -> Callable[[dict], str]:
     """构造一个解析器：从 project.json 解析并校验指定集，返回其 script_file。
 
     解析器在 `locked_episode_script` 的项目锁内被调用（候选解析 + 持锁复核各一次），
     把「找 episode + reference_video 模式校验 + 可选 references 存在性校验」收进
-    同一临界区，避免锁外快照与并发写者不一致。
+    同一临界区，避免锁外快照与并发写者不一致。``project_out`` 会在每次解析时接收当前
+    project；进入 ``locked_episode_script`` 的 with 体前，最后一次写入来自持锁复核，供同一
+    临界区内需要资产表的派生逻辑使用。
     """
 
     def _resolve(project: dict) -> str:
@@ -121,6 +124,8 @@ def _episode_script_resolver(
             raise HTTPException(status_code=409, detail=_t("ref_not_reference_video_mode"))
         if refs is not None:
             _validate_references_exist(project, refs, _t)
+        if project_out is not None:
+            project_out["project"] = project
         return meta["script_file"]
 
     return _resolve
@@ -297,7 +302,9 @@ async def patch_unit(
     # references 存在性校验在解析器内、项目锁内进行，失败 raise 400
     refs: list[dict] | None = _normalized_refs(req.references) if req.references is not None else None
 
-    with _locked_episode_script(project_name, _episode_script_resolver(episode, _t, refs), _t) as script:
+    project_out: dict[str, dict] = {}
+    resolver = _episode_script_resolver(episode, _t, refs, project_out=project_out)
+    with _locked_episode_script(project_name, resolver, _t) as script:
         unit = _find_unit(script, unit_id, _t)  # 未找到 raise 404 → 跳过写回
         previous_shots = unit.get("shots")
 
@@ -318,6 +325,10 @@ async def patch_unit(
         # 只有正文重写能证明迁移留下的镜头归属问题已被重新规划；仅改时长或引用
         # 不能解除 overlapping / dangling legacy shot 对应的 durable marker。
         body_changed = req.prompt is not None and unit.get("shots") != previous_shots
+        if body_changed and refs is None:
+            # references 是正文的机械派生物。调用方显式给 references 时尊重其人工排序；只改正文
+            # 时则必须用持锁复核后的 project 资产表重派生，避免旧引用继续决定 @图片N 绑定。
+            rederive_unit_references([unit], project_out["project"])
         refresh_video_unit_replan_state(
             unit,
             allow_clear=body_changed or req.duration_seconds is not None,

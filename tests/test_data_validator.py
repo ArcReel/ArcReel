@@ -1517,6 +1517,16 @@ class TestAdReferenceVideoUnitsValidation:
         assert any("duration_seconds" in error for error in result.errors)
 
     @pytest.mark.unit
+    def test_unit_rejects_more_than_four_shots(self, tmp_path):
+        result = self._validate(
+            tmp_path,
+            [self._unit(shots=[{"text": f"镜头{i}"} for i in range(1, 6)])],
+        )
+
+        assert not result.valid
+        assert any("shots 含 5 个条目，最多允许 4 个" in error for error in result.errors)
+
+    @pytest.mark.unit
     def test_migration_content_replan_marker_requires_boolean(self, tmp_path):
         result = self._validate(
             tmp_path,

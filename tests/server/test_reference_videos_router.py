@@ -155,18 +155,17 @@ def _seed_unit(client: TestClient) -> str:
 
 @pytest.mark.integration
 def test_patch_unit_prompt_keeps_duration(client: TestClient):
-    """时长与正文互不牵连：改文案不动 unit 时长（镜头不承载时长）。"""
+    """时长与正文互不牵连；只传正文时 references 用当前资产表重新派生。"""
     uid = _seed_unit(client)
     resp = client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
-        json={"prompt": "镜头1：@张三 推门\n镜头2：@酒馆 全景"},
+        json={"prompt": "镜头1：@酒馆 门口\n镜头2：@酒馆 全景"},
     )
     assert resp.status_code == 200, resp.text
     unit = resp.json()["unit"]
     assert len(unit["shots"]) == 2
     assert unit["duration_seconds"] == 3
-    # 注意：prompt 新增的 @酒馆 应由 caller 先 PATCH references 再 PATCH prompt；本端点仅按旧 references 映射
-    assert len(unit["references"]) == 1
+    assert unit["references"] == [{"type": "scene", "name": "酒馆"}]
 
 
 @pytest.mark.integration

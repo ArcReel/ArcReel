@@ -101,6 +101,7 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id 重复 '{value}'",
     "val_video_units_missing": "reference_video 脚本缺少 video_units 数组或为空",
     "val_unit_duration_range": "{prefix}: duration_seconds 必须是 {low}-{high} 之间的整数",
+    "val_unit_shots_too_many": "{prefix}: shots 含 {count} 个条目，最多允许 {max} 个",
     "val_migration_content_replan_requires_needs_replan": (
         "{prefix}: migration_requires_content_replan=true 时 needs_replan 必须为 true"
     ),

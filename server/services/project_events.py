@@ -751,6 +751,7 @@ class ProjectEventService:
                 "props": props,
                 "products": products,
                 "shots": self._item_member_shots(item.get("shots")),
+                "references": self._item_references(item.get("references")) if skeleton.chars_field is None else [],
                 "image_prompt": item.get("image_prompt"),
                 "video_prompt": item.get("video_prompt"),
                 "generated_assets": {
@@ -819,6 +820,17 @@ class ProjectEventService:
         if not isinstance(shots, list):
             return []
         return [{"text": str(shot.get("text") or "")} for shot in shots if isinstance(shot, dict)]
+
+    @staticmethod
+    def _item_references(references: Any) -> list[dict[str, Any]]:
+        """保留 video_unit 引用的顺序与重复项，供 ``updated`` 差分捕获参考图绑定变化。"""
+        if not isinstance(references, list):
+            return []
+        return [
+            {"type": reference.get("type"), "name": reference.get("name")}
+            for reference in references
+            if isinstance(reference, dict)
+        ]
 
     def _diff_snapshots(
         self,

@@ -37,6 +37,7 @@ from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
 from lib.project_manager import VALID_GENERATION_MODES as _VALID_GENERATION_MODES
 from lib.project_manager import VALID_SOURCE_KINDS as _VALID_SOURCE_KINDS
+from lib.reference_video.writing_syntax import MAX_SHOTS_PER_UNIT
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     REFERENCE_UNIT_DURATION_RANGE,
@@ -1248,6 +1249,15 @@ class DataValidator:
             if not isinstance(shots, list) or (not shots and needs_replan is not True):
                 errors.append(_m("val_field_must_be_nonempty_array", field=f"{prefix}: shots"))
             else:
+                if len(shots) > MAX_SHOTS_PER_UNIT:
+                    errors.append(
+                        _m(
+                            "val_unit_shots_too_many",
+                            prefix=prefix,
+                            count=len(shots),
+                            max=MAX_SHOTS_PER_UNIT,
+                        )
+                    )
                 for si, shot in enumerate(shots):
                     sp = f"{prefix}.shots[{si}]"
                     if not isinstance(shot, dict):

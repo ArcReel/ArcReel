@@ -110,6 +110,7 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: duplicate unit_id '{value}'",
     "val_video_units_missing": "The reference_video script is missing the video_units array, or it is empty",
     "val_unit_duration_range": "{prefix}: duration_seconds must be an integer between {low} and {high}",
+    "val_unit_shots_too_many": "{prefix}: shots contains {count} entries; at most {max} are allowed",
     "val_migration_content_replan_requires_needs_replan": (
         "{prefix}: migration_requires_content_replan=true requires needs_replan=true"
     ),
