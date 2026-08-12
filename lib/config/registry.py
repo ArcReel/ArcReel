@@ -1422,8 +1422,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
             # --- image ---
             # agnes-image-2.1-flash：OpenAI 兼容 /images/generations 单步同步，T2I + I2I。
-            # 仅注册 2.1（2.0 与其价格 / 字段实测无差异，model 目录收敛）。
-            # resolutions 为保守 UI 档位（未逐档实测）；实际尺寸由 backend aspect_size 计算、与此无耦合。
+            # 仅注册 2.1；2.0 与 2.1 共用相同的价格和字段契约，model 目录收敛到 2.1。
+            # resolutions 是保守的 UI 档位；实际尺寸由 backend aspect_size 计算、与此无耦合。
             "agnes-image-2.1-flash": ModelInfo(
                 display_name="Agnes Image 2.1 Flash",
                 media_type="image",

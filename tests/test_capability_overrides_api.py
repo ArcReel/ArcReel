@@ -873,10 +873,8 @@ class TestResolverReturnsEffectiveCapabilities:
 
     @pytest.mark.integration
     async def test_media_type_mismatch_falls_back_to_default_model(self, session: AsyncSession):
-        """请求的 model 仍启用,但用户已把该模型的 endpoint 改成非 video 类型时,与执行层同一条
-        回退规则:改用该 provider 的默认启用 video model。此前这里只检查 is_enabled,遗漏 endpoint
-        媒体类型不符会让本方法直接抛错(响应层 422),而 loader.load_custom_backend 会静默回退
-        成功,展示层与执行层因此漂移。"""
+        """请求的 model 仍启用,但它的 endpoint 不是 video 类型时,与执行层同样
+        回退到该 provider 的默认启用 video model，避免展示层与执行层漂移。"""
         repo = CustomProviderRepository(session)
         provider = await repo.create_provider(
             display_name="Relay",

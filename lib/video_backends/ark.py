@@ -138,8 +138,8 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     # docs/api-docs/providers/ark.md 所列官方能力表中，非 seedance-2.0 系列里明确支持首尾帧的仅这三个
     # 1.x 型号（1.0 pro fast 与 1.0 lite t2v 标 "-"，其余未上表的型号未经验证）。改用白名单
     # 而非黑名单：自定义供应商配置或上游新增的未知型号一律保守判定为不支持尾帧，避免错误声明
-    # 支持而绕过本模块新增的硬拒绝——一旦放行，真实不支持的型号会照样产生供应商侧调用与扣费，
-    # 与本 issue 的验收标准直接相悖。子串同时收录连字符与点号两种版本号写法（如 "1-0" /
+    # 支持而绕过本模块的硬拒绝；一旦放行，真实不支持的型号会照样产生供应商侧调用与扣费。
+    # 子串同时收录连字符与点号两种版本号写法（如 "1-0" /
     # "1.0"）——上游命名不统一，docs/api-docs/providers/ark.md 所列官方价格页中 doubao-seedance-1.0-pro-fast
     # 即用点号。
     _NO_FIRST_FRAME_SUBSTRINGS = ("seedance-1-0-lite-t2v", "seedance-1.0-lite-t2v")
@@ -219,7 +219,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             )
         if ArkVideoBackend._is_seedance_2(model):
             # API 拒绝首帧/尾帧与参考素材混合请求（InvalidParameter: first/last frame content
-            # cannot be mixed with reference media content，实测）——参考图是与首尾帧互斥的
+            # cannot be mixed with reference media content）——参考图是与首尾帧互斥的
             # 参考生视频模式，故不声明首帧叠加参考能力；若上游后续放开混合可重新开启。
             # 尾帧与参考音频都单独走边界校验的已验证型号白名单：_is_seedance_2 本身只做宽松
             # 族群识别（供 service_tier 剔除复用），未验证的 2.0 系列未来变体不应继承这两项
@@ -241,9 +241,8 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                     _SEEDANCE_2_MAX_REFERENCE_AUDIO_TOTAL_SECONDS if on_verified_allowlist else None
                 ),
             )
-        # 非 2.0 系列：DEFAULT_MODEL 1.5 pro 实测正常下发 role="last_frame"（见
-        # test_first_last_frame_role_fields），此前统一按 VideoCapabilities() 默认
-        # last_frame=False 处理是误判；白名单覆盖能力表已验证支持首尾帧的三个型号，
+        # 非 2.0 系列：DEFAULT_MODEL 1.5 pro 可正常下发 role="last_frame"（见
+        # test_first_last_frame_role_fields）。白名单覆盖能力表已验证支持首尾帧的三个型号，
         # 未命中白名单的一律 last_frame=False（含未来新增/自定义供应商的未知型号）。
         model_lower = model.lower()
         no_first_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_FIRST_FRAME_SUBSTRINGS)

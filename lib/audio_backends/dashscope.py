@@ -40,7 +40,7 @@ _TTS_ENDPOINT = "/services/aigc/multimodal-generation/generation"
 
 
 # Qwen3-TTS 系统预设音色（``voice`` 参数取值）子集，出处见 docs/api-docs/providers/dashscope.md
-# 「三、系统预设音色」表格（截至 2026-06-02 核实，来源：
+# 「三、系统预设音色」表格（来源：
 # https://help.aliyun.com/zh/model-studio/qwen-tts 官方文档 + 百炼控制台模型市场）。
 # 未列出的其余预设音色不在此暴露——该文档明确标注为「ArcReel 场景最相关的音色子集」，
 # 完整 48 音色列表见官方文档，未逐一核实中文名/描述不收录，避免编造。

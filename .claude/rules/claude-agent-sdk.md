@@ -1,7 +1,9 @@
 ---
 paths:
   - "server/agent_runtime/**"
+  - "lib/agent_session_store/**"
   - "tests/agent_runtime/**"
+  - "tests/agent_session_store/**"
   - "tests/test_session_actor.py"
   - "tests/test_session_manager*.py"
   - "tests/server/agent_runtime/**"
