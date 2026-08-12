@@ -250,6 +250,7 @@ class TestSessionManagerUserInput:
         (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
 
         seen_commands: list[str] = []
+        cancelled: list[bool] = []
 
         class _FakeActor:
             def __init__(self, *_, on_message=None, client_factory=None):
@@ -278,6 +279,9 @@ class TestSessionManagerUserInput:
             async def wait(self):
                 return None
 
+            async def cancel_and_wait(self):
+                cancelled.append(True)
+
         async def fake_env():
             return {"ANTHROPIC_API_KEY": "sk"}
 
@@ -292,6 +296,11 @@ class TestSessionManagerUserInput:
 
         assert "disconnect" in seen_commands
         assert any("超时" in r.getMessage() for r in caplog.records)
+        # 断开挂起时 actor 必须被取消，否则协程随失败的会话一起泄漏。
+        assert cancelled == [True]
+        # 超时不阻断后续清理：会话从注册表摘除、登记的回放标识清空。
+        assert session_manager.sessions == {}
+        assert session_manager.unclaimed_user_echoes == 0
 
     async def test_ask_user_question_waits_for_answer_and_merges_answers(self, session_manager, meta_store):
         if not SDK_AVAILABLE:

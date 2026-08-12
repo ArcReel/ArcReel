@@ -653,8 +653,9 @@ class SessionManager:
             Runs send_disconnect first (which causes actor to exit and
             _on_actor_done to push the None sentinel, letting _process_inbox
             finish naturally), bounded by _session_actor_shutdown_timeout so an
-            SDK-side hang cannot stall this error-only cleanup path indefinitely;
-            then belt-and-suspenders cancels the processor in case it is stuck
+            SDK-side hang cannot stall this error-only cleanup path indefinitely
+            — on timeout the actor is cancelled outright so it cannot leak; then
+            belt-and-suspenders cancels the processor in case it is stuck
             elsewhere.
             """
             self.sessions.pop(temp_id, None)
@@ -664,9 +665,11 @@ class SessionManager:
                 await asyncio.wait_for(managed.send_disconnect(), timeout=self._session_actor_shutdown_timeout)
             except TimeoutError:
                 logger.warning(
-                    "send_disconnect on error path 超时，继续后续清理 session_id=%s",
+                    "send_disconnect on error path 超时，走 cancel 兜底 session_id=%s",
                     temp_id,
                 )
+                if managed.actor is not None:
+                    await managed.actor.cancel_and_wait()
             except Exception:
                 logger.exception(
                     "send_disconnect on error path failed session_id=%s",
