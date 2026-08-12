@@ -316,6 +316,10 @@ class TestInferEndpoint:
             ("swan2", "openai", "openai-video"),
             ("vendorwan2", "openai", "openai-video"),
             ("wan20", "openai", "openai-video"),
+            # 同一边界陷阱、但字母粘连前缀后接完整点号形态 + 版本号 + 模态后缀：_WAN_DOT_FORM_PATTERN
+            # 若不做左侧边界校验，"swan2.7-r2v" 去掉首字符即与 "wan2.7-r2v" 字面相同，会被误判命中。
+            ("swan2.7-r2v", "openai", "openai-video"),
+            ("vendorwan2.7-t2v", "openai", "openai-video"),
             # 万相 2.x 小版本边界：WAN2_PATTERN 只认 2.7，其余 2.x（2.1/2.2 等）的连字符/下划线
             # 形态不落原生端点——本后端固定请求的 video-generation/video-synthesis 端点与这些
             # 小版本的实际协议不符（见 dashscope.py WAN2_PATTERN 处的说明）。点号形态另受独立的

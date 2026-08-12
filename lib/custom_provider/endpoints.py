@@ -537,6 +537,10 @@ _ASR_PATTERN = re.compile(r"transcribe|speech.?to.?text|recognition", re.IGNOREC
 # 出现新形态再补，不预先扩面。
 _WAN_IMAGE_TO_VIDEO_PATTERN = re.compile(r"image[-_]?(?:to|2)[-_]?video", re.IGNORECASE)
 
+# 点号形态万相 2.x（2.7 以外，如 "wan2.1-kf2v"）的家族判定：标识符边界要求非字母数字，避免
+# "swan2.7-r2v"、"vendorwan2.7-t2v" 这类含 "wan2." 子串但并非该家族的第三方型号名被误判。
+_WAN_DOT_FORM_PATTERN = re.compile(r"(?<![a-z0-9])wan2\.\d", re.IGNORECASE)
+
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
     """根据模型 id 与 discovery_format 推默认 endpoint（content-first）。
@@ -578,12 +582,14 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 本后端却被当通用型号丢失能力声明"的矛盾。wan3 分支额外与 duration_presets.WAN3_PATTERN
     # 共用同一常量，保持时长档位推断口径一致。
     #
-    # 点号形态的其余 2.x（"wan2.1-kf2v"、"wan2.2-s2v"）额外用字面量子串判定："wan2." 命中即算
-    # 万相家族，不要求版本号是 2.7。本后端固定请求 video-generation/video-synthesis 端点，与万相
-    # 2.1/2.2 实际使用的旧端点及不同 payload 字段不符（出处见 DashScopeVideoBackend 模块顶部
-    # WAN2_PATTERN 处的说明）；是否收窄该字面量判定需要供应商 API 事实与产品判断，不由本函数
-    # 代为决定。
-    is_wan_family = bool(WAN2_PATTERN.search(model_id) or WAN3_PATTERN.search(model_id) or "wan2." in lowered)
+    # 点号形态的其余 2.x（"wan2.1-kf2v"、"wan2.2-s2v"）额外用 _WAN_DOT_FORM_PATTERN 判定：命中
+    # "wan2.<digit>" 即算万相家族，不要求版本号是 2.7。本后端固定请求
+    # video-generation/video-synthesis 端点，与万相 2.1/2.2 实际使用的旧端点及不同 payload 字段
+    # 不符（出处见 DashScopeVideoBackend 模块顶部 WAN2_PATTERN 处的说明）；是否收窄该判定需要
+    # 供应商 API 事实与产品判断，不由本函数代为决定。
+    is_wan_family = bool(
+        WAN2_PATTERN.search(model_id) or WAN3_PATTERN.search(model_id) or _WAN_DOT_FORM_PATTERN.search(model_id)
+    )
     # wan 家族的 image-to-video 别名（如 wan-3-turbo-image-to-video / wan3-image2video）含 "image"
     # 子串但本质是视频模型，与下方 kling-image2video 同类陷阱：笼统 is_image 会把它们错判成图像
     # 变体。反过来"以 image 结尾才算图像变体"同样错——wan3.0-image-edit / wan-3-turbo-image-preview /
