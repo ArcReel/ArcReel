@@ -148,7 +148,8 @@ class ScriptBatchEditResult(BaseModel):
 
 
 class _ManifestAdapterFactory(Protocol):
-    def __call__(self, project_dir: Path) -> ArtifactManifestAdapter: ...
+    def __call__(self, project_dir: Path) -> ArtifactManifestAdapter:
+        raise NotImplementedError
 
 
 class _AbortEdit(Exception):

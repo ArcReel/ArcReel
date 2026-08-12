@@ -19,7 +19,8 @@ _SPEECH_PROBLEM_CODES = frozenset({"mixed_speech", "needs_replan", "parse_failed
 
 
 class ScriptEditExecutor(Protocol):
-    def execute(self, project_name: str, command: ScriptBatchEditCommand) -> ScriptBatchEditResult: ...
+    def execute(self, project_name: str, command: ScriptBatchEditCommand) -> ScriptBatchEditResult:
+        raise NotImplementedError
 
 
 def script_batch_status(result: ScriptBatchEditResult) -> int:
