@@ -17,6 +17,7 @@ from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
+    get_episode_script_revision_tool,
     insert_segment_tool,
     patch_episode_script_tool,
     remove_segment_tool,
@@ -120,11 +121,16 @@ def _ad_script() -> dict[str, Any]:
     }
 
 
+def _register_default_character(pm: ProjectManager) -> None:
+    pm.upsert_assets("demo", "characters", {"角色A": {"description": "主角"}})
+
+
 @pytest.fixture
 def ctx(tmp_path: Path) -> ToolContext:
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    _register_default_character(pm)
     pm.save_script("demo", _script(), "episode_1.json")
     return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
 
@@ -134,6 +140,7 @@ def drama_ctx(tmp_path: Path) -> ToolContext:
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo", content_mode="drama")
     pm.create_project_metadata("demo", "Demo", "Anime", "drama")
+    _register_default_character(pm)
     pm.save_script("demo", _drama_script(), "episode_1.json")
     return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
 
@@ -143,6 +150,8 @@ def ref_ctx(tmp_path: Path) -> ToolContext:
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    _register_default_character(pm)
+    pm.update_project("demo", lambda project: project.update({"generation_mode": "reference_video"}))
     pm.save_script("demo", _reference_script(), "episode_1.json")
     return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
 
@@ -152,6 +161,7 @@ def ad_ctx(tmp_path: Path) -> ToolContext:
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo", content_mode="ad")
     pm.create_project_metadata("demo", "Demo", "Anime", "ad")
+    _register_default_character(pm)
     pm.save_script("demo", _ad_script(), "episode_1.json")
     return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
 
@@ -171,6 +181,50 @@ def _text(out: dict[str, Any]) -> str:
 
 
 class TestPatchEpisodeScript:
+    @pytest.mark.integration
+    async def test_revision_tool_feeds_ordered_multi_operation_command(self, ctx: ToolContext) -> None:
+        revision_output = await _call(
+            get_episode_script_revision_tool(ctx),
+            {"script": "episode_1.json"},
+        )
+
+        output = await _call(
+            patch_episode_script_tool(ctx),
+            {
+                "script": "episode_1.json",
+                "expected_revision": revision_output["revision"],
+                "operations": [
+                    {"op": "update", "id": "E1S01", "fields": {"note": "first"}},
+                    {"op": "move_after", "id": "E1S02", "after_id": None},
+                ],
+            },
+        )
+
+        assert output.get("is_error") is not True
+        assert output["script_edit"]["before_revision"] == revision_output["revision"]
+        assert output["script_edit"]["revision"] != revision_output["revision"]
+        saved = _load(ctx)["segments"]
+        assert [segment["segment_id"] for segment in saved] == ["E1S02", "E1S01"]
+        assert saved[1]["note"] == "first"
+
+    @pytest.mark.unit
+    async def test_formal_command_rejects_stale_revision(self, ctx: ToolContext) -> None:
+        before = _load(ctx)
+
+        output = await _call(
+            patch_episode_script_tool(ctx),
+            {
+                "script": "episode_1.json",
+                "expected_revision": "sha256-v1:" + "0" * 64,
+                "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "stale"}}],
+            },
+        )
+
+        assert output.get("is_error") is True
+        assert output["script_edit"]["problems"][0]["code"] == "revision_conflict"
+        assert output["script_edit"]["problems"][0]["operation_index"] is None
+        assert _load(ctx) == before
+
     @pytest.mark.integration
     @pytest.mark.parametrize(
         ("content_mode", "generation_mode", "script_factory", "item_id", "edits", "kind"),
@@ -230,6 +284,7 @@ class TestPatchEpisodeScript:
         pm = ProjectManager(str(tmp_path))
         pm.create_project("demo", content_mode=content_mode)
         pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
+        _register_default_character(pm)
         pm.update_project("demo", lambda project: project.update({"generation_mode": generation_mode}))
         script = script_factory()
         script["content_mode"] = content_mode
@@ -629,7 +684,10 @@ class TestPatchEpisodeScript:
         )
 
         assert repaired.get("is_error") is True
-        assert "scene:不存在" in repaired["content"][0]["text"]
+        problem = repaired["script_edit"]["problems"][0]
+        assert problem["code"] == "references_invalid"
+        assert problem["operation_index"] == 0
+        assert problem["unit_id"] == "E1U1"
         saved = _load(ref_ctx)["video_units"][0]
         assert saved["references"] == []
         assert saved["needs_replan"] is True
@@ -749,6 +807,35 @@ class TestInsertRemoveSplit:
         ids = [s["segment_id"] for s in _load(ctx)["segments"]]
         assert ids == ["E1S01", "E1S01_1", "E1S02"]
 
+    @pytest.mark.integration
+    async def test_insert_rejects_concurrent_change_after_id_projection(
+        self,
+        ctx: ToolContext,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from server.agent_runtime.sdk_tools import patch_script
+
+        original_insert = patch_script.insert_segment
+
+        def _insert_then_concurrently_edit(script, after_id, item):
+            result = original_insert(script, after_id, item)
+            with ctx.pm.locked_script(ctx.project_name, "episode_1.json") as current:
+                current["segments"][0]["note"] = "concurrent"
+            return result
+
+        monkeypatch.setattr(patch_script, "insert_segment", _insert_then_concurrently_edit)
+
+        out = await _call(
+            insert_segment_tool(ctx),
+            {"script": "episode_1.json", "after_id": "E1S01", "item": _segment("IGN")},
+        )
+
+        assert out.get("is_error") is True
+        assert out["script_edit"]["problems"][0]["code"] == "revision_conflict"
+        saved = _load(ctx)["segments"]
+        assert [segment["segment_id"] for segment in saved] == ["E1S01", "E1S02"]
+        assert saved[0]["note"] == "concurrent"
+
     @pytest.mark.unit
     async def test_insert_mixed_speech_is_structured_and_atomic(self, ctx: ToolContext) -> None:
         before = _load(ctx)
@@ -790,8 +877,8 @@ class TestInsertRemoveSplit:
         assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S02"]
 
     @pytest.mark.unit
-    async def test_split_keeps_first_id_clears_assets(self, ctx: ToolContext) -> None:
-        # part 自带已生成资产，验证 split 改变分镜身份后会清空它（旧资产无合理归属）
+    async def test_split_keeps_first_id_and_clears_new_identity_assets(self, ctx: ToolContext) -> None:
+        # parts 自带的资产不可信：同 id 锚点以原资产为准，新身份一律清空。
         part_a = _segment("a")
         part_a["generated_assets"] = {"storyboard_image": "stale.png", "status": "completed"}
         out = await _call(

@@ -231,6 +231,11 @@ describe("API", () => {
       await API.renameProjectAsset("demo", "product", "Phone", "Tablet", { dryRun: true });
 
       await API.getScript("demo", "episode 1.json");
+      await API.editScriptBatch("demo", {
+        script: "episode_1.json",
+        expected_revision: `sha256-v1:${"0".repeat(64)}`,
+        operations: [{ op: "update", id: "E1S01", fields: { note: "keep" } }],
+      });
       await API.updateScene("demo", "scene-1", "episode_1.json", { x: 1 });
       await API.updateSegment("demo", "segment-1", { y: 2 });
       await API.updateShot("demo", "E1S01", "episode_1.json", { voiceover_text: "新口播" });
@@ -319,6 +324,14 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/scripts/episode%201.json",
       );
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/script-edits", {
+        method: "POST",
+        body: JSON.stringify({
+          script: "episode_1.json",
+          expected_revision: `sha256-v1:${"0".repeat(64)}`,
+          operations: [{ op: "update", id: "E1S01", fields: { note: "keep" } }],
+        }),
+      });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/script-scenes/scene-1", {
         method: "PATCH",
         body: JSON.stringify({ script_file: "episode_1.json", updates: { x: 1 } }),

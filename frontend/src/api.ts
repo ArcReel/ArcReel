@@ -130,6 +130,52 @@ export interface SpeechAdmission {
   problems: SpeechAdmissionProblem[];
 }
 
+export type ScriptEditOperation =
+  | { op: "update"; id: string; fields: Record<string, unknown> }
+  | { op: "insert_after"; after_id: string | null; item: Record<string, unknown> }
+  | { op: "move_after"; id: string; after_id: string | null }
+  | { op: "remove"; id: string };
+
+export interface ScriptEditCommand {
+  script?: string;
+  episode?: number;
+  expected_revision: string;
+  operations: ScriptEditOperation[];
+}
+
+export interface ScriptEditProblem {
+  code: string;
+  operation_index: number | null;
+  unit_id: string | null;
+  locations: SpeechAdmissionLocation[];
+  reason: string;
+  next_action: string;
+}
+
+export interface ScriptEditResult {
+  success: boolean;
+  script: string;
+  episode: number | null;
+  before_revision: string;
+  revision: string;
+  affected_ids: string[];
+  problems: ScriptEditProblem[];
+}
+
+export class ScriptEditCommandError extends Error {
+  readonly code = "script_edit_rejected" as const;
+
+  constructor(public readonly result: ScriptEditResult) {
+    super(result.problems[0]?.code ?? "script edit rejected");
+    this.name = "ScriptEditCommandError";
+  }
+}
+
+export interface EpisodeScriptSnapshot {
+  script: EpisodeScript;
+  revision: string;
+}
+
 /** Preserves the structured speech blocker for UI actions and diagnostics. */
 export class SpeechAdmissionError extends Error {
   readonly code = "speech_admission_blocked" as const;
@@ -414,6 +460,18 @@ function isSpeechAdmission(value: unknown): value is SpeechAdmission {
   );
 }
 
+function isScriptEditResult(value: unknown): value is ScriptEditResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const result = value as Record<string, unknown>;
+  return (
+    result.success === false
+    && typeof result.script === "string"
+    && typeof result.revision === "string"
+    && Array.isArray(result.problems)
+    && result.problems.length > 0
+  );
+}
+
 function formatSpeechAdmission(admission: SpeechAdmission): string {
   const problem = admission.problems.find(({ code }) => code !== "needs_replan") ?? admission.problems[0];
   const location = problem.locations
@@ -523,9 +581,13 @@ class API {
 
     if (!response.ok) {
       handleUnauthorized(response);
-      const error = await response
+      const payload = await response
         .json()
-        .catch(() => ({ detail: response.statusText })) as ErrorResponse;
+        .catch(() => ({ detail: response.statusText })) as unknown;
+      if (isScriptEditResult(payload)) {
+        throw new ScriptEditCommandError(payload);
+      }
+      const error = payload as ErrorResponse;
       if (isAgentFailureDetail(error.detail)) {
         throw new AgentFailureError(error.detail.message, error.detail.failure);
       }
@@ -974,10 +1036,21 @@ class API {
   static async getScript(
     projectName: string,
     scriptFile: string
-  ): Promise<EpisodeScript> {
+  ): Promise<EpisodeScriptSnapshot> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/scripts/${encodeURIComponent(scriptFile)}`
     );
+  }
+
+  /** Revisioned, ordered, all-or-nothing episode-script edit command. */
+  static async editScriptBatch(
+    projectName: string,
+    command: ScriptEditCommand
+  ): Promise<ScriptEditResult> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/script-edits`, {
+      method: "POST",
+      body: JSON.stringify(command),
+    });
   }
 
   static async updateScene(
