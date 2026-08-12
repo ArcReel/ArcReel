@@ -78,20 +78,31 @@ classify_failure() {
       RETRY_AFTER="$retry_hint"
     fi
   elif grep -Eiq '(^|[^0-9])5[0-9]{2}([^0-9]|$)' "$error_file" \
-    || grep -Eiq 'unexpected.*(EOF|end of)|(^|[^a-z])EOF([^a-z]|$)|timed? out|timeout|connection.*(reset|closed|refused)|TLS|temporary|temporarily unavailable|network is unreachable|could not resolve' "$error_file"; then
+    || grep -Eiq 'unexpected.*(EOF|end of)|(^|[^a-z])EOF([^a-z]|$)|timed? out|timeout|connection.*(reset|closed|refused)|connect:.*refused|TLS|temporary|temporarily unavailable|network is unreachable|could not resolve|no such host|dial tcp' "$error_file"; then
     FAILURE_KIND="transient"
   fi
+}
+
+strip_http_headers() {
+  awk '
+    /^HTTP\/[0-9.]+ [0-9][0-9][0-9]/ { in_headers = 1; next }
+    in_headers && ($0 == "" || $0 == "\r") { in_headers = 0; next }
+    in_headers { next }
+    { print }
+  ' "$1"
 }
 
 fetch_json() {
   local output_file="$1"
   local error_file="$2"
   local availability="$3"
+  local raw_output="${output_file}.raw"
   shift 3
 
   LAST_ERROR_FILE="$error_file"
   : > "$error_file"
-  if "$@" > "$output_file" 2> "$error_file"; then
+  if "$@" > "$raw_output" 2> "$error_file"; then
+    strip_http_headers "$raw_output" > "$output_file"
     if jq -e -s 'length > 0' "$output_file" >/dev/null 2> "$error_file"; then
       return 0
     fi
@@ -101,6 +112,7 @@ fetch_json() {
     return 1
   fi
 
+  grep -Ei '^(HTTP/|Retry-After:)' "$raw_output" >> "$error_file" || true
   if [[ "$availability" == "optional" ]] \
     && grep -Eq '(^|[^0-9])(404|422)([^0-9]|$)' "$error_file"; then
     FAILURE_KIND="unavailable"
@@ -200,20 +212,20 @@ probe_once() {
   local security_available=true
 
   fetch_json "$WORKDIR/reviews.json" "$WORKDIR/reviews.err" required \
-    gh api graphql --paginate \
+    gh api --include graphql --paginate \
     -F owner="$OWNER" -F repo="$REPO" -F number="$PR" \
     -f query="$REVIEWS_QUERY" || return 1
 
   fetch_json "$WORKDIR/comments.json" "$WORKDIR/comments.err" required \
-    gh api graphql --paginate \
+    gh api --include graphql --paginate \
     -F owner="$OWNER" -F repo="$REPO" -F number="$PR" \
     -f query="$COMMENTS_QUERY" || return 1
 
   fetch_json "$WORKDIR/reactions.json" "$WORKDIR/reactions.err" required \
-    gh api "repos/${REPO_SLUG}/issues/${PR}/reactions" --paginate || return 1
+    gh api --include "repos/${REPO_SLUG}/issues/${PR}/reactions" --paginate || return 1
 
   fetch_json "$WORKDIR/inline-comments.json" "$WORKDIR/inline-comments.err" required \
-    gh api "repos/${REPO_SLUG}/pulls/${PR}/comments" --paginate || return 1
+    gh api --include "repos/${REPO_SLUG}/pulls/${PR}/comments" --paginate || return 1
 
   local head_sha
   head_sha=$(jq -er -s '.[0].data.repository.pullRequest.headRefOid' "$WORKDIR/comments.json" 2> "$WORKDIR/head.err") || {
@@ -225,10 +237,10 @@ probe_once() {
   }
 
   fetch_json "$WORKDIR/check-runs.json" "$WORKDIR/check-runs.err" required \
-    gh api "repos/${REPO_SLUG}/commits/${head_sha}/check-runs?per_page=100" --paginate || return 1
+    gh api --include "repos/${REPO_SLUG}/commits/${head_sha}/check-runs?per_page=100" --paginate || return 1
 
   if fetch_json "$WORKDIR/security-alerts.json" "$WORKDIR/security-alerts.err" optional \
-    gh api "repos/${REPO_SLUG}/code-scanning/alerts?ref=refs/pull/${PR}/merge&state=open&per_page=100" --paginate; then
+    gh api --include "repos/${REPO_SLUG}/code-scanning/alerts?ref=refs/pull/${PR}/merge&state=open&per_page=100" --paginate; then
     :
   elif [[ "$FAILURE_KIND" == "unavailable" ]]; then
     security_available=false
@@ -273,7 +285,7 @@ probe_once() {
            | sort_by(.id)),
         inline_comments:
           ([$inline_comments[][]?
-            | select(.user.login
+            | select((.user.login // "")
                 | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-code-quality|github-advanced-security)\\[bot\\]$"))
             | {id, updated_at, commit_id, in_reply_to_id, user: .user.login}]
            | sort_by(.id)),
@@ -326,6 +338,9 @@ while true; do
   interval="$POLL_INTERVAL"
   (( remaining >= interval )) || interval="$remaining"
   sleep "$interval"
+
+  now=$(date +%s)
+  (( now < DEADLINE )) || break
 
   CURRENT_FILE="$WORKDIR/current.json"
   if retry_operation probe_once "$CURRENT_FILE"; then

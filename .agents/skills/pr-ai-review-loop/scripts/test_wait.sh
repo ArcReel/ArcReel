@@ -62,7 +62,14 @@ elif [[ "$*" == *'reviews(first:100'* ]]; then
         ;;
       rate_limit_once)
         if [[ "$count" -eq 2 ]]; then
-          echo 'HTTP 429: secondary rate limit; Retry-After: 7' >&2
+          printf 'HTTP/2.0 429 Too Many Requests\nRetry-After: 7\n\n'
+          echo 'gh: secondary rate limit (HTTP 429)' >&2
+          exit 1
+        fi
+        ;;
+      network_once)
+        if [[ "$count" -eq 2 ]]; then
+          echo 'dial tcp: lookup api.github.com: no such host' >&2
           exit 1
         fi
         ;;
@@ -106,7 +113,11 @@ elif [[ "$*" == *'/pulls/1767/comments'* ]]; then
   if [[ "$mode" == "inline_change" && "$count" -gt 1 ]]; then
     updated_at='2026-08-11T00:01:00Z'
   fi
-  printf '[{"id":2,"updated_at":"%s","commit_id":"abc","in_reply_to_id":null,"user":{"login":"github-code-quality[bot]"}}]\n' "$updated_at"
+  if [[ "$mode" == "null_nested_fields" ]]; then
+    printf '[{"id":1,"updated_at":"%s","commit_id":"abc","in_reply_to_id":null,"user":null},{"id":2,"updated_at":"%s","commit_id":"abc","in_reply_to_id":null,"user":{"login":"github-code-quality[bot]"}}]\n' "$updated_at" "$updated_at"
+  else
+    printf '[{"id":2,"updated_at":"%s","commit_id":"abc","in_reply_to_id":null,"user":{"login":"github-code-quality[bot]"}}]\n' "$updated_at"
+  fi
 elif [[ "$*" == *'/check-runs?per_page=100'* ]]; then
   count=$(next_count checks)
   status=queued
@@ -117,15 +128,22 @@ elif [[ "$*" == *'/check-runs?per_page=100'* ]]; then
     conclusion='"success"'
     completed_at='"2026-08-11T00:01:00Z"'
   fi
-  printf '{"check_runs":[{"id":3,"name":"CodeQL","app":{"slug":"github-advanced-security"},"status":"%s","conclusion":%s,"started_at":"2026-08-11T00:00:00Z","completed_at":%s}]}\n' \
-    "$status" "$conclusion" "$completed_at"
+  if [[ "$mode" == "null_nested_fields" ]]; then
+    app=null
+  else
+    app='{"slug":"github-advanced-security"}'
+  fi
+  printf '{"check_runs":[{"id":3,"name":"CodeQL","app":%s,"status":"%s","conclusion":%s,"started_at":"2026-08-11T00:00:00Z","completed_at":%s}]}\n' \
+    "$app" "$status" "$conclusion" "$completed_at"
 elif [[ "$*" == *'/code-scanning/alerts?'* ]]; then
   count=$(next_count security)
   if [[ "$mode" == "security_unavailable" ]]; then
     echo 'HTTP 404: no analysis found' >&2
     exit 1
   fi
-  if [[ "$mode" == "security_change" && "$count" -gt 1 ]]; then
+  if [[ "$mode" == "null_nested_fields" ]]; then
+    printf '[{"number":4,"state":"open","rule":null,"tool":null,"most_recent_instance":null}]\n'
+  elif [[ "$mode" == "security_change" && "$count" -gt 1 ]]; then
     printf '[{"number":4,"state":"open","rule":{"id":"py/test"},"tool":{"name":"CodeQL"},"most_recent_instance":{"ref":"refs/pull/1767/merge","analysis_key":".github/workflows/codeql.yml","location":{"path":"server/app.py","start_line":10}}}]\n'
   else
     printf '[]\n'
@@ -181,6 +199,7 @@ echo "PASS: every decision-relevant signal wakes the wait early"
 reset_case
 run_wait flat --max 125
 [[ "$(paste -sd, "$TMP_ROOT/sleeps")" == "60,60,5" ]] || fail "expected 60-second probes capped at --max"
+[[ "$(<"$TMP_ROOT/review-count")" == "3" ]] || fail "expected no probe after the deadline"
 grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected an explicit timeout result"
 echo "PASS: wait respects an explicit maximum and reports timeout"
 
@@ -201,7 +220,7 @@ echo "PASS: API latency counts against the wait budget"
 reset_case
 run_wait eof_once --max 65
 [[ "$(paste -sd, "$TMP_ROOT/sleeps")" == "2,60,3" ]] || fail "expected EOF retry to consume the same wait budget"
-[[ "$(<"$TMP_ROOT/review-count")" == "4" ]] || fail "expected the whole baseline probe to restart after EOF"
+[[ "$(<"$TMP_ROOT/review-count")" == "3" ]] || fail "expected the whole baseline probe to restart after EOF"
 grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected successful recovery after EOF"
 echo "PASS: truncated JSON retries the entire probe"
 
@@ -210,6 +229,12 @@ run_wait http_500_once --max 70
 [[ "$(paste -sd, "$TMP_ROOT/sleeps")" == "60,2,8" ]] || fail "expected one bounded retry after HTTP 500"
 grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected successful recovery after HTTP 500"
 echo "PASS: a transient HTTP failure recovers"
+
+reset_case
+run_wait network_once --max 70
+[[ "$(paste -sd, "$TMP_ROOT/sleeps")" == "60,2,8" ]] || fail "expected one bounded retry after a Go network error"
+grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected network recovery"
+echo "PASS: common GitHub CLI network failures recover"
 
 reset_case
 if run_wait http_500_always --max 180; then
@@ -232,6 +257,12 @@ run_wait rate_limit_once --max 70
 [[ "$(paste -sd, "$TMP_ROOT/sleeps")" == "60,7,3" ]] || fail "expected Retry-After to control rate-limit backoff"
 grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected rate-limit recovery"
 echo "PASS: rate limits honor the server retry hint"
+
+reset_case
+run_wait null_nested_fields --max 1
+[[ "$(<"$TMP_ROOT/review-count")" == "1" ]] || fail "expected a valid baseline with null nested fields"
+grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected null nested fields to remain observable"
+echo "PASS: nullable GitHub response fields do not invalidate a probe"
 
 reset_case
 run_wait security_unavailable --max 60
