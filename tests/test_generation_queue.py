@@ -75,6 +75,94 @@ class TestGenerationQueue:
         assert not second["deduped"]
         assert second["task_id"] != first["task_id"]
 
+    async def test_active_video_task_rejects_conflicting_narration_delivery(self, queue):
+        first = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload={"narration_delivery_options": {"narration_delivery": "post_production"}},
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        with pytest.raises(RuntimeError, match="different narration delivery request"):
+            await queue.enqueue_task(
+                project_name="demo",
+                task_type="video",
+                media_type="video",
+                resource_id="E1S01",
+                payload={"narration_delivery_options": {"narration_delivery": "use_tts"}},
+                script_file="episode_01.json",
+                provider_id="video-provider",
+            )
+
+        active = await queue.get_task(first["task_id"])
+        assert active is not None
+        assert active["payload"]["narration_delivery_options"] == {"narration_delivery": "post_production"}
+
+    async def test_active_reference_video_task_rejects_a_different_confirmed_duration(self, queue):
+        await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={
+                "reference_request_options": {
+                    "narration_delivery": "use_tts",
+                    "confirmed_request_duration_seconds": 8,
+                }
+            },
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        with pytest.raises(RuntimeError, match="different narration delivery request"):
+            await queue.enqueue_task(
+                project_name="demo",
+                task_type="reference_video",
+                media_type="video",
+                resource_id="E1U1",
+                payload={
+                    "reference_request_options": {
+                        "narration_delivery": "use_tts",
+                        "confirmed_request_duration_seconds": 12,
+                    }
+                },
+                script_file="episode_01.json",
+                provider_id="video-provider",
+            )
+
+    async def test_active_video_task_still_dedupes_the_same_narration_request(self, queue):
+        payload = {
+            "narration_delivery_options": {
+                "narration_delivery": "use_tts",
+                "confirmed_request_duration_seconds": 8,
+            }
+        }
+        first = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload=payload,
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        duplicate = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload=payload,
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        assert duplicate["deduped"] is True
+        assert duplicate["task_id"] == first["task_id"]
+
     async def test_cancel_that_wins_completion_compensates_activated_result(self, queue):
         task = await queue.enqueue_task(
             project_name="demo",

@@ -360,6 +360,7 @@ MESSAGES = {
     "video_reference_audio_unreadable": "Mô hình {model} có âm thanh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn âm thanh tham chiếu",
     "video_reference_audio_format_unsupported": "Âm thanh tham chiếu {name} có định dạng không được hỗ trợ (chỉ {supported}); hãy dùng tệp âm thanh khác",
     "video_prompt_too_long": "{provider}/{model} chỉ chấp nhận câu lệnh tối đa {limit} ký tự nhưng nhận được {count}; phần vượt quá sẽ bị nhà cung cấp cắt bỏ âm thầm nên đã hủy tạo. Hãy rút ngắn câu lệnh",
+    "video_request_conflicts_with_active_task": "Đơn vị '{resource_id}' đã có tác vụ video đang xử lý với lựa chọn bàn giao lời dẫn hoặc thời lượng xác nhận khác; hãy đợi tác vụ hoàn tất hoặc hủy rồi thử lại.",
     # Agent credentials
     "agent_preset_unknown": "Nhà cung cấp đặt sẵn không xác định: {preset_id}",
     "agent_base_url_required_custom": "Cấu hình tuỳ chỉnh yêu cầu base_url",

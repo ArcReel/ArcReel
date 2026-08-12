@@ -20,6 +20,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from lib.api_errors import ApiError
+from lib.generation_queue import ActiveTaskRequestConflict
 from lib.generation_queue_client import TaskSpecValidationError
 from lib.i18n import get_translator
 from lib.script_editor import ScriptEditError
@@ -105,6 +106,22 @@ def register_error_handlers(
     async def _handle_task_spec_error(request: Request, exc: TaskSpecValidationError) -> JSONResponse:
         _t = get_translator(request)
         return JSONResponse(status_code=400, content={"detail": _t(exc.code, **exc.params)})
+
+    @app.exception_handler(ActiveTaskRequestConflict)
+    async def _handle_active_task_request_conflict(
+        request: Request,
+        exc: ActiveTaskRequestConflict,
+    ) -> JSONResponse:
+        _t = get_translator(request)
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": _t(
+                    "video_request_conflicts_with_active_task",
+                    resource_id=exc.resource_id,
+                )
+            },
+        )
 
     @app.exception_handler(ScriptEditError)
     async def _handle_script_edit_error(request: Request, exc: ScriptEditError) -> JSONResponse:

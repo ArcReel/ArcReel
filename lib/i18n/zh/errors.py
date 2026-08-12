@@ -311,6 +311,7 @@ MESSAGES = {
     "video_reference_audio_unreadable": "模型 {model} 有参考音频缺失或无法读取，已中止生成：{names}；请检查参考音频路径",
     "video_reference_audio_format_unsupported": "参考音频 {name} 的格式不受支持（仅支持 {supported}）；请更换音频文件",
     "video_prompt_too_long": "{provider}/{model} 的提示词最多 {limit} 个字符，当前 {count} 个；超出部分会被供应商静默截断，已中止生成。请缩短提示词",
+    "video_request_conflicts_with_active_task": "单元「{resource_id}」已有使用不同旁白交付方式或确认时长的视频任务在处理中；请等待完成或取消任务后重试",
     # Agent credentials
     "agent_preset_unknown": "未知预设供应商: {preset_id}",
     "agent_base_url_required_custom": "自定义配置需要填写 base_url",

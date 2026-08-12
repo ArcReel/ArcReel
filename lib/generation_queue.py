@@ -27,6 +27,32 @@ logger = logging.getLogger(__name__)
 
 _REFERENCE_VIDEO_EXECUTION_IDENTITY_KEYS = frozenset({"video_provider_i2v", "video_provider_r2v"})
 _REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS = frozenset({"script_file", "reference_request_options"})
+_NARRATION_REQUEST_KEY_BY_TASK_TYPE = {
+    "video": "narration_delivery_options",
+    "reference_video": "reference_request_options",
+}
+
+
+class ActiveTaskRequestConflict(RuntimeError):
+    """An active video task owns the resource with different request facts."""
+
+    def __init__(self, *, resource_id: str, existing_task_id: str) -> None:
+        self.resource_id = resource_id
+        self.existing_task_id = existing_task_id
+        super().__init__(
+            f"resource '{resource_id}' already has active task '{existing_task_id}' "
+            "with a different narration delivery request"
+        )
+
+
+def _narration_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[str, object] | None:
+    key = _NARRATION_REQUEST_KEY_BY_TASK_TYPE.get(task_type)
+    if key is None:
+        return None
+
+    from lib.narration_delivery import NarrationDeliveryRequestOptions
+
+    return NarrationDeliveryRequestOptions.from_payload(payload or {}, key=key).to_payload()
 
 
 class DispatchProviderChanged(RuntimeError):
@@ -376,6 +402,21 @@ class GenerationQueue:
                 user_id=user_id,
                 provider_id=provider_id,
             )
+        # The unique index intentionally protects one active task per resource. A matching
+        # video task is reusable only when its durable narration request facts also match;
+        # current TTS evidence and other mutable generation intent are re-read by the worker.
+        existing_payload = result.pop("_existing_payload", None)
+        requested_facts = _narration_request_facts(task_type, payload)
+        if result.get("deduped") and requested_facts is not None:
+            existing_facts = _narration_request_facts(
+                task_type,
+                existing_payload if isinstance(existing_payload, dict) else None,
+            )
+            if existing_facts != requested_facts:
+                raise ActiveTaskRequestConflict(
+                    resource_id=resource_id,
+                    existing_task_id=str(result["task_id"]),
+                )
         if not result.get("deduped"):
             logger.info("任务入队 task_id=%s type=%s", result["task_id"], task_type)
         else:

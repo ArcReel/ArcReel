@@ -358,6 +358,7 @@ MESSAGES = {
     "video_reference_audio_unreadable": "Model {model} has reference audio that is missing or unreadable; generation aborted: {names}; check the reference audio paths",
     "video_reference_audio_format_unsupported": "Reference audio {name} has an unsupported format (only {supported}); use a different audio file",
     "video_prompt_too_long": "{provider}/{model} accepts prompts of at most {limit} characters but received {count}; the provider would silently truncate the excess, so generation was aborted. Shorten the prompt",
+    "video_request_conflicts_with_active_task": "Unit '{resource_id}' already has a video task using different narration delivery options; wait for it to finish or cancel it before retrying.",
     # Agent credentials
     "agent_preset_unknown": "Unknown preset provider: {preset_id}",
     "agent_base_url_required_custom": "base_url is required for custom configuration",
