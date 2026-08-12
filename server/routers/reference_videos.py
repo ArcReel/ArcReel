@@ -311,6 +311,8 @@ async def patch_unit(
     with _locked_episode_script(project_name, resolver, _t) as script:
         unit = _find_unit(script, unit_id, _t)  # 未找到 raise 404 → 跳过写回
         previous_shots = unit.get("shots")
+        previous_references = unit.get("references")
+        previous_speech = admit_script_unit("video_units", unit, ignore_marker=True).preparation
 
         if refs is not None:
             unit["references"] = refs
@@ -334,11 +336,14 @@ async def patch_unit(
             # 时则必须用持锁复核后的 project 资产表重派生，既让准入识别已登记的非人物 mention，
             # 也避免旧引用继续决定 @图片N 绑定。
             rederive_unit_references([unit], project_out["project"])
-        if body_changed:
-            _require_unit_ready(unit, ignore_marker=True)
+        references_changed = refs is not None and unit.get("references") != previous_references
+        if body_changed or references_changed:
+            admission = admit_script_unit("video_units", unit, ignore_marker=True)
+            if admission.preparation != previous_speech and not admission.allowed:
+                raise HTTPException(status_code=409, detail=admission.to_dict())
         refresh_video_unit_replan_state(
             unit,
-            allow_clear=body_changed or req.duration_seconds is not None,
+            allow_clear=body_changed or references_changed or req.duration_seconds is not None,
             content_changed=body_changed,
         )
 

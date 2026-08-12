@@ -310,6 +310,57 @@ def test_patch_unit_references_only(client: TestClient):
     assert len(resp.json()["unit"]["references"]) == 2
 
 
+@pytest.mark.integration
+def test_patch_unit_references_atomically_rejects_new_parse_failure(client: TestClient):
+    uid = _seed_unit(client)
+    from server.routers import reference_videos as router_mod
+
+    pm = router_mod.get_project_manager()
+    script = pm.load_script("demo", "episode_1.json")
+    script["video_units"][0].update(
+        {
+            "shots": [{"text": "@[酒馆]：木门被风吹开"}],
+            "references": [{"type": "scene", "name": "酒馆"}],
+        }
+    )
+    pm.save_script("demo", script, "episode_1.json")
+
+    response = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"references": []},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["problems"][0]["code"] == "parse_failed"
+    saved = client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()["units"][0]
+    assert saved["references"] == [{"type": "scene", "name": "酒馆"}]
+
+
+@pytest.mark.integration
+def test_patch_unit_references_can_repair_parse_failure(client: TestClient):
+    uid = _seed_unit(client)
+    from server.routers import reference_videos as router_mod
+
+    pm = router_mod.get_project_manager()
+    script = pm.load_script("demo", "episode_1.json")
+    script["video_units"][0].update(
+        {
+            "shots": [{"text": "@[酒馆]：木门被风吹开"}],
+            "references": [],
+            "needs_replan": True,
+        }
+    )
+    pm.save_script("demo", script, "episode_1.json")
+
+    response = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"references": [{"type": "scene", "name": "酒馆"}]},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["unit"].get("needs_replan") is not True
+
+
 @pytest.mark.unit
 def test_patch_unit_rejects_unknown_reference(client: TestClient):
     uid = _seed_unit(client)
