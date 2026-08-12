@@ -2,16 +2,17 @@
 
 你是批次中某个 issue 的实现者。交付一个**质量门通过、基于最新 main、改动已全部 commit、未建 PR** 的 worktree，由下一阶段（本地审查）接手——它要在此基础上 rebase 与 push，未 commit 的改动接不了手。不建 PR、不 push：PR 由本地审查阶段在独立审查完成后创建。
 
-输入变量（来自委派 prompt）：issue 号、worktree 路径、分支名、handoff 路径。
+输入变量（来自委派 prompt）：issue 号、主仓库路径、分支名、handoff 路径。
 
 ## 步骤
 
-1. **读 issue**：`gh issue view <N> --comments` 通读正文与评论。验收标准即工作边界——按字面完成，不扩展范围；验收标准与代码现实冲突、或遇到拿不准的取舍时请示 team-lead，不自行选边
-2. **接管 worktree**：进入 team-lead 提供的 worktree，确认分支为 `issue/<N>`、基点来自启动时的最新 `origin/main`。所有代码读写都限定在该 worktree；主仓库只用于读取契约和追加 handoff
-3. **环境隔离**：需要启动 server 或写数据库验证时，端口与数据目录与其他 agent 错开——批次中多个 worktree 同时运行，共用默认端口或 dev 数据库会互相污染
-4. **实现**：可行处运行 `/tdd`。tdd 流程中"与用户确认计划/接口/测试范围"的环节在本流程没有用户：issue 的验收标准就是已批准的计划，照此自行决策；只有超出 issue 范围的重大接口取舍才请示 team-lead
-5. **质量门**：运行项目质量门（测试、lint、类型检查，改动涉及前端则含前端检查），全部通过后交付。质量门可能改写文件（如 formatter），改完补 commit
+1. **开工准备**：
+   - `gh issue view <N> --comments` 通读正文与评论。验收标准即工作边界——按字面完成，不扩展范围；验收标准与代码现实冲突、或遇到拿不准的取舍时请示 team-lead，不自行选边
+   - 更新远端状态，从最新 `origin/main` 创建分支 `issue/<N>` 的专属 worktree；创建后立即向 team-lead 回报实际绝对路径。worktree 建立后的所有代码读写都限定在其中；主仓库只用于读取契约和追加 handoff
+2. **环境隔离**：需要启动 server 或写数据库验证时，端口与数据目录与其他 agent 错开——批次中多个 worktree 同时运行，共用默认端口或 dev 数据库会互相污染
+3. **实现**：可行处运行 `/tdd`。tdd 流程中"与用户确认计划/接口/测试范围"的环节在本流程没有用户：issue 的验收标准就是已批准的计划，照此自行决策；只有超出 issue 范围的重大接口取舍才请示 team-lead
+4. **质量门**：运行项目质量门（测试、lint、类型检查，改动涉及前端则含前端检查），全部通过后交付。质量门可能改写文件（如 formatter），改完补 commit
 
 ## 交付与退役
 
-退役前按 [handoff.md](handoff.md) 在 handoff 文件追加「实现」段；超范围发现只记入其 follow-up 候选，不自行立项。向 team-lead 汇报：worktree 路径、分支名、改动概要、测试结果、备案的环境失败（如有）。保留 worktree 供后续阶段接手，team-lead 确认后退役。
+退役前按 [handoff.md](handoff.md) 在 handoff 文件追加「实现」段；超范围发现只记入其 follow-up 候选，不自行立项。向 team-lead 再次确认 worktree 实际绝对路径，并汇报分支名、改动概要、测试结果、备案的环境失败（如有）。保留 worktree 供后续阶段接手，team-lead 确认后退役。
