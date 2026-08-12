@@ -16,6 +16,7 @@ schema 的确权程度按型号分两档：happyhorse 与 wan2.7 依据 docs/das
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import httpx
@@ -118,6 +119,15 @@ _WAN3_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 15.0
 _WAN3_MAX_PROMPT_CHARS = 20000
 _WAN3_MODEL_KEY = "wan3.0-video"
 
+# 万相 3.0 家族 model_id 识别（连字符/下划线可选、不锚版本号）：此处是本后端的请求形态分派，
+# 也是 lib.custom_provider.duration_presets（时长档位推断）与 endpoints.py（端点路由推断）共用
+# 的唯一正则来源——三处须按同一匹配宽度判 wan3，否则会出现某个 model_id 被路由到本后端、却因
+# 本后端认不出它是 wan3 而退回通用档案（丢参考图/尾帧/音轨参数）的矛盾。版本前缀与模态 token
+# （下方 _WAN_IMAGE_TO_VIDEO_PATTERN）须接受相同的分隔符集合，避免同一规则组内宽容度不对称。
+# 两侧标识符边界要求非字母数字，避免匹配到 "swan3"、"vendorwan3" 这类含 wan3 子串但并非该家族
+# 的第三方型号名。
+WAN3_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?3(?![a-z0-9])", re.I)
+
 # 按 model id 派发能力声明。happyhorse-r2v 仅 reference_image（无 first_frame）；
 # wan2.7-r2v 额外支持首帧与参考音色。
 _MODEL_PROFILES: dict[str, VideoCapabilities] = {
@@ -165,7 +175,7 @@ def _is_wan3(model: str | None) -> bool:
     专用，无参考图即无输入）；二是音轨由请求参数控制而非恒开；三是可走独立 maas 域名。
     三处都按型号名分派，profile 表只承载 VideoCapabilities 声明。
     """
-    return _WAN3_MODEL_KEY in (model or "").strip().lower()
+    return bool(WAN3_PATTERN.search((model or "").strip().lower()))
 
 
 def _profile_for_model(model: str | None) -> VideoCapabilities:
@@ -182,8 +192,12 @@ def _profile_for_model(model: str | None) -> VideoCapabilities:
         return _DEFAULT_PROFILE
     if normalized in _MODEL_PROFILES:
         return _MODEL_PROFILES[normalized]
-    # 各 profile key（happyhorse-{1.0,1.1}-{t2v,i2v,r2v} / wan2.7-{t2v,i2v,r2v} / wan3.0-video）
-    # 互不为子串，无歧义
+    # wan3 家族按 WAN3_PATTERN 先行判定（先于下方子串匹配）：discovery 返回的 "wan-3-turbo" /
+    # "wan3-turbo" 这类别名不含字面量 "wan3.0-video" 子串，若只靠子串匹配会静默落到
+    # _DEFAULT_PROFILE，丢失参考图/尾帧/音轨参数等 wan3 专属能力声明。
+    if WAN3_PATTERN.search(normalized):
+        return _MODEL_PROFILES[_WAN3_MODEL_KEY]
+    # 各 profile key（happyhorse-{1.0,1.1}-{t2v,i2v,r2v} / wan2.7-{t2v,i2v,r2v}）互不为子串，无歧义
     for known, profile in _MODEL_PROFILES.items():
         if known in normalized:
             return profile

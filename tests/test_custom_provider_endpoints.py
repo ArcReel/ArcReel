@@ -285,8 +285,34 @@ class TestInferEndpoint:
             ("wan3.0-video", "openai", "dashscope-async-video"),
             ("Wan3.0-Video", "openai", "dashscope-async-video"),  # 大小写不敏感
             ("proxy/wan3.0-video", "openai", "dashscope-async-video"),
+            ("wan-3-turbo", "openai", "dashscope-async-video"),  # 连字符形态与点号形态匹配宽度一致
+            ("wan3-turbo", "openai", "dashscope-async-video"),
             ("wan2.7-image", "openai", "openai-images"),  # image 变体不受影响
             ("wan3.0-video-image", "openai", "openai-images"),  # 含 image 语义不受影响
+            ("wan-3-turbo-image", "openai", "openai-images"),  # 连字符形态的 image 变体同样不受影响
+            # image-to-video 别名含 "image" 子串但本质是视频，须留在 dashscope-async-video（同
+            # kling-image2video 的"video 语义优先"原则），不能被笼统 is_image 误判成图像变体。
+            ("wan-3-turbo-image-to-video", "openai", "dashscope-async-video"),
+            ("wan3-image2video", "openai", "dashscope-async-video"),
+            # 反向陷阱：真图像别名不保证以 "image" 结尾（版本/日期/变体后缀），不能靠"结尾是不是
+            # image"反推是不是图像——只有显式 image-to-video 续接语法才算视频例外，其余含 image
+            # 语义一律仍是图像。
+            ("wan3.0-image-edit", "openai", "openai-images"),
+            ("wan-3-turbo-image-preview", "openai", "openai-images"),
+            ("wan3.0-video-image-20260801", "openai", "openai-images"),
+            # 分隔符混用：下划线与连字符匹配宽度一致（WAN3_PATTERN 同时容忍二者）。
+            ("wan_3_turbo", "openai", "dashscope-async-video"),
+            ("wan_3.0-image", "openai", "openai-images"),
+            ("WAN_3_TURBO_IMAGE_TO_VIDEO", "openai", "dashscope-async-video"),
+            # 标识符边界：含 "wan3" 子串但并非该家族的型号名不得被误判——WAN3_PATTERN 两侧要求
+            # 非字母数字边界，裸 "wan" 命中 _VIDEO_PATTERN 仍落回通用视频分支。
+            ("swan3", "openai", "openai-video"),
+            ("vendorwan3", "openai", "openai-video"),
+            ("wan30", "openai", "openai-video"),
+            # wan2 家族仅认字面 "wan2." 触发 is_wan_family，连字符形态 wan-2.7 不触发，故其
+            # image 变体会被裸 "wan" 命中 _VIDEO_PATTERN 判定为视频。wan2 字面量保留决策见
+            # duration_presets 对应用例，此处锁定端点路由侧同一结论。
+            ("wan-2.7-image", "openai", "openai-video"),
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),

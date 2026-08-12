@@ -22,6 +22,7 @@ from lib.custom_provider.backends import (
     CustomTextBackend,
     CustomVideoBackend,
 )
+from lib.custom_provider.duration_presets import WAN3_PATTERN
 from lib.image_backends.base import ImageCapability
 from lib.image_backends.dashscope import DashScopeImageBackend
 from lib.image_backends.gemini import GeminiImageBackend
@@ -531,6 +532,10 @@ _VIDEO_PATTERN = re.compile(
 _AUDIO_PATTERN = re.compile(r"tts|speech|cosyvoice", re.IGNORECASE)
 # 裸 "speech" 会撞上 ASR（语音转文字）家族 id，按内容排除，避免把识别模型默认归到 TTS 端点
 _ASR_PATTERN = re.compile(r"transcribe|speech.?to.?text|recognition", re.IGNORECASE)
+# wan 家族 image-to-video 续接语法："image" 紧跟 "to"/"2" 再接 "video"（wan-3-turbo-image-to-video /
+# wan3-image2video）。只挑这一种确定形态当"实为视频"的例外，不覆盖 img2vid/i2v 等未见实例的缩写——
+# 出现新形态再补，不预先扩面。
+_WAN_IMAGE_TO_VIDEO_PATTERN = re.compile(r"image[-_]?(?:to|2)[-_]?video", re.IGNORECASE)
 
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
@@ -540,10 +545,13 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     列表常夹带 gemini-*/imagen-* 原生 id，必须按内容纠偏到 Google 端点，否则被错推到
     openai-chat/openai-images，每次都要手动改回。
 
-    1) 阿里百炼视频 → happyhorse / wan2.x / wan3.0（非 image）走 "dashscope-async-video"（原生异步
-       端点）。happyhorse 不在 _VIDEO_PATTERN 须显式；wan2.x / wan3.0 视频抢在通用 is_video 前拦截。
-       图像不自动推 dashscope（中转可能是 OpenAI 兼容），qwen-image / wan2.x-image / wan3.0-video-image
-       落到既有图像家族推断。
+    1) 阿里百炼视频 → happyhorse / wan2.x / 万相 3 家族（含 wan-3-xxx 连字符形态、image-to-video
+       续接别名）走 "dashscope-async-video"（原生异步端点）。happyhorse 不在 _VIDEO_PATTERN 须显式；
+       万相视频抢在通用 is_video 前拦截。真正的图像变体不自动推 dashscope（中转可能是 OpenAI
+       兼容）：qwen-image / wan2.7-image / wan3.0-video-image 及带版本/日期后缀的同类 id 落到既有
+       图像家族推断；wan-3-turbo-image-to-video / wan3-image2video 这类显式 image-to-video 续接
+       语法仍归视频（同 2.5 节 kling-image2video 的处理原则），按 _WAN_IMAGE_TO_VIDEO_PATTERN 精确
+       挑出这一种形态，不对图像变体的命名形态（结尾 token 等）做任何假设。
     2) MiniMax 原生 token → 海螺 / S2V 走 "minimax-video"，image-01 走 "minimax-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
     2.5) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
@@ -560,13 +568,27 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     """
     lowered = model_id.lower()
     is_image = bool(_IMAGE_PATTERN.search(model_id))
-    # 万相带版本号的 id（视频与图像变体都含该 token），下面路由与 is_video 排除各用一次
-    is_wan_versioned = "wan2." in lowered or "wan3." in lowered
+    # 走百炼原生端点的万相家族 id（视频与图像变体都命中），下面路由与 is_video 排除各用一次。
+    # wan3 分支复用 duration_presets.WAN3_PATTERN（源出 video_backends.dashscope，连字符可选、
+    # 不锚版本号），与时长档位推断、DashScopeVideoBackend 的请求形态分派保持同一匹配宽度，
+    # 否则同一 model_id 会出现"档位按 wan3 给、路由却按普通 wan 走"或"路由到本后端却被当
+    # 通用型号丢失能力声明"的矛盾。
+    # wan2 保留字面量：连字符形态的 wan2 在时长推断走通用 wan 预设、路由走 openai-video，
+    # 两处结论自洽，无须并入正则。
+    is_wan_family = "wan2." in lowered or bool(WAN3_PATTERN.search(model_id))
+    # wan 家族的 image-to-video 别名（如 wan-3-turbo-image-to-video / wan3-image2video）含 "image"
+    # 子串但本质是视频模型，与下方 kling-image2video 同类陷阱：笼统 is_image 会把它们错判成图像
+    # 变体。反过来"以 image 结尾才算图像变体"同样错——wan3.0-image-edit / wan-3-turbo-image-preview /
+    # 带日期后缀的 wan3.0-video-image-20260801 这类真图像别名不以 "image" 结尾，会被误判成视频。
+    # 故只把 image-to-video 续接语法（"image" 后紧跟 "to"/"2" 再接 "video"）当例外挑出来，其余
+    # 含 image 语义一律按图像变体处理，不对图像变体的命名形态做任何假设。
+    wan_video_continuation = is_wan_family and bool(_WAN_IMAGE_TO_VIDEO_PATTERN.search(model_id))
+    wan_image_variant = is_wan_family and is_image and not wan_video_continuation
 
     # 阿里百炼视频先于通用 is_video 拦截到原生异步端点
     if "happyhorse" in lowered:
         return "dashscope-async-video"
-    if is_wan_versioned and not is_image:
+    if is_wan_family and not wan_image_variant:
         return "dashscope-async-video"
 
     # MiniMax 原生 token 二级路由：海螺（含 minimax-hailuo）/ S2V / H3 → 两步或单步取回的视频端点；
@@ -590,8 +612,8 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
         return "kling-image" if is_image else "kling-video"
 
     # wan2.x-image / wan3.0-video-image 含 "wan" 会被 _VIDEO_PATTERN 误判为视频；显式排除让它落到
-    # 图像家族推断
-    is_video = bool(_VIDEO_PATTERN.search(model_id)) and not (is_wan_versioned and is_image)
+    # 图像家族推断。复用上面的 wan_image_variant（排除 image-to-video 续接别名后的图像判定）。
+    is_video = bool(_VIDEO_PATTERN.search(model_id)) and not wan_image_variant
 
     if "imagen" in lowered:
         return "gemini-image"

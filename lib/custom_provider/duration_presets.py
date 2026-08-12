@@ -11,7 +11,13 @@ from __future__ import annotations
 
 import re
 
+from lib.video_backends.dashscope import WAN3_PATTERN
+
 DEFAULT_FALLBACK: list[int] = [4, 8]
+
+# WAN3_PATTERN（连字符可选、不锚版本号）源出 lib.video_backends.dashscope——那里是本后端
+# 请求形态分派的单一真相源，endpoints.py 路由推断与本模块的时长档位推断均复用同一份，
+# 避免三处各写一份正则、匹配宽度悄悄漂移。
 
 # 按特异性从高到低排列；命中一条即返回。range 全展开为离散集。
 PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
@@ -46,7 +52,7 @@ PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
     (re.compile(r"hailuo", re.I), [6]),
     # 万相 3.0（2-30 任意；须先于通用 Wan 判断，否则会落入 [4, 5]）。
     # 出处：lib/config/registry.py wan3.0-video 的 supported_durations。
-    (re.compile(r"wan-?3", re.I), list(range(2, 31))),
+    (WAN3_PATTERN, list(range(2, 31))),
     # Wan（其余系列）
     (re.compile(r"wan-?\d", re.I), [4, 5]),
     # Pika
