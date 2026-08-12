@@ -207,20 +207,22 @@ export function AgentCopilot() {
       : t("input_placeholder");
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    if (attachDisabled) return;
     const items = Array.from(e.clipboardData.items);
     const imageItems = items.filter((item) => item.type.startsWith("image/"));
     if (imageItems.length === 0) return;
     e.preventDefault();
     const files = imageItems.map((item) => item.getAsFile()).filter(Boolean) as File[];
     addImages(files);
-  }, [addImages]);
+  }, [addImages, attachDisabled]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (attachDisabled) return;
     const hasFiles = Array.from(e.dataTransfer.items).some((i) => i.kind === "file");
     if (!hasFiles) return;
     e.preventDefault();
     setIsDragOver(true);
-  }, []);
+  }, [attachDisabled]);
 
   const handleDragLeave = useCallback(() => {
     setIsDragOver(false);
@@ -229,9 +231,10 @@ export function AgentCopilot() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
+    if (attachDisabled) return;
     const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
     if (files.length > 0) addImages(files);
-  }, [addImages]);
+  }, [addImages, attachDisabled]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);

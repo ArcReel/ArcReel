@@ -12,6 +12,11 @@ export interface AttachedImage {
   mimeType: string;
 }
 
+interface PendingImageRead {
+  file: File;
+  generation: number;
+}
+
 export function imagePayloadToAttachment(image: ImagePayload): AttachedImage {
   return {
     id: uid(),
@@ -34,6 +39,9 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
   const [error, setError] = useState<string | null>(null);
   const [pendingReads, setPendingReads] = useState(0);
   const generationRef = useRef(0);
+  const pendingSlotsRef = useRef(0);
+  const readQueueRef = useRef<PendingImageRead[]>([]);
+  const readingRef = useRef(false);
 
   useEffect(() => () => {
     generationRef.current += 1;
@@ -42,37 +50,57 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
   const addFiles = useCallback((files: File[]) => {
     setError(null);
     const generation = generationRef.current;
-    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-    const remainingCapacity = MAX_ATTACHED_IMAGES - images.length;
+    const imageFiles = files.filter((file) => {
+      if (!file.type.startsWith("image/")) return false;
+      if (file.size <= MAX_IMAGE_BYTES) return true;
+      setError(t("image_too_large_hint", { name: file.name }));
+      return false;
+    });
+    const remainingCapacity = Math.max(
+      0,
+      MAX_ATTACHED_IMAGES - images.length - pendingSlotsRef.current,
+    );
     if (imageFiles.length > remainingCapacity) {
       setError(t("max_images_hint", { count: MAX_ATTACHED_IMAGES }));
     }
-    for (const file of imageFiles.slice(0, remainingCapacity)) {
-      if (file.size > MAX_IMAGE_BYTES) {
-        setError(t("image_too_large_hint", { name: file.name }));
-        continue;
-      }
+    const filesToRead = imageFiles.slice(0, remainingCapacity);
+    pendingSlotsRef.current += filesToRead.length;
+    setPendingReads((current) => current + filesToRead.length);
+    readQueueRef.current.push(...filesToRead.map((file) => ({ file, generation })));
+
+    const processNext = () => {
+      if (readingRef.current) return;
+      const pending = readQueueRef.current.shift();
+      if (!pending) return;
+      readingRef.current = true;
       const reader = new FileReader();
-      setPendingReads((current) => current + 1);
       const finishRead = () => {
-        if (generationRef.current !== generation) return;
-        setPendingReads((current) => Math.max(0, current - 1));
+        if (generationRef.current === pending.generation) {
+          pendingSlotsRef.current = Math.max(0, pendingSlotsRef.current - 1);
+          setPendingReads((current) => Math.max(0, current - 1));
+        }
+        readingRef.current = false;
+        processNext();
       };
       reader.onload = (event) => {
-        if (generationRef.current !== generation) return;
+        if (generationRef.current !== pending.generation) {
+          finishRead();
+          return;
+        }
         const dataUrl = event.target?.result;
         if (typeof dataUrl === "string") {
           setImages((current) => {
             if (current.length >= MAX_ATTACHED_IMAGES) return current;
-            return [...current, { id: uid(), dataUrl, mimeType: file.type }];
+            return [...current, { id: uid(), dataUrl, mimeType: pending.file.type }];
           });
         }
         finishRead();
       };
       reader.onerror = finishRead;
       reader.onabort = finishRead;
-      reader.readAsDataURL(file);
-    }
+      reader.readAsDataURL(pending.file);
+    };
+    processNext();
   }, [images.length, t]);
 
   const removeImage = useCallback((id: string) => {
@@ -85,11 +113,15 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
     setImages([]);
     setError(null);
     setPendingReads(0);
+    pendingSlotsRef.current = 0;
+    readQueueRef.current = [];
   }, []);
 
   const invalidatePendingReaders = useCallback(() => {
     generationRef.current += 1;
     setPendingReads(0);
+    pendingSlotsRef.current = 0;
+    readQueueRef.current = [];
   }, []);
 
   return {

@@ -66,4 +66,26 @@ describe("useImageAttachments", () => {
     expect(result.current.isReading).toBe(false);
     expect(result.current.images).toHaveLength(1);
   });
+
+  it("reserves pending capacity across consecutive additions", () => {
+    vi.stubGlobal("FileReader", DeferredFileReader);
+    const initialImages = Array.from({ length: 4 }, (_, index) => ({
+      id: String(index),
+      dataUrl: `data:image/png;base64,${index}`,
+      mimeType: "image/png",
+    }));
+    const { result } = renderHook(() => useImageAttachments(initialImages));
+
+    act(() => {
+      result.current.addFiles([new File(["first"], "first.png", { type: "image/png" })]);
+      result.current.addFiles([new File(["second"], "second.png", { type: "image/png" })]);
+    });
+    expect(DeferredFileReader.instances).toHaveLength(1);
+
+    act(() => {
+      DeferredFileReader.instances[0].finish("data:image/png;base64,Zmlyc3Q=");
+    });
+    expect(DeferredFileReader.instances).toHaveLength(1);
+    expect(result.current.images).toHaveLength(5);
+  });
 });
