@@ -63,9 +63,10 @@ from lib.prompt_utils import (
     build_drama_video_prompt_from_legacy_dialogue,
     image_prompt_to_yaml,
     is_structured_image_prompt,
-    is_structured_video_prompt,
     strip_voice_profiles,
-    video_prompt_to_yaml,
+)
+from lib.prompt_utils import (
+    normalize_video_prompt as _normalize_video_prompt,
 )
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
@@ -140,50 +141,6 @@ def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
         },
     }
     return append_image_negative_tail(image_prompt_to_yaml(normalized_prompt, style))
-
-
-def _normalize_video_prompt(prompt: str | dict) -> str:
-    """归一化视频 prompt 并在末尾追加统一文本化的反向提示词。"""
-    from lib.prompt_builders import append_video_negative_tail
-
-    if isinstance(prompt, str):
-        if not prompt.strip():
-            raise ValueError("prompt must not be empty")
-        return append_video_negative_tail(prompt)
-
-    if not isinstance(prompt, dict):
-        raise ValueError("prompt must be a string or object")
-
-    if not is_structured_video_prompt(prompt):
-        raise ValueError("prompt must be a string or include action/camera_motion")
-
-    action_text = str(prompt.get("action", "")).strip()
-    if not action_text:
-        raise ValueError("prompt.action must not be empty")
-
-    dialogue = prompt.get("dialogue", [])
-    if dialogue is None:
-        dialogue = []
-    if not isinstance(dialogue, list):
-        raise ValueError("prompt.dialogue must be an array")
-
-    normalized_dialogue = []
-    for item in dialogue:
-        if not isinstance(item, dict):
-            continue
-        speaker = str(item.get("speaker", "") or "").strip()
-        line = str(item.get("line", "") or "").strip()
-        if speaker or line:
-            normalized_dialogue.append({"speaker": speaker, "line": line})
-
-    normalized_prompt: dict[str, Any] = {
-        "action": action_text,
-        "camera_motion": str(prompt.get("camera_motion", "") or "") or "Static",
-        "ambiance_audio": str(prompt.get("ambiance_audio", "") or ""),
-        "dialogue": normalized_dialogue,
-        "voice_profiles": prompt.get("voice_profiles") or [],
-    }
-    return append_video_negative_tail(video_prompt_to_yaml(normalized_prompt))
 
 
 def _get_model_default_duration(provider_name: str, model_name: str | None) -> int:
@@ -1325,7 +1282,6 @@ async def execute_video_task(
                 item=item,
                 resource_type="videos",
                 resource_id=resource_id,
-                minimum_actual_duration_seconds=narration_actual_duration,
                 visual_basis_digest=visual_basis_digest,
             )
             if narration_actual_duration is not None

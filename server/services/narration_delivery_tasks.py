@@ -213,18 +213,17 @@ async def current_selected_video_tier(
     item: dict[str, Any],
     resource_type: str,
     resource_id: str,
-    minimum_actual_duration_seconds: float,
     visual_basis_digest: str | None = None,
 ) -> int | None:
-    """Observe a selected visual tier only when its media can carry current TTS."""
+    """Observe the trusted selected visual tier used as the replacement baseline."""
 
-    selected = await _selected_current_video_covering_duration(
+    selected = await asyncio.to_thread(
+        _selected_current_video_record,
         project_path=project_path,
         versions=versions,
         item=item,
         resource_type=resource_type,
         resource_id=resource_id,
-        minimum_actual_duration_seconds=minimum_actual_duration_seconds,
         visual_basis_digest=visual_basis_digest,
     )
     return selected[3] if selected is not None else None
@@ -388,7 +387,6 @@ async def prepare_current_storyboard_narrated_video_duration(
             item=item,
             resource_type="videos",
             resource_id=preparation.unit_id,
-            minimum_actual_duration_seconds=narration.actual_duration_seconds,
             visual_basis_digest=visual_basis_digest,
         )
         if narration.actual_duration_seconds is not None
@@ -461,7 +459,6 @@ async def prepare_current_reference_video_request_options(
             item=unit,
             resource_type="reference_videos",
             resource_id=str(unit.get("unit_id") or ""),
-            minimum_actual_duration_seconds=prepared.narration_preparation.actual_duration_seconds,
             visual_basis_digest=visual_basis_digest,
         )
     return replace(prepared, current_visual_duration_seconds=visual_tier)

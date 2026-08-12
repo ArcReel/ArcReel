@@ -11,6 +11,7 @@ from lib.artifact_manifest import ArtifactBasis
 from lib.prompt_utils import (
     build_drama_video_prompt,
     build_drama_video_prompt_from_legacy_dialogue,
+    normalize_video_prompt,
     strip_voice_profiles,
 )
 
@@ -79,13 +80,14 @@ def build_storyboard_video_visual_basis(
                 if has_utterances
                 else build_drama_video_prompt_from_legacy_dialogue(effective_prompt, characters=characters)
             )
+    provider_prompt = normalize_video_prompt(effective_prompt)
     files = [("storyboard", storyboard_image)]
     if end_frame_image is not None:
         files.append(("end_frame", end_frame_image))
     return _build_video_visual_basis(
         "storyboard",
         semantics={
-            "prompt": effective_prompt,
+            "prompt": provider_prompt,
             "aspect_ratio": aspect_ratio,
             "request_context": {
                 "provider_id": provider_id,

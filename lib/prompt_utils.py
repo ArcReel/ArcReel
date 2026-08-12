@@ -100,6 +100,48 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
     return yaml.dump(ordered, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
+def normalize_video_prompt(prompt: object) -> str:
+    """Normalize the exact text sent to a video provider."""
+
+    from lib.prompt_builders import append_video_negative_tail
+
+    if isinstance(prompt, str):
+        if not prompt.strip():
+            raise ValueError("prompt must not be empty")
+        return append_video_negative_tail(prompt)
+    if not isinstance(prompt, dict):
+        raise ValueError("prompt must be a string or object")
+    if not is_structured_video_prompt(prompt):
+        raise ValueError("prompt must be a string or include action/camera_motion")
+
+    action_text = str(prompt.get("action", "")).strip()
+    if not action_text:
+        raise ValueError("prompt.action must not be empty")
+    dialogue = prompt.get("dialogue", [])
+    if dialogue is None:
+        dialogue = []
+    if not isinstance(dialogue, list):
+        raise ValueError("prompt.dialogue must be an array")
+
+    normalized_dialogue = []
+    for item in dialogue:
+        if not isinstance(item, dict):
+            continue
+        speaker = str(item.get("speaker", "") or "").strip()
+        line = str(item.get("line", "") or "").strip()
+        if speaker or line:
+            normalized_dialogue.append({"speaker": speaker, "line": line})
+
+    normalized_prompt: dict[str, Any] = {
+        "action": action_text,
+        "camera_motion": str(prompt.get("camera_motion", "") or "") or "Static",
+        "ambiance_audio": str(prompt.get("ambiance_audio", "") or ""),
+        "dialogue": normalized_dialogue,
+        "voice_profiles": prompt.get("voice_profiles") or [],
+    }
+    return append_video_negative_tail(video_prompt_to_yaml(normalized_prompt))
+
+
 def strip_voice_profiles(video_prompt: dict[str, Any]) -> dict[str, Any]:
     """剥离入参自带的 ``voice_profiles`` 键。
 

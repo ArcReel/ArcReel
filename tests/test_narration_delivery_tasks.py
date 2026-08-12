@@ -256,7 +256,6 @@ async def test_current_visual_is_reused_only_for_the_selected_trusted_duration_t
             item=item,
             resource_type="videos",
             resource_id="E1S01",
-            minimum_actual_duration_seconds=6.2,
             visual_basis_digest="current-visual-basis",
         )
         == 8
@@ -285,6 +284,71 @@ async def test_current_visual_is_reused_only_for_the_selected_trusted_duration_t
 
 
 @pytest.mark.unit
+async def test_current_visual_tier_is_retained_when_media_is_too_short_for_current_tts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from lib.narration_delivery import (
+        USE_TTS,
+        NarrationDeliveryPreparation,
+        NarrationTtsStatus,
+        prepare_narrated_video_duration,
+    )
+    from lib.version_manager import VersionManager
+
+    current = tmp_path / "videos" / "scene_E1S01.mp4"
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"paid-current-video")
+    versions = VersionManager(tmp_path)
+    versions.add_version(
+        "videos",
+        "E1S01",
+        "prompt",
+        source_file=current,
+        duration_seconds=4,
+        visual_basis_digest="current-visual-basis",
+    )
+    item = {
+        "generated_assets": {
+            "status": "completed",
+            "video_clip": "videos/scene_E1S01.mp4",
+        }
+    }
+    duration_probe = AsyncMock(return_value=4.0)
+    monkeypatch.setattr(narration_delivery_tasks, "probe_existing_media_duration_seconds", duration_probe)
+
+    current_tier = await narration_delivery_tasks.current_selected_video_tier(
+        project_path=tmp_path,
+        versions=versions,
+        item=item,
+        resource_type="videos",
+        resource_id="E1S01",
+        visual_basis_digest="current-visual-basis",
+    )
+    duration_probe.assert_not_awaited()
+    projection = prepare_narrated_video_duration(
+        narration=NarrationDeliveryPreparation(
+            delivery=USE_TTS,
+            unit_id="E1S01",
+            speech_mode=None,
+            tts_status=NarrationTtsStatus.CURRENT,
+            artifact_path="audio/segment_E1S01.wav",
+            basis_digest="current-audio-basis",
+            actual_duration_seconds=7.0,
+            problems=(),
+        ),
+        planned_duration_seconds=8,
+        supported_durations=(4, 8),
+        confirmed_request_duration_seconds=None,
+        current_visual_duration_seconds=current_tier,
+    )
+
+    assert current_tier == 4
+    assert [problem.code for problem in projection.problems] == ["reference_duration_confirmation_required"]
+    assert projection.problems[0].parameters()["current_visual_duration"] == 4
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "unsafe_state",
     [
@@ -297,7 +361,7 @@ async def test_current_visual_is_reused_only_for_the_selected_trusted_duration_t
         "visual_inputs_changed",
     ],
 )
-async def test_current_visual_without_trustworthy_current_tier_is_not_reused(
+async def test_current_visual_without_reusable_current_media_is_not_reused(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     unsafe_state: str,
@@ -332,20 +396,16 @@ async def test_current_visual_without_trustworthy_current_tier_is_not_reused(
     )
 
     if unsafe_state != "wrong_tier":
-        assert (
-            await narration_delivery_tasks.current_selected_video_tier(
-                project_path=tmp_path,
-                versions=versions,
-                item=item,
-                resource_type="reference_videos",
-                resource_id="E1U1",
-                minimum_actual_duration_seconds=6.2,
-                visual_basis_digest=(
-                    "changed-visual-basis" if unsafe_state == "visual_inputs_changed" else "recorded-visual-basis"
-                ),
-            )
-            is None
-        )
+        assert await narration_delivery_tasks.current_selected_video_tier(
+            project_path=tmp_path,
+            versions=versions,
+            item=item,
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            visual_basis_digest=(
+                "changed-visual-basis" if unsafe_state == "visual_inputs_changed" else "recorded-visual-basis"
+            ),
+        ) == (8 if unsafe_state in {"short_media", "unmeasurable_media"} else None)
 
     assert (
         await narration_delivery_tasks.reuse_current_video_for_tier(

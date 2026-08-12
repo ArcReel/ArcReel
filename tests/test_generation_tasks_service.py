@@ -199,8 +199,22 @@ def test_storyboard_visual_basis_tracks_effective_request_context(tmp_path: Path
 
     portrait = build_storyboard_video_visual_basis(**common, aspect_ratio="9:16")
     landscape = build_storyboard_video_visual_basis(**common, aspect_ratio="16:9")
+    normalized_equivalent = build_storyboard_video_visual_basis(
+        **{
+            **common,
+            "prompt": {
+                "action": " 跑 ",
+                "camera_motion": "Static",
+                "ambiance_audio": "",
+                "dialogue": [],
+                "ignored": "not sent to the provider",
+            },
+        },
+        aspect_ratio="9:16",
+    )
 
     assert portrait.digest != landscape.digest
+    assert portrait.digest == normalized_equivalent.digest
 
     other_provider = build_storyboard_video_visual_basis(
         **{**common, "provider_id": "openai"},
