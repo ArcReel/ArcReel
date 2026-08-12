@@ -103,7 +103,7 @@ class ProviderJobIdPersistenceMixin:
 
         同时写回该 job 执行所用的端点，两个维度各占一列：``request.execution_endpoint`` 由自定义
         供应商的包装层在转发前注入，是续跑比对协议的依据；``endpoint`` 由提交域名随用户配置变化的
-        backend（目前只有 dashscope 协议）传入实际请求域名，供续跑回放。自定义供应商两者兼有——
+        backend（只有 dashscope 协议这一条线）传入实际请求域名，供续跑回放。自定义供应商两者兼有——
         协议标识占 endpoint 位、域名走 base_url 位，互不覆盖；内置供应商只有域名，仍落 endpoint 位。
         持久化失败抛出（DB 瞬态错误已在 ``persist_provider_job_id`` 内重试 3 次），由 worker finally
         兜底 mark_failed —— 保持现有 fail-fast 语义（ADR 0007）。
