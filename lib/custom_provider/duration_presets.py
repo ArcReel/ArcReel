@@ -75,9 +75,9 @@ def infer_supported_durations(model_id: str) -> list[int]:
     classification = classify_wan_model(model_id)
     if classification.family == "wan3":
         return list(_WAN3_DURATIONS)
-    # wan2.7-videoedit 时长上限与 t2v/i2v/r2v 不同，且本后端未实现该模态的请求构造（同
-    # endpoints.py::infer_endpoint 排除出原生路由的处理），不套用家族档，落到下方通用预设。
-    if classification.family == "wan2.7" and not classification.is_videoedit:
+    # wan2.7 未实现请求构造的模态（videoedit / s2v / v2v 等，见 classify_wan_model 的
+    # has_known_modality 处的说明）时长上限与 t2v/i2v/r2v 不同，不套用家族档，落到下方通用预设。
+    if classification.family == "wan2.7" and classification.has_known_modality:
         return list(_WAN27_DURATIONS)
     if classification.family == "happyhorse":
         return list(_HAPPYHORSE_DURATIONS)

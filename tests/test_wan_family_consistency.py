@@ -180,6 +180,14 @@ def test_videoedit_exclusion_scoped_to_wan27_only(model_id: str) -> None:
     其他来源），也不应被误排除出原生路由，该模态的能力欠缺只记录在 wan2.7 家族下。"""
     assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
     assert infer_supported_durations(model_id) == list(range(2, 31))
+
+
+@pytest.mark.parametrize("model_id", ["wan-2.7-v2v", "wan_2.7-foo", "wan-2.7-s2v-0715"])
+def test_wan27_unrecognized_modality_excluded_from_native_route_and_family_duration(model_id: str) -> None:
+    """wan2.7 家族命中但模态未实现请求构造（非 t2v/i2v/r2v，videoedit 之外的其余未知后缀）时，
+    不落原生端点、时长也不套用家族档——与 videoedit 走同一条排除路径。"""
+    assert infer_endpoint(model_id, "openai") != "dashscope-async-video"
+    assert infer_supported_durations(model_id) != list(range(2, 16))
     assert infer_supported_durations("wan-2.7-videoedit") != list(range(2, 16))
 
 

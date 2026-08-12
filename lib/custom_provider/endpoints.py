@@ -590,9 +590,10 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     contains_wan_token = "wan" in lowered
     wan_video_continuation = is_wan_family and classification.is_image_to_video
     wan_image_variant = contains_wan_token and is_image and not wan_video_continuation
-    # videoedit 模态本后端未实现请求构造，即便命中家族正则也不走原生端点（见 classify_wan_model
-    # 的 is_videoedit 处的说明），落到下方 5) 的通用视频端点。
-    wan_unsupported_modality = is_wan_family and classification.is_videoedit
+    # 未实现请求构造的模态（wan2.7-videoedit / wan2.7-s2v / wan2.7-v2v 等）即便命中家族正则也不
+    # 走原生端点（见 classify_wan_model 的 has_known_modality 处的说明），落到下方 5) 的通用视频
+    # 端点，避免本后端收到无法正确构造的请求。
+    wan_unsupported_modality = is_wan_family and not classification.has_known_modality
 
     # 阿里百炼视频先于通用 is_video 拦截到原生异步端点
     if classification.family == "happyhorse":
