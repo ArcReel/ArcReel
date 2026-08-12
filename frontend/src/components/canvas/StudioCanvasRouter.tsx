@@ -762,7 +762,7 @@ export function StudioCanvasRouter() {
                     durationWarningReason={durationWarningReason}
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
-                    onGenerateVideo={voidPromise(handleGenerateVideo)}
+                    onGenerateVideo={handleGenerateVideo}
                     onGenerateNarration={voidPromise(handleGenerateNarration)}
                     onGenerateEpisodeNarration={voidPromise(handleGenerateEpisodeNarration)}
                     onGenerateGrid={handleGenerateGrid}
