@@ -1013,7 +1013,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
                     for scene in script.get("scenes", []):
                         if scene.get("scene_id") == scene_id:
                             matched_scene = scene
-                            previous_utterances = scene.get("utterances")
+                            previous_speech = admit_script_unit("scenes", scene, ignore_marker=True).preparation
                             # 更新允许的字段
                             for key, value in req.updates.items():
                                 if key in [
@@ -1035,8 +1035,8 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
                                             for name in value
                                         ]
                                     scene[key] = value
-                            if "utterances" in req.updates and scene.get("utterances") != previous_utterances:
-                                admission = admit_script_unit("scenes", scene, ignore_marker=True)
+                            admission = admit_script_unit("scenes", scene, ignore_marker=True)
+                            if admission.preparation != previous_speech:
                                 if not admission.allowed:
                                     raise HTTPException(status_code=409, detail=admission.to_dict())
                                 scene.pop("needs_replan", None)
