@@ -40,6 +40,7 @@ MESSAGES = {
     "task_not_found": "Tác vụ '{id}' không tồn tại",
     # Lý do tác vụ thất bại (GenerationWorker lưu mã lỗi + tham số; tasks API kết xuất theo ngôn ngữ khi đọc)
     "task_fail_provider_unsupported_media": "Nhà cung cấp {provider_id} không hỗ trợ tạo {media_type}",
+    "task_fail_dispatch_provider_requeue_failed": "Nhà cung cấp tác vụ đã đổi từ {claimed_provider_id} sang {actual_provider_id}, nhưng không thể đưa tác vụ trở lại hàng đợi để nhận khe mới; vui lòng thử lại",
     "task_fail_restart_lost_image": "Tác vụ ảnh bị gián đoạn khi dịch vụ khởi động lại và không thể tiếp tục; vui lòng thử lại thủ công để tránh bị tính phí trùng",
     "task_fail_restart_lost_audio": "Tác vụ âm thanh bị gián đoạn khi dịch vụ khởi động lại và không thể tiếp tục; vui lòng thử lại thủ công để tránh bị tính phí trùng",
     "task_fail_restart_lost_no_job_id": "Tác vụ video không lưu thông tin tiếp tục trước khi dịch vụ khởi động lại và không thể tự khôi phục; vui lòng thử lại thủ công",
@@ -62,7 +63,7 @@ MESSAGES = {
     "invalid_storyboard_image_path": "Đoạn '{segment_id}' có tham chiếu ảnh phân cảnh không hợp lệ, vui lòng tạo lại phân cảnh",
     "video_audio_switch_not_supported": "{provider}/{model} luôn tạo ra âm thanh và không thể tắt tiếng; hãy bật lại công tắc âm thanh trong cài đặt rồi thử lại",
     "reference_declaration_invalid": "Khai báo tài nguyên tham chiếu không hợp lệ ({count} mục); hãy sửa references rồi thử lại",
-    "reference_asset_missing": "Tài nguyên tham chiếu bị thiếu hoặc không khả dụng: {missing}",
+    "reference_asset_missing": "Tài nguyên tham chiếu bị thiếu hoặc không khả dụng: {missing_text}",
     "reference_capability_changed": "Khả năng đã khai báo là {declared}, nhưng tài nguyên thực tế yêu cầu {hydrated}; hãy sửa tài nguyên rồi thử lại",
     "reference_images_clamped": "Số lượng {count} ảnh tham chiếu vượt giới hạn {max_count} của {provider}/{model}; yêu cầu sẽ dùng {max_count} ảnh đầu tiên",
     "reference_capability_unavailable": "Không thể phân giải khả năng video {capability}; hãy kiểm tra cấu hình nhà cung cấp và mô hình",

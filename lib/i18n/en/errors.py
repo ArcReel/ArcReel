@@ -40,6 +40,7 @@ MESSAGES = {
     "task_not_found": "Task '{id}' does not exist",
     # Task failure reasons (GenerationWorker stores a code + params; tasks API renders per locale on read)
     "task_fail_provider_unsupported_media": "Provider {provider_id} does not support {media_type} generation",
+    "task_fail_dispatch_provider_requeue_failed": "The task provider changed from {claimed_provider_id} to {actual_provider_id}, but the task could not be requeued for a new slot; please retry",
     "task_fail_restart_lost_image": "The image task was interrupted by a service restart and cannot be resumed; please retry manually to avoid duplicate billing",
     "task_fail_restart_lost_audio": "The audio task was interrupted by a service restart and cannot be resumed; please retry manually to avoid duplicate billing",
     "task_fail_restart_lost_no_job_id": "The video task did not persist a resume handle before the service restart and cannot recover automatically; please retry manually",
@@ -62,7 +63,7 @@ MESSAGES = {
     "invalid_storyboard_image_path": "Segment '{segment_id}' has an invalid storyboard image reference; please regenerate the storyboard",
     "video_audio_switch_not_supported": "{provider}/{model} always produces audio and cannot be muted; turn the audio switch back on in settings and try again",
     "reference_declaration_invalid": "The reference declaration is malformed ({count} item(s)); repair references and try again",
-    "reference_asset_missing": "Reference assets are missing or unavailable: {missing}",
+    "reference_asset_missing": "Reference assets are missing or unavailable: {missing_text}",
     "reference_capability_changed": "The declared capability is {declared}, but hydrated assets require {hydrated}; repair the assets and try again",
     "reference_images_clamped": "The {count} reference images exceed the {max_count} image limit for {provider}/{model}; the request will use the first {max_count}",
     "reference_capability_unavailable": "Could not resolve {capability} video capabilities; check the provider and model configuration",

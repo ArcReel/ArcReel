@@ -1546,14 +1546,27 @@ async def test_execute_reference_video_task_missing_reference_fails(tmp_path: Pa
     )
     _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+    _wire_context(
+        monkeypatch,
+        rvt,
+        MagicMock(),
+        backend_name="ark",
+        backend_model="doubao-seedance-2-0-260128",
+        supported_durations=(3,),
+    )
 
-    with pytest.raises(MissingReferenceError):
+    from lib.reference_video.request_projection import ReferenceProjectionBlockedError
+
+    with pytest.raises(ReferenceProjectionBlockedError) as exc_info:
         await rvt.execute_reference_video_task(
             "demo",
             "E1U1",
             {"script_file": "scripts/episode_1.json"},
             user_id="u1",
         )
+    assert exc_info.value.code == "reference_asset_missing"
+    assert exc_info.value.params["missing"] == (("character", "张三"),)
+    assert exc_info.value.params["missing_text"] == "character: 张三"
 
 
 @pytest.mark.unit

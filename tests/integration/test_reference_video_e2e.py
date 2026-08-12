@@ -237,7 +237,7 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
 
 @pytest.mark.asyncio
 async def test_e2e_missing_reference_raises(three_bucket_client):
-    """把 scenes/酒馆.png 删掉，executor 应抛 MissingReferenceError。"""
+    """把 scenes/酒馆.png 删掉，executor 应保留 projector 的结构化 blocker。"""
     client, proj_dir, monkeypatch = three_bucket_client
     (proj_dir / "scenes" / "酒馆.png").unlink()
 
@@ -254,10 +254,33 @@ async def test_e2e_missing_reference_raises(three_bucket_client):
     )
     uid = resp.json()["unit"]["unit_id"]
 
-    from lib.reference_video.errors import MissingReferenceError
+    from lib.config.resolver import ProviderModel
+    from lib.reference_video.request_projection import ReferenceProjectionBlockedError
+    from server.services import reference_video_tasks as rvt_mod
+    from server.services.generation_context import GenerationContext, VideoLaneResult
     from server.services.generation_tasks import execute_generation_task
 
-    with pytest.raises(MissingReferenceError) as exc:
+    context = GenerationContext(
+        generator=MagicMock(),
+        video_lane=VideoLaneResult(
+            provider_model=ProviderModel(provider_id="ark", model_id="doubao-seedance-2-0-260128"),
+            backend_name="ark",
+            backend_model="doubao-seedance-2-0-260128",
+            resolution=None,
+            resolution_or_fallback="1080p",
+            supported_durations=(3,),
+            max_duration=3,
+            max_reference_images=None,
+            generate_audio=True,
+        ),
+    )
+
+    async def _fake_resolve(*_args, **_kwargs):
+        return context
+
+    monkeypatch.setattr(rvt_mod, "resolve_generation_context", _fake_resolve)
+
+    with pytest.raises(ReferenceProjectionBlockedError) as exc:
         await execute_generation_task(
             {
                 "task_type": "reference_video",
@@ -267,4 +290,7 @@ async def test_e2e_missing_reference_raises(three_bucket_client):
                 "user_id": "u1",
             }
         )
-    assert any(name == "酒馆" for _, name in exc.value.missing)
+    assert exc.value.code == "reference_asset_missing"
+    missing = exc.value.params["missing"]
+    assert isinstance(missing, tuple)
+    assert ("scene", "酒馆") in missing

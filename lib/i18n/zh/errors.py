@@ -40,6 +40,7 @@ MESSAGES = {
     "task_not_found": "任务 '{id}' 不存在",
     # 任务失败原因（GenerationWorker 写入错误码 + 参数，tasks API 读取时按语言渲染）
     "task_fail_provider_unsupported_media": "供应商 {provider_id} 不支持 {media_type} 生成",
+    "task_fail_dispatch_provider_requeue_failed": "任务供应商从 {claimed_provider_id} 变为 {actual_provider_id}，但无法回队重新认领，请重试",
     "task_fail_restart_lost_image": "图片任务在服务重启时中断且无法接续，请手动重试以避免重复计费",
     "task_fail_restart_lost_audio": "配音任务在服务重启时中断且无法接续，请手动重试以避免重复计费",
     "task_fail_restart_lost_no_job_id": "视频任务在服务重启时未保存接续凭据，无法自动恢复，请手动重试",
@@ -60,7 +61,7 @@ MESSAGES = {
     "invalid_storyboard_image_path": "片段「{segment_id}」的分镜图引用无效，请重新生成分镜图",
     "video_audio_switch_not_supported": "{provider}/{model} 的成片恒有声，无法关闭音频；请在设置中把音频开关改回开启后重试",
     "reference_declaration_invalid": "参考素材声明格式无效（{count} 项）；请修复 references 后重试",
-    "reference_asset_missing": "参考素材缺失或文件不可用：{missing}",
+    "reference_asset_missing": "参考素材缺失或文件不可用：{missing_text}",
     "reference_capability_changed": "声明能力桶为 {declared}，实际素材水合后为 {hydrated}；请修复素材后重试",
     "reference_images_clamped": "参考图数量 {count} 超出 {provider}/{model} 上限 {max_count}，请求将使用前 {max_count} 张",
     "reference_capability_unavailable": "无法解析 {capability} 视频能力，请检查供应商与模型配置",

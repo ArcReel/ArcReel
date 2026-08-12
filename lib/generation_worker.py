@@ -39,6 +39,7 @@ from lib.generation_queue import (
 )
 from lib.image_backends.base import ImageCapabilityError
 from lib.reference_compression import ReferencePayloadFloorError
+from lib.reference_video.request_projection import ReferenceProjectionBlockedError
 from lib.script_editor import ScriptEditError
 from lib.task_failure import encode_failure
 from lib.video_backends.base import VideoCapabilityError
@@ -75,7 +76,7 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
 
 
 def _encode_task_failure_message(exc: Exception) -> str:
-    """把任务执行异常编码为落库的 error_message：ScriptEditError 与后端能力类异常走
+    """把任务执行异常编码为落库的 error_message：ScriptEditError 与结构化执行拒绝走
     code/params 结构化，其余异常沿用 str(exc)。normal（_process_task）与 resume
     （_process_resume_task）两条独立的任务执行路径都会捕获这些异常（前者经常规 finalize，
     后者经 resume_executor 复用同一批 finalize helper），共用这份编码逻辑避免同一处理漂移成两份。
@@ -87,9 +88,14 @@ def _encode_task_failure_message(exc: Exception) -> str:
         # 编不出来时退到通用 script_edit_error，保住"是剧本编辑失败"这一层信息。
         return _try_encode_failure(exc.key, exc.params) or encode_failure("script_edit_error")
     if isinstance(
-        exc, ImageCapabilityError | VideoCapabilityError | ReferencePayloadFloorError | VideoBucketCapabilityError
+        exc,
+        ImageCapabilityError
+        | VideoCapabilityError
+        | ReferencePayloadFloorError
+        | VideoBucketCapabilityError
+        | ReferenceProjectionBlockedError,
     ):
-        # 能力类异常没有通用兜底 code 可退，退回 str(exc)（即 code 本身）——
+        # 结构化执行拒绝没有通用兜底 code 可退，退回 str(exc)（即 code 本身）——
         # 非结构化文本在读侧原样透传，不会丢失原因。
         return _try_encode_failure(exc.code, exc.params) or str(exc)
     return str(exc)
@@ -663,13 +669,14 @@ class GenerationWorker:
 
         return claimed_any
 
-    async def _requeue_single_task(self, task_id: str) -> None:
+    async def _requeue_single_task(self, task_id: str) -> bool:
         """Put a claimed (running) task back to queued status.
 
         正常路径下大多数池满任务通过 ``pool_full_providers`` SQL 过滤在 claim 阶段被
         排除；当 ``provider_id IS NULL`` 走 IS NULL 兜底而 worker 二次校验发现池满时，
         本方法把任务放回 queued 等下次 cycle 重试（不可 mark_failed——派生 provider 在
-        入队后才发生，NULL 不等于"无效任务"）。
+        入队后才发生，NULL 不等于"无效任务"）。执行入口发现 provider 漂移时也复用
+        同一条 guarded UPDATE，并根据返回值决定能否安全退出当前执行槽。
         """
         try:
             from datetime import datetime
@@ -678,9 +685,10 @@ class GenerationWorker:
 
             from lib.db import safe_session_factory
             from lib.db.models.task import Task
+            from lib.db.repositories.base import rowcount
 
             async with safe_session_factory() as session:
-                await session.execute(
+                result = await session.execute(
                     update(Task)
                     .where(Task.task_id == task_id, Task.status == "running")
                     .values(
@@ -689,10 +697,16 @@ class GenerationWorker:
                         updated_at=datetime.now(UTC),
                     )
                 )
+                affected = rowcount(result)
                 await session.commit()
+            if affected == 0:
+                logger.info("回队任务 %s 未命中 running 状态", task_id)
+                return False
             logger.debug("回队任务 %s (供应商池已满)", task_id)
+            return True
         except Exception:
             logger.warning("回队任务 %s 失败", task_id, exc_info=True)
+            return False
 
     # ------------------------------------------------------------------
     # Task lifecycle
@@ -769,7 +783,27 @@ class GenerationWorker:
                     exc.actual_provider_id,
                     exc_info=True,
                 )
-            await asyncio.shield(self._requeue_single_task(task_id))
+            requeued = await asyncio.shield(self._requeue_single_task(task_id))
+            if not requeued:
+                logger.error(
+                    "任务 %s 执行 provider 从 %s 变为 %s，但回队失败",
+                    task_id,
+                    exc.claimed_provider_id,
+                    exc.actual_provider_id,
+                )
+                rows = await asyncio.shield(
+                    self.queue.mark_task_failed(
+                        task_id,
+                        encode_failure(
+                            "dispatch_provider_requeue_failed",
+                            claimed_provider_id=exc.claimed_provider_id,
+                            actual_provider_id=exc.actual_provider_id,
+                        ),
+                    )
+                )
+                if rows == 0:
+                    await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+                return
             logger.info(
                 "任务 %s 执行 provider 从 %s 变为 %s，已回队等待新槽",
                 task_id,

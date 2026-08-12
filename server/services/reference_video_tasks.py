@@ -38,6 +38,7 @@ from lib.reference_video.prompt_render import (
 from lib.reference_video.request_projection import (
     FilesystemReferenceAssets,
     ProviderProjectionCandidate,
+    ReferenceProjectionBlockedError,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjector,
     ResolvedReferenceAsset,
@@ -477,8 +478,6 @@ async def execute_reference_video_task(
     resolved_assets = resolve_reference_assets(project, project_path, unit)
     asset_availability = FilesystemReferenceAssets(project_path)
     hydration = hydrate_reference_assets(declared_references, resolved_assets, asset_availability)
-    if hydration.missing:
-        raise MissingReferenceError(missing=[(reference.type, reference.name) for reference in hydration.missing])
 
     # 2. 单次解析生成上下文（声明 video lane）：构造 generator 并按实际 backend 身份
     #    查能力上限与 resolution。provider 身份解析收口于 GenerationContext
@@ -553,22 +552,8 @@ async def execute_reference_video_task(
         resolved_assets=resolved_assets,
         options=options,
     )
-    missing_problem = next((p for p in projection.blocking_problems if p.code == "reference_asset_missing"), None)
-    if missing_problem is not None:
-        missing = missing_problem.parameters().get("missing")
-        if isinstance(missing, tuple):
-            typed_missing: list[tuple[str, str | None]] = []
-            for item in missing:
-                if not isinstance(item, tuple) or len(item) != 2:
-                    continue
-                asset_type, name = item
-                if isinstance(asset_type, str) and (isinstance(name, str) or name is None):
-                    typed_missing.append((asset_type, name))
-            if typed_missing:
-                raise MissingReferenceError(missing=typed_missing)
     if projection.blocking_problems:
-        codes = ", ".join(problem.code for problem in projection.blocking_problems)
-        raise ValueError(f"reference request projection blocked: {codes}")
+        raise ReferenceProjectionBlockedError(projection.blocking_problems[0])
     if projection.request_duration is None:
         raise ValueError("reference request projection has no duration tier")
 

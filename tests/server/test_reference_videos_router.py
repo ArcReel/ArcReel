@@ -892,7 +892,8 @@ def test_precheck_formats_missing_asset_message_for_people(client: TestClient, t
     problems = response.json()["detail"]["problems"]
     missing = next(problem for problem in problems if problem["code"] == "reference_asset_missing")
     assert missing["params"]["missing"] == [["character", "张三"]]
-    assert missing["message"] == i18n_message("reference_asset_missing", missing="character: 张三")
+    assert missing["params"]["missing_text"] == "character: 张三"
+    assert missing["message"] == i18n_message("reference_asset_missing", missing_text="character: 张三")
 
 
 @pytest.mark.integration

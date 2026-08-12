@@ -747,6 +747,7 @@ class TestGenerationWorker:
 
         async def _capture_requeue(self, task_id):
             requeued.append(task_id)
+            return True
 
         monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
 
@@ -759,6 +760,78 @@ class TestGenerationWorker:
         assert requeued == ["ref-provider-changed"]
         assert queue.succeeded == []
         assert queue.failed == []
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failed_rows", [1, 0])
+    async def test_process_reference_task_closes_terminal_state_when_provider_requeue_fails(
+        self, monkeypatch, failed_rows: int
+    ):
+        from lib.generation_queue import DispatchProviderChanged
+
+        queue = _FakeQueue(failed_rows=failed_rows)
+        worker = GenerationWorker(queue=queue)
+
+        async def _changed(_task, *, claimed_provider_id):
+            raise DispatchProviderChanged(claimed_provider_id=claimed_provider_id, actual_provider_id="minimax")
+
+        async def _cannot_requeue(_self, _task_id):
+            return False
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _changed)
+        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _cannot_requeue)
+
+        await worker._process_task(
+            {"task_id": "ref-provider-changed", "task_type": "reference_video"},
+            claimed_provider_id="ark",
+        )
+
+        assert queue.succeeded == []
+        assert queue.failed == [
+            (
+                "ref-provider-changed",
+                '[dispatch_provider_requeue_failed] {"actual_provider_id": "minimax", "claimed_provider_id": "ark"}',
+            )
+        ]
+        assert queue.cancelled == ([] if failed_rows else [("ref-provider-changed", "user")])
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("affected", "expected"), [(1, True), (0, False)])
+    async def test_requeue_single_task_reports_guarded_update_result(self, monkeypatch, affected: int, expected: bool):
+        from contextlib import asynccontextmanager
+
+        class _Result:
+            rowcount = affected
+
+        class _Session:
+            async def execute(self, _statement):
+                return _Result()
+
+            async def commit(self):
+                return None
+
+        @asynccontextmanager
+        async def _session_factory():
+            yield _Session()
+
+        monkeypatch.setattr("lib.db.safe_session_factory", _session_factory)
+
+        assert await GenerationWorker(queue=_FakeQueue())._requeue_single_task("candidate") is expected
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_requeue_single_task_reports_database_failure(self, monkeypatch):
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def _session_factory():
+            raise RuntimeError("database unavailable")
+            yield  # pragma: no cover
+
+        monkeypatch.setattr("lib.db.safe_session_factory", _session_factory)
+
+        assert await GenerationWorker(queue=_FakeQueue())._requeue_single_task("running") is False
 
     @pytest.mark.unit
     @pytest.mark.asyncio

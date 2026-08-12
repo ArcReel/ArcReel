@@ -151,6 +151,24 @@ class ProjectionProblem:
         }
 
 
+class ReferenceProjectionBlockedError(ValueError):
+    """Execution-time rejection backed by the projector's canonical problem."""
+
+    def __init__(self, problem: ProjectionProblem) -> None:
+        if not problem.blocking:
+            raise ValueError("projection failure must wrap a blocking problem")
+        self.problem = problem
+        super().__init__(problem.code)
+
+    @property
+    def code(self) -> str:
+        return self.problem.code
+
+    @property
+    def params(self) -> dict[str, object]:
+        return self.problem.parameters()
+
+
 @dataclass(frozen=True)
 class ReferenceUnitRequestProjection:
     """一个 unit 在调用瞬间的规范请求投影。"""
@@ -621,11 +639,13 @@ class ReferenceUnitRequestProjector:
                 )
             )
         if hydration.missing:
+            missing = tuple((ref.type, ref.name) for ref in hydration.missing)
             problems.append(
                 _problem(
                     "reference_asset_missing",
                     blocking=True,
-                    missing=tuple((ref.type, ref.name) for ref in hydration.missing),
+                    missing=missing,
+                    missing_text=", ".join(f"{asset_type}: {name}" for asset_type, name in missing),
                 )
             )
 
