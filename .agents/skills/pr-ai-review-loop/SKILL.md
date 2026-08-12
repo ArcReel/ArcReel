@@ -80,13 +80,7 @@ GitHub code scanning 两家(quality / security)的评论并入同一批,处置�
 
 ## 轮询节奏
 
-每轮 poll 与决策完成后,立即运行 `bash scripts/wait.sh --repo-root <repo-root> <PR_NUMBER> --max <延迟秒数>`,允许命令执行至少比 `--max` 多 30 秒;命令返回后继续步骤 1。每轮都由 `wait.sh` 保持主动等待,不得结束回合被动等待外部探活。延迟取值:
-
-| 场景 | 延迟 | 备注 |
-|---|---|---|
-| 新 HEAD 后首次 poll | 360s | reviewer cold-start |
-| 其余等待(触发命令后、reviewer 响应中、仅剩 CodeQL 分析未完成) | 180s | |
-| 超过 30 分钟无响应 | 暂停并询问用户,不再等待 | 见「故障处理」 |
+每轮 poll 与决策后运行 `bash scripts/wait.sh --repo-root <repo-root> <PR_NUMBER>`并等待返回,命令执行上限设为 1800 秒;返回后回到步骤 1。`WAIT_TIMEOUT` 后仍无可执行动作时,按「故障处理」的 30 分钟无响应条目暂停。
 
 ## 收敛兜底
 
@@ -108,5 +102,6 @@ GitHub code scanning 两家(quality / security)的评论并入同一批,处置�
 - **`quota_alerts` 非空**:alert 之后该家已有成功审查(更晚的 review 或 walkthrough 更新)的视为已恢复,忽略残留 banner;真实受阻时,reviewers.md 该家有专项配额处置段的(如 CodeRabbit)按其规则自行处置,不暂停;其余家贴出 `body_head`,询问停用该家继续其他家,还是等 quota 恢复后再 push
 - **`codeql_checks.failing` 非空**(失败态集合见 poll.sh header `checks_failing` 条):分析失败,alerts 数据停留在上次成功分析,不能做终核;询问是否重跑失败的 workflow
 - **`security_alerts.available == false`**:贴出 `unavailable_hint`,按 reviewers.md「仓库未接入」段判别权限问题与未接入——两种情形都需用户确认,不得自动跳过 security 门槛
+- **`wait.sh` 返回 `WAIT_ERROR`**:401/403 按下条处理;其余贴出 stderr 暂停
 - **`gh` 401/403**:请用户运行 `gh auth refresh -s repo`
 - **review 评论语义模糊**,按 `receiving-code-review` 的纪律仍无法判定是否 pushback:贴出原文请用户定夺
