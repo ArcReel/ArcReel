@@ -315,7 +315,12 @@ class ScriptBatchEditor:
                             code="schema_invalid",
                             reason="candidate_schema_invalid",
                             next_action="fix_operation",
-                            operation_index=_responsible_operation(item_id, last_touch, command.operations),
+                            operation_index=_responsible_operation(
+                                item_id,
+                                location.path,
+                                last_touch,
+                                command.operations,
+                            ),
                             unit_id=item_id,
                             locations=(location,),
                         )
@@ -341,7 +346,12 @@ class ScriptBatchEditor:
                             code="references_invalid",
                             reason="candidate_references_invalid",
                             next_action="fix_operation",
-                            operation_index=_responsible_operation(item_id, last_touch, command.operations),
+                            operation_index=_responsible_operation(
+                                item_id,
+                                location.path,
+                                last_touch,
+                                command.operations,
+                            ),
                             unit_id=item_id,
                             locations=(location,),
                         )
@@ -537,11 +547,12 @@ def _apply_operation(
             if body_changed and "references" not in roots:
                 rederive_unit_references([item], project)
             references_changed = "references" in roots and item.get("references") != previous_references
-            refresh_video_unit_replan_state(
-                item,
-                allow_clear=body_changed or references_changed or "duration_seconds" in roots,
-                content_changed=body_changed,
-            )
+            if roots & {"shots", "references", "duration_seconds"}:
+                refresh_video_unit_replan_state(
+                    item,
+                    allow_clear=body_changed or references_changed or "duration_seconds" in roots,
+                    content_changed=body_changed,
+                )
         else:
             after_content_admission = admit_script_unit(kind, item, ignore_marker=True)
             if (
@@ -738,12 +749,30 @@ def _unit_id_at_location(script: dict[str, Any], path: tuple[str | int, ...]) ->
 
 def _responsible_operation(
     item_id: str | None,
+    location: tuple[str | int, ...],
     last_touch: dict[str, int],
     operations: list[ScriptBatchOperation],
 ) -> int | None:
+    relative_path = location[2:] if len(location) >= 3 and isinstance(location[1], int) else ()
+    if item_id is not None and relative_path:
+        for index in range(len(operations) - 1, -1, -1):
+            operation = operations[index]
+            if isinstance(operation, UpdateOperation) and operation.id == item_id:
+                if any(_operation_field_affects_location(field, relative_path) for field in operation.fields):
+                    return index
+            elif isinstance(operation, InsertAfterOperation) and _operation_id(operation) == item_id:
+                return index
     if item_id is not None and item_id in last_touch:
         return last_touch[item_id]
     return len(operations) - 1 if operations else None
+
+
+def _operation_field_affects_location(field: str, location: tuple[str | int, ...]) -> bool:
+    field_path = _parse_path(field)
+    overlaps = field_path[: len(location)] == location or location[: len(field_path)] == field_path
+    if overlaps:
+        return True
+    return bool(location and location[0] == "references" and field_path and field_path[0] == "shots")
 
 
 __all__ = [

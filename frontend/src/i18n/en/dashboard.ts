@@ -1699,4 +1699,11 @@ export default {
   'speech_admission_needs_replan': 'Video unit {{unitId}} is waiting for replanning ({{location}}). Replan its spoken content before generating video.',
   'speech_admission_parse_failed': 'Video unit {{unitId}} has spoken content that cannot be read at {{location}}. Fix that field before generating video.',
   'speech_admission_empty_speaker': 'Video unit {{unitId}} has character dialogue without a speaker at {{location}}. Assign a speaker before generating video.',
+  'script_edit_revision_conflict': 'The script changed in another editor. Refresh it and retry your edit.',
+  'script_edit_operation_invalid': 'One of the requested script edits is invalid. Check the highlighted operation and retry.',
+  'script_edit_schema_invalid': 'The edited script would have an invalid structure. Fix the affected field and retry.',
+  'script_edit_references_invalid': 'The edited script refers to an asset that is not registered in this project.',
+  'script_edit_manifest_invalid': 'Artifact state could not be verified, so the script was not changed. Retry or repair the project data.',
+  'script_edit_commit_failed': 'The script could not be saved safely. Retry the edit.',
+  'script_edit_rejected': 'The script edit was rejected. Review the affected operation and retry.',
 };

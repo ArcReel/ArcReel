@@ -1698,4 +1698,11 @@ export default {
   'speech_admission_needs_replan': '视频单元 {{unitId}} 正在等待重新规划（{{location}}）。请先重新规划发声内容，再生成视频。',
   'speech_admission_parse_failed': '视频单元 {{unitId}} 在 {{location}} 的发声内容无法解析。请先修正该字段，再生成视频。',
   'speech_admission_empty_speaker': '视频单元 {{unitId}} 在 {{location}} 有未指定角色的台词。请先指定发声角色，再生成视频。',
+  'script_edit_revision_conflict': '剧本已被其他编辑方修改，请刷新后重新编辑。',
+  'script_edit_operation_invalid': '请求中的剧本编辑操作无效，请检查对应操作后重试。',
+  'script_edit_schema_invalid': '编辑后的剧本结构无效，请修正对应字段后重试。',
+  'script_edit_references_invalid': '编辑后的剧本引用了本项目中未登记的资产。',
+  'script_edit_manifest_invalid': '无法核验产物状态，因此未修改剧本。请重试或修复项目数据。',
+  'script_edit_commit_failed': '无法安全保存剧本，请重试。',
+  'script_edit_rejected': '剧本编辑被拒绝，请检查对应操作后重试。',
 } satisfies Record<keyof typeof enDashboard, string>;

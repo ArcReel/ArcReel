@@ -1697,4 +1697,11 @@ export default {
   'speech_admission_needs_replan': 'Đơn vị video {{unitId}} đang chờ lập kế hoạch lại ({{location}}). Hãy lập kế hoạch lại nội dung lời nói trước khi tạo video.',
   'speech_admission_parse_failed': 'Không thể đọc nội dung lời nói của đơn vị video {{unitId}} tại {{location}}. Hãy sửa trường này trước khi tạo video.',
   'speech_admission_empty_speaker': 'Đơn vị video {{unitId}} có lời thoại chưa chỉ định nhân vật tại {{location}}. Hãy chỉ định nhân vật trước khi tạo video.',
+  'script_edit_revision_conflict': 'Kịch bản đã được chỉnh sửa ở nơi khác. Hãy làm mới rồi thử lại.',
+  'script_edit_operation_invalid': 'Một thao tác chỉnh sửa kịch bản không hợp lệ. Hãy kiểm tra thao tác tương ứng rồi thử lại.',
+  'script_edit_schema_invalid': 'Kịch bản sau khi chỉnh sửa có cấu trúc không hợp lệ. Hãy sửa trường liên quan rồi thử lại.',
+  'script_edit_references_invalid': 'Kịch bản sau khi chỉnh sửa tham chiếu đến tài nguyên chưa được đăng ký trong dự án.',
+  'script_edit_manifest_invalid': 'Không thể xác minh trạng thái sản phẩm nên kịch bản chưa được thay đổi. Hãy thử lại hoặc sửa dữ liệu dự án.',
+  'script_edit_commit_failed': 'Không thể lưu kịch bản an toàn. Hãy thử lại.',
+  'script_edit_rejected': 'Chỉnh sửa kịch bản bị từ chối. Hãy kiểm tra thao tác tương ứng rồi thử lại.',
 } satisfies Record<keyof typeof enDashboard, string>;

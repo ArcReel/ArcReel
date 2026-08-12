@@ -196,8 +196,8 @@ def patch_episode_script_tool(ctx: ToolContext):
                     "operations": args["operations"],
                 }
             else:
-                # Handler-level compatibility for transcripts created before the ordered command existed.
-                # The published MCP schema only exposes the revisioned operations form.
+                # Replayed tool calls may use the internal ``edits`` shape; the published MCP schema
+                # exposes only the revisioned operations form.
                 edits = args.get("edits")
                 if not isinstance(edits, dict) or not edits:
                     raise ScriptEditError("edits 必须是非空映射")

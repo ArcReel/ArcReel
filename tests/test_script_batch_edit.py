@@ -103,7 +103,7 @@ def test_multi_operation_commit_updates_manifest_and_returns_revision(
     adapter = ProjectArtifactManifestAdapter(project_dir)
     entry = adapter.get_entry(ArtifactKey.episode_script(1))
     assert entry is not None
-    step1 = json.loads((project_dir / "drafts" / "episode_1" / "step1_segments.json").read_text())
+    step1 = json.loads((project_dir / "drafts" / "episode_1" / "step1_segments.json").read_text(encoding="utf-8"))
     project = pm.load_project("demo")
     assert entry.basis_digest == build_episode_script_basis(step1, project=project).digest
     assert entry.artifact_path == "scripts/episode_1.json"
@@ -336,6 +336,68 @@ def test_reference_failure_maps_numeric_path_and_responsible_operation(
     assert problem.unit_id == "E1S01"
     assert problem.locations[0].path[:2] == ("segments", 0)
     assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before
+
+
+def test_reference_failure_is_attributed_to_the_operation_that_changed_the_field(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, service, project_dir = editor
+    before = (project_dir / "scripts" / "episode_1.json").read_bytes()
+
+    result = service.execute(
+        "demo",
+        _command(
+            pm,
+            [
+                {"op": "update", "id": "E1S01", "fields": {"characters_in_segment": ["missing"]}},
+                {"op": "update", "id": "E1S01", "fields": {"note": "later unrelated edit"}},
+            ],
+        ),
+    )
+
+    assert result.success is False
+    problem = result.problems[0]
+    assert problem.code == "references_invalid"
+    assert problem.operation_index == 0
+    assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before
+
+
+def test_unrelated_video_unit_edit_does_not_reject_unmarked_legacy_mixed_speech(tmp_path: Path) -> None:
+    pm = ProjectManager(str(tmp_path))
+    pm.create_project("demo", content_mode="narration")
+    pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    pm.update_project("demo", lambda project: project.update({"generation_mode": "reference_video"}))
+    pm.upsert_assets("demo", "characters", {"角色A": {"description": "主角"}})
+    script = {
+        "episode": 1,
+        "title": "第一集",
+        "content_mode": "narration",
+        "video_units": [
+            {
+                "unit_id": "E1U1",
+                "shots": [{"text": "@[角色A]：{快走。}\n{风吹过旷野。}"}],
+                "references": [{"type": "character", "name": "角色A"}],
+                "duration_seconds": 8,
+                "generated_assets": {"video_clip": "videos/E1U1.mp4", "status": "completed"},
+            }
+        ],
+    }
+    pm.save_script("demo", script, "episode_1.json")
+    service = ScriptBatchEditor(pm)
+
+    result = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1U1", "fields": {"note": "保留历史媒体"}}]),
+    )
+
+    assert result.success is True
+    saved = pm.load_script("demo", "episode_1.json")["video_units"][0]
+    assert saved["note"] == "保留历史媒体"
+    assert "needs_replan" not in saved
+    assert saved["generated_assets"] == {
+        "video_clip": "videos/E1U1.mp4",
+        "status": "completed",
+    }
 
 
 def test_remove_then_reinsert_same_id_preserves_anchor_media(

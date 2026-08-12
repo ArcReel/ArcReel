@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from lib.i18n.zh import errors as zh_errors
-from lib.project_manager import EmptySourceError
+from lib.project_manager import EmptySourceError, ProjectManager
 from lib.script_batch_edit import (
     InsertAfterOperation,
     MoveAfterOperation,
@@ -518,10 +518,13 @@ class TestProjectsRouter:
             response = client.patch(endpoint, json=body)
 
         assert response.status_code == 409
-        problem = response.json()["detail"]["problems"][0]
+        detail = response.json()["detail"]
+        assert detail["success"] is False
+        problem = detail["problems"][0]
         assert problem["code"] == "mixed_speech"
+        assert problem["operation_index"] == 0
         assert problem["reason"] == "character_and_narrator_mixed"
-        assert problem["action"] == "replan_unit"
+        assert problem["next_action"] == "replan_unit"
         assert kind in before
         assert fake_pm.scripts[(project_name, script_file)] == before
 
@@ -727,31 +730,77 @@ class TestProjectsRouter:
 
     @pytest.mark.integration
     def test_revisioned_batch_endpoint_returns_shared_result_and_rejects_stale_write(self, tmp_path, monkeypatch):
-        fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        pm = ProjectManager(str(tmp_path))
+        pm.create_project("demo", content_mode="narration")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "summary": "摘要",
+                "novel": {"title": "小说", "chapter": "第一章"},
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "风吹过旷野。",
+                        "characters_in_segment": [],
+                        "scenes": [],
+                        "props": [],
+                        "image_prompt": {
+                            "scene": "荒野",
+                            "composition": {
+                                "shot_type": "Medium Shot",
+                                "lighting": "暖光",
+                                "ambiance": "薄雾",
+                            },
+                        },
+                        "video_prompt": {
+                            "action": "转身",
+                            "camera_motion": "Static",
+                            "ambiance_audio": "风声",
+                        },
+                        "generated_assets": {},
+                    }
+                ],
+            },
+            "episode_1.json",
+        )
+        monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(
+            id="default",
+            sub="testuser",
+            role="admin",
+        )
+        app.include_router(projects.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        client = TestClient(app)
         with client:
-            snapshot = client.get("/api/v1/projects/ready/scripts/episode_1.json").json()
+            snapshot = client.get("/api/v1/projects/demo/scripts/episode_1.json").json()
             command = {
                 "script": "episode_1.json",
                 "expected_revision": snapshot["revision"],
-                "operations": [{"op": "update", "id": "001", "fields": {"note": "first"}}],
+                "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "first"}}],
             }
 
-            edited = client.post("/api/v1/projects/ready/script-edits", json=command)
+            edited = client.post("/api/v1/projects/demo/script-edits", json=command)
 
             assert edited.status_code == 200, edited.text
             result = edited.json()
             assert result["success"] is True
             assert result["before_revision"] == snapshot["revision"]
             assert result["revision"] != snapshot["revision"]
-            assert result["affected_ids"] == ["001"]
+            assert result["affected_ids"] == ["E1S01"]
 
-            command["operations"] = [{"op": "update", "id": "001", "fields": {"note": "stale"}}]
-            stale = client.post("/api/v1/projects/ready/script-edits", json=command)
+            command["operations"] = [{"op": "update", "id": "E1S01", "fields": {"note": "stale"}}]
+            stale = client.post("/api/v1/projects/demo/script-edits", json=command)
 
             assert stale.status_code == 409
             assert stale.json()["problems"][0]["code"] == "revision_conflict"
-            assert fake_pm.load_script("ready", "episode_1.json")["scenes"][0]["note"] == "first"
+            assert pm.load_script("demo", "episode_1.json")["segments"][0]["note"] == "first"
 
     @pytest.mark.unit
     def test_create_ad_project(self, tmp_path, monkeypatch):
@@ -1230,7 +1279,8 @@ class TestProjectsRouter:
             assert rejected.status_code == 409
             detail = rejected.json()["detail"]
             assert detail["problems"][0]["code"] == "mixed_speech"
-            assert detail["problems"][0]["action"] == "replan_unit"
+            assert detail["problems"][0]["operation_index"] == 0
+            assert detail["problems"][0]["next_action"] == "replan_unit"
             assert fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]["utterances"] == []
 
     @pytest.mark.unit

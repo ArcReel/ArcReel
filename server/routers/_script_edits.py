@@ -7,7 +7,6 @@ from typing import Any, Protocol
 
 from fastapi import HTTPException
 
-from lib.i18n import Translator
 from lib.project_manager import ProjectManager
 from lib.script_batch_edit import (
     ScriptBatchEditCommand,
@@ -32,28 +31,6 @@ def script_batch_status(result: ScriptBatchEditResult) -> int:
     if code == "commit_failed":
         return 500
     return 422
-
-
-def speech_admission_detail(result: ScriptBatchEditResult) -> dict[str, Any] | None:
-    if result.success or result.problems[0].code not in _SPEECH_PROBLEM_CODES:
-        return None
-    first = result.problems[0]
-    matching = [problem for problem in result.problems if problem.unit_id == first.unit_id]
-    return {
-        "allowed": False,
-        "unit_id": first.unit_id,
-        "mode": None,
-        "problems": [
-            {
-                "code": problem.code,
-                "unit_id": problem.unit_id,
-                "locations": [location.model_dump(mode="json") for location in problem.locations],
-                "reason": problem.reason,
-                "action": problem.next_action,
-            }
-            for problem in matching
-        ],
-    }
 
 
 def execute_current_script_edit(
@@ -102,29 +79,18 @@ def execute_current_episode_edit(
 
 def require_script_edit_result(
     result: ScriptBatchEditResult,
-    translate: Translator,
     *,
-    missing_key: str | None = None,
-    missing_params: Mapping[str, Any] | None = None,
+    operation_not_found: bool = False,
 ) -> None:
     if result.success:
         return
     first = result.problems[0]
-    speech_detail = speech_admission_detail(result)
-    if speech_detail is not None:
-        raise HTTPException(status_code=409, detail=speech_detail)
-    if first.code == "operation_invalid" and missing_key is not None:
-        raise HTTPException(status_code=404, detail=translate(missing_key, **dict(missing_params or {})))
-    if first.code == "revision_conflict":
-        raise HTTPException(status_code=409, detail=result.model_dump(mode="json"))
-    if first.code == "references_invalid":
-        raise HTTPException(status_code=400, detail=translate("script_validation_failed", details=first.code))
-    if first.code == "commit_failed":
-        raise HTTPException(status_code=500, detail=translate("internal_server_error"))
-    raise HTTPException(
-        status_code=422,
-        detail=translate("script_validation_failed", details=first.code),
-    )
+    status_code = script_batch_status(result)
+    if first.code == "operation_invalid" and operation_not_found:
+        status_code = 404
+    elif first.code == "references_invalid":
+        status_code = 400
+    raise HTTPException(status_code=status_code, detail=result.model_dump(mode="json"))
 
 
 __all__ = [
@@ -132,5 +98,4 @@ __all__ = [
     "execute_current_script_edit",
     "require_script_edit_result",
     "script_batch_status",
-    "speech_admission_detail",
 ]

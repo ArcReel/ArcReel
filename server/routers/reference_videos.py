@@ -224,7 +224,7 @@ async def add_unit(
         current,
         [{"op": "insert_after", "after_id": units[-1].get("unit_id") if units else None, "item": unit}],
     )
-    require_script_edit_result(result, _t)
+    require_script_edit_result(result)
     saved = get_project_manager().load_script(project_name, result.script)
     inserted = _find_unit(saved, unit["unit_id"], _t)
     return {"unit": inserted, "edit_result": result.model_dump(mode="json")}
@@ -286,7 +286,7 @@ async def patch_unit(
         current,
         [{"op": "update", "id": unit_id, "fields": fields}],
     )
-    require_script_edit_result(result, _t, missing_key="ref_unit_not_found", missing_params={"unit_id": unit_id})
+    require_script_edit_result(result, operation_not_found=True)
     saved = get_project_manager().load_script(project_name, result.script)
     unit = _find_unit(saved, unit_id, _t)
     return {"unit": unit, "edit_result": result.model_dump(mode="json")}
@@ -308,7 +308,7 @@ async def delete_unit(
         current,
         [{"op": "remove", "id": unit_id}],
     )
-    require_script_edit_result(result, _t, missing_key="ref_unit_not_found", missing_params={"unit_id": unit_id})
+    require_script_edit_result(result, operation_not_found=True)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -341,7 +341,7 @@ async def reorder_units(
         for index, unit_id in enumerate(req.unit_ids)
     ]
     result = execute_current_episode_edit(get_project_manager(), project_name, episode, current, operations)
-    require_script_edit_result(result, _t)
+    require_script_edit_result(result)
     reordered = get_project_manager().load_script(project_name, result.script)["video_units"]
     return {"units": reordered, "edit_result": result.model_dump(mode="json")}
 

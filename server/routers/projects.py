@@ -1069,9 +1069,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
                 )
             require_script_edit_result(
                 result,
-                _t,
-                missing_key="scene_not_found",
-                missing_params={"id": scene_id},
+                operation_not_found=True,
             )
             saved = manager.load_script(name, req.script_file)
             matched = next(scene for scene in saved["scenes"] if scene.get("scene_id") == scene_id)
@@ -1174,9 +1172,7 @@ async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Trans
                 )
             require_script_edit_result(
                 result,
-                _t,
-                missing_key="shot_not_found",
-                missing_params={"id": shot_id},
+                operation_not_found=True,
             )
             saved = manager.load_script(name, req.script_file)
             matched = next(shot for shot in saved["shots"] if shot.get("shot_id") == shot_id)
@@ -1236,7 +1232,7 @@ async def reorder_shots(name: str, req: ReorderShotsRequest, _t: Translator):
                     operations,
                     editor=get_script_batch_editor(manager),
                 )
-            require_script_edit_result(result, _t)
+            require_script_edit_result(result)
             reordered = manager.load_script(name, req.script_file)["shots"]
             return {"success": True, "shots": reordered, "edit_result": result.model_dump(mode="json")}
 
@@ -1330,9 +1326,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                 )
             require_script_edit_result(
                 result,
-                _t,
-                missing_key="segment_not_found",
-                missing_params={"id": segment_id},
+                operation_not_found=True,
             )
             saved = manager.load_script(name, req.script_file)
             matched = next(segment for segment in saved["segments"] if segment.get("segment_id") == segment_id)

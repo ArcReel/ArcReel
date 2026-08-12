@@ -1,5 +1,11 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentFailureError, API, ConflictError, SpeechAdmissionError } from "@/api";
+import {
+  AgentFailureError,
+  API,
+  ConflictError,
+  ScriptEditCommandError,
+  SpeechAdmissionError,
+} from "@/api";
 
 type JsonResponseOptions = {
   ok?: boolean;
@@ -163,6 +169,36 @@ describe("API", () => {
         expect((error as SpeechAdmissionError).admission).toEqual(admission);
         expect((error as Error).message).toContain("E1S01");
         expect((error as Error).message).toContain("utterances.0.text");
+      }
+    });
+
+    it("preserves the shared script-edit result from compatibility endpoints", async () => {
+      const result = {
+        success: false,
+        script: "episode_1.json",
+        episode: 1,
+        before_revision: `sha256-v1:${"0".repeat(64)}`,
+        revision: `sha256-v1:${"0".repeat(64)}`,
+        affected_ids: [],
+        problems: [{
+          code: "mixed_speech",
+          operation_index: 2,
+          unit_id: "E1S01",
+          locations: [{ path: ["utterances", 0, "text"], line: null }],
+          reason: "character_and_narrator_mixed",
+          next_action: "replan_unit",
+        }],
+      };
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+        mockResponse({ ok: false, status: 409, jsonData: { detail: result } }),
+      ));
+
+      try {
+        await API.updateScene("demo", "E1S01", "episode_1.json", { note: "keep" });
+        expect.fail("request should fail");
+      } catch (error) {
+        expect(error).toBeInstanceOf(ScriptEditCommandError);
+        expect((error as ScriptEditCommandError).result).toEqual(result);
       }
     });
 

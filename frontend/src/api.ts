@@ -107,7 +107,7 @@ export interface LoginResponse {
 
 /** Standard error response body from backend (mirrors FastAPI HTTPException detail). */
 export interface ErrorResponse {
-  detail: string | { msg?: string }[] | AgentFailureDetail | SpeechAdmission;
+  detail: string | { msg?: string }[] | AgentFailureDetail | SpeechAdmission | ScriptEditResult;
 }
 
 export interface SpeechAdmissionLocation {
@@ -166,7 +166,7 @@ export class ScriptEditCommandError extends Error {
   readonly code = "script_edit_rejected" as const;
 
   constructor(public readonly result: ScriptEditResult) {
-    super(result.problems[0]?.code ?? "script edit rejected");
+    super(formatScriptEditResult(result));
     this.name = "ScriptEditCommandError";
   }
 }
@@ -486,6 +486,41 @@ function formatSpeechAdmission(admission: SpeechAdmission): string {
   return i18n.t(`dashboard:${key}`, { unitId: problem.unit_id, location });
 }
 
+function formatScriptEditResult(result: ScriptEditResult): string {
+  const first = result.problems[0];
+  if (!first) return i18n.t("dashboard:script_edit_rejected");
+  const speechCodes: SpeechAdmissionProblem["code"][] = [
+    "mixed_speech",
+    "needs_replan",
+    "parse_failed",
+    "empty_speaker",
+  ];
+  if (speechCodes.includes(first.code as SpeechAdmissionProblem["code"]) && first.unit_id !== null) {
+    const unitId = first.unit_id;
+    const problems = result.problems
+      .filter(({ code, unit_id }) => (
+        unit_id === unitId && speechCodes.includes(code as SpeechAdmissionProblem["code"])
+      ))
+      .map((problem) => ({
+        code: problem.code as SpeechAdmissionProblem["code"],
+        unit_id: problem.unit_id ?? unitId,
+        locations: problem.locations,
+        reason: problem.reason,
+        action: problem.next_action,
+      }));
+    return formatSpeechAdmission({ allowed: false, unit_id: unitId, mode: null, problems });
+  }
+  const key = {
+    revision_conflict: "script_edit_revision_conflict",
+    operation_invalid: "script_edit_operation_invalid",
+    schema_invalid: "script_edit_schema_invalid",
+    references_invalid: "script_edit_references_invalid",
+    manifest_invalid: "script_edit_manifest_invalid",
+    commit_failed: "script_edit_commit_failed",
+  }[first.code] ?? "script_edit_rejected";
+  return i18n.t(`dashboard:${key}`);
+}
+
 /** 为 fetch options 注入 Authorization header */
 let apiReadOnly = false;
 
@@ -588,6 +623,9 @@ class API {
         throw new ScriptEditCommandError(payload);
       }
       const error = payload as ErrorResponse;
+      if (isScriptEditResult(error.detail)) {
+        throw new ScriptEditCommandError(error.detail);
+      }
       if (isAgentFailureDetail(error.detail)) {
         throw new AgentFailureError(error.detail.message, error.detail.failure);
       }
