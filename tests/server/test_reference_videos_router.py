@@ -880,6 +880,22 @@ def test_precheck_empty_duration_metadata_returns_structured_blocker(
 
 
 @pytest.mark.integration
+def test_precheck_formats_missing_asset_message_for_people(client: TestClient, tmp_path: Path) -> None:
+    from lib.i18n import _ as i18n_message
+
+    uid = _seed_unit(client)
+    (tmp_path / "projects" / "demo" / "characters" / "张三.png").unlink()
+
+    response = _precheck(client, uid)
+
+    assert response.status_code == 400, response.text
+    problems = response.json()["detail"]["problems"]
+    missing = next(problem for problem in problems if problem["code"] == "reference_asset_missing")
+    assert missing["params"]["missing"] == [["character", "张三"]]
+    assert missing["message"] == i18n_message("reference_asset_missing", missing="character: 张三")
+
+
+@pytest.mark.integration
 def test_precheck_missing_unit_returns_404(client: TestClient):
     assert _precheck(client, "E9U9").status_code == 404
 

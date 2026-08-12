@@ -1662,6 +1662,24 @@ async def test_generate_video_episode_reference_tts_floor_matches_projection_and
     }
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "invalid_floor",
+    [0, -1, float("nan"), float("inf"), True, "9.5"],
+    ids=["zero", "negative", "nan", "infinity", "boolean", "string"],
+)
+def test_reference_request_options_rejects_invalid_tts_floor(invalid_floor: object) -> None:
+    from server.agent_runtime.sdk_tools.enqueue_videos import _reference_request_options
+
+    with pytest.raises(ValueError, match="narration_duration_floor 必须是大于 0 的有限秒数"):
+        _reference_request_options(
+            {
+                "narration_delivery": "use_tts",
+                "narration_duration_floor": invalid_floor,
+            }
+        )
+
+
 @pytest.mark.integration
 async def test_generate_video_episode_reference_duration_repeat_without_confirm_still_blocked(
     fake_ctx: ToolContext, monkeypatch

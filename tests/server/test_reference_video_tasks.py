@@ -109,7 +109,7 @@ def _wire_context(
     max_reference_audio_count: int = 0,
     reference_audio_per_image: bool = False,
     requested_generate_audio: bool = True,
-    generate_audio: bool | None = None,
+    generate_audio: bool = False,
 ) -> None:
     """把 fake generator + video lane 值包成 GenerationContext，替换 resolve_generation_context 单点。
 
@@ -137,9 +137,7 @@ def _wire_context(
         max_reference_audio_count=max_reference_audio_count,
         reference_audio_per_image=reference_audio_per_image,
         requested_generate_audio=requested_generate_audio,
-        generate_audio=(
-            requested_generate_audio and voice_consistency != "none" if generate_audio is None else generate_audio
-        ),
+        generate_audio=generate_audio,
     )
     ctx = GenerationContext(generator=fake_generator, video_lane=lane)
 
@@ -1068,6 +1066,7 @@ async def test_execute_reference_video_task_rechecks_audio_switch_for_latest_mod
         supported_durations=(3, 4, 5),
         voice_consistency="native",
         requested_generate_audio=False,
+        generate_audio=True,
     )
     fake_queue = MagicMock()
     fake_queue.persist_effective_duration = AsyncMock()

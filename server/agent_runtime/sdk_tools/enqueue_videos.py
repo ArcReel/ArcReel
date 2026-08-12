@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -77,7 +78,16 @@ def _reference_request_options(args: dict[str, Any]) -> ReferenceRequestOptions:
     if delivery not in (POST_PRODUCTION, USE_TTS):
         delivery = POST_PRODUCTION
     raw_floor = args.get("narration_duration_floor")
-    floor = float(raw_floor) if isinstance(raw_floor, (int, float)) and not isinstance(raw_floor, bool) else None
+    floor: float | None = None
+    if raw_floor is not None:
+        if not isinstance(raw_floor, (int, float)) or isinstance(raw_floor, bool):
+            raise ValueError(f"narration_duration_floor 必须是大于 0 的有限秒数，收到 {raw_floor!r}")
+        try:
+            floor = float(raw_floor)
+        except (OverflowError, ValueError) as exc:
+            raise ValueError(f"narration_duration_floor 必须是大于 0 的有限秒数，收到 {raw_floor!r}") from exc
+        if not math.isfinite(floor) or floor <= 0:
+            raise ValueError(f"narration_duration_floor 必须是大于 0 的有限秒数，收到 {raw_floor!r}")
     return ReferenceRequestOptions(
         narration_delivery=delivery,
         narration_duration_floor=floor,

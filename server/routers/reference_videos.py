@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field
@@ -125,7 +125,11 @@ def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tup
 def _problem_payload(projection: ReferenceUnitRequestProjection, _t: Translator) -> list[dict[str, Any]]:
     payloads = projection.problem_payloads()
     for payload, problem in zip(payloads, projection.problems, strict=True):
-        payload["message"] = _t(problem.code, **problem.parameters())
+        params = problem.parameters()
+        if problem.code == "reference_asset_missing":
+            missing = cast(tuple[tuple[str, str], ...], params.get("missing", ()))
+            params["missing"] = ", ".join(f"{asset_type}: {name}" for asset_type, name in missing)
+        payload["message"] = _t(problem.code, **params)
     return payloads
 
 
