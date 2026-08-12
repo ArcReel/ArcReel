@@ -271,6 +271,13 @@ async def generate_video(
     delivery_projection: NarratedVideoDurationPreparation | None = None
     delivery_payload: dict[str, object] | None = None
     if req.narration_delivery == USE_TTS:
+        current_planned_duration = item.get("duration_seconds")
+        if (
+            not isinstance(current_planned_duration, int)
+            or isinstance(current_planned_duration, bool)
+            or current_planned_duration <= 0
+        ):
+            current_planned_duration = None
         try:
             delivery_projection = await prepare_current_storyboard_narrated_video_duration(
                 project_name=project_name,
@@ -280,7 +287,9 @@ async def generate_video(
                 script_file=req.script_file,
                 item=item,
                 capability=_video_bucket,
-                planned_duration_seconds=req.duration_seconds,
+                # use_tts 不把请求中的 duration 持久化进队列；预检必须和 worker 一样基于
+                # 当前盘上单元重投影，否则客户端旧快照可能先通过、执行时才要求另一档确认。
+                planned_duration_seconds=current_planned_duration,
                 confirmed_request_duration_seconds=req.confirmed_request_duration_seconds,
             )
         except ProjectionResolutionError as exc:

@@ -266,6 +266,40 @@ class TestGenerateRouter:
         assert fake_queue.calls == []
 
     @pytest.mark.integration
+    def test_video_use_tts_prechecks_current_saved_duration(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+        captured: dict[str, object] = {}
+
+        async def _project(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+        async def _localized(_preparation, _translator):
+            return {"allowed": True}
+
+        monkeypatch.setattr(generate, "prepare_current_storyboard_narrated_video_duration", _project)
+        monkeypatch.setattr(generate, "_localized_narrated_video_payload", _localized)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    # 客户端快照可以落后于盘上剧本；use_tts 执行不会持久化这个覆盖值。
+                    "duration_seconds": 8,
+                    "prompt": {"action": "风吹草动", "camera_motion": "Static"},
+                    "narration_delivery": "use_tts",
+                },
+            )
+
+        assert response.status_code == 200, response.text
+        assert captured["planned_duration_seconds"] == 4
+        assert "duration_seconds" not in fake_queue.calls[0]["payload"]
+
+    @pytest.mark.integration
     def test_video_use_tts_confirms_only_the_current_higher_tier(self, tmp_path, monkeypatch):
         from dataclasses import replace
 
