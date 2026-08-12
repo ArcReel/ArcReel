@@ -948,6 +948,42 @@ class TestEventLogStore:
         assert again["seq"] == 0
 
 
+class TestUserMessageLink:
+    """用户消息身份映射：服务端条目 id ↔ SDK transcript entry uuid。"""
+
+    async def test_records_and_finds_mapping(self, log_store: EventLogStore):
+        entry = build_user_entry([{"type": "text", "text": "hi"}])
+        appended, _created = await log_store.append_user_entry("s1", entry)
+
+        await log_store.record_user_message_link("s1", appended["uuid"], "sdk-entry-1")
+
+        assert await log_store.find_user_message_link("s1", appended["uuid"]) == "sdk-entry-1"
+
+    async def test_missing_mapping_returns_none(self, log_store: EventLogStore):
+        """没有映射行的会话：查不到即返回 None，不抛错。"""
+        assert await log_store.find_user_message_link("s1", "user-unknown") is None
+
+    async def test_repeat_record_keeps_first_mapping(self, log_store: EventLogStore):
+        await log_store.record_user_message_link("s1", "user-1", "sdk-entry-1")
+        await log_store.record_user_message_link("s1", "user-1", "sdk-entry-2")
+
+        assert await log_store.find_user_message_link("s1", "user-1") == "sdk-entry-1"
+
+    async def test_mapping_is_scoped_per_session(self, log_store: EventLogStore):
+        await log_store.record_user_message_link("s1", "user-1", "sdk-entry-1")
+        await log_store.record_user_message_link("s2", "user-1", "sdk-entry-2")
+
+        assert await log_store.find_user_message_link("s2", "user-1") == "sdk-entry-2"
+
+    async def test_delete_session_drops_mapping(self, log_store: EventLogStore):
+        await log_store.append("s1", [{"type": "user", "uuid": "user-1"}])
+        await log_store.record_user_message_link("s1", "user-1", "sdk-entry-1")
+
+        await log_store.delete_session("s1")
+
+        assert await log_store.find_user_message_link("s1", "user-1") is None
+
+
 # ---------------------------------------------------------------------------
 # EventLogService — 懒生成
 # ---------------------------------------------------------------------------
@@ -1025,6 +1061,16 @@ class TestLazyBackfill:
         results = await asyncio.gather(*[service.list_entries("old", None) for _ in range(5)])
         assert all(len(r) == 1 for r in results)
         assert len(await log_store.list_after("old")) == 1
+
+    async def test_backfilled_session_works_without_mapping(self, log_store: EventLogStore):
+        """没有身份映射行的会话：懒生成照常重建，只是条目不可作改写锚点。"""
+        adapter = _FakeAdapter([{"type": "user", "content": "hi", "uuid": "t1"}])
+        service = EventLogService(log_store, adapter)
+
+        entries = await service.list_entries("old", None)
+
+        assert len(entries) == 1
+        assert await log_store.find_user_message_link("old", entries[0]["uuid"]) is None
 
     async def test_no_backfill_when_log_already_has_entries(self, log_store: EventLogStore):
         adapter = _FakeAdapter([{"type": "user", "content": "transcript", "uuid": "t1"}])
@@ -1252,3 +1298,101 @@ class TestSubagentBackfillMerge:
         assert len(skill_entries) == 1
         assert skill_entries[0]["skill_name"] == "commit"
         assert skill_entries[0]["parent_tool_use_id"] == "tu-agent"
+
+
+class TestResolveUserMessageAnchor:
+    """锚点解析两段化：身份映射优先，未命中按恒等性回退。"""
+
+    async def test_mapping_wins_and_needs_no_transcript(self, log_store: EventLogStore):
+        """活跃路径 mint 的条目 id 与 SDK uuid 天然不同名，只能靠映射对上。"""
+        adapter = _FakeAdapter([{"type": "user", "content": "hi", "uuid": "sdk-1"}])
+        service = EventLogService(log_store, adapter)
+        await log_store.record_user_message_link("s1", "user-abc", "sdk-1")
+
+        assert await service.resolve_user_message_anchor("s1", "user-abc", None) == "sdk-1"
+        assert adapter.read_count == 0
+
+    async def test_falls_back_to_identity_for_a_plain_user_entry(self, log_store: EventLogStore):
+        """无映射的历史用户条目：两个域的 uuid 本就相同，取自身即可。"""
+        adapter = _FakeAdapter(
+            [
+                {"type": "user", "content": "hi", "uuid": "t1"},
+                {"type": "assistant", "content": [{"type": "text", "text": "在"}], "uuid": "a1"},
+            ]
+        )
+        service = EventLogService(log_store, adapter)
+
+        assert await service.resolve_user_message_anchor("s1", "t1", None) == "t1"
+
+    async def test_assistant_entry_is_refused(self, log_store: EventLogStore):
+        adapter = _FakeAdapter([{"type": "assistant", "content": [{"type": "text", "text": "在"}], "uuid": "a1"}])
+        service = EventLogService(log_store, adapter)
+
+        assert await service.resolve_user_message_anchor("s1", "a1", None) is None
+
+    async def test_typed_user_subtypes_are_refused(self, log_store: EventLogStore):
+        """问答回复带 subtype、uuid 也是派生的；作锚点没有意义。"""
+        adapter = _FakeAdapter(
+            [
+                {
+                    "type": "assistant",
+                    "uuid": "a1",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "tu-q",
+                            "name": "AskUserQuestion",
+                            "input": {"questions": [{"question": "继续吗?"}]},
+                        }
+                    ],
+                },
+                {
+                    "type": "user",
+                    "uuid": "u-ans",
+                    "content": [{"type": "tool_result", "tool_use_id": "tu-q", "content": "answered"}],
+                },
+            ]
+        )
+        service = EventLogService(log_store, adapter)
+
+        assert await service.resolve_user_message_anchor("s1", "u-ans-tr0", None) is None
+        assert await service.resolve_user_message_anchor("s1", "u-ans", None) is None
+
+    async def test_system_shaped_pseudo_user_entries_are_refused(self, log_store: EventLogStore):
+        """transcript 侧的 interrupt 回显与 skill 注入都是 type:"user"，定型后成
+        system 条目：前者原样留用 uuid、后者带 -skill 后缀，两种形状都不作锚点。"""
+        adapter = _FakeAdapter(
+            [
+                {"type": "user", "content": "开始", "uuid": "u1"},
+                {"type": "user", "content": "[Request interrupted by user]", "uuid": "i1"},
+                {"type": "user", "content": "Base directory for this skill: /x/skills/demo", "uuid": "k1"},
+            ]
+        )
+        service = EventLogService(log_store, adapter)
+
+        assert await service.resolve_user_message_anchor("s1", "i1", None) is None
+        assert await service.resolve_user_message_anchor("s1", "k1", None) is None
+        assert await service.resolve_user_message_anchor("s1", "k1-skill0", None) is None
+        assert await service.resolve_user_message_anchor("s1", "u1", None) == "u1"
+
+    async def test_subagent_entry_is_refused(self, log_store: EventLogStore):
+        """子时间线里的用户条目带 parent_tool_use_id，不在主线上。"""
+        adapter = _FakeAdapter(
+            [
+                {
+                    "type": "assistant",
+                    "uuid": "a1",
+                    "content": [{"type": "tool_use", "id": "tu-agent", "name": "Task", "input": {}}],
+                }
+            ],
+            {"tu-agent": [{"type": "user", "content": "子任务输入", "uuid": "sub-u1"}]},
+        )
+        service = EventLogService(log_store, adapter)
+
+        assert await service.resolve_user_message_anchor("s1", "sub-u1", None) is None
+
+    async def test_unknown_uuid_yields_nothing(self, log_store: EventLogStore):
+        adapter = _FakeAdapter([{"type": "user", "content": "hi", "uuid": "t1"}])
+        service = EventLogService(log_store, adapter)
+
+        assert await service.resolve_user_message_anchor("s1", "user-never-seen", None) is None

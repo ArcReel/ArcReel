@@ -367,6 +367,133 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is not True
         assert _load(ref_ctx)["video_units"][0]["note"] == "单元备注"
 
+    @pytest.mark.integration
+    async def test_reference_replan_marker_requires_planning_edit(self, ref_ctx: ToolContext) -> None:
+        script = _reference_script()
+        script["video_units"][0]["needs_replan"] = True
+        script["video_units"][0]["migration_requires_content_replan"] = True
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        noted = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"note": "待复核"}}},
+        )
+        assert noted.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
+        resized = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"duration_seconds": 12}}},
+        )
+        assert resized.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
+        resubmitted = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": _unit("E1U1")["shots"]}}},
+        )
+        assert resubmitted.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
+        repaired = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "修复后的无声镜头"}]}}},
+        )
+        assert repaired.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0].get("needs_replan") is not True
+        assert _load(ref_ctx)["video_units"][0].get("migration_requires_content_replan") is not True
+
+    @pytest.mark.integration
+    async def test_reference_duration_repair_clears_non_content_marker(self, ref_ctx: ToolContext) -> None:
+        script = _reference_script()
+        script["video_units"][0].update({"duration_seconds": 1, "needs_replan": True})
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        repaired = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"duration_seconds": 1}}},
+        )
+
+        assert repaired.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0].get("needs_replan") is not True
+
+    @pytest.mark.integration
+    async def test_reference_shot_edit_rederives_registered_references(self, ref_ctx: ToolContext) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["products"] = {"产品A": {"description": ""}, "产品B": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+        script = _reference_script()
+        script["video_units"][0].update(
+            {
+                "shots": [{"text": "@[产品A] 正面展示"}],
+                "references": [{"type": "product", "name": "产品A"}],
+            }
+        )
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        changed = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "@[产品B] 侧面展示"}]}}},
+        )
+
+        assert changed.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["references"] == [{"type": "product", "name": "产品B"}]
+
+    @pytest.mark.integration
+    async def test_reference_shot_edit_rederives_from_locked_project_snapshot(
+        self, ref_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["products"] = {"产品B": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+
+        original_load_project = ref_ctx.pm.load_project
+        first_load = True
+
+        def _load_then_remove_product(project_name: str) -> dict[str, Any]:
+            nonlocal first_load
+            stale = original_load_project(project_name)
+            if first_load:
+                first_load = False
+                current = {**stale, "products": {}}
+                ref_ctx.pm.save_project(project_name, current)
+            return stale
+
+        monkeypatch.setattr(ref_ctx.pm, "load_project", _load_then_remove_product)
+
+        changed = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "@[产品B] 侧面展示"}]}}},
+        )
+
+        assert changed.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["references"] == []
+
+    @pytest.mark.integration
+    async def test_reference_replan_marker_cannot_be_patched_directly(self, ref_ctx: ToolContext) -> None:
+        script = _reference_script()
+        script["video_units"][0]["needs_replan"] = True
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        out = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"needs_replan": False}}},
+        )
+
+        assert out.get("is_error") is True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
+        provenance = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {"E1U1": {"migration_requires_content_replan": False}},
+            },
+        )
+
+        assert provenance.get("is_error") is True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
     @pytest.mark.unit
     async def test_ad_mode_by_shot_id(self, ad_ctx: ToolContext) -> None:
         """ad 模式：按 shot_id 定位，批量改字段落盘。"""
@@ -521,14 +648,14 @@ class TestPatchProject:
 
     @pytest.mark.unit
     async def test_invalid_entry_rejected_even_when_project_already_invalid(self, ctx: ToolContext) -> None:
-        """「不更坏」error set diff 语义：项目本就脏（无关字段非法）时，本次 upsert 引入的
+        """「不更坏」error set diff 语义：项目本就脏（无关字段非法）时，upsert 引入的
         新错误（如新 entry 缺 description）仍应被拒——单纯 `before_valid AND after.valid` 判定
         会让新错误 piggyback 通过，error set diff 才能堵这条旁路。"""
         # 让项目改前先脏（与资产无关的历史问题，如空 style）
         ctx.pm.update_project("demo", lambda p: p.update({"style": ""}))
         out = await _call(
             patch_project_tool(ctx),
-            # 缺 description 的非法 entry，本次写入引入的「新错误」
+            # 缺 description 的非法 entry，写入引入的「新错误」
             {"table": "scenes", "entries": {"空场景": {"voice_style": "x"}}},
         )
         assert out.get("is_error") is True

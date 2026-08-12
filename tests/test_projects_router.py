@@ -1,6 +1,7 @@
 import json
 import re
 import shutil
+import unicodedata
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -63,6 +64,7 @@ class _FakePM:
         }
         self.created = set()
         self.generated_names = ["project-aa11bb22", "project-cc33dd44"]
+        self.profile_reset_calls: list[str] = []
         (self.base / "ready" / "storyboards").mkdir(parents=True, exist_ok=True)
         (self.base / "ready" / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
         (self.base / "empty").mkdir(parents=True, exist_ok=True)
@@ -96,11 +98,28 @@ class _FakePM:
             raise FileNotFoundError(name)
         return path
 
+    @contextmanager
+    def locked_source_mutation(self, name):
+        source_dir = self.get_project_path(name) / "source"
+        source_dir.mkdir(parents=True, exist_ok=True)
+        yield source_dir
+
     def delete_project_directory(self, name):
         shutil.rmtree(self.get_project_path(name))
 
     def get_project_status(self, name):
         return {"current_stage": "source_ready"}
+
+    def get_agent_profile_status(self, project_dir):
+        assert project_dir == self.base / "ready"
+        return {
+            "customized": True,
+            "customized_files": ["CLAUDE.md", ".claude/agents/legacy.md"],
+        }
+
+    def force_resync_profile(self, project_dir):
+        self.profile_reset_calls.append(project_dir.name)
+        return {"repaired": 2, "errors": 0}
 
     def create_project(self, name, content_mode="narration"):
         if not name or not re.fullmatch(r"[A-Za-z0-9-]+", name):
@@ -268,6 +287,35 @@ def _client(monkeypatch, fake_pm, fake_calc):
 
 
 class TestProjectsRouter:
+    @pytest.mark.unit
+    def test_agent_profile_status_and_explicit_reset(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            status = client.get("/api/v1/projects/ready/agent-profile")
+            assert status.status_code == 200
+            assert status.json() == {
+                "customized": True,
+                "customized_files": ["CLAUDE.md", ".claude/agents/legacy.md"],
+            }
+
+            reset = client.post("/api/v1/projects/ready/agent-profile/reset")
+            assert reset.status_code == 200
+            assert reset.json() == {"customized": False, "customized_files": []}
+            assert fake_pm.profile_reset_calls == ["ready"]
+
+    @pytest.mark.unit
+    def test_agent_profile_endpoints_reject_invalid_project_name(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            status = client.get("/api/v1/projects/illegal-name/agent-profile")
+            reset = client.post("/api/v1/projects/illegal-name/agent-profile/reset")
+
+        assert status.status_code == 400
+        assert status.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
+        assert reset.status_code == 400
+        assert reset.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
+
     @pytest.mark.unit
     def test_list_and_create_and_delete(self, tmp_path, monkeypatch):
         client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
@@ -695,6 +743,7 @@ class TestProjectsRouter:
         }
 
         client = _client(monkeypatch, fake_pm, _FakeCalc())
+        nfd_cafe = unicodedata.normalize("NFD", "Café")
 
         with client:
             # 写入新引用列表
@@ -702,14 +751,14 @@ class TestProjectsRouter:
                 "/api/v1/projects/ready/segments/E1S01",
                 json={
                     "script_file": "narration.json",
-                    "characters_in_segment": ["Bob", "Carol"],
-                    "scenes": ["Castle"],
+                    "characters_in_segment": [" Bob ", f" {nfd_cafe} "],
+                    "scenes": [" Castle "],
                     "props": [],
                 },
             )
             assert patched.status_code == 200
             seg = patched.json()["segment"]
-            assert seg["characters_in_segment"] == ["Bob", "Carol"]
+            assert seg["characters_in_segment"] == ["Bob", "Café"]
             assert seg["scenes"] == ["Castle"]
             assert seg["props"] == []
 
@@ -721,7 +770,7 @@ class TestProjectsRouter:
             assert untouched.status_code == 200
             seg2 = untouched.json()["segment"]
             assert seg2["duration_seconds"] == 7
-            assert seg2["characters_in_segment"] == ["Bob", "Carol"]
+            assert seg2["characters_in_segment"] == ["Bob", "Café"]
             assert seg2["scenes"] == ["Castle"]
             assert seg2["props"] == []
 
@@ -788,6 +837,7 @@ class TestProjectsRouter:
         }
 
         client = _client(monkeypatch, fake_pm, _FakeCalc())
+        nfd_cafe = unicodedata.normalize("NFD", "Café")
 
         with client:
             patched = client.patch(
@@ -795,15 +845,15 @@ class TestProjectsRouter:
                 json={
                     "script_file": "episode_1.json",
                     "updates": {
-                        "characters_in_scene": ["Bob"],
-                        "scenes": ["Castle"],
-                        "props": ["Map"],
+                        "characters_in_scene": [f" {nfd_cafe} "],
+                        "scenes": [" Castle "],
+                        "props": [" Map "],
                     },
                 },
             )
             assert patched.status_code == 200
             scene = patched.json()["scene"]
-            assert scene["characters_in_scene"] == ["Bob"]
+            assert scene["characters_in_scene"] == ["Café"]
             assert scene["scenes"] == ["Castle"]
             assert scene["props"] == ["Map"]
 
@@ -1323,6 +1373,70 @@ class TestProjectsRouter:
             assert "image_backend" not in data
 
     @pytest.mark.unit
+    def test_create_project_persists_speech_rate(self, tmp_path, monkeypatch):
+        """创建时可选填口播语速估算：区间内落盘，未填不落盘（回退语言默认）。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "generation_mode": "storyboard",
+                    "title": "语速项目",
+                    "name": "sr-1",
+                    "speech_rate_units_per_second": 6.5,
+                },
+            )
+            assert resp.status_code == 200
+            assert fake_pm.project_data["sr-1"]["speech_rate_units_per_second"] == 6.5
+
+            resp = client.post(
+                "/api/v1/projects",
+                json={"generation_mode": "storyboard", "title": "默认语速", "name": "sr-2"},
+            )
+            assert resp.status_code == 200
+            assert "speech_rate_units_per_second" not in fake_pm.project_data["sr-2"]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("bad", [0, -1, 20.5])
+    def test_create_project_rejects_out_of_range_speech_rate(self, tmp_path, monkeypatch, bad):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "generation_mode": "storyboard",
+                    "title": "越界语速",
+                    "name": "sr-bad",
+                    "speech_rate_units_per_second": bad,
+                },
+            )
+            assert resp.status_code == 422
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("value", [True, False])
+    def test_create_project_rejects_boolean_speech_rate(self, tmp_path, monkeypatch, value):
+        """JSON 布尔不得被 Pydantic 折成 1.0 / 0.0 混进语速覆盖，两个取值都应 422 且不建目录。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "generation_mode": "storyboard",
+                    "title": "布尔语速",
+                    "name": "sr-bool",
+                    "speech_rate_units_per_second": value,
+                },
+            )
+            assert resp.status_code == 422
+            assert "sr-bool" not in fake_pm.project_data
+
+    @pytest.mark.unit
     def test_create_project_with_invalid_backend_returns_400(self, tmp_path, monkeypatch):
         """非法 backend 字符串应被校验器拒绝。"""
         fake_pm = _FakePM(tmp_path)
@@ -1465,6 +1579,42 @@ class TestProjectsRouter:
             resp = client.patch("/api/v1/projects/ready", json={"narration_speed": 0})
             assert resp.status_code == 422
             assert "narration_speed" not in fake_pm.project_data["ready"]
+
+    @pytest.mark.unit
+    def test_update_project_persists_and_clears_speech_rate(self, tmp_path, monkeypatch):
+        """PATCH 口播语速估算：区间内写入 project.json，null 清除回落语言默认。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"speech_rate_units_per_second": 6.5})
+            assert resp.status_code == 200
+            assert fake_pm.project_data["ready"]["speech_rate_units_per_second"] == 6.5
+
+            resp = client.patch("/api/v1/projects/ready", json={"speech_rate_units_per_second": None})
+            assert resp.status_code == 200
+            assert "speech_rate_units_per_second" not in fake_pm.project_data["ready"]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("bad", [0, -1, 20.5, 1000])
+    def test_update_project_rejects_out_of_range_speech_rate(self, tmp_path, monkeypatch, bad):
+        """口播语速估算越界（≤0 或 >20）应 422，且不写回 project.json。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"speech_rate_units_per_second": bad})
+            assert resp.status_code == 422
+            assert "speech_rate_units_per_second" not in fake_pm.project_data["ready"]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("value", [True, False])
+    def test_update_project_rejects_boolean_speech_rate(self, tmp_path, monkeypatch, value):
+        """PATCH 同样拒布尔：否则 true 会作为 1.0 落盘、false 被当成未填静默跳过。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"speech_rate_units_per_second": value})
+            assert resp.status_code == 422
+            assert "speech_rate_units_per_second" not in fake_pm.project_data["ready"]
 
     @pytest.mark.unit
     def test_update_project_rejects_invalid_audio_backend(self, tmp_path, monkeypatch):

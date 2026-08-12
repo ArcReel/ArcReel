@@ -1,0 +1,115 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import type { Turn } from "@/types";
+import { MessageRow } from "./MessageRow";
+
+const userTurn: Turn = {
+  type: "user",
+  uuid: "u-1",
+  timestamp: "2026-05-02T14:21:00Z",
+  content: [{ type: "text", text: "只改第 3 集" }],
+};
+
+describe("MessageRow", () => {
+  it("renders the edit entry on an editable user message", () => {
+    render(<MessageRow turn={userTurn} editable />);
+
+    expect(screen.getByLabelText("编辑此消息并从这里重新发送")).toBeInTheDocument();
+    expect(screen.getByLabelText("复制消息")).toBeInTheDocument();
+  });
+
+  it("hides the edit entry when not editable, keeping the rest of the action row", () => {
+    render(<MessageRow turn={userTurn} editable={false} />);
+
+    expect(screen.queryByLabelText("编辑此消息并从这里重新发送")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("复制消息")).toBeInTheDocument();
+  });
+
+  it("hands the anchor uuid and current text to the edit handler", () => {
+    const onStartEdit = vi.fn();
+    render(<MessageRow turn={userTurn} editable onStartEdit={onStartEdit} />);
+
+    fireEvent.click(screen.getByLabelText("编辑此消息并从这里重新发送"));
+
+    expect(onStartEdit).toHaveBeenCalledWith("u-1", "只改第 3 集");
+  });
+
+  it("edits in place, showing the consequence note and submitting on ⌘/Ctrl+Enter", () => {
+    const onSubmitEdit = vi.fn();
+    render(<MessageRow turn={userTurn} editable editing onSubmitEdit={onSubmitEdit} />);
+
+    const textarea = screen.getByLabelText("改写消息内容");
+    expect(textarea).toHaveValue("只改第 3 集");
+    expect(screen.getByText("此消息之后的对话将被丢弃，已产生的文件修改不会撤销")).toBeInTheDocument();
+
+    fireEvent.change(textarea, { target: { value: "逐条给我看要改哪些台词" } });
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+
+    expect(onSubmitEdit).toHaveBeenCalledWith("u-1", "逐条给我看要改哪些台词");
+  });
+
+  it("cancels the edit on Escape", () => {
+    const onCancelEdit = vi.fn();
+    render(<MessageRow turn={userTurn} editable editing onCancelEdit={onCancelEdit} />);
+
+    fireEvent.keyDown(screen.getByLabelText("改写消息内容"), { key: "Escape" });
+
+    expect(onCancelEdit).toHaveBeenCalled();
+  });
+
+  it("locks the editor while the rewrite is in flight", () => {
+    const onSubmitEdit = vi.fn();
+    render(<MessageRow turn={userTurn} editable editing submitting onSubmitEdit={onSubmitEdit} />);
+
+    fireEvent.keyDown(screen.getByLabelText("改写消息内容"), { key: "Enter", ctrlKey: true });
+
+    expect(onSubmitEdit).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "发送中…" })).toBeDisabled();
+  });
+
+  it("keeps the composing key from submitting a half-typed candidate", () => {
+    const onSubmitEdit = vi.fn();
+    render(<MessageRow turn={userTurn} editable editing onSubmitEdit={onSubmitEdit} />);
+
+    const textarea = screen.getByLabelText("改写消息内容");
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true, isComposing: true });
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true, keyCode: 229 });
+
+    expect(onSubmitEdit).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+    expect(onSubmitEdit).toHaveBeenCalledOnce();
+  });
+
+  it("holds the cancel button while the rewrite is in flight", () => {
+    const onCancelEdit = vi.fn();
+    render(<MessageRow turn={userTurn} editable editing submitting onCancelEdit={onCancelEdit} />);
+
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByLabelText("改写消息内容"), { key: "Escape" });
+
+    expect(onCancelEdit).not.toHaveBeenCalled();
+  });
+
+  it("keeps the draft but locks resend once the turn is no longer editable", () => {
+    const onSubmitEdit = vi.fn();
+    const { rerender } = render(
+      <MessageRow turn={userTurn} editable editing onSubmitEdit={onSubmitEdit} />,
+    );
+    fireEvent.change(screen.getByLabelText("改写消息内容"), { target: { value: "写到一半的草稿" } });
+
+    // 会话在编辑期间开跑：草稿留着，重新发送锁住
+    rerender(<MessageRow turn={userTurn} editable={false} editing onSubmitEdit={onSubmitEdit} />);
+
+    expect(screen.getByLabelText("改写消息内容")).toHaveValue("写到一半的草稿");
+    expect(screen.getByRole("button", { name: "重新发送" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByLabelText("改写消息内容"), { key: "Enter", metaKey: true });
+    expect(onSubmitEdit).not.toHaveBeenCalled();
+  });
+
+  it("gives a streaming draft no action row", () => {
+    render(<MessageRow turn={{ ...userTurn, type: "assistant" }} streaming />);
+
+    expect(screen.queryByLabelText("复制消息")).not.toBeInTheDocument();
+  });
+});

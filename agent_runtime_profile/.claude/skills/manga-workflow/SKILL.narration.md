@@ -34,34 +34,40 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 ### 现有项目
 
 1. session cwd 已经绑定到目标项目根
-2. 通过 Read `project.json` + Glob 文件系统判定状态摘要
-3. 从上次未完成的阶段继续
+2. 调用 `mcp__arcreel__get_workflow_status({})` 取得服务端权威状态
+3. 按返回的 `next_action` 从上次未完成的阶段继续
 
 ---
 
 ## 状态检测
 
-进入工作流后，使用 Read 读取 `project.json`，使用 Glob 检查文件系统。按顺序检查，遇到第一个缺失项即确定当前阶段：
+进入工作流、用户说“继续/下一步/查看进度”、以及每次工具或 subagent 完成后，都调用
+`mcp__arcreel__get_workflow_status({})`。用户指定集数时传 `{"episode": N}`。返回的
+`project`、`target`、`state`、`blockers`、`gates`、`artifacts` 与 `next_action` 是阶段判断的唯一真相源；
+Read / Glob 只用于执行已选定动作所需的内容，不用于另建状态机。
 
-1. characters / scenes / props 中**任一**为空（定义缺失）？ → **阶段 1**
-2. 目标集在账本（project.json `episodes[]`）中没有条目？ → **阶段 2**。分集接续状态**只读账本**：条目的 `ledger_status` 标记每集状态（planned 已规划 / consumed 已消费 / stale 已有下游产物待重做），顶层 `planning_cursor` 标记下一批规划起点；**不要用 Glob 文件名推断集数**（`source/episode_{N}.txt` 只是账本的派生物）
-3. 目标集 `ledger_status` 为 `stale`（该集号重新规划前已有下游产物——旧 step1/剧本/媒体一律视为失效，即使文件还在也从本阶段起重做，产物沿版本机制替换），或目标集**当前组合对应的** step1 中间文件不存在？ → **阶段 3**。按项目 `generation_mode` × `content_mode` 检查对应文件（generation_mode 由项目唯一决定，创建后不可变，不存在集级覆盖）：
-   - generation_mode == reference_video（任一 content_mode）: `drafts/episode_{N}/step1_reference_units.json`
-   - generation_mode == storyboard 且 content_mode == narration: `drafts/episode_{N}/step1_segments.json`
-   - generation_mode == storyboard 且 content_mode == drama: `drafts/episode_{N}/step1_normalized_script.json`（结构化内容）
+按 `next_action.type` 路由：
 
-   本项目 content_mode 固定为 narration（创建后不可变），故只会命中第 1 或第 2 分支，取决于项目的 generation_mode。只认当前组合对应的那一个文件：目录中出现**其他模式的 `step1_*` 文件**属残留，不作为阶段 3 已完成的依据。
-4. scripts/episode_{N}.json 不存在？ → **阶段 4**（另见阶段 4 触发条件：本次会话中阶段 3 中间文件被修改/重拆时，即使 JSON 存在也须重生）
-5. 任一类资产仍有缺 sheet 项（character 缺 character_sheet / scene 缺 scene_sheet / prop 缺 prop_sheet）？ → **阶段 5**（三类并行）
-6. **storyboard 模式**（含 grid_storyboard）：有片段缺少分镜图？ → **阶段 6**（reference_video 模式跳过）
-7. 有片段/unit 缺少视频？ → **阶段 7**
-8. **storyboard 模式**（含 grid_storyboard）：有段缺 `narration_audio`？ → **阶段 8（旁白配音）**（reference_video 模式无 segments，跳过）
-9. 全部完成 → 工作流结束，引导用户在 Web 端导出剪映草稿
+| next_action.type | 阶段 |
+|---|---|
+| `collect_project_input` | 阶段 0 |
+| `analyze_assets` | 阶段 1 |
+| `reset_episode_planning` | 阶段 2（先重置） |
+| `plan_episodes` | 阶段 2 |
+| `prepare_step1` | 阶段 3 |
+| `confirm_step1` / `generate_script` | 阶段 4 |
+| `generate_asset_sheets` | 阶段 5 |
+| `generate_storyboards` / `generate_grid` | 阶段 6 |
+| `generate_videos` | 阶段 7 |
+| `generate_narration_audio` | 阶段 8 |
+| `export` | 工作流完成 |
+| `none` | 展示 `blockers` 并停止变更 |
+
+调用后把 `target.episode` 作为目标集，把 `next_action.args` 与 `requested_ids` 原样带入对应阶段。
+不得根据空资产 bucket、文件名、旧文件存在性或对话记忆覆盖服务端结论。
 
 > 阶段 8 只依赖剧本各段的 `novel_text`，独立于分镜图/视频——阶段 4 剧本生成后即可推进。
 > 用户提前要求配音时直接进入阶段 8，不必等分镜/视频完成。
-
-**确定目标集数**：如果用户未指定，读账本确定——`ledger_status` 为 `planned`（或 `stale`）的最小集号即下一个待制作集；账本中所有集均已消费且源文尚未规划完时，进入阶段 2 规划下一批。
 
 ---
 
@@ -80,13 +86,15 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 ## 阶段 1：全局角色/场景/道具提取
 
-**触发**：project.json 中 characters / scenes / props 中**任一**为空（定义缺失）
+**触发**：`next_action.type == "analyze_assets"`。空 bucket 是合法分析结果，不得凭空 bucket 重跑。
 
 **dispatch `analyze-assets` subagent**：
 
 ```text
 项目名称：{project_name}
-分析范围：{整部小说 / 用户指定的范围}
+分析范围：{next_action.args.scope 对应的权威范围；workflow 默认整部小说}
+分析 scope：{next_action.args.scope}
+expected source revision：{next_action.args.expected_source_revision}
 已有角色：{已有角色名列表，或"无"}
 已有场景：{已有场景名列表，或"无"}
 已有道具：{已有道具名列表，或"无"}
@@ -98,7 +106,11 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 ## 阶段 2：分集规划
 
-**触发**：目标集在账本（project.json `episodes[]`）中没有条目
+**恢复触发**：`next_action.type` 为 `"reset_episode_planning"` 时，先按 `next_action.args` 调
+`mcp__arcreel__reset_episode_planning`。工具若返回已消费集确认要求，展示影响范围并取得用户明确确认，
+再追加 `confirm_consumed: true` 重试；重置成功后刷新 workflow-status，按新的权威动作继续。
+
+**触发**：`next_action.type == "plan_episodes"`
 
 分集规划由服务端工具完成：工具内部从 `planning_cursor` 起读一个源文窗口，调用项目配置的文本模型一次规划出窗口内所有剧情弧完整的集（标题/钩子/原文范围），在同一把项目锁内写账本、派生 `source/episode_{N}.txt` 并清理残留派生文件。**主 agent 只调一次工具、只收摘要**——不读小说原文、不自行选切分点：
 
@@ -116,7 +128,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 ## 阶段 3：单集预处理
 
-**触发**：目标集的 drafts/ 中间文件不存在
+**触发**：`next_action.type == "prepare_step1"`
 
 根据项目 `generation_mode` 选择 subagent：
 
@@ -124,6 +136,11 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 - 否则（本项目 content_mode == narration）→ dispatch `split-narration-segments`（产出 `drafts/episode_{N}/step1_segments.json`）
 
 dispatch prompt 通用参数：项目名称、项目路径、集数、本集小说文件路径；可选附加说明（用户对本次生成的意见等任何需带给 subagent 的临时上下文，原文透传）。
+
+若 `next_action.args` 含 `expected_stale_step1_revision`，subagent 成功产出正式 step1 后必须调用
+`mcp__arcreel__complete_step1_rebuild({"episode": N, "expected_stale_step1_revision": next_action.args.expected_stale_step1_revision})`。
+该完成事实不可用“文件内容是否变化”推断：确定性重建可能产出完全相同的 JSON。工具报冲突时刷新 workflow-status，
+不得用旧参数重试。
 
 （两个预处理 subagent 会自行读 project.json + 调用
 `mcp__arcreel__get_video_capabilities({})`
@@ -136,9 +153,10 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 ## 阶段 4：JSON 剧本生成
 
-**触发**（满足其一）：
-- `scripts/episode_{N}.json` 不存在
-- 阶段 3 的中间文件在本次会话中被修改或重拆（此时即使 JSON 已存在也必须重生）
+**触发**：
+
+- `next_action.type == "confirm_step1"` → 先完成下述审核 gate，刷新 workflow-status 后再路由
+- `next_action.type == "generate_script"` → dispatch 剧本生成
 
 **step1→step2 审核 gate（阻塞）**：阶段 3 的结构化 step1 中间态须经**显式确认**才放行本阶段（三种结构化 step1 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `step1_reference_units.json` 同样须确认，不要跳过。ad 无 step1，不纳入 gate）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。未确认（或确认后 step1 又被改）时 `generate_episode_script` 会被 gate 拒绝；**存量项目**（升级前已生成过本集剧本）已 grandfather 放行、无需再确认。
 
@@ -148,9 +166,9 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 ## 阶段 5：资产设计（character / scene / prop 三类并行）
 
-**前置条件**：三类资产的定义（characters / scenes / props）均已通过阶段 1 写入 project.json。若任一类定义为空（数组缺失），应回到阶段 1 补提取，而非停留在阶段 5。
-
-**触发**：三类资产中任一类存在缺 sheet 项：
+**触发**：`next_action.type == "generate_asset_sheets"`。空资产 bucket 是阶段 1 的合法完成结果，
+不得据此回退；对每个资产类型，取 `artifacts.asset_sheets[type].missing_ids` 与 `requested_ids` 的交集作为
+该类型的 `names`，同时传给 subagent 和工具：
 - character 缺 character_sheet
 - scene 缺 scene_sheet
 - prop 缺 prop_sheet
@@ -159,8 +177,9 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 ```text
 对于 type ∈ {character, scene, prop}:
-  若该类存在缺 *_sheet 项 → dispatch 对应的 `generate-assets` subagent
-  若该类均已齐全         → 跳过，不 dispatch
+  names = artifacts.asset_sheets[type].missing_ids ∩ requested_ids
+  若 names 非空 → dispatch 对应的 `generate-assets` subagent，并把 names 原样传给 subagent 和工具
+  若 names 为空 → 跳过，不 dispatch；不得回退到整类 missing_ids
 
 三类判断彼此独立，结果可能 dispatch 0~3 个 subagent。
 所有 dispatch 的 subagent 返回后，合并摘要展示给用户，进入阶段间确认。
@@ -170,43 +189,43 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 ### subagent — 角色设计
 
-**触发**：有角色缺少 character_sheet
+**触发**：该类 `names` 交集非空
 
 ```text
 dispatch `generate-assets` subagent：
   任务类型：character
   项目名称：{project_name}
-  待生成项：{缺失角色名列表}
+  待生成项：{names 交集}
   工具调用：
-    mcp__arcreel__generate_assets({"type": "character"})
+    mcp__arcreel__generate_assets({"type": "character", "names": [该类型 requested_ids]})
   验证方式：重新读取 project.json，检查对应角色的 character_sheet 字段
 ```
 
 ### subagent — 场景设计
 
-**触发**：有场景缺少 scene_sheet
+**触发**：该类 `names` 交集非空
 
 ```text
 dispatch `generate-assets` subagent：
   任务类型：scene
   项目名称：{project_name}
-  待生成项：{缺失场景名列表}
+  待生成项：{names 交集}
   工具调用：
-    mcp__arcreel__generate_assets({"type": "scene"})
+    mcp__arcreel__generate_assets({"type": "scene", "names": [该类型 requested_ids]})
   验证方式：重新读取 project.json，检查对应场景的 scene_sheet 字段
 ```
 
 ### subagent — 道具设计
 
-**触发**：有道具缺少 prop_sheet
+**触发**：该类 `names` 交集非空
 
 ```text
 dispatch `generate-assets` subagent：
   任务类型：prop
   项目名称：{project_name}
-  待生成项：{缺失道具名列表}
+  待生成项：{names 交集}
   工具调用：
-    mcp__arcreel__generate_assets({"type": "prop"})
+    mcp__arcreel__generate_assets({"type": "prop", "names": [该类型 requested_ids]})
   验证方式：重新读取 project.json，检查对应道具的 prop_sheet 字段
 ```
 
@@ -214,47 +233,23 @@ dispatch `generate-assets` subagent：
 
 ## 阶段 6：分镜图生成（仅 storyboard 模式，含 grid_storyboard）
 
-**触发**：有片段缺少分镜图；**参考生视频模式跳过此阶段**
+**触发**：`next_action.type` 为 `"generate_storyboards"` 或 `"generate_grid"`；服务端不会在
+reference_video 模式返回这两个动作。
 
-检查项目 `generation_mode` 与 `grid_storyboard`：
+按动作直接选择工具，不二次检查 `generation_mode` 或 `grid_storyboard`：
 
-- `generation_mode == "storyboard"` 且 `grid_storyboard` 为 false → dispatch `generate-assets`，调 `mcp__arcreel__generate_storyboards`
-- `generation_mode == "storyboard"` 且 `grid_storyboard` 为 true → dispatch `generate-assets`，调 `mcp__arcreel__generate_grid`
-- `generation_mode == "reference_video"` → 不触发，直接跳到阶段 7
+- `next_action.type == "generate_storyboards"` → dispatch `generate-assets`，调
+  `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
+- `next_action.type == "generate_grid"` → dispatch `generate-assets`，调
+  `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": requested_ids})`
 
-> **切换 `grid_storyboard` 后的重做**：本阶段的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的片段范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": "episode_{N}.json", "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": "episode_{N}.json", "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑阶段 7 对应片段。
+两条路径都把 `next_action.args` 与 `requested_ids` 原样传给 subagent，由 subagent 按上面映射调用工具。
 
-### storyboard 模式（grid_storyboard=false）
-
-**dispatch `generate-assets` subagent**：
-
-```text
-dispatch `generate-assets` subagent：
-  任务类型：storyboard
-  项目名称：{project_name}
-  工具调用：
-    mcp__arcreel__generate_storyboards({"script": "episode_{N}.json"})
-  验证方式：重新读取 scripts/episode_{N}.json，检查各场景的 storyboard_image 字段
-```
-
-### storyboard 模式，grid_storyboard=true
-
-**dispatch `generate-assets` subagent**：
-
-```text
-dispatch `generate-assets` subagent：
-  任务类型：storyboard
-  项目名称：{project_name}
-  工具调用：
-    mcp__arcreel__generate_grid({"script": "episode_{N}.json"})
-  验证方式：重新读取 scripts/episode_{N}.json，检查各场景的 storyboard_image 字段
-```
-
----
+> **切换 `grid_storyboard` 后的重做**：本阶段的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的片段范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑阶段 7 对应片段。
 
 ## 阶段 7：视频生成
 
-**触发**：有场景缺少视频
+**触发**：`next_action.type == "generate_videos"`
 
 **dispatch `generate-assets` subagent**：
 
@@ -263,15 +258,15 @@ dispatch `generate-assets` subagent：
   任务类型：video
   项目名称：{project_name}
   工具调用：
-    mcp__arcreel__generate_video_episode({"script": "episode_{N}.json"})
-  验证方式：重新读取 scripts/episode_{N}.json，检查各场景的 video_clip 字段
+    mcp__arcreel__generate_video_episode({"script": target.script_filename})
+  验证方式：重新读取 target.script，检查各场景的 video_clip 字段
 ```
 
 ---
 
 ## 阶段 8：旁白配音（仅 storyboard 模式，含 grid_storyboard）
 
-**触发**：有段缺 `narration_audio`；**参考生视频模式跳过此阶段**（无 segments）
+**触发**：`next_action.type == "generate_narration_audio"`；服务端不会在 reference_video 模式返回此动作。
 
 旁白配音以各段 `novel_text` 原文逐段合成语音，只依赖剧本、独立于分镜图/视频：
 按序推进时排在视频之后，但用户要求时可在阶段 4 剧本生成后随时执行。
@@ -283,8 +278,8 @@ dispatch `generate-assets` subagent：
   任务类型：narration_audio
   项目名称：{project_name}
   工具调用：
-    mcp__arcreel__generate_narration_audio({"script": "episode_{N}.json"})
-  验证方式：重新读取 scripts/episode_{N}.json，检查各段 generated_assets.narration_audio 字段
+    mcp__arcreel__generate_narration_audio({"script": target.script_filename})
+  验证方式：重新读取 target.script，检查各段 generated_assets.narration_audio 字段
 ```
 
 中断后重新 dispatch 同一工具调用即可断点续传——已有音频的段自动跳过，只补缺失段。

@@ -139,6 +139,12 @@ def test_build_reference_units_split_prompt_contains_constraints_and_candidates(
     assert "口播语速约" in prompt
 
 
+def test_build_reference_units_split_prompt_speech_rate_override():
+    """项目级语速覆盖生效时注入覆盖值而非语言默认；量词仍随 source_language。"""
+    assert "口播语速约 7.5 字/秒" in _split_prompt(source_language="zh", speech_rate_override=7.5)
+    assert "口播语速约 7.5 词/秒" in _split_prompt(source_language="en", speech_rate_override=7.5)
+
+
 def test_build_reference_units_split_prompt_injects_episode_outline():
     """分集大纲注入（借 drama step1）：给出本集内容边界与下集接续点。"""
     prompt = _split_prompt(

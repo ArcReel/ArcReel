@@ -23,6 +23,10 @@
 ### 音频规范
 - **BGM 自动禁止**：生成端已在视频 prompt 末尾自动追加「禁止出现：BGM、文字字幕、水印」，无需手动追加，video_prompt 里也不要描述 BGM / 配乐
 
+### 视频 prompt 措辞
+
+- **避开任务类型触发词**：`video_prompt` 里不要用「增加 / 删除 / 去掉 / 修改 / 替换 / 改成 / 延长 / 续写」这类祈使动词。部分模型（如 Seedance 2.5）按 prompt 措辞判定任务类型，带这些词会把参考生视频误判成视频编辑或视频延长，而误判在异步生成阶段才报错——任务已排队、已计费。改成直接描述目标画面本身：不写「把外套改成红色」，写「她穿着红色外套」
+
 ### 工具调用
 
 - **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/图片编辑/集脚本/规范化剧本/说书片段拆分/参考视频单元拆分/分集规划与重置/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，agent 直接以 tool 形式调用。
@@ -134,7 +138,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 2. **全局角色/场景/道具提取** → dispatch `analyze-assets` subagent
 3. **分集规划** → 主 agent 调用 `mcp__arcreel__plan_episodes` 服务端工具规划一批集（账本+派生集文件由工具维护）+ 批级审阅。用户对已规划内容提出调整意见时走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning` 退回到意见中最早受影响的集（保留其前的集），再带调整后的 `instructions` 分批重新调用 `plan_episodes`。用户表达常驻分集偏好（如按章节对齐切分）时，须经 `plan_episodes` 的 `instructions` 传入，并在规划完成前**每一批调用都重复带上**（偏好不持久化）；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
 4. **单集预处理** → 按项目 `generation_mode` × `content_mode` 选（中间文件统一位于 `drafts/episode_{N}/`）：
-   - reference_video（任一 content_mode）→ `split-reference-video-units`（产出 `step1_reference_units.json`）
+   - reference_video（本内容模式）→ `split-reference-video-units`（产出 `step1_reference_units.json`）
    - storyboard + narration → `split-narration-segments`（产出 `step1_segments.json`）
    - storyboard + drama → `normalize-drama-script`（产出结构化内容 `step1_normalized_script.json`）
 5. **JSON 剧本生成** → dispatch `create-episode-script` subagent；中间文件被修改/重拆后必须重新执行本阶段

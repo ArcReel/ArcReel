@@ -51,7 +51,6 @@ import type {
   ReferenceResource,
   TransitionType,
   AdShot,
-  AdReferenceUnit,
   ReferenceDurationPrecheck,
   ScriptPreview,
   ScriptReviewState,
@@ -219,6 +218,11 @@ export interface SuccessResponse {
   message?: string;
 }
 
+export interface AgentProfileStatus {
+  customized: boolean;
+  customized_files: string[];
+}
+
 /** 说书模式片段 PATCH 入参（drama 模式片段走 {@link API.updateScene}）。 */
 export interface SegmentUpdatePayload {
   script_file: string;
@@ -245,6 +249,8 @@ export interface CreateProjectPayload {
   generation_mode: GenerationRoute;
   /** 分镜板（宫格）装配开关，可随创建写入；仅分镜路线有意义。 */
   grid_storyboard?: boolean;
+  /** 口播语速估算（阅读单位 / 秒）；留空即按项目语言的默认速度估算。 */
+  speech_rate_units_per_second?: number | null;
   default_duration?: number | null;
   /** 仅 ad：目标总时长（秒），UI 四档 15/30/60/90。 */
   target_duration?: number;
@@ -549,6 +555,16 @@ class API {
     return this.request(`/projects/${encodeURIComponent(name)}`, {
       method: "PATCH",
       body: JSON.stringify(updates),
+    });
+  }
+
+  static async getAgentProfileStatus(name: string): Promise<AgentProfileStatus> {
+    return this.request(`/projects/${encodeURIComponent(name)}/agent-profile`);
+  }
+
+  static async resetAgentProfile(name: string): Promise<AgentProfileStatus> {
+    return this.request(`/projects/${encodeURIComponent(name)}/agent-profile/reset`, {
+      method: "POST",
     });
   }
 
@@ -1904,6 +1920,32 @@ class API {
     });
   }
 
+  /**
+   * 改写会话中某条历史用户消息：服务端分叉出新会话并在其上重跑。
+   *
+   * `sessionId` 是被改写的原会话，响应里的 `session_id` 是承接改写的新会话。
+   * 运行中的会话由端点自动中断，调用方不必先停止。
+   */
+  static async rewriteAssistantMessage(
+    projectName: string,
+    sessionId: string,
+    anchorEntryUuid: string,
+    content: string,
+    clientKey?: string
+  ): Promise<{ status: string; session_id: string; origin_session_id: string | null; entry: TimelineEntry | null }> {
+    return this.request(
+      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/rewrite`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          anchor_entry_uuid: anchorEntryUuid,
+          content,
+          client_key: clientKey || undefined,
+        }),
+      }
+    );
+  }
+
   static async interruptAssistantSession(
     projectName: string,
     sessionId: string
@@ -2594,30 +2636,6 @@ class API {
     );
   }
 
-  // ==================== Ad Reference-to-Video（派生分组） ====================
-
-  /** ad 项目：列出已持久化的派生分组索引（未派生时为空数组）。 */
-  static async listAdReferenceUnits(
-    projectName: string,
-    episode: number,
-    options?: { signal?: AbortSignal },
-  ): Promise<{ units: AdReferenceUnit[] }> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units`,
-      { signal: options?.signal },
-    );
-  }
-
-  /** ad 项目：从 shots（重新）派生分组索引并持久化；分组可复现，仅 ad 开放。 */
-  static async deriveAdReferenceUnits(
-    projectName: string,
-    episode: number,
-  ): Promise<{ units: AdReferenceUnit[] }> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/derive-units`,
-      { method: "POST" },
-    );
-  }
 }
 
 export { API };

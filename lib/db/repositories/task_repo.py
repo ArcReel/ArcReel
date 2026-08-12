@@ -121,7 +121,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
 class TaskRepository(BaseRepository):
     def __init__(self, session: AsyncSession):
         super().__init__(session)
-        # 本次会话内落地的任务终态，供上层（GenerationQueue）在事务提交后发布项目事件。
+        # 该 session 内落地的任务终态，供上层（GenerationQueue）在事务提交后发布项目事件。
         # 在此收集而非各终态方法各自记账：所有终态迁移（含级联失败/级联取消、批量取消
         # 队列）都经 _record_terminal_event 收口，一处挂钩即全覆盖。
         self.terminal_events: list[dict[str, Any]] = []
@@ -704,9 +704,10 @@ class TaskRepository(BaseRepository):
     async def persist_provider_job_id(self, task_id: str, job_id: str, *, endpoint: str | None = None) -> None:
         """单独事务持久化 provider_job_id；不带 WHERE 状态守卫（worker 内调用，确定是 running）。
 
-        ``endpoint`` 是自定义供应商提交本 job 时模型行的 endpoint（内置供应商传 None）。与
-        job_id 同一次 UPDATE 落地：两者必须同时可见，否则续跑会拿到 job_id 却判不出协议是否
-        已被换掉。None 时不写该列——保留既有值比清空更安全（清空等于放弃比对）。
+        ``endpoint`` 是提交本 job 时实际使用的执行端点，按供应商类型有两种取值：自定义供应商
+        传模型行的 endpoint 标识，提交域名随用户配置变化的内置供应商传实际请求域名。与 job_id
+        同一次 UPDATE 落地：两者必须同时可见，否则续跑会拿到 job_id 却判不出协议是否已被换掉、
+        也无从回放原域名。None 时不写该列——保留既有值比清空更安全（清空等于放弃比对）。
 
         失败抛异常，由 worker finally 兜底 mark_failed（ADR 0007 fail-fast：未持久化的
         submit 视为整笔失败，避免「幽灵任务」继续在 provider 端跑而 DB 已忘）。
@@ -762,8 +763,8 @@ class TaskRepository(BaseRepository):
 
         参考视频执行层按 model 能力取档后申请的秒数可能偏离入队时的剧本原值；
         resume 路径读的正是这个字段（见 ``server.services.resume_executor``），
-        不写回会让 resume 时按剧本原值重新申请，与本次执行实际申请的秒数不一致。
-        task 不存在时静默跳过（不影响本次生成结果，仅是 resume 元数据，不必 fail-fast
+        不写回会让 resume 时按剧本原值重新申请，与该任务执行时实际申请的秒数不一致。
+        task 不存在时静默跳过（不影响该任务的生成结果，仅是 resume 元数据，不必 fail-fast
         阻断执行）。
         """
         await self._merge_payload_field(task_id, "duration_seconds", duration_seconds, raise_if_missing=False)

@@ -130,8 +130,9 @@ def _per_second_matrix(pricing: PerSecondMatrix, params: PricingParams) -> tuple
         )
         per_second = model_costs.get((resolution, params.generate_audio), fallback)
     elif pricing.dimensions == "resolution_only":
-        resolution = (params.resolution or "720p").lower()
-        per_second = model_costs.get((resolution, None), model_costs.get(("720p", None), 0.0))
+        default_resolution = pricing.default_resolution.lower()
+        resolution = (params.resolution or default_resolution).lower()
+        per_second = model_costs.get((resolution, None), model_costs.get((default_resolution, None), 0.0))
     else:  # flat
         per_second = model_costs.get(("", None), 0.0)
     return duration * per_second, pricing.currency

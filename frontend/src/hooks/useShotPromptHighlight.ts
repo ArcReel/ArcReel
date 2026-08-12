@@ -7,7 +7,9 @@ import {
   matchDialogueLine,
   matchVoiceoverLine,
   mentionNameFromMatch,
+  normalizeAssetName,
   splitScriptLines,
+  type MentionLookup,
 } from "@/utils/reference-mentions";
 
 /**
@@ -31,7 +33,7 @@ import {
  * mention 名与说话人都出自 `reference-mentions` 的解析原语，已承诺是规范形——两侧不同源，
  * 同一坐标系才能稳定命中。
  */
-export type MentionLookup = Record<string, "character" | "scene" | "prop">;
+export type { MentionLookup } from "@/utils/reference-mentions";
 
 export type Token =
   | { kind: "text"; text: string }
@@ -81,7 +83,7 @@ function pushMentionTokens(out: Token[], text: string, lookup: MentionLookup): v
     if (idx > lastIdx) {
       out.push({ kind: "text", text: text.slice(lastIdx, idx) });
     }
-    const name = mentionNameFromMatch(m);
+    const name = normalizeAssetName(mentionNameFromMatch(m));
     // hasOwn 而非直接下标：`toString` 等原型链属性是合法资产名，未登记时下标会取到
     // Object.prototype 上的函数并被当成已解析的类型。
     const resolved = Object.hasOwn(lookup, name) ? lookup[name] : undefined;
@@ -89,7 +91,9 @@ function pushMentionTokens(out: Token[], text: string, lookup: MentionLookup): v
       kind: "mention",
       text: m[0],
       name,
-      assetKind: (resolved ?? "unknown"),
+      // product 参与四 bucket 名称空间归属，但不是 generic reference-video
+      // ReferenceResource；继续以 unknown 样式提示它不会进入参考图列表。
+      assetKind: resolved === "product" ? "unknown" : (resolved ?? "unknown"),
     });
     lastIdx = idx + m[0].length;
   }

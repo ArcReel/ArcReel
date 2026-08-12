@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import lib.script_review as script_review
 from lib.config.resolver import ConfigResolver
 from lib.script_generator import ScriptGenerator, _units_use_references
 from lib.script_structure_validator import ScriptStructureValidationError
@@ -555,6 +556,10 @@ class TestScriptGenerator:
         assert seg["characters_in_segment"] == ["姜月茴"]
         assert seg["image_prompt"]["scene"] == "画面"
         assert payload["metadata"]["generator"] == "fake-model"
+        step1_path = project_path / "drafts" / "episode_1" / "step1_segments.json"
+        assert payload["metadata"][script_review.SCRIPT_STEP1_REVISION_FIELD] == script_review.content_fingerprint(
+            step1_path
+        )
         assert "created_at" in payload["metadata"]
 
     @pytest.mark.unit
@@ -1762,7 +1767,7 @@ class TestAdScriptGeneration:
 
     @pytest.mark.unit
     async def test_build_prompt_reference_path_uses_free_duration(self, tmp_path):
-        """ad + reference_video：仍是 ad prompt（shots 骨架），时长约束为 1-15 自由整数。"""
+        """ad + reference_video：直接输出统一书写层 video_units，不持久化旧镜头字段。"""
         project_path = tmp_path / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")
 
@@ -1771,7 +1776,9 @@ class TestAdScriptGeneration:
 
         assert "突出速干卖点" in prompt
         assert "速干杯" in prompt
-        assert "video_units" not in prompt
+        assert "video unit" in prompt
+        assert "不要输出 shots、section、shot_id" in prompt
+        assert "@[名称]" in prompt
 
     @pytest.mark.unit
     async def test_build_prompt_uses_project_source_language(self, tmp_path):
@@ -1790,6 +1797,22 @@ class TestAdScriptGeneration:
         # 输出语言规则锁定为项目 source_language，不回落默认中文
         assert "所有字符串值必须使用 en" in prompt
         assert "所有字符串值必须使用 中文" not in prompt
+
+    @pytest.mark.unit
+    async def test_build_prompt_uses_project_speech_rate_override(self, tmp_path):
+        """project.json 顶层 speech_rate_units_per_second 须经真相源顶掉语言默认，落到 ad prompt 的口播折算。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        project_json_path = project_path / "project.json"
+        payload = json.loads(project_json_path.read_text(encoding="utf-8"))
+        payload["speech_rate_units_per_second"] = 7.5
+        _write_json(project_json_path, payload)
+
+        generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
+        prompt = await generator.build_prompt(1)
+
+        assert "口播长度按约 7.5 字/秒折算" in prompt
 
     @pytest.mark.unit
     async def test_build_prompt_tolerates_null_project_fields(self, tmp_path):
@@ -1881,25 +1904,25 @@ class TestAdScriptGeneration:
 
     @pytest.mark.unit
     async def test_generate_ad_reference_passes_free_range_schema(self, tmp_path):
-        """ad + reference_video：response_schema 收紧为 1-15 区间而非枚举。"""
-        from lib.script_models import AdEpisodeScript
+        """ad + reference_video：response_schema 只含 unit 时长与统一书写层正文。"""
+        from lib.script_models import AdReferenceFlatScript
 
         project_path = tmp_path / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        with pytest.raises(ScriptStructureValidationError):
+        with pytest.raises(ValueError, match="广告参考剧本结构校验失败"):
             await generator.generate(1)
 
         schema = fake.backend.last_request.response_schema
-        assert isinstance(schema, type) and issubclass(schema, AdEpisodeScript)
+        assert schema is AdReferenceFlatScript
         field_schemas = [
             props["duration_seconds"]
             for props in (d.get("properties", {}) for d in schema.model_json_schema().get("$defs", {}).values())
             if "duration_seconds" in props
         ]
-        assert any(fs.get("minimum") == 1 and fs.get("maximum") == 15 and "enum" not in fs for fs in field_schemas)
+        assert any(fs.get("minimum") == 1 and fs.get("maximum") == 300 and "enum" not in fs for fs in field_schemas)
 
     @pytest.mark.unit
     async def test_generate_rewrites_wrong_episode_prefix_on_shot_ids(self, tmp_path):
@@ -2067,7 +2090,7 @@ class TestAdAspectRatioFallback:
 
 
 class TestAdReferenceSkeletonUnity:
-    """ad + reference_video 生成的剧本不携带 generation_mode 戳（骨架唯一）。"""
+    """ad + reference_video 生成自包含 video_units 且不携带路线戳。"""
 
     @pytest.mark.unit
     async def test_generate_ad_reference_script_carries_no_generation_mode(self, tmp_path):
@@ -2075,7 +2098,10 @@ class TestAdReferenceSkeletonUnity:
         _write_ad_project(project_path, generation_mode="reference_video")
         response = {
             "title": "速干杯短片",
-            "shots": [_ad_shot("E1S01", duration=7), _ad_shot("E1S02", duration=5, section="cta")],
+            "units": [
+                {"duration_seconds": 7, "text": "镜头1：@[速干杯] 表面的水珠迅速滑落"},
+                {"duration_seconds": 5, "text": "镜头1：@[小美] 举起 @[速干杯]\n@[小美]：{现在就试试。}"},
+            ],
         }
         fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
@@ -2083,9 +2109,28 @@ class TestAdReferenceSkeletonUnity:
         output_path = await generator.generate(1)
         saved = json.loads(output_path.read_text(encoding="utf-8"))
 
-        # 剧本级 generation_mode 戳会让按其分派的消费方（StatusCalculator 等）
-        # 去找不存在的 video_units；ad 剧本只携带 content_mode
         assert "generation_mode" not in saved
         assert saved["content_mode"] == "ad"
-        assert saved["metadata"]["total_shots"] == 2
+        assert "shots" not in saved
+        assert "reference_units" not in saved
+        assert [unit["unit_id"] for unit in saved["video_units"]] == ["E1U1", "E1U2"]
+        assert saved["video_units"][0]["references"] == [{"type": "product", "name": "速干杯"}]
+        assert saved["metadata"]["total_units"] == 2
         assert saved["duration_seconds"] == 12
+
+    @pytest.mark.unit
+    async def test_generate_ad_reference_preserves_mixed_speech_and_marks_replan(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path, generation_mode="reference_video")
+        text = "镜头1：@[小美] 举起 @[速干杯]\n@[小美]：{试试这一杯。}\n{旁白补充卖点。}"
+        fake = _FakeTextGenerator(
+            json.dumps({"title": "混合发声", "units": [{"duration_seconds": 8, "text": text}]}, ensure_ascii=False)
+        )
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        output_path = await generator.generate(1)
+        unit = json.loads(output_path.read_text(encoding="utf-8"))["video_units"][0]
+
+        assert unit["needs_replan"] is True
+        assert "@[小美]：{试试这一杯。}" in unit["shots"][0]["text"]
+        assert "{旁白补充卖点。}" in unit["shots"][0]["text"]

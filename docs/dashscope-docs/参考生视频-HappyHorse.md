@@ -134,6 +134,6 @@ GET /api/v1/tasks/{task_id}
 - **能力位归 backend**:i2v 声明 `first_frame=True`,t2v / r2v 为 `False`(视频能力位不入 `ModelInfo.capabilities`,见 `docs/adr/0054`)
 - **resolutions**:1.1 `["480p", "720p", "1080p"]`;1.0 `["720p", "1080p"]`(480P 对 1.0 未确权,registry 不替官方补写)
 - **supported_durations**:`[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]`(两代同)
-- **音频**:恒开、无开关参数,由恒有声例外表判定有音轨
+- **音频**:恒开、无开关参数,registry 逐型号声明 `audio_always_on=True` 判定有音轨
 - **水印**:官方默认 `watermark=true`(右下角 "Happy Horse"),ArcReel backend 构造 payload 时显式传 `false`
 - **默认视频模型**:`happyhorse-1.1-i2v`

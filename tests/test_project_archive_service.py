@@ -375,6 +375,42 @@ class TestProjectArchiveService:
         assert (pm.get_project_path(result.project_name) / "project.json").exists()
 
     @pytest.mark.unit
+    def test_import_rejects_reference_unit_with_more_than_four_shots(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        project = pm.load_project("demo")
+        project["content_mode"] = "ad"
+        project["generation_mode"] = "reference_video"
+        pm.save_project("demo", project)
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "ad",
+                "video_units": [
+                    {
+                        "unit_id": "E1U1",
+                        "shots": [{"text": f"镜头{i}"} for i in range(1, 6)],
+                        "references": [],
+                        "duration_seconds": 7,
+                        "generated_assets": {"status": "pending"},
+                    }
+                ],
+            },
+        )
+        archive_path = tmp_path / "too-many-unit-shots.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="too-many-unit-shots.zip")
+
+        assert any("shots 含 5 个条目，最多允许 4 个" in error for error in exc_info.value.render_errors())
+
+    @pytest.mark.unit
     def test_import_legacy_v1_archive_runs_migration(self, tmp_path):
         """启动后导入的旧归档（schema_version=1 + legacy image_backend）在导入入口走完整迁移链。"""
         import json as _json
@@ -405,6 +441,38 @@ class TestProjectArchiveService:
         assert installed["image_provider_t2i"] == "gemini-vertex/imagen-3"
         assert installed["image_provider_i2i"] == "gemini-vertex/imagen-3"  # image_backend 拆分到两槽
         assert "image_backend" not in installed
+
+    @pytest.mark.integration
+    def test_import_v5_archive_migrates_conflicting_asset_namespace(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        project_file = project_dir / "project.json"
+        project = json.loads(project_file.read_text(encoding="utf-8"))
+        project["schema_version"] = 5
+        project["scenes"] = {"Hero": {"description": "same-named scene", "scene_sheet": "scenes/Hero.png"}}
+        project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+        _write_bytes(project_dir / "scenes" / "Hero.png", b"scene")
+        script_file = project_dir / "scripts" / "episode_1.json"
+        script = json.loads(script_file.read_text(encoding="utf-8"))
+        script["segments"][0]["scenes"] = ["Hero"]
+        script_file.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "v5-conflict.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="v5-conflict.zip")
+
+        installed_dir = pm.get_project_path(result.project_name)
+        installed = json.loads((installed_dir / "project.json").read_text(encoding="utf-8"))
+        migrated_script = json.loads((installed_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        assert installed["schema_version"] == 7
+        assert list(installed["characters"]) == ["Hero"]
+        assert list(installed["scenes"]) == ["Hero_scene"]
+        assert migrated_script["segments"][0]["scenes"] == ["Hero_scene"]
+        assert (installed_dir / "scenes" / "Hero_scene.png").is_file()
 
     @pytest.mark.unit
     def test_import_rejects_missing_project_json(self, tmp_path):
@@ -694,8 +762,7 @@ class TestProjectArchiveService:
     def test_import_materializes_claude_with_manifest(self, tmp_path, monkeypatch):
         """导入项目应物化 .claude 为真目录 + 写 manifest（非 symlink）。
 
-        PR fix/agent-profile-sync-manifest 起，profile 同步改为 manifest-driven，
-        不再用 symlink；导入的归档无 manifest 时走首次迁移分支 full reset。
+        Profile 同步由 manifest 驱动且不使用 symlink；导入归档无 manifest 时走首次同步。
         """
         from lib.profile_manifest import MANIFEST_FILENAME
 
@@ -940,17 +1007,21 @@ class TestProjectArchiveService:
         已登记的场景/道具会被误报 blocking 缺失。"""
         import unicodedata
 
-        name_nfc = unicodedata.normalize("NFC", "Hiếu")
-        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        character_nfc = unicodedata.normalize("NFC", "Hiếu")
+        character_nfd = unicodedata.normalize("NFD", "Hiếu")
+        scene_nfc = unicodedata.normalize("NFC", "Quán")
+        scene_nfd = unicodedata.normalize("NFD", "Quán")
+        prop_nfc = unicodedata.normalize("NFC", "Kiếm")
+        prop_nfd = unicodedata.normalize("NFD", "Kiếm")
 
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
 
         project = pm.load_project("demo")
-        project["characters"][name_nfc] = {"description": "已登记角色"}
-        project["scenes"] = {name_nfc: {"description": "已登记场景"}}
-        project["props"][name_nfc] = {"description": "已登记道具"}
+        project["characters"][character_nfc] = {"description": "已登记角色"}
+        project["scenes"] = {scene_nfc: {"description": "已登记场景"}}
+        project["props"][prop_nfc] = {"description": "已登记道具"}
         pm.save_project("demo", project)
 
         _write_json(
@@ -965,9 +1036,9 @@ class TestProjectArchiveService:
                         "segment_id": "E1S01",
                         "duration_seconds": 4,
                         "novel_text": "原文",
-                        "characters_in_segment": [name_nfd],
-                        "scenes": [name_nfd],
-                        "props": [name_nfd],
+                        "characters_in_segment": [character_nfd],
+                        "scenes": [scene_nfd],
+                        "props": [prop_nfd],
                         "image_prompt": "img",
                         "video_prompt": "vid",
                     }
@@ -982,7 +1053,11 @@ class TestProjectArchiveService:
         result = service.import_project_archive(archive_path, uploaded_filename="nfc-nfd.zip")
 
         imported = pm.load_project(result.project_name)
-        assert name_nfd not in imported["characters"]  # 不补重复占位角色
+        assert character_nfd not in imported["characters"]  # 不补重复占位角色
+        assert scene_nfd not in imported["scenes"]
+        assert prop_nfd not in imported["props"]
+        assert scene_nfc in imported["scenes"]
+        assert prop_nfc in imported["props"]
         assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
 
     @pytest.mark.unit

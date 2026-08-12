@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+import lib.script_review as script_review
 from lib.episode_ledger import SOURCE_FINGERPRINTS_KEY
 from lib.episode_ledger import discover_sources as _real_discover_sources
 from lib.episode_planner import (
@@ -1209,6 +1210,9 @@ class TestPlan:
         project_dir = _write_project(tmp_path)
         (project_dir / "scripts").mkdir()
         (project_dir / "scripts" / "episode_1.json").write_text("{}", encoding="utf-8")
+        step1_path = project_dir / "drafts" / "episode_1" / "step1_segments.json"
+        step1_path.parent.mkdir(parents=True)
+        step1_path.write_text('{"segments": [{"segment_id": "E1S01"}]}', encoding="utf-8")
         fake = _FakeTextGenerator(
             [_plan_response([{"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
         )
@@ -1219,6 +1223,7 @@ class TestPlan:
         assert result.episodes[0].ledger_status == "stale"
         eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
         assert eps[1]["ledger_status"] == "stale"
+        assert eps[1][script_review.STALE_STEP1_REVISION_FIELD] == script_review.content_fingerprint(step1_path)
         assert (project_dir / "scripts" / "episode_1.json").exists()  # 产物不删除
 
     @pytest.mark.unit

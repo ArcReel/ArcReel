@@ -171,36 +171,6 @@ describe("ReferenceVideoCanvas", () => {
     expect(parsePanel).toHaveAttribute("tabindex", "0");
   });
 
-  // 同名同时落在 characters 与 props 时，后端 resolve_references 判 character；
-  // 预览着色若反着来，规范台词行的说话人会被标成未登记角色。
-  it("resolves a name shared by two asset buckets the way the backend does", async () => {
-    useProjectsStore.setState({
-      currentProjectName: "proj",
-      currentProjectData: {
-        ...STUB_PROJECT,
-        characters: { 张三: { description: "" } },
-        props: { 张三: { description: "" } },
-      } as ProjectData,
-    });
-    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
-      units: [mkUnit("E1U1", "@[张三]：{我来了}")],
-    });
-    vi.spyOn(API, "previewReferenceScript").mockResolvedValue({
-      shots: [{ index: 1, text: "@[张三]：{我来了}" }],
-      references: [],
-      utterances: [{ shot_index: 1, kind: "dialogue", speaker: "张三", text: "我来了" }],
-      warnings: [],
-    });
-    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-
-    await screen.findByRole("combobox");
-    fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
-
-    const speaker = (await screen.findAllByText("张三"))[0];
-    // character = sky；被 props 覆盖会渲染成 amber，被判未登记会渲染成 red
-    expect(speaker.className).toContain("sky");
-  });
-
   // `out["__proto__"] = kind` 在普通对象上走继承的 setter、不落自有属性，
   // 登记过的 `__proto__` 角色会在高亮里显示成未登记（后端照常解析）
   it("resolves an asset named __proto__ in the highlight lookup", async () => {
@@ -350,8 +320,67 @@ describe("ReferenceVideoCanvas", () => {
     );
   });
 
-  // 参考视频按申请秒数计价：改档位即改估价，而落盘广播的 reference_unit:updated 不在
-  // SSE 的生成动作白名单内，费用面板只能靠这里主动重拉，否则一直显示旧价。
+  it("commits a free-form duration once after editing instead of patching intermediate digits", async () => {
+    const unit = mkUnit("E1U1");
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValue({ unit: { ...unit, duration_seconds: 120 } });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} freeDuration />);
+    const input = await screen.findByRole("spinbutton", { name: /Duration|时长/ });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "1" } });
+    fireEvent.change(input, { target: { value: "12" } });
+    fireEvent.change(input, { target: { value: "120" } });
+
+    expect(patchSpy).not.toHaveBeenCalled();
+    fireEvent.blur(input);
+
+    await waitFor(() =>
+      expect(patchSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_seconds: 120 }),
+    );
+    expect(patchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("protects an uncommitted free-form duration from tab unload", async () => {
+    const unit = mkUnit("E1U1");
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    const patchSpy = vi.spyOn(API, "patchReferenceVideoUnit");
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} freeDuration />);
+    const input = await screen.findByRole("spinbutton", { name: /Duration|时长/ });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "12" } });
+
+    await waitFor(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    });
+    expect(patchSpy).not.toHaveBeenCalled();
+  });
+
+  it("lets an explicit same-value duration confirm a duration-only replan marker", async () => {
+    const unit = { ...mkUnit("E1U1"), needs_replan: true };
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValue({ unit: { ...unit, needs_replan: false } });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} freeDuration />);
+    const input = await screen.findByRole("spinbutton", { name: /Duration|时长/ });
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.change(input, { target: { value: "3" } });
+    fireEvent.blur(input);
+
+    await waitFor(() =>
+      expect(patchSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_seconds: 3 }),
+    );
+  });
+
+  // 参考视频按申请秒数计价：改档位即改估价。SSE 会让分组缓存最终一致，费用面板仍由
+  // 本地写成功主动刷新，避免当前浏览器等待事件回环才显示新估价。
   it("refreshes cost estimates after a duration patch succeeds", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     vi.spyOn(API, "patchReferenceVideoUnit").mockResolvedValue({

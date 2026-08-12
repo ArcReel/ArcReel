@@ -8,6 +8,8 @@ MESSAGES = {
     "val_missing_field_at": "{prefix}: thiếu trường bắt buộc {field}",
     "val_field_type_string": "Sai kiểu trường: {field} phải là chuỗi",
     "val_field_type_bool": "Sai kiểu trường: {field} phải là boolean",
+    "val_field_type_number": "Sai kiểu trường: {field} phải là số",
+    "val_speech_rate_out_of_range": "Giá trị {value} của {field} nằm ngoài phạm vi; phải từ {min} đến {max}",
     "val_field_must_be_string": "{field} phải là chuỗi",
     "val_field_must_be_string_typed": "{field} phải là chuỗi, hiện là {actual}",
     "val_field_must_be_array": "{field} phải là mảng",
@@ -70,6 +72,10 @@ MESSAGES = {
     "val_asset_field_bad_timestamp": ("{asset_type} '{name}'.{field} không phải dấu thời gian ISO8601 hợp lệ: {value}"),
     "val_asset_field_must_be_string_list": ("{asset_type} '{name}'.{field} phải là danh sách chuỗi, hiện là {actual}"),
     "val_asset_field_item_must_be_string": "{asset_type} '{name}'.{field}[{index}] phải là chuỗi, hiện là {actual}",
+    "val_asset_name_duplicate": (
+        "Trùng tên tài nguyên dự án: {duplicate_type} '{duplicate_name}' xung đột với "
+        "{first_type} '{first_name}' sau khi strip + chuẩn hóa Unicode NFC"
+    ),
     # ---- tham chiếu cấp mục ----
     "val_refs_unregistered": "{prefix}: {field} tham chiếu {asset_type} không có trong project.json: {names}",
     "val_missing_defaults_empty_array": "{prefix}: thiếu {field}, sẽ dùng mảng rỗng mặc định",
@@ -104,6 +110,10 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id trùng lặp '{value}'",
     "val_video_units_missing": "Kịch bản reference_video thiếu mảng video_units hoặc mảng rỗng",
     "val_unit_duration_range": "{prefix}: duration_seconds phải là số nguyên trong khoảng {low}-{high}",
+    "val_unit_shots_too_many": "{prefix}: shots có {count} mục; chỉ cho phép tối đa {max}",
+    "val_migration_content_replan_requires_needs_replan": (
+        "{prefix}: migration_requires_content_replan=true yêu cầu needs_replan=true"
+    ),
     "val_reference_entry_must_be_object": "{prefix}: mỗi mục reference phải là đối tượng",
     "val_reference_type_invalid": "{prefix}: reference.type không hợp lệ: {value}",
     "val_reference_name_invalid": "{prefix}: reference.name phải là chuỗi không rỗng: {value}",
@@ -112,10 +122,6 @@ MESSAGES = {
     ),
     "val_ref_type_invalid": "{prefix}: type không hợp lệ: {value}",
     "val_ref_name_invalid": "{prefix}: name phải là chuỗi không rỗng: {value}",
-    "val_ref_unregistered_regroup": ("{prefix}: {asset_type} “{name}” được tham chiếu chưa đăng ký; cần tạo lại nhóm"),
-    "val_reference_units_dangling_shots": (
-        "{prefix}: các cảnh quay được tham chiếu không tồn tại ({ids}); cần tạo lại nhóm"
-    ),
     # ---- khung xương và tuyến sinh video ----
     "val_skeleton_noun_segments": "phân cảnh",
     "val_skeleton_noun_scenes": "cảnh",

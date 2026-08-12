@@ -567,10 +567,8 @@ def emit_generation_success_batch(
     action = _SKELETON_DRIVEN_TASK_ACTIONS.get(task_type)
     if action is not None:
         if task_type == "reference_video":
-            # ad 剧本骨架恒为 shots[]（reference_video 路径只是把镜头派生分组为
-            # video_unit 索引，二者持久于同一份剧本 JSON），resolve_script_kind
-            # 的数据形状优先判别会因 shots 键仍在而退回 content_mode==ad→shots，
-            # 与该任务实际对应 video_unit 资源不符——直接固定 kind，不经骨架判别。
+            # reference_video 任务的资源身份恒为 video unit；即使剧本加载失败，完成事件也
+            # 仍须使用 reference_unit 锚点，故不依赖剧本形状取证。
             kind = "video_units"
         else:
             kind = resolve_script_kind(script) if isinstance(script, dict) else "segments"
@@ -953,7 +951,7 @@ async def execute_video_task(
     # 的 item 无 utterances 字段，payload.dialogue 原样透传；SDK 路径 prompt 已是渲染好的字符串、跳过。
     if isinstance(item, dict) and isinstance(prompt, dict) and content_mode == "drama":
         # 无声（C 类模型不产音、或本集关闭音频）传 characters=None 即不注入 Voice_Profiles；
-        # 有音轨模型（含恒有声、开关不可控的 gemini-aistudio/grok）机械派生角色声音风格。
+        # 有音轨模型（含恒有声、开关不可控的型号）机械派生角色声音风格。
         # 两条无声路径同口径，判据落在 VideoLaneResult.is_silent。台词不受影响、照常下发。
         voice_characters = None if ctx.video.is_silent else (project.get("characters") or {})
         if "utterances" in item:

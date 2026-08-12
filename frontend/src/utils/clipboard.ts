@@ -9,6 +9,8 @@ export async function copyText(text: string): Promise<void> {
   ta.style.opacity = "0";
   document.body.appendChild(ta);
   ta.select();
-  document.execCommand("copy");
+  const copied = document.execCommand("copy");
   document.body.removeChild(ta);
+  // execCommand 以返回值报告失败，不抛异常；不转成 reject 的话调用方会把失败当成功
+  if (!copied) throw new Error("clipboard copy failed");
 }

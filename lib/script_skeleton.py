@@ -22,10 +22,13 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
 from lib.validation_messages import MessageRef, ValidationMessage
+
+STORYBOARD_ITEM_ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
 
 
 @dataclass(frozen=True)
@@ -107,15 +110,15 @@ def resolve_declared_kind(content_mode: str | None, generation_mode: str | None)
 
     输入为项目级已过校验的 content_mode 与项目声明的 generation_mode（``project.json`` 字段）。
 
-    - ``ad`` → ``shots``（恒定，不随生成路径变，见 ``docs/adr/0033``）
-    - ``narration`` / ``drama`` + ``generation_mode == "reference_video"`` → ``video_units``
+    - 任意内容模式 + ``generation_mode == "reference_video"`` → ``video_units``
+    - ``ad`` + ``storyboard`` → ``shots``
     - ``narration`` → ``segments``，``drama`` → ``scenes``
     - 未知/缺失 content_mode → 抛 ``ValueError``（fail-loud，不静默默认到 drama/narration）
 
     服务只有项目配置在手的消费方；手持可能缺字段的剧本 dict 的消费方走 ``resolve_script_kind``。
     """
     if content_mode == "ad":
-        return "shots"
+        return "video_units" if generation_mode == "reference_video" else "shots"
     if content_mode == "narration":
         return "video_units" if generation_mode == "reference_video" else "segments"
     if content_mode == "drama":
@@ -165,7 +168,7 @@ def resolve_script_kind(script: dict[str, Any]) -> str:
     return "segments"
 
 
-# 路线要求的骨架族：参考生视频路线（非 ad）要 ``video_units``，其余路线要分镜族骨架
+# 路线要求的骨架族：参考生视频路线要 ``video_units``，其余路线要分镜族骨架
 # （``segments`` / ``scenes`` / ``shots``）。族内差异（如 narration 数据落 ``scenes`` 键的历史
 # 形态）不构成失配，只有跨族才是——跨族意味着生成侧要读的数组根本不在剧本里。
 _REFERENCE_ROUTE_SKELETON = "video_units"

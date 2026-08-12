@@ -23,7 +23,7 @@ MESSAGES = {
     "script_data_corrupted": "Script data is corrupted: {reason}",
     "script_edit_error": "Segment edit validation failed",
     "script_edit_items_not_list": "{kind} must be a list, but got {type_name}",
-    "script_edit_unit_lists_invalid": "video_units / reference_units must be a list",
+    "script_edit_unit_lists_invalid": "video_units must be a list",
     "script_edit_generated_assets_invalid": "generated_assets must be a dictionary",
     "narration_mode_required": "This script is not in narration mode, please use the scene update interface",
     "ad_mode_required": "This script is not in ad/short-video mode, please use the update interface for its mode",
@@ -73,6 +73,7 @@ MESSAGES = {
     "tts_novel_text_missing": "Shot '{segment_id}' has no novel text to narrate",
     "audio_provider_not_configured": "Please configure an audio provider first: add a text-to-speech capable provider in Settings → Providers",
     "narration_speed_must_be_positive": "Narration speed must be a positive number",
+    "speech_rate_out_of_range": "Spoken pace must be between {min} and {max} (characters or words per second)",
     "character_not_found": "Character '{name}' does not exist",
     "character_task_submitted": "Character design generation task for '{name}' submitted",
     "voice_sample_voice_required": "Please select a voice first",
@@ -207,6 +208,10 @@ MESSAGES = {
     "product_already_exists": "Product '{name}' already exists",
     "product_not_found": "Product '{name}' not found",
     "product_deleted": "Product '{name}' deleted",
+    "project_asset_name_conflict": (
+        "{requested_type} name '{name}' is already used by {existing_type} '{existing_name}'. "
+        "Characters, scenes, props, and products in one project must have unique names"
+    ),
     # API Keys
     "jwt_auth_required": "API Key is not authorized to perform this action, please use JWT authentication",
     "api_key_name_exists": "Name '{name}' already exists",
@@ -239,18 +244,16 @@ MESSAGES = {
     "ref_not_reference_video_mode": "Episode script is not in reference-video mode",
     "ref_not_registered": "Referenced assets are not registered: {missing}",
     "ref_unit_not_found": "Video unit '{unit_id}' not found",
+    "ref_unit_needs_replan": "This video unit has a speech-ownership or migration problem; replan it before generating",
     "ref_unit_ids_length_mismatch": "unit_ids count does not match existing units",
     "ref_duplicate_unit_ids": "unit_ids contains duplicates",
     "ref_unit_ids_mismatch": "unit_ids do not match existing units",
     "ref_script_missing": "The script file bound to this episode does not exist",
     "ref_script_rebound": "This episode's script binding changed, please retry",
-    "ref_ad_units_derived": "Video units of an ad/short-video project are derived from shots automatically and cannot be edited manually; edit the shots and re-derive the grouping instead",
-    "ref_derive_ad_only": "Deriving video unit groups is only available for ad/short-video projects",
-    "ref_ad_stale_index": "The unit grouping index no longer matches the shots, please re-derive the grouping",
     "ref_ad_reference_skipped": "'{name}' ({type}) has no usable reference image and was skipped for this generation",
     # Shot-script parse preview: degradation visibility
     "ref_warn_unregistered_mention": (
-        "@[{name}] is not registered as a character, scene, or prop: no reference image will be "
+        "@[{name}] is not registered as a product, character, scene, or prop: no reference image will be "
         "attached. Check the name or create the asset first"
     ),
     "ref_warn_unclosed_brace": (
@@ -317,7 +320,7 @@ MESSAGES = {
     "video_reference_images_unreadable": "Model {model} has reference images that are missing or unreadable; generation aborted: {names}; check the reference image paths",
     "video_reference_images_unsupported": "Model {model} does not support multi-subject reference images; remove the reference images or switch to a model that supports reference-to-video",
     "video_reference_images_exceeded": "Model {model} supports at most {limit} reference images but received {count}; reduce the number of reference images",
-    "video_reference_images_with_frames_unsupported": "Model {model} cannot combine reference images with a first/last frame; use one or the other",
+    "video_reference_images_with_frames_unsupported": "Model {model} cannot combine reference images/audio with a first/last frame; use one or the other",
     "video_start_image_unreadable": "The first-frame image for model {model} is unreadable; generation aborted: {name}; check the first-frame image path",
     "video_end_image_unreadable": "The last-frame image for model {model} is unreadable; generation aborted: {name}; check the last-frame image path",
     "video_end_image_requires_start_image": "Model {model} does not support a standalone last frame; also provide a first frame (first+last keyframes) or remove the last frame",
@@ -347,6 +350,12 @@ MESSAGES = {
     "session_busy": "The session is busy; wait for the current reply to finish before sending",
     "session_capacity_exceeded": "Concurrent session limit reached, please try again later",
     "session_question_unavailable": "The session is not running or has no pending question",
+    "rewrite_anchor_invalid": "The message you are editing is not part of this conversation; refresh and try again",
+    "rewrite_blocked_by_question": "Answer the question card in the conversation before editing a message",
+    "session_already_superseded": "This conversation has been replaced by an earlier edit; continue in the new one",
+    "rewrite_unavailable": "Message editing is unavailable because conversation storage is turned off",
+    "rewrite_interrupt_timeout": "Timed out waiting for the current reply to stop, please try again",
+    "rewrite_failed": "Editing the message failed, please try again",
     "overview_source_empty": "Source directory is empty; cannot generate overview",
     "text_provider_not_configured": "Please configure a text provider first: add at least one provider in Settings → Providers",
     "jianying_no_completed_segments": "Episode {episode} has no completed video clips; generate videos first",

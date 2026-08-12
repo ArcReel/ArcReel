@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi import Path as FastAPIPath
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 from starlette.background import BackgroundTask
 
@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 from lib.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.asset_fingerprints import compute_asset_fingerprints
+from lib.asset_types import asset_name_comparison_key
 from lib.config.registry import default_model_for_provider
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 from lib.db import async_session_factory
@@ -39,8 +40,10 @@ from lib.json_io import domain_error_on_value_error
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
 from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
+from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
+from lib.workflow_state import WorkflowStateService, WorkflowStatus
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.routers._reorder import full_permutation_error
 from server.routers._validators import validate_backend_value
@@ -86,6 +89,35 @@ _PROJECT_BACKEND_FIELDS = (
 )
 
 
+def _reject_bool_speech_rate(value: object) -> object:
+    """布尔不是语速：Pydantic 非严格模式会把 JSON ``true`` 折成 1.0、``false`` 折成 0.0。
+
+    真相源与数据校验器都把 bool 判为脏值，写入侧若放行，落库后的 1.0 已无从辨认原本是布尔，
+    而 0.0 又会被当成「未填」跳过写入——同一类输入两种结局。在进入区间校验前直接拒。
+    """
+    if isinstance(value, bool):
+        raise ValueError("speech rate must be a number, not a boolean")
+    return value
+
+
+#: 创建 / PATCH 请求上的口播语速估算字段类型，两个模型共用同一把布尔守卫。
+SpeechRateOverride = Annotated[float | None, BeforeValidator(_reject_bool_speech_rate)]
+
+
+def _validated_speech_rate(value: float, _t: Translator) -> float:
+    """把创建 / PATCH 传入的口播语速估算收进硬区间，越界即 422。
+
+    区间与 ``lib.speech_rate`` 的读时守卫、前端输入校验同一把尺（``is_valid_speech_rate``），
+    不在这里另写边界数字。
+    """
+    rate = float(value)
+    if not is_valid_speech_rate(rate):
+        raise HTTPException(
+            status_code=422, detail=_t("speech_rate_out_of_range", min=MIN_SPEECH_RATE_UPS, max=MAX_SPEECH_RATE_UPS)
+        )
+    return rate
+
+
 class CreateProjectRequest(BaseModel):
     name: str | None = None
     title: str | None = None
@@ -106,6 +138,9 @@ class CreateProjectRequest(BaseModel):
     # 宫格分镜开关：只改变分镜图的生产方式，不是独立路线；仅 storyboard 路线有意义，
     # 创建后可经项目 PATCH 随时切换。ad 项目拒绝开启。
     grid_storyboard: bool = False
+    # 口播语速估算（阅读单位 / 秒）项目级覆盖：空 = 回退 lib.speech_rate 的语言默认。
+    # 与 TTS 的 narration_speed（供应商配音倍率）无关，两者不联动。
+    speech_rate_units_per_second: SpeechRateOverride = None
     # ===== 新增 =====
     style_template_id: str | None = None
     video_backend: str | None = None
@@ -164,6 +199,8 @@ class UpdateProjectRequest(BaseModel):
     audio_backend: str | None = None
     narration_voice: str | None = None
     narration_speed: float | None = None
+    # 口播语速估算（阅读单位 / 秒）项目级覆盖；null = 清除、回退语言默认
+    speech_rate_units_per_second: SpeechRateOverride = None
     # 文本任务档位（docs/adr/0051）项目级覆盖 + 项目默认模型；空值 = 清除、继承全局
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
@@ -532,6 +569,14 @@ async def create_project(
                 if value:
                     validate_backend_value(value, field_name, _t)
 
+            # 口播语速估算：可选，未填则不落盘（缺省即回退 lib.speech_rate 的语言默认）。
+            # 在 create_project 之前判，越界请求不留下半成品项目目录。
+            speech_rate = (
+                None
+                if req.speech_rate_units_per_second is None
+                else _validated_speech_rate(req.speech_rate_units_per_second, _t)
+            )
+
             try:
                 manager.create_project(project_name, content_mode=req.content_mode or "narration")
             except FileExistsError:
@@ -543,6 +588,8 @@ async def create_project(
             # 两字段恒写显式值（grid_storyboard 默认 false 也落盘），新项目即 v5 完整形态
             extras["generation_mode"] = req.generation_mode
             extras["grid_storyboard"] = req.grid_storyboard
+            if speech_rate is not None:
+                extras[SPEECH_RATE_FIELD] = speech_rate
             with project_change_source("webui"):
                 project = manager.create_project_metadata(
                     project_name,
@@ -616,6 +663,23 @@ async def get_video_capabilities(
         ) from exc
 
 
+@router.get("/projects/{name}/workflow-status", response_model=WorkflowStatus)
+async def get_workflow_status(
+    name: str,
+    episode: Annotated[int | None, Query(ge=1)] = None,
+):
+    """Return the authenticated, server-authoritative project workflow status."""
+
+    try:
+        return await asyncio.to_thread(WorkflowStateService(get_project_manager()).get_status, name, episode)
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
+    except json.JSONDecodeError:
+        raise
+    except ValueError as exc:
+        raise BadRequestError("request_invalid") from exc
+
+
 @router.get("/projects/{name}")
 async def get_project(
     name: str,
@@ -669,6 +733,55 @@ async def get_project(
         raise
     except Exception:
         logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
+@router.get("/projects/{name}/agent-profile")
+async def get_agent_profile_status(name: str, _t: Translator):
+    """Return project-local Agent Profile customizations."""
+
+    def _sync():
+        manager = get_project_manager()
+        try:
+            project_dir = manager.get_project_path(name)
+        except ValueError as exc:
+            raise BadRequestError("invalid_project_name", name=name) from exc
+        return manager.get_agent_profile_status(project_dir)
+
+    try:
+        return await asyncio.to_thread(_sync)
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
+    except ApiError:
+        raise
+    except Exception:
+        logger.exception("读取项目 Agent Profile 状态失败: project=%s", name)
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
+@router.post("/projects/{name}/agent-profile/reset")
+async def reset_agent_profile(name: str, _t: Translator):
+    """Destructively restore the project Agent Profile to current built-ins."""
+
+    def _sync():
+        manager = get_project_manager()
+        try:
+            project_dir = manager.get_project_path(name)
+        except ValueError as exc:
+            raise BadRequestError("invalid_project_name", name=name) from exc
+        stats = manager.force_resync_profile(project_dir)
+        if stats.get("errors"):
+            raise RuntimeError(f"profile reset completed with {stats['errors']} file errors")
+        return {"customized": False, "customized_files": []}
+
+    try:
+        return await asyncio.to_thread(_sync)
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
+    except ApiError:
+        raise
+    except Exception:
+        logger.exception("重置项目 Agent Profile 失败: project=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
@@ -732,6 +845,12 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         if not math.isfinite(speed) or speed <= 0:
                             raise HTTPException(status_code=422, detail=_t("narration_speed_must_be_positive"))
                         project["narration_speed"] = speed
+                # 口播语速估算（阅读单位 / 秒）：宽松硬区间，null = 清除、回退语言默认
+                if "speech_rate_units_per_second" in req.model_fields_set:
+                    if req.speech_rate_units_per_second is None:
+                        project.pop(SPEECH_RATE_FIELD, None)
+                    else:
+                        project[SPEECH_RATE_FIELD] = _validated_speech_rate(req.speech_rate_units_per_second, _t)
                 if "aspect_ratio" in req.model_fields_set and req.aspect_ratio is not None:
                     project["aspect_ratio"] = req.aspect_ratio
                 if "grid_storyboard" in req.model_fields_set:
@@ -908,6 +1027,11 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
                                 ]:
                                     if value is None and key != "note":
                                         continue
+                                    if key in {"characters_in_scene", "scenes", "props"} and isinstance(value, list):
+                                        value = [
+                                            asset_name_comparison_key(name) if isinstance(name, str) else name
+                                            for name in value
+                                        ]
                                     scene[key] = value
                             break
 
@@ -1133,7 +1257,9 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                                 segment["note"] = req.note
                             for field in ("characters_in_segment", "scenes", "props"):
                                 if field in req.model_fields_set:
-                                    segment[field] = getattr(req, field) or []
+                                    segment[field] = [
+                                        asset_name_comparison_key(name) for name in (getattr(req, field) or [])
+                                    ]
                             break
 
                     if matched_segment is None:
@@ -1262,21 +1388,17 @@ async def set_project_source(
         def _sync_write():
             if not manager.project_exists(name):
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
-            project_dir = manager.get_project_path(name)
-            source_dir = project_dir / "source"
-            source_dir.mkdir(parents=True, exist_ok=True)
-
-            if raw is not None:
-                safe_filename = Path(original_name).name
-                try:
-                    text = raw.decode("utf-8")
-                except UnicodeDecodeError:
-                    raise HTTPException(status_code=400, detail=_t("invalid_encoding"))
-                if len(text) > MAX_CHARS:
-                    raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
-                (source_dir / safe_filename).write_text(text, encoding="utf-8")
-                return safe_filename, len(text)
-            else:
+            with manager.locked_source_mutation(name) as source_dir:
+                if raw is not None:
+                    safe_filename = Path(original_name).name
+                    try:
+                        text = raw.decode("utf-8")
+                    except UnicodeDecodeError:
+                        raise HTTPException(status_code=400, detail=_t("invalid_encoding"))
+                    if len(text) > MAX_CHARS:
+                        raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
+                    (source_dir / safe_filename).write_text(text, encoding="utf-8")
+                    return safe_filename, len(text)
                 if len(text_content) > MAX_CHARS:
                     raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
                 safe_filename = "novel.txt"

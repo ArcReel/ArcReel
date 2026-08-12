@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# classify_commits.sh — emit metadata for each PR commit so Claude can judge "nit-only vs feature".
+# classify_commits.sh — emit metadata for each PR commit so the orchestrating agent can judge "nit-only vs feature".
 #
 # USAGE
-#   bash classify_commits.sh <PR_NUMBER> [SINCE_SHA]
+#   bash classify_commits.sh --repo-root <path> <PR_NUMBER> [SINCE_SHA]
 #
 # If SINCE_SHA omitted, returns all commits on the PR. With SINCE_SHA, returns commits AFTER that SHA
 # (use to inspect just the latest push: pass the previous round's head).
@@ -31,14 +31,20 @@
 #   (a) skip burning Gemini quota on a manual re-trigger (the conservative-trigger gate), and
 #   (b) judge whether a round produced substantive value — user-facing behaviour or lower cost of
 #       future change — for the convergence exit. Metadata only; read the diff by SHA when unclear.
-# Output is raw metadata (file count, line stats, message text); Claude makes the final call —
+# Output is raw metadata (file count, line stats, message text); the orchestrating agent makes the final call —
 # scripting "is this nit?" would miss semantic cues like "fix typo in error message
 # (1 line, 1 file)" being clearly nit vs "fix race in lock release (1 line, 1 file)" being NOT nit.
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/repo-context.sh"
+enter_repo_root "POLL_ERROR" "$@"
+shift "$REPO_CONTEXT_SHIFT"
+
 if [[ $# -lt 1 ]]; then
-  echo "POLL_ERROR: missing PR_NUMBER. Usage: bash classify_commits.sh <PR_NUMBER> [SINCE_SHA]" >&2
+  echo "POLL_ERROR: missing PR_NUMBER. Usage: bash classify_commits.sh [--repo-root <path>] <PR_NUMBER> [SINCE_SHA]" >&2
   exit 2
 fi
 

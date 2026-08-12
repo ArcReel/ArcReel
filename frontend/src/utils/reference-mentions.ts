@@ -118,9 +118,9 @@ const VOICEOVER_LINE_RE = /^\s*\{([^{}]*)\}\s*$/;
 export function matchDialogueLine(line: string): { speaker: string; text: string } | null {
   const m = DIALOGUE_LINE_RE.exec(normalizeSource(line));
   if (!m) return null;
-  const speaker = m[1] ?? m[2] ?? "";
+  const speaker = normalizeAssetName(m[1] ?? m[2] ?? "");
   // speaker 位全为空白不算规范行（同 shot_parser.py：dialogue utterance 必须带非空 speaker）。
-  if (!speaker.trim() || !hasSpokenText(m[3])) return null;
+  if (!speaker || !hasSpokenText(m[3])) return null;
   return { speaker, text: m[3] };
 }
 
@@ -144,7 +144,7 @@ export function extractMentions(text: string): string[] {
   for (const line of splitScriptLines(text)) {
     if (matchDialogueLine(line.replace(SHOT_HEADER_PREFIX_RE, ""))) continue;
     for (const m of line.matchAll(MENTION_RE)) {
-      const name = mentionNameFromMatch(m);
+      const name = normalizeAssetName(mentionNameFromMatch(m));
       if (!seen.has(name)) {
         seen.add(name);
         out.push(name);
@@ -154,16 +154,23 @@ export function extractMentions(text: string): string[] {
   return out;
 }
 
-type ProjectBuckets = Pick<ProjectData, "characters" | "scenes" | "props">;
+type ProjectBuckets = Pick<ProjectData, "characters" | "scenes" | "props" | "products">;
+type ProjectAssetKind = AssetKind;
+export type MentionLookup = Record<string, ProjectAssetKind>;
+
+// Python str.strip() whitespace set. JavaScript trim() additionally removes U+FEFF,
+// but backend asset-name comparison deliberately treats U+FEFF as a name character.
+// eslint-disable-next-line no-control-regex
+const PYTHON_STRIP_RE = /^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/gu;
 
 /**
- * 把资产名归一到比对坐标系（Unicode NFC）。镜像后端
- * `lib.asset_types.normalize_asset_name`——两侧必须同一坐标系，否则「后端判已登记、
+ * 把资产名归一到项目名称空间的比对坐标系（strip + Unicode NFC）。镜像后端
+ * `lib.asset_types.asset_name_comparison_key`——两侧必须同一坐标系，否则「后端判已登记、
  * 前端判未登记」（反之亦然），组合字符名（如越南语）在这两侧各自输入法/来源下
  * 尤其容易产出不同编码形式。
  */
 export function normalizeAssetName(name: string): string {
-  return name.normalize("NFC");
+  return name.replace(PYTHON_STRIP_RE, "").normalize("NFC");
 }
 
 function bucketHasName(bucket: Record<string, unknown> | undefined, target: string): boolean {
@@ -174,12 +181,32 @@ function bucketHasName(bucket: Record<string, unknown> | undefined, target: stri
   return Object.keys(bucket).some((key) => normalizeAssetName(key) === target);
 }
 
+/**
+ * 为编辑器高亮构造项目资产名到类型的唯一映射。
+ *
+ * 无原型字典保证 `__proto__` 等合法资产名可作为普通 key。损坏项目若有同名资产，
+ * 按 product → character → scene → prop 的稳定优先级解析。
+ */
+export function buildMentionLookup(project: ProjectBuckets | null | undefined): MentionLookup {
+  const lookup: MentionLookup = Object.create(null) as MentionLookup;
+  const claim = (name: string, kind: ProjectAssetKind) => {
+    const key = normalizeAssetName(name);
+    if (!Object.hasOwn(lookup, key)) lookup[key] = kind;
+  };
+  for (const name of Object.keys(project?.products ?? {})) claim(name, "product");
+  for (const name of Object.keys(project?.characters ?? {})) claim(name, "character");
+  for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");
+  for (const name of Object.keys(project?.props ?? {})) claim(name, "prop");
+  return lookup;
+}
+
 export function resolveMentionType(
   project: ProjectBuckets | null | undefined,
   name: string,
-): AssetKind | undefined {
+): ProjectAssetKind | undefined {
   if (!project) return undefined;
   const target = normalizeAssetName(name);
+  if (bucketHasName(project.products, target)) return "product";
   if (bucketHasName(project.characters, target)) return "character";
   if (bucketHasName(project.scenes, target)) return "scene";
   if (bucketHasName(project.props, target)) return "prop";
@@ -203,7 +230,7 @@ export function mergeReferences(
 ): ReferenceResource[] {
   // mention 名出自解析器、已是规范形；既有 references 出自后端落盘值，来源不同故仍需归一后
   // 再判等/去重。输出的 name 一律是规范形，与后端 `resolve_references` 的产出口径一致。
-  const mentioned = new Set(extractMentions(prompt));
+  const mentioned = new Set(extractMentions(prompt).map(normalizeAssetName));
   const kept: ReferenceResource[] = [];
   const keptNames = new Set<string>();
   for (const ref of existing) {

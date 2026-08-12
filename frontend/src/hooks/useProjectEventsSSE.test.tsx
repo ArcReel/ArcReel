@@ -1014,6 +1014,49 @@ describe("useProjectEventsSSE", () => {
       expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
     });
 
+    it.each(["created" as const, "updated" as const, "deleted" as const])(
+      "reference_unit:%s 让独立分组缓存失效",
+      async (action) => {
+        const options = openStream();
+
+        renderHarness("/");
+        emit(options(), [
+          {
+            entity_type: "reference_unit",
+            action,
+            entity_id: "E1U1",
+            label: "视频单元「E1U1」",
+            episode: 1,
+            focus: null,
+            important: false,
+          },
+        ]);
+
+        expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
+      },
+    );
+
+    it("同批 unit 变更与生成成功只让分组缓存失效一次", async () => {
+      const options = openStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+
+      renderHarness("/");
+      emit(options(), [
+        {
+          entity_type: "reference_unit",
+          action: "updated",
+          entity_id: "E1U1",
+          label: "视频单元「E1U1」",
+          episode: 1,
+          focus: null,
+          important: false,
+        },
+        taskChange({ task_type: "reference_video" }),
+      ]);
+
+      expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
+    });
+
     it("参考生视频任务失败/取消不重拉分组（成片未变）", async () => {
       const options = openStream();
       vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);

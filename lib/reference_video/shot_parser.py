@@ -7,7 +7,7 @@ import unicodedata
 from collections.abc import Collection, Iterator
 from typing import Any
 
-from lib.asset_types import BUCKET_KEY, normalize_asset_bucket, normalize_asset_name
+from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.script_models import ReferenceResource, Shot
 
 #: 镜头行 header：``镜头N：``（中英冒号均可）。时长已收编到 unit 级，header 不带秒数——
@@ -30,15 +30,15 @@ def _normalize_source(text: str) -> str:
 
     两者同一性质——屏幕上看不见的字节差异，却让按字节走的判定分叉，故合并在一个入口处理。
     BOM 不止出现在文档开头：粘贴拼接会把它带到任意行首，而分叉是按行发生的。NFC 则是
-    资产名比对的坐标系（见 :func:`lib.asset_types.normalize_asset_name`）：说话人位与
+    资产名比对的坐标系（见 :func:`lib.asset_types.asset_name_comparison_key`）：说话人位与
     ``@[名称]`` 引用都要与资产表的 key 判等，正文以 NFD 落盘、资产表以 NFC 登记时两者
     肉眼同字却判不相等。
 
     归一落在四个行级原语（``strip_shot_header`` / ``match_dialogue_line`` /
     ``match_voiceover_line`` / ``leading_mention_before_colon``）与 ``find_malformed_mention``
     上——它们各自与前端同名函数互为镜像，单独调用时也须同判；``parse_prompt`` 另做一次整体
-    归一，让派生出的 shot 文本本身已归一（它会进预览显示、后端渲染与落盘）。据此，从解析器
-    出来的说话人名、mention 名与台词文本一律已是 NFC，下游比对只需归一资产表一侧。
+    归一，让派生出的 shot 文本本身已归一（它会进预览显示、后端渲染与落盘）。名字提取出口再
+    经比对 helper 去除两端空白；因此说话人名与 mention 名一律已 strip + NFC，台词文本已是 NFC。
     """
     stripped = text.replace(_BOM, "") if _BOM in text else text
     return unicodedata.normalize("NFC", stripped)
@@ -137,8 +137,8 @@ def match_dialogue_line(line: str) -> tuple[str, str] | None:
     if not rest or rest[0] not in "：:":
         return None
     spoken = _unwrap_braces(rest[1:])
-    speaker = first[2]
-    if spoken is None or not speaker.strip():
+    speaker = asset_name_comparison_key(first[2])
+    if spoken is None or not speaker:
         return None
     return speaker, spoken
 
@@ -161,7 +161,7 @@ def leading_mention_before_colon(line: str) -> str | None:
     rest = stripped[first[1] :].lstrip()
     if not rest or rest[0] not in "：:":
         return None
-    return first[2]
+    return asset_name_comparison_key(first[2])
 
 
 def find_malformed_mention(line: str) -> str | None:
@@ -288,7 +288,8 @@ def extract_mentions(text: str) -> list[str]:
         line = _normalize_source(raw_line)
         if match_dialogue_line(strip_shot_header(line)) is not None:
             continue
-        for _start, _end, name in _iter_mentions(line):
+        for _start, _end, raw_name in _iter_mentions(line):
+            name = asset_name_comparison_key(raw_name)
             if name not in seen:
                 seen.add(name)
                 result.append(name)
@@ -303,13 +304,13 @@ def rewrite_mentions(text: str, old_name: str, new_name: str) -> tuple[str, int]
     也会被命中改写。不做其他归一（不去 BOM、不整体 NFC），未命中的字符原样保留：重命名只
     该改名字本身，不该顺带改写正文的编码形式。已经是目标形式的 mention 不计入改写数。
     """
-    target = normalize_asset_name(old_name)
+    target = asset_name_comparison_key(old_name)
     replacement = f"@[{new_name}]"
     pieces: list[str] = []
     last = 0
     count = 0
     for start, end, name in _iter_mentions(text):
-        if normalize_asset_name(name) != target or text[start:end] == replacement:
+        if asset_name_comparison_key(name) != target or text[start:end] == replacement:
             continue
         pieces.append(text[last:start])
         pieces.append(replacement)
@@ -365,13 +366,14 @@ def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
     登记的同一个名字判不相等，该 mention 会被当成未登记而原样保留，``@[名称]`` 这个书写层
     记号就直接漏进了供应商请求。
     """
-    normalized_names = {normalize_asset_name(name) for name in names}
+    normalized_names = {asset_name_comparison_key(name) for name in names}
     text = _normalize_source(text)
     parts: list[str] = []
     last = 0
     for start, end, name in _iter_mentions(text):
         parts.append(text[last:start])
-        parts.append(f"<{name}>" if name in normalized_names else text[start:end])
+        canonical = asset_name_comparison_key(name)
+        parts.append(f"<{canonical}>" if canonical in normalized_names else text[start:end])
         last = end
 
     parts.append(text[last:])
@@ -425,11 +427,11 @@ def resolve_references(
     names: list[str],
     project: dict,
 ) -> tuple[list[ReferenceResource], list[str]]:
-    """按 project.json 三 bucket 把 mention 名字分派成 ReferenceResource。
+    """按 project.json 四类资产把 mention 名字分派成 ReferenceResource。
 
-    当同一名称同时存在于多个 bucket 时，优先级为 character → scene → prop。
+    新项目资产共用名称空间；对历史重复名仍按产品→角色→场景→道具稳定决议。
 
-    名字与三张资产表都先归一到比对坐标系（:func:`lib.asset_types.normalize_asset_name`），
+    名字与三张资产表都先归一到比对坐标系（:func:`lib.asset_types.asset_name_comparison_key`），
     产出的 ``ReferenceResource.name`` 与 ``missing`` 因此一律是归一形式：下游拿它回查资产表、
     与说话人判等、在正文里替换成主体记号 ``<X>``，三处都要与这里的判定同形，否则「这里判已
     登记、下游查不到」。入参 ``names`` 通常已出自本模块的解析器（已归一），归一是幂等的补齐，
@@ -439,20 +441,22 @@ def resolve_references(
         (refs, missing): refs 保持入参顺序；missing 是没在任何 bucket 找到的名字
     """
     buckets: dict[str, dict[str, Any]] = {
+        "product": normalize_asset_bucket(project.get(BUCKET_KEY["product"])),
         "character": normalize_asset_bucket(project.get(BUCKET_KEY["character"])),
         "scene": normalize_asset_bucket(project.get(BUCKET_KEY["scene"])),
         "prop": normalize_asset_bucket(project.get(BUCKET_KEY["prop"])),
     }
     refs: list[ReferenceResource] = []
     missing: list[str] = []
+    seen: set[str] = set()
     for raw_name in names:
-        name = normalize_asset_name(raw_name)
-        resolved = False
-        for rtype, bucket in buckets.items():
-            if name in bucket:
-                refs.append(ReferenceResource(type=rtype, name=name))  # type: ignore[arg-type]
-                resolved = True
-                break
-        if not resolved:
+        name = asset_name_comparison_key(raw_name)
+        if name in seen:
+            continue
+        seen.add(name)
+        match = next((rtype for rtype, bucket in buckets.items() if name in bucket), None)
+        if match is not None:
+            refs.append(ReferenceResource(type=match, name=name))  # type: ignore[arg-type]
+        else:
             missing.append(name)
     return refs, missing

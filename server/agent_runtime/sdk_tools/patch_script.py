@@ -3,9 +3,10 @@
 把 agent 对 ``scripts/*.json`` 的一切编辑收归这组工具：批量字段编辑（``patch_episode_script``，
 一次改多分镜 × 多字段的 ``{分镜id: {字段路径: 值}}`` 映射）+ 结构性增删拆（``insert_segment`` /
 ``remove_segment`` / ``split_segment``）。每个工具在
-``ProjectManager.locked_script`` 读-改-写上下文里调 ``lib.script_editor`` 的纯函数核心改
-dict，退出时经写盘统一入口 ``_write_script_unlocked`` 写回——继承「不更坏」结构校验、metadata
-重算、加锁与 filename↔episode 一致性。结构错误当场以「不更坏」语义挡下并返回明确错误。
+``ProjectManager`` 的锁定式读-改-写上下文里调 ``lib.script_editor`` 的纯函数核心改 dict；
+字段 patch 还联合持有项目锁，以便按同一份资产表重派生 reference unit 引用。退出时经写盘统一
+入口 ``_write_script_unlocked`` 写回——继承「不更坏」结构校验、metadata 重算、加锁与
+filename↔episode 一致性。结构错误当场以「不更坏」语义挡下并返回明确错误。
 
 工具返回文本是 agent-facing（免 i18n）；显示名在 ``ARCREEL_MCP_TOOL_IDS`` 注册、补三语。
 """
@@ -16,6 +17,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.reference_video import rederive_unit_references
 from lib.script_editor import (
     ScriptEditError,
     insert_segment,
@@ -24,6 +26,7 @@ from lib.script_editor import (
     resolve_items,
     split_segment,
 )
+from lib.speech_composition import refresh_video_unit_replan_state
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 
 # 改了这些顶层字段路径的分镜须紧接着重新生成对应图/视频（工具不自动作废旧资产）。
@@ -47,6 +50,7 @@ def patch_episode_script_tool(ctx: ToolContext):
         "Pydantic 字段路径（含数组下标，如 segments.4.video_prompt.x）报告。修正后整批重提即可。"
         "纯字段 setter，不触碰已生成资产——批量改了任意分镜的 image_prompt / video_prompt 后，"
         "须紧接着重新生成对应分镜的图/视频，否则会留下「新 prompt + 旧画面」的陈旧。"
+        "reference video unit 的 shots 正文变化时，references 会从其中的已登记 @ mention 机械重派生。"
         "叶子字段不存在会被创建（允许补 LLM 漏写的 optional 字段如 video_prompt.dialogue）；"
         "拼写错误（如 image_prompt.scen 应为 image_prompt.scene）会经写盘统一入口的 Pydantic "
         "extra='forbid' 结构校验拒，提交前请确认字段名拼写正确。",
@@ -77,14 +81,33 @@ def patch_episode_script_tool(ctx: ToolContext):
 
             applied: list[tuple[str, list[str]]] = []
             regen_ids: list[str] = []
-            # 全批在同一个 locked_script 上下文内逐条 patch_field 就地改 dict：任一编辑抛异常即
+            project_out: dict[str, dict[str, Any]] = {}
+
+            def _resolve_script(project: dict[str, Any]) -> str:
+                # locked_episode_script 会在项目锁内再次调用 resolver；最后一次捕获因此与下方
+                # script 写入处于同一临界区，资产改名/删除不能夹在引用重派生与落盘之间。
+                project_out["project"] = project
+                return script_filename
+
+            # 全批在同一个 locked_episode_script 上下文内逐条 patch_field 就地改 dict：任一编辑抛异常即
             # 冒出 with 体 → 写盘被跳过 → 整批零落盘；全部 apply 后写盘统一入口跑一次「不更坏」
-            # 结构校验，非法则整体拒。原子性由 locked_script 承重，无需额外事务管线。
-            with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
+            # 结构校验，非法则整体拒。原子性由 locked_episode_script 承重，无需额外事务管线。
+            with ctx.pm.locked_episode_script(ctx.project_name, _resolve_script) as script:
+                project = project_out["project"]
+                items, id_field, kind = resolve_items(script)
                 for raw_id, field_map in edits.items():
                     scene_id = str(raw_id)
                     if not isinstance(field_map, dict) or not field_map:
                         raise ScriptEditError(f"分镜 {scene_id} 的编辑必须是非空 {{ 字段路径: 值 }} 映射")
+                    unit = (
+                        next(
+                            (item for item in items if isinstance(item, dict) and str(item.get(id_field)) == scene_id),
+                            None,
+                        )
+                        if kind == "video_units"
+                        else None
+                    )
+                    previous_shots = unit.get("shots") if unit is not None else None
                     fields: list[str] = []
                     for raw_field, value in field_map.items():
                         field = str(raw_field)
@@ -95,6 +118,16 @@ def patch_episode_script_tool(ctx: ToolContext):
                         fields.append(field)
                         if field.split(".", 1)[0] in _REGEN_TRIGGER_FIELDS and scene_id not in regen_ids:
                             regen_ids.append(scene_id)
+                    if unit is not None:
+                        edited_roots = {field.split(".", 1)[0] for field in fields}
+                        body_changed = "shots" in edited_roots and unit.get("shots") != previous_shots
+                        if body_changed:
+                            rederive_unit_references([unit], project)
+                        refresh_video_unit_replan_state(
+                            unit,
+                            allow_clear=body_changed or "duration_seconds" in edited_roots,
+                            content_changed=body_changed,
+                        )
                     applied.append((scene_id, fields))
 
             lines = [f"✅ 已更新 {len(applied)} 个分镜的字段："]

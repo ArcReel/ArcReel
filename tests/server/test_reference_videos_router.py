@@ -155,18 +155,17 @@ def _seed_unit(client: TestClient) -> str:
 
 @pytest.mark.integration
 def test_patch_unit_prompt_keeps_duration(client: TestClient):
-    """时长与正文互不牵连：改文案不动 unit 时长（镜头不承载时长）。"""
+    """时长与正文互不牵连；只传正文时 references 用当前资产表重新派生。"""
     uid = _seed_unit(client)
     resp = client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
-        json={"prompt": "镜头1：@张三 推门\n镜头2：@酒馆 全景"},
+        json={"prompt": "镜头1：@酒馆 门口\n镜头2：@酒馆 全景"},
     )
     assert resp.status_code == 200, resp.text
     unit = resp.json()["unit"]
     assert len(unit["shots"]) == 2
     assert unit["duration_seconds"] == 3
-    # 注意：prompt 新增的 @酒馆 应由 caller 先 PATCH references 再 PATCH prompt；本端点仅按旧 references 映射
-    assert len(unit["references"]) == 1
+    assert unit["references"] == [{"type": "scene", "name": "酒馆"}]
 
 
 @pytest.mark.integration
@@ -244,9 +243,8 @@ def test_patch_unit_accepts_nfc_reference_for_nfd_registered_name(client: TestCl
 
 
 @pytest.mark.integration
-def test_unit_references_persisted_as_nfc(client: TestClient):
-    """add/patch 落盘的 reference name 统一 NFC：NFD 请求名（macOS 输入法/拖放形态）
-    不得以原始编码持久化，否则同一资产在 references 里会出现视觉同名的两种形态。"""
+def test_unit_references_persisted_in_asset_comparison_form(client: TestClient):
+    """add/patch 落盘的 reference name 统一 strip + NFC。"""
     from server.routers import reference_videos as router_mod
 
     name_nfd = unicodedata.normalize("NFD", "Hiếu")
@@ -261,7 +259,7 @@ def test_unit_references_persisted_as_nfc(client: TestClient):
         json={
             "prompt": "镜头1：推门",
             "duration_seconds": 3,
-            "references": [{"type": "character", "name": name_nfd}],
+            "references": [{"type": "character", "name": f" {name_nfd} "}],
         },
     )
     assert resp.status_code == 201, resp.text
@@ -270,7 +268,12 @@ def test_unit_references_persisted_as_nfc(client: TestClient):
 
     resp = client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{unit['unit_id']}",
-        json={"references": [{"type": "character", "name": name_nfd}, {"type": "character", "name": "张三"}]},
+        json={
+            "references": [
+                {"type": "character", "name": f" {name_nfd} "},
+                {"type": "character", "name": " 张三 "},
+            ]
+        },
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["unit"]["references"] == [

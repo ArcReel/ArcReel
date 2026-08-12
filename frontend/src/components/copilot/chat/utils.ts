@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { Turn } from "@/types";
+import type { SessionStatus, Turn } from "@/types";
 
 // ---------------------------------------------------------------------------
 // cn – lightweight className concatenation utility.
@@ -56,4 +56,41 @@ export function getRoleLabel(role: string, t: TFunction<"dashboard">): string {
     default:
       return role || t("chat_role_message");
   }
+}
+
+// ---------------------------------------------------------------------------
+// turnPlainText – 一个 turn 的可复制 / 可改写正文（只取 text 块）。
+// ---------------------------------------------------------------------------
+
+export function turnPlainText(turn: Turn): string {
+  return (turn.content ?? [])
+    .filter((block) => block.type === "text" && typeof block.text === "string")
+    .map((block) => block.text)
+    .join("\n\n");
+}
+
+// ---------------------------------------------------------------------------
+// canEditUserTurn – 这条消息此刻是否给出改写入口。
+//
+// 客户端预判，服务端仍是判据的真相源（锚点非法 400、未决问答 409）。
+// 不可编辑时入口不渲染，不做置灰。
+// ---------------------------------------------------------------------------
+
+export function canEditUserTurn(
+  turn: Turn,
+  context: { sessionStatus: SessionStatus | null; hasPendingQuestion: boolean; isSending: boolean },
+): boolean {
+  if (turn.type !== "user") return false;
+  // 改写锚点就是条目 uuid：没有 uuid 的 turn（合成卡片、draft）无从锚定
+  if (!turn.uuid) return false;
+  // 问答答复是智能体问卷的回执，不是用户自己写的消息。投影产出的 Turn 不带
+  // subtype，按内容块类型识别。
+  if ((turn.content ?? []).some((block) => block.type === "question_answer")) return false;
+  if (!turnPlainText(turn).trim()) return false;
+  if (context.sessionStatus === "running") return false;
+  if (context.hasPendingQuestion) return false;
+  // 已有发送或改写在途：此刻放行别处的编辑入口，点下去会顶掉正在提交的编辑器，
+  // 连同它里面还没被受理的草稿一起消失
+  if (context.isSending) return false;
+  return true;
 }

@@ -15,7 +15,7 @@ import secrets
 import shutil
 import time
 import unicodedata
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +36,10 @@ from lib.asset_rename import (
 )
 from lib.asset_types import (
     ASSET_SPECS,
+    ProjectAssetNameConflictError,
+    ensure_project_asset_name_available,
+    ensure_project_asset_namespace,
+    find_project_asset_name,
     normalize_asset_bucket,
     normalize_asset_name,
     rekey_equivalent_entries,
@@ -58,6 +62,7 @@ from lib.profile_manifest import (
     ProfileEmptyError,
     ProfileMisconfiguredError,
     ProfileMissingError,
+    get_profile_status,
     sync_profile_to_project,
 )
 from lib.profile_manifest import (
@@ -413,6 +418,11 @@ class ProjectManager:
             content_mode = self._resolve_content_mode(project_dir)
         profile_dir = agent_profile_dir()
         return _force_resync_profile(profile_dir, project_dir, content_mode, paths=paths)
+
+    def get_agent_profile_status(self, project_dir: Path) -> dict[str, object]:
+        """Describe project-local Agent Profile customizations for settings UI."""
+        content_mode = self._resolve_content_mode(project_dir)
+        return get_profile_status(agent_profile_dir(), project_dir, content_mode)
 
     def _resolve_content_mode(self, project_dir: Path) -> ContentMode:
         """从 project_dir/project.json 读 content_mode；缺失回退 narration。
@@ -798,6 +808,8 @@ class ProjectManager:
         with self._script_lock(project_name, norm):
             with self._project_lock(project_name):
                 project = self._read_project_raw_unlocked(project_name)
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
                 current = resolve_script_file(project)
                 cur_norm = self.normalize_script_filename(current)
                 if cur_norm != norm:
@@ -814,6 +826,8 @@ class ProjectManager:
                 self._migrate_legacy_resolution_on_save(project)
                 self._migrate_legacy_style(project)
                 self._touch_metadata(project)
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
                 atomic_write_json(self._get_project_file_path(project_name), project)
                 emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
 
@@ -966,6 +980,12 @@ class ProjectManager:
             if migrated:
                 real = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
                 atomic_write_json(real, script)
+        return script
+
+    def load_script_readonly(self, project_name: str, filename: str) -> dict:
+        """Load a script with in-memory compatibility migrations but never persist them."""
+        norm = self.normalize_script_filename(filename)
+        script, _migrated = self._read_script_unlocked(project_name, norm)
         return script
 
     def _read_script_unlocked(self, project_name: str, filename: str) -> tuple[dict, bool]:
@@ -1437,6 +1457,8 @@ class ProjectManager:
                 project = json.load(f)
             if self._migrate_legacy_style(project):
                 # 不走 save_project 以避免触发 _touch_metadata 污染 updated_at。
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
                 atomic_write_json(project_file, project)
                 migrated = True
         if migrated:
@@ -1444,6 +1466,16 @@ class ProjectManager:
                 project_name,
                 changed_paths=[self.PROJECT_FILE],
             )
+        return project
+
+    def load_project_readonly(self, project_name: str) -> dict:
+        """Load an in-memory migrated project snapshot without locking or persisting it."""
+        project_file = self._get_project_file_path(project_name)
+        if not project_file.exists():
+            raise FileNotFoundError(f"项目元数据文件不存在: {project_file}")
+        with open(project_file, encoding="utf-8") as f:  # noqa: PTH123
+            project = json.load(f)
+        self._migrate_legacy_style(project)
         return project
 
     @contextmanager
@@ -1458,6 +1490,20 @@ class ProjectManager:
         lock_path.touch(exist_ok=True)
         with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
             yield
+
+    @contextmanager
+    def locked_source_mutation(self, project_name: str) -> Iterator[Path]:
+        """Serialize source-file mutations with project transactions.
+
+        Workflow facts such as asset-inventory completion compute source revisions while
+        holding the project lock. Source writers must use this context so a revision check
+        and its matching project.json commit observe one immutable source snapshot.
+        """
+        project_path = self.get_project_path(project_name)
+        with self._project_lock(project_name):
+            source_dir = project_path / "source"
+            source_dir.mkdir(parents=True, exist_ok=True)
+            yield source_dir
 
     @contextmanager
     def file_lock(self, path: Path):
@@ -1507,6 +1553,8 @@ class ProjectManager:
         self._touch_metadata(project)
 
         with self._project_lock(project_name):
+            if self._requires_unique_asset_namespace(project):
+                ensure_project_asset_namespace(project)
             atomic_write_json(project_file, project)
 
         emit_project_change_hint(
@@ -1539,7 +1587,11 @@ class ProjectManager:
         with self._project_lock(project_name):
             with open(project_file, encoding="utf-8") as f:
                 project = json.load(f)
+            if self._requires_unique_asset_namespace(project):
+                ensure_project_asset_namespace(project)
             mutate_fn(project)
+            if self._requires_unique_asset_namespace(project):
+                ensure_project_asset_namespace(project)
             self._migrate_legacy_resolution_on_save(project)
             self._migrate_legacy_style(project)
             self._touch_metadata(project)
@@ -1552,6 +1604,90 @@ class ProjectManager:
 
         return project
 
+    def update_project_with_file_copies(
+        self,
+        project_name: str,
+        mutate_fn: Callable[[dict], None],
+        copies: list[tuple[Path, Path]],
+    ) -> dict:
+        """在项目锁内把文件替换与 project.json 写回作为一个可回滚事务提交。
+
+        ``copies`` 的目标路径必须互不重复；``mutate_fn`` 可在锁内完成最终名称规划并向
+        该列表追加拷贝。回调抛错时不会安装任何文件；
+        所有源文件先完成暂存，再逐个替换目标。安装或 JSON 写回失败时按相反顺序恢复
+        已替换目标，恢复失败仅记录日志并保留原始异常；提交成功后清理备份。
+        """
+        project_file = self._get_project_file_path(project_name)
+
+        token = secrets.token_hex(8)
+        staged: list[tuple[Path, Path]] = []
+        installed: list[tuple[Path, Path | None]] = []
+        committed = False
+        with self._project_lock(project_name):
+            try:
+                with open(project_file, encoding="utf-8") as f:
+                    project = json.load(f)
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
+                mutate_fn(project)
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
+                self._migrate_legacy_resolution_on_save(project)
+                self._migrate_legacy_style(project)
+                self._touch_metadata(project)
+
+                # mutate_fn 可在锁内完成最终名称规划并填充 copies；因此目标唯一性也必须
+                # 在回调之后、仍持有同一把项目锁时校验。
+                destinations = [destination for _source, destination in copies]
+                if len(set(destinations)) != len(destinations):
+                    raise ValueError("项目文件事务包含重复目标路径")
+                for index, (source, destination) in enumerate(copies):
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = destination.with_name(f".{destination.name}.{token}-{index}.tmp")
+                    shutil.copyfile(source, temporary)
+                    staged.append((temporary, destination))
+
+                for index, (temporary, destination) in enumerate(staged):
+                    backup: Path | None = None
+                    if destination.exists() or destination.is_symlink():
+                        backup = destination.with_name(f".{destination.name}.{token}-{index}.bak")
+                        os.replace(destination, backup)
+                    installed.append((destination, backup))
+                    os.replace(temporary, destination)
+
+                atomic_write_json(project_file, project)
+                committed = True
+            except BaseException:
+                for destination, backup in reversed(installed):
+                    try:
+                        if destination.exists() or destination.is_symlink():
+                            destination.unlink()
+                        if backup is not None:
+                            os.replace(backup, destination)
+                    except OSError:
+                        logger.exception("恢复项目文件事务失败: %s", destination)
+                raise
+            finally:
+                for temporary, _destination in staged:
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError:
+                        logger.warning("清理项目文件事务暂存失败: %s", temporary)
+                if committed:
+                    for _destination, backup in installed:
+                        if backup is None:
+                            continue
+                        try:
+                            backup.unlink(missing_ok=True)
+                        except OSError:
+                            logger.warning("清理项目文件事务备份失败: %s", backup)
+
+        emit_project_change_hint(
+            project_name,
+            changed_paths=[self.PROJECT_FILE],
+        )
+        return project
+
     @staticmethod
     def _touch_metadata(project: dict) -> None:
         now = datetime.now(UTC).isoformat()
@@ -1559,6 +1695,12 @@ class ProjectManager:
             project["metadata"] = {"created_at": now, "updated_at": now}
         else:
             project["metadata"]["updated_at"] = now
+
+    @staticmethod
+    def _requires_unique_asset_namespace(project: dict) -> bool:
+        """schema v6 起禁止普通业务写继续操作已损坏的资产名称空间。"""
+        version = project.get("schema_version")
+        return isinstance(version, int) and not isinstance(version, bool) and version >= 6
 
     @staticmethod
     def _migrate_legacy_resolution_on_save(project: dict) -> None:
@@ -1755,7 +1897,7 @@ class ProjectManager:
         # 仅返回项目数据，不执行任何写入
         return self.load_project(project_name)
 
-    # ==================== 项目级资产统一 API（character / scene / prop） ====================
+    # ================ 项目级资产统一 API（character / scene / prop / product） ================
     #
     # 这一节的 6 个私有方法按 lib.asset_types.ASSET_SPECS 驱动，统一处理 character /
     # scene / prop 三类项目级资产的桶级读写。下方的 public 方法（add_project_scene /
@@ -1763,10 +1905,13 @@ class ProjectManager:
     # 100% 兼容旧调用方。
 
     def _add_asset(self, asset_type: str, project_name: str, name: str, entry: dict) -> bool:
-        """新增 entry 到 project[bucket][name]。冲突时返回 False。
+        """新增 entry 到 project[bucket][name]。同类型已存在时返回 False。
 
         通过 update_project 在单一文件锁内完成 read-modify-write，避免并发新增时的
         lost-update 竞态。
+
+        Raises:
+            ProjectAssetNameConflictError: 规范化后的名称已被其它资产类型占用。
         """
         name = validate_asset_name(name)
         spec = ASSET_SPECS[asset_type]
@@ -1779,6 +1924,7 @@ class ProjectManager:
             if resolve_asset_key(bucket, name) is not None:
                 logger.debug("%s '%s' 已存在于 project.json，跳过", spec.label_zh, name)
                 return
+            ensure_project_asset_name_available(project, name, requested_asset_type=asset_type)
             bucket[name] = entry
             added = True
 
@@ -1791,7 +1937,10 @@ class ProjectManager:
         """批量新增 entries。已存在的 name 跳过，返回新增数量。
 
         通过 update_project 在单一文件锁内完成 read-modify-write，避免并发批量新增时
-        的 lost-update 竞态。
+        的 lost-update 竞态。任一名称与其它资产类型冲突时整批不落盘。
+
+        Raises:
+            ProjectAssetNameConflictError: 任一规范化后的名称已被其它资产类型占用。
         """
         spec = ASSET_SPECS[asset_type]
         # 与 upsert_assets 同口径：规范化（strip + NFC）后等价的 key（{"李白", "  李白  "}
@@ -1818,6 +1967,7 @@ class ProjectManager:
                 if resolve_asset_key(bucket, name) is not None:
                     logger.debug("%s '%s' 已存在，跳过", spec.label_zh, name)
                     continue
+                ensure_project_asset_name_available(project, name, requested_asset_type=asset_type)
                 bucket[name] = entry
                 added += 1
                 logger.info("添加%s: %s", spec.label_zh, name)
@@ -1827,7 +1977,7 @@ class ProjectManager:
         return added
 
     def upsert_assets(self, project_name: str, table: str, entries: dict[str, dict]) -> dict[str, Any]:
-        """按 table（characters/scenes/props）+ name upsert 资产：不存在则新增、存在则改字段。
+        """按 table（characters/scenes/props/products）+ name upsert 资产：不存在则新增、存在则改字段。
 
         在 `update_project` 的单一文件锁内完成 read-modify-write；apply 后、落盘前对结果
         project dict 做 payload 级结构校验，按**「不更坏」语义**裁决：仅当本次 upsert 把原本
@@ -1925,7 +2075,10 @@ class ProjectManager:
                 raise ValueError(f"project[{spec.bucket_key!r}] 必须是对象，当前为 {type(bucket).__name__}")
             for name, attrs in cleaned.items():
                 # 存量 entry 的 key 可能是 NFD：解析真实 key 就地更新，而非按 NFC 名新建第二条
-                key = resolve_asset_key(bucket, name) or name
+                match = find_project_asset_name(project, name)
+                if match is not None and match.asset_type != asset_type:
+                    raise ProjectAssetNameConflictError(name, match, asset_type)
+                key = match.name if match is not None else name
                 existing = isinstance(bucket.get(key), dict)
                 # 仅对已存在 entry 检测 no-op:全字段被白名单/legacy strip 丢空时 update({})
                 # 实际不变,归到 noop 而非 merged 避免「合并 1 个」误报。新 entry 即使
@@ -1960,7 +2113,7 @@ class ProjectManager:
             "dropped_legacy": dropped_legacy,
         }
 
-    # bucket_key（characters/scenes/props）→ 资产类型，从静态 ASSET_SPECS 派生一次，避免每次 upsert 重建。
+    # bucket_key（characters/scenes/props/products）→ 资产类型，从静态 ASSET_SPECS 派生一次。
     _BUCKET_TO_ASSET_TYPE = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
 
     @classmethod
@@ -2049,6 +2202,13 @@ class ProjectManager:
             conflict_key = resolve_asset_key(bucket, new_clean)
             if conflict_key is not None and conflict_key != old_key:
                 raise AssetRenameConflictError(conflict_key)
+            ensure_project_asset_name_available(
+                project,
+                new_clean,
+                requested_asset_type=asset_type,
+                exclude_asset_type=asset_type,
+                exclude_name=old_key,
+            )
 
             # —— 扫描（dry-run 预览与执行共用同一套逻辑）——
             references = 0
@@ -2084,6 +2244,8 @@ class ProjectManager:
             entry = rekey_equivalent_entries(mutated[spec.bucket_key], old_key, new_clean)
             if isinstance(entry, dict):
                 rewrite_entry_paths(entry, spec, old_key, new_clean)
+            if self._requires_unique_asset_namespace(mutated):
+                ensure_project_asset_namespace(mutated)
             after_errors = _rename_agnostic_errors(validator.validate_project_payload(mutated), old_key, new_clean)
             new_errors = {after_errors[fingerprint] for fingerprint in after_errors.keys() - before_errors.keys()}
             if new_errors:
@@ -2188,7 +2350,10 @@ class ProjectManager:
         def _mutate(project: dict) -> None:
             bucket = project["characters"]
             # 覆盖写也要落在存量真实 key 上（可能是 NFD），否则会残留视觉同名的旧条目
-            key = resolve_asset_key(bucket, name) or name
+            match = find_project_asset_name(project, name)
+            if match is not None and match.asset_type != "character":
+                raise ProjectAssetNameConflictError(name, match, "character")
+            key = match.name if match is not None else name
             bucket[key] = {
                 "description": description,
                 "voice_style": voice_style or "",
@@ -2335,7 +2500,7 @@ class ProjectManager:
 
         return self.update_project(project_name, _mutate)
 
-    # ==================== 角色/场景/道具直接写入工具 ====================
+    # ==================== 项目资产直接写入工具 ====================
 
     @staticmethod
     def _build_asset_entry(asset_type: str, description: str, source: dict | None = None) -> dict:
@@ -2361,27 +2526,27 @@ class ProjectManager:
         return entry
 
     def add_character(self, project_name: str, name: str, description: str, voice_style: str = "") -> bool:
-        """直接添加角色到 project.json。已存在返回 False。"""
+        """直接添加角色到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("character", description, {"voice_style": voice_style})
         return self._add_asset("character", project_name, name, entry)
 
     def add_project_scene(self, project_name: str, name: str, description: str) -> bool:
-        """直接添加场景到 project.json。已存在返回 False。"""
+        """直接添加场景到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("scene", description)
         return self._add_asset("scene", project_name, name, entry)
 
     def add_prop(self, project_name: str, name: str, description: str) -> bool:
-        """直接添加道具到 project.json。已存在返回 False。"""
+        """直接添加道具到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("prop", description)
         return self._add_asset("prop", project_name, name, entry)
 
     def add_product(self, project_name: str, name: str, description: str, brand: str = "") -> bool:
-        """直接添加产品到 project.json。已存在返回 False。"""
+        """直接添加产品到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("product", description, {"brand": brand})
         return self._add_asset("product", project_name, name, entry)
 
     def add_characters_batch(self, project_name: str, characters: dict[str, dict]) -> int:
-        """批量添加角色到 project.json。已存在的跳过，返回新增数量。"""
+        """批量添加角色；同类型已存在的跳过，跨类型冲突时整批不落盘。"""
         entries = {
             name: self._build_asset_entry("character", data.get("description", ""), data)
             for name, data in characters.items()
@@ -2389,14 +2554,14 @@ class ProjectManager:
         return self._add_assets_batch("character", project_name, entries)
 
     def add_scenes_batch(self, project_name: str, scenes: dict[str, dict]) -> int:
-        """批量添加场景到 project.json。已存在的跳过，返回新增数量。"""
+        """批量添加场景；同类型已存在的跳过，跨类型冲突时整批不落盘。"""
         entries = {
             name: self._build_asset_entry("scene", data.get("description", ""), data) for name, data in scenes.items()
         }
         return self._add_assets_batch("scene", project_name, entries)
 
     def add_props_batch(self, project_name: str, props: dict[str, dict]) -> int:
-        """批量添加道具到 project.json。已存在的跳过，返回新增数量。"""
+        """批量添加道具；同类型已存在的跳过，跨类型冲突时整批不落盘。"""
         entries = {
             name: self._build_asset_entry("prop", data.get("description", ""), data) for name, data in props.items()
         }

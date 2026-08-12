@@ -655,6 +655,8 @@ class ProjectArchiveService:
         project_characters = {name for name, payload in (characters or {}).items() if isinstance(payload, dict)}
         project_scenes = {name for name, payload in (scenes or {}).items() if isinstance(payload, dict)}
         project_props = {name for name, payload in (props or {}).items() if isinstance(payload, dict)}
+        products = project.get("products")
+        project_products = {name for name, payload in (products or {}).items() if isinstance(payload, dict)}
 
         episodes = project.get("episodes")
         if isinstance(episodes, list):
@@ -737,6 +739,7 @@ class ProjectArchiveService:
                     project_characters=project_characters,
                     project_scenes=project_scenes,
                     project_props=project_props,
+                    project_products=project_products,
                     versions_payload=versions_payload,
                     diagnostics=diagnostics,
                     basename_index=basename_index,
@@ -761,6 +764,7 @@ class ProjectArchiveService:
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
+        project_products: set[str],
         versions_payload: dict[str, Any],
         diagnostics: ArchiveDiagnostics,
         basename_index: dict[str, list[str]],
@@ -801,12 +805,11 @@ class ProjectArchiveService:
         content_mode = raw_content_mode
         generation_mode = project_payload.get("generation_mode")
 
-        # 修复分流按规范解析的骨架种类走，而非 generation_mode：ad 项目 generation_mode
-        # 可为 reference_video 但骨架恒为 shots（不含 video_units），按 generation_mode
-        # 分流会把它错误送进 video_units 专用分支而静默 no-op。
+        # 修复分流按规范解析的骨架种类走：所有参考路线都使用 video_units，storyboard
+        # 路线按内容模式使用 segments/scenes/shots。
         kind = resolve_declared_kind(content_mode, generation_mode)
 
-        # video_units 骨架（narration/drama + 参考生视频）用 references 组织资产，结构与
+        # video_units 骨架用 references 组织资产，结构与
         # storyboard 骨架的 characters/scenes/props 不同，单独走专用修复分支。
         if kind == "video_units":
             units_changed, units_project_changed = self._repair_video_units_payload(
@@ -817,6 +820,7 @@ class ProjectArchiveService:
                 project_characters=project_characters,
                 project_scenes=project_scenes,
                 project_props=project_props,
+                project_products=project_products,
                 content_mode=content_mode,
                 versions_payload=versions_payload,
                 diagnostics=diagnostics,
@@ -939,52 +943,7 @@ class ProjectArchiveService:
                     ):
                         script_changed = True
 
-        # ad 参考直出的派生索引 reference_units 挂在 shots 之外，storyboard 循环不触及；
-        # 就地补全各 unit 的 generated_assets 缺失字段。
-        if kind == "shots" and self._repair_ad_reference_units(
-            script_path_rel=script_path_rel,
-            script_payload=script_payload,
-            content_mode=content_mode,
-            diagnostics=diagnostics,
-        ):
-            script_changed = True
-
         return script_changed, project_changed
-
-    def _repair_ad_reference_units(
-        self,
-        *,
-        script_path_rel: str,
-        script_payload: dict[str, Any],
-        content_mode: str,
-        diagnostics: ArchiveDiagnostics,
-    ) -> bool:
-        """回填 ad 参考直出派生索引 reference_units 各 unit 的 generated_assets（就地，缺字段才补）。
-
-        reference_units 是 shots 的派生索引，产物挂在 unit 上而非 shots。这里只对已存在的
-        unit 就地补全缺失的 generated_assets 字段——不从 shots 重派生分组：重派生需供应商时长
-        上限（归档修复时不可得），分组一旦改变会让既有产物指针错位丢失。既有资产值一律保留、
-        仅补缺失键，与派生索引 merge 的资产保留语义一致。
-        """
-        units = script_payload.get("reference_units")
-        if not isinstance(units, list):
-            return False
-
-        changed = False
-        for index, unit in enumerate(units):
-            if not isinstance(unit, dict):
-                continue
-            _, assets_changed = self._backfill_generated_assets(
-                unit,
-                content_mode=content_mode,
-                label="reference_units",
-                index=index,
-                location_prefix=f"{script_path_rel}:reference_units[{index}]",
-                diagnostics=diagnostics,
-            )
-            if assets_changed:
-                changed = True
-        return changed
 
     def _backfill_generated_assets(
         self,
@@ -1080,13 +1039,14 @@ class ProjectArchiveService:
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
+        project_products: set[str],
         content_mode: str,
         versions_payload: dict[str, Any],
         diagnostics: ArchiveDiagnostics,
     ) -> tuple[bool, bool]:
         """修复 reference_video 模式剧本的 video_units，返回 (script_changed, project_changed)。
 
-        video_units 没有 narration/drama 的 characters/scenes/props 字段，引用资产改放在
+        video_units 没有 storyboard 条目的 characters/scenes/props 字段，引用资产改放在
         references（list[{type, name}]）里。本方法做三件事，与 narration/drama 分支对齐：
         generated_assets 补全；references 自愈（缺失角色补占位、缺失场景/道具报阻断）；
         video_clip / video_thumbnail 路径规范化与版本回溯。
@@ -1146,6 +1106,7 @@ class ProjectArchiveService:
                 project_characters=project_characters,
                 project_scenes=project_scenes,
                 project_props=project_props,
+                project_products=project_products,
                 index=index,
                 location_prefix=location_prefix,
                 diagnostics=diagnostics,
@@ -1190,6 +1151,7 @@ class ProjectArchiveService:
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
+        project_products: set[str],
         index: int,
         location_prefix: str,
         diagnostics: ArchiveDiagnostics,
@@ -1207,8 +1169,7 @@ class ProjectArchiveService:
             return False
 
         project_changed = False
-        missing_scenes: set[str] = set()
-        missing_props: set[str] = set()
+        missing_by_type: dict[str, set[str]] = {"product": set(), "scene": set(), "prop": set()}
         for ref in references:
             if not isinstance(ref, dict):
                 continue
@@ -1219,12 +1180,12 @@ class ProjectArchiveService:
             if ref_type == "character":
                 if self._add_placeholder_character(project_payload, project_characters, ref_name, diagnostics):
                     project_changed = True
-            elif ref_type == "scene" and _resolve_existing_asset(ref_name, project_scenes) not in project_scenes:
-                missing_scenes.add(ref_name)
-            elif ref_type == "prop" and _resolve_existing_asset(ref_name, project_props) not in project_props:
-                missing_props.add(ref_name)
+            elif ref_type in missing_by_type:
+                pool = {"product": project_products, "scene": project_scenes, "prop": project_props}[ref_type]
+                if _resolve_existing_asset(ref_name, pool) not in pool:
+                    missing_by_type[ref_type].add(ref_name)
 
-        for missing, asset_type in ((missing_scenes, "scene"), (missing_props, "prop")):
+        for asset_type, missing in missing_by_type.items():
             if missing:
                 diagnostics.add(
                     "blocking",

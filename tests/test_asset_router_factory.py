@@ -26,14 +26,17 @@ _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
 class _FakePM:
     def __init__(self):
-        self.projects = {"demo": {"characters": {}}}
+        self.projects = {"demo": {"characters": {}, "scenes": {}, "props": {}, "products": {}}}
 
     def _add_asset(self, asset_type, project_name, name, entry):
+        from lib.asset_types import ASSET_SPECS, ensure_project_asset_name_available
+
         if project_name not in self.projects:
             raise FileNotFoundError(project_name)
-        bucket = self.projects[project_name].setdefault("characters", {})
+        bucket = self.projects[project_name].setdefault(ASSET_SPECS[asset_type].bucket_key, {})
         if name in bucket:
             return False
+        ensure_project_asset_name_available(self.projects[project_name], name)
         bucket[name] = entry
         return True
 
@@ -171,6 +174,21 @@ class TestAssetRouterFactory:
                 json={"name": "Alice", "description": "dup", "voice_style": ""},
             )
             assert resp.status_code == 409
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
+    def test_character_post_409_on_cross_type_duplicate_is_localized(self, monkeypatch, locale):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["scenes"]["Shared"] = {"description": "scene", "scene_sheet": ""}
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/characters",
+                json={"name": "Shared", "description": "character"},
+                headers={"Accept-Language": locale},
+            )
+        assert resp.status_code == 409
+        assert "Shared" in resp.json()["detail"]
+        assert fake_pm.projects["demo"]["characters"] == {}
 
     @pytest.mark.unit
     def test_character_patch_accepts_extra_fields(self, monkeypatch):

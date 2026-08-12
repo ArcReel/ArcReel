@@ -6,6 +6,7 @@ replay copies so they are not logged twice). They hold no session state, so
 they can be unit-tested by feeding message data directly.
 """
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -15,8 +16,22 @@ from server.agent_runtime.models import SessionStatus
 
 # Sentinel used in pending_user_echoes for image-only messages (no text).
 # The SDK parser drops image blocks, so the replayed UserMessage arrives
-# with empty content; this sentinel lets is_duplicate_user_echo match it.
+# with empty content; this sentinel lets match_user_echo match it.
 IMAGE_ONLY_SENTINEL = "__image_only__"
+
+
+@dataclass
+class PendingUserEcho:
+    """待 SDK 回放的用户消息：识别指纹 + 其事件日志条目身份。
+
+    ``entry_uuid`` 是 ArcReel 合成的用户消息 id，随命中的回放副本一起交给写入点，
+    与副本携带的 SDK transcript uuid 配成映射落库。条目尚未分配身份时为 None，
+    此时只做去重、不落映射。
+    """
+
+    dedup_key: str
+    entry_uuid: str | None = None
+
 
 # SDK message class name to type mapping
 MESSAGE_TYPE_MAP = {
@@ -109,25 +124,27 @@ def build_runtime_status_message(
     }
 
 
-def is_duplicate_user_echo(
-    pending_user_echoes: list[str],
+def match_user_echo(
+    pending_user_echoes: list[PendingUserEcho],
     message: dict[str, Any],
-) -> bool:
-    """Skip SDK-replayed user message if it matches local echo queue."""
+) -> PendingUserEcho | None:
+    """Match SDK-replayed user message against the local echo queue.
+
+    Returns the matched record (popped from the queue) so the caller can carry
+    its entry identity onward, or None when the message is not a replay copy.
+    """
     if not pending_user_echoes:
-        return False
+        return None
     incoming = extract_plain_user_content(message)
-    expected = pending_user_echoes[0].strip()
+    expected = pending_user_echoes[0].dedup_key.strip()
 
     # Image-only sentinel: the SDK parser drops image blocks, so the
     # replayed UserMessage arrives with empty content (incoming is None).
     if not incoming:
         if message.get("type") != "user" or expected != IMAGE_ONLY_SENTINEL:
-            return False
-        pending_user_echoes.pop(0)
-        return True
+            return None
+        return pending_user_echoes.pop(0)
 
     if incoming != expected:
-        return False
-    pending_user_echoes.pop(0)
-    return True
+        return None
+    return pending_user_echoes.pop(0)

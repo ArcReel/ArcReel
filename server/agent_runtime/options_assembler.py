@@ -198,15 +198,21 @@ class OptionsAssembler:
         can_use_tool: Callable[[str, dict[str, Any], Any], Any] | None = None,
         locale: str = DEFAULT_LOCALE,
         stderr: Callable[[str], None] | None = None,
+        session_id: str | None = None,
     ) -> Any:
         """Build ClaudeAgentOptions for a session.
 
         ``stderr`` 在 SDK 子进程退出非 0 时是唯一拿到真实错误的途径
         （``ProcessError.stderr`` 在 SDK 内部被写死为占位符）；上层应在
         会话启动失败时把回调累积的行包装到 ``AgentStartupError`` 透传。
+
+        ``session_id`` 以预先指定的 id 开一个全新会话（无历史可 resume），
+        与 ``resume_id`` 互斥——SDK 只在 ``fork_session`` 下才允许两者并存。
         """
         if not SDK_AVAILABLE or ClaudeAgentOptions is None:
             raise RuntimeError("claude_agent_sdk is not installed")
+        if resume_id is not None and session_id is not None:
+            raise ValueError("resume_id and session_id are mutually exclusive")
 
         policy = self._access_policy_provider()
 
@@ -280,7 +286,11 @@ class OptionsAssembler:
                 append=self._build_append_prompt(project_name, locale=locale),
             ),
             include_partial_messages=True,
+            # CLI 只在该开关下把 stdin 收到的用户消息带 uuid 回放到 stdout。
+            # 不开则回放副本根本不出现：echo 去重与用户消息身份映射都不会触发。
+            extra_args={"replay-user-messages": None},
             resume=resume_id,
+            session_id=session_id,
             can_use_tool=can_use_tool,
             hooks=hooks,  # type: ignore[arg-type]
             mcp_servers={"arcreel": arcreel_server},

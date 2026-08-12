@@ -33,6 +33,7 @@ from fastapi.sse import ServerSentEvent
 from lib.agent_profile import agent_profile_dir
 from lib.app_data_dir import app_data_dir
 from lib.i18n import DEFAULT_LOCALE, get_locale
+from lib.profile_frontmatter import FrontmatterError, parse_profile_metadata
 from lib.profile_manifest import VALID_CONTENT_MODES
 from lib.project_manager import ProjectManager
 from server.agent_runtime.event_log import (
@@ -45,8 +46,38 @@ from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.models import Heartbeat, LiveMessage, SessionMeta, SessionStatus, SubscriptionReady
 from server.agent_runtime.result_status import resolve_result_status
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
+from server.agent_runtime.session_branch import (
+    BranchAnchorError,
+    BranchedSession,
+    SessionBranchError,
+    SessionBranchService,
+)
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
+
+
+class MessageRewriteError(RuntimeError):
+    """消息改写无法进行。"""
+
+
+class RewriteAnchorError(MessageRewriteError):
+    """锚点不是该会话内的一条用户消息。"""
+
+
+class PendingQuestionError(MessageRewriteError):
+    """会话有未决问答卡片，问答优先。"""
+
+
+class SessionSupersededError(MessageRewriteError):
+    """会话已被一次改写取代，改写入口只对当前分支开放。"""
+
+
+class RewriteUnavailableError(MessageRewriteError):
+    """当前部署形态下无法改写（transcript 镜像未开启）。"""
+
+
+class InterruptSettleTimeoutError(MessageRewriteError):
+    """等待运行中轮次中断到终态超时。"""
 
 
 class AssistantService:
@@ -71,6 +102,12 @@ class AssistantService:
         self._session_store = self.session_manager._build_session_store()
         self.transcript_adapter = SdkTranscriptAdapter(store=self._session_store)
         self.event_log = EventLogService(self.event_log_store, self.transcript_adapter)
+        self.session_branch = SessionBranchService(
+            store=self._session_store,
+            meta_store=self.meta_store,
+            event_log=self.event_log,
+            resolve_project_cwd=self._resolve_project_cwd_safe,
+        )
         self._startup_lock = asyncio.Lock()
         self._startup_done = False
         # 新会话幂等映射：client_key 唯一索引按 (session_id, client_key) 分区，
@@ -81,6 +118,9 @@ class AssistantService:
         self._new_session_client_keys_max = 256
         # 同一 client_key 的并发新建请求在此串行化，避免在途窗口内重复建会话
         self._new_session_locks = KeyedLocks()
+        # 同一（原会话, client_key）的并发改写请求在此串行化：分叉的幂等预检读的是
+        # 原会话的 superseded 指针，在途窗口内不串行会让两个请求各自分叉一次。
+        self._rewrite_locks = KeyedLocks()
         self.stream_heartbeat_seconds = int(os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20"))
 
     async def startup(self, *, in_docker: bool = False, sandbox_enabled: bool = True) -> None:
@@ -369,6 +409,204 @@ class AssistantService:
         managed = self.session_manager.sessions.get(new_sdk_session_id)
         entry = managed.initial_user_log_entry if managed is not None else None
         return {"status": "accepted", "session_id": new_sdk_session_id, "entry": entry}
+
+    # ==================== 消息改写（分支会话编排） ====================
+
+    # 等待运行中轮次中断到终态的上限与轮询间隔：终态由 inbox 任务收到 SDK 的
+    # result 消息后推导，没有可等的 event，只能观察状态。
+    _INTERRUPT_SETTLE_TIMEOUT = 30.0
+    _INTERRUPT_SETTLE_POLL = 0.05
+
+    async def rewrite_message(
+        self,
+        project_name: str,
+        session_id: str,
+        *,
+        anchor_entry_uuid: str,
+        content: str,
+        images: list["ImageAttachment"] | None = None,
+        locale: str = DEFAULT_LOCALE,
+        client_key: str | None = None,
+    ) -> dict[str, Any]:
+        """改写 ``session_id`` 中锚点处的那条用户消息，返回承接改写的新会话。
+
+        编排顺序即拒绝的代价顺序：能拒的先拒（锚点、未决问答），代价大的后做
+        （中断运行中的轮次、分叉、派发）——被拒的请求不该已经打断用户的轮次。
+        分叉之后任何一步失败都是整次改写失败，分支整体撤回，原会话回到可再改写
+        的状态。
+
+        响应与发送端点同构：``client_key`` 为请求侧幂等键，重试不产生第二个分支
+        会话；``entry`` 是服务端分配身份后的权威用户条目，落在新会话的日志里。
+        """
+        self.pm.get_project_path(project_name)  # Validate project
+        if not client_key:
+            return await self._rewrite_message_once(
+                project_name,
+                session_id,
+                anchor_entry_uuid=anchor_entry_uuid,
+                content=content,
+                images=images,
+                locale=locale,
+                client_key=None,
+            )
+        async with self._rewrite_locks.lock_for(f"{session_id}:{client_key}"):
+            return await self._rewrite_message_once(
+                project_name,
+                session_id,
+                anchor_entry_uuid=anchor_entry_uuid,
+                content=content,
+                images=images,
+                locale=locale,
+                client_key=client_key,
+            )
+
+    async def _rewrite_message_once(
+        self,
+        project_name: str,
+        session_id: str,
+        *,
+        anchor_entry_uuid: str,
+        content: str,
+        images: list["ImageAttachment"] | None,
+        locale: str,
+        client_key: str | None,
+    ) -> dict[str, Any]:
+        meta = await self.meta_store.get(session_id)
+        if meta is None or meta.project_name != project_name:
+            raise FileNotFoundError(f"session not found: {session_id}")
+
+        if self._session_store is None:
+            raise RewriteUnavailableError(
+                "message rewrite requires the DB transcript store (ARCREEL_SDK_SESSION_STORE=db)"
+            )
+
+        # 原会话已被取代：同一 client_key 的重试在新分支里认领自己的权威条目，
+        # 其余情形是对一个已作废分支发起的改写，明确拒绝而非再分叉一次。
+        if meta.superseded_by is not None:
+            replay = await self._replay_rewrite(meta.superseded_by, client_key)
+            if replay is not None:
+                return replay
+            raise SessionSupersededError(f"session {session_id} has already been superseded by {meta.superseded_by}")
+
+        # 内容校验先于任何有副作用的步骤：空消息不该中断运行中的轮次。
+        text, sdk_prompt, echo_blocks = self._prepare_prompt(content, images)
+
+        project_cwd = self._resolve_project_cwd_safe(meta.project_name)
+        anchor = await self.event_log.resolve_user_message_anchor(session_id, anchor_entry_uuid, project_cwd)
+        if anchor is None:
+            raise RewriteAnchorError(f"anchor {anchor_entry_uuid} is not a user message of session {session_id}")
+
+        # 问答优先：未决问答卡片存在时不改写。卡片只活在内存里（回答经 future
+        # 交回运行中的轮次），会话被驱逐或进程重启后卡片已随之取消，冷会话没有
+        # 可回答的问答，读内存即读真相。
+        if await self.session_manager.get_pending_questions_snapshot(session_id):
+            raise PendingQuestionError(f"session {session_id} has pending questions")
+
+        await self._settle_running_session(session_id)
+
+        branched = await self._branch_or_reject(session_id, anchor_entry_uuid)
+        new_session_id = branched.session_id
+        # 分支一旦发布（superseded 指针已指向新会话），其后每一步都在补偿范围内：
+        # 中途失败若不撤回，原会话被隐藏、新会话又没收到改写后的消息，重试还会
+        # 撞上「已被取代」。send_message 的每条抛出路径都不留下受理条目（投递失败
+        # 的条目由它自己补偿删除，启动失败发生在写入之前），因此整体撤回不丢数据。
+        try:
+            new_meta = await self.meta_store.get(new_session_id)
+            if branched.resumable:
+                # 懒生成先行：改写后的消息要排在复制来的前缀历史之后。
+                await self.event_log.ensure_backfilled(new_session_id, project_cwd)
+            user_entry = self._build_user_log_entry(text, echo_blocks)
+            entry = await self.session_manager.send_message(
+                new_session_id,
+                sdk_prompt if sdk_prompt is not None else text,
+                echo_text=text,
+                echo_content=echo_blocks,
+                meta=new_meta,
+                locale=locale,
+                user_entry=user_entry,
+                client_key=client_key,
+                resumable=branched.resumable,
+            )
+        except BaseException:
+            await self._discard_branch(session_id, new_session_id)
+            raise
+
+        return {
+            "status": "accepted",
+            "session_id": new_session_id,
+            "origin_session_id": session_id,
+            "entry": entry,
+        }
+
+    async def _replay_rewrite(self, new_session_id: str, client_key: str | None) -> dict[str, Any] | None:
+        """幂等重放：给定 client_key 的改写是否已由 ``new_session_id`` 承接。"""
+        if not client_key:
+            return None
+        entry = await self.event_log_store.find_by_client_key(new_session_id, client_key)
+        if entry is None:
+            return None
+        meta = await self.meta_store.get(new_session_id)
+        return {
+            "status": "accepted",
+            "session_id": new_session_id,
+            "origin_session_id": meta.fork_parent_session_id if meta is not None else None,
+            "entry": entry,
+        }
+
+    async def _settle_running_session(self, session_id: str) -> None:
+        """中断运行中的轮次并等它落到终态——运行中的会话分叉不出干净的前缀。
+
+        对用户是一步操作：改写请求自带中断，不需要先点停止。终态由 inbox 任务
+        在收到 SDK 的 result 消息后推导，只能观察状态；被中断轮次尾巴上的消息
+        本就排在锚点之后、要随原分支作废，无需等它们落库。
+        """
+        status = await self.session_manager.interrupt_session(session_id)
+        if status != "running":
+            return
+        deadline = asyncio.get_running_loop().time() + self._INTERRUPT_SETTLE_TIMEOUT
+        while status == "running":
+            if asyncio.get_running_loop().time() >= deadline:
+                raise InterruptSettleTimeoutError(f"session {session_id} did not settle after interrupt")
+            await asyncio.sleep(self._INTERRUPT_SETTLE_POLL)
+            status = await self.session_manager.get_status(session_id) or "idle"
+
+    async def _branch_or_reject(self, session_id: str, anchor_entry_uuid: str) -> BranchedSession:
+        """分叉，并把分支服务的异常翻译回编排层能分辨的拒绝理由。"""
+        try:
+            return await self.session_branch.branch(session_id, anchor_entry_uuid)
+        except BranchAnchorError as exc:
+            # 编排层的预检放行了、切片却拒绝：解析出的 uuid 在 transcript 里查无
+            # 此条（锚点是运行中轮次刚发出、SDK 尚未回放的那条），或该条目载有
+            # tool_result。都是调用方能改正的坏请求，与「分叉失败」区分开。
+            raise RewriteAnchorError(
+                f"anchor {anchor_entry_uuid} is not a forkable user message of session {session_id}"
+            ) from exc
+        except SessionBranchError as exc:
+            meta = await self.meta_store.get(session_id)
+            if meta is not None and meta.superseded_by is not None:
+                # 预检与分叉之间输给了另一次改写（指针的条件更新只让一个赢）。
+                raise SessionSupersededError(
+                    f"session {session_id} has already been superseded by {meta.superseded_by}"
+                ) from exc
+            raise
+
+    async def _discard_branch(self, origin_session_id: str, new_session_id: str) -> None:
+        """撤回一个没能承接住改写的分支：先断开它的运行时，再清数据。"""
+        try:
+            if new_session_id in self.session_manager.sessions:
+                await self.session_manager.close_session(new_session_id, reason="message rewrite dispatch failed")
+        except Exception:
+            logger.exception("关闭未完成分支会话失败 session_id=%s", new_session_id)
+        try:
+            # 分叉本身不写事件日志，但派发路径可能已经写过；与 delete_session
+            # 同口径连日志一起清，避免撤回后留下无主条目。
+            await self.event_log_store.delete_session(new_session_id)
+        except Exception:
+            logger.exception("删除未完成分支会话事件日志失败 session_id=%s", new_session_id)
+        try:
+            await self.session_branch.discard(origin_session_id, new_session_id)
+        except Exception:
+            logger.exception("撤回未完成分支失败 origin=%s new=%s", origin_session_id, new_session_id)
 
     @staticmethod
     def _image_block(img: "ImageAttachment") -> dict[str, Any]:
@@ -763,6 +1001,9 @@ class AssistantService:
                 except OSError:
                     continue
 
+                if metadata is None:
+                    continue
+
                 if not metadata["user_invocable"]:
                     continue
 
@@ -791,68 +1032,71 @@ class AssistantService:
         #
         # 查找契约与 tests/test_frontend_skill_i18n.py:_find_skill_md 保持一致：
         # 用 is_file 严格筛文件、按 sorted(VALID_CONTENT_MODES) 显式枚举有效模式、
-        # 校验所有变体的 user-invocable 状态一致。不一致时 warning 后返回 None
-        # 跳过该 skill——避免列表里随机选到某个 mode 的 frontmatter 导致行为漂移。
-        common = skill_dir / "SKILL.md"
-        if common.is_file():
-            return common
+        # 校验 common/variant 互斥、变体完整，且所有变体的 name/user-invocable 一致。
+        # 非法形态 warning 后返回 None，避免列表随机暴露某个 mode 的破损配置。
         variants = [skill_dir / f"SKILL.{mode}.md" for mode in sorted(VALID_CONTENT_MODES)]
         existing = [v for v in variants if v.is_file()]
+        common = skill_dir / "SKILL.md"
+        if common.is_file():
+            if existing:
+                logger.warning("skill %s 同时存在 common 与 content_mode 变体，跳过", skill_dir.name)
+                return None
+            return common
         if not existing:
             return None
+        if len(existing) != len(variants):
+            missing = [path.name for path in variants if path not in existing]
+            logger.warning("skill %s 的 content_mode 变体不完整，缺少 %s，跳过", skill_dir.name, missing)
+            return None
         try:
-            states = {AssistantService._load_skill_metadata(v, skill_dir.name)["user_invocable"] for v in existing}
+            metadata = [AssistantService._load_skill_metadata(v, skill_dir.name) for v in existing]
         except OSError:
             return None
-        if len(states) > 1:
+        if any(item is None for item in metadata):
+            return None
+        identities = {(item["name"], item["user_invocable"]) for item in metadata if item is not None}
+        if len(identities) > 1:
             logger.warning(
-                "skill %s 各 content_mode 变体的 user-invocable 不一致，跳过；"
-                "请保证所有 SKILL.<mode>.md frontmatter 的 user-invocable 字段相同",
+                "skill %s 各 content_mode 变体的 name 或 user-invocable 不一致，跳过；"
+                "请保证所有 SKILL.<mode>.md frontmatter 身份一致",
                 skill_dir.name,
             )
             return None
         return existing[0]
 
     @staticmethod
-    def _load_skill_metadata(skill_file: Path, fallback_name: str) -> dict[str, Any]:
+    def _load_skill_metadata(skill_file: Path, fallback_name: str) -> dict[str, Any] | None:
         """Load skill metadata from SKILL.md frontmatter.
 
         Parsed fields: name, description, user-invocable.
         """
-        content = skill_file.read_text(encoding="utf-8", errors="ignore")
+        try:
+            content = skill_file.read_text(encoding="utf-8-sig")
+        except UnicodeError as exc:
+            logger.warning("invalid skill encoding in %s: %s; skipping", skill_file, exc)
+            return None
+        if content.lstrip().startswith("---"):
+            try:
+                metadata = parse_profile_metadata(skill_file)
+            except FrontmatterError as exc:
+                logger.warning("invalid skill frontmatter in %s: %s; skipping", skill_file, exc)
+                return None
+            return {
+                "name": metadata.name,
+                "description": metadata.description,
+                "user_invocable": metadata.user_invocable,
+            }
+
+        # Keep legacy body-only Skills readable; shipped profile files are required
+        # to have YAML frontmatter by the static profile lint.
         name = fallback_name
         description = ""
         user_invocable = True
-
-        if content.startswith("---"):
-            parts = content.split("---", 2)
-            if len(parts) >= 3:
-                frontmatter = parts[1]
-                body = parts[2]
-                for line in frontmatter.splitlines():
-                    if ":" not in line:
-                        continue
-                    key, value = line.split(":", 1)
-                    key = key.strip()
-                    value = value.strip().strip('"').strip("'")
-                    if key == "name" and value:
-                        name = value
-                    elif key == "description" and value:
-                        description = value
-                    elif key == "user-invocable":
-                        user_invocable = value.lower() not in ("false", "no", "0")
-                if not description:
-                    for line in body.splitlines():
-                        text = line.strip()
-                        if text and not text.startswith("#"):
-                            description = text
-                            break
-        else:
-            for line in content.splitlines():
-                text = line.strip()
-                if text and not text.startswith("#"):
-                    description = text
-                    break
+        for line in content.splitlines():
+            text = line.strip()
+            if text and not text.startswith("#"):
+                description = text
+                break
 
         return {
             "name": name,

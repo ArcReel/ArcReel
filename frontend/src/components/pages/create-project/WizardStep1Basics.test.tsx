@@ -11,6 +11,7 @@ const baseValue = {
   generationRoute: "storyboard" as const,
   gridStoryboard: false,
   targetDuration: 60,
+  speechRate: null,
 };
 
 const GRID_BAR_NAME = /分镜板（宫格）生视频/;
@@ -26,6 +27,20 @@ describe("WizardStep1Basics", () => {
       />,
     );
     expect(screen.getByRole("button", { name: /下一步/ })).toBeDisabled();
+  });
+
+  it("blocks Next while the speech rate is out of range", () => {
+    const onNext = vi.fn();
+    render(
+      <WizardStep1Basics
+        value={{ ...baseValue, title: "demo", speechRate: 25 }}
+        onChange={() => {}}
+        onNext={onNext}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    expect(onNext).not.toHaveBeenCalled();
   });
 
   it("enables Next button when title has content", () => {

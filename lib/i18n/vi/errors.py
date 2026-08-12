@@ -23,7 +23,7 @@ MESSAGES = {
     "script_data_corrupted": "Dữ liệu kịch bản bị hỏng: {reason}",
     "script_edit_error": "Xác thực chỉnh sửa kịch bản thất bại",
     "script_edit_items_not_list": "{kind} phải là một danh sách, nhưng nhận được {type_name}",
-    "script_edit_unit_lists_invalid": "video_units / reference_units phải là một danh sách",
+    "script_edit_unit_lists_invalid": "video_units phải là một danh sách",
     "script_edit_generated_assets_invalid": "generated_assets phải là một từ điển",
     "narration_mode_required": "Kịch bản này không ở chế độ thuyết minh, vui lòng dùng API cập nhật cảnh",
     "ad_mode_required": "Kịch bản này không ở chế độ quảng cáo/video ngắn, vui lòng dùng API cập nhật của chế độ tương ứng",
@@ -73,6 +73,7 @@ MESSAGES = {
     "tts_novel_text_missing": "Phân cảnh '{segment_id}' không có văn bản tiểu thuyết để thuyết minh",
     "audio_provider_not_configured": "Vui lòng cấu hình nhà cung cấp âm thanh trước: thêm nhà cung cấp hỗ trợ chuyển văn bản thành giọng nói trong Cài đặt → Nhà cung cấp",
     "narration_speed_must_be_positive": "Tốc độ thuyết minh phải là số dương",
+    "speech_rate_out_of_range": "Nhịp đọc phải nằm trong khoảng {min} đến {max} (ký tự hoặc từ mỗi giây)",
     "character_not_found": "Nhân vật '{name}' không tồn tại",
     "character_task_submitted": "Đã gửi tác vụ tạo thiết kế nhân vật cho '{name}'",
     "voice_sample_voice_required": "Vui lòng chọn giọng đọc trước",
@@ -207,6 +208,10 @@ MESSAGES = {
     "product_already_exists": "Sản phẩm '{name}' đã tồn tại",
     "product_not_found": "Không tìm thấy sản phẩm '{name}'",
     "product_deleted": "Đã xóa sản phẩm '{name}'",
+    "project_asset_name_conflict": (
+        "Tên {requested_type} '{name}' đã được {existing_type} '{existing_name}' sử dụng. "
+        "Nhân vật, cảnh, đạo cụ và sản phẩm trong cùng dự án phải có tên duy nhất"
+    ),
     # API Keys
     "jwt_auth_required": "API Key không được phép thực hiện thao tác này, vui lòng dùng xác thực JWT",
     "api_key_name_exists": "Tên '{name}' đã tồn tại",
@@ -239,18 +244,16 @@ MESSAGES = {
     "ref_not_reference_video_mode": "Kịch bản của tập này không ở chế độ video tham chiếu",
     "ref_not_registered": "Các tài nguyên được tham chiếu chưa được đăng ký: {missing}",
     "ref_unit_not_found": "Không tìm thấy đơn vị video '{unit_id}'",
+    "ref_unit_needs_replan": "Đơn vị video này có vấn đề về người phát ngôn hoặc di chuyển; hãy lập kế hoạch lại trước khi tạo",
     "ref_unit_ids_length_mismatch": "Số lượng unit_ids không khớp với các đơn vị hiện có",
     "ref_duplicate_unit_ids": "unit_ids bị trùng lặp",
     "ref_unit_ids_mismatch": "unit_ids không khớp với các đơn vị hiện có",
     "ref_script_missing": "Tệp kịch bản gắn với tập này không tồn tại",
     "ref_script_rebound": "Liên kết kịch bản của tập này đã thay đổi, vui lòng thử lại",
-    "ref_ad_units_derived": "Các đơn vị video của dự án quảng cáo/video ngắn được tự động suy ra từ các cảnh quay, không thể chỉnh sửa thủ công; hãy chỉnh sửa cảnh quay rồi suy ra lại nhóm",
-    "ref_derive_ad_only": "Chỉ dự án quảng cáo/video ngắn mới hỗ trợ suy ra nhóm đơn vị video",
-    "ref_ad_stale_index": "Chỉ mục nhóm không còn khớp với các cảnh quay, vui lòng suy ra lại nhóm",
     "ref_ad_reference_skipped": "'{name}' ({type}) không có ảnh tham chiếu khả dụng, đã bỏ qua tham chiếu này trong lần tạo này",
     # Xem trước phân tích kịch bản phân cảnh: hiển thị các trường hợp giảm cấp
     "ref_warn_unregistered_mention": (
-        "@[{name}] chưa được đăng ký trong nhân vật/bối cảnh/đạo cụ: sẽ không kèm ảnh tham chiếu, "
+        "@[{name}] chưa được đăng ký trong sản phẩm/nhân vật/bối cảnh/đạo cụ: sẽ không kèm ảnh tham chiếu, "
         "hãy kiểm tra tên hoặc tạo tài sản trước"
     ),
     "ref_warn_unclosed_brace": (
@@ -319,7 +322,7 @@ MESSAGES = {
     "video_reference_images_unreadable": "Mô hình {model} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn ảnh tham chiếu",
     "video_reference_images_unsupported": "Mô hình {model} không hỗ trợ ảnh tham chiếu đa chủ thể; hãy bỏ ảnh tham chiếu hoặc chuyển sang mô hình có hỗ trợ tạo video từ ảnh tham chiếu",
     "video_reference_images_exceeded": "Mô hình {model} hỗ trợ tối đa {limit} ảnh tham chiếu nhưng nhận được {count}; hãy giảm số lượng ảnh tham chiếu",
-    "video_reference_images_with_frames_unsupported": "Mô hình {model} không thể dùng ảnh tham chiếu cùng với khung hình đầu/cuối; hãy chọn một trong hai",
+    "video_reference_images_with_frames_unsupported": "Mô hình {model} không thể dùng ảnh/âm thanh tham chiếu cùng với khung hình đầu/cuối; hãy chọn một trong hai",
     "video_start_image_unreadable": "Ảnh khung hình đầu của mô hình {model} không đọc được; đã hủy tạo: {name}; hãy kiểm tra đường dẫn ảnh khung hình đầu",
     "video_end_image_unreadable": "Ảnh khung hình cuối của mô hình {model} không đọc được; đã hủy tạo: {name}; hãy kiểm tra đường dẫn ảnh khung hình cuối",
     "video_end_image_requires_start_image": "Mô hình {model} không hỗ trợ khung hình cuối độc lập; hãy cung cấp thêm khung hình đầu (chế độ khung đầu+cuối) hoặc bỏ khung hình cuối",
@@ -349,6 +352,12 @@ MESSAGES = {
     "session_busy": "Phiên đang xử lý; vui lòng đợi phản hồi hiện tại hoàn tất trước khi gửi",
     "session_capacity_exceeded": "Đã đạt giới hạn phiên đồng thời, vui lòng thử lại sau",
     "session_question_unavailable": "Phiên chưa chạy hoặc không có câu hỏi đang chờ",
+    "rewrite_anchor_invalid": "Tin nhắn bạn muốn sửa không thuộc cuộc trò chuyện này, hãy tải lại rồi thử lại",
+    "rewrite_blocked_by_question": "Hãy trả lời thẻ câu hỏi trong cuộc trò chuyện trước khi sửa tin nhắn",
+    "session_already_superseded": "Cuộc trò chuyện này đã được thay thế bởi một lần sửa trước, hãy tiếp tục ở cuộc trò chuyện mới",
+    "rewrite_unavailable": "Không thể sửa tin nhắn vì bản triển khai hiện tại chưa bật lưu trữ hội thoại",
+    "rewrite_interrupt_timeout": "Hết thời gian chờ phản hồi hiện tại dừng lại, vui lòng thử lại",
+    "rewrite_failed": "Sửa tin nhắn thất bại, vui lòng thử lại",
     "overview_source_empty": "Thư mục nguồn trống; không thể tạo tổng quan",
     "text_provider_not_configured": "Vui lòng cấu hình nhà cung cấp văn bản trước: thêm ít nhất một nhà cung cấp trong Cài đặt → Nhà cung cấp",
     "jianying_no_completed_segments": "Tập {episode} chưa có đoạn video hoàn thành; hãy tạo video trước",

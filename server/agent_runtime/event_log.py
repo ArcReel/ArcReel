@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.session_event import AgentSessionEventLogEntry
+from lib.db.models.session_message_link import AgentSessionUserMessageLink
 from server.agent_runtime.failure_observation import build_turn_failure_observation
 from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.message_serialization import utc_now_iso
@@ -77,6 +78,10 @@ _SQLITE_UNIQUE_ERRORNAMES = {"SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIM
 # 标记 SDK 回放的用户消息副本（POST 受理时已写日志），供写入点跳过。
 # 只存活在进程内消息 dict 上，不落任何持久化层。
 REPLAYED_USER_ECHO_KEY = "_replayed_user_echo"
+
+# 随回放副本捎带的事件日志用户条目 uuid：写入点据此把「服务端消息 id ↔ SDK
+# transcript entry uuid」写入映射表。与上一个键同为进程内标记，不入条目 payload。
+REPLAYED_USER_ECHO_ENTRY_UUID_KEY = "_replayed_user_echo_entry_uuid"
 
 
 def _extract_parent(message: dict[str, Any]) -> str | None:
@@ -726,10 +731,54 @@ class EventLogStore:
             )
             await session.commit()
 
+    async def record_user_message_link(
+        self,
+        session_id: str,
+        user_entry_uuid: str,
+        sdk_entry_uuid: str,
+    ) -> None:
+        """记录用户消息条目 ↔ SDK transcript entry 的身份映射（幂等）。
+
+        同一条目重复记录（回放副本被二次处理）不产生第二行，也不改写既有映射：
+        transcript entry 身份一旦确定就不再变化，首次写入即权威。
+        """
+        now_dt = utc_now()
+        try:
+            async with self._session_factory() as session:
+                session.add(
+                    AgentSessionUserMessageLink(
+                        session_id=session_id,
+                        user_entry_uuid=user_entry_uuid,
+                        sdk_entry_uuid=sdk_entry_uuid,
+                        user_id=self._user_id,
+                        created_at=now_dt,
+                        updated_at=now_dt,
+                    )
+                )
+                await session.commit()
+        except IntegrityError as exc:
+            if not _is_unique_violation(exc):
+                raise
+
+    async def find_user_message_link(self, session_id: str, user_entry_uuid: str) -> str | None:
+        """按事件日志用户条目 uuid 查回 SDK transcript entry uuid；无映射返回 None。"""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(AgentSessionUserMessageLink.sdk_entry_uuid).where(
+                    AgentSessionUserMessageLink.session_id == session_id,
+                    AgentSessionUserMessageLink.user_entry_uuid == user_entry_uuid,
+                )
+            )
+            row = result.first()
+        return str(row.sdk_entry_uuid) if row is not None else None
+
     async def delete_session(self, session_id: str) -> None:
         async with self._session_factory() as session:
             await session.execute(
                 sa_delete(AgentSessionEventLogEntry).where(AgentSessionEventLogEntry.session_id == session_id)
+            )
+            await session.execute(
+                sa_delete(AgentSessionUserMessageLink).where(AgentSessionUserMessageLink.session_id == session_id)
             )
             await session.commit()
 
@@ -852,3 +901,35 @@ class EventLogService:
     ) -> list[dict[str, Any]]:
         await self.ensure_backfilled(session_id, project_cwd)
         return await self._store.list_after(session_id, after_seq)
+
+    async def resolve_user_message_anchor(
+        self,
+        session_id: str,
+        entry_uuid: str,
+        project_cwd: Path | str | None,
+    ) -> str | None:
+        """把事件日志里的用户条目 uuid 解析为 transcript 域的 entry uuid。
+
+        两段：身份映射表优先，未命中时按恒等性回退。映射表是活跃路径的唯一
+        通路——POST 受理时 mint 的 ``user-<hex>`` 先于 SDK 分配 uuid，两个域
+        天然不同名，只能靠映射对上。其余条目的两域 uuid 本就相同：懒生成时
+        用户条目直接取 transcript 条目的 uuid，前缀分叉复制时 uuid 原样保留，
+        因此分支的分支同样成立。
+
+        回退只接受主线 plain user 条目（无 subtype、无 parent_tool_use_id）：
+        问答回复、tool_result、skill 注入等条目的 uuid 都是派生或定型产物，
+        作锚点没有意义。返回的 uuid 未经 transcript 存在性校验——映射缺失的
+        活跃路径条目会走到这里并返回一个 transcript 查无此条的 uuid，由前缀
+        分叉在切片时 fail loud，不静默改切别处。
+        """
+        linked = await self._store.find_user_message_link(session_id, entry_uuid)
+        if linked is not None:
+            return linked
+        await self.ensure_backfilled(session_id, project_cwd)
+        for entry in await self._store.list_after(session_id):
+            if entry.get("uuid") != entry_uuid:
+                continue
+            if entry.get("type") != ENTRY_TYPE_USER or entry.get("subtype") or entry.get("parent_tool_use_id"):
+                return None
+            return entry_uuid
+        return None

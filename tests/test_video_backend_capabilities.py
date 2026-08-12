@@ -14,6 +14,12 @@ class TestVideoCapabilities:
         assert caps.max_reference_images == 0
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
         assert caps.max_reference_audio_count == 0
+        assert caps.first_frame_ratio_adaptive_only is False
+
+    @pytest.mark.unit
+    def test_first_frame_ratio_adaptive_only_declared(self):
+        caps = VideoCapabilities(first_frame_ratio_adaptive_only=True)
+        assert caps.first_frame_ratio_adaptive_only is True
 
     @pytest.mark.unit
     def test_first_last(self):
@@ -121,6 +127,19 @@ class TestVideoCapabilitiesForModel:
         from lib.video_backends.vidu import ViduVideoBackend
 
         assert ViduVideoBackend.video_capabilities_for_model("viduq3-turbo").max_reference_images == 7
+
+    @pytest.mark.unit
+    def test_minimax_h3_declares_multimodal_limits(self):
+        from lib.video_backends.base import ReferenceAudioMode
+        from lib.video_backends.minimax import MiniMaxVideoBackend
+
+        caps = MiniMaxVideoBackend.video_capabilities_for_model("MiniMax-H3")
+        assert caps.max_reference_images == 9
+        assert caps.last_frame is True
+        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
+        assert caps.max_reference_audio_count == 3
+        assert caps.max_prompt_chars == 7000
+        assert caps.first_frame_ratio_adaptive_only is True
 
     @pytest.mark.unit
     def test_v2_returns_four(self):

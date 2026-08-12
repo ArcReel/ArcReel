@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.26.0](https://github.com/ArcReel/ArcReel/compare/v0.25.0...v0.26.0) (2026-08-11)
+
+
+### ✨ 新功能
+
+* **供应商:** ark 支持自定义 base_url ([#1765](https://github.com/ArcReel/ArcReel/issues/1765)) ([4ef8af7](https://github.com/ArcReel/ArcReel/commit/4ef8af7606667d0c3c9cfd8aef48b46c01be05b3))
+* **供应商:** 接入 Seedance 2.5 与万相 3.0 视频模型，单次可生成 30 秒 ([#1767](https://github.com/ArcReel/ArcReel/issues/1767)) ([c8f64be](https://github.com/ArcReel/ArcReel/commit/c8f64bea57df9408f7b44d9b563498cf4495224c))
+* **助手:** 会话可从指定的历史用户消息处分叉，为消息改写打底 ([#1751](https://github.com/ArcReel/ArcReel/issues/1751)) ([8aef999](https://github.com/ArcReel/ArcReel/commit/8aef9998e40bddd8d3b801aadc425b419bae1871))
+* **助手:** 分支出的会话可再次改写，并记录它从哪条消息分叉而来 ([#1768](https://github.com/ArcReel/ArcReel/issues/1768)) ([73bfa31](https://github.com/ArcReel/ArcReel/commit/73bfa3198dd22130f12b29483c3f846947cc0ceb))
+* **助手:** 历史消息可就地改写，从改写处开启新对话分支 ([#1774](https://github.com/ArcReel/ArcReel/issues/1774)) ([c7e07c6](https://github.com/ArcReel/ArcReel/commit/c7e07c67987f81599d66b52e8ffa2d96a81b788b))
+* **助手:** 改写历史消息一步完成中断、分叉与重跑 ([#1773](https://github.com/ArcReel/ArcReel/issues/1773)) ([bb2c9b8](https://github.com/ArcReel/ArcReel/commit/bb2c9b836937022fbadfeef665929dc0df9fc410))
+* **宫格:** 联合图支持手动上传与历史版本回滚，切分改为独立动作 ([#1727](https://github.com/ArcReel/ArcReel/issues/1727)) ([d0d7c74](https://github.com/ArcReel/ArcReel/commit/d0d7c74c9f95113085ce4ed871f1317e55eb0a74))
+* **视频:** 接入 MiniMax H3 并设为 MiniMax 视频默认模型 ([#1766](https://github.com/ArcReel/ArcReel/issues/1766)) ([47b27ab](https://github.com/ArcReel/ArcReel/commit/47b27abf0b15c874eb27bdf77117d2c3f47fba9d))
+* **视频:** 阿里百炼新增 HappyHorse 1.1 三模态并设为默认视频模型 ([#1725](https://github.com/ArcReel/ArcReel/issues/1725)) ([9a7b01c](https://github.com/ArcReel/ArcReel/commit/9a7b01c72ff86b5f8ff91c825730a6e0d8d81908))
+* **资产:** 角色/场景/道具/产品支持重命名，剧本引用与关联文件一次改齐 ([#1730](https://github.com/ArcReel/ArcReel/issues/1730)) ([1a6cdce](https://github.com/ArcReel/ArcReel/commit/1a6cdce67b2643e1d800c9d833dda0b25a9a990f))
+* **项目:** 语速估算支持项目级配置，创建与设置页可填 ([#1731](https://github.com/ArcReel/ArcReel/issues/1731)) ([7e4007a](https://github.com/ArcReel/ArcReel/commit/7e4007a76e2319a23983e750daaaa87a4b33170c))
+
+
+### 🐛 Bug 修复
+
+* **grid:** 超上限场景分组切为多张宫格，不再静默丢场景 ([#1720](https://github.com/ArcReel/ArcReel/issues/1720)) ([ac944aa](https://github.com/ArcReel/ArcReel/commit/ac944aa0ec3fbc8c7ab3195628c0f376dbc7c1f2))
+* **供应商:** 自定义供应商识别 MiniMax H3 与万相 3.0，时长档位与调用地址不再推错 ([#1771](https://github.com/ArcReel/ArcReel/issues/1771)) ([7c37b65](https://github.com/ArcReel/ArcReel/commit/7c37b65bd5bf3a9d8335e1815bcfeaa71990b357)), closes [#1769](https://github.com/ArcReel/ArcReel/issues/1769)
+* **视频:** 百炼视频任务在途改域名后仍能续跑，不再误判为任务过期 ([#1772](https://github.com/ArcReel/ArcReel/issues/1772)) ([be322ce](https://github.com/ArcReel/ArcReel/commit/be322ced0932c18c725f4e613125c68d09d58a20))
+* **设置:** 音频开关按视频模型的实际能力置灰，恒有声模型不再被误判为无声 ([#1729](https://github.com/ArcReel/ArcReel/issues/1729)) ([2aff8f9](https://github.com/ArcReel/ArcReel/commit/2aff8f954b571481afeffa930950828aea4a1083))
+* **费用估算:** 分镜图按项目实际分辨率档计价 ([#1726](https://github.com/ArcReel/ArcReel/issues/1726)) ([f603555](https://github.com/ArcReel/ArcReel/commit/f6035555e3a27eb6676a231b821cde167d232094))
+* **费用估算:** 宫格图按项目实际分辨率档计价，同名条目各自展示正确估算 ([#1722](https://github.com/ArcReel/ArcReel/issues/1722)) ([12aa440](https://github.com/ArcReel/ArcReel/commit/12aa44043c6450da9e49a0e00ddd04a1b3543da7))
+
+
+### ♻️ 重构
+
+* **供应商:** 恒有声按视频型号声明，同门型号可各自不同 ([#1763](https://github.com/ArcReel/ArcReel/issues/1763)) ([a080db9](https://github.com/ArcReel/ArcReel/commit/a080db923d8e28f501a29e6de19f294c9bf71252))
+
+
+### 📚 文档
+
+* **skills:** Gemini 通过判定补 pushback 例外 ([829329d](https://github.com/ArcReel/ArcReel/commit/829329de90f578dbf336db0d4b6ddc5fbf673ecb))
+
 ## [0.25.0](https://github.com/ArcReel/ArcReel/compare/v0.24.0...v0.25.0) (2026-08-07)
 
 
