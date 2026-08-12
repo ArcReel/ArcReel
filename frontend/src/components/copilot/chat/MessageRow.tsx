@@ -174,7 +174,7 @@ function MessageEditor({
 }) {
   const { t } = useTranslation("dashboard");
   const [draft, setDraft] = useState(initialText);
-  const [images, setImages] = useState(initialImages);
+  const [images, setImages] = useState(() => initialImages.map((image, id) => ({ id, image })));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // 部分输入法在组合确认的那次 keydown 上不置 isComposing，靠组合事件补齐
   const isComposingRef = useRef(false);
@@ -193,7 +193,10 @@ function MessageEditor({
 
   const submit = useCallback(() => {
     if (submitting || !canSubmit || !hasContent) return;
-    onSubmit(draft, images);
+    onSubmit(
+      draft,
+      images.map(({ image }) => image),
+    );
   }, [draft, images, hasContent, submitting, canSubmit, onSubmit]);
 
   return (
@@ -206,8 +209,8 @@ function MessageEditor({
       </div>
       {images.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
-          {images.map((image, index) => (
-            <div key={`${image.media_type}:${image.data}:${index}`} className="relative">
+          {images.map(({ id, image }, index) => (
+            <div key={id} className="relative">
               <img
                 src={`data:${image.media_type};base64,${image.data}`}
                 alt={t("message_edit_attachment", { index: index + 1, total: images.length })}
@@ -217,7 +220,7 @@ function MessageEditor({
               <button
                 type="button"
                 disabled={submitting}
-                onClick={() => setImages((current) => current.filter((_, currentIndex) => currentIndex !== index))}
+                onClick={() => setImages((current) => current.filter((attachment) => attachment.id !== id))}
                 className="focus-ring absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full transition-colors hover:bg-[var(--color-danger)] disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
                   background: "oklch(0.14 0.008 265)",
