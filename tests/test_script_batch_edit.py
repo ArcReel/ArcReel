@@ -219,6 +219,78 @@ def test_stale_revision_conflicts_without_writing(editor: tuple[ProjectManager, 
     assert script_path.read_bytes() == before
 
 
+def test_rejected_edit_does_not_persist_project_read_migration(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    from lib.project_change_hints import register_project_change_listener
+
+    pm, service, project_dir = editor
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project.pop("style_template_id", None)
+    project["style"] = "Anime"
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    before_project = project_path.read_bytes()
+    script_path = project_dir / "scripts" / "episode_1.json"
+    before_script = script_path.read_bytes()
+    command = _command(pm, [{"op": "update", "id": "E1S01", "fields": {"note": "stale"}}])
+    command = command.model_copy(update={"expected_revision": "sha256-v1:" + "0" * 64})
+    events: list[tuple[str, str, tuple[str, ...]]] = []
+    unregister = register_project_change_listener(lambda name, source, paths: events.append((name, source, paths)))
+
+    try:
+        result = service.execute("demo", command)
+    finally:
+        unregister()
+
+    assert result.success is False
+    assert result.problems[0].code == "revision_conflict"
+    assert project_path.read_bytes() == before_project
+    assert script_path.read_bytes() == before_script
+    assert events == []
+
+
+@pytest.mark.parametrize(
+    ("container", "value"),
+    [("segments", 123), ("video_units", None)],
+)
+def test_malformed_item_container_returns_schema_failure_without_writes(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+    container: str,
+    value: object,
+) -> None:
+    pm, service, project_dir = editor
+    script_path = project_dir / "scripts" / "episode_1.json"
+    malformed = json.loads(script_path.read_text(encoding="utf-8"))
+    for key in ("segments", "video_units"):
+        malformed.pop(key, None)
+    malformed[container] = value
+    script_path.write_text(json.dumps(malformed, ensure_ascii=False), encoding="utf-8")
+    before_script = script_path.read_bytes()
+    project_path = project_dir / "project.json"
+    before_project = project_path.read_bytes()
+    command = ScriptBatchEditCommand.model_validate(
+        {
+            "script": "episode_1.json",
+            "expected_revision": script_revision(malformed),
+            "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "invalid"}}],
+        }
+    )
+
+    result = service.execute("demo", command)
+
+    assert result.success is False
+    problem = result.problems[0]
+    assert problem.code == "schema_invalid"
+    assert problem.reason == "stored_schema_invalid"
+    assert problem.next_action == "repair_script"
+    assert problem.operation_index is None
+    assert problem.unit_id is None
+    assert problem.locations[0].path == (container,)
+    assert script_path.read_bytes() == before_script
+    assert project_path.read_bytes() == before_project
+
+
 def test_same_content_episode_rebind_conflicts_without_writing(
     editor: tuple[ProjectManager, ScriptBatchEditor, Path],
 ) -> None:

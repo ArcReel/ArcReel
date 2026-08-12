@@ -815,7 +815,10 @@ class ProjectManager:
         临界区原子恢复旧字节。hook 必须把自身写入设计为「成功后不再抛错」，否则它已经落下的
         外部状态无法由本方法推断如何撤销。
         """
-        candidate = resolve_script_file(self.load_project(project_name))
+        # 候选解析只用于确定脚本锁身份，不得触发 load_project 的持久化迁移；命令若随后因
+        # revision / schema 等预检被拒，project.json 必须保持逐字不变。成功提交时，迁移会在
+        # 下方项目锁内与脚本、索引一起落盘并受同一份旧字节快照补偿。
+        candidate = resolve_script_file(self.load_project_readonly(project_name))
         norm = self.normalize_script_filename(candidate)
         with self._script_lock(project_name, norm):
             with self._project_lock(project_name):

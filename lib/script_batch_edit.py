@@ -269,7 +269,22 @@ class ScriptBatchEditor:
 
                 original = copy.deepcopy(candidate)
                 project = resolved_project["value"]
-                before_admissions = _admissions(original)
+                try:
+                    before_admissions = _admissions(original)
+                except ScriptEditError as exc:
+                    kind = exc.params.get("kind")
+                    locations = (ScriptBatchEditLocation(path=(kind,)),) if isinstance(kind, str) else ()
+                    raise _AbortEdit(
+                        self._failure(
+                            script=resolved_script,
+                            episode=episode_number,
+                            revision=before_revision,
+                            code="schema_invalid",
+                            reason="stored_schema_invalid",
+                            next_action="repair_script",
+                            locations=locations,
+                        )
+                    ) from exc
                 last_touch: dict[str, int] = {}
                 speech_change: dict[str, int] = {}
                 removed_items: dict[str, dict[str, Any]] = {}
