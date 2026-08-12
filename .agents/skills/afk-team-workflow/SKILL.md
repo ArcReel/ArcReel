@@ -6,11 +6,11 @@ disable-model-invocation: true
 
 # AFK 团队执行流程
 
-你是 team-lead：组建由独立 agent 组成的团队，把一批 issue 无人值守推进到全部合并或明确搁置。你负责调度、合并、裁决、健康检查与清尾，自己不写代码；实现、本地审查、外部审查循环分别运行 `/tdd`、`/code-review`、`/pr-ai-review-loop`。
+你是 team-lead：始终在主仓库组建和调度由独立 agent 组成的团队，把一批 issue 无人值守推进到全部合并或明确搁置。你负责调度、合并、裁决、健康检查与清尾，自己不写代码。
 
 ## 第一步：确定批次成员
 
-用户显式要求接管或恢复既有批次时，按 [references/recovery.md](references/recovery.md) 处理，不按新批次开工。每次新执行生成唯一 batch-id：Spec 批次用 `spec-<N>-<UTC YYYYMMDD-HHMMSS>-<6 位随机十六进制>`，显式 issue 批次用带相同时间戳与随机后缀的简短 slug。Spec 开工前列出 `.afk/spec-<N>.jsonl` 与 `.afk/spec-<N>-*.jsonl` 中末条不是 `closed` 的账本并暂停；用户明确选择一个 batch-id 后，接管转入 recovery.md，重开则执行其清理并使用新的 batch-id。
+每次新执行生成唯一 batch-id：Spec 批次用 `spec-<N>-<UTC YYYYMMDD-HHMMSS>-<6 位随机十六进制>`，显式 issue 批次用带相同时间戳与随机后缀的简短 slug。Spec 开工前列出 `.afk/spec-<N>.jsonl` 与 `.afk/spec-<N>-*.jsonl` 中末条不是 `closed` 的账本并暂停；用户明确选择一个 batch-id 后，接管转入 recovery.md，重开则执行其清理并使用新的 batch-id。
 
 运行 batch-poll，取得批次的机械底图：展开 Spec 子 issue、解析依赖图、给出每个 issue 的远端落点（标签、`blocked_by`、分支/PR 状态、`stage_hint`）：
 
@@ -33,7 +33,7 @@ batch-poll 只产出 gh/git 事实与机械汇总，不做语义判断。取得�
 
 建立团队，并为每个阶段委派独立 agent。并发上限只计算同时处于**实现 / 本地审查**阶段的 issue；进入 AI 审查循环即释放该槽位。AI 审查循环另设软上限 6，team-lead 可在批次计划中覆盖。
 
-issue 的启动条件：全部 blocker 已合入 main。启动时将 issue assign 给自己（`gh issue edit <N> --add-assignee @me`），先 `git fetch origin`，再从最新 `origin/main` 创建专属 worktree 与 `issue/<N>` 分支并委派实现 agent；不做跨分支依赖。blocker 被搁置时下游不启动，归入收尾清单。
+issue 的启动条件：全部 blocker 已合入 main。启动时 team-lead 将 issue assign 给自己（`gh issue edit <N> --add-assignee @me`）并委派实现 agent；implementer 更新远端状态，从最新 `origin/main` 创建 `issue/<N>` 分支的专属 worktree。不做跨分支依赖。blocker 被搁置时下游不启动，归入收尾清单。
 
 每个 issue 由三个阶段接力，每个阶段使用干净上下文：
 
@@ -45,7 +45,7 @@ issue 的启动条件：全部 blocker 已合入 main。启动时将 issue assig
 
 ### 模型与委派
 
-按 [references/model-selection.md](references/model-selection.md) 为每个阶段显式选择模型。委派时按 [references/spawn-prompts.md](references/spawn-prompts.md) 的模板填变量。实现 agent 交付后，机械核验 worktree：分支名为 `issue/<N>`、改动已全部 commit、未 push、未建 PR、质量门已通过。交付物不完整就退回原 agent 补齐，不得把残缺现场传给下一阶段。
+按 [references/model-selection.md](references/model-selection.md) 为每个阶段显式选择模型。委派时按 [references/spawn-prompts.md](references/spawn-prompts.md) 的模板填变量。实现阶段不预设 worktree 路径；implementer 创建后回报实际绝对路径，team-lead 将它传给后续阶段。实现 agent 交付后，机械核验 worktree：分支名为 `issue/<N>`、改动已全部 commit、未 push、未建 PR、质量门已通过。交付物不完整就退回原 agent 补齐，不得把残缺现场传给下一阶段。
 
 三个阶段不要合并、不要让同一 agent 连任：本地审查必须由未参与实现的干净上下文执行（实现者自查存在盲区），审查循环是长周期轮询，不应背负实现阶段的上下文。
 
@@ -85,7 +85,7 @@ issue 的启动条件：全部 blocker 已合入 main。启动时将 issue assig
 
 批次执行期间保持健康检查循环，约每 30 分钟恢复 team-lead 执行一次。每次检查跑一遍 batch-poll 取全批次远端快照（各 issue `stage_hint`、PR `updatedAt` / `mergeable`、`conflicting` / `merge_candidate`），结合各 agent 的执行状态与最近一次汇报判断进展——batch-poll 不判定 agent 存活状态。长时间无进展且无合理等待理由（等待 reviewer 响应属合理）时，向负责 agent 询问；无回应且确认其已停止后，按 spawn-prompts.md 的替补附言委派新 agent 接管。原 agent 未停止前不得让替补写同一个 worktree。
 
-替补接管前先核验现场。现场可信就沿用 worktree 继续；现场不可信就清理该 issue 的 worktree，从最新 `origin/main` 重建后重新实现。
+替补接管前先核验现场。现场可信就沿用 worktree 继续；现场不可信就清理该 issue 的 worktree，重新委派 implementer 建立基于最新 `origin/main` 的工作现场并实现。
 
 ## 账本
 
@@ -105,3 +105,7 @@ bash scripts/ledger.sh --repo-root <repo-root> <batch-id> <kind> [--issue N] [--
 ## 发现 Spec 落点缺口时
 
 gap 专指功能性缺口：Spec 有要求但任何子 issue 均未覆盖——"未覆盖"可能是用户拆解时的有意裁剪，故必须人工确认，不入清尾授权；批内发现的缺陷类 follow-up 不走本节，按收尾的清尾轮处置。发现 gap 时主动通知用户，说明缺口描述、建议与对本批次的影响，同时让批次继续。用户中途授权则直接立项并按依赖加入批次；未获回复则相关 issue 按字面验收标准收口。append 账本 `gap`，并记入收尾转呈与 QA comment。
+
+## 续跑与接管
+
+team-lead 仍持有本批计划、授权、裁决和 agent 状态时，暂停后继续（含上下文压缩）直接**续跑**；单个 agent 失效走「健康检查与替补」。只有无法直接续接这些运行上下文、需要从账本与远端事实重建状态，或用户明确要求重新对账、从账本恢复、接管指定 batch-id 时，才按 [references/recovery.md](references/recovery.md) **接管**。
