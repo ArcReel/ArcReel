@@ -654,10 +654,10 @@ class SessionManager:
             Runs send_disconnect first (which causes actor to exit and
             _on_actor_done to push the None sentinel, letting _process_inbox
             finish naturally), bounded by _session_actor_shutdown_timeout so an
-            SDK-side hang cannot stall this error-only cleanup path indefinitely
-            — on timeout the actor is cancelled outright so it cannot leak; then
-            belt-and-suspenders cancels the processor in case it is stuck
-            elsewhere.
+            SDK-side hang does not stall this error-only cleanup path on the
+            graceful wait — on timeout the actor is cancelled so it does not leak
+            with the failed session; then belt-and-suspenders cancels the
+            processor in case it is stuck elsewhere.
             """
             self.sessions.pop(temp_id, None)
             # sdk_session_id 就绪后 key swap 已把会话挂到正式 id 下，两个键都清。
