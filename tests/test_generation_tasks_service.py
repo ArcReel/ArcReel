@@ -18,6 +18,7 @@ from lib.prompt_builders import append_image_negative_tail
 from lib.prompt_utils import image_prompt_to_yaml
 from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
 from lib.video_frame_slots import gate_video_request
+from lib.video_visual_provenance import build_storyboard_video_visual_basis
 from server.services import generation_tasks
 from server.services.generation_context import AudioLaneResult, GenerationContext, ImageLaneResult, VideoLaneResult
 from server.services.generation_tasks import assert_duration_supported
@@ -813,12 +814,22 @@ class TestGenerationTasks:
         current = project_path / "videos" / "scene_E1S01.mp4"
         current.parent.mkdir(parents=True, exist_ok=True)
         current.write_bytes(b"existing-paid-video")
+        visual_prompt = {"action": "跑", "camera_motion": "Static", "dialogue": []}
+        visual_basis = build_storyboard_video_visual_basis(
+            prompt=visual_prompt,
+            storyboard_image=project_path / "storyboards" / "scene_E1S01.png",
+            end_frame_image=None,
+            content_mode="narration",
+            utterances=None,
+            voice_characters=None,
+        )
         selected_version = fake_generator.versions.add_version(
             "videos",
             "E1S01",
             "old visual",
             source_file=current,
             duration_seconds=8,
+            visual_basis_digest=visual_basis.digest,
         )
         script_before = copy.deepcopy(fake_pm.script)
         history_before = copy.deepcopy(fake_generator.versions.get_versions("videos", "E1S01"))
@@ -861,7 +872,7 @@ class TestGenerationTasks:
             "E1S01",
             {
                 "script_file": "episode_1.json",
-                "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                "prompt": visual_prompt,
                 "narration_delivery_options": {
                     "narration_delivery": USE_TTS,
                     "confirmed_request_duration_seconds": 8,

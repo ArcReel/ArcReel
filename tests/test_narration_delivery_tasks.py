@@ -96,6 +96,7 @@ async def test_generated_video_rejection_restores_previous_current_version(
     load_current.assert_awaited_once_with(
         project_name="demo",
         script_file="episode_1.json",
+        resource_type="videos",
         resource_id="E1S01",
     )
     versions.reject_current_version.assert_called_once_with(
@@ -179,6 +180,44 @@ async def test_reference_tts_materialization_resolves_episode_from_script_filena
 
 
 @pytest.mark.unit
+async def test_current_reference_task_narration_uses_video_units_when_ad_script_also_has_shots(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    sentinel = MagicMock()
+    pm = MagicMock()
+    pm.load_project.return_value = {"name": "demo"}
+    pm.get_project_path.return_value = tmp_path
+    pm.load_script.return_value = {
+        "episode": 1,
+        "content_mode": "ad",
+        "shots": [{"shot_id": "E1S01", "voiceover_text": "广告旁白"}],
+        "video_units": [
+            {
+                "unit_id": "E1U1",
+                "shots": [{"text": "镜头推进。\n{参考视频单元旁白。}"}],
+                "references": [],
+                "duration_seconds": 8,
+            }
+        ],
+    }
+    prepare = AsyncMock(return_value=sentinel)
+    monkeypatch.setattr(narration_delivery_tasks, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(narration_delivery_tasks, "prepare_current_narration_delivery", prepare)
+    monkeypatch.setattr(narration_delivery_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
+
+    result = await narration_delivery_tasks._prepare_current_task_narration_delivery(
+        project_name="demo",
+        script_file="episode_1.json",
+        resource_type="reference_videos",
+        resource_id="E1U1",
+    )
+
+    assert result is sentinel
+    assert prepare.await_args.kwargs["preparation"].unit_id == "E1U1"
+
+
+@pytest.mark.unit
 async def test_current_visual_is_reused_only_for_the_selected_trusted_duration_tier(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -195,6 +234,7 @@ async def test_current_visual_is_reused_only_for_the_selected_trusted_duration_t
         "prompt",
         source_file=current,
         duration_seconds=8,
+        visual_basis_digest="current-visual-basis",
     )
     item = {
         "generated_assets": {
@@ -217,6 +257,7 @@ async def test_current_visual_is_reused_only_for_the_selected_trusted_duration_t
             resource_type="videos",
             resource_id="E1S01",
             minimum_actual_duration_seconds=6.2,
+            visual_basis_digest="current-visual-basis",
         )
         == 8
     )
@@ -228,6 +269,7 @@ async def test_current_visual_is_reused_only_for_the_selected_trusted_duration_t
         resource_id="E1S01",
         request_duration_seconds=8,
         minimum_actual_duration_seconds=6.2,
+        visual_basis_digest="current-visual-basis",
     )
 
     assert result == {
@@ -245,7 +287,15 @@ async def test_current_visual_is_reused_only_for_the_selected_trusted_duration_t
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "unsafe_state",
-    ["missing_metadata", "stale", "wrong_tier", "unselected_bytes", "short_media", "unmeasurable_media"],
+    [
+        "missing_metadata",
+        "stale",
+        "wrong_tier",
+        "unselected_bytes",
+        "short_media",
+        "unmeasurable_media",
+        "visual_inputs_changed",
+    ],
 )
 async def test_current_visual_without_trustworthy_current_tier_is_not_reused(
     monkeypatch: pytest.MonkeyPatch,
@@ -258,7 +308,11 @@ async def test_current_visual_without_trustworthy_current_tier_is_not_reused(
     current.parent.mkdir(parents=True)
     current.write_bytes(b"paid-current-video")
     versions = VersionManager(tmp_path)
-    metadata = {} if unsafe_state == "missing_metadata" else {"duration_seconds": 8}
+    metadata = (
+        {}
+        if unsafe_state == "missing_metadata"
+        else {"duration_seconds": 8, "visual_basis_digest": "recorded-visual-basis"}
+    )
     versions.add_version("reference_videos", "E1U1", "prompt", source_file=current, **metadata)
     item = {
         "generated_assets": {
@@ -286,6 +340,9 @@ async def test_current_visual_without_trustworthy_current_tier_is_not_reused(
                 resource_type="reference_videos",
                 resource_id="E1U1",
                 minimum_actual_duration_seconds=6.2,
+                visual_basis_digest=(
+                    "changed-visual-basis" if unsafe_state == "visual_inputs_changed" else "recorded-visual-basis"
+                ),
             )
             is None
         )
@@ -299,6 +356,9 @@ async def test_current_visual_without_trustworthy_current_tier_is_not_reused(
             resource_id="E1U1",
             request_duration_seconds=request_duration,
             minimum_actual_duration_seconds=6.2,
+            visual_basis_digest=(
+                "changed-visual-basis" if unsafe_state == "visual_inputs_changed" else "recorded-visual-basis"
+            ),
         )
         is None
     )

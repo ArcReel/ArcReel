@@ -286,6 +286,7 @@ async def generate_video(
                 script=script,
                 script_file=req.script_file,
                 item=item,
+                visual_prompt=req.prompt,
                 capability=_video_bucket,
                 # use_tts 不把请求中的 duration 持久化进队列；预检必须和 worker 一样基于
                 # 当前盘上单元重投影，否则客户端旧快照可能先通过、执行时才要求另一档确认。

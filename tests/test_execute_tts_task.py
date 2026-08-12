@@ -259,6 +259,57 @@ class TestExecuteTtsTask:
         assert formal.read_bytes() == b"paid-old-audio"
         assert "generated_assets" not in pm.script["segments"][0]
 
+    async def test_narration_change_before_commit_preserves_old_formal_audio_and_basis(
+        self,
+        tts_env,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        pm, gen = tts_env
+        formal = pm.project_path / "audio" / "segment_E1S01.wav"
+        formal.parent.mkdir(parents=True, exist_ok=True)
+        formal.write_bytes(b"paid-old-audio")
+        pm.script["segments"][0]["generated_assets"] = {
+            "narration_audio": "audio/segment_E1S01.wav",
+            "status": "pending",
+        }
+        items, _id_field, kind = resolve_items(pm.script)
+        settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
+        register_narration_audio(
+            project_path=pm.project_path,
+            episode=1,
+            preparation=admit_script_unit(kind, items[0]).preparation,
+            settings=settings,
+        )
+        adapter = ProjectArtifactManifestAdapter(pm.project_path)
+        prior_entry = adapter.get_entry(ArtifactKey.episode_audio(1, "E1S01"))
+        original_generate = gen.generate_audio_async
+
+        async def _edit_before_commit(**kwargs):
+            original_commit = kwargs["commit_staged"]
+
+            def _commit_after_edit(staged_path: Path, output_path: Path) -> int:
+                pm.script["segments"][0]["novel_text"] = "合成期间并发改写的旁白。"
+                return original_commit(staged_path, output_path)
+
+            return await original_generate(**{**kwargs, "commit_staged": _commit_after_edit})
+
+        monkeypatch.setattr(gen, "generate_audio_async", _edit_before_commit)
+
+        with pytest.raises(RuntimeError, match="narration changed before TTS commit"):
+            await generation_tasks.execute_tts_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json"},
+            )
+
+        assert formal.read_bytes() == b"paid-old-audio"
+        assert pm.script["segments"][0]["novel_text"] == "合成期间并发改写的旁白。"
+        assert pm.script["segments"][0]["generated_assets"] == {
+            "narration_audio": "audio/segment_E1S01.wav",
+            "status": "pending",
+        }
+        assert adapter.get_entry(ArtifactKey.episode_audio(1, "E1S01")) == prior_entry
+
     async def test_reference_video_unit_uses_its_own_narrator_text_and_manifest_key(self, tts_env):
         pm, gen = tts_env
         pm.project.update({"content_mode": "drama", "generation_mode": "reference_video"})

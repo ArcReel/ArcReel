@@ -57,6 +57,7 @@ from lib.script_models import ReferenceResource
 from lib.speech_composition import video_unit_replan_problems
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
+from lib.video_visual_provenance import build_reference_video_visual_basis
 from server.services.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import get_project_manager
 from server.services.narration_delivery_tasks import (
@@ -486,6 +487,14 @@ async def execute_reference_video_task(
     resolved_assets = resolve_reference_assets(project, project_path, unit)
     asset_availability = FilesystemReferenceAssets(project_path)
     hydration = hydrate_reference_assets(declared_references, resolved_assets, asset_availability)
+    visual_basis_digest = (
+        await asyncio.to_thread(
+            build_reference_video_visual_basis,
+            project=project,
+            unit=unit,
+            reference_images=[entry.path for entry in hydration.available],
+        )
+    ).digest
 
     # 2. 单次解析生成上下文（声明 video lane）：构造 generator 并按实际 backend 身份
     #    查能力上限与 resolution。provider 身份解析收口于 GenerationContext
@@ -627,6 +636,7 @@ async def execute_reference_video_task(
             resource_id=resource_id,
             request_duration_seconds=effective_duration,
             minimum_actual_duration_seconds=narration.actual_duration_seconds,
+            visual_basis_digest=visual_basis_digest,
             warnings=warnings,
         )
         if reused is not None:
@@ -690,6 +700,7 @@ async def execute_reference_video_task(
         duration_seconds=effective_duration,
         resolution=resolution,
         task_id=task_id,
+        visual_basis_digest=visual_basis_digest,
     )
 
     if request_options.narration_delivery == USE_TTS:

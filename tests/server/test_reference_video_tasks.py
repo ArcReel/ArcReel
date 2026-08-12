@@ -14,6 +14,7 @@ import pytest
 from lib.reference_video.errors import MissingReferenceError
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_models import ReferenceResource
+from lib.video_visual_provenance import build_reference_video_visual_basis
 from server.services.reference_video_tasks import (
     FALLBACK_UNIT_DURATION,
     ProjectDurationContext,
@@ -2176,12 +2177,22 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     current.parent.mkdir(parents=True)
     current.write_bytes(b"existing-paid-video")
     versions = VersionManager(proj_dir)
+    project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    visual_basis = build_reference_video_visual_basis(
+        project=project,
+        unit=unit,
+        reference_images=[
+            proj_dir / "characters" / "张三.png",
+            proj_dir / "scenes" / "酒馆.png",
+        ],
+    )
     selected_version = versions.add_version(
         "reference_videos",
         "E1U1",
         "old visual",
         source_file=current,
         duration_seconds=8,
+        visual_basis_digest=visual_basis.digest,
     )
     versions_before = (proj_dir / "versions" / "versions.json").read_bytes()
 

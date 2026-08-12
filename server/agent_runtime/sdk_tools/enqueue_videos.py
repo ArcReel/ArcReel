@@ -323,6 +323,7 @@ async def _prepare_storyboard_delivery_for_item(
     script: dict[str, Any],
     script_filename: str,
     item: dict[str, Any],
+    visual_prompt: object,
     confirmed_request_duration_seconds: int | None,
     tts_in_progress: bool,
 ) -> NarratedVideoDurationPreparation:
@@ -336,6 +337,7 @@ async def _prepare_storyboard_delivery_for_item(
         script=script,
         script_file=script_filename,
         item=item,
+        visual_prompt=visual_prompt,
         capability=video_bucket_for_generation_mode(project.get("generation_mode")),
         planned_duration_seconds=(
             planned if isinstance(planned, int) and not isinstance(planned, bool) and planned > 0 else None
@@ -393,6 +395,7 @@ async def _prepare_storyboard_delivery_specs(
             script=script,
             script_filename=script_filename,
             item=item,
+            visual_prompt=(spec.payload or {}).get("prompt"),
             confirmed_request_duration_seconds=request_options.confirmed_request_duration_seconds,
             tts_in_progress=spec.resource_id in active_tts,
         )

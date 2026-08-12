@@ -42,7 +42,7 @@ from lib.narration_delivery import (
     prepare_narrated_video_duration,
     register_narration_audio_transactionally,
 )
-from lib.path_safety import safe_exists, safe_join, try_safe_join
+from lib.path_safety import safe_exists, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager, find_episode, get_project_manager
 from lib.prompt_builders import (
@@ -61,9 +61,9 @@ from lib.prompt_utils import (
     strip_voice_profiles,
     video_prompt_to_yaml,
 )
-from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
+from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
-from lib.script_models import get_generated_assets, resolve_content_mode
+from lib.script_models import resolve_content_mode
 from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
 from lib.speech_composition import SpeechAdmissionError, admit_script_unit
 from lib.storyboard_sequence import (
@@ -72,10 +72,10 @@ from lib.storyboard_sequence import (
     get_storyboard_items,
     group_scenes_by_segment_break,
     resolve_previous_storyboard_path,
-    resolve_storyboard_image_ref,
 )
 from lib.thumbnail import extract_video_thumbnail
 from lib.video_backends.base import VideoCapabilityError
+from lib.video_visual_provenance import build_storyboard_video_visual_basis
 from server.services.generation_context import (
     AudioLaneRequest,
     ImageLaneRequest,
@@ -86,6 +86,7 @@ from server.services.narration_delivery_tasks import (
     ResolvedTtsSettingsResolver,
     current_selected_video_tier,
     require_generated_video_covers_current_tts,
+    resolve_storyboard_video_inputs,
     reuse_current_video_for_tier,
     tts_task_in_progress,
 )
@@ -870,7 +871,7 @@ async def execute_tts_task(
             validate=False,
             on_commit=_activate,
         ) as current_script:
-            items, id_field, _kind = resolve_items(current_script)
+            items, id_field, current_kind = resolve_items(current_script)
             item = next(
                 (
                     candidate
@@ -881,6 +882,13 @@ async def execute_tts_task(
             )
             if item is None:
                 raise ValueError(f"segment not found: {resource_id}")
+            current_admission = admit_script_unit(current_kind, item)
+            try:
+                current_basis = build_narration_audio_basis(current_admission.preparation, settings)
+            except ValueError as exc:
+                raise RuntimeError("narration changed before TTS commit") from exc
+            if current_basis.digest != committed_basis.digest:
+                raise RuntimeError("narration changed before TTS commit")
             assets = item.get("generated_assets")
             prior_narration_audio = (
                 copy.deepcopy(assets.get("narration_audio", missing_narration_audio))
@@ -1133,6 +1141,7 @@ async def execute_video_task(
     prompt = payload.get("prompt")
     if prompt is None:
         raise ValueError("prompt is required for video task")
+    requested_visual_prompt = copy.deepcopy(prompt)
 
     def _load():
         _pm = get_project_manager()
@@ -1165,16 +1174,24 @@ async def execute_video_task(
     )
     generator = ctx.generator
 
-    # 优先读取 generated_assets.storyboard_image，回退默认路径。校验口径见
-    # resolve_storyboard_image_ref：与路由入队预检、SDK 工具入队预检共用同一份。
-    storyboard_rel = get_generated_assets(item).get("storyboard_image")
-    storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
-    if storyboard_file is None:
-        storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
-    # is_file 而非 exists：字段被外部编辑指向目录（如 "storyboards" 本身）时 exists() 仍为
-    # True，目录会被当作 start_image 传给视频后端，在编码阶段才失败且原因不可读。
-    if not storyboard_file.is_file():
-        raise ValueError(f"storyboard not found: {storyboard_file.name}")
+    storyboard_file, end_image = resolve_storyboard_video_inputs(
+        project_path=project_path,
+        resource_id=resource_id,
+        item=item,
+    )
+    visual_basis_digest = (
+        await asyncio.to_thread(
+            build_storyboard_video_visual_basis,
+            prompt=requested_visual_prompt,
+            storyboard_image=storyboard_file,
+            end_frame_image=end_image,
+            content_mode=content_mode,
+            utterances=item.get("utterances") if content_mode == "drama" else None,
+            voice_characters=(None if ctx.video.is_silent else project.get("characters"))
+            if content_mode == "drama"
+            else None,
+        )
+    ).digest
 
     # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 的机械派生：调用方（WebUI
     # 请求体 / 剧本 JSON 残留）自带的 voice_profiles 一律先剥离，不因 utterances 门控不触发
@@ -1283,6 +1300,7 @@ async def execute_video_task(
                 resource_type="videos",
                 resource_id=resource_id,
                 minimum_actual_duration_seconds=narration_actual_duration,
+                visual_basis_digest=visual_basis_digest,
             )
             if narration_actual_duration is not None
             else None
@@ -1320,53 +1338,10 @@ async def execute_video_task(
             resource_id=resource_id,
             request_duration_seconds=duration_seconds,
             minimum_actual_duration_seconds=narration_actual_duration,
+            visual_basis_digest=visual_basis_digest,
         )
         if reused is not None:
             return reused
-
-    # end_frame_image 是镜头持久属性（见 server/services/end_frame.py），剧本每次加载都带出，
-    # 重新生成无需额外操作即可沿用。能力是否支持尾帧由 generate_video_async 内的 plan_frame_slots
-    # 按已解析 backend 统一 gating（不支持即 VideoCapabilityError），此处不重复一份判断。
-    #
-    # 剧本是磁盘上的 JSON，字段值不可直接信任（归档导入、外部编辑、脏数据都能落值）：绝对路径会
-    # 覆盖 `/` 的左操作数、`..` 会越出项目目录，把任意服务器文件送进视频请求上传给供应商。只接受
-    # 「当前镜头自己的」end_frames/ 快照——不是随便一个存在的 end_frames/ 内文件：字段被外部编辑
-    # 指向别的镜头（如 E1S01 引用 E1S02 的快照）会静默生成/扣费错镜头的尾帧，仅凭目录归属挡不住，
-    # 须与 resource_relative_path 算出的当前镜头 canonical 路径逐一比对。裸文件名（无路径分隔符）
-    # 按校验侧 data_validator._resolve_existing_path 的 default_dir 回退口径补 end_frames/ 前缀
-    # 重试，否则通过导入校验的值会在生成期无理由硬失败。
-    end_frame_rel = item.get("end_frame_image") if isinstance(item, dict) else None
-    end_image: Path | None = None
-    # 只把 None / "" 视为「未设置」（与 data_validator 的 _resolve_existing_path 同口径）；
-    # 0 / False / [] / {} 等其余 falsy 脏数据必须继续走下面的硬失败，不能被 Python 的真值判断
-    # 静默吞成「未设置」进而无声跳过尾帧、照常生成扣费。
-    if end_frame_rel not in (None, ""):
-        if not isinstance(end_frame_rel, str):
-            raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
-        normalized = end_frame_rel.strip().replace("\\", "/")
-        candidate = normalized if "/" in normalized else f"{END_FRAME_RESOURCE_TYPE}/{normalized}"
-        expected_rel = resource_relative_path(END_FRAME_RESOURCE_TYPE, resource_id)
-        end_frame_file = try_safe_join(project_path, candidate)
-        expected_file = safe_join(project_path, expected_rel)
-        # try_safe_join / safe_join 都走 realpath，会展开符号链接：若字段值恰是当前镜头的
-        # canonical 相对路径，但磁盘上那个位置（含 end_frames/ 目录本身等中间组件）被替换成
-        # 指向别处（如另一镜头快照、分镜图）的符号链接，两次解析会算出同一个被展开的真实目标，
-        # 让下面的相等比较失去意义。这里逐段检查 canonical 路径每个组件——文件名与父目录——
-        # 挡住"路径字符串正确但磁盘对象被调包"，不止查最终文件名那一段。Windows 原生环境下
-        # 目录联接（junction）是独立于符号链接的 reparse point 类型，`is_symlink()` 识别不到，
-        # 须用 `is_junction()`（3.12+，POSIX 上恒为 False）单独检测。
-        canonical_path_tampered = False
-        current = project_path
-        for component in Path(expected_rel).parts:
-            current = current / component
-            if current.is_symlink() or current.is_junction():
-                canonical_path_tampered = True
-                break
-        if end_frame_file is None or end_frame_file != expected_file or canonical_path_tampered:
-            raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
-        if not end_frame_file.is_file():
-            raise ValueError(f"end frame snapshot not found: {end_frame_file.name}")
-        end_image = end_frame_file
 
     output_path, version, _, video_uri = await generator.generate_video_async(
         prompt=prompt_text,
@@ -1380,6 +1355,7 @@ async def execute_video_task(
         task_id=task_id,
         seed=seed,
         service_tier=service_tier,
+        visual_basis_digest=visual_basis_digest,
     )
 
     if delivery_projection is not None:
