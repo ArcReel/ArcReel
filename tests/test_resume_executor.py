@@ -495,6 +495,28 @@ async def test_resume_ignores_endpoint_id_left_by_provider_switch(monkeypatch, f
 
 
 @pytest.mark.asyncio
+async def test_resume_ignores_custom_domain_left_by_provider_switch(monkeypatch, fake_pm, video_task):
+    """同一跨类切换下专列里的自定义域名同样不回放：当下是内置供应商，只认 ``provider_endpoint``。
+
+    拿另一个供应商的域名配内置凭据轮询，只会把可归因的 404 换成认证或连接错误。
+    """
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint=None)
+
+    task = {
+        **video_task,
+        "provider_id": "dashscope",
+        "provider_endpoint": "dashscope-async-video",
+        "submitted_base_url": "https://custom-a.example.com/api/v1",
+    }
+    await execute_resume_video_task(task, job_id="dashscope-job-1")
+
+    assert fake_gen.resume_calls[0]["submitted_base_url"] is None
+
+
+@pytest.mark.asyncio
 async def test_resume_fails_when_builtin_task_switched_to_custom_provider(monkeypatch, fake_pm, video_task):
     """任务由内置供应商提交（列里是域名）、模型行在途被改成自定义供应商：比对闸拦下。
 

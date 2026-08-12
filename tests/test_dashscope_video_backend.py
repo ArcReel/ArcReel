@@ -1147,7 +1147,7 @@ class TestCustomProviderBaseUrlReplay:
 
     @pytest.mark.unit
     async def test_resume_polls_submitted_domain_after_base_url_change(self, tmp_path: Path):
-        """在途改自定义供应商的 base_url 后续跑：轮询仍打提交时的域名，不再 404 误判过期。"""
+        """在途改自定义供应商的 base_url 后续跑：轮询打提交时的域名，job 仍在该域名上。"""
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=AsyncMock(), get=get)
         p1, p2, p3 = _patches(client, AsyncMock())

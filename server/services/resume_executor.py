@@ -57,20 +57,20 @@ def _is_request_domain(value: Any) -> bool:
 def _submitted_base_url(task: dict[str, Any], current_endpoint: str | None) -> str | None:
     """提交本 job 时的请求域名，供 backend 回放轮询；无从判定时 None。
 
-    域名按供应商类型分落两列：自定义供应商的 ``provider_endpoint`` 位被协议标识占用，域名落
-    ``submitted_base_url``；内置供应商无协议维度，域名就落在 ``provider_endpoint``。先读专列，
-    未落此值（该列之前的存量任务、或非 dashscope 协议的自定义供应商）再看 ``provider_endpoint``：
-    ``current_endpoint`` 非空即当下是自定义供应商，此时该列是 endpoint 标识、归比对闸消费，不当
-    域名用。空值口径与 ``_ensure_endpoint_unchanged`` 一致取 falsy，否则空串会让两条分支都不生效。
-    域名形态再确认一次，是为了拦住「任务由自定义供应商提交、在途把模型行改成内置供应商」这类跨类
-    切换——此时列里躺着的是 endpoint 标识，拿它拼 URL 只会把 404（可归因为任务过期）换成更难归因
-    的连接错误。
+    域名按供应商类型分落两列，读取时按当下的供应商类型选列——``current_endpoint`` 非空即当下
+    是自定义供应商，取专列 ``submitted_base_url``（该类供应商的 ``provider_endpoint`` 位被协议
+    标识占用，归比对闸消费）；为空即当下是内置供应商，无协议维度，域名就在 ``provider_endpoint``。
+    空值口径与 ``_ensure_endpoint_unchanged`` 一致取 falsy，否则空串会让两条分支都不生效。
+
+    按当下类型选列而非先读专列，是为了拦住跨类切换：任务由自定义供应商提交、模型行在途被改成
+    内置供应商时，专列里躺着的是另一个供应商的域名，拿它配内置凭据轮询只会把 404（可归因为任务
+    过期）换成更难归因的认证或连接错误；反向切换同理，域名形态确认拦住把 endpoint 标识当域名用。
+    选中的列没有域名（未落此值的存量任务、非 dashscope 协议的自定义供应商、跨类切换）时回退
+    None，backend 按当下配置的域名轮询。
     """
-    submitted = task.get("submitted_base_url")
-    if _is_request_domain(submitted):
-        return str(submitted)
     if current_endpoint:
-        return None
+        submitted = task.get("submitted_base_url")
+        return str(submitted) if _is_request_domain(submitted) else None
     endpoint_column = task.get("provider_endpoint")
     if _is_request_domain(endpoint_column):
         return str(endpoint_column)
