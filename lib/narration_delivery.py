@@ -453,7 +453,11 @@ def prepare_narration_delivery(
                 status = NarrationTtsStatus.CURRENT
                 actual_duration = measured
 
-    if tts_in_progress and status is not NarrationTtsStatus.CURRENT:
+    if tts_in_progress and status in {
+        NarrationTtsStatus.MISSING,
+        NarrationTtsStatus.STALE,
+        NarrationTtsStatus.UNMEASURABLE,
+    }:
         status = NarrationTtsStatus.GENERATING
         actual_duration = None
         replaceable_codes = {"tts_missing", "tts_stale", "tts_duration_unavailable"}
@@ -664,7 +668,12 @@ async def prepare_current_narration_delivery(
     observation = adapter.inspect_artifact(artifact_path)
     duration: float | None = None
     if comparison.status is ArtifactStatus.CURRENT and observation.present:
-        duration = await duration_probe(safe_join(project_path, artifact_path, require_file=True))
+        try:
+            duration = await duration_probe(safe_join(project_path, artifact_path, require_file=True))
+        except FileNotFoundError:
+            # 清单与存在性观察之后文件仍可能被并发删除；保留 CURRENT 证据但把当次可测性
+            # 降为未知，让准入要求修复/重新生成，而不是让竞态穿透成任务 500。
+            duration = None
     return prepare_narration_delivery(
         delivery=delivery,
         preparation=preparation,

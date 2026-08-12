@@ -566,6 +566,7 @@ async def execute_reference_video_task(
     options = await prepare_current_reference_video_request_options(
         project=project,
         script=script,
+        script_file=str(script_file),
         unit=unit,
         project_path=project_path,
         options=request_options,
@@ -696,7 +697,8 @@ async def execute_reference_video_task(
         if narration is None:
             raise RuntimeError("allowed TTS reference request is missing current narration preparation")
         await require_generated_video_covers_current_tts(
-            narration=narration,
+            project_name=project_name,
+            script_file=str(script_file),
             request_duration_seconds=effective_duration,
             output_path=output_path,
             versions=generator.versions,

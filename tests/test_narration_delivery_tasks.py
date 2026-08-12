@@ -72,10 +72,18 @@ async def test_generated_video_rejection_restores_previous_current_version(
         actual_duration_seconds=6.2,
         problems=(),
     )
+    load_current = AsyncMock(return_value=narration)
+    monkeypatch.setattr(
+        narration_delivery_tasks,
+        "_prepare_current_task_narration_delivery",
+        load_current,
+        raising=False,
+    )
 
     with pytest.raises(NarratedVideoDurationBlockedError) as exc_info:
         await narration_delivery_tasks.require_generated_video_covers_current_tts(
-            narration=narration,
+            project_name="demo",
+            script_file="episode_1.json",
             request_duration_seconds=8,
             output_path=output_path,
             versions=versions,
@@ -85,6 +93,11 @@ async def test_generated_video_rejection_restores_previous_current_version(
         )
 
     assert exc_info.value.code == expected_code
+    load_current.assert_awaited_once_with(
+        project_name="demo",
+        script_file="episode_1.json",
+        resource_id="E1S01",
+    )
     versions.reject_current_version.assert_called_once_with(
         "videos",
         "E1S01",
@@ -135,6 +148,34 @@ async def test_empty_tts_observation_does_not_open_the_queue() -> None:
 
     assert active == frozenset()
     queue.get_active_tasks_for_resources.assert_not_called()
+
+
+@pytest.mark.unit
+async def test_reference_tts_materialization_resolves_episode_from_script_filename(monkeypatch, tmp_path: Path) -> None:
+    from lib.narration_delivery import USE_TTS
+    from lib.reference_video.request_projection import ReferenceRequestOptions
+
+    captured: dict[str, object] = {}
+
+    async def _materialize(**kwargs):
+        captured.update(kwargs)
+        return kwargs["options"]
+
+    monkeypatch.setattr(narration_delivery_tasks, "materialize_current_reference_request_options", _materialize)
+    options = ReferenceRequestOptions(narration_delivery=USE_TTS)
+
+    result = await narration_delivery_tasks.prepare_current_reference_video_request_options(
+        project={},
+        script={"video_units": []},
+        script_file="scripts/episode_7.json",
+        unit={"unit_id": "E7U1"},
+        project_path=tmp_path,
+        options=options,
+        project_name="demo",
+    )
+
+    assert result == options
+    assert captured["episode"] == 7
 
 
 @pytest.mark.unit

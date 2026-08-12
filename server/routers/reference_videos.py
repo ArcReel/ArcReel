@@ -471,6 +471,7 @@ async def precheck_unit_duration(
     current_options = await prepare_current_reference_video_request_options(
         project=project,
         script=script,
+        script_file=script_file,
         unit=unit,
         project_path=project_path,
         options=ReferenceRequestOptions(narration_delivery=narration_delivery),
@@ -585,6 +586,7 @@ async def generate_unit(
     current_options = await prepare_current_reference_video_request_options(
         project=project,
         script=script,
+        script_file=script_file,
         unit=unit,
         project_path=project_path,
         options=request_options,

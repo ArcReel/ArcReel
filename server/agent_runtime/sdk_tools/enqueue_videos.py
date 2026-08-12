@@ -244,6 +244,7 @@ async def _reference_projection_preflight(
         current_options = await prepare_current_reference_video_request_options(
             project=project,
             script=script,
+            script_file=script_filename,
             unit=unit,
             project_path=project_path,
             options=request_options,

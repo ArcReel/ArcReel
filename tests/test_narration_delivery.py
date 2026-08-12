@@ -254,6 +254,20 @@ def test_use_tts_is_not_applicable_to_character_speech() -> None:
     assert [problem.code for problem in prepared.problems] == ["tts_not_applicable"]
 
 
+def test_in_progress_tts_does_not_override_a_current_configuration_blocker() -> None:
+    prepared = prepare_narration_delivery(
+        delivery=USE_TTS,
+        preparation=_narrator_preparation(),
+        artifact_path="audio/segment_E1U1.wav",
+        settings=None,
+        evidence=None,
+        tts_in_progress=True,
+    )
+
+    assert prepared.tts_status is NarrationTtsStatus.NOT_CONFIGURED
+    assert [problem.code for problem in prepared.problems] == ["tts_not_configured"]
+
+
 def test_same_episode_reference_units_have_independent_manifest_currency_and_duration() -> None:
     paths = {
         "E1U1": "audio/segment_E1U1.wav",
@@ -382,6 +396,41 @@ async def test_current_state_adapter_registers_and_reads_exact_unit_basis(tmp_pa
     assert prepared.allowed is True
     assert prepared.duration_floor == 7.4
     assert resolver.calls == ["settings"]
+
+
+async def test_current_state_adapter_treats_concurrently_deleted_current_audio_as_unmeasurable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import lib.narration_delivery as narration_delivery
+
+    project_path = tmp_path / "demo"
+    audio = project_path / "audio" / "segment_E1U1.wav"
+    audio.parent.mkdir(parents=True)
+    audio.write_bytes(b"RIFF-current")
+    preparation = _narrator_preparation("E1U1", "正文")
+    register_narration_audio(
+        project_path=project_path,
+        episode=1,
+        preparation=preparation,
+        settings=_settings(speed=1.1),
+    )
+
+    def _deleted(*_args: object, **_kwargs: object) -> Path:
+        raise FileNotFoundError(audio)
+
+    monkeypatch.setattr(narration_delivery, "safe_join", _deleted)
+    prepared = await prepare_current_narration_delivery(
+        project={"name": "demo"},
+        episode=1,
+        preparation=preparation,
+        project_path=project_path,
+        delivery=USE_TTS,
+        resolver=_FakeSettingsResolver(),
+    )
+
+    assert prepared.tts_status is NarrationTtsStatus.UNMEASURABLE
+    assert [problem.code for problem in prepared.problems] == ["tts_duration_unavailable"]
 
 
 async def test_current_state_adapter_post_production_does_not_touch_tts_config(tmp_path: Path) -> None:

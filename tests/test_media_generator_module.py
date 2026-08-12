@@ -303,10 +303,16 @@ class TestMediaGenerator:
             actual_duration_seconds=6.2,
             problems=(),
         )
+        monkeypatch.setattr(
+            narration_delivery_tasks,
+            "_prepare_current_task_narration_delivery",
+            AsyncMock(return_value=narration),
+        )
 
         with pytest.raises(NarratedVideoDurationBlockedError):
             await narration_delivery_tasks.require_generated_video_covers_current_tts(
-                narration=narration,
+                project_name="demo",
+                script_file="episode_1.json",
                 request_duration_seconds=8,
                 output_path=output_path,
                 versions=gen.versions,

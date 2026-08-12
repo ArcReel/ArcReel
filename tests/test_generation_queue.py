@@ -184,6 +184,32 @@ class TestGenerationQueue:
 
         assert compensated == ["restored"]
 
+    async def test_cancel_compensation_failure_preserves_terminal_update_contract_and_is_not_retried(self, queue):
+        task = await queue.enqueue_task(
+            project_name="demo",
+            task_type="tts",
+            media_type="audio",
+            resource_id="E1S01",
+            payload={"script_file": "episode_01.json"},
+        )
+        assert await queue.claim_next_task(media_type="audio") is not None
+        attempts = 0
+
+        def _fail_compensation() -> None:
+            nonlocal attempts
+            attempts += 1
+            raise RuntimeError("restore failed")
+
+        result = CompensableGenerationResult(
+            {"file_path": "audio/segment_E1S01.wav"},
+            cancel_compensation=_fail_compensation,
+        )
+        assert (await queue.cancel_task(task["task_id"]))["cancelling"] == [task["task_id"]]
+
+        assert await queue.mark_task_succeeded(task["task_id"], result) == 0
+        assert await queue.mark_task_succeeded(task["task_id"], result) == 0
+        assert attempts == 1
+
     async def test_reference_rate_limit_projection_ignores_narration_delivery(self, monkeypatch, tmp_path):
         seen_options = []
         sentinel = object()

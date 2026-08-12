@@ -692,6 +692,30 @@ class TestGenerationTasks:
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
 
+    @pytest.mark.unit
+    async def test_execute_post_production_video_does_not_require_an_episode_number(self, monkeypatch, tmp_path):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        result = await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "legacy_script.json",
+                "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                "duration_seconds": 8,
+            },
+        )
+
+        assert result["resource_type"] == "videos"
+        assert fake_generator.video_calls[0]["duration_seconds"] == 8
+
     @pytest.mark.integration
     async def test_execute_video_task_reprojects_current_tts_and_rejects_changed_tier(self, monkeypatch, tmp_path):
         project_path = _prepare_files(tmp_path)

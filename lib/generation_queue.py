@@ -307,8 +307,8 @@ class CompensableGenerationResult(dict[str, Any]):
     def compensate_cancelled(self) -> None:
         if self._compensated:
             return
-        self._cancel_compensation()
         self._compensated = True
+        self._cancel_compensation()
 
 
 class GenerationQueue:
@@ -521,7 +521,10 @@ class GenerationQueue:
         else:
             logger.info("mark_succeeded 0 rows task_id=%s (已被外部翻状态)", task_id)
             if isinstance(result, CompensableGenerationResult):
-                await asyncio.to_thread(result.compensate_cancelled)
+                try:
+                    await asyncio.to_thread(result.compensate_cancelled)
+                except Exception:
+                    logger.exception("取消补偿失败 task_id=%s", task_id)
         return affected
 
     async def mark_task_failed(self, task_id: str, error_message: str) -> int:

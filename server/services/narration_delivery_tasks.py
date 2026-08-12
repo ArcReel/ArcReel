@@ -31,7 +31,7 @@ from lib.narration_delivery import (
     prepare_narrated_video_output,
 )
 from lib.path_safety import try_safe_join
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, get_project_manager
 from lib.reference_video.request_projection import (
     USE_TTS,
     ConfigReferenceCapabilityProjection,
@@ -39,6 +39,7 @@ from lib.reference_video.request_projection import (
     materialize_current_reference_request_options,
 )
 from lib.resource_paths import resource_relative_path
+from lib.script_editor import resolve_items
 from lib.script_skeleton import resolve_script_kind
 from lib.speech_composition import admit_script_unit
 from lib.version_manager import VersionManager
@@ -377,6 +378,7 @@ async def prepare_current_reference_video_request_options(
     *,
     project: dict[str, Any],
     script: dict[str, Any],
+    script_file: str | None,
     unit: dict[str, Any],
     project_path: Path,
     options: ReferenceRequestOptions,
@@ -386,6 +388,11 @@ async def prepare_current_reference_video_request_options(
 ) -> ReferenceRequestOptions:
     """Materialize TTS and selected-visual tier facts from one current state."""
 
+    episode = None
+    if options.narration_delivery == USE_TTS:
+        if not script_file:
+            raise ValueError("use_tts reference projection requires script_file")
+        episode = ProjectManager.resolve_episode_from_script(script, script_file)
     prepared = await materialize_current_reference_request_options(
         project=project,
         script=script,
@@ -394,6 +401,7 @@ async def prepare_current_reference_video_request_options(
         options=options,
         resolver=tts_settings_resolver or CurrentTtsSettingsResolver(project_name),
         tts_in_progress=tts_in_progress,
+        episode=episode,
     )
     visual_tier = (
         await current_selected_video_tier(
@@ -414,7 +422,8 @@ async def prepare_current_reference_video_request_options(
 
 async def require_generated_video_covers_current_tts(
     *,
-    narration: NarrationDeliveryPreparation,
+    project_name: str,
+    script_file: str,
     request_duration_seconds: int,
     output_path: Path,
     versions: VersionManager,
@@ -422,8 +431,13 @@ async def require_generated_video_covers_current_tts(
     resource_id: str,
     version: int,
 ) -> None:
-    """Reject a paid video as current if its actual media truncates selected TTS."""
+    """Reject a paid video unless it covers the latest current TTS in full."""
 
+    narration = await _prepare_current_task_narration_delivery(
+        project_name=project_name,
+        script_file=script_file,
+        resource_id=resource_id,
+    )
     actual_duration = await probe_existing_media_duration_seconds(output_path)
     preparation = NarratedVideoDurationPreparation(
         narration=narration,
@@ -431,7 +445,7 @@ async def require_generated_video_covers_current_tts(
         duration_input=request_duration_seconds,
         request_duration_seconds=request_duration_seconds,
         adjustment=None,
-        problems=(),
+        problems=narration.problems,
     )
     checked = prepare_narrated_video_output(
         preparation,
@@ -447,6 +461,49 @@ async def require_generated_video_covers_current_tts(
         current_file=output_path,
     )
     raise NarratedVideoDurationBlockedError(checked)
+
+
+async def _prepare_current_task_narration_delivery(
+    *,
+    project_name: str,
+    script_file: str,
+    resource_id: str,
+) -> NarrationDeliveryPreparation:
+    """Reload one task unit and materialize its current audio basis and duration."""
+
+    def _load() -> tuple[dict[str, Any], Path, int, Any]:
+        pm = get_project_manager()
+        project = pm.load_project(project_name)
+        project_path = pm.get_project_path(project_name)
+        script = pm.load_script(project_name, script_file)
+        items, id_field, kind = resolve_items(script)
+        item = next(
+            (
+                candidate
+                for candidate in items
+                if isinstance(candidate, dict) and candidate.get(id_field) == resource_id
+            ),
+            None,
+        )
+        if item is None:
+            raise ValueError(f"narration unit not found: {resource_id}")
+        episode = ProjectManager.resolve_episode_from_script(script, script_file)
+        return project, project_path, episode, admit_script_unit(kind, item).preparation
+
+    project, project_path, episode, preparation = await asyncio.to_thread(_load)
+    return await prepare_current_narration_delivery(
+        project=project,
+        episode=episode,
+        preparation=preparation,
+        project_path=project_path,
+        delivery=USE_TTS,
+        resolver=CurrentTtsSettingsResolver(project_name),
+        tts_in_progress=await tts_task_in_progress(
+            project_name=project_name,
+            resource_id=resource_id,
+            script_file=script_file,
+        ),
+    )
 
 
 __all__ = [

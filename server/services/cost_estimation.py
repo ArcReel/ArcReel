@@ -511,6 +511,7 @@ class CostEstimationService:
                     project_name=project_name,
                     project=project_data,
                     script=script,
+                    script_file=script_file,
                     units=video_units,
                     projection_capabilities=projection_capabilities,
                     video_prices=video_prices,
@@ -735,6 +736,7 @@ class CostEstimationService:
         project_name: str,
         project: dict[str, Any],
         script: dict[str, Any],
+        script_file: str,
         units: list[Any],
         projection_capabilities: ConfigReferenceCapabilityProjection,
         video_prices: dict[tuple[str, str], Any],
@@ -827,6 +829,7 @@ class CostEstimationService:
                         options = await prepare_current_reference_video_request_options(
                             project=project,
                             script=script,
+                            script_file=script_file,
                             unit=unit,
                             project_path=self._project_path,
                             options=options,

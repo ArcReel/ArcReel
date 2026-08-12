@@ -1148,10 +1148,10 @@ async def execute_video_task(
             _item,
             resolve_content_mode(_script, _project),
             resolve_script_kind(_script),
-            ProjectManager.resolve_episode_from_script(_script, str(script_file)),
+            _script,
         )
 
-    project, project_path, item, content_mode, script_kind, episode = await asyncio.to_thread(_load)
+    project, project_path, item, content_mode, script_kind, script = await asyncio.to_thread(_load)
     delivery_options = NarrationDeliveryRequestOptions.from_payload(payload)
     # lane 归桶按项目路线求值，与提交入口（``generate_video``）同源：入口挡掉参考路线后
     # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免路线口径分叉。
@@ -1230,6 +1230,7 @@ async def execute_video_task(
 
     delivery_projection = None
     if delivery_options.narration_delivery == USE_TTS:
+        episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
         current_planned_duration = item.get("duration_seconds") if isinstance(item, dict) else None
         if (
             not isinstance(current_planned_duration, int)
@@ -1385,7 +1386,8 @@ async def execute_video_task(
         if not isinstance(duration_seconds, int) or isinstance(duration_seconds, bool):
             raise RuntimeError("allowed TTS video projection produced a non-integer request duration")
         await require_generated_video_covers_current_tts(
-            narration=delivery_projection.narration,
+            project_name=project_name,
+            script_file=str(script_file),
             request_duration_seconds=duration_seconds,
             output_path=output_path,
             versions=generator.versions,

@@ -879,6 +879,7 @@ async def materialize_current_reference_request_options(
     options: ReferenceRequestOptions,
     resolver: TtsSettingsResolver,
     tts_in_progress: bool = False,
+    episode: int | None = None,
 ) -> ReferenceRequestOptions:
     """Attach current, server-owned TTS facts without changing durable request facts."""
 
@@ -888,7 +889,6 @@ async def materialize_current_reference_request_options(
             current_tts_duration_seconds=None,
             narration_preparation=None,
         )
-    episode = script.get("episode")
     if not isinstance(episode, int) or isinstance(episode, bool):
         raise ValueError("reference video script requires an integer episode for TTS delivery")
     admission = admit_script_unit("video_units", unit)
