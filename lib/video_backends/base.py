@@ -41,23 +41,31 @@ _PERSIST_BACKOFF_SECONDS: tuple[int, ...] = (1, 2, 4)
     backoff_seconds=_PERSIST_BACKOFF_SECONDS,
     retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS),
 )
-async def _persist_with_retry(task_id: str, job_id: str, endpoint: str | None) -> None:
+async def _persist_with_retry(task_id: str, job_id: str, endpoint: str | None, base_url: str | None) -> None:
     from lib.generation_queue import get_generation_queue
 
-    await get_generation_queue().persist_provider_job_id(task_id, job_id, endpoint=endpoint)
+    await get_generation_queue().persist_provider_job_id(task_id, job_id, endpoint=endpoint, base_url=base_url)
 
 
-async def persist_provider_job_id(task_id: str, job_id: str, *, provider: str, endpoint: str | None = None) -> None:
+async def persist_provider_job_id(
+    task_id: str,
+    job_id: str,
+    *,
+    provider: str,
+    endpoint: str | None = None,
+    base_url: str | None = None,
+) -> None:
     """Submit 之后立即调：把 job_id 持久化到 DB 让重启可接续。
 
     Caller 显式传 task_id；``endpoint`` 记提交该 job 实际使用的执行端点，与 job_id 同一次写入
     落地供续跑消费，按供应商类型有两种取值：自定义供应商记 endpoint 标识（协议维度，续跑据
     此判定协议是否已被换掉），内置供应商记实际请求域名（连接维度，续跑据此回放原域名轮询）。
-    DB 瞬态错误最多重试 3 次，业务异常立即抛。重试用尽抛异常，由 worker finally 兜底
-    mark_failed（fail-fast）。
+    ``base_url`` 是自定义供应商那半边的请求域名，其 ``endpoint`` 位已被协议标识占用，域名另落
+    一列，同样供续跑回放。DB 瞬态错误最多重试 3 次，业务异常立即抛。重试用尽抛异常，由 worker
+    finally 兜底 mark_failed（fail-fast）。
     """
     try:
-        await _persist_with_retry(task_id, job_id, endpoint)
+        await _persist_with_retry(task_id, job_id, endpoint, base_url)
         logger.info("provider_job_id 已持久化 task_id=%s provider=%s job_id=%s", task_id, provider, job_id)
     except Exception as exc:
         logger.error(
@@ -93,19 +101,22 @@ class ProviderJobIdPersistenceMixin:
     ) -> None:
         """submit 成功后立即调：worker 路径写回 job_id，非 worker 路径（task_id=None）跳过。
 
-        同时写回该 job 执行所用的端点：``request.execution_endpoint`` 优先——自定义供应商的包装层
-        在转发前注入 endpoint 标识，该标识是续跑比对协议的依据，不能被下游 backend 的域名顶掉；
-        它缺席（内置供应商路径）时落到 ``endpoint``，由提交域名随用户配置变化的 backend 传入实际
-        请求域名，供续跑回放。持久化失败抛出（DB 瞬态错误已在 ``persist_provider_job_id`` 内重试
-        3 次），由 worker finally 兜底 mark_failed —— 保持现有 fail-fast 语义（ADR 0007）。
+        同时写回该 job 执行所用的端点，两个维度各占一列：``request.execution_endpoint`` 由自定义
+        供应商的包装层在转发前注入，是续跑比对协议的依据；``endpoint`` 由提交域名随用户配置变化的
+        backend（只有 dashscope 协议这一条线）传入实际请求域名，供续跑回放。自定义供应商两者兼有——
+        协议标识占 endpoint 位、域名走 base_url 位，互不覆盖；内置供应商只有域名，仍落 endpoint 位。
+        持久化失败抛出（DB 瞬态错误已在 ``persist_provider_job_id`` 内重试 3 次），由 worker finally
+        兜底 mark_failed —— 保持现有 fail-fast 语义（ADR 0007）。
         """
         if request.task_id is None:
             return
+        execution_endpoint = request.execution_endpoint
         await persist_provider_job_id(
             request.task_id,
             job_id,
             provider=provider,
-            endpoint=request.execution_endpoint or endpoint,
+            endpoint=execution_endpoint or endpoint,
+            base_url=endpoint if execution_endpoint else None,
         )
 
 

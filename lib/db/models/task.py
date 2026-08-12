@@ -38,6 +38,9 @@ class Task(UserOwnedMixin, Base):
     # 请求域名（续跑据此回放原域名轮询）。常态下两类取值各由对应续跑分支消费；内置供应商提交
     # 后在途改成自定义供应商时，比对闸会拿落库的域名与当下 endpoint 标识比较并拒绝接续。
     provider_endpoint: Mapped[str | None] = mapped_column(String)
+    # 自定义供应商提交该 job 时实际请求的域名（连接维度），与 provider_job_id 同一次写入落地，
+    # 供续跑回放原域名轮询——该类供应商的 provider_endpoint 已被协议标识占用，域名另存于此。
+    submitted_base_url: Mapped[str | None] = mapped_column(String)
     queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

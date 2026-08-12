@@ -1108,3 +1108,60 @@ class TestWan3:
             )
 
         assert get.await_args.args[0] == "https://maas-a.example.com/ws-1/api/v1/tasks/t-wan3"
+
+
+class TestCustomProviderBaseUrlReplay:
+    """自定义供应商委托 dashscope 协议：协议标识与提交域名分列落地，续跑按提交域名回放。"""
+
+    @staticmethod
+    def _wrapped(base_url: str):
+        from lib.custom_provider.backends import CustomVideoBackend
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        delegate = DashScopeVideoBackend(api_key="sk", base_url=base_url, model="wan3.0-video")
+        return CustomVideoBackend(
+            provider_id="custom-7",
+            delegate=delegate,
+            model="wan3.0-video",
+            endpoint="dashscope-async-video",
+        )
+
+    @pytest.mark.unit
+    async def test_submit_persists_protocol_id_and_domain(self, tmp_path: Path):
+        """穿过包装层的提交：endpoint 位落协议标识供比对，域名落 base_url 位供回放。"""
+        post = AsyncMock(return_value=_resp(_submit("job-c1")))
+        get = AsyncMock(return_value=_resp(_succeeded()))
+        client = _client(post=post, get=get)
+        persist = AsyncMock()
+        p1, p2, p3 = _patches(client, AsyncMock())
+        with p1, p2, p3, patch("lib.video_backends.base.persist_provider_job_id", persist):
+            backend = self._wrapped("https://custom-a.example.com")
+            await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "o.mp4", resolution="720p", task_id="db-task-c1"
+                )
+            )
+
+        assert persist.call_args.kwargs["endpoint"] == "dashscope-async-video"
+        assert persist.call_args.kwargs["base_url"] == "https://custom-a.example.com/api/v1"
+
+    @pytest.mark.unit
+    async def test_resume_polls_submitted_domain_after_base_url_change(self, tmp_path: Path):
+        """在途改自定义供应商的 base_url 后续跑：轮询打提交时的域名，job 仍在该域名上。"""
+        get = AsyncMock(return_value=_resp(_succeeded()))
+        client = _client(post=AsyncMock(), get=get)
+        p1, p2, p3 = _patches(client, AsyncMock())
+        with p1, p2, p3:
+            # 配置已被改成 B，提交时用的是 A
+            backend = self._wrapped("https://custom-b.example.com")
+            await backend.resume_video(
+                "job-c1",
+                VideoGenerationRequest(
+                    prompt="p",
+                    output_path=tmp_path / "o.mp4",
+                    resolution="720p",
+                    submitted_base_url="https://custom-a.example.com/api/v1",
+                ),
+            )
+
+        assert get.await_args.args[0] == "https://custom-a.example.com/api/v1/tasks/job-c1"

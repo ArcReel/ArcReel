@@ -247,6 +247,48 @@ class TestRepoStateMachineGuards:
         refreshed = await repo.get(t["task_id"])
         assert refreshed["provider_endpoint"] == "openai-video"
 
+    async def test_persist_provider_job_id_writes_base_url_alongside_endpoint(self, db_session):
+        """自定义供应商两个维度分列落地：endpoint 位存协议标识，域名存 submitted_base_url。"""
+        repo = TaskRepository(db_session)
+        t = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="r-both",
+            payload={},
+            script_file="ep1.json",
+        )
+        await repo.claim_next("video")
+        await repo.persist_provider_job_id(
+            t["task_id"],
+            "provider-job-44",
+            endpoint="dashscope-async-video",
+            base_url="https://custom-a.example.com/api/v1",
+        )
+        refreshed = await repo.get(t["task_id"])
+        assert refreshed["provider_job_id"] == "provider-job-44"
+        assert refreshed["provider_endpoint"] == "dashscope-async-video"
+        assert refreshed["submitted_base_url"] == "https://custom-a.example.com/api/v1"
+
+    async def test_persist_provider_job_id_without_base_url_keeps_existing(self, db_session):
+        """base_url 传 None 不清空已有值——清空等于放弃回放，续跑会退回按当下配置的域名轮询。"""
+        repo = TaskRepository(db_session)
+        t = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="r-keep-url",
+            payload={},
+            script_file="ep1.json",
+        )
+        await repo.claim_next("video")
+        await repo.persist_provider_job_id(
+            t["task_id"], "job-a", endpoint="dashscope-async-video", base_url="https://custom-a.example.com/api/v1"
+        )
+        await repo.persist_provider_job_id(t["task_id"], "job-b")
+        refreshed = await repo.get(t["task_id"])
+        assert refreshed["submitted_base_url"] == "https://custom-a.example.com/api/v1"
+
     async def test_list_orphan_returns_running_and_cancelling(self, db_session):
         repo = TaskRepository(db_session)
         t1 = await repo.enqueue(
