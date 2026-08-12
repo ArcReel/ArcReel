@@ -475,12 +475,18 @@ export function ShotDetail({
   const [saving, setSaving] = useState(false);
   const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
   const [endFrameSubmitting, setEndFrameSubmitting] = useState(false);
-  const [narrationDelivery, setNarrationDelivery] = useState<"post_production" | "use_tts">(
-    "post_production",
-  );
+  const [narrationDeliverySelection, setNarrationDeliverySelection] = useState<{
+    delivery: "post_production" | "use_tts";
+    narrationText: string;
+  }>({ delivery: "post_production", narrationText });
+  const narrationDelivery =
+    hasNarrationText && narrationDeliverySelection.narrationText === narrationText
+      ? narrationDeliverySelection.delivery
+      : "post_production";
   const [pendingDurationConfirmation, setPendingDurationConfirmation] = useState<{
     admission: NarratedVideoDurationAdmission;
     delivery: "post_production" | "use_tts";
+    narrationText: string;
   } | null>(null);
 
   const requestVideo = async (
@@ -505,7 +511,7 @@ export function ShotDetail({
           ({ blocking, code }) => blocking && code === "reference_duration_confirmation_required",
         )
       ) {
-        setPendingDurationConfirmation({ admission: error.admission, delivery });
+        setPendingDurationConfirmation({ admission: error.admission, delivery, narrationText });
         return;
       }
       useAppStore
@@ -987,7 +993,7 @@ export function ShotDetail({
               value={narrationDelivery}
               onChange={(value) => {
                 setPendingDurationConfirmation(null);
-                setNarrationDelivery(value);
+                setNarrationDeliverySelection({ delivery: value, narrationText });
               }}
               disabled={generatingVideo || dirty || saving}
               compact
@@ -1041,7 +1047,8 @@ export function ShotDetail({
           onGenerate={onGenerateNarration ? () => onGenerateNarration(segmentId) : undefined}
         />
       )}
-      {pendingDurationConfirmation?.admission.request_duration != null && (
+      {pendingDurationConfirmation?.narrationText === narrationText
+        && pendingDurationConfirmation.admission.request_duration != null && (
         <ReferenceDurationConfirmDialog
           open
           items={[{

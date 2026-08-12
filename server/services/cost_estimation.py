@@ -23,7 +23,13 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
 from lib.generation_queue import GenerationQueue
 from lib.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed, plan_grid_chunks
-from lib.narration_delivery import USE_TTS, VideoRequestCostFacts, video_request_cost_unavailable_problem
+from lib.narration_delivery import (
+    USE_TTS,
+    VideoRequestCostFacts,
+    video_request_cost_unavailable_problem,
+    video_request_requires_exact_quote,
+    video_request_reuses_current_visual,
+)
 from lib.pricing.strategies import PricingParams
 from lib.project_manager import grid_storyboard_enabled, is_reference_video_project
 from lib.reference_video import assemble_shots_text
@@ -873,15 +879,24 @@ class CostEstimationService:
                         else:
                             if options.narration_delivery == USE_TTS:
                                 request_quote = priced_quote
-                                if options.current_visual_duration_seconds == cost.duration_seconds:
+                                if video_request_reuses_current_visual(
+                                    request_duration_seconds=cost.duration_seconds,
+                                    current_reusable_visual_duration_seconds=(
+                                        options.current_reusable_visual_duration_seconds
+                                    ),
+                                ):
                                     request_quote = request_quote.without_new_video_charge()
                             if request_quote is None or request_quote.amount > 0:
                                 _add_cost(est_video, priced_quote.amount, priced_quote.currency)
                     if (
                         options.narration_delivery == USE_TTS
                         and request_quote is None
-                        and cost.duration_seconds
-                        != (options.current_visual_duration_seconds or projection.planned_duration)
+                        and video_request_requires_exact_quote(
+                            request_duration_seconds=cost.duration_seconds,
+                            planned_duration_seconds=projection.planned_duration,
+                            current_visual_duration_seconds=options.current_visual_duration_seconds,
+                            current_reusable_visual_duration_seconds=options.current_reusable_visual_duration_seconds,
+                        )
                     ):
                         cost_problem_payload = video_request_cost_unavailable_problem(cost).to_payload(unit_id=unit_id)
                         projection_problems.append(cost_problem_payload)

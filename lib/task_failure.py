@@ -83,6 +83,7 @@ NARRATION_DELIVERY_FAILURE_CODES: frozenset[str] = frozenset(
         "reference_duration_confirmation_required",
         "tts_duration_unavailable",
         "tts_generating",
+        "tts_conflicts_with_active_narrated_video",
         "tts_missing",
         "tts_not_applicable",
         "tts_not_configured",

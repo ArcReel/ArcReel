@@ -24,6 +24,8 @@ from lib.narration_delivery import (
     USE_TTS,
     NarrationDelivery,
     video_request_cost_unavailable_problem,
+    video_request_requires_exact_quote,
+    video_request_reuses_current_visual,
 )
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
@@ -175,10 +177,18 @@ async def _quote_reference_request(
         return None
     quote = await quote_video_request(cost, async_session_factory)
     if quote is not None:
-        if options.current_visual_duration_seconds == cost.duration_seconds:
+        if video_request_reuses_current_visual(
+            request_duration_seconds=cost.duration_seconds,
+            current_reusable_visual_duration_seconds=options.current_reusable_visual_duration_seconds,
+        ):
             quote = quote.without_new_video_charge()
         return quote.to_payload()
-    if cost.duration_seconds == (options.current_visual_duration_seconds or projection.planned_duration):
+    if not video_request_requires_exact_quote(
+        request_duration_seconds=cost.duration_seconds,
+        planned_duration_seconds=projection.planned_duration,
+        current_visual_duration_seconds=options.current_visual_duration_seconds,
+        current_reusable_visual_duration_seconds=options.current_reusable_visual_duration_seconds,
+    ):
         return None
 
     cost_problem = video_request_cost_unavailable_problem(cost)

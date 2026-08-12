@@ -590,14 +590,17 @@ async def execute_reference_video_task(
     candidate = projection.provider_candidate
     if candidate is None:
         raise RuntimeError("allowed reference request is missing provider capabilities")
-    visual_basis_digest = await asyncio.to_thread(
-        reference_video_visual_basis_digest,
-        project=project,
-        project_path=project_path,
-        unit=unit,
-        request_assets=constrained_entries,
-        candidate=candidate,
-    )
+
+    def _current_visual_basis_digest() -> str:
+        return reference_video_visual_basis_digest(
+            project=project,
+            project_path=project_path,
+            unit=unit,
+            request_assets=constrained_entries,
+            candidate=candidate,
+        )
+
+    visual_basis_digest = await asyncio.to_thread(_current_visual_basis_digest)
     effective_duration = projection.request_duration.seconds
     warnings: list[dict[str, Any]] = []
     for problem in projection.problems:
@@ -634,6 +637,7 @@ async def execute_reference_video_task(
             request_duration_seconds=effective_duration,
             minimum_actual_duration_seconds=narration.actual_duration_seconds,
             visual_basis_digest=visual_basis_digest,
+            revalidate_visual_basis_digest=_current_visual_basis_digest,
             warnings=warnings,
         )
         if reused is not None:
@@ -698,6 +702,7 @@ async def execute_reference_video_task(
         resolution=resolution,
         task_id=task_id,
         visual_basis_digest=visual_basis_digest,
+        generate_audio=video.requested_generate_audio,
     )
 
     if request_options.narration_delivery == USE_TTS:

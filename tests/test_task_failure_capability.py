@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from lib import task_failure
+from lib.api_errors import ConflictError
 from lib.config.resolver import VideoBucketCapabilityError, VideoCapability
 from lib.db.repositories.task_repo import _encode_bounded_cascade_failure
 from lib.generation_worker import _encode_task_failure_message
@@ -479,6 +480,17 @@ def test_changed_tts_tier_worker_rejection_preserves_confirmation_coordinates() 
         "request_duration": 12,
         "script_duration": 4,
     }
+
+
+def test_active_narrated_video_worker_rejection_is_localizable() -> None:
+    stored = _encode_task_failure_message(
+        ConflictError("tts_conflicts_with_active_narrated_video", resource_id="E1U01")
+    )
+
+    assert stored == '[tts_conflicts_with_active_narrated_video] {"resource_id": "E1U01"}'
+    for locale in ("zh", "en", "vi"):
+        expected = MESSAGES[locale]["tts_conflicts_with_active_narrated_video"].format(resource_id="E1U01")
+        assert render_failure(stored, _translator(locale)) == expected
 
 
 @pytest.mark.parametrize(

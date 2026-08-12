@@ -147,6 +147,75 @@ def _client(monkeypatch, fake_pm, fake_queue):
 
 
 class TestGenerateRouter:
+    @pytest.mark.integration
+    def test_tts_regeneration_rejects_an_active_use_tts_video(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+        monkeypatch.setattr(generate, "_require_audio_provider_configured", AsyncMock(return_value="audio"))
+        monkeypatch.setattr(
+            generate,
+            "active_narrated_video_resource_ids",
+            AsyncMock(return_value=frozenset({"E1S01"})),
+        )
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts/E1S01",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert response.status_code == 409
+        assert fake_queue.calls == []
+
+    @pytest.mark.unit
+    async def test_short_same_tier_video_keeps_the_paid_quote(self, monkeypatch):
+        from lib.narration_delivery import (
+            USE_TTS,
+            NarratedVideoDurationPreparation,
+            NarrationDeliveryPreparation,
+            NarrationTtsStatus,
+            VideoRequestCostFacts,
+        )
+        from server.services.cost_estimation import VideoRequestQuote
+
+        preparation = NarratedVideoDurationPreparation(
+            narration=NarrationDeliveryPreparation(
+                delivery=USE_TTS,
+                unit_id="E1S01",
+                speech_mode=None,
+                tts_status=NarrationTtsStatus.CURRENT,
+                artifact_path="audio/segment_E1S01.wav",
+                basis_digest="current-audio-basis",
+                actual_duration_seconds=7.5,
+                problems=(),
+            ),
+            planned_duration_seconds=8,
+            duration_input=8,
+            request_duration_seconds=8,
+            adjustment="exact",
+            problems=(),
+            current_visual_duration_seconds=8,
+            cost=VideoRequestCostFacts("openai", "sora-2", "720p", 8, True),
+        )
+        quote = AsyncMock(return_value=VideoRequestQuote(0.8, "USD", "openai", "sora-2", 8))
+        monkeypatch.setattr(generate, "quote_video_request", quote)
+
+        payload = await generate._localized_narrated_video_payload(preparation, lambda key, **_params: key)
+
+        request_cost = payload["request_cost"]
+        assert isinstance(request_cost, dict)
+        assert request_cost["amount"] == 0.8
+
+        quote.return_value = None
+        unavailable = await generate._localized_narrated_video_payload(preparation, lambda key, **_params: key)
+
+        assert unavailable["allowed"] is False
+        problems = unavailable["problems"]
+        assert isinstance(problems, list)
+        assert [problem["code"] for problem in problems] == ["video_request_cost_unavailable"]
+
     @pytest.mark.unit
     def test_storyboard_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

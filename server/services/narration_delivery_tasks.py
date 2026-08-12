@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import filecmp
 import math
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -23,6 +23,7 @@ from lib.narration_delivery import (
     NarratedVideoDurationBlockedError,
     NarratedVideoDurationPreparation,
     NarrationDeliveryPreparation,
+    NarrationDeliveryRequestOptions,
     TtsSettingsResolver,
     TtsSynthesisSettings,
     VideoRequestCostFacts,
@@ -229,6 +230,30 @@ async def current_selected_video_tier(
     return selected[3] if selected is not None else None
 
 
+async def current_reusable_video_tier(
+    *,
+    project_path: Path,
+    versions: VersionManager,
+    item: dict[str, Any],
+    resource_type: str,
+    resource_id: str,
+    minimum_actual_duration_seconds: float,
+    visual_basis_digest: str | None = None,
+) -> int | None:
+    """Observe the selected visual tier only when its measured media covers current TTS."""
+
+    selected = await _selected_current_video_covering_duration(
+        project_path=project_path,
+        versions=versions,
+        item=item,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        minimum_actual_duration_seconds=minimum_actual_duration_seconds,
+        visual_basis_digest=visual_basis_digest,
+    )
+    return selected[3] if selected is not None else None
+
+
 async def reuse_current_video_for_tier(
     *,
     project_path: Path,
@@ -239,6 +264,7 @@ async def reuse_current_video_for_tier(
     request_duration_seconds: int,
     minimum_actual_duration_seconds: float,
     visual_basis_digest: str | None = None,
+    revalidate_visual_basis_digest: Callable[[], str | None] | None = None,
     warnings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """Return a selected visual only when its tier and measured media are reusable."""
@@ -257,6 +283,10 @@ async def reuse_current_video_for_tier(
     canonical_rel, _formal_file, current_record, selected_tier = selected
     if selected_tier != request_duration_seconds:
         return None
+    if revalidate_visual_basis_digest is not None:
+        current_basis_digest = await asyncio.to_thread(revalidate_visual_basis_digest)
+        if current_basis_digest != visual_basis_digest:
+            return None
     current_version = current_record["version"]
     assets = item["generated_assets"]
 
@@ -305,6 +335,49 @@ async def active_tts_resource_ids(
         )
     )
     return frozenset(str(task.get("resource_id") or "") for batch in active_batches for task in batch)
+
+
+async def active_narrated_video_resource_ids(
+    *,
+    project_name: str,
+    resource_ids: Iterable[str],
+    script_file: str,
+    queue: GenerationQueue | None = None,
+) -> frozenset[str]:
+    """Return units whose active video request explicitly consumes the current TTS."""
+
+    normalized = list(dict.fromkeys(resource_id for resource_id in resource_ids if resource_id))
+    if not normalized:
+        return frozenset()
+    normalized_script = str(PurePosixPath(script_file.replace("\\", "/")))
+    basename = PurePosixPath(normalized_script).name
+    if not basename or basename == ".":
+        raise ValueError("script_file must identify a script")
+    locators = tuple(dict.fromkeys((normalized_script, basename, f"scripts/{basename}")))
+    queue = queue or get_generation_queue()
+    request_kinds = (
+        ("video", "narration_delivery_options"),
+        ("reference_video", "reference_request_options"),
+    )
+    queries = [(task_type, key, locator) for task_type, key in request_kinds for locator in locators]
+    batches = await asyncio.gather(
+        *(
+            queue.get_active_tasks_for_resources(
+                project_name=project_name,
+                task_type=task_type,
+                resource_ids=normalized,
+                script_file=locator,
+            )
+            for task_type, _key, locator in queries
+        )
+    )
+    active: set[str] = set()
+    for (_task_type, key, _locator), batch in zip(queries, batches, strict=True):
+        for task in batch:
+            options = NarrationDeliveryRequestOptions.from_payload(task.get("payload"), key=key)
+            if options.narration_delivery == USE_TTS:
+                active.add(str(task.get("resource_id") or ""))
+    return frozenset(active)
 
 
 async def tts_task_in_progress(
@@ -377,6 +450,7 @@ async def prepare_current_storyboard_narrated_video_duration(
         model_id=candidate.model_id,
         resolution=request_resolution,
         seed=seed,
+        requested_generate_audio=candidate.requested_generate_audio,
         content_mode=resolve_content_mode(script, project),
         is_silent=not candidate.has_audio_track or not candidate.requested_generate_audio,
     )
@@ -392,12 +466,26 @@ async def prepare_current_storyboard_narrated_video_duration(
         if narration.actual_duration_seconds is not None
         else None
     )
+    current_reusable_visual_duration = (
+        await current_reusable_video_tier(
+            project_path=project_path,
+            versions=VersionManager(project_path),
+            item=item,
+            resource_type="videos",
+            resource_id=preparation.unit_id,
+            minimum_actual_duration_seconds=narration.actual_duration_seconds,
+            visual_basis_digest=visual_basis_digest,
+        )
+        if current_visual_duration is not None and narration.actual_duration_seconds is not None
+        else None
+    )
     result = prepare_narrated_video_duration(
         narration=narration,
         planned_duration_seconds=planned,
         supported_durations=candidate.supported_durations,
         confirmed_request_duration_seconds=confirmed_request_duration_seconds,
         current_visual_duration_seconds=current_visual_duration,
+        current_reusable_visual_duration_seconds=current_reusable_visual_duration,
     )
     if result.request_duration_seconds is None:
         return result
@@ -443,6 +531,7 @@ async def prepare_current_reference_video_request_options(
         episode=episode,
     )
     visual_tier = None
+    reusable_visual_tier = None
     if (
         options.narration_delivery == USE_TTS
         and prepared.narration_preparation is not None
@@ -461,7 +550,21 @@ async def prepare_current_reference_video_request_options(
             resource_id=str(unit.get("unit_id") or ""),
             visual_basis_digest=visual_basis_digest,
         )
-    return replace(prepared, current_visual_duration_seconds=visual_tier)
+        if visual_tier is not None:
+            reusable_visual_tier = await current_reusable_video_tier(
+                project_path=project_path,
+                versions=VersionManager(project_path),
+                item=unit,
+                resource_type="reference_videos",
+                resource_id=str(unit.get("unit_id") or ""),
+                minimum_actual_duration_seconds=prepared.narration_preparation.actual_duration_seconds,
+                visual_basis_digest=visual_basis_digest,
+            )
+    return replace(
+        prepared,
+        current_visual_duration_seconds=visual_tier,
+        current_reusable_visual_duration_seconds=reusable_visual_tier,
+    )
 
 
 def resolve_storyboard_video_inputs(
@@ -514,6 +617,7 @@ def _storyboard_visual_basis_digest(
     model_id: str,
     resolution: str | None,
     seed: object,
+    requested_generate_audio: bool,
     content_mode: str,
     is_silent: bool,
 ) -> str | None:
@@ -532,6 +636,7 @@ def _storyboard_visual_basis_digest(
             model_id=model_id,
             resolution=resolution,
             seed=seed,
+            requested_generate_audio=requested_generate_audio,
             content_mode=content_mode,
             utterances=item.get("utterances") if content_mode == "drama" else None,
             has_utterances=content_mode == "drama" and "utterances" in item,
@@ -739,8 +844,10 @@ async def _prepare_current_task_narration_delivery(
 
 
 __all__ = [
+    "active_narrated_video_resource_ids",
     "active_tts_resource_ids",
     "current_selected_video_tier",
+    "current_reusable_video_tier",
     "prepare_current_storyboard_narrated_video_duration",
     "prepare_current_reference_video_request_options",
     "ResolvedTtsSettingsResolver",

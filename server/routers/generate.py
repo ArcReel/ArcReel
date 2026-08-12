@@ -31,6 +31,8 @@ from lib.narration_delivery import (
     NarrationDeliveryRequestOptions,
     canonical_narration_text,
     video_request_cost_unavailable_problem,
+    video_request_requires_exact_quote,
+    video_request_reuses_current_visual,
 )
 from lib.path_safety import safe_exists, safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
@@ -50,7 +52,10 @@ from server.routers._validators import require_audio_switch_supported, require_v
 from server.services.cost_estimation import quote_video_request
 from server.services.generation_context import AudioLaneRequest, resolve_generation_context
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
-from server.services.narration_delivery_tasks import prepare_current_storyboard_narrated_video_duration
+from server.services.narration_delivery_tasks import (
+    active_narrated_video_resource_ids,
+    prepare_current_storyboard_narrated_video_duration,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,11 +105,17 @@ async def _localized_narrated_video_payload(
 
         quote = await quote_video_request(preparation.cost, async_session_factory)
         if quote is not None:
-            if preparation.current_visual_duration_seconds == preparation.request_duration_seconds:
+            if video_request_reuses_current_visual(
+                request_duration_seconds=preparation.request_duration_seconds,
+                current_reusable_visual_duration_seconds=preparation.current_reusable_visual_duration_seconds,
+            ):
                 quote = quote.without_new_video_charge()
             payload["request_cost"] = quote.to_payload()
-        elif preparation.request_duration_seconds != (
-            preparation.current_visual_duration_seconds or preparation.planned_duration_seconds
+        elif video_request_requires_exact_quote(
+            request_duration_seconds=preparation.request_duration_seconds,
+            planned_duration_seconds=preparation.planned_duration_seconds,
+            current_visual_duration_seconds=preparation.current_visual_duration_seconds,
+            current_reusable_visual_duration_seconds=preparation.current_reusable_visual_duration_seconds,
         ):
             cost_problem = video_request_cost_unavailable_problem(preparation.cost)
             cost_payload = cost_problem.to_payload(unit_id=preparation.narration.unit_id)
@@ -429,6 +440,14 @@ async def generate_tts(
     project, segment = await asyncio.to_thread(_sync)
 
     provider_id = await _require_audio_provider_configured(project)
+
+    active_narrated_video = await active_narrated_video_resource_ids(
+        project_name=project_name,
+        resource_ids=(segment_id,),
+        script_file=req.script_file,
+    )
+    if segment_id in active_narrated_video:
+        raise ConflictError("tts_conflicts_with_active_narrated_video", resource_id=segment_id)
 
     result = await _enqueue_tts_segment(
         project_name=project_name,

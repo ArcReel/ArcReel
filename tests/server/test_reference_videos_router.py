@@ -887,13 +887,14 @@ def test_precheck_rounds_up_and_needs_confirmation(client: TestClient, monkeypat
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    ("current_visual_tier", "needs_confirmation", "expected_amount"),
-    [(8, False, 0.0), (4, True, 0.8)],
+    ("current_visual_tier", "reusable_visual_tier", "needs_confirmation", "expected_amount"),
+    [(8, 8, False, 0.0), (8, None, False, 0.8), (4, None, True, 0.8)],
 )
 def test_precheck_prices_the_latest_tts_tier_against_the_selected_visual(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     current_visual_tier: int,
+    reusable_visual_tier: int | None,
     needs_confirmation: bool,
     expected_amount: float,
 ) -> None:
@@ -908,6 +909,7 @@ def test_precheck_prices_the_latest_tts_tier_against_the_selected_visual(
             kwargs["options"],
             current_tts_duration_seconds=8.0,
             current_visual_duration_seconds=current_visual_tier,
+            current_reusable_visual_duration_seconds=reusable_visual_tier,
         )
 
     monkeypatch.setattr(router_mod, "prepare_current_reference_video_request_options", _current_options)

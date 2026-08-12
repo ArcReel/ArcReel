@@ -152,6 +152,37 @@ async def test_empty_tts_observation_does_not_open_the_queue() -> None:
 
 
 @pytest.mark.unit
+async def test_active_narrated_video_observation_filters_post_production_tasks() -> None:
+    queue = AsyncMock()
+
+    async def _query(**kwargs):
+        if kwargs["script_file"] != "episode_1.json":
+            return []
+        key = "narration_delivery_options" if kwargs["task_type"] == "video" else "reference_request_options"
+        return [
+            {
+                "resource_id": "E1S01",
+                "payload": {key: {"narration_delivery": "use_tts"}},
+            },
+            {
+                "resource_id": "E1S02",
+                "payload": {key: {"narration_delivery": "post_production"}},
+            },
+        ]
+
+    queue.get_active_tasks_for_resources.side_effect = _query
+
+    active = await narration_delivery_tasks.active_narrated_video_resource_ids(
+        project_name="demo",
+        resource_ids=("E1S01", "E1S02"),
+        script_file="episode_1.json",
+        queue=queue,
+    )
+
+    assert active == frozenset({"E1S01"})
+
+
+@pytest.mark.unit
 async def test_reference_tts_materialization_resolves_episode_from_script_filename(monkeypatch, tmp_path: Path) -> None:
     from lib.narration_delivery import USE_TTS
     from lib.reference_video.request_projection import ReferenceRequestOptions
@@ -269,6 +300,7 @@ async def test_current_visual_is_reused_only_for_the_selected_trusted_duration_t
         request_duration_seconds=8,
         minimum_actual_duration_seconds=6.2,
         visual_basis_digest="current-visual-basis",
+        revalidate_visual_basis_digest=lambda: "current-visual-basis",
     )
 
     assert result == {
@@ -281,6 +313,20 @@ async def test_current_visual_is_reused_only_for_the_selected_trusted_duration_t
         "reused_existing": True,
         "request_duration_seconds": 8,
     }
+
+    changed = await narration_delivery_tasks.reuse_current_video_for_tier(
+        project_path=tmp_path,
+        versions=versions,
+        item=item,
+        resource_type="videos",
+        resource_id="E1S01",
+        request_duration_seconds=8,
+        minimum_actual_duration_seconds=6.2,
+        visual_basis_digest="current-visual-basis",
+        revalidate_visual_basis_digest=lambda: "changed-visual-basis",
+    )
+
+    assert changed is None
 
 
 @pytest.mark.unit

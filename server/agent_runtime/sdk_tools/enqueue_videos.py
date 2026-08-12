@@ -24,6 +24,8 @@ from lib.generation_queue_client import (
 from lib.narration_delivery import (
     NarratedVideoDurationPreparation,
     video_request_cost_unavailable_problem,
+    video_request_requires_exact_quote,
+    video_request_reuses_current_visual,
 )
 from lib.project_manager import ProjectManager, is_reference_video_project
 from lib.prompt_utils import (
@@ -266,14 +268,17 @@ async def _reference_projection_preflight(
         if projection_cost is not None and current_options.narration_delivery == USE_TTS:
             quote = await quote_video_request(projection_cost, async_session_factory)
             if quote is not None:
-                if (
-                    current_options.narration_delivery == USE_TTS
-                    and current_options.current_visual_duration_seconds == projection_cost.duration_seconds
+                if current_options.narration_delivery == USE_TTS and video_request_reuses_current_visual(
+                    request_duration_seconds=projection_cost.duration_seconds,
+                    current_reusable_visual_duration_seconds=(current_options.current_reusable_visual_duration_seconds),
                 ):
                     quote = quote.without_new_video_charge()
                 projection_payload["request_cost"] = quote.to_payload()
-            elif projection_cost.duration_seconds != (
-                current_options.current_visual_duration_seconds or projection.planned_duration
+            elif video_request_requires_exact_quote(
+                request_duration_seconds=projection_cost.duration_seconds,
+                planned_duration_seconds=projection.planned_duration,
+                current_visual_duration_seconds=current_options.current_visual_duration_seconds,
+                current_reusable_visual_duration_seconds=(current_options.current_reusable_visual_duration_seconds),
             ):
                 cost_problem_payload = video_request_cost_unavailable_problem(projection_cost).to_payload(
                     unit_id=unit_id
@@ -405,11 +410,17 @@ async def _prepare_storyboard_delivery_specs(
         if preparation.cost is not None:
             quote = await quote_video_request(preparation.cost, async_session_factory)
             if quote is not None:
-                if preparation.current_visual_duration_seconds == preparation.request_duration_seconds:
+                if video_request_reuses_current_visual(
+                    request_duration_seconds=preparation.request_duration_seconds,
+                    current_reusable_visual_duration_seconds=preparation.current_reusable_visual_duration_seconds,
+                ):
                     quote = quote.without_new_video_charge()
                 projection["request_cost"] = quote.to_payload()
-            elif preparation.request_duration_seconds != (
-                preparation.current_visual_duration_seconds or preparation.planned_duration_seconds
+            elif video_request_requires_exact_quote(
+                request_duration_seconds=preparation.request_duration_seconds,
+                planned_duration_seconds=preparation.planned_duration_seconds,
+                current_visual_duration_seconds=preparation.current_visual_duration_seconds,
+                current_reusable_visual_duration_seconds=preparation.current_reusable_visual_duration_seconds,
             ):
                 cost_problem_payload = video_request_cost_unavailable_problem(preparation.cost).to_payload(
                     unit_id=preparation.narration.unit_id

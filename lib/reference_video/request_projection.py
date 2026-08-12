@@ -46,8 +46,8 @@ from lib.speech_composition import admit_script_unit
 class ReferenceRequestOptions(NarrationDeliveryRequestOptions):
     """影响当前 unit 请求投影、但不属于剧本内容的调用选项。
 
-    ``current_tts_duration_seconds`` 与 ``current_visual_duration_seconds`` 只允许服务端
-    current-state seam 注入，不会序列化进队列。
+    ``current_tts_duration_seconds``、``current_visual_duration_seconds`` 与
+    ``current_reusable_visual_duration_seconds`` 只允许服务端 current-state seam 注入，不会序列化进队列。
     队列保存用户选择的交付方式与明确接受的时长档位，worker 再以最新剧本、TTS 和模型能力
     重投影；档位变化后旧确认不会继续放行。
     """
@@ -55,6 +55,7 @@ class ReferenceRequestOptions(NarrationDeliveryRequestOptions):
     current_tts_duration_seconds: float | None = field(default=None, repr=False, compare=False)
     narration_preparation: NarrationDeliveryPreparation | None = field(default=None, repr=False, compare=False)
     current_visual_duration_seconds: int | None = field(default=None, repr=False, compare=False)
+    current_reusable_visual_duration_seconds: int | None = field(default=None, repr=False, compare=False)
     _legacy_duration_confirmed: bool = field(default=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -67,6 +68,13 @@ class ReferenceRequestOptions(NarrationDeliveryRequestOptions):
             not isinstance(visual_duration, int) or isinstance(visual_duration, bool) or visual_duration <= 0
         ):
             raise ValueError("current_visual_duration_seconds must be a positive integer or null")
+        reusable_visual_duration = self.current_reusable_visual_duration_seconds
+        if reusable_visual_duration is not None and (
+            not isinstance(reusable_visual_duration, int)
+            or isinstance(reusable_visual_duration, bool)
+            or reusable_visual_duration <= 0
+        ):
+            raise ValueError("current_reusable_visual_duration_seconds must be a positive integer or null")
         preparation = self.narration_preparation
         if preparation is not None and preparation.delivery != self.narration_delivery:
             raise ValueError("narration preparation must describe the selected delivery")

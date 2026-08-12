@@ -1314,6 +1314,7 @@ class TestCostEstimationService:
                     narration_delivery=USE_TTS,
                     current_tts_duration_seconds=8.0,
                     current_visual_duration_seconds=8,
+                    current_reusable_visual_duration_seconds=8,
                 )
             },
         )

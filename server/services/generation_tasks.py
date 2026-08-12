@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from lib.api_errors import ConflictError
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.asset_types import (
     ASSET_SPECS,
@@ -91,6 +92,7 @@ from server.services.generation_context import (
 )
 from server.services.narration_delivery_tasks import (
     ResolvedTtsSettingsResolver,
+    active_narrated_video_resource_ids,
     current_selected_video_tier,
     require_generated_video_covers_current_tts,
     resolve_storyboard_video_inputs,
@@ -549,9 +551,15 @@ def emit_generation_success_batch(
 
     action = _SKELETON_DRIVEN_TASK_ACTIONS.get(task_type)
     if action is not None:
-        if task_type == "reference_video":
-            # reference_video 任务的资源身份恒为 video unit；即使剧本加载失败，完成事件也
-            # 仍须使用 reference_unit 锚点，故不依赖剧本形状取证。
+        reference_route_task = task_type == "reference_video"
+        if task_type == "tts":
+            try:
+                reference_route_task = is_reference_video_project(get_project_manager().load_project(project_name))
+            except Exception:
+                reference_route_task = False
+        if reference_route_task:
+            # 参考路线的资源身份恒为 video unit；路线来自创建后不可变的 project.json，
+            # 不让 ad 剧本残留的 shots[] 在 TTS 成功后把 E1U* 事件错分为 shot。
             kind = "video_units"
         else:
             kind = resolve_script_kind(script) if isinstance(script, dict) else "segments"
@@ -744,6 +752,13 @@ async def execute_tts_task(
         return current_project, project_path, legacy_text.strip(), None, None, reference_video_route
 
     project, project_path, text, preparation, episode, reference_video_route = await asyncio.to_thread(_prepare)
+
+    if isinstance(script_file, str) and resource_id in await active_narrated_video_resource_ids(
+        project_name=project_name,
+        resource_ids=(resource_id,),
+        script_file=script_file,
+    ):
+        raise ConflictError("tts_conflicts_with_active_narrated_video", resource_id=resource_id)
 
     ctx = await resolve_generation_context(
         project_name,
@@ -1163,9 +1178,9 @@ async def execute_video_task(
     )
     aspect_ratio = get_aspect_ratio(project, "videos")
     seed = payload.get("seed")
-    visual_basis_digest = (
-        await asyncio.to_thread(
-            build_storyboard_video_visual_basis,
+
+    def _current_visual_basis_digest() -> str:
+        return build_storyboard_video_visual_basis(
             prompt=requested_visual_prompt,
             storyboard_image=storyboard_file,
             end_frame_image=end_image,
@@ -1174,14 +1189,16 @@ async def execute_video_task(
             model_id=model_name,
             resolution=resolution,
             seed=seed,
+            requested_generate_audio=ctx.video.requested_generate_audio,
             content_mode=content_mode,
             utterances=item.get("utterances") if content_mode == "drama" else None,
             has_utterances=content_mode == "drama" and "utterances" in item,
             voice_characters=(None if ctx.video.is_silent else project.get("characters"))
             if content_mode == "drama"
             else None,
-        )
-    ).digest
+        ).digest
+
+    visual_basis_digest = await asyncio.to_thread(_current_visual_basis_digest)
 
     # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 的机械派生：调用方（WebUI
     # 请求体 / 剧本 JSON 残留）自带的 voice_profiles 一律先剥离，不因 utterances 门控不触发
@@ -1321,6 +1338,7 @@ async def execute_video_task(
             request_duration_seconds=duration_seconds,
             minimum_actual_duration_seconds=narration_actual_duration,
             visual_basis_digest=visual_basis_digest,
+            revalidate_visual_basis_digest=_current_visual_basis_digest,
         )
         if reused is not None:
             return reused
@@ -1338,6 +1356,7 @@ async def execute_video_task(
         seed=seed,
         service_tier=service_tier,
         visual_basis_digest=visual_basis_digest,
+        generate_audio=ctx.video.requested_generate_audio,
     )
 
     if delivery_projection is not None:

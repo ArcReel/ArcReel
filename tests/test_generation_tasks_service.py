@@ -194,6 +194,7 @@ def test_storyboard_visual_basis_tracks_effective_request_context(tmp_path: Path
         "model_id": "seedance",
         "resolution": "720p",
         "seed": 7,
+        "requested_generate_audio": True,
         "has_utterances": False,
     }
 
@@ -232,11 +233,16 @@ def test_storyboard_visual_basis_tracks_effective_request_context(tmp_path: Path
         **{**common, "seed": 8},
         aspect_ratio="9:16",
     )
+    other_audio_request = build_storyboard_video_visual_basis(
+        **{**common, "requested_generate_audio": False},
+        aspect_ratio="9:16",
+    )
 
     assert portrait.digest != other_provider.digest
     assert portrait.digest != other_model.digest
     assert portrait.digest != other_resolution.digest
     assert portrait.digest != other_seed.digest
+    assert portrait.digest != other_audio_request.digest
 
 
 @pytest.mark.unit
@@ -252,6 +258,7 @@ def test_storyboard_visual_basis_tracks_only_referenced_character_voices(tmp_pat
         "model_id": "seedance",
         "resolution": "720p",
         "seed": None,
+        "requested_generate_audio": True,
         "content_mode": "drama",
         "utterances": [{"kind": "dialogue", "speaker": "Alice", "text": "Run"}],
         "has_utterances": True,
@@ -922,6 +929,7 @@ class TestGenerationTasks:
             model_id="seedance",
             resolution="720p",
             seed=None,
+            requested_generate_audio=True,
             content_mode="narration",
             utterances=None,
             has_utterances=False,
@@ -2147,6 +2155,40 @@ class TestGenerationTasks:
         assert change["entity_type"] == "reference_unit"
         assert change["action"] == "reference_video_ready"
         assert change["label"] == "参考视频「U01」"
+
+    @pytest.mark.unit
+    def test_emit_success_batch_reference_video_tts_entity_type_not_shot(self, monkeypatch, tmp_path):
+        """TTS 任务与视频任务共用项目路线，ad 参考路线的混合骨架不能把 unit 事件分到 shot。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+        fake_pm.project.update(content_mode="ad", generation_mode="reference_video")
+        fake_pm.script = {
+            "content_mode": "ad",
+            "shots": [{"shot_id": "E1S01"}],
+            "video_units": [{"unit_id": "E1U01"}],
+        }
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        generation_tasks.emit_generation_success_batch(
+            task_type="tts",
+            project_name="demo",
+            resource_id="E1U01",
+            payload={"script_file": "episode_1.json"},
+        )
+
+        assert len(captured) == 1
+        change = captured[0][0]
+        assert change["entity_type"] == "reference_unit"
+        assert change["action"] == "tts_ready"
+        assert change["label"] == "旁白「E1U01」"
 
     @pytest.mark.unit
     def test_emit_success_batch_falls_back_to_segments_when_script_load_fails(self, monkeypatch, tmp_path):

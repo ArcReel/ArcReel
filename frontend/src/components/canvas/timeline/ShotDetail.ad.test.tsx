@@ -266,6 +266,46 @@ describe("ShotDetail ad 模式", () => {
     expect(onGenerateNarration).not.toHaveBeenCalled();
   });
 
+  it("同一镜头清空口播后隐藏的 TTS 选择会重置为后期配音", () => {
+    const onGenerateVideo = vi.fn();
+    const withNarration = makeShot({
+      generated_assets: {
+        storyboard_image: "storyboards/E1S01.png",
+        storyboard_last_image: null,
+        grid_id: null,
+        grid_cell_index: null,
+        video_clip: null,
+        video_thumbnail: null,
+        video_uri: null,
+        status: "storyboard_ready",
+      },
+    });
+    const { rerender } = renderDetail({ segment: withNarration, onGenerateVideo });
+
+    fireEvent.click(screen.getByRole("button", { name: "使用当前 TTS" }));
+    rerender(
+      <ShotDetail
+        segment={makeShot({ ...withNarration, voiceover_text: "" })}
+        segmentId="E1S01"
+        contentMode="ad"
+        aspectRatio="9:16"
+        projectName="demo"
+        scriptFile="episode_1.json"
+        selectedIndex={0}
+        totalCount={3}
+        onPrev={() => {}}
+        onNext={() => {}}
+        durationOptions={[4, 6, 8]}
+        onGenerateVideo={onGenerateVideo}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "生成视频" }));
+
+    expect(onGenerateVideo).toHaveBeenCalledWith("E1S01", {
+      narration_delivery: "post_production",
+    });
+  });
+
   it("重排请求在途时移动按钮禁用（movePending）", () => {
     const onMoveShot = vi.fn();
     renderDetail({ onMoveShot, movePending: true, selectedIndex: 1 });

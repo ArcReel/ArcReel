@@ -241,6 +241,7 @@ class NarratedVideoDurationPreparation:
     adjustment: Adjustment | None
     problems: tuple[NarrationDeliveryProblem, ...]
     current_visual_duration_seconds: int | None = None
+    current_reusable_visual_duration_seconds: int | None = None
     cost: VideoRequestCostFacts | None = None
 
     @property
@@ -492,6 +493,7 @@ def prepare_narrated_video_duration(
     supported_durations: Sequence[int],
     confirmed_request_duration_seconds: int | None,
     current_visual_duration_seconds: int | None = None,
+    current_reusable_visual_duration_seconds: int | None = None,
 ) -> NarratedVideoDurationPreparation:
     """Apply a current TTS duration floor to one storyboard video tier."""
 
@@ -501,6 +503,10 @@ def prepare_narrated_video_duration(
         isinstance(current_visual_duration_seconds, bool) or current_visual_duration_seconds <= 0
     ):
         raise ValueError("current_visual_duration_seconds must be a positive integer or null")
+    if current_reusable_visual_duration_seconds is not None and (
+        isinstance(current_reusable_visual_duration_seconds, bool) or current_reusable_visual_duration_seconds <= 0
+    ):
+        raise ValueError("current_reusable_visual_duration_seconds must be a positive integer or null")
     durations = tuple(
         sorted({duration for duration in supported_durations if not isinstance(duration, bool) and duration > 0})
     )
@@ -526,6 +532,7 @@ def prepare_narrated_video_duration(
             adjustment=None,
             problems=tuple(problems),
             current_visual_duration_seconds=current_visual_duration_seconds,
+            current_reusable_visual_duration_seconds=current_reusable_visual_duration_seconds,
         )
 
     slot = resolve_duration_slot(duration_input, durations)
@@ -568,7 +575,35 @@ def prepare_narrated_video_duration(
         adjustment=slot.adjustment,
         problems=tuple(problems),
         current_visual_duration_seconds=current_visual_duration_seconds,
+        current_reusable_visual_duration_seconds=current_reusable_visual_duration_seconds,
     )
+
+
+def video_request_reuses_current_visual(
+    *,
+    request_duration_seconds: int | None,
+    current_reusable_visual_duration_seconds: int | None,
+) -> bool:
+    """Whether the current selected video can satisfy this exact request without a provider call."""
+
+    return request_duration_seconds is not None and current_reusable_visual_duration_seconds == request_duration_seconds
+
+
+def video_request_requires_exact_quote(
+    *,
+    request_duration_seconds: int | None,
+    planned_duration_seconds: int,
+    current_visual_duration_seconds: int | None,
+    current_reusable_visual_duration_seconds: int | None,
+) -> bool:
+    """Whether a known replacement request must fail closed when its exact quote is unavailable."""
+
+    if request_duration_seconds is None or video_request_reuses_current_visual(
+        request_duration_seconds=request_duration_seconds,
+        current_reusable_visual_duration_seconds=current_reusable_visual_duration_seconds,
+    ):
+        return False
+    return current_visual_duration_seconds is not None or request_duration_seconds != planned_duration_seconds
 
 
 def prepare_narrated_video_output(
