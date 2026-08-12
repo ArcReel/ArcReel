@@ -9,6 +9,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantSession } from "@/hooks/useAssistantSession";
 import type { AttachedImage } from "@/hooks/useAssistantSession";
+import type { ImagePayload } from "@/types";
 import { GlassPopover } from "@/components/ui/GlassPopover";
 import { ContextBanner } from "./ContextBanner";
 import { PendingQuestionWizard } from "./PendingQuestionWizard";
@@ -286,8 +287,8 @@ export function AgentCopilot() {
 
   // 改写成功后由会话切换重建时间线（编辑态随 resetTimeline 清空）；失败保留编辑态，
   // 用户可以改完再试，错误经消息区上方的错误条呈现
-  const handleSubmitEdit = useCallback((turnUuid: string, text: string) => {
-    voidCall(rewriteMessage(turnUuid, text));
+  const handleSubmitEdit = useCallback((turnUuid: string, text: string, images: ImagePayload[]) => {
+    voidCall(rewriteMessage(turnUuid, text, images.length > 0 ? images : undefined));
   }, [rewriteMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {

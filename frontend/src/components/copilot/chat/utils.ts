@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { SessionStatus, Turn } from "@/types";
+import type { ImagePayload, SessionStatus, Turn } from "@/types";
 
 // ---------------------------------------------------------------------------
 // cn – lightweight className concatenation utility.
@@ -67,6 +67,21 @@ export function turnPlainText(turn: Turn): string {
     .filter((block) => block.type === "text" && typeof block.text === "string")
     .map((block) => block.text)
     .join("\n\n");
+}
+
+// ---------------------------------------------------------------------------
+// turnImageAttachments – 一个 turn 携带的图片附件，按发送侧的传输形态还原。
+//
+// 图片块以 base64 原样存在日志条目里，改写时直接从锚点消息取回随新消息一同提交，
+// 与普通带图发送走同一条请求形态。块顺序即提交顺序（服务端图在前、文本在后）。
+// ---------------------------------------------------------------------------
+
+export function turnImageAttachments(turn: Turn): ImagePayload[] {
+  return (turn.content ?? []).flatMap((block) => {
+    const source = block.type === "image" ? block.source : undefined;
+    if (!source?.data) return [];
+    return [{ data: source.data, media_type: source.media_type }];
+  });
 }
 
 // ---------------------------------------------------------------------------

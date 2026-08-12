@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, Pencil, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { Turn } from "@/types";
+import type { ImagePayload, Turn } from "@/types";
 import { copyText } from "@/utils/clipboard";
 import { formatClockTime } from "@/utils/date-format";
 import { ChatMessage } from "./ChatMessage";
@@ -12,7 +12,7 @@ import {
   USER_BUBBLE_LAYOUT_CLASS,
   USER_BUBBLE_STYLE,
 } from "./bubble";
-import { turnPlainText } from "./utils";
+import { turnImageAttachments, turnPlainText } from "./utils";
 
 // ---------------------------------------------------------------------------
 // MessageRow — 一条时间线消息及其操作行。
@@ -37,7 +37,8 @@ interface MessageRowProps {
   submitting?: boolean;
   onStartEdit?: (turnUuid: string, text: string) => void;
   onCancelEdit?: () => void;
-  onSubmitEdit?: (turnUuid: string, text: string) => void;
+  /** 提交改写。`images` 是锚点消息的图片附件，原样随改写后的文本一同透传。 */
+  onSubmitEdit?: (turnUuid: string, text: string, images: ImagePayload[]) => void;
 }
 
 export function MessageRow({
@@ -54,6 +55,8 @@ export function MessageRow({
   const text = turnPlainText(turn);
   const time = formatClockTime(turn.timestamp);
   const turnUuid = turn.uuid;
+  // 编辑框只呈现文本，图片附件不进编辑器：用户改不动它们，提交时原样跟着走
+  const images = turnImageAttachments(turn);
 
   if (editing && turnUuid) {
     // 编辑期间会话可能开跑或弹出问答卡片。此时不关编辑器（用户写到一半的草稿不能
@@ -62,10 +65,11 @@ export function MessageRow({
     return (
       <MessageEditor
         initialText={text}
+        hasAttachments={images.length > 0}
         submitting={submitting}
         canSubmit={editable}
         onCancel={() => onCancelEdit?.()}
-        onSubmit={(draft) => onSubmitEdit?.(turnUuid, draft)}
+        onSubmit={(draft) => onSubmitEdit?.(turnUuid, draft, images)}
       />
     );
   }
@@ -154,12 +158,15 @@ function CopyButton({ text }: { text: string }) {
 
 function MessageEditor({
   initialText,
+  hasAttachments,
   submitting,
   canSubmit,
   onCancel,
   onSubmit,
 }: {
   initialText: string;
+  /** 锚点消息带图片附件——正文可以清空，改写后的消息仍有内容。 */
+  hasAttachments: boolean;
   submitting: boolean;
   /** 此刻允许提交改写；false 时保留草稿但锁住重新发送。 */
   canSubmit: boolean;
@@ -182,10 +189,12 @@ function MessageEditor({
     el.style.height = `${el.scrollHeight}px`;
   }, []);
 
+  const hasContent = Boolean(draft.trim()) || hasAttachments;
+
   const submit = useCallback(() => {
-    if (submitting || !canSubmit || !draft.trim()) return;
+    if (submitting || !canSubmit || !hasContent) return;
     onSubmit(draft);
-  }, [draft, submitting, canSubmit, onSubmit]);
+  }, [draft, hasContent, submitting, canSubmit, onSubmit]);
 
   return (
     <div className={`${USER_BUBBLE_LAYOUT_CLASS} ${BUBBLE_SHELL_CLASS}`} style={USER_BUBBLE_STYLE}>
@@ -248,7 +257,7 @@ function MessageEditor({
         </button>
         <button
           type="button"
-          disabled={submitting || !canSubmit || !draft.trim()}
+          disabled={submitting || !canSubmit || !hasContent}
           onClick={submit}
           title={t("message_edit_resend_hint")}
           className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"

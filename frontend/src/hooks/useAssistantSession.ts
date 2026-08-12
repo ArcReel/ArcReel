@@ -7,6 +7,7 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import type {
   DraftDeltaPayload,
   DraftState,
+  ImagePayload,
   PendingQuestion,
   SessionMeta,
   TimelineEntry,
@@ -628,9 +629,11 @@ export function useAssistantSession(projectName: string | null) {
   // 原会话已被取代 409），被拒时用户仍留在原会话，时间线原样。受理之后才整体
   // 切换到承接改写的新会话——时间线重建、SSE 重连，不做增量缝合。
   const rewriteMessage = useCallback(
-    async (anchorEntryUuid: string, content: string): Promise<boolean> => {
+    async (anchorEntryUuid: string, content: string, images?: ImagePayload[]): Promise<boolean> => {
       const originSessionId = store.getState().currentSessionId;
-      if (!projectName || !originSessionId || !content.trim()) return false;
+      if (!projectName || !originSessionId) return false;
+      // 与发送同口径：图片附件本身就是内容，正文被改空的带图消息仍可提交
+      if (!content.trim() && (!images || images.length === 0)) return false;
       // sending 同时是发送与改写的在途锁：两者都会开启新一轮，不能并发
       if (store.getState().sending) return false;
 
@@ -643,8 +646,14 @@ export function useAssistantSession(projectName: string | null) {
       store.getState().setStartupFailure(null);
 
       // 幂等键：响应丢失后的重试由服务端在新分支里认领同一条权威条目，
-      // 不会再分叉一次。签名含锚点与改写后内容，改了内容即换新键。
-      const signature = JSON.stringify([projectName, originSessionId, anchorEntryUuid, content.trim()]);
+      // 不会再分叉一次。签名含锚点与改写后内容（含附件），改了内容即换新键。
+      const signature = JSON.stringify([
+        projectName,
+        originSessionId,
+        anchorEntryUuid,
+        content.trim(),
+        images ?? [],
+      ]);
       const clientKey =
         failedRewriteRef.current?.signature === signature
           ? failedRewriteRef.current.clientKey
@@ -656,6 +665,7 @@ export function useAssistantSession(projectName: string | null) {
           originSessionId,
           anchorEntryUuid,
           content,
+          images,
           clientKey,
         );
 

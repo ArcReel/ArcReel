@@ -27,6 +27,7 @@ from server.agent_runtime.service import (
 )
 from server.agent_runtime.session_branch import SessionBranchService
 from server.agent_runtime.session_store import SessionMetaStore
+from server.routers.assistant import ImageAttachment
 from tests.agent_runtime.conftest import make_transcript_entry
 
 pytestmark = pytest.mark.integration
@@ -98,7 +99,14 @@ class FakeSessionManager:
                 session_id, user_entry, client_key=client_key
             )
         self.dispatched.append(
-            {"session_id": session_id, "prompt": prompt, "resumable": resumable, "client_key": client_key}
+            {
+                "session_id": session_id,
+                "prompt": prompt,
+                "resumable": resumable,
+                "client_key": client_key,
+                "echo_text": echo_text,
+                "echo_content": echo_content,
+            }
         )
         self.statuses[session_id] = "running"
         return entry
@@ -154,6 +162,19 @@ async def _rewrite(service: AssistantService, session_id: str, anchor: str, **kw
     params: dict[str, Any] = {"content": "只改第 3 集", "client_key": "ck-1"}
     params.update(kwargs)
     return await service.rewrite_message(PROJECT_NAME, session_id, anchor_entry_uuid=anchor, **params)
+
+
+def _image(data: str, media_type: str = "image/png") -> ImageAttachment:
+    return ImageAttachment(data=data, media_type=media_type)
+
+
+def _image_block(data: str, media_type: str = "image/png") -> dict[str, Any]:
+    return {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}
+
+
+async def _collect_prompt(prompt: Any) -> list[dict[str, Any]]:
+    """多模态 prompt 是 async generator——把它投递出的 wire 消息收下来。"""
+    return [message async for message in prompt]
 
 
 class TestRewriteHappyPath:
@@ -226,6 +247,44 @@ class TestRewriteHappyPath:
 
         assert runtime.interrupted == [session_id], "冷/闲会话也走同一入口，只是立刻返回终态"
         assert runtime.dispatched
+
+    async def test_attachments_ride_along_into_the_branch_first_input(self, rewriting):
+        """AC：改写带图消息——分支会话首条用户消息含原图与编辑后文本，agent 可见图片。"""
+        service, runtime, session_id, project_cwd = rewriting
+
+        result = await _rewrite(
+            service,
+            session_id,
+            SECOND_USER_ENTRY,
+            images=[_image("AAAA"), _image("BBBB", "image/jpeg")],
+        )
+
+        # 派发给 SDK 的是多模态 prompt，与普通带图发送同构：图在前、文本在后
+        messages = await _collect_prompt(runtime.dispatched[0]["prompt"])
+        assert [m["message"]["content"] for m in messages] == [
+            [
+                _image_block("AAAA"),
+                _image_block("BBBB", "image/jpeg"),
+                {"type": "text", "text": "只改第 3 集"},
+            ]
+        ]
+        # 落库的权威条目同样带图，刷新后时间线仍能渲染出这两张图
+        entries = await service.event_log.list_entries(result["session_id"], project_cwd)
+        assert entries[-1]["content"] == [
+            _image_block("AAAA"),
+            _image_block("BBBB", "image/jpeg"),
+            {"type": "text", "text": "只改第 3 集"},
+        ]
+        assert entries[-1]["uuid"] == result["entry"]["uuid"]
+
+    async def test_text_only_rewrite_stays_a_plain_string_prompt(self, rewriting):
+        """不带附件的改写不因附件透传而改变形态。"""
+        service, runtime, session_id, _ = rewriting
+
+        await _rewrite(service, session_id, SECOND_USER_ENTRY, images=[])
+
+        assert runtime.dispatched[0]["prompt"] == "只改第 3 集"
+        assert runtime.dispatched[0]["echo_content"] is None
 
 
 class TestRewriteIdempotency:
@@ -310,6 +369,18 @@ class TestRewriteRejections:
 
         assert runtime.interrupted == []
         assert runtime.dispatched == []
+
+    async def test_empty_content_with_attachments_is_accepted(self, rewriting):
+        """改写把正文清空的带图消息仍是有内容的消息——附件即内容。"""
+        service, runtime, session_id, _ = rewriting
+
+        result = await _rewrite(service, session_id, SECOND_USER_ENTRY, content="   ", images=[_image("AAAA")])
+
+        assert result["status"] == "accepted"
+        assert result["entry"]["content"] == [_image_block("AAAA")]
+        # 纯图消息的 echo 匹配靠 sentinel：显示文本为空、echo_content 非空即走那条路径
+        assert runtime.dispatched[0]["echo_text"] == ""
+        assert runtime.dispatched[0]["echo_content"] == [_image_block("AAAA")]
 
     async def test_session_from_another_project_is_not_found(self, rewriting):
         service, _, session_id, _ = rewriting
