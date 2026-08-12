@@ -332,6 +332,10 @@ class TestInferEndpoint:
             ("wan-2.7-videoedit", "openai", "openai-video"),
             ("wan_2.7-videoedit", "openai", "openai-video"),
             ("wan2.7-videoedit", "openai", "openai-video"),
+            # happyhorse 同一边界要求：与 DashScopeVideoBackend._profile_for_model 的兜底子串匹配
+            # 对同一 key 保持同等边界，否则会出现"路由到本后端却拿不到对应能力档"的矛盾。
+            ("myhappyhorse-1.0-r2v", "openai", "openai-chat"),
+            ("happyhorse-1.0-r2v", "openai", "dashscope-async-video"),
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),

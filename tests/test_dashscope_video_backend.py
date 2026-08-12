@@ -960,10 +960,10 @@ class TestWan2Aliases:
     def test_substring_without_boundary_does_not_get_wan2_capabilities(self, model):
         """含 "wan2" 子串但两侧非字母数字边界不成立的型号名，不得被误判为万相 2.x 家族。
 
-        "swan2.7-r2v" / "vendorwan2.7-t2v" 这类完整别名（左侧紧贴字母、右侧带合法模态后缀）
-        单靠 WAN2_PATTERN 的边界锚点会被正确拒绝，但 _profile_for_model 末尾的兜底子串匹配
-        此前对 _MODEL_PROFILES 各 key 没有同等的边界校验——"swan2.7-r2v" 去掉首字符后与
-        "wan2.7-r2v" 逐字符相同，曾被该循环误判命中。
+        "swan2.7-r2v" / "vendorwan2.7-t2v" 这类完整别名（左侧紧贴字母、右侧带合法模态后缀）单靠
+        WAN2_PATTERN 的边界锚点无法拦下——命中的是 _profile_for_model 末尾的兜底子串匹配：
+        "swan2.7-r2v" 去掉首字符后与 _MODEL_PROFILES 的 key "wan2.7-r2v" 逐字符相同，该循环须
+        对每个 key 同样做左侧边界校验才不会误判命中。
         """
         from lib.video_backends.dashscope import DashScopeVideoBackend
 

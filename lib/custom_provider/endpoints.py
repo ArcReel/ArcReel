@@ -547,6 +547,12 @@ _WAN_DOT_FORM_PATTERN = re.compile(r"(?<![a-z0-9])wan2\.\d", re.IGNORECASE)
 # _DEFAULT_PROFILE（丢失该模态实际所需的能力声明）发出本后端无法正确构造的请求。
 _WAN_VIDEOEDIT_PATTERN = re.compile(r"video[-_]?edit", re.IGNORECASE)
 
+# happyhorse 家族路由判定：标识符边界要求非字母数字，与 DashScopeVideoBackend._profile_for_model
+# 兜底子串匹配对同一 key 的边界要求保持一致——两处宽度不同会出现"路由到本后端却拿不到对应能力
+# 档"的矛盾（如 "myhappyhorse-1.0-r2v" 若只在能力档一侧排除，会被路由到原生端点却丢失
+# max_reference_images，_build_media 据此漏发参考图）。
+_HAPPYHORSE_PATTERN = re.compile(r"(?<![a-z0-9])happyhorse", re.IGNORECASE)
+
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
     """根据模型 id 与 discovery_format 推默认 endpoint（content-first）。
@@ -610,7 +616,7 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     wan_unsupported_modality = is_wan_family and bool(_WAN_VIDEOEDIT_PATTERN.search(model_id))
 
     # 阿里百炼视频先于通用 is_video 拦截到原生异步端点
-    if "happyhorse" in lowered:
+    if _HAPPYHORSE_PATTERN.search(model_id):
         return "dashscope-async-video"
     if is_wan_family and not wan_image_variant and not wan_unsupported_modality:
         return "dashscope-async-video"
