@@ -12,6 +12,7 @@ import copy
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -50,6 +51,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     validate_and_promote_reference_draft_tool,
 )
 from tests.fakes import fake_reference_caps_fetcher
+from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -75,7 +77,8 @@ class _FakePM:
                 {
                     "segment_id": "E1S01",
                     "image_prompt": "村口黄昏",
-                    "video_prompt": "镜头平移",
+                    "novel_text": "黄昏时分，风吹过村口。",
+                    "video_prompt": {"action": "镜头平移", "camera_motion": "Pan", "ambiance_audio": "风声"},
                     "duration_seconds": 4,
                     "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
                 },
@@ -1821,6 +1824,123 @@ async def test_generate_video_scene_happy(fake_ctx: ToolContext, monkeypatch) ->
 
 
 @pytest.mark.unit
+async def test_generate_video_scene_accepts_legacy_drama_dialogue(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+        "content_mode": "drama",
+        "scenes": [
+            {
+                "scene_id": "E1S01",
+                "video_prompt": {
+                    "action": "阿离转身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                    "dialogue": [{"speaker": "张三", "line": "跟紧我。"}],
+                },
+                "voiceover": [],
+                "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+            }
+        ],
+    }
+
+    async def fake_enqueue(**kwargs):
+        return {"task": {}, "result": {"file_path": "videos/scene_E1S01.mp4"}}
+
+    monkeypatch.setattr(mod, "enqueue_and_wait", fake_enqueue)
+    out = await _call(generate_video_scene_tool(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
+
+    assert out.get("is_error") is not True, out
+
+
+@pytest.mark.unit
+async def test_generate_video_scene_accepts_speech_free_legacy_drama(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+        "content_mode": "drama",
+        "scenes": [
+            {
+                "scene_id": "E1S01",
+                "video_prompt": {
+                    "action": "阿离转身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                },
+                "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+            }
+        ],
+    }
+
+    async def fake_enqueue(**kwargs):
+        return {"task": {}, "result": {"file_path": "videos/scene_E1S01.mp4"}}
+
+    monkeypatch.setattr(mod, "enqueue_and_wait", fake_enqueue)
+    out = await _call(generate_video_scene_tool(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
+
+    assert out.get("is_error") is not True, out
+
+
+@pytest.mark.unit
+async def test_generate_video_scene_accepts_legacy_narration_string_prompt(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.project_payload["content_mode"] = "narration"  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+        "content_mode": "narration",
+        "segments": [
+            {
+                "segment_id": "E1S01",
+                "novel_text": "风吹过旷野。",
+                "video_prompt": "Slow pan across the field",
+                "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+            }
+        ],
+    }
+
+    async def fake_enqueue(**kwargs):
+        return {"task": {}, "result": {"file_path": "videos/scene_E1S01.mp4"}}
+
+    monkeypatch.setattr(mod, "enqueue_and_wait", fake_enqueue)
+    out = await _call(generate_video_scene_tool(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
+
+    assert out.get("is_error") is not True, out
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("case", SPEECH_CONTRACT_CASES, ids=lambda case: case.route_id)
+async def test_six_route_agent_single_video_generation_returns_structured_admission_without_enqueuing(
+    fake_ctx: ToolContext,
+    monkeypatch,
+    case: SpeechContractCase,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+        {"content_mode": case.content_mode, "generation_mode": case.generation_mode}
+    )
+    fake_ctx.pm.script_payload = case.script()  # type: ignore[attr-defined]
+    enqueue = AsyncMock()
+    batch_enqueue = AsyncMock()
+    monkeypatch.setattr(mod, "enqueue_and_wait", enqueue)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", batch_enqueue)
+
+    out = await _call(generate_video_scene_tool(fake_ctx), {"script": "episode_1.json", "scene_id": case.unit_id})
+
+    assert out.get("is_error") is True
+    problem = out["speech_admission"]["problems"][0]
+    assert out["speech_admission"]["unit_id"] == case.unit_id
+    assert problem["code"] == "mixed_speech"
+    assert [tuple(location["path"]) for location in problem["locations"]] == list(case.expected_locations)
+    assert problem["reason"] == "character_and_narrator_mixed"
+    assert problem["action"] == "replan_unit"
+    enqueue.assert_not_awaited()
+    batch_enqueue.assert_not_awaited()
+
+
+@pytest.mark.unit
 async def test_generate_video_scene_missing(fake_ctx: ToolContext) -> None:
     tool_obj = generate_video_scene_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "NO_SUCH"})
@@ -2262,6 +2382,32 @@ def test_build_reference_specs_skips_blank_prompt(tmp_path) -> None:
     specs, order_map = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None, log=log)
     assert [s.resource_id for s in specs] == ["E1U2"]
     assert any("E1U1" in w for w in log)
+
+
+@pytest.mark.unit
+def test_build_reference_specs_skips_mixed_speech_without_aborting_batch(tmp_path) -> None:
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+
+    units = [
+        {
+            "unit_id": "E1U1",
+            "shots": [{"text": "@[张三]：{快走。}\n{风吹过旷野。}"}],
+            "references": [],
+        },
+        {"unit_id": "E1U2", "shots": [{"text": "@李四 转身"}], "references": []},
+    ]
+    log: list[str] = []
+
+    specs, order_map = _build_reference_specs(
+        units=units,
+        script_filename="episode_1.json",
+        skip_ids=None,
+        log=log,
+    )
+
+    assert [spec.resource_id for spec in specs] == ["E1U2"]
+    assert order_map == {"E1U2": 1}
+    assert any("E1U1" in message and "mixed_speech" in message for message in log)
 
 
 @pytest.mark.unit
@@ -2823,6 +2969,64 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
         f"normalize_drama_script 必须向 TextGenerator.generate 传入 project_name，"
         f"实际传入: {captured.get('generate_project_name')!r}"
     )
+
+
+@pytest.mark.unit
+async def test_normalize_drama_script_marks_mixed_machine_candidate_before_review(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    source_dir = project_path / "source"
+    source_dir.mkdir(parents=True)
+    (source_dir / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
+
+    async def fake_caps(_project, _episode=None):
+        return 4, [4, 6, 8]
+
+    class _FakeGenerator:
+        async def generate(self, _request, project_name=None):
+            class _Result:
+                text = json.dumps(
+                    {
+                        "title": "第一集",
+                        "scenes": [
+                            {
+                                "scene_id": "E1S01",
+                                "duration_seconds": 4,
+                                "segment_break": False,
+                                "characters_in_scene": ["阿离"],
+                                "scenes": [],
+                                "props": [],
+                                "scene_description": "阿离站在山门前。",
+                                "utterances": [
+                                    {"kind": "dialogue", "speaker": "阿离", "text": "我回来了。"},
+                                    {"kind": "voiceover", "speaker": None, "text": "三年后。"},
+                                ],
+                                "source_text": "三年后，阿离回到山门。",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
+
+            return _Result()
+
+    async def fake_create(_task_type, project_name=None):
+        return _FakeGenerator()
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+
+    result = await _call(normalize_drama_script_tool(fake_ctx), {"episode": 1})
+
+    assert result.get("is_error") is not True, result
+    saved = json.loads(
+        (project_path / "drafts" / "episode_1" / "step1_normalized_script.json").read_text(encoding="utf-8")
+    )
+    assert saved["scenes"][0]["needs_replan"] is True
+    assert [utterance["text"] for utterance in saved["scenes"][0]["utterances"]] == ["我回来了。", "三年后。"]
 
 
 @pytest.mark.unit
@@ -3409,6 +3613,10 @@ async def test_generate_video_episode_ad_reference_replan_shell_cannot_enqueue(
     )
 
     assert out.get("is_error") is True
+    assert out["speech_admission"]["allowed"] is False
+    assert out["speech_admission"]["unit_id"] == "E1U1"
+    assert out["speech_admission"]["problems"][0]["code"] == "needs_replan"
+    assert out["speech_admission"]["problems"][0]["action"] == "replan_unit"
     assert "E1U1" in out["content"][0]["text"]
     assert not called
 

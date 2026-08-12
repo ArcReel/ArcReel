@@ -121,22 +121,55 @@ class TestScriptReviewRouter:
             client.post(f"{base}/confirm")
 
             edited = _drama_step1()
-            edited["scenes"][0]["utterances"][1]["text"] = "你怎么才回来。"
+            edited["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
             put = client.put(f"{base}/content", json=edited)
             assert put.status_code == 200
             assert put.json()["status"] == "pending_review"
 
             got = client.get(base)
-            assert got.json()["content"]["scenes"][0]["utterances"][1]["text"] == "你怎么才回来。"
+            assert got.json()["content"]["scenes"][0]["scene_description"] == "雨势渐急，阿离仍站在屋檐下"
 
     @pytest.mark.unit
-    def test_put_invalid_content_422(self, tmp_path, monkeypatch):
+    def test_editing_legacy_mixed_speech_returns_structured_atomic_rejection(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            original = _drama_step1()
+            _write_step1(pm, original)
+            edited = _drama_step1()
+            edited["scenes"][0]["utterances"][1]["text"] = "你怎么才回来。"
+
+            put = client.put(f"{base}/content", json=edited)
+
+            assert put.status_code == 409
+            detail = put.json()["detail"]
+            assert detail["unit_id"] == "E1S01"
+            assert detail["problems"][0]["code"] == "mixed_speech"
+            assert client.get(base).json()["content"] == original
+
+    @pytest.mark.unit
+    def test_put_empty_dialogue_speaker_returns_structured_409(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
             base = "/api/v1/projects/demo/episodes/1/script-review"
             _write_step1(pm, _drama_step1())
             bad = _drama_step1()
             bad["scenes"][0]["utterances"][1] = {"kind": "dialogue", "speaker": None, "text": "无人"}
+            put = client.put(f"{base}/content", json=bad)
+            assert put.status_code == 409
+            detail = put.json()["detail"]
+            assert detail["unit_id"] == "E1S01"
+            assert detail["problems"][0]["code"] == "empty_speaker"
+            assert detail["problems"][0]["locations"] == [{"path": ["utterances", 1, "speaker"], "line": None}]
+
+    @pytest.mark.unit
+    def test_put_invalid_non_speech_content_422(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            _write_step1(pm, _drama_step1())
+            bad = _drama_step1()
+            bad["scenes"][0]["duration_seconds"] = "invalid"
             put = client.put(f"{base}/content", json=bad)
             assert put.status_code == 422
 

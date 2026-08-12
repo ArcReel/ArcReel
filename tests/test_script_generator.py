@@ -8,6 +8,8 @@ import lib.script_review as script_review
 from lib.config.resolver import ConfigResolver
 from lib.script_generator import ScriptGenerator, _units_use_references
 from lib.script_structure_validator import ScriptStructureValidationError
+from lib.speech_composition import SpeechAdmissionError
+from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
 def _write(path: Path, text: str):
@@ -706,6 +708,31 @@ class TestScriptGenerator:
         assert fake.backend.last_request.prompt.endswith("# 用户意见\n打斗场面多给全景")
 
     @pytest.mark.unit
+    async def test_generate_drama_step2_rejects_marked_mixed_candidate_before_backend_call(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            characters={"姜月茴": {}},
+        )
+        content = _drama_step1_content()
+        content["scenes"][0]["utterances"].append({"kind": "voiceover", "speaker": None, "text": "庭院里只剩风声。"})
+        content["scenes"][0]["needs_replan"] = True
+        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", content)
+
+        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        with pytest.raises(SpeechAdmissionError) as exc_info:
+            await generator.generate(1)
+
+        admission = exc_info.value.admission
+        assert admission.unit_id == "E1S01"
+        assert admission.problems[0].code == "needs_replan"
+        assert admission.problems[0].locations[0].path == ("needs_replan",)
+        assert fake.backend.last_request is None
+
+    @pytest.mark.unit
     async def test_generate_sets_script_max_output_tokens(self, tmp_path):
         """drama step2 generate 应在 TextGenerationRequest 上设置共享输出上限（DEFAULT_MAX_OUTPUT_TOKENS）。"""
         from lib.script_models import DramaVisualMergeError
@@ -769,13 +796,16 @@ class TestAddMetadataRewritesEpisodePrefix:
     """_add_metadata 兜底改写 segment/scene/unit ID 的 E\\d+ 前缀。"""
 
     @staticmethod
-    def _make_generator(tmp_path: Path, content_mode: str = "narration") -> ScriptGenerator:
+    def _make_generator(
+        tmp_path: Path, content_mode: str = "narration", generation_mode: str = "storyboard"
+    ) -> ScriptGenerator:
         project_path = tmp_path / "demo"
         _write_json(
             project_path / "project.json",
             {
                 "title": "项目",
                 "content_mode": content_mode,
+                "generation_mode": generation_mode,
             },
         )
         return ScriptGenerator(project_path)
@@ -806,6 +836,22 @@ class TestAddMetadataRewritesEpisodePrefix:
         out = sg._add_metadata(data, episode=3)
         assert out["segments"][0]["segment_id"] == "E3S01"
         assert out["segments"][1]["segment_id"] == "E3S02_1"
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("case", SPEECH_CONTRACT_CASES, ids=lambda case: case.route_id)
+    def test_six_route_machine_candidates_preserve_mixed_speech_and_mark_replan(
+        self,
+        tmp_path: Path,
+        case: SpeechContractCase,
+    ) -> None:
+        sg = self._make_generator(tmp_path, content_mode=case.content_mode, generation_mode=case.generation_mode)
+        original = case.unit()
+        data = {case.kind: [case.unit()]}
+
+        out = sg._add_metadata(data, episode=1)
+
+        assert out[case.kind][0]["needs_replan"] is True
+        assert {key: value for key, value in out[case.kind][0].items() if key != "needs_replan"} == original
 
     @pytest.mark.unit
     def test_reference_video_rewrites_unit_ids(self, tmp_path: Path) -> None:

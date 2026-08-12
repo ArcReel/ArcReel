@@ -257,6 +257,7 @@ class NarrationSegment(BaseModel):
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
 
 
 class NovelInfo(BaseModel):
@@ -379,7 +380,8 @@ class Utterance(BaseModel):
     """drama 场景级有序发声条目：插入顺序即幕内时序（台词与画外音的先后）。
 
     判别式联合 ``{kind, speaker, text}``，``kind`` 决定下游路由与 ``kind ⇄ speaker`` 约束：
-    - ``dialogue``：角色台词，必带非空 ``speaker``，进视频 YAML 交供应商出口型音轨；
+    - ``dialogue``：人物发声（对白、内心独白、人物画外解说），必带非空 ``speaker``，
+      进视频 YAML 交供应商出口型音轨；
     - ``voiceover``：无说话人的旁白解说，``speaker`` 必为 ``None``，不作视频提示词（留给字幕 / TTS）。
 
     取显式 ``kind`` 而非「speaker 有无隐式判别」：与 ``ReferenceResource.type`` 既有判别式风格一致、
@@ -388,7 +390,7 @@ class Utterance(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    kind: UtteranceKind = Field(description="发声类型：dialogue=角色台词、voiceover=无说话人画外音")
+    kind: UtteranceKind = Field(description="发声类型：dialogue=带角色归属的人物发声、voiceover=无角色归属的叙述旁白")
     speaker: str | None = Field(default=None, description="说话角色名；dialogue 必填非空、voiceover 必须为 null")
     text: str = Field(description="发声内容原文，逐字保留")
 
@@ -506,6 +508,7 @@ class DramaScene(BaseModel):
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
 
 
 class DramaEpisodeScript(BaseModel):
@@ -567,6 +570,7 @@ class DramaSceneContent(BaseModel):
         description="场景级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列，逐字保留",
     )
     source_text: str = Field(default="", description="逐字原文摘录（追溯锚，不朗读、不出音，best-effort）")
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该场景需要人工重新规划")
 
 
 class DramaNormalizedScript(BaseModel):
@@ -700,6 +704,7 @@ class AdShot(BaseModel):
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
 
 
 class AdEpisodeScript(BaseModel):

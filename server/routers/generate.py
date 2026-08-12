@@ -12,7 +12,7 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError
@@ -26,6 +26,8 @@ from lib.path_safety import safe_exists, safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import get_project_manager, is_reference_video_project
 from lib.script_models import get_generated_assets
+from lib.script_skeleton import resolve_script_kind
+from lib.speech_composition import admit_script_unit
 from lib.storyboard_sequence import (
     find_storyboard_item,
     get_storyboard_items,
@@ -190,6 +192,14 @@ async def generate_video(
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
             raise NotFoundError("segment_not_found", id=segment_id)
+        script_kind = resolve_script_kind(script)
+        admission = admit_script_unit(script_kind, resolved[0])
+        if admission.allowed and script_kind in {"segments", "shots"}:
+            # narration / ad 的 worker 会把请求 prompt 里的 dialogue 原样下发；准入必须检查
+            # 实际入队的 prompt 与盘上旁白字段，而不能只检查可能已过时的 script prompt。
+            admission = admit_script_unit(script_kind, {**resolved[0], "video_prompt": req.prompt})
+        if not admission.allowed:
+            raise HTTPException(status_code=409, detail=admission.to_dict())
         storyboard_rel = get_generated_assets(resolved[0]).get("storyboard_image")
 
         # 字段值来自磁盘剧本 JSON，不可信任：非字符串脏数据会让下面的路径拼接抛未处理

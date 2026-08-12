@@ -3,6 +3,7 @@ from copy import deepcopy
 import pytest
 
 from lib.speech_composition import (
+    SpeechAdmission,
     SpeechComposition,
     SpeechFieldLocation,
     SpeechMode,
@@ -14,9 +15,64 @@ from lib.speech_composition import (
     adapt_drama_scene,
     adapt_narration_segment,
     adapt_video_unit,
+    admit_script_unit,
 )
+from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.mark.parametrize("case", SPEECH_CONTRACT_CASES, ids=lambda case: case.route_id)
+def test_six_content_route_combinations_share_one_structured_speech_admission(
+    case: SpeechContractCase,
+) -> None:
+    admission = admit_script_unit(case.kind, case.unit())
+    expected_locations = tuple(SpeechFieldLocation(path) for path in case.expected_locations)
+    if case.generation_mode == "reference_video":
+        expected_locations = tuple(
+            SpeechFieldLocation(location.path, line=index) for index, location in enumerate(expected_locations)
+        )
+
+    assert isinstance(admission, SpeechAdmission)
+    assert admission.allowed is False
+    assert admission.mode is None
+    assert admission.unit_id == case.unit_id
+    assert [(problem.code, problem.reason, problem.action, problem.locations) for problem in admission.problems] == [
+        (
+            SpeechProblemCode.MIXED_SPEECH,
+            SpeechProblemReason.CHARACTER_AND_NARRATOR_MIXED,
+            SpeechProblemAction.REPLAN_UNIT,
+            expected_locations,
+        )
+    ]
+
+
+def test_speech_admission_serializes_stable_problem_codes_and_locations() -> None:
+    admission = admit_script_unit(
+        "video_units",
+        {
+            "unit_id": "E2U03",
+            "shots": [{"text": "@[阿离]：{快走。}\n{风吹过旷野。}"}],
+        },
+    )
+
+    assert admission.to_dict() == {
+        "allowed": False,
+        "unit_id": "E2U03",
+        "mode": None,
+        "problems": [
+            {
+                "code": "mixed_speech",
+                "unit_id": "E2U03",
+                "locations": [
+                    {"path": ["shots", 0, "text"], "line": 0},
+                    {"path": ["shots", 0, "text"], "line": 1},
+                ],
+                "reason": "character_and_narrator_mixed",
+                "action": "replan_unit",
+            }
+        ],
+    }
 
 
 def test_narration_novel_text_is_materialized_as_narrator_voiceover() -> None:
@@ -49,6 +105,62 @@ def test_narration_dialogue_and_novel_text_are_reported_as_mixed_speech() -> Non
         (SpeechOwner.NARRATOR, None, "雨夜里，她想起了那句警告。"),
     ]
     assert [problem.code for problem in result.problems] == [SpeechProblemCode.MIXED_SPEECH]
+
+
+@pytest.mark.parametrize(
+    ("snapshot", "expected_text"),
+    [
+        (
+            adapt_narration_segment(
+                {"segment_id": "E1S02", "novel_text": "风吹过旷野。", "video_prompt": "Slow pan across the field"}
+            ),
+            "风吹过旷野。",
+        ),
+        (
+            adapt_ad_shot({"shot_id": "E1S02", "voiceover_text": "现在下单。", "video_prompt": "Product hero shot"}),
+            "现在下单。",
+        ),
+    ],
+)
+def test_legacy_string_video_prompt_has_no_structured_character_dialogue(snapshot, expected_text: str) -> None:
+    result = SpeechComposition.prepare(snapshot)
+
+    assert result.mode is SpeechMode.NARRATOR_VOICEOVER
+    assert [utterance.text for utterance in result.utterances] == [expected_text]
+    assert result.problems == ()
+
+
+@pytest.mark.parametrize("text", ["别回头。", "我不能让他发现。", "她不会知道我在这里。"])
+def test_character_dialogue_inner_monologue_and_offscreen_speech_share_character_owner(text: str) -> None:
+    result = SpeechComposition.prepare(
+        adapt_drama_scene(
+            {
+                "scene_id": "E1S02",
+                "utterances": [{"kind": "dialogue", "speaker": "阿离", "text": text}],
+            }
+        )
+    )
+
+    assert result.mode is SpeechMode.CHARACTER_SPEECH
+    assert [(entry.owner, entry.speaker, entry.text) for entry in result.utterances] == [
+        (SpeechOwner.CHARACTER, "阿离", text)
+    ]
+
+
+def test_legacy_drama_dialogue_is_admitted_from_its_persisted_field() -> None:
+    source = {
+        "scene_id": "E1S02",
+        "video_prompt": {"dialogue": [{"speaker": "阿离", "line": "跟紧我。"}]},
+        "voiceover": [],
+    }
+
+    result = SpeechComposition.prepare(adapt_drama_scene(source))
+
+    assert result.mode is SpeechMode.CHARACTER_SPEECH
+    assert [(entry.owner, entry.speaker, entry.text) for entry in result.utterances] == [
+        (SpeechOwner.CHARACTER, "阿离", "跟紧我。")
+    ]
+    assert result.problems == ()
 
 
 @pytest.mark.parametrize(
@@ -456,10 +568,6 @@ def test_damaged_unit_identity_and_container_are_reported_together() -> None:
             SpeechFieldLocation(("utterances", 0, "speaker")),
         ),
         (
-            adapt_ad_shot({"shot_id": "E1S08", "video_prompt": "bad", "voiceover_text": ""}),
-            SpeechFieldLocation(("video_prompt",)),
-        ),
-        (
             adapt_video_unit({"unit_id": "E1U08", "shots": []}),
             SpeechFieldLocation(("shots",)),
         ),
@@ -481,10 +589,6 @@ def test_unusable_speech_shapes_never_degrade_to_a_valid_mode(snapshot, expected
 @pytest.mark.parametrize(
     ("snapshot", "expected_location"),
     [
-        (
-            adapt_drama_scene({"scene_id": "E1S09"}),
-            SpeechFieldLocation(("utterances",)),
-        ),
         (
             adapt_drama_scene({"scene_id": "E1S09", "utterances": [7]}),
             SpeechFieldLocation(("utterances", 0)),
@@ -526,3 +630,10 @@ def test_damaged_structured_speech_fields_are_parse_blockers(snapshot, expected_
     assert [(problem.code, problem.locations) for problem in result.problems] == [
         (SpeechProblemCode.PARSE_FAILED, (expected_location,))
     ]
+
+
+def test_legacy_drama_without_speech_fields_is_silent() -> None:
+    result = SpeechComposition.prepare(adapt_drama_scene({"scene_id": "E1S09"}))
+
+    assert result.mode is SpeechMode.SILENT
+    assert result.problems == ()

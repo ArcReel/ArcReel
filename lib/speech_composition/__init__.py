@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -113,6 +113,59 @@ class SpeechPreparation:
     mode: SpeechMode | None
     utterances: tuple[SpeechUtterance, ...]
     problems: tuple[SpeechProblem, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SpeechAdmission:
+    """Structured generation admission derived from one script unit."""
+
+    preparation: SpeechPreparation
+
+    @property
+    def allowed(self) -> bool:
+        return not self.preparation.problems
+
+    @property
+    def unit_id(self) -> str:
+        return self.preparation.unit_id
+
+    @property
+    def mode(self) -> SpeechMode | None:
+        return self.preparation.mode
+
+    @property
+    def problems(self) -> tuple[SpeechProblem, ...]:
+        return self.preparation.problems
+
+    def to_dict(self) -> dict[str, object]:
+        """Return the transport-neutral payload shared by Web and Agent adapters."""
+
+        return {
+            "allowed": self.allowed,
+            "unit_id": self.unit_id,
+            "mode": self.mode.value if self.mode is not None else None,
+            "problems": [
+                {
+                    "code": problem.code.value,
+                    "unit_id": problem.unit_id,
+                    "locations": [
+                        {"path": list(location.path), "line": location.line} for location in problem.locations
+                    ],
+                    "reason": problem.reason.value,
+                    "action": problem.action.value,
+                }
+                for problem in self.problems
+            ],
+        }
+
+
+class SpeechAdmissionError(ValueError):
+    """A structured speech blocker that transport adapters can serialize."""
+
+    def __init__(self, admission: SpeechAdmission) -> None:
+        self.admission = admission
+        codes = ", ".join(problem.code.value for problem in admission.problems)
+        super().__init__(f"unit {admission.unit_id} speech admission blocked: {codes}")
 
 
 class SpeechComposition:
@@ -255,6 +308,10 @@ def _append_video_prompt_dialogue(
     unit_id: str,
     video_prompt: object,
 ) -> None:
+    if isinstance(video_prompt, str):
+        # 存量 narration / ad 允许直接存供应商 prompt 字符串；这种形状没有可解析的
+        # 结构化角色台词，发声仍只取各自的 novel_text / voiceover_text。
+        return
     if not isinstance(video_prompt, Mapping):
         problems.append(_parse_problem(unit_id, SpeechFieldLocation(("video_prompt",))))
         return
@@ -309,6 +366,7 @@ def adapt_drama_scene(scene: Mapping[str, object]) -> SpeechUnitSnapshot:
     entries: list[SpeechInputUtterance] = []
     problems = _initial_problems(scene, normalized_unit_id, "scene_id")
     raw_entries = scene.get("utterances", _MISSING)
+    legacy_video_prompt = scene.get("video_prompt")
     if isinstance(raw_entries, list):
         for index, raw in enumerate(raw_entries):
             if not isinstance(raw, Mapping):
@@ -328,6 +386,55 @@ def adapt_drama_scene(scene: Mapping[str, object]) -> SpeechUnitSnapshot:
                 text_location=SpeechFieldLocation(("utterances", index, "text")),
                 speaker_location=SpeechFieldLocation(("utterances", index, "speaker")),
             )
+    elif raw_entries is _MISSING:
+        # load_script 返回的存量 drama JSON 不经过 Pydantic 读时迁移；与 DramaScene 的兼容
+        # 语义一致，从旧 video_prompt.dialogue + voiceover 读取，但位置仍指向真实旧字段。
+        video_prompt = legacy_video_prompt
+        dialogue = video_prompt.get("dialogue") if isinstance(video_prompt, Mapping) else None
+        if isinstance(dialogue, list):
+            for index, raw in enumerate(dialogue):
+                if not isinstance(raw, Mapping):
+                    problems.append(
+                        _parse_problem(normalized_unit_id, SpeechFieldLocation(("video_prompt", "dialogue", index)))
+                    )
+                    continue
+                speaker = raw.get("speaker")
+                if speaker is not None and not isinstance(speaker, str):
+                    problems.append(
+                        _parse_problem(
+                            normalized_unit_id,
+                            SpeechFieldLocation(("video_prompt", "dialogue", index, "speaker")),
+                        )
+                    )
+                    continue
+                named_speaker = speaker.strip() if isinstance(speaker, str) else ""
+                _append_structured_entry(
+                    entries,
+                    problems,
+                    normalized_unit_id,
+                    text=raw.get("line"),
+                    speaker=named_speaker or None,
+                    speaker_required=bool(named_speaker),
+                    text_location=SpeechFieldLocation(("video_prompt", "dialogue", index, "line")),
+                    speaker_location=SpeechFieldLocation(("video_prompt", "dialogue", index, "speaker")),
+                )
+        elif dialogue is not None:
+            problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("video_prompt", "dialogue"))))
+        voiceover = scene.get("voiceover")
+        if isinstance(voiceover, list):
+            for index, text in enumerate(voiceover):
+                _append_structured_entry(
+                    entries,
+                    problems,
+                    normalized_unit_id,
+                    text=text,
+                    speaker=None,
+                    speaker_required=False,
+                    text_location=SpeechFieldLocation(("voiceover", index)),
+                    speaker_location=SpeechFieldLocation(("voiceover", index)),
+                )
+        elif voiceover is not None:
+            problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("voiceover",))))
     else:
         problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("utterances",))))
     return SpeechUnitSnapshot(normalized_unit_id, tuple(entries), tuple(problems))
@@ -433,6 +540,46 @@ def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
     return SpeechUnitSnapshot(normalized_unit_id, tuple(entries), tuple(problems))
 
 
+_SKELETON_ADAPTERS: dict[str, Callable[[Mapping[str, object]], SpeechUnitSnapshot]] = {
+    "segments": adapt_narration_segment,
+    "scenes": adapt_drama_scene,
+    "shots": adapt_ad_shot,
+    "video_units": adapt_video_unit,
+}
+
+
+def admit_script_unit(
+    skeleton_kind: str,
+    unit: Mapping[str, object],
+    *,
+    ignore_marker: bool = False,
+) -> SpeechAdmission:
+    """Evaluate one script unit through the adapter registered for its skeleton."""
+
+    try:
+        adapter = _SKELETON_ADAPTERS[skeleton_kind]
+    except KeyError as exc:
+        raise ValueError(f"未知剧本骨架: {skeleton_kind!r}") from exc
+    source = dict(unit)
+    if ignore_marker:
+        source.pop("needs_replan", None)
+    return SpeechAdmission(SpeechComposition.prepare(adapter(source)))
+
+
+def require_script_unit_admitted(
+    skeleton_kind: str,
+    unit: Mapping[str, object],
+    *,
+    ignore_marker: bool = False,
+) -> SpeechAdmission:
+    """Return admission or raise a structured blocker before any side effect."""
+
+    admission = admit_script_unit(skeleton_kind, unit, ignore_marker=ignore_marker)
+    if not admission.allowed:
+        raise SpeechAdmissionError(admission)
+    return admission
+
+
 def video_unit_replan_problems(
     unit: Mapping[str, object],
     *,
@@ -443,10 +590,7 @@ def video_unit_replan_problems(
     ``ignore_marker`` is for repair flows that must evaluate the edited content without
     letting the durable ``needs_replan`` marker make itself impossible to clear.
     """
-    source = dict(unit)
-    if ignore_marker:
-        source.pop("needs_replan", None)
-    return SpeechComposition.prepare(adapt_video_unit(source)).problems
+    return admit_script_unit("video_units", unit, ignore_marker=ignore_marker).problems
 
 
 def refresh_video_unit_replan_state(
@@ -477,6 +621,8 @@ def refresh_video_unit_replan_state(
 
 
 __all__ = [
+    "SpeechAdmission",
+    "SpeechAdmissionError",
     "SpeechComposition",
     "SpeechFieldLocation",
     "SpeechInputUtterance",
@@ -493,6 +639,8 @@ __all__ = [
     "adapt_drama_scene",
     "adapt_narration_segment",
     "adapt_video_unit",
+    "admit_script_unit",
     "refresh_video_unit_replan_state",
+    "require_script_unit_admitted",
     "video_unit_replan_problems",
 ]

@@ -107,7 +107,37 @@ export interface LoginResponse {
 
 /** Standard error response body from backend (mirrors FastAPI HTTPException detail). */
 export interface ErrorResponse {
-  detail: string | { msg?: string }[] | AgentFailureDetail;
+  detail: string | { msg?: string }[] | AgentFailureDetail | SpeechAdmission;
+}
+
+export interface SpeechAdmissionLocation {
+  path: (string | number)[];
+  line: number | null;
+}
+
+export interface SpeechAdmissionProblem {
+  code: "mixed_speech" | "needs_replan" | "parse_failed" | "empty_speaker";
+  unit_id: string;
+  locations: SpeechAdmissionLocation[];
+  reason: string;
+  action: string;
+}
+
+export interface SpeechAdmission {
+  allowed: false;
+  unit_id: string;
+  mode: null;
+  problems: SpeechAdmissionProblem[];
+}
+
+/** Preserves the structured speech blocker for UI actions and diagnostics. */
+export class SpeechAdmissionError extends Error {
+  readonly code = "speech_admission_blocked" as const;
+
+  constructor(public readonly admission: SpeechAdmission) {
+    super(formatSpeechAdmission(admission));
+    this.name = "SpeechAdmissionError";
+  }
 }
 
 /** Structured detail returned when the local Agent process cannot start. */
@@ -320,6 +350,9 @@ async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<vo
       .json()
       .catch(() => ({ detail: response.statusText })) as ErrorResponse;
     const detail = error.detail;
+    if (isSpeechAdmission(detail)) {
+      throw new SpeechAdmissionError(detail);
+    }
     throw new Error(typeof detail === "string" ? detail || fallbackMsg : fallbackMsg);
   }
 }
@@ -347,6 +380,52 @@ function isAgentFailureDetail(value: unknown): value is AgentFailureDetail {
     && typeof detail.failure === "object"
     && !Array.isArray(detail.failure)
   );
+}
+
+function isSpeechAdmission(value: unknown): value is SpeechAdmission {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const detail = value as Record<string, unknown>;
+  return (
+    detail.allowed === false
+    && typeof detail.unit_id === "string"
+    && detail.mode === null
+    && Array.isArray(detail.problems)
+    && detail.problems.length > 0
+    && detail.problems.every((problem) => {
+      if (!problem || typeof problem !== "object" || Array.isArray(problem)) return false;
+      const entry = problem as Record<string, unknown>;
+      return (
+        ["mixed_speech", "needs_replan", "parse_failed", "empty_speaker"].includes(String(entry.code))
+        && typeof entry.unit_id === "string"
+        && Array.isArray(entry.locations)
+        && entry.locations.every((location) => {
+          if (!location || typeof location !== "object" || Array.isArray(location)) return false;
+          const field = location as Record<string, unknown>;
+          return (
+            Array.isArray(field.path)
+            && field.path.every((part) => typeof part === "string" || typeof part === "number")
+            && (field.line === null || typeof field.line === "number")
+          );
+        })
+        && typeof entry.reason === "string"
+        && typeof entry.action === "string"
+      );
+    })
+  );
+}
+
+function formatSpeechAdmission(admission: SpeechAdmission): string {
+  const problem = admission.problems.find(({ code }) => code !== "needs_replan") ?? admission.problems[0];
+  const location = problem.locations
+    .map(({ path, line }) => `${path.join(".")}${line === null ? "" : `:${line + 1}`}`)
+    .join(", ");
+  const key = {
+    mixed_speech: "speech_admission_mixed_speech",
+    needs_replan: "speech_admission_needs_replan",
+    parse_failed: "speech_admission_parse_failed",
+    empty_speaker: "speech_admission_empty_speaker",
+  }[problem.code];
+  return i18n.t(`dashboard:${key}`, { unitId: problem.unit_id, location });
 }
 
 /** 为 fetch options 注入 Authorization header */
@@ -449,6 +528,9 @@ class API {
         .catch(() => ({ detail: response.statusText })) as ErrorResponse;
       if (isAgentFailureDetail(error.detail)) {
         throw new AgentFailureError(error.detail.message, error.detail.failure);
+      }
+      if (isSpeechAdmission(error.detail)) {
+        throw new SpeechAdmissionError(error.detail);
       }
       let message = "请求失败";
       if (typeof error.detail === "string") {

@@ -1690,4 +1690,8 @@ export default {
   'end_frame_picker_group_grid_cells': 'Ô lưới của tập này',
   'end_frame_picker_storyboard_label': 'Cảnh {{id}}',
   'end_frame_picker_grid_cell_label': '{{grid}} ô {{index}}',
+  'speech_admission_mixed_speech': 'Đơn vị video {{unitId}} chứa cả lời thoại nhân vật và lời dẫn tại {{location}}. Hãy lập kế hoạch lại để mỗi đơn vị chỉ có một chủ thể phát ngôn.',
+  'speech_admission_needs_replan': 'Đơn vị video {{unitId}} đang chờ lập kế hoạch lại ({{location}}). Hãy lập kế hoạch lại nội dung lời nói trước khi tạo video.',
+  'speech_admission_parse_failed': 'Không thể đọc nội dung lời nói của đơn vị video {{unitId}} tại {{location}}. Hãy sửa trường này trước khi tạo video.',
+  'speech_admission_empty_speaker': 'Đơn vị video {{unitId}} có lời thoại chưa chỉ định nhân vật tại {{location}}. Hãy chỉ định nhân vật trước khi tạo video.',
 } satisfies Record<keyof typeof enDashboard, string>;

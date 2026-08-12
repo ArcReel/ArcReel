@@ -40,6 +40,7 @@ from lib.json_io import domain_error_on_value_error
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
 from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
+from lib.speech_composition import admit_script_unit
 from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
@@ -1012,6 +1013,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
                     for scene in script.get("scenes", []):
                         if scene.get("scene_id") == scene_id:
                             matched_scene = scene
+                            previous_speech = admit_script_unit("scenes", scene, ignore_marker=True).preparation
                             # 更新允许的字段
                             for key, value in req.updates.items():
                                 if key in [
@@ -1033,6 +1035,11 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
                                             for name in value
                                         ]
                                     scene[key] = value
+                            admission = admit_script_unit("scenes", scene, ignore_marker=True)
+                            if admission.preparation != previous_speech:
+                                if not admission.allowed:
+                                    raise HTTPException(status_code=409, detail=admission.to_dict())
+                                scene.pop("needs_replan", None)
                             break
 
                     if matched_scene is None:
@@ -1122,12 +1129,18 @@ async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Trans
                     for shot in _require_ad_script(script, _t):
                         if shot.get("shot_id") == shot_id:
                             matched_shot = shot
+                            previous_speech = admit_script_unit("shots", shot, ignore_marker=True).preparation
                             for key, value in req.updates.items():
                                 if key in _SHOT_UPDATABLE_FIELDS:
                                     # note 允许显式置 None（清空备注），其余字段 None 视为未提供
                                     if value is None and key != "note":
                                         continue
                                     shot[key] = value
+                            admission = admit_script_unit("shots", shot, ignore_marker=True)
+                            if admission.preparation != previous_speech:
+                                if not admission.allowed:
+                                    raise HTTPException(status_code=409, detail=admission.to_dict())
+                                shot.pop("needs_replan", None)
                             break
 
                     if matched_shot is None:
@@ -1243,6 +1256,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                     for segment in script.get("segments", []):
                         if segment.get("segment_id") == segment_id:
                             matched_segment = segment
+                            previous_speech = admit_script_unit("segments", segment, ignore_marker=True).preparation
                             if req.duration_seconds is not None:
                                 segment["duration_seconds"] = req.duration_seconds
                             if req.segment_break is not None:
@@ -1260,6 +1274,11 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                                     segment[field] = [
                                         asset_name_comparison_key(name) for name in (getattr(req, field) or [])
                                     ]
+                            admission = admit_script_unit("segments", segment, ignore_marker=True)
+                            if admission.preparation != previous_speech:
+                                if not admission.allowed:
+                                    raise HTTPException(status_code=409, detail=admission.to_dict())
+                                segment.pop("needs_replan", None)
                             break
 
                     if matched_segment is None:

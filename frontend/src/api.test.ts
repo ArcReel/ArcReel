@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentFailureError, API, ConflictError } from "@/api";
+import { AgentFailureError, API, ConflictError, SpeechAdmissionError } from "@/api";
 
 type JsonResponseOptions = {
   ok?: boolean;
@@ -126,6 +126,43 @@ describe("API", () => {
         expect((error as AgentFailureError).message).toBe("Agent 启动失败");
         expect((error as AgentFailureError).code).toBe("agent_startup_failed");
         expect((error as AgentFailureError).failure).toEqual(failure);
+      }
+    });
+
+    it("preserves and presents a structured speech admission blocker", async () => {
+      const admission = {
+        allowed: false as const,
+        unit_id: "E1S01",
+        mode: null,
+        problems: [{
+          code: "needs_replan" as const,
+          unit_id: "E1S01",
+          locations: [{ path: ["needs_replan"], line: null }],
+          reason: "unit_marked_needs_replan",
+          action: "replan_unit",
+        }, {
+          code: "mixed_speech" as const,
+          unit_id: "E1S01",
+          locations: [
+            { path: ["utterances", 0, "text"], line: null },
+            { path: ["utterances", 1, "text"], line: null },
+          ],
+          reason: "character_and_narrator_mixed",
+          action: "replan_unit",
+        }],
+      };
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+        mockResponse({ ok: false, status: 409, jsonData: { detail: admission } }),
+      ));
+
+      try {
+        await API.generateVideo("demo", "E1S01", "vid", "episode_1.json");
+        expect.fail("request should fail");
+      } catch (error) {
+        expect(error).toBeInstanceOf(SpeechAdmissionError);
+        expect((error as SpeechAdmissionError).admission).toEqual(admission);
+        expect((error as Error).message).toContain("E1S01");
+        expect((error as Error).message).toContain("utterances.0.text");
       }
     });
 

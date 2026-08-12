@@ -16,20 +16,26 @@ from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from lib.api_errors import ApiError, NotFoundError
-from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
+from lib.asset_types import asset_name_comparison_key
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import EpisodeScriptReboundError, get_project_manager, is_reference_video_project
-from lib.reference_video import assemble_shots_text, parse_prompt, rederive_unit_references
+from lib.reference_video import (
+    assemble_shots_text,
+    derive_references_from_text,
+    missing_registered_references,
+    parse_prompt,
+    rederive_unit_references,
+)
 from lib.reference_video.script_preview import build_script_preview
 from lib.reference_video.units import reference_unit_video_bucket, reference_video_bucket
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
-from lib.speech_composition import refresh_video_unit_replan_state, video_unit_replan_problems
+from lib.speech_composition import admit_script_unit, refresh_video_unit_replan_state
 from lib.version_manager import VersionManager
 from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
@@ -163,11 +169,7 @@ def _locked_episode_script(project_name: str, resolver: Callable[[dict], str], _
 
 def _validate_references_exist(project: dict, refs: list[dict], _t: Translator) -> None:
     """确保 references 都在 project.json 对应 bucket 中。"""
-    missing: list[str] = []
-    for r in refs:
-        bucket = normalize_asset_bucket(project.get(BUCKET_KEY.get(r["type"], "")))
-        if asset_name_comparison_key(r["name"]) not in bucket:
-            missing.append(f"{r['type']}:{r['name']}")
+    missing = missing_registered_references(refs, project)
     if missing:
         raise HTTPException(status_code=400, detail=_t("ref_not_registered", missing=", ".join(missing)))
 
@@ -211,9 +213,12 @@ def _build_unit_dict(
     return unit
 
 
-def _require_unit_ready(unit: dict, _t: Translator) -> None:
-    if video_unit_replan_problems(unit):
-        raise HTTPException(status_code=409, detail=_t("ref_unit_needs_replan"))
+def _require_unit_ready(unit: dict, *, ignore_marker: bool = False, allow_blank_draft: bool = False) -> None:
+    if allow_blank_draft and not assemble_shots_text(unit.get("shots") or []).strip():
+        return
+    admission = admit_script_unit("video_units", unit, ignore_marker=ignore_marker)
+    if not admission.allowed:
+        raise HTTPException(status_code=409, detail=admission.to_dict())
 
 
 # ============ 端点：列出 + 新建 ============
@@ -242,11 +247,15 @@ async def add_unit(
     _t: Translator,
 ) -> dict[str, Any]:
     refs = _normalized_refs(req.references)
+    references_supplied = "references" in req.model_fields_set
 
     # 时长是 unit 级单一真相：请求未给出时按项目能力解析默认档位（异步 IO 不进项目锁临界区）
     duration_seconds = req.duration_seconds
     if duration_seconds is None:
         project, _script, _sf = _load_episode_script(project_name, episode, _t)
+        if not references_supplied:
+            derived_refs, _missing = derive_references_from_text(req.prompt, project)
+            refs = [reference.model_dump() for reference in derived_refs]
         duration_seconds = default_unit_duration(
             await resolve_project_duration_context(
                 project, capability=reference_video_bucket(with_references=bool(refs))
@@ -255,7 +264,9 @@ async def add_unit(
             with_references=bool(refs),
         )
 
-    with _locked_episode_script(project_name, _episode_script_resolver(episode, _t, refs), _t) as script:
+    project_out: dict[str, dict] = {}
+    resolver = _episode_script_resolver(episode, _t, refs, project_out=project_out)
+    with _locked_episode_script(project_name, resolver, _t) as script:
         # unit_id 在锁内基于 fresh script 计算，避免并发新增撞 ID
         unit = _build_unit_dict(
             unit_id=_next_unit_id(script, episode),
@@ -265,6 +276,9 @@ async def add_unit(
             transition=req.transition_to_next,
             note=req.note,
         )
+        if not references_supplied:
+            rederive_unit_references([unit], project_out["project"])
+        _require_unit_ready(unit, ignore_marker=True, allow_blank_draft=True)
         script.setdefault("video_units", []).append(unit)
     return {"unit": unit}
 
@@ -307,6 +321,8 @@ async def patch_unit(
     with _locked_episode_script(project_name, resolver, _t) as script:
         unit = _find_unit(script, unit_id, _t)  # 未找到 raise 404 → 跳过写回
         previous_shots = unit.get("shots")
+        previous_references = unit.get("references")
+        previous_speech = admit_script_unit("video_units", unit, ignore_marker=True).preparation
 
         if refs is not None:
             unit["references"] = refs
@@ -327,11 +343,17 @@ async def patch_unit(
         body_changed = req.prompt is not None and unit.get("shots") != previous_shots
         if body_changed and refs is None:
             # references 是正文的机械派生物。调用方显式给 references 时尊重其人工排序；只改正文
-            # 时则必须用持锁复核后的 project 资产表重派生，避免旧引用继续决定 @图片N 绑定。
+            # 时则必须用持锁复核后的 project 资产表重派生，既让准入识别已登记的非人物 mention，
+            # 也避免旧引用继续决定 @图片N 绑定。
             rederive_unit_references([unit], project_out["project"])
+        references_changed = refs is not None and unit.get("references") != previous_references
+        if body_changed or references_changed:
+            admission = admit_script_unit("video_units", unit, ignore_marker=True)
+            if admission.preparation != previous_speech and not admission.allowed:
+                raise HTTPException(status_code=409, detail=admission.to_dict())
         refresh_video_unit_replan_state(
             unit,
-            allow_clear=body_changed or req.duration_seconds is not None,
+            allow_clear=body_changed or references_changed or req.duration_seconds is not None,
             content_changed=body_changed,
         )
 
@@ -401,7 +423,7 @@ async def precheck_unit_duration(
     """
     project, script, _sf = _load_episode_script(project_name, episode, _t)
     unit = _find_unit(script, unit_id, _t)
-    _require_unit_ready(unit, _t)
+    _require_unit_ready(unit)
 
     # ctx 按 unit 定桶解析（无参考图退化镜头 → i2v），与执行期实际取档的模型同桶。
     slot = precheck_unit(
@@ -466,7 +488,7 @@ async def generate_unit(
 ) -> dict[str, Any]:
     project, script, script_file = _load_episode_script(project_name, episode, _t)
     unit = _find_unit(script, unit_id, _t)  # raises 404 if missing
-    _require_unit_ready(unit, _t)
+    _require_unit_ready(unit)
     guard_prompt = assemble_shots_text(unit.get("shots") or [])
 
     # 经统一守卫点构造：空提示词的结构校验在此当场拒绝（400），与 SDK 入队路径一致，

@@ -17,7 +17,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.reference_video import rederive_unit_references
+from lib.reference_video import missing_registered_references, rederive_unit_references
 from lib.script_editor import (
     ScriptEditError,
     insert_segment,
@@ -26,11 +26,29 @@ from lib.script_editor import (
     resolve_items,
     split_segment,
 )
-from lib.speech_composition import refresh_video_unit_replan_state
+from lib.speech_composition import (
+    SpeechAdmissionError,
+    admit_script_unit,
+    refresh_video_unit_replan_state,
+    require_script_unit_admitted,
+)
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 
 # 改了这些顶层字段路径的分镜须紧接着重新生成对应图/视频（工具不自动作废旧资产）。
 _REGEN_TRIGGER_FIELDS = ("image_prompt", "video_prompt")
+
+
+def _speech_admission_error(name: str, exc: SpeechAdmissionError) -> dict[str, Any]:
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": f"{name} 失败: unit {exc.admission.unit_id} 发声准入未通过；请按 problems 的 action 修复",
+            }
+        ],
+        "is_error": True,
+        "speech_admission": exc.admission.to_dict(),
+    }
 
 
 def _item_ids(script: dict[str, Any]) -> list[str]:
@@ -99,15 +117,15 @@ def patch_episode_script_tool(ctx: ToolContext):
                     scene_id = str(raw_id)
                     if not isinstance(field_map, dict) or not field_map:
                         raise ScriptEditError(f"分镜 {scene_id} 的编辑必须是非空 {{ 字段路径: 值 }} 映射")
-                    unit = (
-                        next(
-                            (item for item in items if isinstance(item, dict) and str(item.get(id_field)) == scene_id),
-                            None,
-                        )
-                        if kind == "video_units"
-                        else None
+                    unit = next(
+                        (item for item in items if isinstance(item, dict) and str(item.get(id_field)) == scene_id),
+                        None,
                     )
                     previous_shots = unit.get("shots") if unit is not None else None
+                    previous_references = unit.get("references") if unit is not None else None
+                    previous_speech = (
+                        admit_script_unit(kind, unit, ignore_marker=True).preparation if unit is not None else None
+                    )
                     fields: list[str] = []
                     for raw_field, value in field_map.items():
                         field = str(raw_field)
@@ -118,14 +136,31 @@ def patch_episode_script_tool(ctx: ToolContext):
                         fields.append(field)
                         if field.split(".", 1)[0] in _REGEN_TRIGGER_FIELDS and scene_id not in regen_ids:
                             regen_ids.append(scene_id)
+                    edited_roots = {field.split(".", 1)[0] for field in fields}
+                    if unit is not None and kind == "video_units" and "references" in edited_roots:
+                        missing = missing_registered_references(unit.get("references"), project)
+                        if missing:
+                            raise ScriptEditError(f"references 包含未登记资产: {', '.join(missing)}")
+                    body_changed = False
                     if unit is not None:
-                        edited_roots = {field.split(".", 1)[0] for field in fields}
-                        body_changed = "shots" in edited_roots and unit.get("shots") != previous_shots
+                        body_changed = (
+                            kind == "video_units" and "shots" in edited_roots and unit.get("shots") != previous_shots
+                        )
                         if body_changed:
                             rederive_unit_references([unit], project)
+                        admission = admit_script_unit(kind, unit, ignore_marker=True)
+                        if admission.preparation != previous_speech:
+                            if not admission.allowed:
+                                raise SpeechAdmissionError(admission)
+                            if kind != "video_units":
+                                unit.pop("needs_replan", None)
+                    if unit is not None and kind == "video_units":
+                        references_changed = (
+                            "references" in edited_roots and unit.get("references") != previous_references
+                        )
                         refresh_video_unit_replan_state(
                             unit,
-                            allow_clear=body_changed or "duration_seconds" in edited_roots,
+                            allow_clear=body_changed or references_changed or "duration_seconds" in edited_roots,
                             content_changed=body_changed,
                         )
                     applied.append((scene_id, fields))
@@ -138,6 +173,8 @@ def patch_episode_script_tool(ctx: ToolContext):
                     "须紧接着重新生成对应图/视频，否则会留下「新 prompt + 旧画面」的陈旧。"
                 )
             return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+        except SpeechAdmissionError as exc:
+            return _speech_admission_error("patch_episode_script", exc)
         except Exception as exc:  # noqa: BLE001
             return tool_error("patch_episode_script", exc)
 
@@ -168,12 +205,26 @@ def insert_segment_tool(ctx: ToolContext):
             script_filename = validate_script_filename(args["script"])
             after_id = str(args["after_id"])
             item = args["item"]
-            with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
+            project_out: dict[str, dict[str, Any]] = {}
+
+            def _resolve_script(project: dict[str, Any]) -> str:
+                project_out["project"] = project
+                return script_filename
+
+            with ctx.pm.locked_episode_script(ctx.project_name, _resolve_script) as script:
                 insert_segment(script, after_id, item)
+                items, _id_field, kind = resolve_items(script)
+                anchor_index = next(i for i, entry in enumerate(items) if str(entry.get(_id_field)) == after_id)
+                inserted = items[anchor_index + 1]
+                if kind == "video_units":
+                    rederive_unit_references([inserted], project_out["project"])
+                require_script_unit_admitted(kind, inserted, ignore_marker=True)
                 new_ids = _item_ids(script)
             return {
                 "content": [{"type": "text", "text": f"✅ 已在 {after_id} 之后插入新分镜\n当前分镜顺序: {new_ids}"}]
             }
+        except SpeechAdmissionError as exc:
+            return _speech_admission_error("insert_segment", exc)
         except Exception as exc:  # noqa: BLE001
             return tool_error("insert_segment", exc)
 
@@ -236,14 +287,29 @@ def split_segment_tool(ctx: ToolContext):
             script_filename = validate_script_filename(args["script"])
             item_id = str(args["id"])
             parts = args["parts"]
-            with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
+            project_out: dict[str, dict[str, Any]] = {}
+
+            def _resolve_script(project: dict[str, Any]) -> str:
+                project_out["project"] = project
+                return script_filename
+
+            with ctx.pm.locked_episode_script(ctx.project_name, _resolve_script) as script:
                 split_segment(script, item_id, parts)
+                items, id_field, kind = resolve_items(script)
+                anchor_index = next(i for i, item in enumerate(items) if str(item.get(id_field)) == item_id)
+                generated = items[anchor_index : anchor_index + len(parts)]
+                if kind == "video_units":
+                    rederive_unit_references(generated, project_out["project"])
+                for item in generated:
+                    require_script_unit_admitted(kind, item, ignore_marker=True)
                 new_ids = _item_ids(script)
             return {
                 "content": [
                     {"type": "text", "text": f"✅ 已把分镜 {item_id} 拆为 {len(parts)} 份\n当前分镜顺序: {new_ids}"}
                 ]
             }
+        except SpeechAdmissionError as exc:
+            return _speech_admission_error("split_segment", exc)
         except Exception as exc:  # noqa: BLE001
             return tool_error("split_segment", exc)
 

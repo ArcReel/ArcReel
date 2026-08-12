@@ -74,6 +74,7 @@ from lib.script_models import (
     build_drama_normalized_script_model,
     build_reference_units_step1_model,
 )
+from lib.speech_composition import admit_script_unit
 from lib.speech_rate import project_speech_rate_override
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
@@ -555,6 +556,12 @@ def normalize_drama_script_tool(ctx: ToolContext):
             raw_scenes = content.get("scenes")
             if not isinstance(raw_scenes, list) or not raw_scenes:
                 raise ValueError("step1 规范化内容结构异常：scenes 必须是非空的场景对象数组")
+            for scene in raw_scenes:
+                admission = admit_script_unit("scenes", scene, ignore_marker=True)
+                if admission.allowed:
+                    scene.pop("needs_replan", None)
+                else:
+                    scene["needs_replan"] = True
 
             drafts_dir = episode_drafts_dir(project_path, episode)
             drafts_dir.mkdir(parents=True, exist_ok=True)

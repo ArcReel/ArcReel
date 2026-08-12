@@ -1692,4 +1692,8 @@ export default {
   'end_frame_picker_group_grid_cells': 'Grid cells in this episode',
   'end_frame_picker_storyboard_label': 'Shot {{id}}',
   'end_frame_picker_grid_cell_label': '{{grid}} cell {{index}}',
+  'speech_admission_mixed_speech': 'Video unit {{unitId}} contains both character speech and narration at {{location}}. Replan it so one unit has one speech owner.',
+  'speech_admission_needs_replan': 'Video unit {{unitId}} is waiting for replanning ({{location}}). Replan its spoken content before generating video.',
+  'speech_admission_parse_failed': 'Video unit {{unitId}} has spoken content that cannot be read at {{location}}. Fix that field before generating video.',
+  'speech_admission_empty_speaker': 'Video unit {{unitId}} has character dialogue without a speaker at {{location}}. Assign a speaker before generating video.',
 };

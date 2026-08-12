@@ -60,7 +60,7 @@ from lib.reference_video.quarantine import (
     quarantine_path,
     read_quarantine,
 )
-from lib.reference_video.shot_parser import render_shots_text
+from lib.reference_video.shot_parser import derive_references_from_text, parse_prompt, render_shots_text
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     AdEpisodeScript,
@@ -85,7 +85,7 @@ from lib.script_review import (
     migrate_step1_draft_in_place,
 )
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
-from lib.speech_composition import video_unit_replan_problems
+from lib.speech_composition import admit_script_unit, require_script_unit_admitted, video_unit_replan_problems
 from lib.speech_rate import project_speech_rate_override
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
@@ -368,6 +368,8 @@ class ScriptGenerator:
         content = self._load_drama_step1_content(episode)
         raw_scenes = content.get("scenes")
         content_scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
+        for scene in content_scenes:
+            require_script_unit_admitted("scenes", scene)
         await self._assert_drama_step1_durations(content_scenes, episode=episode, gen_mode=gen_mode)
 
         logger.info("正在生成第 %d 集剧本（drama step2 视觉层）...", episode)
@@ -1104,7 +1106,13 @@ class ScriptGenerator:
             stored_shots = unit.get("shots") or []
             text = render_shots_text(stored_shots)
             try:
-                parsed_shots, _refs = validate_unit_text(label, text, self.project_json, max_refs=max_refs)
+                parsed_shots, _refs = validate_unit_text(
+                    label,
+                    text,
+                    self.project_json,
+                    unit_id=str(unit["unit_id"]),
+                    max_refs=max_refs,
+                )
                 if len(parsed_shots) != len(stored_shots):
                     # 落盘的单个 shot 正文里又嵌了 `镜头N：`（Agent 可裸写剧本 JSON）：渲染回书写层
                     # 再解析会多切出镜头，step2 按多出来的镜头数展开，而合并时比对的是落盘的 shots
@@ -1118,13 +1126,23 @@ class ScriptGenerator:
                 validate_dialogue_load(
                     label, text, int(unit["duration_seconds"]), source_language, speech_rate_override
                 )
-            except DraftViolation as e:
-                raise DraftViolation(
-                    f"{e}；这段正文来自 step1（拆分产出或手工编辑），step2 会逐字保留它，"
-                    "请先在 Web 端修正该 unit 的 step1 正文或时长并重新审阅确认",
-                    code=e.code,
-                    label=label,
-                ) from e
+            except DraftViolation as exc:
+                enriched = [
+                    DraftViolation(
+                        f"{item}；这段正文来自 step1（拆分产出或手工编辑），step2 会逐字保留它，"
+                        "请先在 Web 端修正该 unit 的 step1 正文或时长并重新审阅确认",
+                        code=item.code,
+                        label=label,
+                        line=item.line,
+                        locations=item.locations,
+                        reason=item.reason,
+                        action=item.action,
+                    )
+                    for item in violation_items(exc)
+                ]
+                if len(enriched) == 1:
+                    raise enriched[0] from exc
+                raise DraftViolations(enriched) from exc
 
     def _merge_reference_visual(
         self,
@@ -1366,12 +1384,20 @@ class ScriptGenerator:
         units: list[dict] = []
         for ordinal, source in enumerate(flat.units, start=1):
             unit_id = f"E{episode}U{ordinal}"
-            shots, references = validate_unit_text(
-                f"unit {unit_id}",
-                source.text,
-                self.project_json,
-                max_refs=None,
-            )
+            try:
+                shots, references = validate_unit_text(
+                    f"unit {unit_id}",
+                    source.text,
+                    self.project_json,
+                    max_refs=None,
+                )
+            except DraftViolations as exc:
+                if not exc.items or any(
+                    item.code not in {"mixed_speech", "empty_speaker", "parse_failed"} for item in exc.items
+                ):
+                    raise
+                shots, _mentions = parse_prompt(source.text)
+                references, _missing = derive_references_from_text(source.text, self.project_json)
             unit: dict = {
                 "unit_id": unit_id,
                 "shots": [shot.model_dump() for shot in shots],
@@ -1489,6 +1515,15 @@ class ScriptGenerator:
                 s[id_field] = _rewrite_episode_prefix(s.get(id_field), ep)
                 if reference_unit_durations is not None:
                     rewritten_output_ids.append(str(s[id_field]))
+
+        for item in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
+            if not isinstance(item, dict):
+                continue
+            admission = admit_script_unit(kind, item, ignore_marker=True)
+            if admission.allowed:
+                item.pop("needs_replan", None)
+            else:
+                item["needs_replan"] = True
 
         if reference_unit_durations is not None:
             # unit_id 集合须与 step1 完全一致才覆盖时长：LLM 漏写某个已确认 unit、或输出

@@ -140,6 +140,11 @@ def test_replan_shell_and_mixed_speech_are_blocked_before_enqueue(ad_client: Tes
 
     response = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/generate")
     assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["allowed"] is False
+    assert detail["unit_id"] == "E1U1"
+    assert detail["problems"][0]["code"] == "needs_replan"
+    assert detail["problems"][0]["locations"] == [{"path": ["needs_replan"], "line": None}]
     ad_client.fake_queue.enqueue_task.assert_not_awaited()  # type: ignore[attr-defined]
 
 

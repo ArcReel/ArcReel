@@ -26,6 +26,7 @@ from lib.project_manager import ProjectManager
 from lib.reference_video import rederive_unit_references
 from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, read_quarantine, violation_entries
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft, ReferenceStep1Draft
+from lib.speech_composition import SpeechAdmission, admit_script_unit
 from server.agent_runtime.sdk_tools._context import reference_unit_duration_tiers, resolve_video_caps
 
 logger = logging.getLogger(__name__)
@@ -44,10 +45,43 @@ _STEP1_CONTENT_MODEL: dict[str, type[BaseModel]] = {
 class ScriptReviewError(Exception):
     """gate 操作的领域错误。``code`` 供 router 映射 HTTP 状态与 i18n key；``message`` 为技术细节。"""
 
-    def __init__(self, code: str, message: str = ""):
+    def __init__(self, code: str, message: str = "", *, admission: SpeechAdmission | None = None):
         super().__init__(message or code)
         self.code = code
         self.message = message
+        self.admission = admission
+
+
+def _require_changed_speech_admitted(kind: str, previous: object, candidate: object) -> None:
+    """Reject only new or edited speech content, leaving legacy mixed metadata editable."""
+
+    if kind == "drama":
+        root, skeleton, id_field, speech_fields = "scenes", "scenes", "scene_id", ("utterances",)
+    elif kind == "reference_video":
+        root, skeleton, id_field, speech_fields = "units", "video_units", "unit_id", ("shots",)
+    else:
+        return
+    if not isinstance(candidate, dict) or not isinstance(candidate.get(root), list):
+        return
+    previous_units = previous.get(root) if isinstance(previous, dict) else None
+    previous_by_id = {
+        unit.get(id_field): unit
+        for unit in previous_units or []
+        if isinstance(unit, dict) and isinstance(unit.get(id_field), str)
+    }
+    for unit in candidate[root]:
+        if not isinstance(unit, dict) or not isinstance(unit.get(id_field), str):
+            continue
+        old = previous_by_id.get(unit[id_field])
+        speech_changed = old is None or any(old.get(field) != unit.get(field) for field in speech_fields)
+        if not speech_changed:
+            if isinstance(old, dict) and old.get("needs_replan") is True:
+                unit["needs_replan"] = True
+            continue
+        admission = admit_script_unit(skeleton, unit, ignore_marker=True)
+        if not admission.allowed:
+            raise ScriptReviewError("speech_admission", admission=admission)
+        unit.pop("needs_replan", None)
 
 
 class ScriptReviewService:
@@ -371,7 +405,12 @@ class ScriptReviewService:
         try:
             validated = model.model_validate(content).model_dump()
         except ValidationError as exc:
+            _require_changed_speech_admitted(kind, _read_json(path), content)
             raise ScriptReviewError("invalid_content", str(exc)) from exc
+        if kind == "drama":
+            for scene in validated["scenes"]:
+                if scene.get("needs_replan") is not True:
+                    scene.pop("needs_replan", None)
         # 入参的 None 表示「调用方无基线、不比对」；比对语义里的 None 另有含义（取基线时文件不存在），
         # 两者在此一次性转换，三个变体共用同一个 expected。
         expected = base_fingerprint if base_fingerprint is not None else script_review.UNCHECKED_FINGERPRINT
@@ -382,6 +421,7 @@ class ScriptReviewService:
                 rederive_unit_references(validated["units"], project)
                 # 写盘经单一出口：锁、基线比对、step2 隔离草稿清理都在 write_step1_locked 一处。
                 with script_review.step1_write_lock(project_path, episode):
+                    _require_changed_speech_admitted(kind, _read_json(path), validated)
                     script_review.write_step1_locked(project_path, episode, validated, expected_fingerprint=expected)
             else:
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -389,6 +429,7 @@ class ScriptReviewService:
                 # 基线比对同 rv 走 assert_base_fingerprint，两者的冲突判据不分叉。
                 with self.pm.file_lock(path):
                     script_review.assert_base_fingerprint(path, expected)
+                    _require_changed_speech_admitted(kind, _read_json(path), validated)
                     atomic_write_json(path, validated)
         except script_review.Step1WriteConflict as exc:
             raise ScriptReviewError("conflict", str(exc)) from exc
@@ -443,12 +484,28 @@ class ScriptReviewService:
             except ValidationError as exc:
                 raise ScriptReviewError("invalid_content", str(exc)) from exc
 
+            marked_shape = {
+                "drama": ("scenes", "scenes"),
+                "reference_video": ("units", "video_units"),
+            }.get(kind)
+            if marked_shape is not None:
+                root, skeleton = marked_shape
+                for unit in validated.model_dump()[root]:
+                    if unit.get("needs_replan") is not True:
+                        continue
+                    admission = admit_script_unit(skeleton, unit)
+                    raise ScriptReviewError("speech_admission", admission=admission)
+
             if kind == "reference_video":
                 # references 是从 shot 正文机械派生的字段（同 save_content）：agent / 人工可能绕过
                 # save_content 直改 step1 正文后直接确认，故确认前重派生并落盘。指纹按刚写盘的
                 # 这份对象直接算，确认记录与实际写入内容一致。
                 dumped = validated.model_dump()
                 rederive_unit_references(dumped["units"], project)
+                for unit in dumped["units"]:
+                    admission = admit_script_unit("video_units", unit)
+                    if not admission.allowed:
+                        raise ScriptReviewError("speech_admission", admission=admission)
                 # 单一写盘出口（已持同一把 per-path 锁，不再套 step1_write_lock）；同临界区
                 # 读改写无并发窗口，不做基线比对。重派生真的改了内容时，step2 隔离草稿的基底
                 # 随之失效，由出口按变更清理。

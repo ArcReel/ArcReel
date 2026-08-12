@@ -87,6 +87,28 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).not.toBeDisabled();
   });
 
+  it("localizes structured speech violations with their unit and field locations", async () => {
+    const state = quarantinedState();
+    state.quarantine!.violations = [{
+      code: "mixed_speech",
+      label: "unit E1U01",
+      message: "raw agent message",
+      line: null,
+      locations: [
+        { path: ["shots", 0, "text"], line: 1 },
+        { path: ["shots", 0, "text"], line: 2 },
+      ],
+      reason: "character_and_narrator_mixed",
+      action: "replan_unit",
+    }];
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
+
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    expect(await screen.findByText(/视频单元 E1U01.*同时包含角色台词和旁白/)).toHaveTextContent("shots.0.text:2");
+    expect(screen.queryByText("raw agent message")).not.toBeInTheDocument();
+  });
+
   it("confirms, then prefills a continue message into the assistant input without sending", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     const confirm = vi

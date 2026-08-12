@@ -288,6 +288,94 @@ def _client(monkeypatch, fake_pm, fake_calc):
 
 class TestProjectsRouter:
     @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("project_name", "script_file", "endpoint", "script", "request_body", "kind"),
+        [
+            (
+                "ready",
+                "narration.json",
+                "/api/v1/projects/ready/segments/E1S01",
+                {
+                    "content_mode": "narration",
+                    "segments": [
+                        {
+                            "segment_id": "E1S01",
+                            "duration_seconds": 4,
+                            "novel_text": "风吹过旷野。",
+                            "video_prompt": {},
+                        }
+                    ],
+                },
+                {"video_prompt": {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}},
+                "segments",
+            ),
+            (
+                "ready",
+                "episode_1.json",
+                "/api/v1/projects/ready/script-scenes/E1S01",
+                {
+                    "content_mode": "drama",
+                    "scenes": [{"scene_id": "E1S01", "duration_seconds": 4, "utterances": []}],
+                },
+                {
+                    "updates": {
+                        "utterances": [
+                            {"kind": "dialogue", "speaker": "Alice", "text": "快走。"},
+                            {"kind": "voiceover", "speaker": None, "text": "风吹过旷野。"},
+                        ]
+                    }
+                },
+                "scenes",
+            ),
+            (
+                "ad-ready",
+                "episode_1.json",
+                "/api/v1/projects/ad-ready/script-shots/E1S01",
+                {
+                    "content_mode": "ad",
+                    "shots": [
+                        {
+                            "shot_id": "E1S01",
+                            "duration_seconds": 4,
+                            "voiceover_text": "风吹过旷野。",
+                            "video_prompt": {},
+                        }
+                    ],
+                },
+                {"updates": {"video_prompt": {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}}},
+                "shots",
+            ),
+        ],
+    )
+    def test_three_storyboard_web_manual_edits_atomically_reject_mixed_speech_on_save(
+        self,
+        tmp_path,
+        monkeypatch,
+        project_name: str,
+        script_file: str,
+        endpoint: str,
+        script: dict,
+        request_body: dict,
+        kind: str,
+    ):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[(project_name, script_file)] = script
+        before = deepcopy(script)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        body = {"script_file": script_file, **request_body}
+
+        with client:
+            response = client.patch(endpoint, json=body)
+
+        assert response.status_code == 409
+        problem = response.json()["detail"]["problems"][0]
+        assert problem["code"] == "mixed_speech"
+        assert problem["reason"] == "character_and_narrator_mixed"
+        assert problem["action"] == "replan_unit"
+        assert kind in before
+        assert fake_pm.scripts[(project_name, script_file)] == before
+
+    @pytest.mark.unit
     def test_agent_profile_status_and_explicit_reset(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         client = _client(monkeypatch, fake_pm, _FakeCalc())
@@ -775,6 +863,64 @@ class TestProjectsRouter:
             assert seg2["props"] == []
 
     @pytest.mark.unit
+    def test_update_segment_allows_unchanged_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        prompt = {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}
+        fake_pm.scripts[("ready", "narration.json")] = {
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "duration_seconds": 4,
+                    "novel_text": "风吹过旷野。",
+                    "video_prompt": prompt,
+                    "needs_replan": True,
+                }
+            ],
+        }
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={"script_file": "narration.json", "video_prompt": prompt, "note": "保留历史媒体"},
+            )
+
+        assert response.status_code == 200
+        assert response.json()["segment"]["note"] == "保留历史媒体"
+        assert response.json()["segment"]["needs_replan"] is True
+
+    @pytest.mark.unit
+    def test_update_segment_allows_visual_prompt_edit_on_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "narration.json")] = {
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "duration_seconds": 4,
+                    "novel_text": "风吹过旷野。",
+                    "video_prompt": {"action": "转身", "dialogue": [{"speaker": "Alice", "line": "快走。"}]},
+                    "needs_replan": True,
+                }
+            ],
+        }
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={
+                    "script_file": "narration.json",
+                    "video_prompt": {"action": "慢慢转身", "dialogue": [{"speaker": "Alice", "line": "快走。"}]},
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["segment"]["video_prompt"]["action"] == "慢慢转身"
+        assert response.json()["segment"]["needs_replan"] is True
+
+    @pytest.mark.unit
     def test_update_segment_rejects_drama_script_with_residual_segments(self, tmp_path, monkeypatch):
         # drama 脚本残留 segments 键不应被当 narration 改写：须返回 400 而非放行
         fake_pm = _FakePM(tmp_path)
@@ -874,8 +1020,8 @@ class TestProjectsRouter:
             assert update_overview.json()["overview"]["synopsis"] == "new synopsis"
 
     @pytest.mark.unit
-    def test_update_scene_accepts_utterances(self, tmp_path, monkeypatch):
-        # drama 分镜详情编辑场景级发声序列：utterances 在白名单内，PATCH 写回并持久化
+    def test_update_scene_atomically_rejects_mixed_utterances(self, tmp_path, monkeypatch):
+        # 人工编辑不能把一次视频请求写成角色发声 + 叙述旁白混合单元。
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "episode_1.json")] = {
             "content_mode": "drama",
@@ -898,14 +1044,81 @@ class TestProjectsRouter:
         ]
 
         with client:
-            patched = client.patch(
+            rejected = client.patch(
                 "/api/v1/projects/ready/script-scenes/001",
                 json={"script_file": "episode_1.json", "updates": {"utterances": utterances}},
             )
-            assert patched.status_code == 200
-            assert patched.json()["scene"]["utterances"] == utterances
-            # 落库持久化（不被白名单静默丢弃）
-            assert fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]["utterances"] == utterances
+            assert rejected.status_code == 409
+            detail = rejected.json()["detail"]
+            assert detail["problems"][0]["code"] == "mixed_speech"
+            assert detail["problems"][0]["action"] == "replan_unit"
+            assert fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]["utterances"] == []
+
+    @pytest.mark.unit
+    def test_update_scene_allows_unchanged_legacy_mixed_utterances(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        utterances = [
+            {"kind": "dialogue", "speaker": "Alice", "text": "你来了。"},
+            {"kind": "voiceover", "speaker": None, "text": "命运就此转向。"},
+        ]
+        fake_pm.scripts[("ready", "episode_1.json")] = {
+            "content_mode": "drama",
+            "scenes": [{"scene_id": "001", "duration_seconds": 8, "utterances": utterances}],
+        }
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/script-scenes/001",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {"utterances": utterances, "note": "保留历史媒体"},
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["scene"]["note"] == "保留历史媒体"
+
+    @pytest.mark.unit
+    def test_update_scene_rejects_legacy_prompt_edit_that_introduces_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        original_prompt = {"action": "转身"}
+        fake_pm.scripts[("ready", "episode_1.json")] = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "001",
+                    "duration_seconds": 8,
+                    "video_prompt": original_prompt,
+                    "voiceover": ["命运就此转向。"],
+                }
+            ],
+        }
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/script-scenes/001",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {
+                        "video_prompt": {
+                            "action": "转身",
+                            "dialogue": [{"speaker": "Alice", "line": "跟紧我。"}],
+                        }
+                    },
+                },
+            )
+
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["problems"][0]["code"] == "mixed_speech"
+        assert detail["problems"][0]["locations"] == [
+            {"path": ["video_prompt", "dialogue", 0, "line"], "line": None},
+            {"path": ["voiceover", 0], "line": None},
+        ]
+        saved = fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]
+        assert saved["video_prompt"] == original_prompt
 
     @staticmethod
     def _ad_script(shot_ids: list[str]) -> dict:
@@ -917,6 +1130,7 @@ class TestProjectsRouter:
                     "section": "hook",
                     "duration_seconds": 4,
                     "voiceover_text": f"口播 {sid}",
+                    "video_prompt": {},
                     "products_in_shot": [],
                 }
                 for sid in shot_ids
@@ -951,6 +1165,56 @@ class TestProjectsRouter:
             # 持久化落到脚本存储
             saved = fake_pm.scripts[("ad-ready", "episode_1.json")]["shots"][0]
             assert saved["voiceover_text"] == "新口播"
+
+    @pytest.mark.unit
+    def test_update_shot_allows_unchanged_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        script = self._ad_script(["E1S01"])
+        script["shots"][0]["video_prompt"] = {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}
+        fake_pm.scripts[("ad-ready", "episode_1.json")] = script
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ad-ready/script-shots/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {"voiceover_text": "口播 E1S01", "note": "保留历史媒体"},
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["shot"]["note"] == "保留历史媒体"
+
+    @pytest.mark.unit
+    def test_update_shot_allows_visual_prompt_edit_on_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        script = self._ad_script(["E1S01"])
+        script["shots"][0]["video_prompt"] = {
+            "action": "转身",
+            "dialogue": [{"speaker": "Alice", "line": "快走。"}],
+        }
+        script["shots"][0]["needs_replan"] = True
+        fake_pm.scripts[("ad-ready", "episode_1.json")] = script
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ad-ready/script-shots/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {
+                        "video_prompt": {
+                            "action": "慢慢转身",
+                            "dialogue": [{"speaker": "Alice", "line": "快走。"}],
+                        }
+                    },
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["shot"]["video_prompt"]["action"] == "慢慢转身"
+        assert response.json()["shot"]["needs_replan"] is True
 
     @pytest.mark.unit
     def test_update_shot_ignores_non_whitelisted_fields(self, tmp_path, monkeypatch):

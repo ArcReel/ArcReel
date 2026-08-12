@@ -168,6 +168,9 @@ export interface ScriptReviewViolation {
   label: string;
   message: string;
   line: number | null;
+  locations?: Array<{ path: Array<string | number>; line: number | null }>;
+  reason?: string;
+  action?: string;
 }
 
 /**

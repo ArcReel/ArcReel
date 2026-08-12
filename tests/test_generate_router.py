@@ -9,6 +9,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
 class _FakeQueue:
@@ -64,6 +65,8 @@ class _FakePM:
                 {
                     "segment_id": "E1S01",
                     "duration_seconds": 4,
+                    "novel_text": "风吹过旷野。",
+                    "video_prompt": {},
                     "segment_break": False,
                     "characters_in_segment": [],
                     "scenes": [],
@@ -73,6 +76,8 @@ class _FakePM:
                 {
                     "segment_id": "E1S02",
                     "duration_seconds": 4,
+                    "novel_text": "风吹过旷野。",
+                    "video_prompt": {},
                     "segment_break": False,
                     "characters_in_segment": ["Alice"],
                     "scenes": ["祠堂"],
@@ -82,6 +87,8 @@ class _FakePM:
                 {
                     "segment_id": "E1S03",
                     "duration_seconds": 4,
+                    "novel_text": "风吹过旷野。",
+                    "video_prompt": {},
                     "segment_break": True,
                     "characters_in_segment": ["Alice"],
                     "scenes": ["祠堂"],
@@ -188,7 +195,6 @@ class TestGenerateRouter:
                         "action": "奔跑",
                         "camera_motion": "Static",
                         "ambiance_audio": "雨声",
-                        "dialogue": [{"speaker": "Alice", "line": "快走"}],
                     },
                 },
             )
@@ -201,6 +207,161 @@ class TestGenerateRouter:
             assert call["task_type"] == "video"
             assert call["media_type"] == "video"
             assert call["payload"]["duration_seconds"] == 5
+
+    @pytest.mark.unit
+    def test_legacy_drama_dialogue_can_enqueue_single_video(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["content_mode"] = "drama"
+        fake_pm.script = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "video_prompt": {
+                        "action": "阿离转身",
+                        "camera_motion": "Static",
+                        "ambiance_audio": "风声",
+                        "dialogue": [{"speaker": "Alice", "line": "跟紧我。"}],
+                    },
+                    "voiceover": [],
+                    "generated_assets": {},
+                }
+            ],
+        }
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "阿离转身"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert len(fake_queue.calls) == 1
+
+    @pytest.mark.unit
+    def test_speech_free_legacy_drama_can_enqueue_single_video(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["content_mode"] = "drama"
+        fake_pm.script = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "video_prompt": {
+                        "action": "阿离转身",
+                        "camera_motion": "Static",
+                        "ambiance_audio": "风声",
+                    },
+                    "generated_assets": {},
+                }
+            ],
+        }
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "阿离转身"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert len(fake_queue.calls) == 1
+
+    @pytest.mark.unit
+    def test_legacy_narration_string_prompt_can_enqueue_single_video(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["video_prompt"] = "Slow pan across the field"
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "Slow pan across the field"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert len(fake_queue.calls) == 1
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("content_mode", "root", "id_field", "narrator_field"),
+        [
+            ("narration", "segments", "segment_id", "novel_text"),
+            ("ad", "shots", "shot_id", "voiceover_text"),
+        ],
+    )
+    def test_narrator_video_request_rejects_mixed_queued_prompt(
+        self, tmp_path, monkeypatch, content_mode, root, id_field, narrator_field
+    ):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["content_mode"] = content_mode
+        fake_pm.script = {
+            "content_mode": content_mode,
+            root: [
+                {
+                    id_field: "E1S01",
+                    narrator_field: "风吹过旷野。",
+                    "video_prompt": {},
+                    "generated_assets": {},
+                }
+            ],
+        }
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "prompt": {"dialogue": [{"speaker": "阿离", "line": "快走。"}]},
+                },
+            )
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["problems"][0]["code"] == "mixed_speech"
+        assert fake_queue.calls == []
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "case",
+        [case for case in SPEECH_CONTRACT_CASES if case.generation_mode == "storyboard"],
+        ids=lambda case: case.route_id,
+    )
+    def test_three_storyboard_web_video_entries_return_structured_speech_admission_without_enqueuing(
+        self, tmp_path, monkeypatch, case: SpeechContractCase
+    ):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project.update({"content_mode": case.content_mode, "generation_mode": "storyboard"})
+        fake_pm.script = case.script()
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "奔跑"},
+            )
+
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        problem = detail["problems"][0]
+        assert detail["allowed"] is False
+        assert detail["unit_id"] == "E1S01"
+        assert problem["code"] == "mixed_speech"
+        assert [tuple(location["path"]) for location in problem["locations"]] == list(case.expected_locations)
+        assert problem["reason"] == "character_and_narrator_mixed"
+        assert problem["action"] == "replan_unit"
+        assert fake_queue.calls == []
 
     @pytest.mark.unit
     def test_video_enqueue_bucket_capability_error_returns_400(self, tmp_path, monkeypatch):

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { API } from "@/api";
+import { API, SpeechAdmissionError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import type { DurationConfirmItem } from "@/components/canvas/reference/ReferenceDurationConfirmDialog";
@@ -93,15 +93,23 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
 
       const ok: DurationConfirmItem[] = [];
       let failed = 0;
+      const admissionMessages = new Set<string>();
       for (const result of results) {
         if (!result) continue;
         if ("error" in result) {
-          failed += 1;
+          if (result.error instanceof SpeechAdmissionError) {
+            admissionMessages.add(result.error.message);
+          } else {
+            failed += 1;
+          }
           continue;
         }
         ok.push(result);
       }
       // 预检失败的单元不入队：无从判断成片时长是否与剧本一致，静默按档位生成会烧掉配额
+      if (admissionMessages.size > 0) {
+        useAppStore.getState().pushToast(Array.from(admissionMessages).join("\n"), "error");
+      }
       if (failed > 0) {
         useAppStore
           .getState()

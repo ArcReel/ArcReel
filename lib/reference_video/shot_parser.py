@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from collections.abc import Collection, Iterator
+from collections.abc import Collection, Iterator, Mapping
 from typing import Any
 
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
@@ -460,3 +460,22 @@ def resolve_references(
         else:
             missing.append(name)
     return refs, missing
+
+
+def missing_registered_references(references: object, project: dict) -> list[str]:
+    """Return declared ``type:name`` references absent from the matching project asset bucket."""
+
+    missing: list[str] = []
+    if not isinstance(references, list):
+        return missing
+    for reference in references:
+        if not isinstance(reference, Mapping):
+            continue
+        reference_type = reference.get("type")
+        name = reference.get("name")
+        if not isinstance(reference_type, str) or reference_type not in BUCKET_KEY or not isinstance(name, str):
+            continue
+        bucket = normalize_asset_bucket(project.get(BUCKET_KEY[reference_type]))
+        if asset_name_comparison_key(name) not in bucket:
+            missing.append(f"{reference_type}:{name}")
+    return missing
