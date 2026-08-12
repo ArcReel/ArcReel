@@ -25,6 +25,7 @@ from lib.project_change_hints import project_change_source
 from lib.project_manager import EpisodeScriptReboundError, get_project_manager, is_reference_video_project
 from lib.reference_video import (
     assemble_shots_text,
+    derive_references_from_text,
     missing_registered_references,
     parse_prompt,
     rederive_unit_references,
@@ -252,6 +253,9 @@ async def add_unit(
     duration_seconds = req.duration_seconds
     if duration_seconds is None:
         project, _script, _sf = _load_episode_script(project_name, episode, _t)
+        if not references_supplied:
+            derived_refs, _missing = derive_references_from_text(req.prompt, project)
+            refs = [reference.model_dump() for reference in derived_refs]
         duration_seconds = default_unit_duration(
             await resolve_project_duration_context(
                 project, capability=reference_video_bucket(with_references=bool(refs))

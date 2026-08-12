@@ -473,7 +473,7 @@ def missing_registered_references(references: object, project: dict) -> list[str
             continue
         reference_type = reference.get("type")
         name = reference.get("name")
-        if reference_type not in BUCKET_KEY or not isinstance(name, str):
+        if not isinstance(reference_type, str) or reference_type not in BUCKET_KEY or not isinstance(name, str):
             continue
         bucket = normalize_asset_bucket(project.get(BUCKET_KEY[reference_type]))
         if asset_name_comparison_key(name) not in bucket:

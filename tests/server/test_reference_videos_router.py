@@ -128,6 +128,29 @@ def test_add_unit_without_duration_falls_back_to_model_slot(client: TestClient, 
 
 
 @pytest.mark.integration
+def test_add_unit_derives_omitted_references_before_selecting_duration_bucket(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """省略 references 时先从正文派生，默认时长按最终 r2v 单元定桶。"""
+    from server.routers import reference_videos as router_mod
+    from server.services.reference_video_tasks import ProjectDurationContext
+
+    ctx = ProjectDurationContext(supported_durations=(6, 9), resolution=None, provider_id="", model_name=None)
+    resolve_context = AsyncMock(return_value=ctx)
+    monkeypatch.setattr(router_mod, "resolve_project_duration_context", resolve_context)
+
+    response = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "镜头1：@[张三] 推门"},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["unit"]["references"] == [{"type": "character", "name": "张三"}]
+    assert response.json()["unit"]["duration_seconds"] == 6
+    assert resolve_context.await_args.kwargs["capability"] == "r2v"
+
+
+@pytest.mark.integration
 @pytest.mark.parametrize("duration_seconds", [0, -1])
 def test_add_unit_rejects_non_positive_duration(client: TestClient, duration_seconds: int):
     """显式非正时长须在请求边界被拒，不静默改写成 1 秒。"""

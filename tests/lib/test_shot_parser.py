@@ -3,6 +3,7 @@ import unicodedata
 import pytest
 
 from lib.reference_video.shot_parser import (
+    missing_registered_references,
     parse_prompt,
     render_mentions_as_subjects,
     render_shots_text,
@@ -207,6 +208,10 @@ def test_resolve_references_empty_input():
     refs, missing = resolve_references([], _proj())
     assert refs == []
     assert missing == []
+
+
+def test_missing_registered_references_skips_non_string_type():
+    assert missing_registered_references([{"type": [], "name": "张三"}], _proj(characters={"张三": {}})) == []
 
 
 def test_resolve_references_uses_priority_for_corrupt_shared_namespace():
