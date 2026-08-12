@@ -300,6 +300,15 @@ class TestInferEndpoint:
             ("wan3.0-image-edit", "openai", "openai-images"),
             ("wan-3-turbo-image-preview", "openai", "openai-images"),
             ("wan3.0-video-image-20260801", "openai", "openai-images"),
+            # 分隔符混用：下划线与连字符匹配宽度一致（WAN3_PATTERN 同时容忍二者）。
+            ("wan_3_turbo", "openai", "dashscope-async-video"),
+            ("wan_3.0-image", "openai", "openai-images"),
+            ("WAN_3_TURBO_IMAGE_TO_VIDEO", "openai", "dashscope-async-video"),
+            # 已知局限（非本 PR 引入、维持现状不修）：wan2 家族仅认字面 "wan2." 触发 is_wan_family，
+            # 连字符形态 wan-2.7 不触发，故其 image 变体会被裸 "wan" 命中 _VIDEO_PATTERN 误判为视频。
+            # wan2 字面量保留决策见 duration_presets 对应用例，此处锁定端点路由侧同一结论，防止
+            # 未来改动误当作待修 bug。
+            ("wan-2.7-image", "openai", "openai-video"),
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),

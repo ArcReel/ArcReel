@@ -924,9 +924,9 @@ class TestWan3:
         assert caps.reference_audio_per_image is False
 
     @pytest.mark.unit
-    @pytest.mark.parametrize("model", ["wan-3-turbo", "wan3-turbo"])
+    @pytest.mark.parametrize("model", ["wan-3-turbo", "wan3-turbo", "wan_3-turbo", "wan_3_turbo"])
     def test_alias_forms_get_wan3_capabilities(self, model):
-        """discovery 返回的连字符别名（endpoints.py 已路由到本后端）须认作 wan3.0，不落回默认档案。
+        """discovery 返回的连字符/下划线别名（endpoints.py 已路由到本后端）须认作 wan3.0，不落回默认档案。
 
         与 endpoints.infer_endpoint / duration_presets 共用 WAN3_PATTERN：三处不同宽即会出现
         "路由到本后端却被当通用型号丢失参考图/尾帧/音轨参数" 的矛盾。
@@ -1005,7 +1005,7 @@ class TestWan3:
         assert "audio" not in payload["parameters"]
 
     @pytest.mark.unit
-    @pytest.mark.parametrize("model", ["wan-3-turbo", "wan3-turbo"])
+    @pytest.mark.parametrize("model", ["wan-3-turbo", "wan3-turbo", "wan_3-turbo", "wan_3_turbo"])
     def test_audio_switch_is_sent_for_alias_forms(self, tmp_path, model):
         """别名同样按可控音轨型号分派，不落回恒有声默认档案。"""
         from lib.video_backends.dashscope import DashScopeVideoBackend
