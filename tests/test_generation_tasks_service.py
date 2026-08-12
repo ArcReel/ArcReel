@@ -177,6 +177,25 @@ from lib.storyboard_sequence import (
 )
 
 
+@pytest.mark.unit
+def test_storyboard_visual_basis_tracks_effective_aspect_ratio(tmp_path: Path) -> None:
+    storyboard = tmp_path / "storyboard.png"
+    storyboard.write_bytes(b"png")
+    common = {
+        "prompt": {"action": "跑"},
+        "storyboard_image": storyboard,
+        "end_frame_image": None,
+        "content_mode": "narration",
+        "utterances": None,
+        "voice_characters": None,
+    }
+
+    portrait = build_storyboard_video_visual_basis(**common, aspect_ratio="9:16")
+    landscape = build_storyboard_video_visual_basis(**common, aspect_ratio="16:9")
+
+    assert portrait.digest != landscape.digest
+
+
 class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
@@ -819,6 +838,7 @@ class TestGenerationTasks:
             prompt=visual_prompt,
             storyboard_image=project_path / "storyboards" / "scene_E1S01.png",
             end_frame_image=None,
+            aspect_ratio="9:16",
             content_mode="narration",
             utterances=None,
             voice_characters=None,

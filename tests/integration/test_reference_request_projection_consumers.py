@@ -110,6 +110,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
     monkeypatch.setattr(enqueue_videos, "prepare_current_reference_video_request_options", materialize_current_tts)
     monkeypatch.setattr(reference_videos, "tts_task_in_progress", AsyncMock(return_value=False))
     monkeypatch.setattr(enqueue_videos, "get_active_tasks_for_resources", no_active_tasks)
+    monkeypatch.setattr(enqueue_videos, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
     monkeypatch.setattr(reference_videos, "quote_video_request", quote_current)
     monkeypatch.setattr(enqueue_videos, "quote_video_request", quote_current)
     monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)

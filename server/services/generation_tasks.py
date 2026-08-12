@@ -44,7 +44,13 @@ from lib.narration_delivery import (
 )
 from lib.path_safety import safe_exists, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
-from lib.project_manager import EpisodeScriptReboundError, ProjectManager, find_episode, get_project_manager
+from lib.project_manager import (
+    EpisodeScriptReboundError,
+    ProjectManager,
+    find_episode,
+    get_project_manager,
+    is_reference_video_project,
+)
 from lib.prompt_builders import (
     append_product_fidelity_tail,
     build_character_prompt,
@@ -75,7 +81,7 @@ from lib.storyboard_sequence import (
 )
 from lib.thumbnail import extract_video_thumbnail
 from lib.video_backends.base import VideoCapabilityError
-from lib.video_visual_provenance import build_storyboard_video_visual_basis
+from lib.video_visual_provenance import build_storyboard_video_visual_basis, resolve_video_aspect_ratio
 from server.services.generation_context import (
     AudioLaneRequest,
     ImageLaneRequest,
@@ -101,14 +107,7 @@ def get_aspect_ratio(project: dict, resource_type: str) -> str:
     if resource_type in ("scenes", "props", "products"):
         # 多视图横排版式（product sheet 同为多角度横版）
         return "16:9"
-    # 优先读顶层字段；缺失时按 content_mode 推导（向后兼容）
-    val = project.get("aspect_ratio")
-    if isinstance(val, str):
-        return val
-    if isinstance(val, dict) and resource_type in val:
-        return val[resource_type]
-    # narration/ad 默认竖屏，drama（含未知值的历史兜底）默认横屏
-    return "9:16" if project.get("content_mode", "narration") in {"narration", "ad"} else "16:9"
+    return resolve_video_aspect_ratio(project, resource_type)
 
 
 def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
@@ -727,6 +726,18 @@ async def execute_storyboard_task(
     }
 
 
+def _resolve_tts_task_items(
+    script: dict[str, Any],
+    *,
+    reference_video_route: bool,
+) -> tuple[list[dict[str, Any]], str, str]:
+    """Resolve TTS units from the generation route fixed at task start."""
+
+    if not reference_video_route:
+        return resolve_items(script)
+    return resolve_items({"video_units": script.get("video_units", [])})
+
+
 async def execute_tts_task(
     project_name: str,
     resource_id: str,
@@ -738,13 +749,17 @@ async def execute_tts_task(
     """为一个 narrator-owned script unit 合成独立旁白音频。"""
     script_file = payload.get("script_file")
 
-    def _prepare() -> tuple[dict, Path, str, Any | None, int | None]:
+    def _prepare() -> tuple[dict, Path, str, Any | None, int | None, bool]:
         pm = get_project_manager()
         current_project = pm.load_project(project_name)
+        reference_video_route = is_reference_video_project(current_project)
         project_path = pm.get_project_path(project_name)
         if script_file:
             script = pm.load_script(project_name, script_file)
-            items, id_field, kind = resolve_items(script)
+            items, id_field, kind = _resolve_tts_task_items(
+                script,
+                reference_video_route=reference_video_route,
+            )
             item = next(
                 (
                     candidate
@@ -764,14 +779,14 @@ async def execute_tts_task(
             if not text:
                 raise ValueError(f"segment {resource_id} 无可合成的旁白文本")
             episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
-            return current_project, project_path, text, admission.preparation, episode
+            return current_project, project_path, text, admission.preparation, episode, reference_video_route
 
         legacy_text = payload.get("text") or payload.get("prompt")
         if not isinstance(legacy_text, str) or not legacy_text.strip():
             raise ValueError("tts task 需要 payload.text 或 payload.script_file 之一")
-        return current_project, project_path, legacy_text.strip(), None, None
+        return current_project, project_path, legacy_text.strip(), None, None, reference_video_route
 
-    project, project_path, text, preparation, episode = await asyncio.to_thread(_prepare)
+    project, project_path, text, preparation, episode, reference_video_route = await asyncio.to_thread(_prepare)
 
     ctx = await resolve_generation_context(
         project_name,
@@ -871,7 +886,10 @@ async def execute_tts_task(
             validate=False,
             on_commit=_activate,
         ) as current_script:
-            items, id_field, current_kind = resolve_items(current_script)
+            items, id_field, current_kind = _resolve_tts_task_items(
+                current_script,
+                reference_video_route=reference_video_route,
+            )
             item = next(
                 (
                     candidate
@@ -990,7 +1008,10 @@ async def execute_tts_task(
             validate=False,
             on_commit=lambda _script_path: _reject_with_manifest_restore(),
         ) as current_script:
-            items, id_field, _kind = resolve_items(current_script)
+            items, id_field, _kind = _resolve_tts_task_items(
+                current_script,
+                reference_video_route=reference_video_route,
+            )
             item = next(
                 (
                     candidate
@@ -1179,12 +1200,14 @@ async def execute_video_task(
         resource_id=resource_id,
         item=item,
     )
+    aspect_ratio = get_aspect_ratio(project, "videos")
     visual_basis_digest = (
         await asyncio.to_thread(
             build_storyboard_video_visual_basis,
             prompt=requested_visual_prompt,
             storyboard_image=storyboard_file,
             end_frame_image=end_image,
+            aspect_ratio=aspect_ratio,
             content_mode=content_mode,
             utterances=item.get("utterances") if content_mode == "drama" else None,
             voice_characters=(None if ctx.video.is_silent else project.get("characters"))
@@ -1215,7 +1238,6 @@ async def execute_video_task(
             prompt = build_drama_video_prompt_from_legacy_dialogue(prompt, characters=voice_characters)
 
     prompt_text = _normalize_video_prompt(prompt)
-    aspect_ratio = get_aspect_ratio(project, "videos")
     seed = payload.get("seed")
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 

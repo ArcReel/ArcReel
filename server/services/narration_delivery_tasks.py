@@ -32,7 +32,7 @@ from lib.narration_delivery import (
 )
 from lib.path_safety import safe_join, try_safe_join
 from lib.project_manager import ProjectManager, get_project_manager
-from lib.reference_video.prompt_render import resolve_reference_audio_paths
+from lib.reference_video.prompt_render import render_video_unit_prompt, resolve_reference_audio_paths
 from lib.reference_video.request_projection import (
     USE_TTS,
     ConfigReferenceCapabilityProjection,
@@ -44,6 +44,7 @@ from lib.reference_video.request_projection import (
     materialize_current_reference_request_options,
     resolve_reference_assets,
 )
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.script_editor import resolve_items
 from lib.script_models import get_generated_assets, resolve_content_mode
@@ -51,7 +52,11 @@ from lib.script_skeleton import resolve_script_kind
 from lib.speech_composition import admit_script_unit
 from lib.storyboard_sequence import resolve_storyboard_image_ref
 from lib.version_manager import VersionManager
-from lib.video_visual_provenance import build_reference_video_visual_basis, build_storyboard_video_visual_basis
+from lib.video_visual_provenance import (
+    build_reference_video_visual_basis,
+    build_storyboard_video_visual_basis,
+    resolve_video_aspect_ratio,
+)
 from server.services.generation_context import AudioLaneRequest, AudioLaneResult, resolve_generation_context
 
 
@@ -515,6 +520,7 @@ def _storyboard_visual_basis_digest(
             prompt=prompt,
             storyboard_image=storyboard_file,
             end_frame_image=end_frame_file,
+            aspect_ratio=resolve_video_aspect_ratio(project),
             content_mode=content_mode,
             utterances=item.get("utterances") if content_mode == "drama" else None,
             voice_characters=(None if is_silent else project.get("characters")) if content_mode == "drama" else None,
@@ -534,9 +540,37 @@ def reference_video_visual_basis_digest(
     """Hash the exact projected reference request and every prompt-affecting input."""
 
     audio_paths = resolve_reference_audio_paths(project, project_path)
+    rendered = render_video_unit_prompt(
+        unit,
+        project,
+        VoiceRenderSettings(
+            voice_consistency=candidate.voice_consistency,
+            requested_generate_audio=candidate.requested_generate_audio,
+            max_reference_audio=candidate.max_reference_audio_count,
+            model_id=candidate.model_id,
+            audio_ready=audio_paths,
+            requires_reference_image=candidate.reference_audio_per_image,
+        ),
+        request_references=[asset.reference for asset in request_assets],
+    )
+    if candidate.reference_audio_per_image:
+        audio_wiring = [
+            (speaker, target)
+            for speaker, target in zip(
+                rendered.audio_speakers,
+                rendered.audio_speaker_reference_index,
+                strict=True,
+            )
+            if target is not None
+        ]
+        audio_speakers = [speaker for speaker, _target in audio_wiring]
+        audio_targets: list[int] | None = [target for _speaker, target in audio_wiring]
+    else:
+        audio_speakers = list(rendered.audio_speakers)
+        audio_targets = None
     return build_reference_video_visual_basis(
-        project=project,
-        unit=unit,
+        rendered_prompt=rendered.prompt,
+        aspect_ratio=resolve_video_aspect_ratio(project),
         reference_images=[asset.path for asset in request_assets],
         reference_descriptors=[
             {
@@ -546,7 +580,9 @@ def reference_video_visual_basis_digest(
             }
             for asset in request_assets
         ],
-        reference_audio_files=[path for _name, path in sorted(audio_paths.items())],
+        reference_audio_files=[audio_paths[speaker] for speaker in audio_speakers],
+        reference_audio_speakers=audio_speakers,
+        reference_audio_targets=audio_targets,
         request_context={
             "capability": candidate.capability,
             "provider_id": candidate.provider_id,

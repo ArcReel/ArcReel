@@ -312,10 +312,16 @@ class TestExecuteTtsTask:
 
     async def test_reference_video_unit_uses_its_own_narrator_text_and_manifest_key(self, tts_env):
         pm, gen = tts_env
-        pm.project.update({"content_mode": "drama", "generation_mode": "reference_video"})
+        pm.project.update({"content_mode": "ad", "generation_mode": "reference_video"})
         pm.script = {
             "episode": 1,
-            "content_mode": "drama",
+            "content_mode": "ad",
+            "shots": [
+                {
+                    "shot_id": "E1S01",
+                    "voiceover_text": "不属于参考视频单元的旧广告旁白。",
+                }
+            ],
             "video_units": [
                 {
                     "unit_id": "E1U2",
@@ -331,6 +337,52 @@ class TestExecuteTtsTask:
         assert result["duration_seconds"] == 5.25
         assert isinstance(result["tts_basis_digest"], str)
         assert pm.script["video_units"][0]["generated_assets"]["narration_audio"] == "audio/segment_E1U2.wav"
+
+    async def test_reference_video_cancel_uses_video_units_when_ad_script_also_has_shots(self, tts_env):
+        pm, gen = tts_env
+        pm.project.update({"content_mode": "ad", "generation_mode": "reference_video"})
+        prior_assets = {"narration_audio": "audio/prior-selection.wav", "status": "old-status"}
+        pm.script = {
+            "episode": 1,
+            "content_mode": "ad",
+            "shots": [
+                {
+                    "shot_id": "E1S01",
+                    "voiceover_text": "不属于参考视频单元的旧广告旁白。",
+                    "generated_assets": {"status": "decoy"},
+                }
+            ],
+            "video_units": [
+                {
+                    "unit_id": "E1U2",
+                    "shots": [{"text": "镜头缓缓推进。\n{参考视频单元旁白。}"}],
+                    "generated_assets": copy.deepcopy(prior_assets),
+                }
+            ],
+        }
+        formal = pm.project_path / "audio" / "segment_E1U2.wav"
+        formal.parent.mkdir(parents=True, exist_ok=True)
+        formal.write_bytes(b"paid-old-audio")
+
+        result = await generation_tasks.execute_tts_task(
+            "demo",
+            "E1U2",
+            {"script_file": "episode_1.json"},
+            task_id="tts-reference-task",
+        )
+
+        assert isinstance(result, CompensableGenerationResult)
+        pm.script["video_units"][0]["generated_assets"]["video_clip"] = "reference_videos/E1U2.mp4"
+        result.compensate_cancelled()
+
+        assert formal.read_bytes() == b"paid-old-audio"
+        assert gen.rejected_versions == [3]
+        assert pm.script["video_units"][0]["generated_assets"] == {
+            "narration_audio": "audio/prior-selection.wav",
+            "video_clip": "reference_videos/E1U2.mp4",
+            "status": "completed",
+        }
+        assert pm.script["shots"][0]["generated_assets"] == {"status": "decoy"}
 
     async def test_manifest_basis_tracks_actual_backend_model_identity(self, tts_env, monkeypatch):
         pm, gen = tts_env

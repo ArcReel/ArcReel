@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -27,13 +27,11 @@ from lib.generation_queue import (
     without_reference_video_execution_identity,
 )
 from lib.narration_delivery import USE_TTS
-from lib.prompt_builders import append_product_fidelity_tail
-from lib.reference_video import assemble_shots_text, assemble_shots_text_for_render
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.errors import MissingReferenceError
 from lib.reference_video.prompt_render import (
     RenderedUnitPrompt,
-    render_unit_prompt,
+    render_video_unit_prompt,
     resolve_reference_audio_paths,
 )
 from lib.reference_video.request_projection import (
@@ -57,6 +55,7 @@ from lib.script_models import ReferenceResource
 from lib.speech_composition import video_unit_replan_problems
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
+from lib.video_visual_provenance import resolve_video_aspect_ratio
 from server.services.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import get_project_manager
 from server.services.narration_delivery_tasks import (
@@ -178,21 +177,12 @@ def _render_unit_prompt(
     其 ``shots[*].text`` 普遍已不带 header——两个以上镜头裸拼接后会被重新解析成一个镜头，
     丢失第二段的分镜结构。
     """
-    shots = unit.get("shots") or []
-    if not assemble_shots_text(shots).strip():
-        raise ValueError("reference video unit prompt is empty: all shots[*].text are blank")
-    references = request_references
-    if references is None:
-        references = [ReferenceResource(type=r["type"], name=r["name"]) for r in (unit.get("references") or [])]
-    rendered = render_unit_prompt(
-        assemble_shots_text_for_render(shots),
+    return render_video_unit_prompt(
+        unit,
         project,
-        references,
         settings,
-        style=project.get("style"),
+        request_references=request_references,
     )
-    product_names = list(dict.fromkeys(ref.name for ref in references if ref.type == "product"))
-    return replace(rendered, prompt=append_product_fidelity_tail(rendered.prompt, product_names))
 
 
 def _reference_limit_warning(*, provider: str, model: str | None, count: int, max_refs: int) -> dict[str, Any]:
@@ -596,6 +586,7 @@ async def execute_reference_video_task(
 
     constrained_entries = list(projection.request_assets)
     constrained_refs = [entry.path for entry in constrained_entries]
+    aspect_ratio = resolve_video_aspect_ratio(project)
     candidate = projection.provider_candidate
     if candidate is None:
         raise RuntimeError("allowed reference request is missing provider capabilities")
@@ -702,7 +693,7 @@ async def execute_reference_video_task(
         reference_images=constrained_refs,
         reference_audio_files=reference_audio_files or None,
         reference_audio_targets=reference_audio_targets,
-        aspect_ratio=project.get("aspect_ratio", "9:16"),
+        aspect_ratio=aspect_ratio,
         duration_seconds=effective_duration,
         resolution=resolution,
         task_id=task_id,

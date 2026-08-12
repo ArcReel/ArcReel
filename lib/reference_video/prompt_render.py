@@ -20,12 +20,13 @@
 from __future__ import annotations
 
 from collections.abc import Collection
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.audio_utils import resolve_audio_ref_path
+from lib.prompt_builders import append_product_fidelity_tail
 from lib.prompt_utils import normalize_style
 from lib.reference_video.script_preview import (
     WARN_UNREGISTERED_MENTION,
@@ -33,6 +34,8 @@ from lib.reference_video.script_preview import (
     derive_voice_bindings,
 )
 from lib.reference_video.shot_parser import (
+    assemble_shots_text,
+    assemble_shots_text_for_render,
     match_dialogue_line,
     match_voiceover_line,
     parse_prompt,
@@ -161,6 +164,34 @@ def render_unit_prompt(
         audio_speaker_reference_index=audio_speaker_reference_index,
         warnings=warnings,
     )
+
+
+def render_video_unit_prompt(
+    unit: dict,
+    project: dict,
+    settings: VoiceRenderSettings,
+    *,
+    request_references: list[ReferenceResource] | None = None,
+) -> RenderedUnitPrompt:
+    """Render the exact reference-video prompt from one current projected unit."""
+
+    shots = unit.get("shots") or []
+    if not assemble_shots_text(shots).strip():
+        raise ValueError("reference video unit prompt is empty: all shots[*].text are blank")
+    references = request_references
+    if references is None:
+        references = [
+            ReferenceResource(type=item["type"], name=item["name"]) for item in (unit.get("references") or [])
+        ]
+    rendered = render_unit_prompt(
+        assemble_shots_text_for_render(shots),
+        project,
+        references,
+        settings,
+        style=project.get("style"),
+    )
+    product_names = list(dict.fromkeys(reference.name for reference in references if reference.type == "product"))
+    return replace(rendered, prompt=append_product_fidelity_tail(rendered.prompt, product_names))
 
 
 def _warning_unregistered(name: str) -> dict[str, Any]:

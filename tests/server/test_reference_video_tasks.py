@@ -14,7 +14,6 @@ import pytest
 from lib.reference_video.errors import MissingReferenceError
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_models import ReferenceResource
-from lib.video_visual_provenance import build_reference_video_visual_basis
 from server.services.reference_video_tasks import (
     FALLBACK_UNIT_DURATION,
     ProjectDurationContext,
@@ -1924,28 +1923,107 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     # 被裁掉的 @酒馆 / @瓶子 仍是画面主体（<X> 与图号解耦），只是没有绑定行、没随请求发图
     assert "<酒馆>" in prompt and "<瓶子>" in prompt
     assert "<酒馆>@图片" not in prompt and "<瓶子>@图片" not in prompt
-    expected_basis = build_reference_video_visual_basis(
-        project=project,
-        unit=script["video_units"][0],
-        reference_images=[proj_dir / "characters" / "张三.png"],
-        reference_descriptors=[{"type": "character", "name": "张三", "kind": "asset"}],
-        reference_audio_files=[],
-        request_context={
-            "capability": "r2v",
-            "provider_id": "openai",
-            "model_id": "sora-2",
-            "resolution": "1080p",
-            "max_reference_images": 1,
-            "generate_audio": False,
-            "requested_generate_audio": True,
-            "has_audio_track": True,
-            "audio_switch_controllable": False,
-            "voice_consistency": "soft",
-            "max_reference_audio_count": 0,
-            "reference_audio_per_image": False,
-        },
+    from lib.reference_video.request_projection import (
+        ProviderProjectionCandidate,
+        clamp_reference_assets,
+        resolve_reference_assets,
     )
-    assert captured["visual_basis_digest"] == expected_basis.digest
+    from server.services.narration_delivery_tasks import reference_video_visual_basis_digest
+
+    expected_candidate = ProviderProjectionCandidate(
+        capability="r2v",
+        provider_id="openai",
+        model_id="sora-2",
+        supported_durations=(4, 8, 12),
+        max_reference_images=1,
+        resolution="1080p",
+        generate_audio=False,
+        requested_generate_audio=True,
+        has_audio_track=True,
+        audio_switch_controllable=False,
+    )
+    expected_digest = reference_video_visual_basis_digest(
+        project=project,
+        project_path=proj_dir,
+        unit=script["video_units"][0],
+        request_assets=clamp_reference_assets(
+            resolve_reference_assets(project, proj_dir, script["video_units"][0]),
+            1,
+        ),
+        candidate=expected_candidate,
+    )
+    assert captured["visual_basis_digest"] == expected_digest
+
+
+@pytest.mark.unit
+def test_reference_visual_basis_hashes_only_audio_sent_for_the_unit(tmp_path: Path) -> None:
+    from lib.reference_video.request_projection import ProviderProjectionCandidate, resolve_reference_assets
+    from server.services.narration_delivery_tasks import reference_video_visual_basis_digest
+
+    proj_dir = _write_project(tmp_path)
+    project, unit = _load_project_and_unit(proj_dir, "E1U1")
+    project["characters"]["张三"].update(
+        {
+            "voice_style": "低沉男声",
+            "reference_audio": "characters/refs_audio/张三.wav",
+        }
+    )
+    project["characters"]["李四"] = {
+        "description": "x",
+        "character_sheet": "characters/张三.png",
+        "voice_style": "清亮女声",
+        "reference_audio": "characters/refs_audio/李四.wav",
+    }
+    unit["shots"] = [{"text": "@[张三]：{出发。}"}]
+    unit["references"] = [{"type": "character", "name": "张三"}]
+    audio_dir = proj_dir / "characters" / "refs_audio"
+    audio_dir.mkdir(parents=True)
+    used_audio = audio_dir / "张三.wav"
+    unrelated_audio = audio_dir / "李四.wav"
+    used_audio.write_bytes(b"used-v1")
+    unrelated_audio.write_bytes(b"unrelated-v1")
+    candidate = ProviderProjectionCandidate(
+        capability="r2v",
+        provider_id="ark",
+        model_id="doubao-seedance-2-0-260128",
+        supported_durations=(4, 8, 12),
+        max_reference_images=9,
+        resolution="1080p",
+        generate_audio=True,
+        requested_generate_audio=True,
+        has_audio_track=True,
+        audio_switch_controllable=True,
+        voice_consistency="native",
+        max_reference_audio_count=3,
+    )
+    request_assets = resolve_reference_assets(project, proj_dir, unit)
+
+    original = reference_video_visual_basis_digest(
+        project=project,
+        project_path=proj_dir,
+        unit=unit,
+        request_assets=request_assets,
+        candidate=candidate,
+    )
+    unrelated_audio.write_bytes(b"unrelated-v2")
+    after_unrelated_change = reference_video_visual_basis_digest(
+        project=project,
+        project_path=proj_dir,
+        unit=unit,
+        request_assets=request_assets,
+        candidate=candidate,
+    )
+    used_audio.write_bytes(b"used-v2")
+    after_used_change = reference_video_visual_basis_digest(
+        project=project,
+        project_path=proj_dir,
+        unit=unit,
+        request_assets=request_assets,
+        candidate=candidate,
+    )
+
+    assert after_unrelated_change == original
+    assert after_used_change != original
 
 
 @pytest.mark.integration
