@@ -269,7 +269,7 @@ class TestSessionManagerUserInput:
                     cmd.sent.set()
                     cmd.done.set()
                 elif cmd.type == "disconnect":
-                    # 模拟 SDK 侧挂起：send_disconnect 内部等待的 cmd.done 永不 set，
+                    # 模拟 SDK 侧挂起：投递就卡住，send_disconnect 连 cmd.done 都等不到，
                     # 只有 asyncio.wait_for 的超时能让 _cleanup_on_error 脱身。
                     await asyncio.Event().wait()
                 else:

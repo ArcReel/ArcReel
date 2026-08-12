@@ -364,7 +364,8 @@ class SessionManager:
         # 轮次终结时仍未被认领的回显登记累计数，见 _drain_pending_user_echoes。
         self.unclaimed_user_echoes = 0
         self._disconnecting: set[str] = set()
-        self._session_actor_shutdown_timeout: float = 15.0  # total budget for send_disconnect + cancel fallback
+        # 优雅 send_disconnect 的等待上限；超时后各调用点再走无界的 cancel 兜底。
+        self._session_actor_shutdown_timeout: float = 15.0
         self._connect_locks: dict[str, asyncio.Lock] = {}
         # 实例不变量缓存：避免每次构建 access policy 都重做 path resolve。
         self._project_root_resolved = self.project_root.resolve()
