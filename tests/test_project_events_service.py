@@ -1224,6 +1224,25 @@ class TestProjectEventService:
         reorder_changes = service._diff_snapshots(before_reorder, after_reorder)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in reorder_changes)
 
+        # 同值时长确认只清除规划标记，正文/时长/引用均不变；仍须通知其它会话解除生成阻断。
+        script = pm.load_script("ref-edit", "episode_1.json")
+        script["video_units"][0]["needs_replan"] = True
+        script["video_units"][0]["migration_requires_content_replan"] = False
+        with project_change_source("filesystem"):
+            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
+        before_repair = service._build_snapshot("ref-edit")
+        before_repair_item = before_repair["scripts"]["episode_1.json"]["items"]["E1U01"]
+        assert before_repair_item["needs_replan"] is True
+        assert before_repair_item["migration_requires_content_replan"] is False
+
+        script = pm.load_script("ref-edit", "episode_1.json")
+        script["video_units"][0]["needs_replan"] = False
+        with project_change_source("filesystem"):
+            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
+        after_repair = service._build_snapshot("ref-edit")
+        repair_changes = service._diff_snapshots(before_repair, after_repair)
+        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in repair_changes)
+
     @pytest.mark.unit
     @pytest.mark.parametrize("kind", sorted(SKELETONS))
     def test_normalize_snapshot_covers_every_skeleton_kind(self, tmp_path, kind):

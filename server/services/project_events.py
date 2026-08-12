@@ -745,6 +745,8 @@ class ProjectEventService:
             characters, scenes, props, products = self._item_entities(item, skeleton.chars_field)
             items[item_id] = {
                 "duration_seconds": item.get("duration_seconds"),
+                "needs_replan": bool(item.get("needs_replan")),
+                "migration_requires_content_replan": bool(item.get("migration_requires_content_replan")),
                 "segment_break": bool(item.get("segment_break")),
                 "characters": characters,
                 "scenes": scenes,

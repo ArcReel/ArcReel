@@ -3,9 +3,10 @@
 把 agent 对 ``scripts/*.json`` 的一切编辑收归这组工具：批量字段编辑（``patch_episode_script``，
 一次改多分镜 × 多字段的 ``{分镜id: {字段路径: 值}}`` 映射）+ 结构性增删拆（``insert_segment`` /
 ``remove_segment`` / ``split_segment``）。每个工具在
-``ProjectManager.locked_script`` 读-改-写上下文里调 ``lib.script_editor`` 的纯函数核心改
-dict，退出时经写盘统一入口 ``_write_script_unlocked`` 写回——继承「不更坏」结构校验、metadata
-重算、加锁与 filename↔episode 一致性。结构错误当场以「不更坏」语义挡下并返回明确错误。
+``ProjectManager`` 的锁定式读-改-写上下文里调 ``lib.script_editor`` 的纯函数核心改 dict；
+字段 patch 还联合持有项目锁，以便按同一份资产表重派生 reference unit 引用。退出时经写盘统一
+入口 ``_write_script_unlocked`` 写回——继承「不更坏」结构校验、metadata 重算、加锁与
+filename↔episode 一致性。结构错误当场以「不更坏」语义挡下并返回明确错误。
 
 工具返回文本是 agent-facing（免 i18n）；显示名在 ``ARCREEL_MCP_TOOL_IDS`` 注册、补三语。
 """
@@ -80,11 +81,19 @@ def patch_episode_script_tool(ctx: ToolContext):
 
             applied: list[tuple[str, list[str]]] = []
             regen_ids: list[str] = []
-            project = ctx.pm.load_project(ctx.project_name)
-            # 全批在同一个 locked_script 上下文内逐条 patch_field 就地改 dict：任一编辑抛异常即
+            project_out: dict[str, dict[str, Any]] = {}
+
+            def _resolve_script(project: dict[str, Any]) -> str:
+                # locked_episode_script 会在项目锁内再次调用 resolver；最后一次捕获因此与下方
+                # script 写入处于同一临界区，资产改名/删除不能夹在引用重派生与落盘之间。
+                project_out["project"] = project
+                return script_filename
+
+            # 全批在同一个 locked_episode_script 上下文内逐条 patch_field 就地改 dict：任一编辑抛异常即
             # 冒出 with 体 → 写盘被跳过 → 整批零落盘；全部 apply 后写盘统一入口跑一次「不更坏」
-            # 结构校验，非法则整体拒。原子性由 locked_script 承重，无需额外事务管线。
-            with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
+            # 结构校验，非法则整体拒。原子性由 locked_episode_script 承重，无需额外事务管线。
+            with ctx.pm.locked_episode_script(ctx.project_name, _resolve_script) as script:
+                project = project_out["project"]
                 items, id_field, kind = resolve_items(script)
                 for raw_id, field_map in edits.items():
                     scene_id = str(raw_id)

@@ -440,6 +440,36 @@ class TestPatchEpisodeScript:
         assert _load(ref_ctx)["video_units"][0]["references"] == [{"type": "product", "name": "产品B"}]
 
     @pytest.mark.integration
+    async def test_reference_shot_edit_rederives_from_locked_project_snapshot(
+        self, ref_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["products"] = {"产品B": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+
+        original_load_project = ref_ctx.pm.load_project
+        first_load = True
+
+        def _load_then_remove_product(project_name: str) -> dict[str, Any]:
+            nonlocal first_load
+            stale = original_load_project(project_name)
+            if first_load:
+                first_load = False
+                current = {**stale, "products": {}}
+                ref_ctx.pm.save_project(project_name, current)
+            return stale
+
+        monkeypatch.setattr(ref_ctx.pm, "load_project", _load_then_remove_product)
+
+        changed = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "@[产品B] 侧面展示"}]}}},
+        )
+
+        assert changed.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["references"] == []
+
+    @pytest.mark.integration
     async def test_reference_replan_marker_cannot_be_patched_directly(self, ref_ctx: ToolContext) -> None:
         script = _reference_script()
         script["video_units"][0]["needs_replan"] = True
