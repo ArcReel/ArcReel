@@ -264,12 +264,12 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
     if family == "wan3":
         profile_key = _WAN3_MODEL_KEY
     elif family == "wan2.7":
-        # wan27_suffix 直接取归一化结果，不再从拼接后的 profile_key 里用 index("wan2.7") 反查——
-        # 标记前的原始装饰前缀可能本身就含字面 "wan2.7" 子串（如 "vendorwan2.7-videoedit-proxy/
-        # wan2.7-r2v"，前缀里的 "wan2.7" 不满足 WAN2_PATTERN 边界、未被判定为家族标记，但仍是
-        # 该子串），index() 找到的会是这个更靠前的字面匹配而非真正的家族标记位置，重新引入本就是
-        # family_match 要规避的前缀污染。profile_key 仍需拼回原始装饰前缀（不参与归一化，只用于
-        # 容忍代理中转命名，见 _find_known_profile_key 的边界匹配）。
+        # wan27_suffix 直接取自 family_match 定位到的模态段（family_suffix）归一化结果，不基于
+        # 字面文本搜索定位：标记前的原始装饰前缀可能本身含字面 "wan2.7" 子串（如
+        # "vendorwan2.7-videoedit-proxy/wan2.7-r2v"，前缀里的 "wan2.7" 不满足 WAN2_PATTERN 边界、
+        # 未被判定为家族标记，但仍是该字面子串），按文本搜索定位无法区分这类前缀噪音与真正的家族
+        # 标记位置，只有 family_match 的匹配位置本身是可靠锚点。profile_key 仍需拼回原始装饰前缀
+        # （不参与归一化，只用于容忍代理中转命名，见 _find_known_profile_key 的边界匹配）。
         wan27_suffix = _normalize_wan27_alias(family_suffix)
         profile_key = normalized[: family_match.start()] + wan27_suffix
         is_videoedit = bool(WAN_VIDEOEDIT_PATTERN.search(wan27_suffix))
