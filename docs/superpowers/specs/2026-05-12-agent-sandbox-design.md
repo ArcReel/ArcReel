@@ -68,7 +68,7 @@ skill 脚本通过 `lib.generation_queue_client` 直连本地 SQLite (`projects/
 ## 3. 本次新增决策（spec 阶段）
 
 - **沙箱不可用即硬失败**：macOS / Linux / Docker 全部环境强制要求 sandbox 工具可用，不存在「降级到旧 Bash 白名单」代码路径
-- **Windows 是 SDK 不支持平台的显式回退例外**：SDK 0.1.80 sandbox 仅支持 macOS / Linux / WSL2（见 [platform and tool compatibility](https://code.claude.com/docs/en/sandboxing#platform-and-tool-compatibility)），原生 Windows 未实现。`check_sandbox_available()` 在 Windows 上返回 `False` 而不 raise，`SessionManager._build_sandbox_settings()` 返回 `{"enabled": False}`，`_build_options` 从 `allowed_tools` 剥离 `Bash/BashOutput/KillBash`，Bash 工具调用走 `_can_use_tool` 内联白名单（`_WINDOWS_BASH_PREFIX_WHITELIST = ("python .claude/skills/", "ffmpeg", "ffprobe")`，等价于 PR 沙箱化前 main 分支 `settings.json` `permissions.allow` 段）。env scrub hook + Read/Write/Edit/Glob/Grep 路径围栏 hook 跨平台不变。生产部署强制走受支持平台，Windows 用户推荐 WSL2。
+- **Windows 是 SDK 不支持平台的显式回退例外**：SDK 0.1.80 sandbox 仅支持 macOS / Linux / WSL2（见 2026-05-12 的 [platform and tool compatibility 归档](https://web.archive.org/web/20260512143420/https://code.claude.com/docs/en/sandboxing#platform-and-tool-compatibility)），原生 Windows 未实现。`check_sandbox_available()` 在 Windows 上返回 `False` 而不 raise，`SessionManager._build_sandbox_settings()` 返回 `{"enabled": False}`，`_build_options` 从 `allowed_tools` 剥离 `Bash/BashOutput/KillBash`，Bash 工具调用走 `_can_use_tool` 内联白名单（`_WINDOWS_BASH_PREFIX_WHITELIST = ("python .claude/skills/", "ffmpeg", "ffprobe")`，等价于 PR 沙箱化前 main 分支 `settings.json` `permissions.allow` 段）。env scrub hook + Read/Write/Edit/Glob/Grep 路径围栏 hook 跨平台不变。生产部署强制走受支持平台，Windows 用户推荐 WSL2。
 - **启动断言一视同仁**：dev / test / 生产全部跑 `assert_no_provider_secrets_in_environ()`，命中红线即拒绝启动
 - **PreToolUse 文件围栏精简为三条普适规则**：跨项目读拒、Write/Edit cwd 外拒、cwd 内代码扩展名写拒。settings.json `permissions.deny` 仅保留敏感文件读/写禁，普适规则不再用 deny rules 枚举（Level B 收敛方案）
 - **`settings.json permissions.allow` 整段清空**：工具白名单集中到 `DEFAULT_ALLOWED_TOOLS` 一处声明
@@ -323,7 +323,7 @@ Required for ArcReel agent runtime. Install bubblewrap:
 
 任何后续 PR 试图加这些开关需要重新评估安全红线。
 
-**例外（仅一项 — Windows）**：`platform.system() == "Windows"` 时 SDK 物理不支持 sandbox（见 [platform and tool compatibility](https://code.claude.com/docs/en/sandboxing#platform-and-tool-compatibility)），允许 warning + sandbox 关闭启动；Bash 工具回退到 `SessionManager._WINDOWS_BASH_PREFIX_WHITELIST` 代码白名单（`python .claude/skills/` / `ffmpeg` / `ffprobe` 三个 prefix，等价于 PR 沙箱化前 main 分支 settings.json allow rules）。此例外**仅适用 Windows** —— macOS / Linux 工具缺失仍硬失败。
+**例外（仅一项 — Windows）**：`platform.system() == "Windows"` 时 SDK 物理不支持 sandbox（见 2026-05-12 的 [platform and tool compatibility 归档](https://web.archive.org/web/20260512143420/https://code.claude.com/docs/en/sandboxing#platform-and-tool-compatibility)），允许 warning + sandbox 关闭启动；Bash 工具回退到 `SessionManager._WINDOWS_BASH_PREFIX_WHITELIST` 代码白名单（`python .claude/skills/` / `ffmpeg` / `ffprobe` 三个 prefix，等价于 PR 沙箱化前 main 分支 settings.json allow rules）。此例外**仅适用 Windows** —— macOS / Linux 工具缺失仍硬失败。
 
 ---
 
