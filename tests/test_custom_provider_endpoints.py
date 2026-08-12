@@ -304,10 +304,14 @@ class TestInferEndpoint:
             ("wan_3_turbo", "openai", "dashscope-async-video"),
             ("wan_3.0-image", "openai", "openai-images"),
             ("WAN_3_TURBO_IMAGE_TO_VIDEO", "openai", "dashscope-async-video"),
-            # 已知局限（非本 PR 引入、维持现状不修）：wan2 家族仅认字面 "wan2." 触发 is_wan_family，
-            # 连字符形态 wan-2.7 不触发，故其 image 变体会被裸 "wan" 命中 _VIDEO_PATTERN 误判为视频。
-            # wan2 字面量保留决策见 duration_presets 对应用例，此处锁定端点路由侧同一结论，防止
-            # 未来改动误当作待修 bug。
+            # 标识符边界：含 "wan3" 子串但并非该家族的型号名不得被误判——WAN3_PATTERN 两侧要求
+            # 非字母数字边界，裸 "wan" 命中 _VIDEO_PATTERN 仍落回通用视频分支。
+            ("swan3", "openai", "openai-video"),
+            ("vendorwan3", "openai", "openai-video"),
+            ("wan30", "openai", "openai-video"),
+            # wan2 家族仅认字面 "wan2." 触发 is_wan_family，连字符形态 wan-2.7 不触发，故其
+            # image 变体会被裸 "wan" 命中 _VIDEO_PATTERN 判定为视频。wan2 字面量保留决策见
+            # duration_presets 对应用例，此处锁定端点路由侧同一结论。
             ("wan-2.7-image", "openai", "openai-video"),
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),

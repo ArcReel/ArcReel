@@ -70,6 +70,10 @@ pytestmark = pytest.mark.unit
         # 下划线形态匹配宽度同样一致
         ("wan_3_turbo", list(range(2, 31))),
         ("wan_3.0-turbo", list(range(2, 31))),
+        # 标识符边界：含 "wan3" 子串但非该家族的型号名不落入万相 3.0 档位
+        ("swan3", [4, 5]),
+        ("vendorwan3", [4, 5]),
+        ("wan30", [4, 5]),
         # Pika
         ("pika-2.0", [3, 5, 10]),
         # 未知模型 → fallback

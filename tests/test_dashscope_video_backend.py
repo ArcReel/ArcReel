@@ -940,6 +940,16 @@ class TestWan3:
         assert caps.max_prompt_chars == 20000
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["swan3", "vendorwan3", "wan30"])
+    def test_wan3_substring_without_boundary_does_not_get_wan3_capabilities(self, model):
+        """含 "wan3" 子串但两侧非字母数字边界不成立的型号名，不得被误判为万相 3.0 家族。"""
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        assert caps.max_reference_images == 0
+        assert caps.max_prompt_chars is None
+
+    @pytest.mark.unit
     def test_first_and_last_frame_in_media(self, tmp_path):
         payload = self._backend()._build_payload(
             VideoGenerationRequest(

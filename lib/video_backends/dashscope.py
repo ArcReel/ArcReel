@@ -121,11 +121,12 @@ _WAN3_MODEL_KEY = "wan3.0-video"
 
 # 万相 3.0 家族 model_id 识别（连字符/下划线可选、不锚版本号）：此处是本后端的请求形态分派，
 # 也是 lib.custom_provider.duration_presets（时长档位推断）与 endpoints.py（端点路由推断）共用
-# 的唯一正则来源——三处按同一匹配宽度判 wan3，否则会出现某个 model_id 被路由到本后端、却因
-# 本后端认不出它是 wan3 而退回通用档案（丢参考图/尾帧/音轨参数）的矛盾。分隔符同时容忍连字符
-# 与下划线：本文件下方 _WAN_IMAGE_TO_VIDEO_PATTERN 已对模态 token（image-to-video）两种分隔符
-# 一视同仁，版本前缀若只认连字符会造成同一 diff 内两种命名装饰的宽容度不对称。
-WAN3_PATTERN = re.compile(r"wan[-_]?3", re.I)
+# 的唯一正则来源——三处须按同一匹配宽度判 wan3，否则会出现某个 model_id 被路由到本后端、却因
+# 本后端认不出它是 wan3 而退回通用档案（丢参考图/尾帧/音轨参数）的矛盾。版本前缀与模态 token
+# （下方 _WAN_IMAGE_TO_VIDEO_PATTERN）须接受相同的分隔符集合，避免同一规则组内宽容度不对称。
+# 两侧标识符边界要求非字母数字，避免匹配到 "swan3"、"vendorwan3" 这类含 wan3 子串但并非该家族
+# 的第三方型号名。
+WAN3_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?3(?![a-z0-9])", re.I)
 
 # 按 model id 派发能力声明。happyhorse-r2v 仅 reference_image（无 first_frame）；
 # wan2.7-r2v 额外支持首帧与参考音色。
