@@ -142,10 +142,6 @@ cd frontend && pnpm lint:fix      # 自动修可修的部分
 
 每个 PR 压成 1 个 commit 合回 `main`，commit message 用 conventional commits 规范（见下节）。GitHub 上 merge 按钮选 "Squash and merge"。
 
-### 已知 defer 的处理
-
-PR 模板有"已知 defer"一节。合入前必须把每一条**开成 follow-up issue** 并把链接填进 PR description；不允许以"之后再说"的形式遗留。
-
 ## 提交规范
 
 Commit message 采用 [Conventional Commits](https://www.conventionalcommits.org/) 格式：
