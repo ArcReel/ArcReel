@@ -182,6 +182,21 @@ class TestCapabilities:
         assert DashScopeVideoBackend.video_capabilities_for_model("myhappyhorse-1.0-r2v").max_reference_images == 0
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["wan2.7-i2vfoo", "happyhorse-1.0-r2vfoo"])
+    def test_alnum_glued_suffix_does_not_resolve_known_profile(self, model):
+        """字母数字直接粘连的后缀同样不算装饰名，须落回 _DEFAULT_PROFILE。
+
+        与前两条用例互补的第三个边界方向："wan2.7-i2vfoo" 截断掉 "foo" 后与 key "wan2.7-i2v"
+        逐字符相同，若子串匹配只做左侧边界校验、不做右侧校验，未知变体后缀会被截断误判成已知
+        modality；数字后缀（"-0715"）靠 "-" 分隔满足右侧边界，不受本用例约束。
+        """
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        assert caps.max_reference_images == 0
+        assert caps.max_prompt_chars is None
+
+    @pytest.mark.unit
     def test_unknown_bare_series_falls_back_to_default(self):
         """仅系列名无变体后缀（裸 "happyhorse"）无法判别 t2v/i2v/r2v → 通用默认（无 r2v）。"""
         from lib.video_backends.dashscope import DashScopeVideoBackend

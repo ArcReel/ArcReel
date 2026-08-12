@@ -239,11 +239,12 @@ def _profile_for_model(model: str | None) -> VideoCapabilities:
     if WAN2_PATTERN.search(normalized):
         normalized = _normalize_wan27_alias(normalized)
     # 各 profile key（happyhorse-{1.0,1.1}-{t2v,i2v,r2v} / wan2.7-{t2v,i2v,r2v}）互不为子串，无歧义。
-    # 左侧标识符边界要求非字母数字，否则 "swan2.7-r2v"（"s" 紧贴 "wan2.7-r2v"）、
-    # "myhappyhorse-1.0-r2v" 这类第三方型号名会被字面子串误吞；代理中转的装饰前缀（"proxy/xxx"）
-    # 靠非字母数字分隔符（"/"）天然满足边界，不受影响。
+    # 两侧标识符边界均要求非字母数字：左侧避免 "swan2.7-r2v"（"s" 紧贴 "wan2.7-r2v"）、
+    # "myhappyhorse-1.0-r2v" 这类第三方型号名被字面子串误吞；右侧避免 "wan2.7-i2vfoo"、
+    # "happyhorse-1.0-r2vfoo" 这类未知变体后缀被截断误判成已知 key。代理中转的装饰
+    # 前缀/后缀（"proxy/xxx"、"xxx-0715"）靠非字母数字分隔符天然满足两侧边界，不受影响。
     for known, profile in _MODEL_PROFILES.items():
-        if re.search(r"(?<![a-z0-9])" + re.escape(known), normalized):
+        if re.search(r"(?<![a-z0-9])" + re.escape(known) + r"(?![a-z0-9])", normalized):
             return profile
     return _DEFAULT_PROFILE
 
