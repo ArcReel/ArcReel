@@ -229,6 +229,12 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
         has_known_modality = (
             _find_known_profile_key(profile_key, (k for k in _MODEL_PROFILES if k.startswith("wan2.7-"))) is not None
         )
+    elif family == "wan2x_dot" and is_image_to_video:
+        # wan2x_dot 没有登记任何 VideoCapabilities（profile_key 恒 None，下条注释），image-to-video
+        # 续接语法命中时若仍放行原生路由，_profile_for_model 会回落 _DEFAULT_PROFILE（first_frame
+        # 默认 True，恰好掩盖问题），但本后端并未为这些未收窄的 2.x 小版本声明过已验证的首帧请求
+        # 构造，登记前先排除出原生路由，同落下方 5) 的通用视频端点。
+        has_known_modality = False
     # wan2x_dot 无法从 model_id 直接归一化出确切 t2v/i2v/r2v 档位（其命名形态未收敛），
     # profile_key 留空，交由 _profile_for_model 末尾的兜底子串匹配处理（多数落 _DEFAULT_PROFILE）；
     # 是否收窄同 wan2.7 一样按已知模态门控需要供应商 API 事实与产品判断，不由本字段代为决定。

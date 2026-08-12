@@ -182,13 +182,29 @@ def test_videoedit_exclusion_scoped_to_wan27_only(model_id: str) -> None:
     assert infer_supported_durations(model_id) == list(range(2, 31))
 
 
-@pytest.mark.parametrize("model_id", ["wan-2.7-v2v", "wan_2.7-foo", "wan-2.7-s2v-0715"])
-def test_wan27_unrecognized_modality_excluded_from_native_route_and_family_duration(model_id: str) -> None:
+@pytest.mark.parametrize(
+    ("model_id", "expected_endpoint"),
+    [
+        ("wan-2.7-v2v", "openai-video"),
+        ("wan_2.7-foo", "openai-video"),
+        ("wan-2.7-s2v-0715", "openai-video"),
+    ],
+)
+def test_wan27_unrecognized_modality_excluded_from_native_route_and_family_duration(
+    model_id: str, expected_endpoint: str
+) -> None:
     """wan2.7 家族命中但模态未实现请求构造（非 t2v/i2v/r2v，videoedit 之外的其余未知后缀）时，
     不落原生端点、时长也不套用家族档——与 videoedit 走同一条排除路径。"""
-    assert infer_endpoint(model_id, "openai") != "dashscope-async-video"
+    assert infer_endpoint(model_id, "openai") == expected_endpoint
     assert infer_supported_durations(model_id) != list(range(2, 16))
-    assert infer_supported_durations("wan-2.7-videoedit") != list(range(2, 16))
+
+
+@pytest.mark.parametrize("model_id", ["wan2.6-image-to-video", "wan2.1-image-to-video"])
+def test_wan2x_dot_image_to_video_has_no_registered_capability_falls_back_to_generic(model_id: str) -> None:
+    """wan2x_dot（2.7 以外的点号形态）没有登记任何 VideoCapabilities；image-to-video 续接语法
+    命中时若仍放行原生路由，会静默拿到 _DEFAULT_PROFILE（恰好 first_frame=True，掩盖问题）。
+    登记前排除出原生路由，落通用视频端点。"""
+    assert infer_endpoint(model_id, "openai") == "openai-video"
 
 
 @pytest.mark.parametrize(

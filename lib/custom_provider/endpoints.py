@@ -604,8 +604,10 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # MiniMax 原生 token 二级路由：海螺（含 minimax-hailuo）/ S2V / H3 → 两步或单步取回的视频端点；
     # image-01 → 单步图像端点。先于通用 is_video/is_image：s2v 与 h3 均不被 _VIDEO_PATTERN 覆盖，
     # image-01 含 "image" 否则会被通用图像家族抢走。匹配 "minimax-h3" 而非裸 "h3"——后者过短，
-    # 容易撞上其它厂商恰好含 h3 子串的型号 id。
-    if "hailuo" in lowered or "s2v" in lowered or "minimax-h3" in lowered:
+    # 容易撞上其它厂商恰好含 h3 子串的型号 id。裸 "s2v" 排除 wan 家族 id（如未落原生路由的
+    # "wan2.7-s2v"，本后端未实现该模态请求构造）：这类 id 应落下方 5) 的通用视频端点，而非被误吞
+    # 成 MiniMax S2V 协议。
+    if "hailuo" in lowered or ("s2v" in lowered and not is_wan_family) or "minimax-h3" in lowered:
         return "minimax-video"
     if "image-01" in lowered:
         return "minimax-image"
