@@ -145,18 +145,19 @@ WAN2_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?2\.7(?![a-z0-9])", re.I)
 
 # 点号形态万相 2.x（2.7 以外，如 "wan2.1-kf2v"）的家族判定：标识符边界要求非字母数字，避免
 # "swan2.7-r2v"、"vendorwan2.7-t2v" 这类含 "wan2." 子串但并非该家族的第三方型号名被误判。
-WAN_DOT_FORM_PATTERN = re.compile(r"(?<![a-z0-9])wan2\.\d", re.I)
+WAN_DOT_FORM_PATTERN = re.compile(r"(?<![a-z0-9])wan2\.\d+(?![a-z0-9])", re.I)
 
-# happyhorse 家族判定：标识符边界要求非字母数字，避免 "myhappyhorse-1.0-r2v" 这类第三方型号名
-# 被字面子串误吞。
-HAPPYHORSE_PATTERN = re.compile(r"(?<![a-z0-9])happyhorse", re.I)
+# happyhorse 家族判定：标识符边界要求非字母数字，避免 "myhappyhorse-1.0-r2v" / "happyhorsefoo"
+# 这类第三方型号名被字面子串误吞。
+HAPPYHORSE_PATTERN = re.compile(r"(?<![a-z0-9])happyhorse(?![a-z0-9])", re.I)
 
 # wan 家族 image-to-video 续接语法（"wan-2.7-image-to-video" / "wan_2.7-image2video" /
 # "wan-3-turbo-image-to-video"）：只挑这一种确定形态当"实为视频"的例外，不覆盖 img2vid/i2v 等
 # 未见实例的缩写——出现新形态再补，不预先扩面。wan2.7 归一化用它把该后缀折成 "i2v" 再查
 # _MODEL_PROFILES；wan3/wan2x_dot 家族用它区分图像/视频归属（wan3.0-video-image 等真图像别名
-# 不含该语法，不受影响）。
-WAN_IMAGE_TO_VIDEO_PATTERN = re.compile(r"image[-_]?(?:to|2)[-_]?video", re.I)
+# 不含该语法，不受影响）。两侧标识符边界避免 "wan2.7-fooimage-to-video" /
+# "wan2.7-image-to-videofoo" 这类相邻字母被误判命中。
+WAN_IMAGE_TO_VIDEO_PATTERN = re.compile(r"(?<![a-z0-9])image[-_]?(?:to|2)[-_]?video(?![a-z0-9])", re.I)
 
 # wan2.7-videoedit（指令式视频编辑，见 docs/research/arcreel-vendor-integration-research.md）是
 # 万相家族内真实存在的独立模态，但本后端只实现了 t2v/i2v/r2v 三档的请求构造，没有该模态所需的
