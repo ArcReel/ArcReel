@@ -184,7 +184,7 @@
       const t1 = validTimes.length ? Math.max(...validTimes) : 1;
       const eventPct = (event) => {
         const value = Date.parse(event.ts);
-        return Number.isFinite(value) && validTimes.length > 1 ? Math.max(0, Math.min(100, ((value - t0) / Math.max(1, t1 - t0)) * 100)) : 50;
+        return Number.isFinite(value) && validTimes.length > 1 && t0 !== t1 ? Math.max(0, Math.min(100, ((value - t0) / (t1 - t0)) * 100)) : 50;
       };
       const formatTimelineTick = (value) => new Date(value).toLocaleString([], {
         month: "2-digit",

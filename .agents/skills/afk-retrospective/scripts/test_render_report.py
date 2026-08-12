@@ -73,6 +73,7 @@ class RenderReportTest(unittest.TestCase):
         self.assertIn("timeline-toggle", html)
         self.assertIn('id="timeline-axis"', html)
         self.assertNotIn('id="density"', html)
+        self.assertIn("validTimes.length > 1 && t0 !== t1", html)
         self.assertIn('decision: "决策"', html)
         self.assertIn('closed: "收口"', html)
         self.assertIn("evidence-ledger", html)
