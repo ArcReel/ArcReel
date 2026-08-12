@@ -47,7 +47,11 @@ async def get_cost_estimate(project_name: str, _t: Translator):
     project_data, scripts = await asyncio.to_thread(_sync)
 
     resolver = ConfigResolver(async_session_factory)
-    service = CostEstimationService(resolver, async_session_factory)
+    service = CostEstimationService(
+        resolver,
+        async_session_factory,
+        project_path=get_project_manager().get_project_path(project_name),
+    )
 
     try:
         return await service.compute(project_data, scripts, project_name=project_name)

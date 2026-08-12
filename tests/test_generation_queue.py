@@ -453,7 +453,7 @@ def stub_enqueue_resolution(monkeypatch):
 
 
 class TestPinExecutionModelOnEnqueue:
-    """入队把解析出的执行 model 锁进视频任务 payload 的能力桶键。"""
+    """分镜视频锁定执行 model，reference_video 只保留 advisory provider。"""
 
     async def test_video_task_pins_bucket_key(self, queue, stub_enqueue_resolution):
         enqueued = await queue.enqueue_task(
@@ -468,21 +468,32 @@ class TestPinExecutionModelOnEnqueue:
         assert task["payload"]["video_provider_i2v"] == "custom-7/pinned-video-model"
         assert task["provider_id"] == "custom-7"
 
-    async def test_reference_video_task_pins_r2v_bucket_key(self, queue, stub_enqueue_resolution):
+    async def test_reference_video_task_keeps_only_advisory_provider(self, queue, stub_enqueue_resolution):
         enqueued = await queue.enqueue_task(
             project_name="demo",
             task_type="reference_video",
             media_type="video",
             resource_id="r1",
-            payload={"prompt": "p"},
+            payload={
+                "prompt": "p",
+                "references": [{"type": "character", "name": "A"}],
+                "style": "snapshot",
+                "duration_seconds": 9,
+                "reference_request_options": {"duration_confirmed": True},
+            },
             script_file="ep1.json",
         )
         task = await queue.get_task(enqueued["task_id"])
-        assert task["payload"]["video_provider_r2v"] == "custom-7/pinned-video-model"
+        assert task["payload"] == {
+            "script_file": "ep1.json",
+            "reference_request_options": {"duration_confirmed": True},
+        }
+        assert "video_provider_r2v" not in task["payload"]
+        assert "video_provider_i2v" not in task["payload"]
+        assert task["provider_id"] == "custom-7"
 
     async def test_persist_execution_identity_rewrites_pinned_bucket_key(self, queue, stub_enqueue_resolution):
-        """入队锁定与执行定桶分裂时，写回把陈旧桶键换成实际执行身份——resume 解析里锁定键
-        优先于 provider_id 列注入，只刷新列锁不住轮询 backend。"""
+        """reference_video 开始处理后把实际执行身份写入当前桶键，供已提交任务 resume。"""
         from lib.config.resolver import ProviderModel
 
         enqueued = await queue.enqueue_task(
@@ -494,7 +505,7 @@ class TestPinExecutionModelOnEnqueue:
             script_file="ep1.json",
         )
         task = await queue.get_task(enqueued["task_id"])
-        assert task["payload"]["video_provider_r2v"] == "custom-7/pinned-video-model"
+        assert "video_provider_r2v" not in task["payload"]
 
         await queue.persist_execution_identity(
             enqueued["task_id"],
@@ -504,7 +515,8 @@ class TestPinExecutionModelOnEnqueue:
         task = await queue.get_task(enqueued["task_id"])
         assert task["payload"]["video_provider_i2v"] == "ark/doubao-seedance-1-5-pro-251215"
         assert "video_provider_r2v" not in task["payload"]
-        assert task["payload"]["prompt"] == "p"
+        assert "prompt" not in task["payload"]
+        assert task["payload"]["script_file"] == "ep1.json"
         assert task["provider_id"] == "ark"
 
     async def test_non_video_task_pins_nothing(self, queue, stub_enqueue_resolution):

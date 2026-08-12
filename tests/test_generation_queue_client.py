@@ -128,8 +128,8 @@ class TestTaskSpecFromRequest:
         spec = TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt="一位老者")
         assert spec.payload == {"prompt": "一位老者"}
 
-    def test_reference_video_prompt_builds_spec(self):
-        # 参考生视频的 prompt 由 shots[*].text 拼接而成，走默认（非空字符串）分支。
+    def test_reference_video_validates_prompt_without_snapshotting_it(self):
+        # 当前 shots 只在入队守卫点校验；worker 从 script_file + resource_id 重读最新内容。
         spec = TaskSpec.from_request(
             task_type="reference_video",
             media_type="video",
@@ -138,7 +138,7 @@ class TestTaskSpecFromRequest:
             script_file="episode_1.json",
         )
         assert spec.task_type == "reference_video"
-        assert spec.payload == {"prompt": "Shot 1 (3s): @张三 推门", "script_file": "episode_1.json"}
+        assert spec.payload == {"script_file": "episode_1.json"}
 
     def test_reference_video_empty_prompt_rejected(self):
         # 所有 shots[*].text 拼接后只剩空白 → 守卫点拒绝，不再漏到执行层。

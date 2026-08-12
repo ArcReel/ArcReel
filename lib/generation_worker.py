@@ -34,7 +34,9 @@ from lib.generation_queue import (
     TASK_WORKER_LEASE_TTL_SEC,
     GenerationQueue,
     get_generation_queue,
+    reference_projection_for_queued_task,
     video_bucket_for_queued_task,
+    without_reference_video_execution_identity,
 )
 from lib.image_backends.base import ImageCapabilityError
 from lib.reference_compression import ReferencePayloadFloorError
@@ -367,11 +369,10 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``capability="t2i"`` 取一个
     **代表性** provider——worker 认领时拿不到真实 capability（见 ``docs/adr/0001``），这点近似不影响
     生成正确性（执行层会独立精确再解析一次）；``image_edit`` 是唯一例外（必然 i2i、入队即知），
-    按 i2i 槽精确解析。视频定桶经 ``video_bucket_for_queued_task`` 与入队派生共用：
-    参考生视频按参考集分流（无引用退化镜头 → i2v）——ad 从成员镜头现算（与执行侧同源，
-    索引里的 references 只是可能落后于镜头的展示缓存），其余按 unit **声明**的参考集近似。
-    投影只服务 claim 过滤与限流路由；执行侧按解析后的**实际**参考图精确定桶，ad 参考集
-    非空但资产缺图时两者允许分裂（执行前经 ``persist_execution_identity`` 把实际身份写回投影列与锁定键）。
+    按 i2i 槽精确解析。分镜视频定桶经 ``video_bucket_for_queued_task`` 与入队派生共用；
+    reference_video 则重读最新 project/script/unit，以实际可用资产调用公共 request projection。
+    这份 provider 投影只服务 claim 过滤与限流路由，不是执行身份；正常 executor 会在开始时
+    再按同一最新状态物化请求。
     解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
@@ -394,6 +395,18 @@ async def _extract_provider(task: dict[str, Any]) -> str:
 
         resolver = ConfigResolver(async_session_factory)
         if is_video:
+            projection = (
+                await reference_projection_for_queued_task(
+                    project=project,
+                    project_name=project_name,
+                    payload=payload,
+                    resource_id=task.get("resource_id"),
+                )
+                if task.get("task_type") == "reference_video"
+                else None
+            )
+            if projection is not None and projection.provider_id:
+                return projection.provider_id
             capability = await video_bucket_for_queued_task(
                 project=project,
                 project_name=project_name,
@@ -401,7 +414,12 @@ async def _extract_provider(task: dict[str, Any]) -> str:
                 payload=payload,
                 resource_id=task.get("resource_id"),
             )
-            resolved = await resolver.resolve_video_backend(project, payload, capability=capability)
+            execution_payload = (
+                without_reference_video_execution_identity(payload)
+                if task.get("task_type") == "reference_video"
+                else payload
+            )
+            resolved = await resolver.resolve_video_backend(project, execution_payload, capability=capability)
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload)
         else:
@@ -765,10 +783,9 @@ class GenerationWorker:
     async def _process_resume_task(self, task: dict[str, Any]) -> None:
         """重启自愈入口：直接调 backend.resume_video，绕过 normal executor 流水线。
 
-        身份锁定：视频任务的 provider 与 model 由入队时锁进 payload 能力桶键的执行身份负责
-        （``lib.generation_queue``），``ConfigResolver`` 据此按提交时的身份而非当前项目配置解析
-        backend——否则任务提交后到重启前若项目 provider 配置切换，会拿旧 ``provider_job_id``
-        去新 provider 轮询，导致可恢复任务被误判失败。
+        身份锁定：分镜视频在入队时写入 payload 能力桶键；reference_video 在 worker
+        开始时按最新状态物化，并在 provider 提交前写入同样的实际身份。``ConfigResolver``
+        因此能在任务已提交且进程重启后，按提交时的身份而非当前项目配置恢复 backend。
 
         非视频媒体退到把持久化的 ``task["provider_id"]`` 注入 payload 的 ``image_provider``
         字段（只锁 provider、锁不住 model）。孤儿扫描只把 video 交到这里，image / audio 孤儿
@@ -788,7 +805,7 @@ class GenerationWorker:
             return
 
         # 非视频媒体：锁定持久化 provider 到 payload（resolver 优先级：payload > project > 默认）。
-        # 视频任务的身份走入队锁定的能力桶键，不在此注入——注入只覆盖 provider、盖不住 model。
+        # 已提交视频任务的身份走能力桶键，不在此注入——注入只覆盖 provider、盖不住 model。
         persisted_provider_id = task.get("provider_id")
         is_video = task.get("media_type") == "video" or task_type in ("video", "reference_video")
         if persisted_provider_id and not is_video:

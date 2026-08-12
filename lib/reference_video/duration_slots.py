@@ -4,8 +4,8 @@
 取档按**容量**解读档位：申请能装下总时长的最小合法档位，成片不做裁剪——交付时长即
 档位时长。总时长超过最大档位时按最大档位申请（成片短于剧本编排）。
 
-纯函数，无 I/O：执行层（按执行时解析出的真实 model 能力取档）与入队前预检
-（按项目当前配置近似取档，供用户确认）共用同一规则，避免两处判断漂移。
+纯函数，无 I/O。参考视频的报价、预检与执行都由 request projection 先解析当前
+provider/model 与非空档位集，再共用本规则，避免各路径判断漂移。
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ UP: Adjustment = "up"
 DOWN: Adjustment = "down"
 """总时长超过最大档位，按最大档位申请：成片短于剧本编排。"""
 UNCONSTRAINED: Adjustment = "unconstrained"
-"""能力不可解析（档位集为空），总时长原样透传，决策交给 backend。"""
+"""兼容性空档位结果；request projection 会在调用本函数前把空档位转为 blocker。"""
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ class DurationSlot:
 
     @property
     def needs_confirmation(self) -> bool:
-        """申请秒数与剧本总时长不一致时需用户确认（能力不可解析时沿用现状放行）。"""
+        """申请秒数与剧本总时长不一致时需用户确认。"""
         return self.adjustment in (UP, DOWN)
 
     def warning(self, *, model: str) -> dict | None:
@@ -55,8 +55,9 @@ class DurationSlot:
 def resolve_duration_slot(total_seconds: int | float, supported_durations: Sequence[int]) -> DurationSlot:
     """按容量语义为剧本总时长选择申请档位。
 
-    档位集为空（能力不可解析）时原样透传总时长，与 ``assert_duration_supported`` 的
-    空集放行口径一致——不因能力查询失败阻塞出片。档位集不要求有序、允许重复。
+    档位集为空时保留历史纯函数语义，原样透传总时长。可执行的参考视频请求不得
+    依赖该分支：``ReferenceUnitRequestProjector`` 对缺失、空或无效的档位先返回结构化
+    blocker。非空档位集不要求有序、允许重复。
 
     非整数秒总时长（如 4.5）同样按「能装下」比较，取 ≥ 它的最小档位；不做截断式
     归一化，避免把本该向上取的时长静默缩短。

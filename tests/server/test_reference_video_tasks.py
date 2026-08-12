@@ -104,11 +104,12 @@ def _wire_context(
     resolution: str | None = None,
     max_refs: int | None = None,
     max_duration: int | None = None,
-    supported_durations: tuple[int, ...] = (),
+    supported_durations: tuple[int, ...] = (3,),
     voice_consistency: str = "soft",
     max_reference_audio_count: int = 0,
     reference_audio_per_image: bool = False,
     requested_generate_audio: bool = True,
+    generate_audio: bool | None = None,
 ) -> None:
     """把 fake generator + video lane 值包成 GenerationContext，替换 resolve_generation_context 单点。
 
@@ -136,6 +137,9 @@ def _wire_context(
         max_reference_audio_count=max_reference_audio_count,
         reference_audio_per_image=reference_audio_per_image,
         requested_generate_audio=requested_generate_audio,
+        generate_audio=(
+            requested_generate_audio and voice_consistency != "none" if generate_audio is None else generate_audio
+        ),
     )
     ctx = GenerationContext(generator=fake_generator, video_lane=lane)
 
@@ -611,7 +615,7 @@ def test_default_unit_duration_takes_min_of_unordered_custom_tiers():
 
 @pytest.mark.unit
 def test_precheck_unit_unconstrained_when_context_has_no_durations():
-    """能力不可解析（ctx.supported_durations 为空）时原样透传，沿用现状放行不弹确认。"""
+    """存量纯 helper 保留空档位的 unconstrained 兼容语义；可执行请求不走此分支。"""
     ctx = ProjectDurationContext(supported_durations=(), resolution=None, provider_id="", model_name=None)
     unit = {"duration_seconds": 7, "references": []}
     slot = precheck_unit(ctx, unit)
@@ -813,6 +817,7 @@ async def test_execute_reference_video_task_bucket_follows_resolved_references(
 
     async def _capture(*args, **kwargs):
         captured["video"] = kwargs.get("video")
+        captured["payload"] = args[1]
         return await inner(*args, **kwargs)
 
     monkeypatch.setattr(rvt, "resolve_generation_context", _capture)
@@ -822,9 +827,20 @@ async def test_execute_reference_video_task_bucket_follows_resolved_references(
 
     monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
 
-    await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {
+            "script_file": "scripts/episode_1.json",
+            "video_provider_i2v": "legacy/i2v-model",
+            "video_provider_r2v": "legacy/r2v-model",
+        },
+        user_id="u1",
+    )
 
     assert captured["video"].capability == expected_capability
+    assert "video_provider_i2v" not in captured["payload"]
+    assert "video_provider_r2v" not in captured["payload"]
 
 
 @pytest.mark.unit
@@ -978,6 +994,47 @@ async def test_execute_reference_video_task_omits_reference_audio_when_episode_i
     assert "<张三>说 {今晚的酒，我请。}" in prompt
     assert "<张三>@图片1。" in prompt
     assert {"key": "ref_warn_silent_episode", "params": {}} in result["warnings"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_rechecks_audio_switch_for_latest_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """任务等待期间切到恒有声音轨模型后，worker 按当前模型阻止无声请求。"""
+
+    proj_dir = _write_project(tmp_path)
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda _n, _f: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock()
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="dashscope",
+        backend_model="wan2.7-r2v",
+        supported_durations=(3, 4, 5),
+        voice_consistency="native",
+        requested_generate_audio=False,
+    )
+
+    with pytest.raises(ValueError, match="video_audio_switch_not_supported"):
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "scripts/episode_1.json"},
+            user_id="u1",
+        )
+    fake_generator.generate_video_async.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -2011,9 +2068,8 @@ async def test_execute_reference_video_task_persists_execution_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """执行期解析出的身份（registry provider + model + 实际桶）须写回投影列与 payload 锁定键：
-    入队投影与锁定按 unit 声明近似，退化镜头降级 i2v 后与实际可能分裂，resume 解析里
-    锁定键优先于列注入，写回须覆盖两处。"""
+    """当前投影解析出的身份（registry provider + model + 实际桶）须在提交前
+    写回投影列与 payload 桶键，供已提交任务的 resume 解析定位同一 backend。"""
     proj_dir = _write_project(tmp_path)
 
     from lib.config.resolver import ProviderModel

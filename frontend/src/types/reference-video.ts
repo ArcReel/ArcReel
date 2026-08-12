@@ -85,7 +85,7 @@ export interface ReferenceVideoUnit {
 
 /**
  * 时长取档预检结果。`adjustment` 说明申请秒数相对剧本编排的偏移方向：
- * `exact` 一致、`up` 成片更长、`down` 成片更短、`unconstrained` 能力不可解析（原样透传）。
+ * `exact` 一致、`up` 成片更长、`down` 成片更短。能力元数据不可解析时预检直接失败。
  */
 export interface ReferenceDurationPrecheck {
   /** 申请秒数与剧本编排不一致（up / down）时为 true，需先向用户确认 */
@@ -94,7 +94,12 @@ export interface ReferenceDurationPrecheck {
   script_duration: number;
   /** 将向模型申请的档位秒数 */
   request_duration: number;
-  adjustment: "exact" | "up" | "down" | "unconstrained";
+  adjustment: "exact" | "up" | "down";
+  declared_capability: "i2v" | "r2v";
+  hydrated_capability: "i2v" | "r2v";
+  provider_id: string | null;
+  model_id: string | null;
+  problems: Array<{ code: string; blocking: boolean; params: Record<string, unknown> }>;
 }
 
 /**

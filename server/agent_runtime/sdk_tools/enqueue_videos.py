@@ -12,7 +12,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.config.resolver import VideoCapability, video_bucket_for_generation_mode
+from lib.config.resolver import video_bucket_for_generation_mode
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
@@ -29,7 +29,10 @@ from lib.prompt_utils import (
     video_prompt_to_yaml,
 )
 from lib.reference_video import assemble_shots_text
-from lib.reference_video.units import reference_unit_video_bucket
+from lib.reference_video.request_projection import (
+    ReferenceRequestOptions,
+    project_reference_unit_request,
+)
 from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton, resolve_script_kind
 from lib.speech_composition import (
@@ -42,11 +45,6 @@ from server.agent_runtime.sdk_tools._context import (
     ToolContext,
     tool_error,
     validate_script_filename,
-)
-from server.services.reference_video_tasks import (
-    ProjectDurationContext,
-    precheck_unit,
-    resolve_project_duration_context,
 )
 from server.services.video_caps import assert_audio_switch_supported, resolve_project_is_silent
 
@@ -78,6 +76,31 @@ class DurationConfirmationPending:
     items: list[dict[str, Any]]
 
 
+class ReferenceProjectionBlocked(ValueError):
+    """参考单元的公共投影未通过；保留结构化 problems 供 Agent 错误信封返回。"""
+
+    def __init__(self, unit_id: str, problems: list[dict[str, Any]]) -> None:
+        self.unit_id = unit_id
+        self.problems = problems
+        super().__init__(f"unit {unit_id} 请求投影未通过")
+
+
+def _reference_projection_error(
+    name: str,
+    exc: ReferenceProjectionBlocked,
+    log: list[str] | None = None,
+) -> dict[str, Any]:
+    details = json.dumps(exc.problems, ensure_ascii=False)
+    text = f"{name} 失败: {exc}；problems={details}"
+    if log:
+        text = "\n".join([text, *log])
+    return {
+        "content": [{"type": "text", "text": text}],
+        "is_error": True,
+        "request_projection": {"unit_id": exc.unit_id, "problems": exc.problems},
+    }
+
+
 def _duration_confirmation_response(pending: DurationConfirmationPending, log: list[str]) -> dict[str, Any]:
     """把待确认清单连同调用期间产生的 log 一并交给调用方转述。
 
@@ -95,28 +118,20 @@ def _duration_confirmation_response(pending: DurationConfirmationPending, log: l
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
-async def _pending_duration_confirmations(
+async def _reference_projection_preflight(
     *,
     project: dict[str, Any],
-    episode: int | None,
+    project_path: Path,
+    script: dict[str, Any],
     units: list[Any],
     skip_ids: set[str],
     spec_for: Callable[[Any], TaskSpec],
+    confirm_duration: bool,
 ) -> list[dict[str, Any]]:
-    """收集本批将入队的 unit 中，申请时长与剧本编排不一致的清单。
+    """用公共投影一次性完成 Agent 入口的资产、能力、音频与时长预检。"""
 
-    项目视频能力（档位 + 分辨率）按能力桶至多各解析一次（:func:`resolve_project_duration_context`；
-    unit 按自身参考集分桶，与执行侧同口径），批内
-    逐 unit 取档改用纯函数 :func:`precheck_unit`——避免整批 N 个 unit 各自触发一轮
-    DB 往返。解析推迟到第一个真正需要取档的 unit：整批都已完成或都被跳过时不触发任何 IO。
-
-    悬空索引 / 结构异常 / 空提示词的 unit 在此复用与 ``build_specs`` 同一份 spec 构造
-    （``spec_for``）判定可入队性并静默跳过，不在预检阶段重复报错——不合法的 unit
-    ``build_specs`` 阶段本就会拒绝，若仍纳入确认清单或触发 ctx 解析，会让批次卡在一个
-    注定不会入队的 unit 上，且申请时长的转述本身就是失实的（该 unit 根本不会被生成）。
-    """
-    ctxs: dict[VideoCapability, ProjectDurationContext] = {}
     items: list[dict[str, Any]] = []
+    options = ReferenceRequestOptions(duration_confirmed=confirm_duration)
     for unit in units:
         if not isinstance(unit, dict):
             continue
@@ -127,54 +142,37 @@ async def _pending_duration_confirmations(
             spec_for(unit)
         except ValueError:
             continue
-        bucket = reference_unit_video_bucket(unit)
-        if bucket not in ctxs:
-            ctxs[bucket] = await resolve_project_duration_context(project, capability=bucket)
-        try:
-            slot = precheck_unit(ctxs[bucket], unit)
-        except ValueError:
-            continue
-        if slot.needs_confirmation:
+        projection = await project_reference_unit_request(
+            project=project,
+            script=script,
+            unit=unit,
+            project_path=project_path,
+            options=options,
+        )
+        duration_problem = next(
+            (p for p in projection.blocking_problems if p.code == "reference_duration_confirmation_required"),
+            None,
+        )
+        other_blockers = [p for p in projection.blocking_problems if p is not duration_problem]
+        if other_blockers:
+            raise ReferenceProjectionBlocked(
+                unit_id,
+                [
+                    {"code": problem.code, "blocking": problem.blocking, "params": problem.parameters()}
+                    for problem in other_blockers
+                ],
+            )
+        if duration_problem is not None:
+            params = duration_problem.parameters()
             items.append(
                 {
                     "unit_id": unit_id,
-                    "script_duration": slot.total_seconds,
-                    "request_duration": slot.seconds,
-                    "adjustment": slot.adjustment,
+                    "script_duration": params["script_duration"],
+                    "request_duration": params["request_duration"],
+                    "adjustment": params["adjustment"],
                 }
             )
     return items
-
-
-async def _assert_audio_switch_for_units(
-    *,
-    project: dict[str, Any],
-    units: list[Any],
-    skip_ids: set[str],
-    spec_for: Callable[[Any], TaskSpec],
-) -> None:
-    """参考路线入队前的音频闸门，按本批真正要入队的 unit 所属能力桶逐桶检查。
-
-    定桶口径与 :func:`_pending_duration_confirmations` 一致（同一份 ``spec_for`` 判可入队性、
-    unit 以自身参考集定桶），同一桶只解析一次。放在时长确认之前：确认轮次走完再拒
-    等于让用户白确认一遍；整批都已完成或都不可入队时不触发任何 IO。
-    """
-    checked: set[VideoCapability] = set()
-    for unit in units:
-        if not isinstance(unit, dict):
-            continue
-        unit_id = str(unit.get("unit_id") or "")
-        if not unit_id or unit_id in skip_ids:
-            continue
-        try:
-            spec_for(unit)
-        except ValueError:
-            continue
-        bucket = reference_unit_video_bucket(unit)
-        if bucket in checked:
-            continue
-        checked.add(bucket)
-        await assert_audio_switch_supported(project, bucket)
 
 
 def _get_video_prompt(
@@ -216,7 +214,7 @@ async def _assert_audio_switch_for_storyboard(ctx: ToolContext) -> None:
 
     调用点固定在「确有任务要入队」之后、提交之前：整集已完成、或条目全被
     :func:`_build_video_specs` 过滤时本就不会产生任何请求，此时拒绝等于把一次正常的空转变成报错。
-    参考路线的 :func:`_assert_audio_switch_for_units` 是同一语义。
+    参考路线由公共 request projection 给出同一音频能力判定。
     """
     project = ctx.pm.load_project(ctx.project_name)
     await assert_audio_switch_supported(project, video_bucket_for_generation_mode(project.get("generation_mode")))
@@ -502,6 +500,7 @@ async def _generate_reference_units(
     build_specs: Callable[[list[Any], list[str], list[str]], tuple[list[TaskSpec], dict[str, int]]],
     spec_for: Callable[[Any], TaskSpec],
     project: dict[str, Any],
+    script: dict[str, Any],
     confirm_duration: bool,
     reuse_existing: Callable[[dict[str, Any]], bool],
 ) -> list[Path] | DurationConfirmationPending:
@@ -516,7 +515,7 @@ async def _generate_reference_units(
     骨架还会先应用重规划闸门，迁移保留的旧产物不能让 ``needs_replan`` 单元绕过修复。
 
     ``confirm_duration`` 为 false 时，若待入队 unit 中有申请时长与剧本编排不一致的
-    （见 :func:`server.services.reference_video_tasks.resolve_duration_slot`），该调用
+    （见 :class:`lib.reference_video.request_projection.ReferenceUnitRequestProjector`），该调用
     调用不产生任何任务，返回 :class:`DurationConfirmationPending` 供调用方转述给用户；
     用户同意后调用方带 ``confirm_duration=True`` 重新调用完成入队（与 Web 端
     ``duration-precheck`` 预检共用同一取档规则）。
@@ -555,25 +554,22 @@ async def _generate_reference_units(
         elif unit_id in completed:
             completed.remove(unit_id)
 
-    await _assert_audio_switch_for_units(
+    pending = await _reference_projection_preflight(
         project=project,
+        project_path=project_dir,
+        script=script,
         units=units,
         skip_ids=set(already_done),
         spec_for=spec_for,
+        confirm_duration=confirm_duration,
     )
-
-    if not confirm_duration:
-        pending = await _pending_duration_confirmations(
-            project=project,
-            episode=episode,
-            units=units,
-            skip_ids=set(already_done),
-            spec_for=spec_for,
-        )
-        if pending:
-            return DurationConfirmationPending(items=pending)
+    if pending:
+        return DurationConfirmationPending(items=pending)
 
     specs, order_map = build_specs(units, already_done, log)
+    request_options = ReferenceRequestOptions(duration_confirmed=confirm_duration).to_payload()
+    for spec in specs:
+        spec.payload = {**(spec.payload or {}), "reference_request_options": request_options}
     if specs:
         failures = await _submit_with_checkpoint(
             project_name=ctx.project_name,
@@ -644,6 +640,7 @@ async def _run_reference_episode(
         ),
         spec_for=lambda u: _reference_unit_spec(u, script_filename),
         project=project,
+        script=script,
         confirm_duration=confirm_duration,
         reuse_existing=lambda unit: (
             get_generated_assets(unit).get("video_clip") == _reference_fallback_relpath(str(unit.get("unit_id") or ""))
@@ -750,6 +747,7 @@ async def _run_reference_units(
         ),
         spec_for=lambda u: _reference_unit_spec(u, script_filename),
         project=project,
+        script=script,
         confirm_duration=confirm_duration,
         # 点名即强制：磁盘上的同名成片一律不复用。
         reuse_existing=lambda _u: False,
@@ -851,6 +849,8 @@ def generate_video_episode_tool(ctx: ToolContext):
             _clear_checkpoint_at(ckpt_path)
             header = f"第 {episode} 集视频生成完成，共 {len(scene_videos)} 个片段"
             return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
+        except ReferenceProjectionBlocked as exc:
+            return _reference_projection_error("generate_video_episode", exc, log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error("generate_video_episode", exc, log)
         except Exception as exc:  # noqa: BLE001
@@ -952,6 +952,8 @@ def generate_video_scene_tool(ctx: ToolContext):
             rel = result.get("file_path") or f"videos/scene_{item_id}.mp4"
             output_path = project_dir / rel
             return {"content": [{"type": "text", "text": f"✅ 视频已保存: {output_path}"}]}
+        except ReferenceProjectionBlocked as exc:
+            return _reference_projection_error("generate_video_scene", exc, log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error("generate_video_scene", exc, log)
         except Exception as exc:  # noqa: BLE001
@@ -1027,6 +1029,8 @@ def generate_video_all_tool(ctx: ToolContext):
                 "content": [{"type": "text", "text": "\n".join([header, *log, *details])}],
                 "is_error": bool(failures),
             }
+        except ReferenceProjectionBlocked as exc:
+            return _reference_projection_error("generate_video_all", exc, log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error("generate_video_all", exc, log)
         except Exception as exc:  # noqa: BLE001
@@ -1171,6 +1175,8 @@ def generate_video_selected_tool(ctx: ToolContext):
             _clear_checkpoint_at(ckpt_path)
             header = f"generate_video_selected 完成：{len(final_results)} 个"
             return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
+        except ReferenceProjectionBlocked as exc:
+            return _reference_projection_error("generate_video_selected", exc, log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error("generate_video_selected", exc, log)
         except Exception as exc:  # noqa: BLE001

@@ -7,6 +7,7 @@ Single-file fakes stay in their respective test modules.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from instructor.core import InstructorRetryException
@@ -184,6 +185,63 @@ class FakeImageBackend:
             provider=self._provider,
             model=self._model,
         )
+
+
+def fake_reference_request_projector(
+    *,
+    durations: tuple[int, ...],
+    provider_id: str = "fake",
+    model_id: str = "fake-model",
+):
+    """构造使用真实资产水合与投影规则、仅替换 provider 能力查询的 async 测试入口。"""
+
+    from lib.config.resolver import VideoCapability
+    from lib.reference_video.request_projection import (
+        FilesystemReferenceAssets,
+        ProviderProjectionCandidate,
+        ReferenceRequestOptions,
+        ReferenceUnitRequestProjection,
+        ReferenceUnitRequestProjector,
+        resolve_reference_assets,
+    )
+
+    class _Capabilities:
+        async def resolve_candidate(self, project: dict, capability: VideoCapability) -> ProviderProjectionCandidate:
+            del project
+            return ProviderProjectionCandidate(
+                capability=capability,
+                provider_id=provider_id,
+                model_id=model_id,
+                supported_durations=durations,
+                max_reference_images=9,
+                resolution="1080p",
+                generate_audio=True,
+                requested_generate_audio=True,
+                has_audio_track=True,
+                audio_switch_controllable=True,
+            )
+
+    async def _project(
+        *,
+        project: dict,
+        script: dict,
+        unit: dict,
+        project_path: Path,
+        options: ReferenceRequestOptions | None = None,
+        **_kwargs: object,
+    ) -> ReferenceUnitRequestProjection:
+        return await ReferenceUnitRequestProjector(
+            _Capabilities(),
+            FilesystemReferenceAssets(project_path),
+        ).project_current(
+            project=project,
+            script=script,
+            unit=unit,
+            resolved_assets=resolve_reference_assets(project, project_path, unit),
+            options=options,
+        )
+
+    return _project
 
 
 def fake_reference_caps_fetcher(

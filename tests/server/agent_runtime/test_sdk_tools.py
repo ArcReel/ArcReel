@@ -142,6 +142,70 @@ def _stub_audio_switch_guard(monkeypatch):
     monkeypatch.setattr(_mod, "assert_audio_switch_supported", _noop)
 
 
+def _fake_reference_projection(slot_for=None, calls: list[str] | None = None):
+    """Agent 工具测试用的 in-process request projection adapter。"""
+
+    async def _project(*, project, script, unit, options=None, **_kwargs):
+        from lib.reference_video.request_projection import (
+            ProviderProjectionCandidate,
+            ReferenceUnitRequestProjector,
+            ResolvedReferenceAsset,
+            canonicalize_references,
+        )
+
+        references = canonicalize_references(unit.get("references"))
+        capability = "r2v" if references else "i2v"
+        if calls is not None:
+            calls.append(capability)
+        if slot_for is None:
+            requested_seconds = int(unit.get("duration_seconds") or 8)
+        else:
+            requested_seconds = int(slot_for(None, unit).seconds)
+
+        class _Capabilities:
+            async def resolve_candidate(self, project, capability):
+                del project
+                return ProviderProjectionCandidate(
+                    capability=capability,
+                    provider_id="fake",
+                    model_id=f"fake-{capability}",
+                    supported_durations=(requested_seconds,),
+                    max_reference_images=9,
+                    resolution="1080p",
+                    generate_audio=True,
+                    requested_generate_audio=True,
+                    has_audio_track=True,
+                    audio_switch_controllable=True,
+                )
+
+        class _Available:
+            def is_available(self, asset):
+                del asset
+                return True
+
+        resolved_assets = [
+            ResolvedReferenceAsset(path=Path(f"{reference.type}/{reference.name}.png"), reference=reference)
+            for reference in references
+        ]
+        return await ReferenceUnitRequestProjector(_Capabilities(), _Available()).project_current(
+            project=project,
+            script=script,
+            unit=unit,
+            resolved_assets=resolved_assets,
+            options=options,
+        )
+
+    return _project
+
+
+@pytest.fixture(autouse=True)
+def _stub_reference_request_projection(monkeypatch):
+    """Agent 工具接线测试不访问真实供应商配置或项目资产文件。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as _mod
+
+    monkeypatch.setattr(_mod, "project_reference_unit_request", _fake_reference_projection())
+
+
 async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
     return await tool_obj.handler(args)
 
@@ -1390,8 +1454,7 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
     async def fake_active_tasks(**_kwargs):
         return []
 
-    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
-    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
+    monkeypatch.setattr(mod, "project_reference_unit_request", _fake_reference_projection(fake_precheck))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     monkeypatch.setattr(mod, "get_active_tasks_for_resources", fake_active_tasks)
 
@@ -1404,6 +1467,47 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
     assert "5" in text and "8" in text
     assert "confirm_duration" in text
     assert enqueued == []
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_reference_returns_structured_projection_blocker(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    """Agent 失败信封保留公共投影的稳定 problem 字段，不只返回人读文本。"""
+    from lib.reference_video.request_projection import ProjectionProblem
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    _use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+
+    class _BlockedProjection:
+        blocking_problems = (
+            ProjectionProblem(
+                code="reference_supported_durations_missing",
+                blocking=True,
+                params=(("provider", "fake"), ("model", "fake-model")),
+            ),
+        )
+
+    async def _blocked(**_kwargs):
+        return _BlockedProjection()
+
+    monkeypatch.setattr(mod, "project_reference_unit_request", _blocked)
+
+    out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is True
+    assert out["request_projection"] == {
+        "unit_id": "E1U1",
+        "problems": [
+            {
+                "code": "reference_supported_durations_missing",
+                "blocking": True,
+                "params": {"provider": "fake", "model": "fake-model"},
+            }
+        ],
+    }
 
 
 @pytest.mark.integration
@@ -1438,8 +1542,7 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
     async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
-    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
-    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
+    monkeypatch.setattr(mod, "project_reference_unit_request", _fake_reference_projection(fake_precheck))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
@@ -1472,8 +1575,7 @@ async def test_generate_video_episode_reference_duration_repeat_without_confirm_
     async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
-    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
-    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
+    monkeypatch.setattr(mod, "project_reference_unit_request", _fake_reference_projection(fake_precheck))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
@@ -1519,8 +1621,7 @@ async def test_generate_video_episode_reference_duration_exact_enqueues_directly
     async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
-    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
-    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
+    monkeypatch.setattr(mod, "project_reference_unit_request", _fake_reference_projection(fake_precheck))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
@@ -1575,8 +1676,7 @@ async def test_generate_video_episode_reference_duration_skips_unit_without_shot
     async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
-    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
-    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
+    monkeypatch.setattr(mod, "project_reference_unit_request", _fake_reference_projection(fake_precheck))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
@@ -1592,13 +1692,9 @@ async def test_generate_video_episode_reference_duration_skips_unit_without_shot
 async def test_generate_video_episode_reference_duration_resolves_project_context_once(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """批量预检时项目视频能力/分辨率按能力桶至多各解析一次，逐 unit 取档走纯函数 precheck_unit。
-
-    unit 按声明的参考集分桶：有参考图 → r2v，无参考图退化镜头 → i2v，与执行侧同口径。
-    同桶多 unit 复用同一次解析，不逐 unit 触发 DB 往返。
-    """
+    """批量预检让每个可入队 unit 都经过公共 request projection。"""
+    from lib.reference_video.duration_slots import UP, DurationSlot
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
-    from server.services.reference_video_tasks import ProjectDurationContext
 
     script = _reference_video_script()
     script["video_units"].append(
@@ -1622,9 +1718,8 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
 
     context_calls: list[Any] = []
 
-    async def fake_duration_context(project, _episode=None, *, capability=None):
-        context_calls.append(capability)
-        return ProjectDurationContext(supported_durations=(4, 8, 12), resolution=None, provider_id="", model_name=None)
+    def fake_precheck(_ctx, _unit):
+        return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
 
@@ -1632,16 +1727,19 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
         enqueued.extend(specs)
         return [], []
 
-    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(
+        mod,
+        "project_reference_unit_request",
+        _fake_reference_projection(fake_precheck, calls=context_calls),
+    )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
 
-    # 三个 unit 均 5 秒、档位无 5 → 都需确认，本批不入队；两个带参考图 unit 共用一次
-    # r2v 解析，无参考图 unit 单独触发一次 i2v 解析——既验证分桶传递，也验证按桶缓存。
+    # 三个 unit 均 5 秒、申请 8 秒 → 都需确认，本批不入队；实际水合桶随每个结果可观察。
     assert out.get("is_error") is not True, out
-    assert context_calls == ["r2v", "i2v"]
+    assert context_calls == ["r2v", "r2v", "i2v"]
     assert enqueued == []
 
 
@@ -1659,22 +1757,18 @@ async def test_generate_video_episode_reference_skips_duration_context_when_noth
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
 
-    context_calls: list[dict[str, Any]] = []
-
-    async def fake_duration_context(project, _episode=None, *, capability=None):
-        context_calls.append(project)
-        raise AssertionError("无可预检 unit 时不应解析项目视频能力")
+    projection_calls: list[str] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         return [], []
 
-    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "project_reference_unit_request", _fake_reference_projection(calls=projection_calls))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
     await _call(tool_obj, {"script": "episode_1.json"})
 
-    assert context_calls == []
+    assert projection_calls == []
 
 
 @pytest.mark.integration
@@ -1682,7 +1776,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_prom
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """shots 非空但拼接后提示词全空白时，build_specs 会拒绝该 unit——预检须复用同一份
-    结构校验提前判定，不能先触发项目能力解析再让 build_specs 事后跳过（见 Codex review）。"""
+    结构校验提前判定，不能先触发项目能力解析再让 build_specs 事后跳过。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     script = _reference_video_script()
@@ -1691,22 +1785,18 @@ async def test_generate_video_episode_reference_skips_duration_context_when_prom
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
 
-    context_calls: list[dict[str, Any]] = []
-
-    async def fake_duration_context(project, _episode=None, *, capability=None):
-        context_calls.append(project)
-        raise AssertionError("整批提示词均空白时不应解析项目视频能力")
+    projection_calls: list[str] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         return [], []
 
-    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "project_reference_unit_request", _fake_reference_projection(calls=projection_calls))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
 
-    assert context_calls == []
+    assert projection_calls == []
     assert "E1U1" in out["content"][0]["text"]
 
 
@@ -1733,8 +1823,7 @@ async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
     async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
-    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
-    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
+    monkeypatch.setattr(mod, "project_reference_unit_request", _fake_reference_projection(fake_precheck))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(ad_reference_ctx)
@@ -1791,8 +1880,7 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     async def fake_active_tasks(**_kwargs):
         return []
 
-    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
-    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
+    monkeypatch.setattr(mod, "project_reference_unit_request", _fake_reference_projection(fake_precheck))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     monkeypatch.setattr(mod, "get_active_tasks_for_resources", fake_active_tasks)
 
@@ -2347,7 +2435,7 @@ async def test_resolve_voice_context_drama_reads_project_characters_and_gate(
 
 @pytest.mark.unit
 def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
-    """参考生视频入队经统一守卫点：prompt 由 shots 拼接后随 payload 入队（见 ADR-0001）。"""
+    """参考生视频 prompt 只用于统一结构守卫，不冻结进任务 payload。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
 
     # production 的 shots[*].text 由 parse_prompt 产出、已剥离 "Shot N (Xs):" header，
@@ -2364,8 +2452,7 @@ def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
     assert len(specs) == 1
     assert specs[0].task_type == "reference_video"
     assert specs[0].resource_id == "E1U1"
-    # 拼接出的 prompt 经守卫点校验后落入 payload。
-    assert specs[0].payload["prompt"] == "@张三 推门"
+    assert "prompt" not in specs[0].payload
     assert specs[0].payload["script_file"] == "episode_1.json"
 
 

@@ -2828,10 +2828,11 @@ class API {
     projectName: string,
     episode: number,
     unitId: string,
+    durationConfirmed = false,
   ): Promise<{ task_id: string; deduped: boolean }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/generate`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify({ duration_confirmed: durationConfirmed }) },
     );
   }
 

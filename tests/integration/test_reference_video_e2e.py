@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import fake_reference_request_projector
 
 pytestmark = pytest.mark.unit
 
@@ -92,10 +93,12 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
     monkeypatch.setattr(gt_mod, "get_project_manager", lambda: custom_pm)
     monkeypatch.setattr(rvt_mod, "get_project_manager", lambda: custom_pm)
-    # 视频桶预检需要 DB（system_settings）；本用例无 DB，能力闸行为由
-    # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
-    monkeypatch.setattr(router_mod, "require_video_bucket_capability", AsyncMock(return_value=None))
-    monkeypatch.setattr(router_mod, "require_audio_switch_supported", AsyncMock(return_value=None))
+    # 保留真实资产水合、定桶与时长投影，只隔离本用例不关心的 DB 能力查询。
+    monkeypatch.setattr(
+        router_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(durations=(3, 7)),
+    )
 
     app = FastAPI()
     app.include_router(router_mod.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
@@ -177,9 +180,10 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
             backend_model="doubao-seedance-2-0-260128",
             resolution=None,
             resolution_or_fallback="1080p",
-            supported_durations=(),
-            max_duration=None,
+            supported_durations=(7,),
+            max_duration=7,
             max_reference_images=None,
+            generate_audio=True,
         ),
     )
 
@@ -241,6 +245,7 @@ async def test_e2e_missing_reference_raises(three_bucket_client):
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={
             "prompt": "Shot 1 (3s): @张三 进 @酒馆",
+            "duration_seconds": 3,
             "references": [
                 {"type": "character", "name": "张三"},
                 {"type": "scene", "name": "酒馆"},

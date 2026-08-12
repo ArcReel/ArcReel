@@ -6,7 +6,7 @@
  *    返回的 task_id 兑现（见 {@link submit}）——占用态因此从点击那一刻起就成立，
  *    调用方无须自备「请求在途」标记来覆盖网络往返窗口；
  * 2. 调用对应 API 入队端点；
- * 3. 弹提示：后端 deduped=true（同资源任务已在处理中，本次未新建）时统一
+ * 3. 弹提示：后端 deduped=true（同资源任务已在处理中，该调用未新建）时统一
  *    弹 info 提示，否则沿用各操作原有的成功文案。
  *
  * 失败一律向上抛，由调用方决定错误提示。返回值统一归一化为 EnqueueResult，
@@ -288,10 +288,11 @@ export async function enqueueReferenceVideoUnit(
   projectName: string,
   episode: number,
   unitId: string,
+  durationConfirmed = false,
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "reference_video", unitId, "reference_video")],
-    () => API.generateReferenceVideoUnit(projectName, episode, unitId),
+    () => API.generateReferenceVideoUnit(projectName, episode, unitId, durationConfirmed),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:reference_generate_queued"), "info");

@@ -7,7 +7,7 @@ import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { API } from "@/api";
-import type { ReferenceVideoUnit } from "@/types";
+import type { ReferenceDurationPrecheck, ReferenceVideoUnit } from "@/types";
 import type { ProjectData } from "@/types";
 
 // useActiveResourceIds / useLatestTasksByResource 默认包裹真实实现，仅在个别用例里
@@ -95,6 +95,11 @@ describe("ReferenceVideoCanvas", () => {
       script_duration: 3,
       request_duration: 3,
       adjustment: "exact",
+      declared_capability: "i2v",
+      hydrated_capability: "i2v",
+      provider_id: "kling",
+      model_id: "kling-v2-1-master",
+      problems: [],
     });
   });
   afterEach(() => vi.restoreAllMocks());
@@ -745,7 +750,7 @@ describe("ReferenceVideoCanvas", () => {
 
     fireEvent.click(batch);
     await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
-    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2");
+    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2", false);
   });
 
   // 上传与生成回写同一个成片文件：文件选择对话框打开期间同一 unit 可能已被占用，
@@ -798,7 +803,7 @@ describe("ReferenceVideoCanvas", () => {
 
     fireEvent.click(batch);
     await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
-    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2");
+    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2", false);
   });
 
   // 时长取档确认：模型只接受离散档位，剧本编排落在档位之间时按能装下它的最小档位生成，
@@ -806,13 +811,20 @@ describe("ReferenceVideoCanvas", () => {
   describe("时长取档确认", () => {
     const CONFIRM_CTA = /Generate at this length|按此时长生成/;
 
-    function stubPrecheck(precheck: {
-      needs_confirmation: boolean;
-      script_duration: number;
-      request_duration: number;
-      adjustment: "exact" | "up" | "down" | "unconstrained";
-    }) {
-      vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue(precheck);
+    function stubPrecheck(
+      precheck: Pick<
+        ReferenceDurationPrecheck,
+        "needs_confirmation" | "script_duration" | "request_duration" | "adjustment"
+      >,
+    ) {
+      vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
+        ...precheck,
+        declared_capability: "i2v",
+        hydrated_capability: "i2v",
+        provider_id: "kling",
+        model_id: "kling-v2-1-master",
+        problems: [],
+      });
     }
 
     it("申请秒数与剧本编排不一致时先确认，确认后才入队", async () => {
@@ -839,7 +851,7 @@ describe("ReferenceVideoCanvas", () => {
       expect(screen.getByText(/长 3 秒|3s longer/)).toBeInTheDocument();
 
       fireEvent.click(confirm);
-      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
+      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1", true));
     });
 
     it("取消确认则不入队", async () => {
@@ -952,8 +964,8 @@ describe("ReferenceVideoCanvas", () => {
       fireEvent.click(confirm);
       // 先等清单里最后一个单元入队完毕，再断言已完成的那个自始至终没被提交——
       // 直接 waitFor 调用次数为 1 会在第一次调用时就满足，捕获不到多出来的那次。
-      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2"));
-      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1");
+      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2", true));
+      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1", true);
       expect(genSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -993,8 +1005,8 @@ describe("ReferenceVideoCanvas", () => {
       fireEvent.click(batch);
       fireEvent.click(await screen.findByRole("button", { name: CONFIRM_CTA }));
 
-      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
-      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U2");
+      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1", true));
+      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U2", true);
       expect(genSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -1017,7 +1029,7 @@ describe("ReferenceVideoCanvas", () => {
       fireEvent.click(await screen.findByRole("button", { name: /Regenerate|重新生成/ }));
 
       fireEvent.click(await screen.findByRole("button", { name: CONFIRM_CTA }));
-      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
+      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1", true));
     });
 
     // 预检是一段 await 窗口：其间被别处占用的 unit 若仍列进确认清单，就是请用户为一件
@@ -1041,6 +1053,11 @@ describe("ReferenceVideoCanvas", () => {
           script_duration: 3,
           request_duration: 4,
           adjustment: "up" as const,
+          declared_capability: "i2v" as const,
+          hydrated_capability: "i2v" as const,
+          provider_id: "kling",
+          model_id: "kling-v2-1-master",
+          problems: [],
         };
       });
 
@@ -1058,7 +1075,7 @@ describe("ReferenceVideoCanvas", () => {
 
       fireEvent.click(confirm);
       await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(2));
-      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1");
+      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1", true);
     });
 
     // 折叠计数会藏起被折叠单元的调整方向：其中可能有成片更短的单元，而用户是在看不到

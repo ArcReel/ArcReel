@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API, SpeechAdmissionError } from "@/api";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
@@ -13,6 +13,51 @@ afterEach(() => {
 });
 
 describe("useReferenceDurationGate", () => {
+  it("marks direct submissions as not explicitly confirmed", async () => {
+    vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
+      needs_confirmation: false,
+      script_duration: 4,
+      request_duration: 4,
+      adjustment: "exact",
+      declared_capability: "i2v",
+      hydrated_capability: "i2v",
+      provider_id: "kling",
+      model_id: "kling-v2-1-master",
+      problems: [],
+    });
+    const commit = vi.fn(async () => {});
+    const { result } = renderHook(() => useReferenceDurationGate({ projectName: "demo", episode: 1 }));
+
+    await act(async () => {
+      await result.current.run(["E1U1"], commit, () => true);
+    });
+
+    expect(commit).toHaveBeenCalledWith(["E1U1"], false);
+  });
+
+  it("marks submissions after the duration dialog as explicitly confirmed", async () => {
+    vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
+      needs_confirmation: true,
+      script_duration: 5,
+      request_duration: 8,
+      adjustment: "up",
+      declared_capability: "i2v",
+      hydrated_capability: "i2v",
+      provider_id: "kling",
+      model_id: "kling-v2-1-master",
+      problems: [],
+    });
+    const commit = vi.fn(async () => {});
+    const { result } = renderHook(() => useReferenceDurationGate({ projectName: "demo", episode: 1 }));
+
+    await act(async () => {
+      await result.current.run(["E1U1"], commit, () => true);
+    });
+    act(() => result.current.dialogProps.onConfirm());
+
+    await waitFor(() => expect(commit).toHaveBeenCalledWith(["E1U1"], true));
+  });
+
   it("preserves structured speech admission details from precheck", async () => {
     const error = new SpeechAdmissionError({
       allowed: false,

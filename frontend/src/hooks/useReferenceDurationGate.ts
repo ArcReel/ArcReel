@@ -11,7 +11,7 @@ interface Options {
 }
 
 /**
- * 该 unit 此刻是否仍该入队，由调用方按本次入口的语义提供，须实时读取而非渲染期快照：
+ * 该 unit 此刻是否仍该入队，由调用方按当前入口的语义提供，须实时读取而非渲染期快照：
  * 预检与用户思考都是 await 窗口，其间同一 unit 可能已被其它入口或 Agent 占用。
  *
  * 判定按入口而非按闸门统一——批量入口的作用对象是「还没有成片的单元」，弹窗停留期间
@@ -27,6 +27,8 @@ interface PendingConfirm {
   unitIds: string[];
 }
 
+type Commit = (unitIds: string[], durationConfirmed: boolean) => Promise<void>;
+
 /**
  * 参考视频生成入口的时长确认闸门：入队前预检取档，申请秒数与剧本编排不一致时先让
  * 用户确认，取消则一个都不入队。
@@ -38,7 +40,7 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
   const { t } = useTranslation("dashboard");
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   // 入队回调随 run 一起捕获：确认发生在 run 之后的任意时刻，不能从渲染期闭包重取
-  const commitRef = useRef<((unitIds: string[]) => Promise<void>) | null>(null);
+  const commitRef = useRef<Commit | null>(null);
   // 复核判定同理随 run 捕获：它按入口语义而定，确认时刻要用的是发起这一轮的那个入口的
   const canEnqueueRef = useRef<CanEnqueue | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -58,7 +60,7 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
   const run = useCallback(
     async (
       unitIds: string[],
-      commit: (unitIds: string[]) => Promise<void>,
+      commit: Commit,
       canEnqueue: CanEnqueue,
     ) => {
       if (unitIds.length === 0) return;
@@ -126,7 +128,7 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
       const needsConfirmation = available.filter((item) => item.precheck.needs_confirmation);
       const passing = available.map((item) => item.unitId);
       if (needsConfirmation.length === 0) {
-        await commit(passing);
+        await commit(passing, false);
         return;
       }
       commitRef.current = commit;
@@ -149,7 +151,7 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
     const targets = canEnqueue ? current.unitIds.filter(canEnqueue) : current.unitIds;
     if (targets.length === 0) return;
     // commit 自身已按入口口径提示失败，这里只兜住漏出的意外异常
-    void commit(targets).catch((e: unknown) => {
+    void commit(targets, true).catch((e: unknown) => {
       useAppStore
         .getState()
         .pushToast(t("reference_generate_request_failed", { error: errMsg(e) }), "error");

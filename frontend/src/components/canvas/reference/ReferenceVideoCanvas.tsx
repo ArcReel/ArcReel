@@ -331,7 +331,7 @@ export function ReferenceVideoCanvas({
   const durationGate = useReferenceDurationGate({ projectName, episode });
 
   const enqueue = useCallback(
-    async (unitId: string) => {
+    async (unitId: string, durationConfirmed = false) => {
       // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的占用态未必是最新的
       // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）；
       // 时长确认弹窗打开期间同样会经过这段窗口，故复核落在入队这一刻。
@@ -345,7 +345,7 @@ export function ReferenceVideoCanvas({
       }
       try {
         // 乐观打标（请求发出前）、失败回滚与 queued/deduped 提示都在动作层内完成
-        await enqueueReferenceVideoUnit(projectName, episode, unitId);
+        await enqueueReferenceVideoUnit(projectName, episode, unitId, durationConfirmed);
       } catch (e) {
         toastError(e, (msg) => t("reference_generate_request_failed", { error: msg }));
       }
@@ -360,10 +360,10 @@ export function ReferenceVideoCanvas({
    * 单元可能在此期间由别处生成完成，只在循环开始前过滤一次拦不住它。
    */
   const makeEnqueueSerially = useCallback(
-    (canEnqueue: (unitId: string) => boolean) => async (unitIds: string[]) => {
+    (canEnqueue: (unitId: string) => boolean) => async (unitIds: string[], durationConfirmed: boolean) => {
       for (const id of unitIds) {
         if (!canEnqueue(id)) continue;
-        await enqueue(id);
+        await enqueue(id, durationConfirmed);
       }
     },
     [enqueue],

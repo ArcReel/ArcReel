@@ -1140,8 +1140,10 @@ describe("API.referenceVideos", () => {
 
   it("generateReferenceVideoUnit returns task id", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ task_id: "t-1", deduped: false }), { status: 202 }));
-    const res = await API.generateReferenceVideoUnit("proj", 1, "E1U1");
+    const res = await API.generateReferenceVideoUnit("proj", 1, "E1U1", true);
     expect(res.task_id).toBe("t-1");
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as { duration_confirmed: boolean };
+    expect(body).toEqual({ duration_confirmed: true });
   });
 
   it("deleteReferenceVideoUnit returns void on 204", async () => {

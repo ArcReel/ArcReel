@@ -8,12 +8,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
-from lib.api_errors import ApiError, NotFoundError
+from lib.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.asset_types import asset_name_comparison_key
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
@@ -27,8 +27,14 @@ from lib.reference_video import (
     missing_registered_references,
     parse_prompt,
 )
+from lib.reference_video.request_projection import (
+    POST_PRODUCTION,
+    ReferenceRequestOptions,
+    ReferenceUnitRequestProjection,
+    project_reference_unit_request,
+)
 from lib.reference_video.script_preview import build_script_preview
-from lib.reference_video.units import reference_unit_video_bucket, reference_video_bucket
+from lib.reference_video.units import reference_video_bucket
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
@@ -38,12 +44,10 @@ from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
 from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import execute_current_episode_edit, require_script_edit_result
-from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
 from server.services.generation_tasks import emit_generation_success_batch
 from server.services.reference_video_tasks import (
     _finalize_reference_video_unit,
     default_unit_duration,
-    precheck_unit,
     resolve_project_duration_context,
 )
 from server.services.upload_finalize import (
@@ -81,6 +85,19 @@ class AddUnitRequest(BaseModel):
     note: str | None = None
 
 
+class GenerateUnitRequest(BaseModel):
+    duration_confirmed: bool = False
+    narration_delivery: Literal["post_production", "use_tts"] = POST_PRODUCTION
+    narration_duration_floor: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+    def projection_options(self) -> ReferenceRequestOptions:
+        return ReferenceRequestOptions(
+            narration_delivery=self.narration_delivery,
+            narration_duration_floor=self.narration_duration_floor,
+            duration_confirmed=self.duration_confirmed,
+        )
+
+
 # ============ 辅助 ============
 
 
@@ -102,6 +119,24 @@ def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tup
     if not is_reference_video_project(project):
         raise HTTPException(status_code=409, detail=_t("ref_not_reference_video_mode"))
     return project, script, script_file
+
+
+def _problem_payload(projection: ReferenceUnitRequestProjection) -> list[dict[str, Any]]:
+    return [
+        {"code": problem.code, "blocking": problem.blocking, "params": problem.parameters()}
+        for problem in projection.problems
+    ]
+
+
+def _raise_projection_blocker(
+    projection: ReferenceUnitRequestProjection,
+    *,
+    allow_duration_confirmation: bool,
+) -> None:
+    for problem in projection.blocking_problems:
+        if allow_duration_confirmation and problem.code == "reference_duration_confirmation_required":
+            continue
+        raise BadRequestError(problem.code, **problem.parameters())
 
 
 def _validate_references_exist(project: dict, refs: list[dict], _t: Translator) -> None:
@@ -360,24 +395,33 @@ async def precheck_unit_duration(
 ) -> dict[str, Any]:
     """入队前的时长取档预检：申请秒数与剧本编排不一致时前端需先向用户确认。
 
-    ``needs_confirmation`` 为 false 时（总时长本身是档位成员、或能力不可解析）直接入队。
-    取档按项目当前配置近似解析（provider 在执行时才解析，见 ADR-0001），实际档位以执行
-    时的 model 能力为准；执行时的取档结果记入任务 warning。
+    ``needs_confirmation`` 为 false 时仅表示总时长本身是当前档位成员。能力或档位元数据
+    无法解析时返回结构化 blocker，不制造无约束申请。
     """
     project, script, _sf = _load_episode_script(project_name, episode, _t)
     unit = _find_unit(script, unit_id, _t)
     _require_unit_ready(unit)
 
-    # ctx 按 unit 定桶解析（无参考图退化镜头 → i2v），与执行期实际取档的模型同桶。
-    slot = precheck_unit(
-        await resolve_project_duration_context(project, capability=reference_unit_video_bucket(unit)),
-        unit,
+    projection = await project_reference_unit_request(
+        project=project,
+        script=script,
+        unit=unit,
+        project_path=get_project_manager().get_project_path(project_name),
     )
+    _raise_projection_blocker(projection, allow_duration_confirmation=True)
+    slot = projection.request_duration
+    if slot is None:
+        raise BadRequestError("reference_supported_durations_missing")
     return {
         "needs_confirmation": slot.needs_confirmation,
         "script_duration": slot.total_seconds,
         "request_duration": slot.seconds,
         "adjustment": slot.adjustment,
+        "declared_capability": projection.declared_capability,
+        "hydrated_capability": projection.hydrated_capability,
+        "provider_id": projection.provider_id,
+        "model_id": projection.model_id,
+        "problems": _problem_payload(projection),
     }
 
 
@@ -428,11 +472,21 @@ async def generate_unit(
     unit_id: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerateUnitRequest | None = None,
 ) -> dict[str, Any]:
     project, script, script_file = _load_episode_script(project_name, episode, _t)
     unit = _find_unit(script, unit_id, _t)  # raises 404 if missing
     _require_unit_ready(unit)
     guard_prompt = assemble_shots_text(unit.get("shots") or [])
+    request_options = (req or GenerateUnitRequest()).projection_options()
+    projection = await project_reference_unit_request(
+        project=project,
+        script=script,
+        unit=unit,
+        project_path=get_project_manager().get_project_path(project_name),
+        options=request_options,
+    )
+    _raise_projection_blocker(projection, allow_duration_confirmation=False)
 
     # 经统一守卫点构造：空提示词的结构校验在此当场拒绝（400），与 SDK 入队路径一致，
     # 不再漏到执行层失败（见 ADR-0001）。
@@ -443,17 +497,10 @@ async def generate_unit(
             resource_id=unit_id,
             prompt=guard_prompt,
             script_file=script_file,
+            extra_payload={"reference_request_options": request_options.to_payload()},
         )
     except TaskSpecValidationError as exc:
         raise HTTPException(status_code=400, detail=_t(exc.code, **exc.params)) from exc
-
-    # 参考生视频按镜头是否携带参考图分流定桶（docs/adr/0054）：有参考图 → r2v，无参考图
-    # 退化镜头降级 → i2v。ad 按水合后的成员镜头现算参考集（与执行侧同源），其余按 unit
-    # 声明的 references 近似（执行层按解析后的实际图独立判定）；解析闸让能力缺失 / 悬空
-    # 引用在提交入口即返回修复指引，而非任务面板里的异步失败。
-    _video_bucket = reference_unit_video_bucket(unit)
-    await require_video_bucket_capability(project, _video_bucket)
-    await require_audio_switch_supported(project, _video_bucket)
 
     queue = get_generation_queue()
     result = await queue.enqueue_task(
@@ -466,7 +513,17 @@ async def generate_unit(
         source="webui",
         user_id=user.id,
     )
-    return {"task_id": result["task_id"], "deduped": result.get("deduped", False)}
+    return {
+        "task_id": result["task_id"],
+        "deduped": result.get("deduped", False),
+        "projection": {
+            "request_duration": projection.request_duration.seconds if projection.request_duration else None,
+            "capability": projection.hydrated_capability,
+            "provider_id": projection.provider_id,
+            "model_id": projection.model_id,
+            "problems": _problem_payload(projection),
+        },
+    }
 
 
 @router.post("/episodes/{episode}/units/{unit_id}/upload-video")

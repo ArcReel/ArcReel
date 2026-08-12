@@ -1,9 +1,8 @@
 """智能体视频入队路径上的音频开关预检。
 
 WebUI 提交入口拒绝的配置（成片恒有声的模型 + 关闭音频），从智能体入队同样要被拒——放行会让
-编排层按无声路径裁掉全部音色约束，用户拿到失去音色约束的有声成片。判据与路由入口同源
-（``server.services.video_caps.resolve_audio_switch_conflict``），本文件覆盖智能体侧的接线：
-两条路线各自的闸门位置、参考路线的逐桶去重、以及冲突时抛出的消息。
+编排层按无声路径裁掉全部音色约束，用户拿到失去音色约束的有声成片。分镜路线复用
+``server.services.video_caps``，参考路线由公共 request projection 承载相同判据。
 """
 
 from __future__ import annotations
@@ -114,46 +113,56 @@ class TestStoryboardRouteGate:
 
 @pytest.mark.unit
 class TestReferenceRouteGate:
-    """参考路线：按本批真正要入队的 unit 逐桶检查，同一桶只问一次。"""
+    """参考路线：按本批真正要入队的 unit 调用公共 request projection。"""
 
-    async def test_checks_each_bucket_once_and_skips_done_units(self, monkeypatch):
+    async def test_projects_each_pending_unit_and_skips_done_units(self, tmp_path, monkeypatch):
         seen: list[str] = []
 
-        async def _record(_project, capability):
-            seen.append(capability)
+        class _Projection:
+            blocking_problems: tuple[object, ...] = ()
 
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _record)
+        async def _record(*, unit, **_kwargs):
+            seen.append("r2v" if unit.get("references") else "i2v")
+            return _Projection()
+
+        monkeypatch.setattr(mod, "project_reference_unit_request", _record)
         units = [
-            {"unit_id": "E1U1", "references": ["characters/张三.png"]},
-            {"unit_id": "E1U2", "references": ["characters/李四.png"]},
+            {"unit_id": "E1U1", "references": [{"type": "character", "name": "张三"}]},
+            {"unit_id": "E1U2", "references": [{"type": "character", "name": "李四"}]},
             {"unit_id": "E1U3", "references": []},
             {"unit_id": "E1U4", "references": []},
         ]
-        await mod._assert_audio_switch_for_units(
+        await mod._reference_projection_preflight(
             project={},
+            project_path=tmp_path,
+            script={"video_units": units},
             units=units,
             skip_ids={"E1U4"},
             spec_for=_unit_spec,
+            confirm_duration=True,
         )
-        assert sorted(seen) == ["i2v", "r2v"]
+        assert seen == ["r2v", "r2v", "i2v"]
 
-    async def test_units_that_cannot_be_enqueued_do_not_trigger_resolution(self, monkeypatch):
+    async def test_units_that_cannot_be_enqueued_do_not_trigger_projection(self, tmp_path, monkeypatch):
         """不可入队的 unit 不该触发解析：它本就不会被生成，为它拒绝整批是失实的。"""
         called = False
 
-        async def _record(_project, _capability):
+        async def _record(**_kwargs):
             nonlocal called
             called = True
 
         def _reject(_unit):
             raise ValueError("没有 shots")
 
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _record)
-        await mod._assert_audio_switch_for_units(
+        monkeypatch.setattr(mod, "project_reference_unit_request", _record)
+        await mod._reference_projection_preflight(
             project={},
+            project_path=tmp_path,
+            script={"video_units": []},
             units=[{"unit_id": "E1U1", "references": []}],
             skip_ids=set(),
             spec_for=_reject,
+            confirm_duration=True,
         )
         assert called is False
 

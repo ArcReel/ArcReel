@@ -8,6 +8,7 @@ from lib.cost_calculator import cost_calculator
 from lib.db.base import Base
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.providers import PROVIDER_GEMINI
+from lib.reference_video.request_projection import ProviderProjectionCandidate
 from server.services import reference_video_tasks
 from server.services.cost_estimation import CostEstimationService
 
@@ -1068,6 +1069,7 @@ class TestCostEstimationService:
             "title": "Ad",
             "content_mode": "ad",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1106,6 +1108,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1162,16 +1165,15 @@ class TestCostEstimationService:
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_uses_rounded_up_unit_duration(self, db_factory, monkeypatch):
         """取档向上的 unit：预估金额按取档后的秒数（8s）计，而非剧本原始总时长（5s）。"""
-        from server.services import cost_estimation as cost_estimation_module
-        from server.services.reference_video_tasks import ProjectDurationContext
+        priced_durations: list[int | None] = []
+        original = cost_calculator.calculate_cost
 
-        def _patch_ctx(durations: tuple[int, ...]):
-            async def _fake_ctx(project, *, capability=None):
-                return ProjectDurationContext(
-                    supported_durations=durations, resolution=None, provider_id="veo", model_name="veo-3.1"
-                )
+        def _spy(provider, params, **kwargs):
+            if params.call_type == "video":
+                priced_durations.append(params.duration_seconds)
+            return original(provider, params, **kwargs)
 
-            monkeypatch.setattr(cost_estimation_module, "resolve_project_duration_context", _fake_ctx)
+        monkeypatch.setattr(cost_calculator, "calculate_cost", _spy)
 
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -1180,25 +1182,68 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "gemini-aistudio/veo-3.1-generate-preview",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
 
-        _patch_ctx((8,))
         rounded = await service.compute(project_data, scripts, project_name="narration-ref-round")
-        _patch_ctx(())
-        unconstrained = await service.compute(project_data, scripts, project_name="narration-ref-round")
 
         seg = rounded["episodes"][0]["segments"][0]
-        base_seg = unconstrained["episodes"][0]["segments"][0]
         assert seg["segment_id"] == "E1U1"
         assert seg["duration_seconds"] == 5
-        assert base_seg["duration_seconds"] == 5
         assert seg["estimate"]["video"]
-        assert base_seg["estimate"]["video"]
-        assert sum(seg["estimate"]["video"].values()) > sum(base_seg["estimate"]["video"].values())
+        assert seg["request_projection"]["request_duration"] == 8
+        assert priced_durations == [8]
         assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
+
+    @pytest.mark.integration
+    async def test_reference_video_estimate_blocks_when_duration_metadata_is_empty(self, db_factory, monkeypatch):
+        class _MissingDurationCapabilities:
+            def __init__(self, _resolver):
+                pass
+
+            async def resolve_candidate(self, _project, capability):
+                return ProviderProjectionCandidate(
+                    capability=capability,
+                    provider_id="kling",
+                    model_id="kling-v3",
+                    supported_durations=(),
+                    max_reference_images=4,
+                    resolution="1080p",
+                    generate_audio=True,
+                    requested_generate_audio=True,
+                    has_audio_track=True,
+                    audio_switch_controllable=True,
+                )
+
+        monkeypatch.setattr(
+            "server.services.cost_estimation.ConfigReferenceCapabilityProjection",
+            _MissingDurationCapabilities,
+        )
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
+
+        result = await service.compute(project_data, scripts, project_name="missing-duration-metadata")
+
+        segment = result["episodes"][0]["segments"][0]
+        assert segment["estimate"]["video"] == {}
+        assert segment["request_projection"]["request_duration"] is None
+        assert segment["request_projection"]["problems"] == [
+            {
+                "code": "reference_supported_durations_missing",
+                "blocking": True,
+                "params": {"provider": "kling", "model": "kling-v3"},
+            }
+        ]
 
     @pytest.mark.integration
     async def test_reference_route_gives_no_estimate_for_mismatched_storyboard_script(self, db_factory):
@@ -1214,6 +1259,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1246,6 +1292,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1296,6 +1343,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1385,6 +1433,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1413,6 +1462,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1440,6 +1490,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1824,7 +1875,7 @@ class TestCostEstimationService:
     async def test_ad_reference_route_prices_by_unit_reference_bucket(
         self, db_factory, monkeypatch, references, expected_model
     ):
-        """ad 参考路线按 unit 声明的参考集分桶算价：有参考图 → r2v，无参考图退化 → i2v。
+        """ad 参考路线按 unit 当前实际可用参考图分桶算价：有图 → r2v，无图 → i2v。
 
         参考路线的集实际入队参考视频任务；执行侧对空参考镜头按 i2v 桶降级解析模型，
         算价须跟着同一口径分桶。

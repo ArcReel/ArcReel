@@ -782,13 +782,11 @@ class TaskRepository(BaseRepository):
         await self._merge_payload_field(task_id, "duration_seconds", duration_seconds, raise_if_missing=False)
 
     async def persist_execution_provider_id(self, task_id: str, provider_id: str) -> None:
-        """把执行期实际解析出的 provider 写回 ``task.provider_id``。
+        """把 worker 重投影的 provider advisory 写回 ``task.provider_id``。
 
-        ``provider_id`` 列在入队/认领时按 unit 声明的参考集近似投影；参考路线的退化镜头
-        执行期按解析后的实际参考图分桶，两者可能不同（ad 声明了参考但资产全缺图时投影
-        r2v、执行 i2v）。resume 路径（``_process_resume_task``）按该列锁定 backend 轮询
-        ``provider_job_id``，不写回会拿实际执行 backend 的 job_id 去投影 backend 轮询，
-        已提交任务的恢复因此丢失。不带 WHERE 状态守卫，与 ``persist_provider_job_id`` 同理。
+        未提交的 reference_video 任务在排队期间可以改项目配置；worker 认领后如果发现
+        旧列与当前投影分裂，回队前刷新该列，让后续 claim 过滤与限流路由使用新 provider。
+        它不锁定 model，也不是执行身份。不带 WHERE 状态守卫，与 ``persist_provider_job_id`` 同理。
         """
         now = utc_now()
         await self.session.execute(

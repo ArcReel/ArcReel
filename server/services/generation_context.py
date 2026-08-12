@@ -150,14 +150,14 @@ async def _get_or_create_audio_backend(
 
 @dataclass(frozen=True)
 class ImageLaneRequest:
-    """声明本次任务需要 image lane。capability 决定 t2i / i2i 默认槽（``docs/adr/0001``）。"""
+    """声明当前任务需要 image lane。capability 决定 t2i / i2i 默认槽（``docs/adr/0001``）。"""
 
     capability: Literal["t2i", "i2i"] = "t2i"
 
 
 @dataclass(frozen=True)
 class VideoLaneRequest:
-    """声明本次任务需要 video lane。
+    """声明当前任务需要 video lane。
 
     ``capability`` 决定 i2v / r2v 能力桶（``docs/adr/0054``）：图生视频 / 宫格 → i2v；
     参考生视频按镜头解析后的实际参考图分流——有参考图 → r2v，无参考图的退化镜头降级
@@ -170,7 +170,7 @@ class VideoLaneRequest:
 
 @dataclass(frozen=True)
 class AudioLaneRequest:
-    """声明本次任务需要 audio lane（旁白 TTS）。"""
+    """声明当前任务需要 audio lane（旁白 TTS）。"""
 
 
 @dataclass(frozen=True)
@@ -207,6 +207,9 @@ class VideoLaneResult:
     supported_durations: tuple[int, ...]
     max_duration: int | None
     max_reference_images: int | None
+    # 费用与实际 provider 出账口径的有声档位，直接来自 video capabilities。
+    # 它与下方的 requested_generate_audio（用户开关意图）不等价。
+    generate_audio: bool = False
     # 能力查询失败时降级为 "soft"（有信号才判定为真无声，与既有「无信号不落 none」口径一致，
     # 见 lib.config.resolver.derive_voice_consistency）。
     voice_consistency: VoiceConsistency = "soft"
@@ -356,6 +359,7 @@ async def resolve_generation_context(
             supported_durations: tuple[int, ...] = ()
             max_duration: int | None = None
             max_reference_images: int | None = None
+            generate_audio = False
             voice_consistency: VoiceConsistency = "soft"
             max_reference_audio_count = 0
             reference_audio_per_image = False
@@ -367,6 +371,7 @@ async def resolve_generation_context(
                 supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
                 max_duration = caps.get("max_duration")
                 max_reference_images = caps.get("max_reference_images")
+                generate_audio = bool(caps.get("generate_audio"))
                 voice_consistency = caps.get("voice_consistency") or "soft"
                 max_reference_audio_count = int(caps.get("max_reference_audio_count") or 0)
                 reference_audio_per_image = bool(caps.get("reference_audio_per_image") or False)
@@ -386,6 +391,7 @@ async def resolve_generation_context(
                 supported_durations=supported_durations,
                 max_duration=max_duration,
                 max_reference_images=max_reference_images,
+                generate_audio=generate_audio,
                 voice_consistency=voice_consistency,
                 requested_generate_audio=requested_generate_audio,
                 max_reference_audio_count=max_reference_audio_count,
