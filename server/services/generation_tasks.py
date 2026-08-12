@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+import math
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -82,7 +83,7 @@ from server.services.generation_context import (
     resolve_generation_context,
 )
 from server.services.narration_delivery_tasks import (
-    CurrentTtsSettingsResolver,
+    ResolvedTtsSettingsResolver,
     current_selected_video_tier,
     require_generated_video_covers_current_tts,
     reuse_current_video_for_tier,
@@ -799,6 +800,8 @@ async def execute_tts_task(
     async def _measure_staged(staged_path: Path) -> None:
         nonlocal duration_seconds
         duration_seconds = await probe_existing_audio_duration_seconds(staged_path)
+        if duration_seconds is None or not math.isfinite(duration_seconds) or duration_seconds <= 0:
+            raise RuntimeError("generated narration audio duration is unavailable")
 
     def _commit_staged(staged_path: Path, output_path: Path) -> int:
         nonlocal prior_narration_audio
@@ -1149,6 +1152,7 @@ async def execute_video_task(
         )
 
     project, project_path, item, content_mode, script_kind, episode = await asyncio.to_thread(_load)
+    delivery_options = NarrationDeliveryRequestOptions.from_payload(payload)
     # lane 归桶按项目路线求值，与提交入口（``generate_video``）同源：入口挡掉参考路线后
     # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免路线口径分叉。
     ctx = await resolve_generation_context(
@@ -1157,6 +1161,7 @@ async def execute_video_task(
         project=project,
         user_id=user_id,
         video=VideoLaneRequest(capability=video_bucket_for_generation_mode(project.get("generation_mode"))),
+        audio=AudioLaneRequest() if delivery_options.narration_delivery == USE_TTS else None,
     )
     generator = ctx.generator
 
@@ -1223,7 +1228,6 @@ async def execute_video_task(
             candidates[0] if candidates else _get_model_default_duration(registry_provider_id, model_name)
         )
 
-    delivery_options = NarrationDeliveryRequestOptions.from_payload(payload)
     delivery_projection = None
     if delivery_options.narration_delivery == USE_TTS:
         current_planned_duration = item.get("duration_seconds") if isinstance(item, dict) else None
@@ -1262,7 +1266,7 @@ async def execute_video_task(
             planned_duration_seconds=current_planned_duration,
             supported_durations=constrained_durations,
             confirmed_request_duration_seconds=delivery_options.confirmed_request_duration_seconds,
-            resolver=CurrentTtsSettingsResolver(project_name),
+            resolver=ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio),
             tts_in_progress=await tts_task_in_progress(
                 project_name=project_name,
                 resource_id=resource_id,

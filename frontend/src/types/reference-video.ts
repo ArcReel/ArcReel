@@ -149,7 +149,7 @@ export interface ReferenceDurationPrecheck {
   needs_confirmation: boolean;
   /** 剧本编排时长（秒） */
   script_duration: number;
-  /** 当前选中且实测足够承载 fresh TTS 的视觉档位；没有可信成片时为 null */
+  /** 当前选中且实际时长足够承载 fresh TTS 的视觉档位；没有可信成片时为 null */
   current_visual_duration?: number | null;
   /** 取档输入；使用 TTS 时为剧本时长与实际旁白时长下限的较大值 */
   duration_input: number;

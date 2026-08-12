@@ -57,9 +57,10 @@ from lib.script_models import ReferenceResource
 from lib.speech_composition import video_unit_replan_problems
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
-from server.services.generation_context import VideoLaneRequest, resolve_generation_context
+from server.services.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import get_project_manager
 from server.services.narration_delivery_tasks import (
+    ResolvedTtsSettingsResolver,
     prepare_current_reference_video_request_options,
     require_generated_video_covers_current_tts,
     reuse_current_video_for_tier,
@@ -494,12 +495,14 @@ async def execute_reference_video_task(
     #    判据取解析结果而非声明，与 backend 的实际请求同源。
     execution_capability = reference_video_bucket(with_references=bool(hydration.available))
     execution_payload = without_reference_video_execution_identity(payload)
+    request_options = ReferenceRequestOptions.from_payload(payload, legacy_duration_confirmed=True)
     ctx = await resolve_generation_context(
         project_name,
         execution_payload,
         project=project,
         user_id=user_id,
         video=VideoLaneRequest(capability=execution_capability),
+        audio=AudioLaneRequest() if request_options.narration_delivery == USE_TTS else None,
     )
     generator = ctx.generator
     video = ctx.video
@@ -551,7 +554,6 @@ async def execute_reference_video_task(
                 audio_switch_controllable=audio_switch_controllable,
             )
 
-    request_options = ReferenceRequestOptions.from_payload(payload, legacy_duration_confirmed=True)
     tts_in_progress = (
         await tts_task_in_progress(
             project_name=project_name,
@@ -568,6 +570,11 @@ async def execute_reference_video_task(
         project_path=project_path,
         options=request_options,
         project_name=project_name,
+        tts_settings_resolver=(
+            ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio)
+            if request_options.narration_delivery == USE_TTS
+            else None
+        ),
         tts_in_progress=tts_in_progress,
     )
     projection = await ReferenceUnitRequestProjector(_ExecutionCapabilities(), asset_availability).project_current(

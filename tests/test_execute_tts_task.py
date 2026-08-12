@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import math
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
@@ -311,6 +312,49 @@ class TestExecuteTtsTask:
             ArtifactKey.episode_audio(1, "E1S01"),
             artifact_path="audio/segment_E1S01.wav",
             basis=basis,
+        )
+        assert comparison.status is ArtifactStatus.CURRENT
+
+    @pytest.mark.parametrize("measured_duration", [None, 0.0, math.nan, math.inf])
+    async def test_unmeasurable_staged_audio_keeps_old_formal_audio_script_and_basis(
+        self,
+        tts_env,
+        monkeypatch,
+        measured_duration: float | None,
+    ):
+        pm, _gen = tts_env
+        formal = pm.project_path / "audio" / "segment_E1S01.wav"
+        formal.parent.mkdir(parents=True, exist_ok=True)
+        formal.write_bytes(b"paid-old-audio")
+        pm.script["segments"][0].setdefault("generated_assets", {})["narration_audio"] = "audio/segment_E1S01.wav"
+        items, _id_field, kind = resolve_items(pm.script)
+        settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
+        old_basis = register_narration_audio(
+            project_path=pm.project_path,
+            episode=1,
+            preparation=admit_script_unit(kind, items[0]).preparation,
+            settings=settings,
+        )
+        pm.script["segments"][0]["novel_text"] = "这次后端写出了无法测量的音频。"
+
+        async def _unmeasurable(_path: Path) -> float | None:
+            return measured_duration
+
+        monkeypatch.setattr(generation_tasks, "probe_existing_audio_duration_seconds", _unmeasurable)
+
+        with pytest.raises(RuntimeError, match="duration is unavailable"):
+            await generation_tasks.execute_tts_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json"},
+            )
+
+        assert formal.read_bytes() == b"paid-old-audio"
+        assert pm.script["segments"][0]["generated_assets"]["narration_audio"] == "audio/segment_E1S01.wav"
+        comparison = ArtifactManifest(ProjectArtifactManifestAdapter(pm.project_path)).compare(
+            ArtifactKey.episode_audio(1, "E1S01"),
+            artifact_path="audio/segment_E1S01.wav",
+            basis=old_basis,
         )
         assert comparison.status is ArtifactStatus.CURRENT
 

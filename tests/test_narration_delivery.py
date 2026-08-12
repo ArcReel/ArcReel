@@ -30,6 +30,7 @@ from lib.narration_delivery import (
     prepare_narration_delivery,
     register_narration_audio,
     register_narration_audio_transactionally,
+    resolve_tts_synthesis_settings,
 )
 from lib.speech_composition import (
     SpeechFieldLocation,
@@ -310,7 +311,7 @@ def test_same_episode_reference_units_have_independent_manifest_currency_and_dur
     assert second.tts_status is NarrationTtsStatus.STALE
 
 
-class _FakeSettingsResolver:
+class _ConfiguredIdentityOnlyResolver:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
@@ -327,6 +328,24 @@ class _FakeSettingsResolver:
     async def resolve_narration_speed(self, project: dict) -> float | None:
         self.calls.append("speed")
         return 1.1
+
+
+class _FakeSettingsResolver:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def resolve_tts_synthesis_settings(self, project: dict) -> TtsSynthesisSettings:
+        self.calls.append("settings")
+        return _settings(speed=1.1)
+
+
+async def test_tts_settings_resolution_rejects_a_configured_identity_only_resolver() -> None:
+    resolver = _ConfiguredIdentityOnlyResolver()
+
+    with pytest.raises(AttributeError):
+        await resolve_tts_synthesis_settings({}, resolver)  # type: ignore[arg-type]
+
+    assert resolver.calls == []
 
 
 async def test_current_state_adapter_registers_and_reads_exact_unit_basis(tmp_path: Path) -> None:
@@ -362,7 +381,7 @@ async def test_current_state_adapter_registers_and_reads_exact_unit_basis(tmp_pa
     assert registered.digest == prepared.basis_digest
     assert prepared.allowed is True
     assert prepared.duration_floor == 7.4
-    assert resolver.calls == ["model", "voice", "speed"]
+    assert resolver.calls == ["settings"]
 
 
 async def test_current_state_adapter_post_production_does_not_touch_tts_config(tmp_path: Path) -> None:

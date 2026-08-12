@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager, contextmanager
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -111,6 +112,7 @@ def _wire_context(
     reference_audio_per_image: bool = False,
     requested_generate_audio: bool = True,
     generate_audio: bool = False,
+    seen_lane_requests: list[dict[str, Any]] | None = None,
 ) -> None:
     """把 fake generator + video lane 值包成 GenerationContext，替换 resolve_generation_context 单点。
 
@@ -123,7 +125,7 @@ def _wire_context(
     （如 ark-agent-plan 族复用 Ark backend）两者不同，需显式区分以覆盖 registry 查表路径。
     """
     from lib.config.resolver import ProviderModel
-    from server.services.generation_context import GenerationContext, VideoLaneResult
+    from server.services.generation_context import AudioLaneResult, GenerationContext, VideoLaneResult
 
     lane = VideoLaneResult(
         provider_model=ProviderModel(provider_id=registry_provider_id or backend_name, model_id=backend_model),
@@ -140,10 +142,27 @@ def _wire_context(
         requested_generate_audio=requested_generate_audio,
         generate_audio=generate_audio,
     )
-    ctx = GenerationContext(generator=fake_generator, video_lane=lane)
 
-    async def _fake_resolve(*_args, **_kwargs):
-        return ctx
+    async def _fake_resolve(*_args, **kwargs):
+        if seen_lane_requests is not None:
+            seen_lane_requests.append(
+                {
+                    "image": kwargs.get("image"),
+                    "video": kwargs.get("video"),
+                    "audio": kwargs.get("audio"),
+                }
+            )
+        audio_lane = None
+        if kwargs.get("audio") is not None:
+            audio_lane = AudioLaneResult(
+                provider_model=ProviderModel("dashscope", "configured-tts"),
+                backend_name="dashscope",
+                backend_model="actual-tts",
+                narration_voice="Cherry",
+                narration_speed=1.1,
+                voices=(),
+            )
+        return GenerationContext(generator=fake_generator, video_lane=lane, audio_lane=audio_lane)
 
     monkeypatch.setattr(rvt, "resolve_generation_context", _fake_resolve)
 
@@ -2027,6 +2046,7 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
 
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    seen_lane_requests: list[dict[str, Any]] = []
     _wire_context(
         monkeypatch,
         rvt,
@@ -2036,6 +2056,7 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
         max_refs=9,
         max_duration=12,
         supported_durations=(4, 8, 12),
+        seen_lane_requests=seen_lane_requests,
     )
 
     from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
@@ -2047,6 +2068,8 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
 
     async def _materialize(**kwargs):
         options = kwargs["options"]
+        tts_settings = await kwargs["tts_settings_resolver"].resolve_tts_synthesis_settings(kwargs["project"])
+        assert tts_settings == TtsSynthesisSettings("dashscope", "actual-tts", "Cherry", 1.1)
         assert options.to_payload() == {
             "narration_delivery": "use_tts",
             "confirmed_request_duration_seconds": 8,
@@ -2095,6 +2118,9 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
     )
     assert captured["duration_seconds"] == 8
     output_guard.assert_awaited_once()
+    assert len(seen_lane_requests) == 1
+    assert seen_lane_requests[0]["video"] is not None
+    assert seen_lane_requests[0]["audio"] is not None
     warnings = result["warnings"]
     assert [w["key"] for w in warnings] == ["ref_duration_rounded_up"]
     assert warnings[0]["params"] == {"total": 6.2, "duration": 8, "model": "sora-2"}
@@ -2115,6 +2141,7 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
         )
     assert exc_info.value.code == "reference_duration_confirmation_required"
     assert fake_generator.generate_video_async.await_count == 1
+    assert len(seen_lane_requests) == 2
 
 
 @pytest.mark.integration

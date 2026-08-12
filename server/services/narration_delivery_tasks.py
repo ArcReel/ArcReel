@@ -11,7 +11,7 @@ import asyncio
 import filecmp
 import math
 from collections.abc import Iterable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -23,6 +23,7 @@ from lib.narration_delivery import (
     NarratedVideoDurationBlockedError,
     NarratedVideoDurationPreparation,
     NarrationDeliveryPreparation,
+    TtsSettingsResolver,
     TtsSynthesisSettings,
     VideoRequestCostFacts,
     prepare_current_narration_delivery,
@@ -41,7 +42,29 @@ from lib.resource_paths import resource_relative_path
 from lib.script_skeleton import resolve_script_kind
 from lib.speech_composition import admit_script_unit
 from lib.version_manager import VersionManager
-from server.services.generation_context import AudioLaneRequest, resolve_generation_context
+from server.services.generation_context import AudioLaneRequest, AudioLaneResult, resolve_generation_context
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedTtsSettingsResolver:
+    """Serve one audio-lane snapshot to current-state delivery projection."""
+
+    settings: TtsSynthesisSettings
+
+    @classmethod
+    def from_audio_lane(cls, audio: AudioLaneResult) -> ResolvedTtsSettingsResolver:
+        return cls(
+            TtsSynthesisSettings(
+                provider_id=audio.provider_model.provider_id,
+                model_id=audio.backend_model,
+                voice=audio.narration_voice,
+                speed=audio.narration_speed,
+            )
+        )
+
+    async def resolve_tts_synthesis_settings(self, project: dict) -> TtsSynthesisSettings:
+        del project
+        return self.settings
 
 
 class CurrentTtsSettingsResolver:
@@ -57,12 +80,7 @@ class CurrentTtsSettingsResolver:
             project=project,
             audio=AudioLaneRequest(),
         )
-        return TtsSynthesisSettings(
-            provider_id=ctx.audio.provider_model.provider_id,
-            model_id=ctx.audio.backend_model,
-            voice=ctx.audio.narration_voice,
-            speed=ctx.audio.narration_speed,
-        )
+        return ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio).settings
 
 
 def _selected_current_video_record(
@@ -363,6 +381,7 @@ async def prepare_current_reference_video_request_options(
     project_path: Path,
     options: ReferenceRequestOptions,
     project_name: str,
+    tts_settings_resolver: TtsSettingsResolver | None = None,
     tts_in_progress: bool = False,
 ) -> ReferenceRequestOptions:
     """Materialize TTS and selected-visual tier facts from one current state."""
@@ -373,7 +392,7 @@ async def prepare_current_reference_video_request_options(
         unit=unit,
         project_path=project_path,
         options=options,
-        resolver=CurrentTtsSettingsResolver(project_name),
+        resolver=tts_settings_resolver or CurrentTtsSettingsResolver(project_name),
         tts_in_progress=tts_in_progress,
     )
     visual_tier = (
@@ -435,6 +454,7 @@ __all__ = [
     "current_selected_video_tier",
     "prepare_current_storyboard_narrated_video_duration",
     "prepare_current_reference_video_request_options",
+    "ResolvedTtsSettingsResolver",
     "require_generated_video_covers_current_tts",
     "reuse_current_video_for_tier",
     "tts_task_in_progress",

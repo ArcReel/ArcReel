@@ -13,7 +13,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import Literal, Protocol
 
 from lib.artifact_manifest import (
     ArtifactBasis,
@@ -606,36 +606,7 @@ async def resolve_tts_synthesis_settings(
 ) -> TtsSynthesisSettings:
     """Resolve the effective provider/model, voice, and speed for a paid TTS call."""
 
-    effective = getattr(resolver, "resolve_tts_synthesis_settings", None)
-    if callable(effective):
-        effective_resolver = cast(Callable[[dict], Awaitable[object]], effective)
-        settings = await effective_resolver(project)
-        if not isinstance(settings, TtsSynthesisSettings):
-            raise ValueError("TTS settings resolver returned an invalid synthesis identity")
-        return settings
-
-    # Compatibility for transport-neutral fakes and callers that only need the
-    # configured identity. Production entry points inject an assembled-backend
-    # resolver so model fallback is reflected in freshness.
-    configured = getattr(resolver, "resolve_audio_backend", None)
-    voice_resolver = getattr(resolver, "resolve_narration_voice", None)
-    speed_resolver = getattr(resolver, "resolve_narration_speed", None)
-    if not callable(configured) or not callable(voice_resolver) or not callable(speed_resolver):
-        raise ValueError("TTS settings resolver does not expose synthesis settings")
-    configured_resolver = cast(Callable[[dict, object | None], Awaitable[object]], configured)
-    voice_settings_resolver = cast(Callable[[dict], Awaitable[str]], voice_resolver)
-    speed_settings_resolver = cast(Callable[[dict], Awaitable[float | None]], speed_resolver)
-    provider_model = await configured_resolver(project, None)
-    provider_id = getattr(provider_model, "provider_id", None)
-    model_id = getattr(provider_model, "model_id", None)
-    if not isinstance(provider_id, str) or not isinstance(model_id, str):
-        raise ValueError("audio resolver returned an invalid provider/model identity")
-    return TtsSynthesisSettings(
-        provider_id=provider_id,
-        model_id=model_id,
-        voice=await voice_settings_resolver(project),
-        speed=await speed_settings_resolver(project),
-    )
+    return await resolver.resolve_tts_synthesis_settings(project)
 
 
 async def prepare_current_narration_delivery(

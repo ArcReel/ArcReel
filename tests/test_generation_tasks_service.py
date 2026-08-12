@@ -11,6 +11,7 @@ from lib.narration_delivery import (
     NarratedVideoDurationBlockedError,
     NarrationDeliveryPreparation,
     NarrationTtsStatus,
+    TtsSynthesisSettings,
     prepare_narrated_video_duration,
 )
 from lib.prompt_builders import append_image_negative_tail
@@ -18,7 +19,7 @@ from lib.prompt_utils import image_prompt_to_yaml
 from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
 from lib.video_frame_slots import gate_video_request
 from server.services import generation_tasks
-from server.services.generation_context import GenerationContext, ImageLaneResult, VideoLaneResult
+from server.services.generation_context import AudioLaneResult, GenerationContext, ImageLaneResult, VideoLaneResult
 from server.services.generation_tasks import assert_duration_supported
 
 
@@ -37,7 +38,7 @@ class TestAssertDurationSupported:
 
     @pytest.mark.unit
     def test_empty_supported_list_passes(self):
-        # 能力不可解析时不更坏：空列表放行，保持既有行为不被本次改动弄坏。
+        # 能力不可解析时空列表放行，保持宽容行为。
         assert_duration_supported(99, [])  # no raise
 
     @pytest.mark.unit
@@ -149,7 +150,22 @@ def _fake_resolve_ctx(
                 voice_consistency=voice_consistency,
                 requested_generate_audio=requested_generate_audio,
             )
-        return GenerationContext(generator=generator, image_lane=image_lane, video_lane=video_lane)
+        audio_lane = None
+        if audio is not None:
+            audio_lane = AudioLaneResult(
+                provider_model=ProviderModel("dashscope", "configured-tts"),
+                backend_name="dashscope",
+                backend_model="actual-tts",
+                narration_voice="Cherry",
+                narration_speed=1.1,
+                voices=(),
+            )
+        return GenerationContext(
+            generator=generator,
+            image_lane=image_lane,
+            video_lane=video_lane,
+            audio_lane=audio_lane,
+        )
 
     return _resolve
 
@@ -682,8 +698,11 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
         current_tts_duration = 6.2
+        seen_lane_requests: list[dict] = []
 
         async def fake_prepare_current_narrated_video_duration(**kwargs):
+            tts_settings = await kwargs["resolver"].resolve_tts_synthesis_settings(kwargs["project"])
+            assert tts_settings == TtsSynthesisSettings("dashscope", "actual-tts", "Cherry", 1.1)
             narration = NarrationDeliveryPreparation(
                 delivery=USE_TTS,
                 unit_id="E1S01",
@@ -705,7 +724,11 @@ class TestGenerationTasks:
         monkeypatch.setattr(
             generation_tasks,
             "resolve_generation_context",
-            _fake_resolve_ctx(fake_generator, supported_durations=(4, 8, 12)),
+            _fake_resolve_ctx(
+                fake_generator,
+                supported_durations=(4, 8, 12),
+                seen_lane_requests=seen_lane_requests,
+            ),
         )
         monkeypatch.setattr(
             generation_tasks,
@@ -729,6 +752,9 @@ class TestGenerationTasks:
         await generation_tasks.execute_video_task("demo", "E1S01", payload)
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
         output_guard.assert_awaited_once()
+        assert len(seen_lane_requests) == 1
+        assert seen_lane_requests[0]["video"] is not None
+        assert seen_lane_requests[0]["audio"] is not None
 
         # Worker 必须从执行时最新 unit 重新取规划时长；队列不保存预检派生档位。
         fake_pm.script["segments"][0]["duration_seconds"] = 8
@@ -739,6 +765,7 @@ class TestGenerationTasks:
         assert exc.value.preparation.problem_payloads()[0]["code"] == "reference_duration_confirmation_required"
         assert exc.value.preparation.request_duration_seconds == 12
         assert len(fake_generator.video_calls) == 1
+        assert len(seen_lane_requests) == 2
 
     @pytest.mark.integration
     async def test_execute_video_task_reuses_selected_visual_in_the_latest_tts_tier_without_side_effects(
