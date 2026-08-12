@@ -812,6 +812,48 @@ async def test_execute_reference_video_task_rejects_changed_claim_provider_befor
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_execute_reference_video_task_blocks_malformed_references_before_submission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from server.services import reference_video_tasks as rvt
+
+    proj_dir = _write_project(tmp_path)
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["references"].append("bad-entry")
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda _project_name, _filename: json.loads(
+        script_path.read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock()
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="ark",
+        backend_model="doubao-seedance-2-0-260128",
+    )
+
+    with pytest.raises(ValueError, match="reference_declaration_invalid"):
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "scripts/episode_1.json"},
+            user_id="u1",
+        )
+
+    fake_generator.generate_video_async.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 @pytest.mark.parametrize(("strip_references", "expected_capability"), [(False, "r2v"), (True, "i2v")])
 async def test_execute_reference_video_task_bucket_follows_resolved_references(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, strip_references: bool, expected_capability: str

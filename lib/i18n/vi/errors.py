@@ -61,6 +61,7 @@ MESSAGES = {
     "video_route_is_reference_video": "Dự án này dùng lộ trình video tham chiếu, không có bước tạo video từ phân cảnh; hãy tạo theo đơn vị video trong trình chỉnh sửa video tham chiếu",
     "invalid_storyboard_image_path": "Đoạn '{segment_id}' có tham chiếu ảnh phân cảnh không hợp lệ, vui lòng tạo lại phân cảnh",
     "video_audio_switch_not_supported": "{provider}/{model} luôn tạo ra âm thanh và không thể tắt tiếng; hãy bật lại công tắc âm thanh trong cài đặt rồi thử lại",
+    "reference_declaration_invalid": "Khai báo tài nguyên tham chiếu không hợp lệ ({count} mục); hãy sửa references rồi thử lại",
     "reference_asset_missing": "Tài nguyên tham chiếu bị thiếu hoặc không khả dụng: {missing}",
     "reference_capability_changed": "Khả năng đã khai báo là {declared}, nhưng tài nguyên thực tế yêu cầu {hydrated}; hãy sửa tài nguyên rồi thử lại",
     "reference_images_clamped": "Số lượng {count} ảnh tham chiếu vượt giới hạn {max_count} của {provider}/{model}; yêu cầu sẽ dùng {max_count} ảnh đầu tiên",

@@ -215,6 +215,54 @@ async def test_projection_exposes_declared_to_hydrated_bucket_change() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("references", "expected_names", "expected_capability", "invalid_count"),
+    [
+        ({"type": "character", "name": "阿离"}, [], "i2v", 1),
+        ("character: 阿离", [], "i2v", 1),
+        (
+            [
+                {"type": "character", "name": "阿离"},
+                "bad-entry",
+                {"type": "unknown", "name": "未登记类型"},
+                {"type": "scene", "name": ""},
+            ],
+            ["阿离"],
+            "r2v",
+            3,
+        ),
+    ],
+)
+async def test_projection_blocks_malformed_references_without_discarding_valid_entries(
+    references: object,
+    expected_names: list[str],
+    expected_capability: str,
+    invalid_count: int,
+) -> None:
+    capabilities = _FakeCapabilities()
+    projector = ReferenceUnitRequestProjector(capabilities, _FakeAssets(set()))
+    unit = {"unit_id": "E1U1", "references": references, "duration_seconds": 8}
+    resolved_assets = [_asset("character", "阿离", "/fake/character.png")] if isinstance(references, list) else []
+
+    result = await projector.project_current(
+        project={},
+        script={"video_units": [unit]},
+        unit=unit,
+        resolved_assets=resolved_assets,
+    )
+
+    assert [reference.name for reference in result.declared_references] == expected_names
+    assert result.hydrated_capability == expected_capability
+    assert result.blocking_problems
+    problem = result.problems[0]
+    assert (problem.code, problem.blocking, problem.parameters()) == (
+        "reference_declaration_invalid",
+        True,
+        {"count": invalid_count},
+    )
+
+
+@pytest.mark.asyncio
 async def test_projection_blocks_empty_duration_metadata_without_cost_facts() -> None:
     base = await _FakeCapabilities().resolve_candidate({}, "i2v")
 

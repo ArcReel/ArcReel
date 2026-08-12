@@ -59,6 +59,7 @@ MESSAGES = {
     "video_route_is_reference_video": "该项目是参考生视频路线，没有分镜图生视频这一步；请在参考生视频编辑器里按视频单元生成",
     "invalid_storyboard_image_path": "片段「{segment_id}」的分镜图引用无效，请重新生成分镜图",
     "video_audio_switch_not_supported": "{provider}/{model} 的成片恒有声，无法关闭音频；请在设置中把音频开关改回开启后重试",
+    "reference_declaration_invalid": "参考素材声明格式无效（{count} 项）；请修复 references 后重试",
     "reference_asset_missing": "参考素材缺失或文件不可用：{missing}",
     "reference_capability_changed": "声明能力桶为 {declared}，实际素材水合后为 {hydrated}；请修复素材后重试",
     "reference_images_clamped": "参考图数量 {count} 超出 {provider}/{model} 上限 {max_count}，请求将使用前 {max_count} 张",

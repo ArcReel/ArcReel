@@ -179,3 +179,96 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
     await observe(9.5, 12)
     unit["duration_seconds"] = 13
     await observe(13, 12)
+
+
+@pytest.mark.integration
+async def test_malformed_references_block_all_public_consumers_without_queue_or_cost(
+    db_factory,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    capabilities = FakeReferenceCapabilityProjection(
+        durations=(4, 8, 12),
+        provider_id="fake",
+        model_id="fake-model",
+        max_reference_images=9,
+    )
+    unit: dict[str, Any] = {
+        "unit_id": "E1U1",
+        "shots": [{"text": "镜头"}],
+        "references": [{"type": "character", "name": "甲"}, "bad-entry"],
+        "duration_seconds": 4,
+        "generated_assets": {},
+    }
+    script: dict[str, Any] = {
+        "episode": 1,
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
+        "video_units": [unit],
+    }
+    project: dict[str, Any] = {
+        "generation_mode": "reference_video",
+        "characters": {"甲": {"character_sheet": "characters/a.png"}},
+        "episodes": [{"episode": 1, "script_file": "ep1.json"}],
+    }
+    (tmp_path / "characters").mkdir()
+    (tmp_path / "characters" / "a.png").write_bytes(b"a")
+    project_current = fake_reference_request_projector(capabilities=capabilities)
+
+    class _ProjectManager:
+        def load_project(self, _project_name):
+            return project
+
+        def load_script(self, _project_name, _script_file):
+            return script
+
+        def get_project_path(self, _project_name):
+            return tmp_path
+
+    pm = _ProjectManager()
+    monkeypatch.setattr("server.services.cost_estimation.ConfigReferenceCapabilityProjection", lambda _r: capabilities)
+    monkeypatch.setattr(reference_videos, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(reference_videos, "project_reference_unit_request", project_current)
+    monkeypatch.setattr(enqueue_videos, "project_reference_unit_request", project_current)
+    monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
+    monkeypatch.setattr("lib.reference_video.request_projection.project_reference_unit_request", project_current)
+
+    enqueued: list[dict[str, Any]] = []
+
+    class _Queue:
+        async def enqueue_task(self, **kwargs):
+            enqueued.append(kwargs)
+            return {"task_id": "unexpected"}
+
+    monkeypatch.setattr(reference_videos, "get_generation_queue", lambda: _Queue())
+
+    with pytest.raises(HTTPException) as web_blocked:
+        await reference_videos.generate_unit(
+            project_name="demo",
+            episode=1,
+            unit_id="E1U1",
+            user=CurrentUserInfo(id="u1", sub="test", role="admin"),
+            _t=lambda key, **_params: key,
+        )
+    agent_response = await enqueue_videos.generate_video_episode_tool(
+        ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)  # type: ignore[arg-type]
+    ).handler({"script": "ep1.json"})
+    service = CostEstimationService(ConfigResolver(db_factory), db_factory, project_path=tmp_path)
+    quote = await service.compute(project, {"ep1.json": script}, project_name="demo")
+    queue_projection = await reference_projection_for_queued_task(
+        project=project,
+        project_name="demo",
+        payload={"script_file": "ep1.json"},
+        resource_id="E1U1",
+    )
+
+    assert enqueued == []
+    assert agent_response["is_error"] is True
+    assert queue_projection is not None and queue_projection.blocking_problems
+    web_codes = [problem["code"] for problem in cast(dict, web_blocked.value.detail)["problems"]]
+    agent_codes = [problem["code"] for problem in agent_response["request_projection"]["problems"]]
+    quote_projection = quote["episodes"][0]["segments"][0]["request_projection"]
+    quote_codes = [problem["code"] for problem in quote_projection["problems"]]
+    queue_codes = [problem.code for problem in queue_projection.problems]
+    assert web_codes == agent_codes == quote_codes == queue_codes == ["reference_declaration_invalid"]
+    assert quote["episodes"][0]["segments"][0]["estimate"]["video"] == {}

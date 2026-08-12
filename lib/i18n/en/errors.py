@@ -61,6 +61,7 @@ MESSAGES = {
     "video_route_is_reference_video": "This project uses the reference-video route, which has no storyboard-to-video step; generate by video unit in the reference video editor",
     "invalid_storyboard_image_path": "Segment '{segment_id}' has an invalid storyboard image reference; please regenerate the storyboard",
     "video_audio_switch_not_supported": "{provider}/{model} always produces audio and cannot be muted; turn the audio switch back on in settings and try again",
+    "reference_declaration_invalid": "The reference declaration is malformed ({count} item(s)); repair references and try again",
     "reference_asset_missing": "Reference assets are missing or unavailable: {missing}",
     "reference_capability_changed": "The declared capability is {declared}, but hydrated assets require {hydrated}; repair the assets and try again",
     "reference_images_clamped": "The {count} reference images exceed the {max_count} image limit for {provider}/{model}; the request will use the first {max_count}",

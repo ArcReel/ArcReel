@@ -11,7 +11,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -483,14 +483,19 @@ def canonicalize_references(references: object) -> tuple[ReferenceResource, ...]
             continue
         asset_type = item.get("type")
         name = item.get("name")
-        if asset_type not in priority or not isinstance(name, str):
+        if not isinstance(asset_type, str) or asset_type not in priority or not isinstance(name, str):
             continue
         canonical_name = asset_name_comparison_key(name)
         key = (asset_type, canonical_name)
         if not canonical_name or key in seen:
             continue
         seen.add(key)
-        result.append(ReferenceResource(type=asset_type, name=canonical_name))
+        result.append(
+            ReferenceResource(
+                type=cast(Literal["product", "character", "scene", "prop"], asset_type),
+                name=canonical_name,
+            )
+        )
     return tuple(result)
 
 
@@ -516,6 +521,7 @@ def clamp_reference_assets(
 
 
 _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] = {
+    "reference_declaration_invalid": ("repair_reference_declaration", (("references",),)),
     "reference_asset_missing": ("repair_reference_assets", (("references",),)),
     "reference_capability_changed": ("repair_reference_assets", (("references",),)),
     "reference_images_clamped": ("review_reference_selection", (("references",),)),
@@ -539,6 +545,29 @@ def _problem(code: str, *, blocking: bool, **params: object) -> ProjectionProble
 
 def _asset_key(asset: ResolvedReferenceAsset) -> tuple[str, str]:
     return asset.reference.type, asset_name_comparison_key(asset.reference.name)
+
+
+def _invalid_reference_declaration_count(references: object) -> int:
+    """Count malformed declarations without repairing or rewriting the source unit."""
+
+    if not isinstance(references, list):
+        return 1
+    valid_types = frozenset(ASSET_SPECS)
+    invalid = 0
+    for item in references:
+        if not isinstance(item, dict):
+            invalid += 1
+            continue
+        asset_type = item.get("type")
+        name = item.get("name")
+        if (
+            not isinstance(asset_type, str)
+            or asset_type not in valid_types
+            or not isinstance(name, str)
+            or not asset_name_comparison_key(name)
+        ):
+            invalid += 1
+    return invalid
 
 
 def _planned_duration(unit: dict) -> int:
@@ -575,12 +604,22 @@ class ReferenceUnitRequestProjector:
 
         del script
         options = options or ReferenceRequestOptions()
-        canonical = canonicalize_references(unit.get("references"))
+        raw_references = unit["references"] if "references" in unit else []
+        canonical = canonicalize_references(raw_references)
         declared_capability: VideoCapability = "r2v" if canonical else "i2v"
         hydration = hydrate_reference_assets(canonical, resolved_assets, self._assets)
         available = hydration.available
 
         problems: list[ProjectionProblem] = []
+        invalid_reference_count = _invalid_reference_declaration_count(raw_references)
+        if invalid_reference_count:
+            problems.append(
+                _problem(
+                    "reference_declaration_invalid",
+                    blocking=True,
+                    count=invalid_reference_count,
+                )
+            )
         if hydration.missing:
             problems.append(
                 _problem(
