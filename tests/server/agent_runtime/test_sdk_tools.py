@@ -1855,6 +1855,35 @@ async def test_generate_video_scene_accepts_legacy_drama_dialogue(fake_ctx: Tool
 
 
 @pytest.mark.unit
+async def test_generate_video_scene_accepts_speech_free_legacy_drama(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+        "content_mode": "drama",
+        "scenes": [
+            {
+                "scene_id": "E1S01",
+                "video_prompt": {
+                    "action": "阿离转身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                },
+                "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+            }
+        ],
+    }
+
+    async def fake_enqueue(**kwargs):
+        return {"task": {}, "result": {"file_path": "videos/scene_E1S01.mp4"}}
+
+    monkeypatch.setattr(mod, "enqueue_and_wait", fake_enqueue)
+    out = await _call(generate_video_scene_tool(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"})
+
+    assert out.get("is_error") is not True, out
+
+
+@pytest.mark.unit
 async def test_generate_video_scene_accepts_legacy_narration_string_prompt(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 

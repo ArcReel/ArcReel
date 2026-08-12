@@ -590,10 +590,6 @@ def test_unusable_speech_shapes_never_degrade_to_a_valid_mode(snapshot, expected
     ("snapshot", "expected_location"),
     [
         (
-            adapt_drama_scene({"scene_id": "E1S09"}),
-            SpeechFieldLocation(("utterances",)),
-        ),
-        (
             adapt_drama_scene({"scene_id": "E1S09", "utterances": [7]}),
             SpeechFieldLocation(("utterances", 0)),
         ),
@@ -634,3 +630,10 @@ def test_damaged_structured_speech_fields_are_parse_blockers(snapshot, expected_
     assert [(problem.code, problem.locations) for problem in result.problems] == [
         (SpeechProblemCode.PARSE_FAILED, (expected_location,))
     ]
+
+
+def test_legacy_drama_without_speech_fields_is_silent() -> None:
+    result = SpeechComposition.prepare(adapt_drama_scene({"scene_id": "E1S09"}))
+
+    assert result.mode is SpeechMode.SILENT
+    assert result.problems == ()

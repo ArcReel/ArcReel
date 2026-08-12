@@ -386,9 +386,7 @@ def adapt_drama_scene(scene: Mapping[str, object]) -> SpeechUnitSnapshot:
                 text_location=SpeechFieldLocation(("utterances", index, "text")),
                 speaker_location=SpeechFieldLocation(("utterances", index, "speaker")),
             )
-    elif raw_entries is _MISSING and (
-        "voiceover" in scene or (isinstance(legacy_video_prompt, Mapping) and "dialogue" in legacy_video_prompt)
-    ):
+    elif raw_entries is _MISSING:
         # load_script 返回的存量 drama JSON 不经过 Pydantic 读时迁移；与 DramaScene 的兼容
         # 语义一致，从旧 video_prompt.dialogue + voiceover 读取，但位置仍指向真实旧字段。
         video_prompt = legacy_video_prompt

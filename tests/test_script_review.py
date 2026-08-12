@@ -281,6 +281,27 @@ class TestDramaGateFlow:
         assert "needs_replan" not in saved["scenes"][0]
 
     @pytest.mark.unit
+    async def test_metadata_edit_cannot_clear_drama_replan_marker(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        candidate = _drama_step1()
+        candidate["scenes"][0]["needs_replan"] = True
+        path = _write_step1(pm, "drama", candidate)
+
+        metadata_edit = json.loads(json.dumps(candidate, ensure_ascii=False))
+        metadata_edit["scenes"][0].pop("needs_replan")
+        metadata_edit["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
+        await svc.save_content("demo", 1, metadata_edit)
+
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        assert saved["scenes"][0]["needs_replan"] is True
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.confirm("demo", 1)
+        assert exc.value.code == "speech_admission"
+        assert exc.value.admission is not None
+        assert exc.value.admission.problems[0].code == "needs_replan"
+
+    @pytest.mark.unit
     async def test_whitespace_reformat_keeps_confirmed(self, tmp_path):
         """纯键序 / 空白重排不改语义 → 指纹不变、保持 confirmed。"""
         pm = _make_project(tmp_path, "drama")

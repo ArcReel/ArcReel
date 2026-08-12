@@ -75,6 +75,8 @@ def _require_changed_speech_admitted(kind: str, previous: object, candidate: obj
         old = previous_by_id.get(unit[id_field])
         speech_changed = old is None or any(old.get(field) != unit.get(field) for field in speech_fields)
         if not speech_changed:
+            if isinstance(old, dict) and old.get("needs_replan") is True:
+                unit["needs_replan"] = True
             continue
         admission = admit_script_unit(skeleton, unit, ignore_marker=True)
         if not admission.allowed:
