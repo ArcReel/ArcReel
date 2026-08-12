@@ -174,7 +174,13 @@ function MessageEditor({
 }) {
   const { t } = useTranslation("dashboard");
   const [draft, setDraft] = useState(initialText);
-  const [images, setImages] = useState(() => initialImages.map((image, id) => ({ id, image })));
+  const [images, setImages] = useState(() =>
+    initialImages.map((image, id) => ({
+      id,
+      image,
+      src: `data:${image.media_type};base64,${image.data}`,
+    })),
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // 部分输入法在组合确认的那次 keydown 上不置 isComposing，靠组合事件补齐
   const isComposingRef = useRef(false);
@@ -209,10 +215,10 @@ function MessageEditor({
       </div>
       {images.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
-          {images.map(({ id, image }, index) => (
+          {images.map(({ id, src }, index) => (
             <div key={id} className="relative">
               <img
-                src={`data:${image.media_type};base64,${image.data}`}
+                src={src}
                 alt={t("message_edit_attachment", { index: index + 1, total: images.length })}
                 className="h-14 w-14 rounded-md object-cover"
                 style={{ border: "1px solid var(--color-hairline)" }}
