@@ -494,6 +494,8 @@ export default {
   'message_copied': 'Message copied',
   'message_edit': 'Edit this message and resend from here',
   'message_edit_title': 'Editing',
+  'message_edit_attachment': 'Attachment {{index}} of {{total}} being edited',
+  'message_edit_remove_attachment': 'Remove image {{index}} of {{total}} being edited',
   'message_edit_textarea_label': 'Rewrite this message',
   'message_edit_consequence': 'The conversation after this message will be discarded. File changes already made are not undone.',
   'message_edit_cancel': 'Cancel',

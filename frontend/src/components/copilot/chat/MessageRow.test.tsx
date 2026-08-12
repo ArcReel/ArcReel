@@ -20,6 +20,15 @@ const imageTurn: Turn = {
   ],
 };
 
+const twoImageTurn: Turn = {
+  ...imageTurn,
+  content: [
+    { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+    { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "BBBB" } },
+    { type: "text", text: "按这两张图改人设" },
+  ],
+};
+
 describe("MessageRow", () => {
   it("renders the edit entry on an editable user message", () => {
     render(<MessageRow turn={userTurn} editable />);
@@ -71,6 +80,31 @@ describe("MessageRow", () => {
     expect(onSubmitEdit).toHaveBeenCalledWith("u-2", "按这张图改场景", [
       { data: "AAAA", media_type: "image/png" },
     ]);
+  });
+
+  it("shows editable attachment thumbnails and submits only the images that remain", () => {
+    const onSubmitEdit = vi.fn();
+    render(<MessageRow turn={twoImageTurn} editable editing onSubmitEdit={onSubmitEdit} />);
+
+    expect(screen.getByRole("img", { name: "编辑中的附件 1/2" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "编辑中的附件 2/2" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "移除编辑中的图片 1/2" }));
+
+    expect(screen.getByRole("img", { name: "编辑中的附件 1/1" })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByLabelText("改写消息内容"), { key: "Enter", metaKey: true });
+    expect(onSubmitEdit).toHaveBeenCalledWith("u-2", "按这两张图改人设", [
+      { data: "BBBB", media_type: "image/jpeg" },
+    ]);
+  });
+
+  it("disables resend when removing the final attachment leaves an empty draft", () => {
+    render(<MessageRow turn={imageTurn} editable editing />);
+
+    fireEvent.change(screen.getByLabelText("改写消息内容"), { target: { value: "  " } });
+    fireEvent.click(screen.getByRole("button", { name: "移除编辑中的图片 1/1" }));
+
+    expect(screen.getByRole("button", { name: "重新发送" })).toBeDisabled();
   });
 
   it("lets a message with attachments be rewritten down to the attachments alone", () => {

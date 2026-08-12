@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy, Pencil, TriangleAlert } from "lucide-react";
+import { Check, Copy, Pencil, TriangleAlert, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ImagePayload, Turn } from "@/types";
 import { copyText } from "@/utils/clipboard";
@@ -55,7 +55,6 @@ export function MessageRow({
   const text = turnPlainText(turn);
   const time = formatClockTime(turn.timestamp);
   const turnUuid = turn.uuid;
-  // 编辑框只呈现文本，图片附件不进编辑器：用户改不动它们，提交时原样跟着走
   const images = turnImageAttachments(turn);
 
   if (editing && turnUuid) {
@@ -65,11 +64,11 @@ export function MessageRow({
     return (
       <MessageEditor
         initialText={text}
-        hasAttachments={images.length > 0}
+        initialImages={images}
         submitting={submitting}
         canSubmit={editable}
         onCancel={() => onCancelEdit?.()}
-        onSubmit={(draft) => onSubmitEdit?.(turnUuid, draft, images)}
+        onSubmit={(draft, retainedImages) => onSubmitEdit?.(turnUuid, draft, retainedImages)}
       />
     );
   }
@@ -158,23 +157,30 @@ function CopyButton({ text }: { text: string }) {
 
 function MessageEditor({
   initialText,
-  hasAttachments,
+  initialImages,
   submitting,
   canSubmit,
   onCancel,
   onSubmit,
 }: {
   initialText: string;
-  /** 锚点消息带图片附件——正文可以清空，改写后的消息仍有内容。 */
-  hasAttachments: boolean;
+  /** 锚点消息带的图片附件，可在改写前逐张移除。 */
+  initialImages: ImagePayload[];
   submitting: boolean;
   /** 此刻允许提交改写；false 时保留草稿但锁住重新发送。 */
   canSubmit: boolean;
   onCancel: () => void;
-  onSubmit: (text: string) => void;
+  onSubmit: (text: string, images: ImagePayload[]) => void;
 }) {
   const { t } = useTranslation("dashboard");
   const [draft, setDraft] = useState(initialText);
+  const [images, setImages] = useState(() =>
+    initialImages.map((image, id) => ({
+      id,
+      image,
+      src: `data:${image.media_type};base64,${image.data}`,
+    })),
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // 部分输入法在组合确认的那次 keydown 上不置 isComposing，靠组合事件补齐
   const isComposingRef = useRef(false);
@@ -189,12 +195,15 @@ function MessageEditor({
     el.style.height = `${el.scrollHeight}px`;
   }, []);
 
-  const hasContent = Boolean(draft.trim()) || hasAttachments;
+  const hasContent = Boolean(draft.trim()) || images.length > 0;
 
   const submit = useCallback(() => {
     if (submitting || !canSubmit || !hasContent) return;
-    onSubmit(draft);
-  }, [draft, hasContent, submitting, canSubmit, onSubmit]);
+    onSubmit(
+      draft,
+      images.map(({ image }) => image),
+    );
+  }, [draft, images, hasContent, submitting, canSubmit, onSubmit]);
 
   return (
     <div className={`${USER_BUBBLE_LAYOUT_CLASS} ${BUBBLE_SHELL_CLASS}`} style={USER_BUBBLE_STYLE}>
@@ -204,6 +213,34 @@ function MessageEditor({
       >
         {t("message_edit_title")}
       </div>
+      {images.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {images.map(({ id, src }, index) => (
+            <div key={id} className="relative">
+              <img
+                src={src}
+                alt={t("message_edit_attachment", { index: index + 1, total: images.length })}
+                className="h-14 w-14 rounded-md object-cover"
+                style={{ border: "1px solid var(--color-hairline)" }}
+              />
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => setImages((current) => current.filter((attachment) => attachment.id !== id))}
+                className="focus-ring absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full transition-colors hover:bg-[var(--color-danger)] disabled:cursor-not-allowed disabled:opacity-50"
+                style={{
+                  background: "oklch(0.14 0.008 265)",
+                  color: "var(--color-text-2)",
+                  border: "1px solid var(--color-hairline)",
+                }}
+                aria-label={t("message_edit_remove_attachment", { index: index + 1, total: images.length })}
+              >
+                <X aria-hidden className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <textarea
         ref={textareaRef}
         value={draft}
