@@ -1,15 +1,26 @@
+import copy
 import re
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
 from lib.config.resolver import ProviderModel
+from lib.narration_delivery import (
+    USE_TTS,
+    NarratedVideoDurationBlockedError,
+    NarrationDeliveryPreparation,
+    NarrationTtsStatus,
+    TtsSynthesisSettings,
+    prepare_narrated_video_duration,
+)
 from lib.prompt_builders import append_image_negative_tail
 from lib.prompt_utils import image_prompt_to_yaml
 from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
 from lib.video_frame_slots import gate_video_request
+from lib.video_visual_provenance import build_storyboard_video_visual_basis
 from server.services import generation_tasks
-from server.services.generation_context import GenerationContext, ImageLaneResult, VideoLaneResult
+from server.services.generation_context import AudioLaneResult, GenerationContext, ImageLaneResult, VideoLaneResult
 from server.services.generation_tasks import assert_duration_supported
 
 
@@ -28,7 +39,7 @@ class TestAssertDurationSupported:
 
     @pytest.mark.unit
     def test_empty_supported_list_passes(self):
-        # 能力不可解析时不更坏：空列表放行，保持既有行为不被本次改动弄坏。
+        # 能力不可解析时空列表放行，保持宽容行为。
         assert_duration_supported(99, [])  # no raise
 
     @pytest.mark.unit
@@ -99,6 +110,7 @@ def _fake_resolve_ctx(
     image_provider=("openai", "gpt-image-2"),
     image_resolution=None,
     video_provider=("ark", "seedance"),
+    video_backend_model=None,
     video_resolution="720p",
     supported_durations=(4, 6, 8),
     voice_consistency="soft",
@@ -128,10 +140,11 @@ def _fake_resolve_ctx(
         video_lane = None
         if video is not None:
             provider, model = video_provider
+            backend_model = video_backend_model or model
             video_lane = VideoLaneResult(
                 provider_model=ProviderModel(provider, model),
                 backend_name=provider,
-                backend_model=model,
+                backend_model=backend_model,
                 resolution=video_resolution,
                 resolution_or_fallback=video_resolution or "720p",
                 supported_durations=tuple(supported_durations),
@@ -140,7 +153,22 @@ def _fake_resolve_ctx(
                 voice_consistency=voice_consistency,
                 requested_generate_audio=requested_generate_audio,
             )
-        return GenerationContext(generator=generator, image_lane=image_lane, video_lane=video_lane)
+        audio_lane = None
+        if audio is not None:
+            audio_lane = AudioLaneResult(
+                provider_model=ProviderModel("dashscope", "configured-tts"),
+                backend_name="dashscope",
+                backend_model="actual-tts",
+                narration_voice="Cherry",
+                narration_speed=1.1,
+                voices=(),
+            )
+        return GenerationContext(
+            generator=generator,
+            image_lane=image_lane,
+            video_lane=video_lane,
+            audio_lane=audio_lane,
+        )
 
     return _resolve
 
@@ -149,6 +177,109 @@ from lib.storyboard_sequence import (
     PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
     PREVIOUS_STORYBOARD_REFERENCE_LABEL,
 )
+
+
+@pytest.mark.unit
+def test_storyboard_visual_basis_tracks_effective_request_context(tmp_path: Path) -> None:
+    storyboard = tmp_path / "storyboard.png"
+    storyboard.write_bytes(b"png")
+    common = {
+        "prompt": {"action": "跑"},
+        "storyboard_image": storyboard,
+        "end_frame_image": None,
+        "content_mode": "narration",
+        "utterances": None,
+        "voice_characters": None,
+        "provider_id": "ark",
+        "model_id": "seedance",
+        "resolution": "720p",
+        "seed": 7,
+        "requested_generate_audio": True,
+        "has_utterances": False,
+    }
+
+    portrait = build_storyboard_video_visual_basis(**common, aspect_ratio="9:16")
+    landscape = build_storyboard_video_visual_basis(**common, aspect_ratio="16:9")
+    normalized_equivalent = build_storyboard_video_visual_basis(
+        **{
+            **common,
+            "prompt": {
+                "action": " 跑 ",
+                "camera_motion": "Static",
+                "ambiance_audio": "",
+                "dialogue": [],
+                "ignored": "not sent to the provider",
+            },
+        },
+        aspect_ratio="9:16",
+    )
+
+    assert portrait.digest != landscape.digest
+    assert portrait.digest == normalized_equivalent.digest
+
+    other_provider = build_storyboard_video_visual_basis(
+        **{**common, "provider_id": "openai"},
+        aspect_ratio="9:16",
+    )
+    other_model = build_storyboard_video_visual_basis(
+        **{**common, "model_id": "seedance-pro"},
+        aspect_ratio="9:16",
+    )
+    other_resolution = build_storyboard_video_visual_basis(
+        **{**common, "resolution": "1080p"},
+        aspect_ratio="9:16",
+    )
+    other_seed = build_storyboard_video_visual_basis(
+        **{**common, "seed": 8},
+        aspect_ratio="9:16",
+    )
+    other_audio_request = build_storyboard_video_visual_basis(
+        **{**common, "requested_generate_audio": False},
+        aspect_ratio="9:16",
+    )
+
+    assert portrait.digest != other_provider.digest
+    assert portrait.digest != other_model.digest
+    assert portrait.digest != other_resolution.digest
+    assert portrait.digest != other_seed.digest
+    assert portrait.digest != other_audio_request.digest
+
+
+@pytest.mark.unit
+def test_storyboard_visual_basis_tracks_only_referenced_character_voices(tmp_path: Path) -> None:
+    storyboard = tmp_path / "storyboard.png"
+    storyboard.write_bytes(b"png")
+    common = {
+        "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+        "storyboard_image": storyboard,
+        "end_frame_image": None,
+        "aspect_ratio": "9:16",
+        "provider_id": "ark",
+        "model_id": "seedance",
+        "resolution": "720p",
+        "seed": None,
+        "requested_generate_audio": True,
+        "content_mode": "drama",
+        "utterances": [{"kind": "dialogue", "speaker": "Alice", "text": "Run"}],
+        "has_utterances": True,
+    }
+    characters = {
+        "Alice": {"voice_style": "bright"},
+        "Bob": {"voice_style": "deep"},
+    }
+
+    original = build_storyboard_video_visual_basis(**common, voice_characters=characters)
+    unrelated_change = build_storyboard_video_visual_basis(
+        **common,
+        voice_characters={**characters, "Bob": {"voice_style": "soft"}},
+    )
+    used_voice_change = build_storyboard_video_visual_basis(
+        **common,
+        voice_characters={**characters, "Alice": {"voice_style": "soft"}},
+    )
+
+    assert original.digest == unrelated_change.digest
+    assert original.digest != used_voice_change.digest
 
 
 class _FakePM:
@@ -448,6 +579,47 @@ class TestGenerationTasks:
             )
 
     @pytest.mark.unit
+    async def test_reused_video_result_emits_the_normal_generation_success_event(self, monkeypatch):
+        reused = {
+            "version": 3,
+            "file_path": "videos/scene_E1S01.mp4",
+            "resource_type": "videos",
+            "resource_id": "E1S01",
+            "reused_existing": True,
+        }
+
+        async def _executor(*_args, **_kwargs):
+            return reused
+
+        emitted: list[dict] = []
+        monkeypatch.setitem(generation_tasks._TASK_EXECUTORS, "video", _executor)
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_generation_success_batch",
+            lambda **kwargs: emitted.append(kwargs) or {},
+        )
+
+        result = await generation_tasks.execute_generation_task(
+            {
+                "task_id": "task-reuse",
+                "task_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1S01",
+                "payload": {"script_file": "episode_1.json"},
+            }
+        )
+
+        assert result is reused
+        assert emitted == [
+            {
+                "task_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1S01",
+                "payload": {"script_file": "episode_1.json"},
+            }
+        ]
+
+    @pytest.mark.unit
     async def test_execute_product_task_injects_reference_images(self, tmp_path, monkeypatch):
         """product sheet 生成把用户上传原图作为参考注入（标准化整理的输入），缺失文件跳过；
         完成后回写 product_sheet。"""
@@ -625,6 +797,215 @@ class TestGenerationTasks:
         )
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
+
+    @pytest.mark.unit
+    async def test_execute_post_production_video_does_not_require_an_episode_number(self, monkeypatch, tmp_path):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        result = await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "legacy_script.json",
+                "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                "duration_seconds": 8,
+            },
+        )
+
+        assert result["resource_type"] == "videos"
+        assert fake_generator.video_calls[0]["duration_seconds"] == 8
+
+    @pytest.mark.integration
+    async def test_execute_video_task_reprojects_current_tts_and_rejects_changed_tier(self, monkeypatch, tmp_path):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        current_tts_duration = 6.2
+        seen_lane_requests: list[dict] = []
+
+        async def fake_prepare_current_narrated_video_duration(**kwargs):
+            tts_settings = await kwargs["resolver"].resolve_tts_synthesis_settings(kwargs["project"])
+            assert tts_settings == TtsSynthesisSettings("dashscope", "actual-tts", "Cherry", 1.1)
+            narration = NarrationDeliveryPreparation(
+                delivery=USE_TTS,
+                unit_id="E1S01",
+                speech_mode=None,
+                tts_status=NarrationTtsStatus.CURRENT,
+                artifact_path="audio/segment_E1S01.wav",
+                basis_digest="current-basis",
+                actual_duration_seconds=current_tts_duration,
+                problems=(),
+            )
+            return prepare_narrated_video_duration(
+                narration=narration,
+                planned_duration_seconds=kwargs["planned_duration_seconds"],
+                supported_durations=kwargs["supported_durations"],
+                confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
+            )
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(
+                fake_generator,
+                supported_durations=(4, 8, 12),
+                seen_lane_requests=seen_lane_requests,
+            ),
+        )
+        monkeypatch.setattr(
+            generation_tasks,
+            "prepare_current_narrated_video_duration",
+            fake_prepare_current_narrated_video_duration,
+        )
+        monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
+        output_guard = AsyncMock()
+        monkeypatch.setattr(generation_tasks, "require_generated_video_covers_current_tts", output_guard)
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        payload = {
+            "script_file": "episode_1.json",
+            "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+            "narration_delivery_options": {
+                "narration_delivery": USE_TTS,
+                "confirmed_request_duration_seconds": 8,
+            },
+        }
+
+        await generation_tasks.execute_video_task("demo", "E1S01", payload)
+        assert fake_generator.video_calls[0]["duration_seconds"] == 8
+        output_guard.assert_awaited_once()
+        assert len(seen_lane_requests) == 1
+        assert seen_lane_requests[0]["video"] is not None
+        assert seen_lane_requests[0]["audio"] is not None
+
+        # Worker 必须从执行时最新 unit 重新取规划时长；队列不保存预检派生档位。
+        fake_pm.script["segments"][0]["duration_seconds"] = 8
+        current_tts_duration = 9.5
+        with pytest.raises(NarratedVideoDurationBlockedError) as exc:
+            await generation_tasks.execute_video_task("demo", "E1S01", payload)
+
+        assert exc.value.preparation.problem_payloads()[0]["code"] == "reference_duration_confirmation_required"
+        assert exc.value.preparation.request_duration_seconds == 12
+        assert len(fake_generator.video_calls) == 1
+        assert len(seen_lane_requests) == 2
+
+    @pytest.mark.integration
+    async def test_execute_video_task_reuses_selected_visual_in_the_latest_tts_tier_without_side_effects(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        from lib.version_manager import VersionManager
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_generator.versions = VersionManager(project_path)
+        item = fake_pm.script["segments"][0]
+        item["novel_text"] = "current narration"
+        item["generated_assets"] = {
+            "status": "completed",
+            "video_clip": "videos/scene_E1S01.mp4",
+            "video_uri": "provider://existing",
+        }
+        current = project_path / "videos" / "scene_E1S01.mp4"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"existing-paid-video")
+        visual_prompt = {"action": "跑", "camera_motion": "Static", "dialogue": []}
+        visual_basis = build_storyboard_video_visual_basis(
+            prompt=visual_prompt,
+            storyboard_image=project_path / "storyboards" / "scene_E1S01.png",
+            end_frame_image=None,
+            aspect_ratio="9:16",
+            provider_id="ark",
+            model_id="seedance",
+            resolution="720p",
+            seed=None,
+            requested_generate_audio=True,
+            content_mode="narration",
+            utterances=None,
+            has_utterances=False,
+            voice_characters=None,
+        )
+        selected_version = fake_generator.versions.add_version(
+            "videos",
+            "E1S01",
+            "old visual",
+            source_file=current,
+            duration_seconds=8,
+            visual_basis_digest=visual_basis.digest,
+        )
+        script_before = copy.deepcopy(fake_pm.script)
+        history_before = copy.deepcopy(fake_generator.versions.get_versions("videos", "E1S01"))
+
+        async def _prepare(**kwargs):
+            narration = NarrationDeliveryPreparation(
+                delivery=USE_TTS,
+                unit_id="E1S01",
+                speech_mode=None,
+                tts_status=NarrationTtsStatus.CURRENT,
+                artifact_path="audio/segment_E1S01.wav",
+                basis_digest="current-basis",
+                actual_duration_seconds=6.2,
+                problems=(),
+            )
+            return prepare_narrated_video_duration(
+                narration=narration,
+                planned_duration_seconds=kwargs["planned_duration_seconds"],
+                supported_durations=kwargs["supported_durations"],
+                confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
+            )
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(
+                fake_generator,
+                video_provider=("ark", "configured-seedance"),
+                video_backend_model="seedance",
+                supported_durations=(4, 8, 12),
+            ),
+        )
+        monkeypatch.setattr(generation_tasks, "prepare_current_narrated_video_duration", _prepare)
+        monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
+        monkeypatch.setattr(
+            "server.services.narration_delivery_tasks.probe_existing_media_duration_seconds",
+            AsyncMock(return_value=8.0),
+        )
+        output_guard = AsyncMock()
+        monkeypatch.setattr(generation_tasks, "require_generated_video_covers_current_tts", output_guard)
+
+        result = await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": visual_prompt,
+                "narration_delivery_options": {
+                    "narration_delivery": USE_TTS,
+                    "confirmed_request_duration_seconds": 8,
+                },
+            },
+            task_id="task-reuse",
+        )
+
+        assert result["reused_existing"] is True
+        assert result["version"] == selected_version
+        assert result["request_duration_seconds"] == 8
+        assert fake_generator.video_calls == []
+        output_guard.assert_not_awaited()
+        assert fake_pm.script == script_before
+        assert fake_generator.versions.get_versions("videos", "E1S01") == history_before
+        assert current.read_bytes() == b"existing-paid-video"
 
     @pytest.mark.integration
     async def test_execute_video_task_storyboard_image_legacy_grid_filename_resolves(self, monkeypatch, tmp_path):
@@ -1774,6 +2155,40 @@ class TestGenerationTasks:
         assert change["entity_type"] == "reference_unit"
         assert change["action"] == "reference_video_ready"
         assert change["label"] == "参考视频「U01」"
+
+    @pytest.mark.unit
+    def test_emit_success_batch_reference_video_tts_entity_type_not_shot(self, monkeypatch, tmp_path):
+        """TTS 任务与视频任务共用项目路线，ad 参考路线的混合骨架不能把 unit 事件分到 shot。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        fake_pm = _FakePM(project_path)
+        fake_pm.project.update(content_mode="ad", generation_mode="reference_video")
+        fake_pm.script = {
+            "content_mode": "ad",
+            "shots": [{"shot_id": "E1S01"}],
+            "video_units": [{"unit_id": "E1U01"}],
+        }
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        generation_tasks.emit_generation_success_batch(
+            task_type="tts",
+            project_name="demo",
+            resource_id="E1U01",
+            payload={"script_file": "episode_1.json"},
+        )
+
+        assert len(captured) == 1
+        change = captured[0][0]
+        assert change["entity_type"] == "reference_unit"
+        assert change["action"] == "tts_ready"
+        assert change["label"] == "旁白「E1U01」"
 
     @pytest.mark.unit
     def test_emit_success_batch_falls_back_to_segments_when_script_load_fails(self, monkeypatch, tmp_path):

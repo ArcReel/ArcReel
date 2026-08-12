@@ -15,6 +15,8 @@ MediaGenerator 中间层
 
 import asyncio
 import logging
+import os
+import tempfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -408,6 +410,8 @@ class MediaGenerator:
         voice: str,
         language_type: str = "Chinese",
         speed: float | None = None,
+        before_commit: Callable[[Path], Awaitable[None]] | None = None,
+        commit_staged: Callable[[Path, Path], int] | None = None,
         **version_metadata,
     ) -> tuple[Path, int]:
         """
@@ -432,51 +436,65 @@ class MediaGenerator:
         output_path = self._get_output_path(resource_type, resource_id)
         self._ensure_parent_dir(output_path)
 
-        # 若已存在，确保旧文件被记录
-        if output_path.exists():
-            self.versions.ensure_current_tracked(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                current_file=output_path,
-                prompt=text,
-                **version_metadata,
-            )
-
         if self._audio_backend is None:
             raise RuntimeError("audio_backend not configured")
 
+        # 后端只写同目录唯一 staging 文件。只有同步合成完整成功且确实产出普通文件后，
+        # 才以原子 replace 提升为 canonical；失败或取消均不会触碰旧付费音频。
+        fd, staged_name = tempfile.mkstemp(
+            prefix=f".{output_path.stem}.",
+            suffix=output_path.suffix,
+            dir=output_path.parent,
+        )
+        os.close(fd)
+        staged_path = Path(staged_name)
+        staged_path.unlink()
+
         # audio 合成字符数 → 计费 token 的语义转写已收进 ledger union 分发（_settlement_from_result），
         # 此处仅把 backend 结果对象递交给 call.success。
-        async with self.ledger.record(
-            project_name=self.project_name,
-            call_type="audio",
-            model=self._audio_backend.model,
-            prompt=text,
-            # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
-            provider=cast(str, self._audio_provider_id),
-            user_id=self._user_id,
-            segment_id=segment_id_for("audio", resource_type, resource_id),
-            output_path=str(output_path),
-        ) as call:
-            request = AudioSynthesisRequest(
-                text=text,
-                output_path=output_path,
-                voice=voice,
-                language_type=language_type,
-                speed=speed,
-            )
-            result = await self._audio_backend.synthesize(request)
-            call.success(result)
+        try:
+            async with self.ledger.record(
+                project_name=self.project_name,
+                call_type="audio",
+                model=self._audio_backend.model,
+                prompt=text,
+                # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
+                provider=cast(str, self._audio_provider_id),
+                user_id=self._user_id,
+                segment_id=segment_id_for("audio", resource_type, resource_id),
+                output_path=str(output_path),
+            ) as call:
+                request = AudioSynthesisRequest(
+                    text=text,
+                    output_path=staged_path,
+                    voice=voice,
+                    language_type=language_type,
+                    speed=speed,
+                )
+                result = await self._audio_backend.synthesize(request)
+                if not staged_path.is_file():
+                    raise RuntimeError("audio backend completed without a regular output file")
+                call.success(result)
 
-        new_version = self.versions.add_version(
-            resource_type=resource_type,
-            resource_id=resource_id,
-            prompt=text,
-            source_file=output_path,
-            **version_metadata,
-        )
-
-        return output_path, new_version
+            if before_commit is not None:
+                await before_commit(staged_path)
+            commit = commit_staged
+            if commit is None:
+                version = self.versions.commit_staged_version(
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    prompt=text,
+                    staged_file=staged_path,
+                    current_file=output_path,
+                    **version_metadata,
+                )
+            else:
+                version = commit(staged_path, output_path)
+            if not output_path.is_file():
+                raise RuntimeError("audio commit completed without a regular formal output file")
+            return output_path, version
+        finally:
+            staged_path.unlink(missing_ok=True)
 
     def generate_video(
         self,
@@ -583,15 +601,16 @@ class MediaGenerator:
         except (ValueError, TypeError):
             duration_int = 8
 
-        # 1. 若已存在，确保旧文件被记录
+        # 1. 若已存在，确保旧文件被记录。这里的 prompt / duration / provider 选项都属于即将
+        # 发起的新请求，不能写到来源不明的 legacy current 上；否则新产物被拒绝回滚后，旧视频
+        # 会冒充新请求档位，后续被错误地当作可复用成片。未知事实保持未知，新产物在 add_version
+        # 时再登记完整请求元数据。
         if output_path.exists():
             self.versions.ensure_current_tracked(
                 resource_type=resource_type,
                 resource_id=resource_id,
                 current_file=output_path,
-                prompt=prompt,
-                duration_seconds=duration_int,
-                **version_metadata,
+                prompt="",
             )
 
         if self._video_backend is None:

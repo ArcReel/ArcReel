@@ -132,6 +132,20 @@ describe("enqueueStoryboard", () => {
 });
 
 describe("单资源入队动作的乐观标记 kind / taskType", () => {
+  it("video 将请求级旁白交付与精确确认档位原样交给 API", async () => {
+    const generate = vi.spyOn(API, "generateVideo").mockResolvedValue(SINGLE_OK);
+
+    await enqueueVideo("demo", "seg-1", "p", "episode_1.json", 8, {
+      narration_delivery: "use_tts",
+      confirmed_request_duration_seconds: 12,
+    });
+
+    expect(generate).toHaveBeenCalledWith("demo", "seg-1", "p", "episode_1.json", 8, {
+      narration_delivery: "use_tts",
+      confirmed_request_duration_seconds: 12,
+    });
+  });
+
   it.each([
     {
       label: "video",
@@ -320,9 +334,13 @@ describe("enqueueReferenceVideoUnit", () => {
       .spyOn(API, "generateReferenceVideoUnit")
       .mockResolvedValue({ task_id: "t1", deduped: false });
 
-    const res = await enqueueReferenceVideoUnit("demo", 1, "E1U1", { duration_confirmed: true });
+    const res = await enqueueReferenceVideoUnit("demo", 1, "E1U1", {
+      confirmed_request_duration_seconds: 8,
+    });
 
-    expect(generate).toHaveBeenCalledWith("demo", 1, "E1U1", { duration_confirmed: true });
+    expect(generate).toHaveBeenCalledWith("demo", 1, "E1U1", {
+      confirmed_request_duration_seconds: 8,
+    });
     expect(occupied("demo", "reference_video", "E1U1")).toBe(true);
     const toast = useAppStore.getState().toast;
     expect(toast?.text).toBe(i18n.t("dashboard:reference_generate_queued"));

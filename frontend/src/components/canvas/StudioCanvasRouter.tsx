@@ -31,7 +31,7 @@ import { ProductsPage } from "./lorebook/ProductsPage";
 import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
-import { API } from "@/api";
+import { API, NarratedVideoDurationError } from "@/api";
 import {
   enqueueCharacter,
   enqueueEpisodeNarration,
@@ -55,7 +55,14 @@ import {
   useModelCapabilities,
 } from "@/hooks/useModelCapabilities";
 import { gridStoryboardEnabled, normalizeRoute } from "@/utils/generation-mode";
-import type { Scene, Prop, Product, CustomProviderInfo, ProviderInfo } from "@/types";
+import type {
+  Scene,
+  Prop,
+  Product,
+  CustomProviderInfo,
+  ProviderInfo,
+  ReferenceGenerationRequestOptions,
+} from "@/types";
 import type { EpisodeScript } from "@/types/script";
 
 // ---------------------------------------------------------------------------
@@ -286,7 +293,11 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, currentScripts]);
 
-  const handleGenerateVideo = useCallback(async (segmentId: string, scriptFile?: string) => {
+  const handleGenerateVideo = useCallback(async (
+    segmentId: string,
+    scriptFile?: string,
+    requestOptions?: ReferenceGenerationRequestOptions,
+  ) => {
     if (!currentProjectName || !currentScripts) return;
     const resolved = resolveSegmentPrompt(currentScripts, segmentId, "video_prompt", scriptFile);
     if (!resolved) return;
@@ -297,8 +308,10 @@ export function StudioCanvasRouter() {
         resolved.prompt as string | Record<string, unknown>,
         resolved.resolvedFile,
         resolved.duration,
+        requestOptions,
       );
     } catch (err) {
+      if (err instanceof NarratedVideoDurationError) throw err;
       useAppStore.getState().pushToast(tRef.current("generate_video_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName, currentScripts]);
@@ -749,7 +762,7 @@ export function StudioCanvasRouter() {
                     durationWarningReason={durationWarningReason}
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
-                    onGenerateVideo={voidPromise(handleGenerateVideo)}
+                    onGenerateVideo={handleGenerateVideo}
                     onGenerateNarration={voidPromise(handleGenerateNarration)}
                     onGenerateEpisodeNarration={voidPromise(handleGenerateEpisodeNarration)}
                     onGenerateGrid={handleGenerateGrid}
@@ -777,7 +790,7 @@ export function StudioCanvasRouter() {
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onMoveShot={isAd ? handleMoveShot : undefined}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
-                    onGenerateVideo={voidPromise(handleGenerateVideo)}
+                    onGenerateVideo={handleGenerateVideo}
                     onGenerateNarration={voidPromise(handleGenerateNarration)}
                     onGenerateEpisodeNarration={voidPromise(handleGenerateEpisodeNarration)}
                     onRestoreStoryboard={handleRestoreAsset}

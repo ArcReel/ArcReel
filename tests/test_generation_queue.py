@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
-from lib.generation_queue import GenerationQueue, reference_projection_for_queued_task
+from lib.generation_queue import CompensableGenerationResult, GenerationQueue, reference_projection_for_queued_task
 from lib.task_failure import encode_failure
 
 pytestmark = pytest.mark.unit
@@ -75,7 +75,142 @@ class TestGenerationQueue:
         assert not second["deduped"]
         assert second["task_id"] != first["task_id"]
 
-    async def test_reference_rate_limit_projection_reuses_narration_options(self, monkeypatch, tmp_path):
+    async def test_active_video_task_rejects_conflicting_narration_delivery(self, queue):
+        first = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload={"narration_delivery_options": {"narration_delivery": "post_production"}},
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        with pytest.raises(RuntimeError, match="different narration delivery request"):
+            await queue.enqueue_task(
+                project_name="demo",
+                task_type="video",
+                media_type="video",
+                resource_id="E1S01",
+                payload={"narration_delivery_options": {"narration_delivery": "use_tts"}},
+                script_file="episode_01.json",
+                provider_id="video-provider",
+            )
+
+        active = await queue.get_task(first["task_id"])
+        assert active is not None
+        assert active["payload"]["narration_delivery_options"] == {"narration_delivery": "post_production"}
+
+    async def test_active_reference_video_task_rejects_a_different_confirmed_duration(self, queue):
+        await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={
+                "reference_request_options": {
+                    "narration_delivery": "use_tts",
+                    "confirmed_request_duration_seconds": 8,
+                }
+            },
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        with pytest.raises(RuntimeError, match="different narration delivery request"):
+            await queue.enqueue_task(
+                project_name="demo",
+                task_type="reference_video",
+                media_type="video",
+                resource_id="E1U1",
+                payload={
+                    "reference_request_options": {
+                        "narration_delivery": "use_tts",
+                        "confirmed_request_duration_seconds": 12,
+                    }
+                },
+                script_file="episode_01.json",
+                provider_id="video-provider",
+            )
+
+    async def test_active_video_task_still_dedupes_the_same_narration_request(self, queue):
+        payload = {
+            "narration_delivery_options": {
+                "narration_delivery": "use_tts",
+                "confirmed_request_duration_seconds": 8,
+            }
+        }
+        first = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload=payload,
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        duplicate = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload=payload,
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        assert duplicate["deduped"] is True
+        assert duplicate["task_id"] == first["task_id"]
+
+    async def test_cancel_that_wins_completion_compensates_activated_result(self, queue):
+        task = await queue.enqueue_task(
+            project_name="demo",
+            task_type="tts",
+            media_type="audio",
+            resource_id="E1S01",
+            payload={"script_file": "episode_01.json"},
+        )
+        assert await queue.claim_next_task(media_type="audio") is not None
+        compensated: list[str] = []
+        result = CompensableGenerationResult(
+            {"file_path": "audio/segment_E1S01.wav"},
+            cancel_compensation=lambda: compensated.append("restored"),
+        )
+
+        cancelled = await queue.cancel_task(task["task_id"])
+        assert cancelled["cancelling"] == [task["task_id"]]
+        assert await queue.mark_task_succeeded(task["task_id"], result) == 0
+
+        assert compensated == ["restored"]
+
+    async def test_cancel_compensation_failure_preserves_terminal_update_contract_and_is_not_retried(self, queue):
+        task = await queue.enqueue_task(
+            project_name="demo",
+            task_type="tts",
+            media_type="audio",
+            resource_id="E1S01",
+            payload={"script_file": "episode_01.json"},
+        )
+        assert await queue.claim_next_task(media_type="audio") is not None
+        attempts = 0
+
+        def _fail_compensation() -> None:
+            nonlocal attempts
+            attempts += 1
+            raise RuntimeError("restore failed")
+
+        result = CompensableGenerationResult(
+            {"file_path": "audio/segment_E1S01.wav"},
+            cancel_compensation=_fail_compensation,
+        )
+        assert (await queue.cancel_task(task["task_id"]))["cancelling"] == [task["task_id"]]
+
+        assert await queue.mark_task_succeeded(task["task_id"], result) == 0
+        assert await queue.mark_task_succeeded(task["task_id"], result) == 0
+        assert attempts == 1
+
+    async def test_reference_rate_limit_projection_ignores_narration_delivery(self, monkeypatch, tmp_path):
         seen_options = []
         sentinel = object()
 
@@ -104,17 +239,14 @@ class TestGenerationQueue:
                     "narration_delivery": "use_tts",
                     "narration_duration_floor": 9.5,
                     "duration_confirmed": True,
+                    "confirmed_request_duration_seconds": 12,
                 },
             },
             resource_id="E1U1",
         )
 
         assert projection is sentinel
-        assert seen_options[0].to_payload() == {
-            "narration_delivery": "use_tts",
-            "narration_duration_floor": 9.5,
-            "duration_confirmed": True,
-        }
+        assert seen_options[0].to_payload() == {"narration_delivery": "post_production"}
 
     async def test_worker_lease_takeover(self, queue):
         first_ok = await queue.acquire_or_renew_worker_lease(
@@ -520,14 +652,23 @@ class TestPinExecutionModelOnEnqueue:
                 "references": [{"type": "character", "name": "A"}],
                 "style": "snapshot",
                 "duration_seconds": 9,
-                "reference_request_options": {"duration_confirmed": True},
+                "reference_request_options": {
+                    "narration_delivery": "use_tts",
+                    "duration_confirmed": True,
+                    "narration_duration_floor": 9.5,
+                    "confirmed_request_duration_seconds": 12,
+                    "basis_digest": "must-not-freeze",
+                },
             },
             script_file="ep1.json",
         )
         task = await queue.get_task(enqueued["task_id"])
         assert task["payload"] == {
             "script_file": "ep1.json",
-            "reference_request_options": {"duration_confirmed": True},
+            "reference_request_options": {
+                "narration_delivery": "use_tts",
+                "confirmed_request_duration_seconds": 12,
+            },
         }
         assert "video_provider_r2v" not in task["payload"]
         assert "video_provider_i2v" not in task["payload"]

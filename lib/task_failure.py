@@ -77,11 +77,30 @@ REFERENCE_PROJECTION_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 
+NARRATION_DELIVERY_FAILURE_CODES: frozenset[str] = frozenset(
+    {
+        "needs_replan",
+        "reference_duration_confirmation_required",
+        "tts_duration_unavailable",
+        "tts_generating",
+        "tts_conflicts_with_active_narrated_video",
+        "tts_missing",
+        "tts_not_applicable",
+        "tts_not_configured",
+        "tts_stale",
+        "tts_state_unavailable",
+        "video_duration_unavailable",
+        "video_shorter_than_tts",
+        "video_supported_durations_missing",
+    }
+)
+
 # Stable failure code -> i18n errors key. The code is agent-facing and persisted
 # in the DB; the key resolves to zh/en/vi templates rendered at read time.
 FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in CAPABILITY_FAILURE_CODES},
     **{code: code for code in REFERENCE_PROJECTION_FAILURE_CODES},
+    **{code: code for code in NARRATION_DELIVERY_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
     "dispatch_provider_requeue_failed": "task_fail_dispatch_provider_requeue_failed",
     "restart_lost_image": "task_fail_restart_lost_image",

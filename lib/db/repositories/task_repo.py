@@ -207,11 +207,15 @@ class TaskRepository(BaseRepository):
             )
             existing = result.scalar_one_or_none()
             if existing:
+                # Queue-layer semantic dedupe needs the active request payload from the row that
+                # won the unique-index race. The wrapper consumes this private field before
+                # returning its public enqueue result.
                 return {
                     "task_id": existing.task_id,
                     "status": existing.status,
                     "deduped": True,
                     "existing_task_id": existing.task_id,
+                    "_existing_payload": _json_loads(existing.payload_json, {}),
                 }
             raise
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight, History } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, History } from "lucide-react";
 import { API, type VersionInfo } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -9,11 +9,13 @@ import { errMsg } from "@/utils/async";
 
 interface VersionTimeMachineProps {
   projectName: string;
-  resourceType: "storyboards" | "videos" | "characters" | "scenes" | "props" | "products" | "reference_videos" | "grids";
+  resourceType: "storyboards" | "videos" | "audio" | "characters" | "scenes" | "props" | "products" | "reference_videos" | "grids";
   resourceId: string;
   onRestore?: (version: number) => void | Promise<void>;
   /** Icon-only trigger button: hides label and chevron for narrow card headers. */
   iconOnly?: boolean;
+  /** Allow preview/download history without exposing the restore mutation. */
+  readOnly?: boolean;
   /**
    * 同资源正被生成/编辑占用（含 image_edit 乐观占用）：禁用版本恢复。
    * image_edit 任务完成时会无条件把 current 覆盖为编辑结果，占用期间恢复旧版本会
@@ -60,6 +62,7 @@ export function VersionTimeMachine({
   resourceId,
   onRestore,
   iconOnly = false,
+  readOnly = false,
   busy = false,
   onRestoringChange,
   checkBusy,
@@ -69,6 +72,7 @@ export function VersionTimeMachine({
     resourceType === "storyboards" ? `storyboards/scene_${resourceId}.png` :
     resourceType === "videos" ? `videos/scene_${resourceId}.mp4` :
     resourceType === "reference_videos" ? `reference_videos/${resourceId}.mp4` :
+    resourceType === "audio" ? `audio/segment_${resourceId}.wav` :
     resourceType === "characters" ? `characters/${resourceId}.png` :
     resourceType === "scenes" ? `scenes/${resourceId}.png` :
     resourceType === "grids" ? `grids/${resourceId}.png` :
@@ -342,7 +346,7 @@ export function VersionTimeMachine({
                         <span className="shrink-0 rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-300">
                           {t("current_version_badge")}
                         </span>
-                      ) : (
+                      ) : !readOnly ? (
                         <button
                           type="button"
                           disabled={restoringVersion !== null || busy}
@@ -352,7 +356,7 @@ export function VersionTimeMachine({
                         >
                           {restoringVersion === selectedInfo.version ? t("switching_version") : t("switch_to_version")}
                         </button>
-                      )}
+                      ) : null}
                     </div>
 
                     {/* Media preview */}
@@ -366,6 +370,15 @@ export function VersionTimeMachine({
                           playsInline
                           preload="none"
                         />
+                      ) : resourceType === "audio" ? (
+                        // eslint-disable-next-line jsx-a11y/media-has-caption -- 历史旁白的文字记录显示在同一预览卡片
+                        <audio
+                          src={selectedInfo.file_url}
+                          aria-label={t("version_audio_preview_label", { version: selectedInfo.version })}
+                          className="mb-2 h-9 w-full"
+                          controls
+                          preload="metadata"
+                        />
                       ) : (
                         <div
                           className={`mb-2 flex w-full items-center justify-center rounded-lg border border-gray-800 bg-gray-900/70 p-2 ${getImagePreviewHeightClass(resourceType)}`}
@@ -377,6 +390,17 @@ export function VersionTimeMachine({
                           />
                         </div>
                       ))}
+
+                    {resourceType === "audio" && selectedInfo.file_url && (
+                      <a
+                        href={selectedInfo.file_url}
+                        download
+                        className="mb-2 inline-flex items-center gap-1 rounded-md border border-gray-700 px-2 py-1 text-[10px] font-medium text-gray-300 hover:bg-gray-800 hover:text-white"
+                      >
+                        <Download className="h-3 w-3" aria-hidden />
+                        {t("version_download_audio")}
+                      </a>
+                    )}
 
                     {/* Prompt text */}
                     <p className="line-clamp-4 text-[11px] leading-5 text-gray-400">

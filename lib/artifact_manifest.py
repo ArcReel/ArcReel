@@ -872,10 +872,12 @@ class ArtifactKey:
         )
 
     @classmethod
-    def episode_audio(cls, episode: int, segment_id: str) -> Self:
+    def episode_audio(cls, episode: int, resource_id: str) -> Self:
+        """Identify one storyboard item or reference-video unit's narration audio."""
+
         return cls(
             ArtifactKind.EPISODE_AUDIO,
-            (_episode_number(episode), _non_empty("segment_id", segment_id)),
+            (_episode_number(episode), _non_empty("resource_id", resource_id)),
         )
 
     def encode(self) -> str:

@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -258,6 +259,87 @@ class TestMediaGenerator:
         assert video_path2.name == "scene_E1S02.mp4"
         assert version2 == 2
         assert gen.ledger.started[-1]["call_type"] == "video"
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_rejected_short_video_does_not_make_legacy_predecessor_reusable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        from lib.narration_delivery import (
+            USE_TTS,
+            NarratedVideoDurationBlockedError,
+            NarrationDeliveryPreparation,
+            NarrationTtsStatus,
+        )
+        from lib.version_manager import VersionManager
+        from server.services import narration_delivery_tasks
+
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        output_path = gen._get_output_path("videos", "E1S01")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"legacy-video-with-unknown-tier")
+
+        _, version, _, _ = await gen.generate_video_async(
+            prompt="new request",
+            resource_type="videos",
+            resource_id="E1S01",
+            duration_seconds=8,
+        )
+        monkeypatch.setattr(
+            narration_delivery_tasks,
+            "probe_existing_media_duration_seconds",
+            AsyncMock(return_value=4.0),
+        )
+        narration = NarrationDeliveryPreparation(
+            delivery=USE_TTS,
+            unit_id="E1S01",
+            speech_mode=None,
+            tts_status=NarrationTtsStatus.CURRENT,
+            artifact_path="audio/segment_E1S01.wav",
+            basis_digest="basis",
+            actual_duration_seconds=6.2,
+            problems=(),
+        )
+        monkeypatch.setattr(
+            narration_delivery_tasks,
+            "_prepare_current_task_narration_delivery",
+            AsyncMock(return_value=narration),
+        )
+
+        with pytest.raises(NarratedVideoDurationBlockedError):
+            await narration_delivery_tasks.require_generated_video_covers_current_tts(
+                project_name="demo",
+                script_file="episode_1.json",
+                request_duration_seconds=8,
+                output_path=output_path,
+                versions=gen.versions,
+                resource_type="videos",
+                resource_id="E1S01",
+                version=version,
+            )
+
+        assert output_path.read_bytes() == b"legacy-video-with-unknown-tier"
+        item = {
+            "generated_assets": {
+                "status": "completed",
+                "video_clip": "videos/scene_E1S01.mp4",
+            }
+        }
+        assert (
+            await narration_delivery_tasks.reuse_current_video_for_tier(
+                project_path=gen.project_path,
+                versions=gen.versions,
+                item=item,
+                resource_type="videos",
+                resource_id="E1S01",
+                request_duration_seconds=8,
+                minimum_actual_duration_seconds=6.2,
+            )
+            is None
+        )
 
     @pytest.mark.unit
     @pytest.mark.asyncio

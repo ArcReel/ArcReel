@@ -730,6 +730,29 @@ class TestGenerationWorker:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
+    async def test_reused_video_result_reaches_the_normal_succeeded_terminal_state(self, monkeypatch):
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+        reused = {
+            "version": 2,
+            "file_path": "videos/scene_E1S01.mp4",
+            "resource_type": "videos",
+            "resource_id": "E1S01",
+            "reused_existing": True,
+        }
+
+        async def _fake_execute(_task):
+            return reused
+
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _fake_execute)
+
+        await worker._process_task({"task_id": "task-reuse", "task_type": "video"})
+
+        assert queue.succeeded == [("task-reuse", reused)]
+        assert queue.failed == []
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
     async def test_process_reference_task_requeues_when_execution_provider_changes(self, monkeypatch):
         """执行入口解析到别的 provider 时不占旧槽提交，而是刷新投影并回队重认领。"""
 

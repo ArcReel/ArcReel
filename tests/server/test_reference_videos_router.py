@@ -68,6 +68,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     custom_pm = ProjectManager(projects_root)
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
+    monkeypatch.setattr(router_mod, "tts_task_in_progress", AsyncMock(return_value=False))
     # 公共 request projection 的 resolver 需要 DB；路由测试注入 in-process 能力适配器。
     monkeypatch.setattr(router_mod, "project_reference_unit_request", _projection_with_durations([3, 6, 9]))
 
@@ -551,7 +552,7 @@ def test_generate_unit_enqueues_task(client: TestClient, monkeypatch: pytest.Mon
     assert enqueued[0]["resource_id"] == uid
     # 当前文本只作结构守卫，任务只保定位与请求选项；worker 执行前重读最新剧本。
     assert "prompt" not in enqueued[0]["payload"]
-    assert enqueued[0]["payload"]["reference_request_options"]["duration_confirmed"] is False
+    assert enqueued[0]["payload"]["reference_request_options"] == {"narration_delivery": "post_production"}
 
 
 @pytest.mark.integration
@@ -577,7 +578,7 @@ def test_generate_unit_requires_and_persists_explicit_duration_confirmation(
 
     confirmed = client.post(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate",
-        json={"duration_confirmed": True},
+        json={"confirmed_request_duration_seconds": 4},
     )
     assert confirmed.status_code == 202, confirmed.text
     assert confirmed.json()["projection"]["request_duration"] == 4
@@ -587,7 +588,66 @@ def test_generate_unit_requires_and_persists_explicit_duration_confirmation(
         "script_file": "scripts/episode_1.json",
         "reference_request_options": {
             "narration_delivery": "post_production",
-            "duration_confirmed": True,
+            "confirmed_request_duration_seconds": 4,
+        },
+    }
+
+
+@pytest.mark.integration
+def test_generate_unit_use_tts_returns_the_current_cross_tier_quote_before_enqueue(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from server.routers import reference_videos as router_mod
+    from server.services.cost_estimation import VideoRequestQuote
+
+    unit_id = _seed_unit(client)
+    _patch_supported_durations(monkeypatch, [4, 8, 12])
+    enqueued: list[dict[str, object]] = []
+
+    class _FakeQueue:
+        async def enqueue_task(self, **kwargs):
+            enqueued.append(kwargs)
+            return {"task_id": "task-confirmed", "deduped": False}
+
+    async def _current_options(**kwargs):
+        return replace(
+            kwargs["options"],
+            current_tts_duration_seconds=8.0,
+            current_visual_duration_seconds=4,
+        )
+
+    monkeypatch.setattr(router_mod, "prepare_current_reference_video_request_options", _current_options)
+    monkeypatch.setattr(
+        router_mod,
+        "quote_video_request",
+        AsyncMock(return_value=VideoRequestQuote(0.8, "USD", "fake", "fake-model", 8)),
+    )
+    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: _FakeQueue())
+    endpoint = f"/api/v1/projects/demo/reference-videos/episodes/1/units/{unit_id}/generate"
+
+    pending = client.post(endpoint, json={"narration_delivery": "use_tts"})
+    assert pending.status_code == 400
+    assert pending.json()["detail"]["request_cost"] == {
+        "amount": 0.8,
+        "currency": "USD",
+        "provider_id": "fake",
+        "model_id": "fake-model",
+        "request_duration_seconds": 8,
+    }
+    assert enqueued == []
+
+    accepted = client.post(
+        endpoint,
+        json={"narration_delivery": "use_tts", "confirmed_request_duration_seconds": 8},
+    )
+    assert accepted.status_code == 202, accepted.text
+    assert accepted.json()["projection"]["request_cost"]["amount"] == 0.8
+    assert enqueued[0]["payload"] == {
+        "script_file": "scripts/episode_1.json",
+        "reference_request_options": {
+            "narration_delivery": "use_tts",
+            "confirmed_request_duration_seconds": 8,
         },
     }
 
@@ -687,6 +747,7 @@ def test_generate_unit_bucket_capability_error_returns_400(client: TestClient, m
         "provider_id": "fake",
         "model_id": "fake-model",
         "planned_duration": 3,
+        "current_visual_duration": None,
         "duration_input": 3,
         "request_duration": 3,
         "problems": [
@@ -799,6 +860,7 @@ def test_precheck_slot_member_needs_no_confirmation(client: TestClient, monkeypa
         "planned_duration": 3,
         "needs_confirmation": False,
         "script_duration": 3,
+        "current_visual_duration": None,
         "duration_input": 3,
         "request_duration": 3,
         "adjustment": "exact",
@@ -824,13 +886,193 @@ def test_precheck_rounds_up_and_needs_confirmation(client: TestClient, monkeypat
 
 
 @pytest.mark.integration
-def test_precheck_uses_actual_tts_duration_as_floor(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    uid = _seed_unit(client)  # 剧本 3s，实际旁白 9.5s
+@pytest.mark.parametrize(
+    ("current_visual_tier", "reusable_visual_tier", "needs_confirmation", "expected_amount"),
+    [(8, 8, False, 0.0), (8, None, False, 0.8), (4, None, True, 0.8)],
+)
+def test_precheck_prices_the_latest_tts_tier_against_the_selected_visual(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    current_visual_tier: int,
+    reusable_visual_tier: int | None,
+    needs_confirmation: bool,
+    expected_amount: float,
+) -> None:
+    from server.routers import reference_videos as router_mod
+    from server.services.cost_estimation import VideoRequestQuote
+
+    unit_id = _seed_unit(client)
     _patch_supported_durations(monkeypatch, [4, 8, 12])
+
+    async def _current_options(**kwargs):
+        return replace(
+            kwargs["options"],
+            current_tts_duration_seconds=8.0,
+            current_visual_duration_seconds=current_visual_tier,
+            current_reusable_visual_duration_seconds=reusable_visual_tier,
+        )
+
+    monkeypatch.setattr(router_mod, "prepare_current_reference_video_request_options", _current_options)
+    monkeypatch.setattr(
+        router_mod,
+        "quote_video_request",
+        AsyncMock(
+            return_value=VideoRequestQuote(
+                amount=0.8,
+                currency="USD",
+                provider_id="fake",
+                model_id="fake-model",
+                request_duration_seconds=8,
+            )
+        ),
+    )
+
+    response = client.get(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{unit_id}/duration-precheck",
+        params={"narration_delivery": "use_tts"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["request_duration"] == 8
+    assert body["needs_confirmation"] is needs_confirmation
+    assert body["request_cost"] == {
+        "amount": expected_amount,
+        "currency": "USD",
+        "provider_id": "fake",
+        "model_id": "fake-model",
+        "request_duration_seconds": 8,
+    }
+
+
+@pytest.mark.integration
+def test_precheck_blocks_cross_tier_tts_when_exact_cost_is_unavailable(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from server.routers import reference_videos as router_mod
+
+    unit_id = _seed_unit(client)
+    _patch_supported_durations(monkeypatch, [4, 8, 12])
+
+    async def _current_options(**kwargs):
+        return replace(
+            kwargs["options"],
+            current_tts_duration_seconds=8.0,
+            current_visual_duration_seconds=4,
+        )
+
+    monkeypatch.setattr(router_mod, "prepare_current_reference_video_request_options", _current_options)
+    monkeypatch.setattr(router_mod, "quote_video_request", AsyncMock(return_value=None))
+
+    response = client.get(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{unit_id}/duration-precheck",
+        params={"narration_delivery": "use_tts"},
+    )
+
+    assert response.status_code == 400
+    assert [problem["code"] for problem in response.json()["detail"]["problems"]] == [
+        "reference_duration_confirmation_required",
+        "video_request_cost_unavailable",
+    ]
+
+
+@pytest.mark.integration
+def test_precheck_use_tts_while_regenerating_returns_canonical_problem(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An active explicit regeneration shadows the old formal audio for Web requests."""
+    from lib.reference_video.request_projection import ProjectionProblem
+    from server.routers import reference_videos as router_mod
+
+    unit_id = _seed_unit(client)
+    base_project = _projection_with_durations([3, 6, 9])
+
+    async def _project(**kwargs):
+        assert kwargs["tts_in_progress"] is True
+        projection = await base_project(**kwargs)
+        return replace(
+            projection,
+            problems=(
+                ProjectionProblem(
+                    code="tts_generating",
+                    blocking=True,
+                    reason="tts_generation_in_progress",
+                    action="wait_for_tts",
+                    locations=(("generated_assets", "narration_audio"),),
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(router_mod, "tts_task_in_progress", AsyncMock(return_value=True))
+    monkeypatch.setattr(router_mod, "project_reference_unit_request", _project)
+
+    response = client.get(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{unit_id}/duration-precheck",
+        params={"narration_delivery": "use_tts"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["problems"][0] == {
+        "code": "tts_generating",
+        "blocking": True,
+        "unit_id": unit_id,
+        "locations": [{"path": ["generated_assets", "narration_audio"], "line": None}],
+        "params": {},
+        "action": "wait_for_tts",
+        "reason": "tts_generation_in_progress",
+        "message": "旁白音频仍在生成；请等待完成后再使用 TTS 交付",
+    }
+
+
+@pytest.mark.integration
+def test_precheck_uses_actual_tts_duration_as_floor(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    created = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "镜头1：海面\n{旁白正文。}", "duration_seconds": 3, "references": []},
+    )
+    assert created.status_code == 201, created.text
+    uid = created.json()["unit"]["unit_id"]  # 剧本 3s，实际旁白 9.5s
+    _patch_supported_durations(monkeypatch, [4, 8, 12])
+
+    from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+    from lib.narration_delivery import NarrationAudioEvidence, TtsSynthesisSettings, prepare_narration_delivery
+
+    async def _project_with_current_tts(**kwargs):
+        preparation = prepare_narration_delivery(
+            delivery="use_tts",
+            preparation=admit_script_unit("video_units", kwargs["unit"]).preparation,
+            artifact_path=f"audio/segment_{uid}.wav",
+            settings=TtsSynthesisSettings("fake-audio", "tts-model", "voice", None),
+            evidence=NarrationAudioEvidence(
+                comparison=ArtifactComparison(
+                    status=ArtifactStatus.CURRENT,
+                    artifact_path=f"audio/segment_{uid}.wav",
+                ),
+                present=True,
+                duration_seconds=9.5,
+            ),
+        )
+        kwargs["options"] = replace(
+            kwargs["options"],
+            current_tts_duration_seconds=9.5,
+            narration_preparation=preparation,
+        )
+        return await _projection_with_durations([4, 8, 12])(**kwargs)
+
+    from lib.speech_composition import admit_script_unit
+    from server.routers import reference_videos as router_mod
+
+    async def _options_identity(**kwargs):
+        return kwargs["options"]
+
+    monkeypatch.setattr(router_mod, "prepare_current_reference_video_request_options", _options_identity)
+    monkeypatch.setattr(router_mod, "project_reference_unit_request", _project_with_current_tts)
 
     response = client.get(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/duration-precheck",
-        params={"narration_delivery": "use_tts", "narration_duration_floor": 9.5},
+        params={"narration_delivery": "use_tts"},
     )
 
     assert response.status_code == 200, response.text
@@ -842,15 +1084,17 @@ def test_precheck_uses_actual_tts_duration_as_floor(client: TestClient, monkeypa
 
 
 @pytest.mark.integration
-def test_precheck_over_largest_slot_reports_shorter_clip(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    """总时长超过最大档位 → 需确认，按最大档位申请（成片短于剧本编排）。"""
+def test_precheck_over_largest_slot_requires_replan(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """总时长超过最大档位时不得截断，返回结构化重新规划 blocker。"""
     uid = _seed_unit(client)  # 3s
     _patch_supported_durations(monkeypatch, [1, 2])
 
-    body = _precheck(client, uid).json()
-    assert body["needs_confirmation"] is True
-    assert body["request_duration"] == 2
-    assert body["adjustment"] == "down"
+    response = _precheck(client, uid)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["request_duration"] == 2
+    assert detail["problems"][0]["code"] == "needs_replan"
+    assert detail["problems"][0]["action"] == "replan_unit"
 
 
 @pytest.mark.integration

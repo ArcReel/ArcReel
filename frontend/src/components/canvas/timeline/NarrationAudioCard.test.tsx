@@ -27,6 +27,7 @@ describe("NarrationAudioCard", () => {
     expect(audio).toHaveAttribute("controls");
     expect(audio?.getAttribute("src")).toContain("audio/segment_E1S01.wav");
     expect(audio?.getAttribute("aria-label")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /版本/ })).toBeInTheDocument();
   });
 
   it("falls back to the placeholder when novel text is whitespace-only", () => {

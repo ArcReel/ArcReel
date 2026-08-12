@@ -3,6 +3,7 @@ import { Film, Loader2, Sparkles, RotateCcw, AlertTriangle } from "lucide-react"
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
+import { NarrationAudioCard } from "@/components/canvas/timeline/NarrationAudioCard";
 import { UPLOAD_VIDEO_ACCEPT, UploadIconButton } from "@/components/ui/UploadIconButton";
 import { formatCost } from "@/utils/cost-format";
 import { StatusBadge, resolveUnitStatus } from "./unit-status";
@@ -29,6 +30,10 @@ export interface UnitPreviewPanelProps {
   /** Actual already-spent cost; rendered in the metadata block. */
   actualCost?: CostBreakdown;
   onGenerate?: (unitId: string) => void;
+  narrationText?: string;
+  narrationGenerating?: boolean;
+  narrationEstimatedCost?: CostBreakdown;
+  onGenerateNarration?: (unitId: string) => void;
   /** 剧本单元需重新规划，在修复前不可生成。 */
   generationBlocked?: boolean;
   /** 上传成片视频（替换该单元的 AI 生成视频）；未提供时不显示上传入口 */
@@ -68,6 +73,10 @@ export function UnitPreviewPanel({
   estimatedCost,
   actualCost,
   onGenerate,
+  narrationText,
+  narrationGenerating,
+  narrationEstimatedCost,
+  onGenerateNarration,
   generationBlocked = false,
   onUploadVideo,
   uploadingVideo,
@@ -91,6 +100,8 @@ export function UnitPreviewPanel({
 
   const effectiveStatus = status ?? resolveUnitStatus(unit);
   const videoUrl = clip && projectName ? API.getFileUrl(projectName, clip, clipFp) : null;
+  const hasNarrationText = Boolean(narrationText?.trim());
+  const narrationAudio = unit.generated_assets.narration_audio ?? null;
 
   // 状态先于 video_clip 落库的窗口里，effectiveStatus==="ready" 但 videoUrl
   // 还为 null —— 这种情况下走 inFlight 占位避免空白面板。
@@ -258,6 +269,20 @@ export function UnitPreviewPanel({
         <p role="alert" className="text-xs text-amber-300">
           {t("reference_needs_replan")}
         </p>
+      )}
+
+      {(hasNarrationText || narrationAudio) && projectName && (
+        <NarrationAudioCard
+          projectName={projectName}
+          segmentId={unit.unit_id}
+          novelText={narrationText ?? ""}
+          assetPath={narrationAudio}
+          generating={narrationGenerating}
+          generateDisabled={!hasNarrationText}
+          generateDisabledHint={!hasNarrationText ? t("no_original_text") : undefined}
+          estimatedCost={narrationEstimatedCost}
+          onGenerate={onGenerateNarration ? () => onGenerateNarration(unit.unit_id) : undefined}
+        />
       )}
 
       <div className="rounded-lg border border-[var(--color-hairline-soft)] bg-[oklch(0.18_0.010_265_/_0.5)] p-3">

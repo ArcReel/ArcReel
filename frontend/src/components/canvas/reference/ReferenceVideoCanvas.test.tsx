@@ -112,6 +112,19 @@ describe("ReferenceVideoCanvas", () => {
     expect(screen.getByTestId("unit-row-E1U2")).toBeInTheDocument();
   });
 
+  it("keeps request controls outside the tablist semantics", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    await screen.findByTestId("unit-row-E1U1");
+    const tablist = screen.getByRole("tablist", {
+      name: /Workspace main tabs|工作台主面板切换|Tab chính của workspace/,
+    });
+    const delivery = screen.getByRole("group", { name: /Narration delivery|旁白交付/ });
+    expect(within(tablist).getAllByRole("tab")).toHaveLength(2);
+    expect(tablist).not.toContainElement(delivery);
+  });
+
   it("auto-selects first unit on load and shows preview generate button", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
@@ -217,6 +230,36 @@ describe("ReferenceVideoCanvas", () => {
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const ta = await screen.findByRole("combobox");
     expect((ta as HTMLTextAreaElement).value).toContain("x");
+  });
+
+  it("offers explicit generate/regenerate/listen actions for unit-owned narration TTS", async () => {
+    const unit = mkUnit("E1U1");
+    unit.shots = [{ text: "镜头推进。\n{夜色深沉。}" }];
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...STUB_PROJECT,
+        episodes: [{ episode: 1, title: "", script_file: "episode_1.json" }],
+      },
+    });
+    const generate = vi
+      .spyOn(API, "generateNarrationAudio")
+      .mockResolvedValue({ success: true, task_id: "tts-1", deduped: false, message: "queued" });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    fireEvent.click(await screen.findByRole("button", { name: /生成旁白|Generate narration/ }));
+
+    await waitFor(() =>
+      expect(generate).toHaveBeenCalledWith("proj", "E1U1", "episode_1.json"),
+    );
+
+    unit.generated_assets.narration_audio = "audio/segment_E1U1.wav";
+    useReferenceVideoStore.setState({
+      unitsByEpisode: { [referenceVideoCacheKey("proj", 1)]: [unit] },
+    } as never);
+    expect(await screen.findByRole("button", { name: /重新生成旁白|Regenerate narration/ })).toBeInTheDocument();
+    expect(document.querySelector('audio[src*="audio/segment_E1U1.wav"]')).not.toBeNull();
   });
 
   // chip 操作（拖拽/移除/新增）与未保存文本编辑交错时，原子 flush 按新草稿重新派生
@@ -751,7 +794,38 @@ describe("ReferenceVideoCanvas", () => {
 
     fireEvent.click(batch);
     await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
-    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2", { duration_confirmed: false });
+    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2", {});
+  });
+
+  it("批量入口保持后期制作默认值，不继承单元 TTS 选择", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    const precheckSpy = vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
+      needs_confirmation: false,
+      script_duration: 3,
+      duration_input: 3,
+      request_duration: 3,
+      adjustment: "exact",
+      declared_capability: "i2v",
+      hydrated_capability: "i2v",
+      provider_id: "fake",
+      model_id: "fake",
+      problems: [],
+    });
+    const generateSpy = vi
+      .spyOn(API, "generateReferenceVideoUnit")
+      .mockResolvedValue({ task_id: "t1", deduped: false } as never);
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Use current TTS|使用当前 TTS/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ }));
+
+    await waitFor(() => expect(generateSpy).toHaveBeenCalledWith("proj", 1, "E1U1", {}));
+    expect(precheckSpy).toHaveBeenCalledWith(
+      "proj",
+      1,
+      "E1U1",
+      expect.not.objectContaining({ narration_delivery: "use_tts" }),
+    );
   });
 
   // 上传与生成回写同一个成片文件：文件选择对话框打开期间同一 unit 可能已被占用，
@@ -804,7 +878,7 @@ describe("ReferenceVideoCanvas", () => {
 
     fireEvent.click(batch);
     await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
-    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2", { duration_confirmed: false });
+    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2", {});
   });
 
   // 时长取档确认：模型只接受离散档位，请求时长基准落在档位之间时按能装下它的最小档位生成，
@@ -849,12 +923,14 @@ describe("ReferenceVideoCanvas", () => {
       expect(genSpy).not.toHaveBeenCalled();
       // 弹窗内容含请求时长基准、申请秒数与「成片更长」的说明。
       expect(screen.getByText(/5 秒|5s/)).toBeInTheDocument();
-      expect(screen.getByText(/8 秒|8s/)).toBeInTheDocument();
+      expect(screen.getByText(/^(?:8 秒|8s)$/)).toBeInTheDocument();
       expect(screen.getByText(/长 3 秒|3s longer/)).toBeInTheDocument();
 
       fireEvent.click(confirm);
       await waitFor(() =>
-        expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_confirmed: true }),
+        expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1", {
+          confirmed_request_duration_seconds: 8,
+        }),
       );
     });
 
@@ -878,7 +954,6 @@ describe("ReferenceVideoCanvas", () => {
       } as never);
       const requestOptions = {
         narration_delivery: "use_tts" as const,
-        narration_duration_floor: 9.5,
       };
 
       render(<ReferenceVideoCanvas projectName="proj" episode={1} requestOptions={requestOptions} />);
@@ -894,13 +969,13 @@ describe("ReferenceVideoCanvas", () => {
       );
       const dialog = within(screen.getByRole("dialog"));
       expect(dialog.getByText(/9\.5 秒|9\.5s/)).toBeInTheDocument();
-      expect(dialog.queryByText(/^3 秒$|^3s$/)).not.toBeInTheDocument();
+      expect(dialog.getByText(/^3 秒$|^3s$/)).toBeInTheDocument();
 
       fireEvent.click(await screen.findByRole("button", { name: CONFIRM_CTA }));
       await waitFor(() =>
         expect(generateSpy).toHaveBeenCalledWith("proj", 1, "E1U1", {
           ...requestOptions,
-          duration_confirmed: true,
+          confirmed_request_duration_seconds: 12,
         }),
       );
     });
@@ -1016,9 +1091,13 @@ describe("ReferenceVideoCanvas", () => {
       // 先等清单里最后一个单元入队完毕，再断言已完成的那个自始至终没被提交——
       // 直接 waitFor 调用次数为 1 会在第一次调用时就满足，捕获不到多出来的那次。
       await waitFor(() =>
-        expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2", { duration_confirmed: true }),
+        expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2", {
+          confirmed_request_duration_seconds: 4,
+        }),
       );
-      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1", { duration_confirmed: true });
+      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1", {
+        confirmed_request_duration_seconds: 4,
+      });
       expect(genSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -1059,9 +1138,13 @@ describe("ReferenceVideoCanvas", () => {
       fireEvent.click(await screen.findByRole("button", { name: CONFIRM_CTA }));
 
       await waitFor(() =>
-        expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_confirmed: true }),
+        expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1", {
+          confirmed_request_duration_seconds: 4,
+        }),
       );
-      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U2", { duration_confirmed: true });
+      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U2", {
+        confirmed_request_duration_seconds: 4,
+      });
       expect(genSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -1085,7 +1168,9 @@ describe("ReferenceVideoCanvas", () => {
 
       fireEvent.click(await screen.findByRole("button", { name: CONFIRM_CTA }));
       await waitFor(() =>
-        expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_confirmed: true }),
+        expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1", {
+          confirmed_request_duration_seconds: 8,
+        }),
       );
     });
 
@@ -1133,7 +1218,9 @@ describe("ReferenceVideoCanvas", () => {
 
       fireEvent.click(confirm);
       await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(2));
-      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1", { duration_confirmed: true });
+      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1", {
+        confirmed_request_duration_seconds: 4,
+      });
     });
 
     // 折叠计数会藏起被折叠单元的调整方向：其中可能有成片更短的单元，而用户是在看不到

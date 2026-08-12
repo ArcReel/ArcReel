@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Route, Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { API } from "@/api";
+import { API, NarratedVideoDurationError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -129,15 +129,39 @@ vi.mock("./reference/ReferenceVideoCanvas", () => ({
 vi.mock("./grid/GridImageToVideoCanvas", () => ({
   GridImageToVideoCanvas: ({
     onGenerateGrid,
+    onGenerateVideo,
   }: {
     onGenerateGrid?: (
       episode: number,
       scriptFile: string,
       sceneIds?: string[],
     ) => void | Promise<void>;
+    onGenerateVideo?: (
+      segmentId: string,
+      scriptFile?: string,
+      requestOptions?: { narration_delivery: "use_tts" },
+    ) => void | Promise<void>;
   }) => (
     <div data-testid="grid-canvas">
       <button onClick={() => void onGenerateGrid?.(1, "episode_1.json")}>generate-grid</button>
+      <button
+        onClick={(event) => {
+          const button = event.currentTarget;
+          button.dataset.videoResult = "pending";
+          void Promise.resolve(
+            onGenerateVideo?.("SEG-1", "episode_1.json", { narration_delivery: "use_tts" }),
+          ).then(
+            () => {
+              button.dataset.videoResult = "resolved";
+            },
+            (error: unknown) => {
+              button.dataset.videoResult = error instanceof Error ? error.name : "unknown";
+            },
+          );
+        }}
+      >
+        generate-grid-video-await
+      </button>
     </div>
   ),
 }));
@@ -1624,6 +1648,61 @@ describe("StudioCanvasRouter", () => {
       expect(useAppStore.getState().toast?.text).toContain("宫格生成失败");
       expect(useAppStore.getState().toast?.tone).toBe("error");
     });
+  });
+
+  it("preserves the grid video promise for duration confirmation", async () => {
+    const projectData = makeProjectData({ generation_mode: "storyboard", grid_storyboard: true });
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: projectData,
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: projectData,
+      scripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "generateVideo").mockRejectedValue(
+      new NarratedVideoDurationError({
+        allowed: false,
+        kind: "narrated_video_duration",
+        unit_id: "SEG-1",
+        narration_delivery: {},
+        planned_duration: 4,
+        duration_input: 6.2,
+        request_duration: 8,
+        adjustment: "up",
+        problems: [
+          {
+            code: "reference_duration_confirmation_required",
+            blocking: true,
+            unit_id: "SEG-1",
+            locations: [{ path: ["duration_seconds"], line: null }],
+            params: { duration_input: 6.2, request_duration: 8 },
+            reason: "request_duration_uses_different_tier",
+            action: "confirm_duration",
+            message: "本次时长基准 6.2s 将按 8s 档位生成，请确认后重试",
+          },
+        ],
+      }),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    renderAt("/episodes/1");
+
+    const button = await screen.findByText("generate-grid-video-await");
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(button).toHaveAttribute("data-video-result", "NarratedVideoDurationError");
+    });
+    expect(API.generateVideo).toHaveBeenCalledWith(
+      "demo",
+      "SEG-1",
+      "video prompt",
+      "episode_1.json",
+      4,
+      { narration_delivery: "use_tts" },
+    );
   });
 
   it("marks the scriptFile as optimistically active on grid generation submit success", async () => {

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -14,12 +13,19 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.config.resolver import video_bucket_for_generation_mode
+from lib.db import async_session_factory
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
     batch_enqueue_and_wait,
     enqueue_and_wait,
     get_active_tasks_for_resources,
+)
+from lib.narration_delivery import (
+    NarratedVideoDurationPreparation,
+    video_request_cost_unavailable_problem,
+    video_request_requires_exact_quote,
+    video_request_reuses_current_visual,
 )
 from lib.project_manager import ProjectManager, is_reference_video_project
 from lib.prompt_utils import (
@@ -50,26 +56,27 @@ from server.agent_runtime.sdk_tools._context import (
     tool_error,
     validate_script_filename,
 )
+from server.services.cost_estimation import quote_video_request
+from server.services.narration_delivery_tasks import (
+    active_tts_resource_ids,
+    prepare_current_reference_video_request_options,
+    prepare_current_storyboard_narrated_video_duration,
+)
 from server.services.video_caps import assert_audio_switch_supported, resolve_project_is_silent
 
-_CONFIRM_DURATION_SCHEMA_PROPERTY = {
-    "type": "boolean",
+_CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY = {
+    "type": "integer",
+    "minimum": 1,
     "description": (
-        "参考生视频时长确认：unit 申请档位与请求时长基准不一致时首次调用不入队，"
-        "返回待确认清单；用户同意后带 confirm_duration=true 再次调用完成入队。"
+        "用户明确接受的本次视频请求秒数档位；仅在预检返回跨档费用提示后填写。"
+        "它不冻结正文、引用、供应商或 TTS，当前投影改到其它档位时必须重新确认。"
     ),
 }
 
 _NARRATION_DELIVERY_SCHEMA_PROPERTY = {
     "type": "string",
     "enum": [POST_PRODUCTION, USE_TTS],
-    "description": "旁白交付方式；use_tts 时可用 narration_duration_floor 约束成片时长。",
-}
-
-_NARRATION_DURATION_FLOOR_SCHEMA_PROPERTY = {
-    "type": "number",
-    "exclusiveMinimum": 0,
-    "description": "use_tts 时上游已生成旁白音频的实际秒数；post_production 时忽略。",
+    "description": "本次旁白交付方式；use_tts 只使用当前 fresh TTS 的实际媒体时长。",
 }
 
 
@@ -77,21 +84,23 @@ def _reference_request_options(args: dict[str, Any]) -> ReferenceRequestOptions:
     delivery = args.get("narration_delivery", POST_PRODUCTION)
     if delivery not in (POST_PRODUCTION, USE_TTS):
         delivery = POST_PRODUCTION
-    raw_floor = args.get("narration_duration_floor")
-    floor: float | None = None
-    if raw_floor is not None:
-        if not isinstance(raw_floor, (int, float)) or isinstance(raw_floor, bool):
-            raise ValueError(f"narration_duration_floor 必须是大于 0 的有限秒数，收到 {raw_floor!r}")
-        try:
-            floor = float(raw_floor)
-        except (OverflowError, ValueError) as exc:
-            raise ValueError(f"narration_duration_floor 必须是大于 0 的有限秒数，收到 {raw_floor!r}") from exc
-        if not math.isfinite(floor) or floor <= 0:
-            raise ValueError(f"narration_duration_floor 必须是大于 0 的有限秒数，收到 {raw_floor!r}")
+    raw_confirmed = args.get("confirmed_request_duration_seconds")
+    confirmed: int | None = None
+    if raw_confirmed is not None:
+        if not isinstance(raw_confirmed, int) or isinstance(raw_confirmed, bool) or raw_confirmed <= 0:
+            raise ValueError(f"confirmed_request_duration_seconds 必须是大于 0 的整数秒档位，收到 {raw_confirmed!r}")
+        confirmed = raw_confirmed
     return ReferenceRequestOptions(
         narration_delivery=delivery,
-        narration_duration_floor=floor,
-        duration_confirmed=bool(args.get("confirm_duration")),
+        confirmed_request_duration_seconds=confirmed,
+    )
+
+
+def _batch_reference_request_options(args: dict[str, Any]) -> ReferenceRequestOptions:
+    """Preserve batch duration confirmation without exposing narration delivery."""
+
+    return _reference_request_options(
+        {"confirmed_request_duration_seconds": args.get("confirmed_request_duration_seconds")}
     )
 
 
@@ -153,18 +162,39 @@ def _duration_confirmation_response(pending: DurationConfirmationPending, log: l
     log 携带的是同样影响生成范围的事实（如 scene_id 被忽略转整集、ad 派生出的 unit 数），
     确认时一并呈现，用户才知道自己同意的是什么范围。
     """
-    lines = [*log, "以下 unit 申请档位与请求时长基准不一致，需先向用户确认，本次未入队任何任务："]
+    lines = [*log, "以下 unit 将改用不同的视频时长档位，需先向用户确认，本次未入队任何任务："]
     for item in pending.items:
-        longer_or_shorter = "更长" if item["adjustment"] == "up" else "更短"
         duration_input = item["duration_input"]
         script_duration = item["script_duration"]
+        current_visual_duration = item.get("current_visual_duration")
+        has_current_visual = isinstance(current_visual_duration, int) and not isinstance(current_visual_duration, bool)
+        baseline_duration = current_visual_duration if has_current_visual else script_duration
+        request_duration = item["request_duration"]
+        longer_or_shorter = "更长" if request_duration > baseline_duration else "更短"
+        tier_basis = f"现有视觉档位 {baseline_duration}s" if has_current_visual else f"剧本档位 {baseline_duration}s"
         basis = (
             f"剧本 {script_duration}s、含实际旁白后的时长基准 {duration_input}s"
             if duration_input != script_duration
             else f"剧本总时长 {script_duration}s"
         )
-        lines.append(f"- {item['unit_id']}：{basis}，将申请 {item['request_duration']}s（成片{longer_or_shorter}）")
-    lines.append("用户同意后，带 confirm_duration=true 再次调用本工具完成入队。")
+        difference = abs(request_duration - baseline_duration)
+        lines.append(
+            f"- {item['unit_id']}：{tier_basis}，将申请 {request_duration}s"
+            f"（成片{longer_or_shorter} {difference}s）；{basis}"
+        )
+        request_cost = item.get("request_cost")
+        if isinstance(request_cost, dict):
+            lines.append(
+                "  新视频请求费用："
+                f"{request_cost['amount']} {request_cost['currency']}；"
+                f"{request_cost['provider_id']}/{request_cost['model_id']}；"
+                f"请求 {request_cost['request_duration_seconds']}s"
+            )
+    lines.append(
+        "视频费用按上述申请档位计算，确认仅对本次请求有效。用户同意某个申请档位后，带 "
+        "confirmed_request_duration_seconds=<request_duration> 再次调用；若多个 unit 档位不同，"
+        "请按档位分组调用。"
+    )
     return {
         "content": [{"type": "text", "text": "\n".join(lines)}],
         "request_projections": pending.projections,
@@ -184,11 +214,25 @@ async def _reference_projection_preflight(
     skip_ids: set[str],
     spec_for: Callable[[Any], TaskSpec],
     request_options: ReferenceRequestOptions,
+    project_name: str | None = None,
+    script_filename: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, object]]]:
     """用公共投影一次性完成 Agent 入口的资产、能力、音频与时长预检。"""
 
+    if request_options.narration_delivery == USE_TTS and project_name is None:
+        raise ValueError("use_tts reference projection requires project_name")
     items: list[dict[str, Any]] = []
     projections: list[dict[str, object]] = []
+    target_ids = [str(unit.get("unit_id") or "") for unit in units if isinstance(unit, dict) and unit.get("unit_id")]
+    active_tts = (
+        await active_tts_resource_ids(
+            project_name=project_name,
+            resource_ids=target_ids,
+            script_file=script_filename,
+        )
+        if (request_options.narration_delivery == USE_TTS and project_name is not None and script_filename is not None)
+        else frozenset()
+    )
     for unit in units:
         if not isinstance(unit, dict):
             continue
@@ -199,20 +243,62 @@ async def _reference_projection_preflight(
             spec_for(unit)
         except ValueError:
             continue
+        current_options = await prepare_current_reference_video_request_options(
+            project=project,
+            script=script,
+            script_file=script_filename,
+            unit=unit,
+            project_path=project_path,
+            options=request_options,
+            project_name=project_name or "",
+            tts_in_progress=unit_id in active_tts,
+        )
         projection = await project_reference_unit_request(
             project=project,
             script=script,
             unit=unit,
             project_path=project_path,
-            options=request_options,
+            options=current_options,
+            tts_in_progress=unit_id in active_tts,
+            current_options_materialized=True,
         )
         projection_payload = _agent_projection_payload(projection)
+        cost_problem_payload: dict[str, object] | None = None
+        projection_cost = getattr(projection, "cost", None)
+        if projection_cost is not None and current_options.narration_delivery == USE_TTS:
+            quote = await quote_video_request(projection_cost, async_session_factory)
+            if quote is not None:
+                if current_options.narration_delivery == USE_TTS and video_request_reuses_current_visual(
+                    request_duration_seconds=projection_cost.duration_seconds,
+                    current_reusable_visual_duration_seconds=(current_options.current_reusable_visual_duration_seconds),
+                ):
+                    quote = quote.without_new_video_charge()
+                projection_payload["request_cost"] = quote.to_payload()
+            elif video_request_requires_exact_quote(
+                request_duration_seconds=projection_cost.duration_seconds,
+                planned_duration_seconds=projection.planned_duration,
+                current_visual_duration_seconds=current_options.current_visual_duration_seconds,
+                current_reusable_visual_duration_seconds=(current_options.current_reusable_visual_duration_seconds),
+            ):
+                cost_problem_payload = video_request_cost_unavailable_problem(projection_cost).to_payload(
+                    unit_id=unit_id
+                )
+                existing_problems = projection_payload["problems"]
+                if not isinstance(existing_problems, list):
+                    raise RuntimeError("reference projection problems payload must be a list")
+                projection_payload["problems"] = [
+                    *existing_problems,
+                    cost_problem_payload,
+                ]
+                projection_payload["allowed"] = False
         projections.append(projection_payload)
         duration_problem = next(
             (p for p in projection.blocking_problems if p.code == "reference_duration_confirmation_required"),
             None,
         )
         other_blockers = [p for p in projection.blocking_problems if p is not duration_problem]
+        if cost_problem_payload is not None:
+            raise ReferenceProjectionBlocked(projection_payload)
         if other_blockers:
             raise ReferenceProjectionBlocked(projection_payload)
         if duration_problem is not None:
@@ -221,12 +307,162 @@ async def _reference_projection_preflight(
                 {
                     "unit_id": unit_id,
                     "script_duration": params["script_duration"],
+                    "current_visual_duration": params.get("current_visual_duration"),
                     "duration_input": params["duration_input"],
                     "request_duration": params["request_duration"],
                     "adjustment": params["adjustment"],
+                    **(
+                        {"request_cost": projection_payload["request_cost"]}
+                        if "request_cost" in projection_payload
+                        else {}
+                    ),
                 }
             )
     return items, projections
+
+
+async def _prepare_storyboard_delivery_for_item(
+    *,
+    ctx: ToolContext,
+    project: dict[str, Any],
+    script: dict[str, Any],
+    script_filename: str,
+    item: dict[str, Any],
+    visual_prompt: object,
+    confirmed_request_duration_seconds: int | None,
+    tts_in_progress: bool,
+) -> NarratedVideoDurationPreparation:
+    """Adapt Agent inputs to the shared storyboard delivery service."""
+
+    planned = item.get("duration_seconds")
+    return await prepare_current_storyboard_narrated_video_duration(
+        project_name=ctx.project_name,
+        project=project,
+        project_path=ctx.project_path,
+        script=script,
+        script_file=script_filename,
+        item=item,
+        visual_prompt=visual_prompt,
+        seed=None,
+        capability=video_bucket_for_generation_mode(project.get("generation_mode")),
+        planned_duration_seconds=(
+            planned if isinstance(planned, int) and not isinstance(planned, bool) and planned > 0 else None
+        ),
+        confirmed_request_duration_seconds=confirmed_request_duration_seconds,
+        tts_in_progress=tts_in_progress,
+    )
+
+
+async def _prepare_storyboard_delivery_specs(
+    *,
+    ctx: ToolContext,
+    project: dict[str, Any],
+    script: dict[str, Any],
+    script_filename: str,
+    items: list[dict[str, Any]],
+    id_field: str,
+    specs: list[TaskSpec],
+    request_options: ReferenceRequestOptions,
+) -> DurationConfirmationPending | None:
+    """Apply delivery choice to pending storyboard specs before any task is submitted."""
+
+    request_facts = request_options.to_payload()
+    items_by_id = {
+        str(item.get(id_field) or item.get("scene_id") or item.get("segment_id") or ""): item for item in items
+    }
+    pending: list[dict[str, Any]] = []
+    projections: list[dict[str, object]] = []
+    active_tts = (
+        await active_tts_resource_ids(
+            project_name=ctx.project_name,
+            resource_ids=(spec.resource_id for spec in specs),
+            script_file=script_filename,
+        )
+        if request_options.narration_delivery == USE_TTS
+        else frozenset()
+    )
+    for spec in specs:
+        spec.payload = {
+            **(spec.payload or {}),
+            "narration_delivery_options": request_facts,
+        }
+        if request_options.narration_delivery != USE_TTS:
+            continue
+        # TTS 的取档结果是当前状态投影，不是耐久请求事实。worker 起跑时会从最新
+        # 剧本 unit、fresh TTS 与当前模型能力重投影；即使 TaskSpec 的旧构造器放入
+        # duration_seconds，这里也必须剥离。
+        spec.payload.pop("duration_seconds", None)
+        item = items_by_id.get(spec.resource_id)
+        if item is None:
+            raise ValueError(f"找不到待生成条目: {spec.resource_id}")
+        preparation = await _prepare_storyboard_delivery_for_item(
+            ctx=ctx,
+            project=project,
+            script=script,
+            script_filename=script_filename,
+            item=item,
+            visual_prompt=(spec.payload or {}).get("prompt"),
+            confirmed_request_duration_seconds=request_options.confirmed_request_duration_seconds,
+            tts_in_progress=spec.resource_id in active_tts,
+        )
+        projection = preparation.to_payload()
+        cost_problem_payload: dict[str, object] | None = None
+        if preparation.cost is not None:
+            quote = await quote_video_request(preparation.cost, async_session_factory)
+            if quote is not None:
+                if video_request_reuses_current_visual(
+                    request_duration_seconds=preparation.request_duration_seconds,
+                    current_reusable_visual_duration_seconds=preparation.current_reusable_visual_duration_seconds,
+                ):
+                    quote = quote.without_new_video_charge()
+                projection["request_cost"] = quote.to_payload()
+            elif video_request_requires_exact_quote(
+                request_duration_seconds=preparation.request_duration_seconds,
+                planned_duration_seconds=preparation.planned_duration_seconds,
+                current_visual_duration_seconds=preparation.current_visual_duration_seconds,
+                current_reusable_visual_duration_seconds=preparation.current_reusable_visual_duration_seconds,
+            ):
+                cost_problem_payload = video_request_cost_unavailable_problem(preparation.cost).to_payload(
+                    unit_id=preparation.narration.unit_id
+                )
+                existing_problems = projection["problems"]
+                if not isinstance(existing_problems, list):
+                    raise RuntimeError("storyboard projection problems payload must be a list")
+                projection["problems"] = [*existing_problems, cost_problem_payload]
+                projection["allowed"] = False
+        projections.append(projection)
+        duration_problem = next(
+            (
+                problem
+                for problem in preparation.problems
+                if problem.blocking and problem.code == "reference_duration_confirmation_required"
+            ),
+            None,
+        )
+        other_blockers = [
+            problem for problem in preparation.problems if problem.blocking and problem is not duration_problem
+        ]
+        if cost_problem_payload is not None:
+            raise ReferenceProjectionBlocked(projection)
+        if other_blockers:
+            raise ReferenceProjectionBlocked(projection)
+        if duration_problem is not None:
+            params = duration_problem.parameters()
+            pending.append(
+                {
+                    "unit_id": preparation.narration.unit_id,
+                    "script_duration": params["script_duration"],
+                    "current_visual_duration": params.get("current_visual_duration"),
+                    "duration_input": params["duration_input"],
+                    "request_duration": params["request_duration"],
+                    "adjustment": params["adjustment"],
+                    **({"request_cost": projection["request_cost"]} if "request_cost" in projection else {}),
+                }
+            )
+            continue
+    if pending:
+        return DurationConfirmationPending(items=pending, projections=projections)
+    return None
 
 
 def _get_video_prompt(
@@ -555,6 +791,7 @@ async def _generate_reference_units(
     spec_for: Callable[[Any], TaskSpec],
     project: dict[str, Any],
     script: dict[str, Any],
+    script_filename: str,
     request_options: ReferenceRequestOptions,
     reuse_existing: Callable[[dict[str, Any]], bool],
 ) -> ReferenceGenerationComplete | DurationConfirmationPending:
@@ -568,10 +805,10 @@ async def _generate_reference_units(
     现行产物复用。调用方必须用持久化资产归属判定，不能只凭同名文件存在猜测；共享
     骨架还会先应用重规划闸门，迁移保留的旧产物不能让 ``needs_replan`` 单元绕过修复。
 
-    ``request_options.duration_confirmed`` 为 false 时，若待入队 unit 中有申请档位与请求时长基准不一致的
+    若跨档 unit 当前申请档位没有与 ``confirmed_request_duration_seconds`` 精确相等，
     （见 :class:`lib.reference_video.request_projection.ReferenceUnitRequestProjector`），该调用
     调用不产生任何任务，返回 :class:`DurationConfirmationPending` 供调用方转述给用户；
-    用户同意后调用方带 ``confirm_duration=True`` 重新调用完成入队（与 Web 端
+    用户同意后调用方带对应档位重新调用完成入队（与 Web 端
     ``duration-precheck`` 预检共用同一取档规则）。
 
     ``checkpoint_path`` 为 None 表示生成不落 checkpoint：点名重新生成一律强制覆盖，
@@ -616,6 +853,8 @@ async def _generate_reference_units(
         skip_ids=set(already_done),
         spec_for=spec_for,
         request_options=request_options,
+        project_name=ctx.project_name,
+        script_filename=script_filename,
     )
     if pending:
         return DurationConfirmationPending(items=pending, projections=projections)
@@ -694,6 +933,7 @@ async def _run_reference_episode(
         spec_for=lambda u: _reference_unit_spec(u, script_filename),
         project=project,
         script=script,
+        script_filename=script_filename,
         request_options=request_options,
         reuse_existing=lambda unit: (
             get_generated_assets(unit).get("video_clip") == _reference_fallback_relpath(str(unit.get("unit_id") or ""))
@@ -804,6 +1044,7 @@ async def _run_reference_units(
         spec_for=lambda u: _reference_unit_spec(u, script_filename),
         project=project,
         script=script,
+        script_filename=script_filename,
         request_options=request_options,
         # 点名即强制：磁盘上的同名成片一律不复用。
         reuse_existing=lambda _u: False,
@@ -830,9 +1071,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                     "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
                 },
                 "resume": {"type": "boolean", "description": "是否从上次中断处继续"},
-                "confirm_duration": _CONFIRM_DURATION_SCHEMA_PROPERTY,
-                "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
-                "narration_duration_floor": _NARRATION_DURATION_FLOOR_SCHEMA_PROPERTY,
+                "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
             },
             "required": ["script"],
         },
@@ -842,7 +1081,7 @@ def generate_video_episode_tool(ctx: ToolContext):
         try:
             script_filename = validate_script_filename(args["script"])
             resume = bool(args.get("resume"))
-            request_options = _reference_request_options(args)
+            request_options = _batch_reference_request_options(args)
 
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
@@ -859,7 +1098,8 @@ def generate_video_episode_tool(ctx: ToolContext):
                 )
             episode = ProjectManager.resolve_episode_from_script(script, script_filename)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
+            project = ctx.pm.load_project(ctx.project_name)
+            content_mode = resolve_content_mode(script, project)
             if not items:
                 raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
 
@@ -935,9 +1175,8 @@ def generate_video_scene_tool(ctx: ToolContext):
                     "type": "string",
                     "description": "场景或片段 ID；reference_video 项目传 video_unit 的 unit_id（如 E1U2）",
                 },
-                "confirm_duration": _CONFIRM_DURATION_SCHEMA_PROPERTY,
+                "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
                 "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
-                "narration_duration_floor": _NARRATION_DURATION_FLOOR_SCHEMA_PROPERTY,
             },
             "required": ["script", "scene_id"],
         },
@@ -982,7 +1221,8 @@ def generate_video_scene_tool(ctx: ToolContext):
             if not storyboard_path.is_file():
                 raise FileNotFoundError(f"分镜图不存在: {storyboard_path}")
 
-            content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
+            project = ctx.pm.load_project(ctx.project_name)
+            content_mode = resolve_content_mode(script, project)
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
             # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
@@ -1000,6 +1240,19 @@ def generate_video_scene_tool(ctx: ToolContext):
                 script_file=script_filename,
                 extra_payload=extra_payload or None,
             )
+
+            delivery_pending = await _prepare_storyboard_delivery_specs(
+                ctx=ctx,
+                project=project,
+                script=script,
+                script_filename=script_filename,
+                items=[item],
+                id_field=id_field,
+                specs=[spec],
+                request_options=request_options,
+            )
+            if delivery_pending is not None:
+                return _duration_confirmation_response(delivery_pending, log)
 
             await _assert_audio_switch_for_storyboard(ctx)
             queued = await enqueue_and_wait(
@@ -1036,9 +1289,7 @@ def generate_video_all_tool(ctx: ToolContext):
                     "type": "string",
                     "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
                 },
-                "confirm_duration": _CONFIRM_DURATION_SCHEMA_PROPERTY,
-                "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
-                "narration_duration_floor": _NARRATION_DURATION_FLOOR_SCHEMA_PROPERTY,
+                "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
             },
             "required": ["script"],
         },
@@ -1047,7 +1298,7 @@ def generate_video_all_tool(ctx: ToolContext):
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])
-            request_options = _reference_request_options(args)
+            request_options = _batch_reference_request_options(args)
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
@@ -1062,7 +1313,8 @@ def generate_video_all_tool(ctx: ToolContext):
                     log=log,
                 )
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
+            project = ctx.pm.load_project(ctx.project_name)
+            content_mode = resolve_content_mode(script, project)
             pending = [it for it in items if not get_generated_assets(it).get("video_clip")]
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
@@ -1125,9 +1377,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                     "type": "boolean",
                     "description": "是否从上次中断处继续；reference_video 项目的点名重新生成会忽略此参数",
                 },
-                "confirm_duration": _CONFIRM_DURATION_SCHEMA_PROPERTY,
-                "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
-                "narration_duration_floor": _NARRATION_DURATION_FLOOR_SCHEMA_PROPERTY,
+                "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
             },
             "required": ["script", "scene_ids"],
         },
@@ -1140,7 +1390,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             # checkpoint hash 再单独排序（见下方 ``canonical_scene_ids``）。
             scene_ids: list[str] = list(dict.fromkeys(args["scene_ids"]))
             resume = bool(args.get("resume"))
-            request_options = _reference_request_options(args)
+            request_options = _batch_reference_request_options(args)
 
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
@@ -1160,7 +1410,8 @@ def generate_video_selected_tool(ctx: ToolContext):
                 )
 
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
+            project = ctx.pm.load_project(ctx.project_name)
+            content_mode = resolve_content_mode(script, project)
 
             items_by_id: dict[str, dict[str, Any]] = {}
             for item in items:

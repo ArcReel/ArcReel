@@ -102,6 +102,27 @@ describe("UnitPreviewPanel", () => {
     expect(button).toBeDisabled();
   });
 
+  it("keeps retained narration audio visible after the unit loses narration", () => {
+    const unit = mkUnit({
+      generated_assets: {
+        ...mkUnit().generated_assets,
+        narration_audio: "audio/segment_E1U1.wav",
+      },
+    });
+
+    const { container } = render(
+      <UnitPreviewPanel
+        unit={unit}
+        projectName="proj"
+        narrationText=""
+        onGenerateNarration={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector('audio[src*="audio/segment_E1U1.wav"]')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Regenerate narration|重新生成旁白/ })).toBeDisabled();
+  });
+
   // 版本恢复与生成回写同一个成片文件：占用期间恢复旧版本会显示成功、随后被在跑的
   // 生成任务覆盖。VersionTimeMachine 的 busy 关掉的是面板内的恢复按钮（触发按钮照常
   // 可开，只读浏览不受影响），故这里断言接线本身。

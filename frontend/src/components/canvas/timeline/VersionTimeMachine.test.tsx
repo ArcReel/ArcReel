@@ -144,6 +144,53 @@ describe("VersionTimeMachine", () => {
     expect(previewImage.parentElement).toHaveClass("h-80");
   });
 
+  it("previews and downloads historical narration audio without offering restore", async () => {
+    vi.spyOn(API, "getVersions").mockResolvedValue({
+      resource_type: "audio",
+      resource_id: "E1S01",
+      current_version: 2,
+      versions: [
+        {
+          version: 1,
+          filename: "E1S01_v1.wav",
+          created_at: "2026-02-01T00:00:00Z",
+          file_size: 10,
+          is_current: false,
+          file_url: "/api/v1/files/demo/versions/audio/E1S01_v1.wav",
+        },
+        {
+          version: 2,
+          filename: "E1S01_v2.wav",
+          created_at: "2026-02-01T01:00:00Z",
+          file_size: 12,
+          is_current: true,
+          file_url: "/api/v1/files/demo/versions/audio/E1S01_v2.wav",
+        },
+      ],
+    });
+    const restore = vi.spyOn(API, "restoreVersion");
+
+    render(
+      <VersionTimeMachine
+        projectName="demo"
+        resourceType="audio"
+        resourceId="E1S01"
+        readOnly
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /版本/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "v1" }));
+
+    expect(await screen.findByLabelText("旁白音频版本 v1")).toHaveAttribute(
+      "src",
+      "/api/v1/files/demo/versions/audio/E1S01_v1.wav",
+    );
+    expect(screen.getByRole("link", { name: /下载音频/ })).toHaveAttribute("download");
+    expect(screen.queryByRole("button", { name: /切换到此版本/ })).not.toBeInTheDocument();
+    expect(restore).not.toHaveBeenCalled();
+  });
+
   it("disables version restore while the resource is busy (image_edit in flight)", async () => {
     vi.spyOn(API, "getVersions").mockResolvedValue({
       resource_type: "storyboards",

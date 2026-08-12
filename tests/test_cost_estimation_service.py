@@ -1,10 +1,13 @@
 """Tests for CostEstimationService."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from lib.config.resolver import ConfigResolver
 from lib.cost_calculator import cost_calculator
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
+from lib.narration_delivery import VideoRequestCostFacts
 from lib.providers import PROVIDER_GEMINI
 from lib.reference_video.request_projection import (
     USE_TTS,
@@ -12,7 +15,7 @@ from lib.reference_video.request_projection import (
     ReferenceRequestOptions,
 )
 from server.services import reference_video_tasks
-from server.services.cost_estimation import CostEstimationService
+from server.services.cost_estimation import CostEstimationService, quote_video_request
 
 
 async def _seed_call(
@@ -151,6 +154,28 @@ def _make_reference_video_script(episode: int, content_mode: str, unit_specs: li
 
 
 class TestCostEstimationService:
+    @pytest.mark.integration
+    async def test_shared_video_quote_exposes_exact_amount_currency_and_request_coordinates(self, db_factory):
+        quote = await quote_video_request(
+            VideoRequestCostFacts(
+                provider_id="openai",
+                model_id="sora-2",
+                resolution="720p",
+                duration_seconds=8,
+                generate_audio=True,
+            ),
+            db_factory,
+        )
+
+        assert quote is not None
+        assert quote.to_payload() == {
+            "amount": pytest.approx(0.8),
+            "currency": "USD",
+            "provider_id": "openai",
+            "model_id": "sora-2",
+            "request_duration_seconds": 8,
+        }
+
     @pytest.mark.unit
     async def test_estimate_single_episode(self, db_factory):
         resolver = ConfigResolver(db_factory)
@@ -1191,7 +1216,7 @@ class TestCostEstimationService:
         assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
 
     @pytest.mark.integration
-    async def test_reference_video_quote_accepts_actual_tts_duration_floor(self, db_factory, monkeypatch):
+    async def test_reference_video_quote_accepts_server_materialized_tts_duration(self, db_factory, monkeypatch):
         class _TtsFloorCapabilities:
             def __init__(self, _resolver):
                 pass
@@ -1214,6 +1239,10 @@ class TestCostEstimationService:
             "server.services.cost_estimation.ConfigReferenceCapabilityProjection",
             _TtsFloorCapabilities,
         )
+        monkeypatch.setattr(
+            "server.services.cost_estimation.active_tts_resource_ids",
+            AsyncMock(return_value=frozenset()),
+        )
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
             "title": "Narration",
@@ -1228,7 +1257,10 @@ class TestCostEstimationService:
             scripts,
             project_name="narration-ref-tts-floor",
             reference_request_options={
-                "E1U1": ReferenceRequestOptions(narration_delivery=USE_TTS, narration_duration_floor=9.5)
+                "E1U1": ReferenceRequestOptions(
+                    narration_delivery=USE_TTS,
+                    current_tts_duration_seconds=9.5,
+                )
             },
         )
 
@@ -1236,6 +1268,117 @@ class TestCostEstimationService:
         assert projection["duration_input"] == 9.5
         assert projection["request_duration"] == 12
         assert projection["problems"][0]["code"] == "reference_duration_confirmation_required"
+
+    @pytest.mark.integration
+    async def test_reference_video_tts_quote_uses_current_visual_tier_for_zero_or_incremental_cost(
+        self, db_factory, monkeypatch
+    ):
+        class _SoraCapabilities:
+            def __init__(self, _resolver):
+                pass
+
+            async def resolve_candidate(self, _project, capability):
+                return ProviderProjectionCandidate(
+                    capability=capability,
+                    provider_id="openai",
+                    model_id="sora-2",
+                    supported_durations=(4, 8, 12),
+                    max_reference_images=4,
+                    resolution="720p",
+                    generate_audio=True,
+                    requested_generate_audio=True,
+                    has_audio_track=True,
+                    audio_switch_controllable=True,
+                )
+
+        monkeypatch.setattr(
+            "server.services.cost_estimation.ConfigReferenceCapabilityProjection",
+            _SoraCapabilities,
+        )
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "video_provider_i2v": "openai/sora-2",
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 4)])}
+
+        reused = await service.compute(
+            project_data,
+            scripts,
+            project_name="narration-ref-reused-quote",
+            reference_request_options={
+                "E1U1": ReferenceRequestOptions(
+                    narration_delivery=USE_TTS,
+                    current_tts_duration_seconds=8.0,
+                    current_visual_duration_seconds=8,
+                    current_reusable_visual_duration_seconds=8,
+                )
+            },
+        )
+        regenerated = await service.compute(
+            project_data,
+            scripts,
+            project_name="narration-ref-regenerated-quote",
+            reference_request_options={
+                "E1U1": ReferenceRequestOptions(
+                    narration_delivery=USE_TTS,
+                    current_tts_duration_seconds=8.0,
+                    current_visual_duration_seconds=4,
+                )
+            },
+        )
+
+        reused_segment = reused["episodes"][0]["segments"][0]
+        regenerated_segment = regenerated["episodes"][0]["segments"][0]
+        assert reused_segment["estimate"]["video"] == {}
+        assert reused_segment["request_projection"]["request_cost"] == {
+            "amount": 0.0,
+            "currency": "USD",
+            "provider_id": "openai",
+            "model_id": "sora-2",
+            "request_duration_seconds": 8,
+        }
+        assert regenerated_segment["estimate"]["video"] == {"USD": pytest.approx(0.8)}
+        assert regenerated_segment["request_projection"]["request_cost"] == {
+            "amount": pytest.approx(0.8),
+            "currency": "USD",
+            "provider_id": "openai",
+            "model_id": "sora-2",
+            "request_duration_seconds": 8,
+        }
+        assert regenerated_segment["request_projection"]["problems"][0]["code"] == (
+            "reference_duration_confirmation_required"
+        )
+
+        def _quote_unavailable(*_args, **_kwargs):
+            raise ValueError("price unavailable")
+
+        monkeypatch.setattr(
+            "server.services.cost_estimation.quote_video_request_from_price",
+            _quote_unavailable,
+        )
+        unavailable = await service.compute(
+            project_data,
+            scripts,
+            project_name="narration-ref-unavailable-quote",
+            reference_request_options={
+                "E1U1": ReferenceRequestOptions(
+                    narration_delivery=USE_TTS,
+                    current_tts_duration_seconds=8.0,
+                    current_visual_duration_seconds=4,
+                )
+            },
+        )
+        unavailable_segment = unavailable["episodes"][0]["segments"][0]
+        assert unavailable_segment["estimate"]["video"] == {}
+        assert unavailable_segment["request_projection"]["allowed"] is False
+        assert [problem["code"] for problem in unavailable_segment["request_projection"]["problems"]] == [
+            "reference_duration_confirmation_required",
+            "video_request_cost_unavailable",
+        ]
 
     @pytest.mark.integration
     async def test_reference_video_estimate_blocks_when_duration_metadata_is_empty(self, db_factory, monkeypatch):

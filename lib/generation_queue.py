@@ -27,6 +27,32 @@ logger = logging.getLogger(__name__)
 
 _REFERENCE_VIDEO_EXECUTION_IDENTITY_KEYS = frozenset({"video_provider_i2v", "video_provider_r2v"})
 _REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS = frozenset({"script_file", "reference_request_options"})
+_NARRATION_REQUEST_KEY_BY_TASK_TYPE = {
+    "video": "narration_delivery_options",
+    "reference_video": "reference_request_options",
+}
+
+
+class ActiveTaskRequestConflict(RuntimeError):
+    """An active video task owns the resource with different request facts."""
+
+    def __init__(self, *, resource_id: str, existing_task_id: str) -> None:
+        self.resource_id = resource_id
+        self.existing_task_id = existing_task_id
+        super().__init__(
+            f"resource '{resource_id}' already has active task '{existing_task_id}' "
+            "with a different narration delivery request"
+        )
+
+
+def _narration_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[str, object] | None:
+    key = _NARRATION_REQUEST_KEY_BY_TASK_TYPE.get(task_type)
+    if key is None:
+        return None
+
+    from lib.narration_delivery import NarrationDeliveryRequestOptions
+
+    return NarrationDeliveryRequestOptions.from_payload(payload or {}, key=key).to_payload()
 
 
 class DispatchProviderChanged(RuntimeError):
@@ -51,6 +77,12 @@ def reference_video_enqueue_payload(
     """
 
     normalized = {key: value for key, value in (payload or {}).items() if key in _REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS}
+    if "reference_request_options" in normalized:
+        from lib.reference_video.request_projection import ReferenceRequestOptions
+
+        normalized["reference_request_options"] = ReferenceRequestOptions.from_payload(
+            {"reference_request_options": normalized["reference_request_options"]}
+        ).to_payload()
     if script_file is not None:
         normalized["script_file"] = script_file
     return normalized
@@ -122,7 +154,10 @@ async def reference_projection_for_queued_task(
             script=script,
             unit=unit,
             project_path=project_path,
-            options=ReferenceRequestOptions.from_payload(payload, legacy_duration_confirmed=True),
+            # Claim/rate-limit routing only needs hydrated visual capability.
+            # Narration currency belongs to Web/Agent/worker projections, whose
+            # server adapter can assemble the effective audio backend identity.
+            options=ReferenceRequestOptions(),
         )
     except Exception:
         logger.debug("reference_video 当前请求投影失败，限流路由回退代表桶", exc_info=True)
@@ -256,6 +291,26 @@ _QUEUE_INSTANCE: GenerationQueue | None = None
 WorkerCancelCallback = Callable[[str], bool]
 
 
+class CompensableGenerationResult(dict[str, Any]):
+    """Runtime-only result whose activated media can be undone if cancellation wins.
+
+    The callback is intentionally absent from the JSON payload persisted for a
+    succeeded task.  It only spans the executor-return → terminal-UPDATE window,
+    where a user cancellation may already have moved the row to ``cancelling``.
+    """
+
+    def __init__(self, result: dict[str, Any], *, cancel_compensation: Callable[[], None]) -> None:
+        super().__init__(result)
+        self._cancel_compensation = cancel_compensation
+        self._compensated = False
+
+    def compensate_cancelled(self) -> None:
+        if self._compensated:
+            return
+        self._compensated = True
+        self._cancel_compensation()
+
+
 class GenerationQueue:
     """Async queue manager wrapping TaskRepository."""
 
@@ -347,6 +402,21 @@ class GenerationQueue:
                 user_id=user_id,
                 provider_id=provider_id,
             )
+        # The unique index intentionally protects one active task per resource. A matching
+        # video task is reusable only when its durable narration request facts also match;
+        # current TTS evidence and other mutable generation intent are re-read by the worker.
+        existing_payload = result.pop("_existing_payload", None)
+        requested_facts = _narration_request_facts(task_type, payload)
+        if result.get("deduped") and requested_facts is not None:
+            existing_facts = _narration_request_facts(
+                task_type,
+                existing_payload if isinstance(existing_payload, dict) else None,
+            )
+            if existing_facts != requested_facts:
+                raise ActiveTaskRequestConflict(
+                    resource_id=resource_id,
+                    existing_task_id=str(result["task_id"]),
+                )
         if not result.get("deduped"):
             logger.info("任务入队 task_id=%s type=%s", result["task_id"], task_type)
         else:
@@ -450,6 +520,11 @@ class GenerationQueue:
             logger.info("任务成功 task_id=%s", task_id)
         else:
             logger.info("mark_succeeded 0 rows task_id=%s (已被外部翻状态)", task_id)
+            if isinstance(result, CompensableGenerationResult):
+                try:
+                    await asyncio.to_thread(result.compensate_cancelled)
+                except Exception:
+                    logger.exception("取消补偿失败 task_id=%s", task_id)
         return affected
 
     async def mark_task_failed(self, task_id: str, error_message: str) -> int:

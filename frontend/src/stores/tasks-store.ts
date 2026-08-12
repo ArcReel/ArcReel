@@ -205,11 +205,12 @@ export const useTasksStore = create<TasksState>((set, get) => {
   let baselineScopeKey: string | null = null;
 
   /**
-   * 本轮拉取里是否有 reference_video 任务刚由非终态转成功。
+   * 本轮拉取里是否有会写回 reference unit 的任务刚由非终态转成功。
    *
-   * 参考生视频画布靠 `referenceVideoUnitsRevision` 重拉成片，而自增只发生在项目事件 SSE
-   * 的终态分支上：SSE 断线、静默失速或丢掉这一条事件时，任务状态还能靠轮询兜底恢复，成片
-   * 却一直不出现，直到画布重新挂载。这里让轮询走同一次失效，补上兜底路径的缺口。
+   * 参考生视频画布靠 `referenceVideoUnitsRevision` 重拉成片和旁白路径，而自增主通道是项目
+   * 事件 SSE：SSE 断线、静默失速或丢掉这一条事件时，任务状态还能靠轮询兜底恢复，unit
+   * 快照却一直不更新，直到画布重新挂载。这里让 reference_video / tts 的轮询成功也走同一次
+   * 失效，补上兜底路径的缺口；非参考路线没有挂载该画布，多一次 revision 自增不触发请求。
    *
    * 判据是「这一轮成功、上一轮不成功」，其中「上一轮没见过」也算不成功——任务的入队与完成
    * 整个落在两次轮询之间时（空闲档间隔较长，provider 命中缓存时可能秒回），它是首次以
@@ -219,14 +220,14 @@ export const useTasksStore = create<TasksState>((set, get) => {
    * 作用域的第一轮只建基线、不判定：那一轮的旧快照要么是空的、要么属于上一个项目，把历史
    * 成功任务全当成刚完成没有意义。基线由 `baselineScopeKey` 标记，切项目或停用后重置。
    */
-  const hasNewlySucceededReferenceVideo = (
+  const hasNewlySucceededReferenceUnitAsset = (
     prev: readonly TaskItem[],
     next: readonly TaskItem[],
   ): boolean => {
     const prevStatus = new Map(prev.map((t) => [t.task_id, t.status]));
     return next.some(
       (t) =>
-        t.task_type === "reference_video" &&
+        (t.task_type === "reference_video" || t.task_type === "tts") &&
         t.status === "succeeded" &&
         prevStatus.get(t.task_id) !== "succeeded",
     );
@@ -254,7 +255,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
       const scopeKey = projectName ?? "";
       const unitsStale =
         baselineScopeKey === scopeKey &&
-        hasNewlySucceededReferenceVideo(get().tasks, tasksRes.items);
+        hasNewlySucceededReferenceUnitAsset(get().tasks, tasksRes.items);
       baselineScopeKey = scopeKey;
       get().setTasks(tasksRes.items);
       get().setStats(statsRes.stats);

@@ -58,6 +58,7 @@ export interface UnitGeneratedAssets {
   video_clip: string | null;
   video_uri: string | null;
   video_thumbnail?: string | null;
+  narration_audio?: string | null;
   /** Raw backend status — use `UnitStatus` for UI display. */
   status: UnitPersistedStatus;
   /** ISO8601 completion time; null is treated as "before any voice setting". */
@@ -85,11 +86,11 @@ export interface ReferenceVideoUnit {
 
 export interface ReferenceRequestOptions {
   narration_delivery?: "post_production" | "use_tts";
-  narration_duration_floor?: number | null;
 }
 
 export interface ReferenceGenerationRequestOptions extends ReferenceRequestOptions {
-  duration_confirmed?: boolean;
+  /** Exact video tier accepted for this request; omitted when no cross-tier confirmation is needed. */
+  confirmed_request_duration_seconds?: number | null;
 }
 
 export interface ReferenceProjectionLocation {
@@ -103,6 +104,7 @@ export interface ReferenceProjectionProblem {
   unit_id: string;
   locations: ReferenceProjectionLocation[];
   params: Record<string, unknown>;
+  reason?: string;
   action: string;
   message?: string;
 }
@@ -114,15 +116,41 @@ export interface ReferenceProjectionAdmission {
   problems: ReferenceProjectionProblem[];
 }
 
+/** Exact server-side quote for the projected provider video request. */
+export interface VideoRequestCostQuote {
+  amount: number;
+  currency: string;
+  provider_id: string;
+  model_id: string;
+  request_duration_seconds: number;
+}
+
+/** Current-state duration admission returned before a storyboard video is enqueued. */
+export interface NarratedVideoDurationAdmission {
+  allowed: false;
+  kind: "narrated_video_duration";
+  unit_id: string;
+  narration_delivery: Record<string, unknown>;
+  planned_duration: number;
+  current_visual_duration?: number | null;
+  duration_input: number;
+  request_duration: number | null;
+  adjustment: "exact" | "up" | "down" | null;
+  request_cost?: VideoRequestCostQuote;
+  problems: ReferenceProjectionProblem[];
+}
+
 /**
  * 时长取档预检结果。`adjustment` 说明申请秒数相对取档输入的偏移方向：
  * `exact` 一致、`up` 成片更长、`down` 成片更短。能力元数据不可解析时预检直接失败。
  */
 export interface ReferenceDurationPrecheck {
-  /** 申请秒数与取档输入不一致（up / down）时为 true，需先向用户确认 */
+  /** 请求档位与当前视觉档位（无成片时为剧本档位）不一致时为 true */
   needs_confirmation: boolean;
   /** 剧本编排时长（秒） */
   script_duration: number;
+  /** 当前选中且实际时长足够承载 fresh TTS 的视觉档位；没有可信成片时为 null */
+  current_visual_duration?: number | null;
   /** 取档输入；使用 TTS 时为剧本时长与实际旁白时长下限的较大值 */
   duration_input: number;
   /** 将向模型申请的档位秒数 */
@@ -132,6 +160,7 @@ export interface ReferenceDurationPrecheck {
   hydrated_capability: "i2v" | "r2v";
   provider_id: string | null;
   model_id: string | null;
+  request_cost?: VideoRequestCostQuote;
   problems: ReferenceProjectionProblem[];
 }
 
