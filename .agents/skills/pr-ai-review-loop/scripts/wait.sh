@@ -52,6 +52,7 @@ command -v jq >/dev/null 2>&1 || {
 
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/pr-ai-review-wait.XXXXXX")
 trap 'rm -rf "$WORKDIR"' EXIT
+WATCHDOG_SEQUENCE=0
 
 STARTED_AT=$(date +%s)
 DEADLINE=$((STARTED_AT + MAX_WAIT))
@@ -61,6 +62,52 @@ RETRY_AFTER=0
 
 report_timeout() {
   printf 'WAIT_TIMEOUT: no relevant PR state change within %s seconds\n' "$MAX_WAIT"
+}
+
+run_until_deadline() {
+  local output_file="$1"
+  local error_file="$2"
+  local now remaining command_pid watchdog_pid status watchdog_fifo
+  shift 2
+
+  now=$(date +%s)
+  remaining=$((DEADLINE - now))
+  (( remaining > 0 )) || {
+    printf 'GitHub request skipped because the wait deadline elapsed\n' > "$error_file"
+    return 124
+  }
+
+  rm -f "$WORKDIR/request-timed-out"
+  WATCHDOG_SEQUENCE=$((WATCHDOG_SEQUENCE + 1))
+  watchdog_fifo="$WORKDIR/watchdog-${WATCHDOG_SEQUENCE}.fifo"
+  mkfifo "$watchdog_fifo"
+  exec 9<> "$watchdog_fifo"
+  "$@" > "$output_file" 2> "$error_file" &
+  command_pid=$!
+  (
+    IFS= read -r -t "$remaining" -u 9 && exit 0
+    if kill -0 "$command_pid" 2>/dev/null; then
+      printf 'GitHub request exceeded the wait deadline\n' > "$WORKDIR/request-timed-out"
+      kill -TERM "$command_pid" 2>/dev/null || true
+    fi
+  ) &
+  watchdog_pid=$!
+
+  if wait "$command_pid" 2>/dev/null; then
+    status=0
+  else
+    status=$?
+  fi
+  printf '\n' >&9
+  wait "$watchdog_pid" 2>/dev/null || true
+  exec 9>&-
+  rm -f "$watchdog_fifo"
+
+  if [[ -f "$WORKDIR/request-timed-out" ]]; then
+    cat "$WORKDIR/request-timed-out" >> "$error_file"
+    return 124
+  fi
+  return "$status"
 }
 
 classify_failure() {
@@ -97,16 +144,25 @@ fetch_json() {
   local error_file="$2"
   local availability="$3"
   local raw_output="${output_file}.raw"
+  local command_status
   shift 3
 
   LAST_ERROR_FILE="$error_file"
   : > "$error_file"
-  if "$@" > "$raw_output" 2> "$error_file"; then
+  if run_until_deadline "$raw_output" "$error_file" "$@"; then
     strip_http_headers "$raw_output" > "$output_file"
     if jq -e -s 'length > 0' "$output_file" >/dev/null 2> "$error_file"; then
       return 0
     fi
     printf 'GitHub returned truncated or invalid JSON\n' >> "$error_file"
+    FAILURE_KIND="transient"
+    RETRY_AFTER=0
+    return 1
+  else
+    command_status=$?
+  fi
+
+  if [[ "$command_status" -eq 124 ]]; then
     FAILURE_KIND="transient"
     RETRY_AFTER=0
     return 1
@@ -166,15 +222,25 @@ repo_view_once() {
   local output_file="$1"
   local error_file="$WORKDIR/repo-view.err"
   local repo_slug
+  local command_status
 
   LAST_ERROR_FILE="$error_file"
   : > "$error_file"
-  if gh repo view --json nameWithOwner --jq .nameWithOwner > "$output_file" 2> "$error_file"; then
+  if run_until_deadline "$output_file" "$error_file" \
+    gh repo view --json nameWithOwner --jq .nameWithOwner; then
     repo_slug=$(<"$output_file")
     if [[ "$repo_slug" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
       return 0
     fi
     printf 'GitHub returned a truncated or invalid repository slug\n' > "$error_file"
+    FAILURE_KIND="transient"
+    RETRY_AFTER=0
+    return 1
+  else
+    command_status=$?
+  fi
+
+  if [[ "$command_status" -eq 124 ]]; then
     FAILURE_KIND="transient"
     RETRY_AFTER=0
     return 1

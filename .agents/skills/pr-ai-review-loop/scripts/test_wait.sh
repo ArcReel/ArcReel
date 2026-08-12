@@ -44,6 +44,9 @@ if [[ "$1 $2" == "repo view" ]]; then
   printf '%s\n' 'ArcReel/ArcReel'
 elif [[ "$*" == *'reviews(first:100'* ]]; then
   count=$(next_count review)
+  if [[ "$mode" == "hung_probe" ]]; then
+    exec /bin/sleep 2
+  fi
   if [[ "$count" -gt 1 ]]; then
     case "$mode" in
       http_500_once)
@@ -221,6 +224,12 @@ run_wait slow_probe --max 125
 [[ "$(<"$TMP_ROOT/sleeps")" == "60" ]] || fail "expected API time to reduce the remaining sleep budget"
 grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected probe time to count toward timeout"
 echo "PASS: API latency counts against the wait budget"
+
+reset_case
+run_wait hung_probe --max 1
+grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected a hung request to end as a clean timeout"
+[[ ! -s "$TMP_ROOT/result.err" ]] || fail "expected no process-termination diagnostic on timeout"
+echo "PASS: an in-flight GitHub request cannot outlive the wait deadline"
 
 reset_case
 run_wait eof_once --max 65
