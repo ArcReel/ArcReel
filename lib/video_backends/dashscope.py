@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import httpx
 
@@ -123,31 +125,93 @@ _WAN3_MODEL_KEY = "wan3.0-video"
 # 也是 lib.custom_provider.duration_presets（时长档位推断）与 endpoints.py（端点路由推断）共用
 # 的唯一正则来源——三处须按同一匹配宽度判 wan3，否则会出现某个 model_id 被路由到本后端、却因
 # 本后端认不出它是 wan3 而退回通用档案（丢参考图/尾帧/音轨参数）的矛盾。版本前缀与模态 token
-# （下方 _WAN_IMAGE_TO_VIDEO_PATTERN）须接受相同的分隔符集合，避免同一规则组内宽容度不对称。
+# （下方 WAN_IMAGE_TO_VIDEO_PATTERN）须接受相同的分隔符集合，避免同一规则组内宽容度不对称。
 # 两侧标识符边界要求非字母数字，避免匹配到 "swan3"、"vendorwan3" 这类含 wan3 子串但并非该家族
 # 的第三方型号名。
 WAN3_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?3(?![a-z0-9])", re.I)
 
 # 万相 2.7 家族 model_id 识别（连字符/下划线可选、标识符边界避免误吞 "swan2"、"wan20"）：
-# endpoints.py::is_wan_family 复用同一正则，使连字符形态（"wan-2.7"）与点号形态（"wan2.7"）
-# 在图像/视频归属与端点路由上得出一致结论——这是本正则唯一确权的范围。
+# 使连字符形态（"wan-2.7"）与点号形态（"wan2.7"）在图像/视频归属与端点路由上得出一致结论——
+# 这是本正则唯一确权的范围。
 #
 # 只锚 2.7、不覆盖其余 2.x 小版本：本后端固定请求
 # `/services/aigc/video-generation/video-synthesis`（_VIDEO_ENDPOINT），而 wan2.1 / wan2.2-s2v
 # 按 docs/research/arcreel-video-api-protocol-research.md 记录走的是旧端点
 # `/services/aigc/image2video/video-synthesis/`、payload 字段也不同（如 wan2.6 用 `size` 而非
 # 2.7 的 `resolution`+`ratio`），并入本正则会把协议不兼容的请求送到这个端点。
-# 点号形态（如 "wan2.1-kf2v"）不受本正则约束；endpoints.py::is_wan_family 对点号形态另有独立的
-# 判定（_WAN_DOT_FORM_PATTERN），其路由是否也应收窄到 2.7 需要供应商 API 事实与产品判断，不由
-# 本正则的匹配宽度代为决定。
+# 点号形态（如 "wan2.1-kf2v"）不受本正则约束，归 WAN_DOT_FORM_PATTERN 判定，其路由是否也应
+# 收窄到 2.7 需要供应商 API 事实与产品判断，不由本正则的匹配宽度代为决定。
 WAN2_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?2\.7(?![a-z0-9])", re.I)
 
-# wan2.7 的 image-to-video 续接别名（"wan-2.7-image-to-video" / "wan_2.7-image2video"）在归一化
-# 后仍带着 "image-to-video"/"image2video" 后缀，不与 _MODEL_PROFILES 的 "wan2.7-i2v" 构成子串
-# 关系，需先把该后缀折成 "i2v" 再查表，否则静默落 _DEFAULT_PROFILE、丢失 first_frame 声明，
-# _build_media 据此不下发 start_image。正则形状与 endpoints.py::_WAN_IMAGE_TO_VIDEO_PATTERN
-# 一致（该文件属上层 custom_provider，不可反向导入，故各自维护同一份字面量）。
-_WAN27_IMAGE_TO_VIDEO_PATTERN = re.compile(r"image[-_]?(?:to|2)[-_]?video", re.I)
+# 点号形态万相 2.x（2.7 以外，如 "wan2.1-kf2v"）的家族判定：标识符边界要求非字母数字，避免
+# "swan2.7-r2v"、"vendorwan2.7-t2v" 这类含 "wan2." 子串但并非该家族的第三方型号名被误判。
+WAN_DOT_FORM_PATTERN = re.compile(r"(?<![a-z0-9])wan2\.\d", re.I)
+
+# happyhorse 家族判定：标识符边界要求非字母数字，避免 "myhappyhorse-1.0-r2v" 这类第三方型号名
+# 被字面子串误吞。
+HAPPYHORSE_PATTERN = re.compile(r"(?<![a-z0-9])happyhorse", re.I)
+
+# wan 家族 image-to-video 续接语法（"wan-2.7-image-to-video" / "wan_2.7-image2video" /
+# "wan-3-turbo-image-to-video"）：只挑这一种确定形态当"实为视频"的例外，不覆盖 img2vid/i2v 等
+# 未见实例的缩写——出现新形态再补，不预先扩面。wan2.7 归一化用它把该后缀折成 "i2v" 再查
+# _MODEL_PROFILES；wan3/wan2x_dot 家族用它区分图像/视频归属（wan3.0-video-image 等真图像别名
+# 不含该语法，不受影响）。
+WAN_IMAGE_TO_VIDEO_PATTERN = re.compile(r"image[-_]?(?:to|2)[-_]?video", re.I)
+
+# wan2.7-videoedit（指令式视频编辑，见 docs/research/arcreel-vendor-integration-research.md）是
+# 万相家族内真实存在的独立模态，但本后端只实现了 t2v/i2v/r2v 三档的请求构造，没有该模态所需的
+# 输入视频传输字段。命中家族正则但落这个模态的 id 须排除出原生路由与已知能力档，否则会带着
+# _DEFAULT_PROFILE（丢失该模态实际所需的能力声明）发出本后端无法正确构造的请求。
+WAN_VIDEOEDIT_PATTERN = re.compile(r"video[-_]?edit", re.I)
+
+WanFamily = Literal["happyhorse", "wan2.7", "wan3", "wan2x_dot"]
+
+
+@dataclass(frozen=True)
+class WanClassification:
+    """model_id 在万相/happyhorse 家族判定链上的结构化结论。
+
+    唯一判定入口——家族归属、分隔符归一化、标识符边界、image-to-video 续接语法、videoedit
+    模态排除均只在 `classify_wan_model` 里实现一次。端点路由（endpoints.py::infer_endpoint）、
+    能力档（本模块 `_profile_for_model`）、时长档（duration_presets.py）三处判定点都只消费这份
+    结论，不得再各自对 model_id 做正则匹配，避免同一家族的边界规则在多处漂移出互斥组合（例如
+    命中原生路由却拿到与该路由不兼容的能力档）。
+    """
+
+    family: WanFamily | None
+    is_image_to_video: bool  # wan 系列 image-to-video 续接别名（本质视频，非图像变体）
+    is_videoedit: bool  # wan2.7-videoedit：本后端未实现请求构造的模态
+    profile_key: str | None  # 可直接查 _MODEL_PROFILES 的归一化 key；无法确定具体模态时为 None
+
+
+def classify_wan_model(model_id: str | None) -> WanClassification:
+    """对 model_id 做一次判定，供路由/能力档/时长档复用同一结论。"""
+    normalized = (model_id or "").strip().lower()
+    if HAPPYHORSE_PATTERN.search(normalized):
+        # happyhorse 无 image-to-video 续接语法与 videoedit 模态；t2v/i2v/r2v 具体档位交由
+        # _profile_for_model 末尾的兜底子串匹配解析，此处不预先归一化。
+        return WanClassification(family="happyhorse", is_image_to_video=False, is_videoedit=False, profile_key=None)
+    if WAN3_PATTERN.search(normalized):
+        family: WanFamily = "wan3"
+    elif WAN2_PATTERN.search(normalized):
+        family = "wan2.7"
+    elif WAN_DOT_FORM_PATTERN.search(normalized):
+        family = "wan2x_dot"
+    else:
+        return WanClassification(family=None, is_image_to_video=False, is_videoedit=False, profile_key=None)
+
+    is_videoedit = bool(WAN_VIDEOEDIT_PATTERN.search(normalized))
+    is_image_to_video = bool(WAN_IMAGE_TO_VIDEO_PATTERN.search(normalized))
+    profile_key: str | None = None
+    if family == "wan3":
+        profile_key = _WAN3_MODEL_KEY
+    elif family == "wan2.7":
+        profile_key = _normalize_wan27_alias(normalized)
+    # wan2x_dot 无法从 model_id 直接归一化出确切 t2v/i2v/r2v 档位（其命名形态未收敛），
+    # profile_key 留空，交由 _profile_for_model 末尾的兜底子串匹配处理（多数落 _DEFAULT_PROFILE）。
+    return WanClassification(
+        family=family, is_image_to_video=is_image_to_video, is_videoedit=is_videoedit, profile_key=profile_key
+    )
 
 
 def _normalize_wan27_alias(normalized: str) -> str:
@@ -161,7 +225,7 @@ def _normalize_wan27_alias(normalized: str) -> str:
     """
     normalized = WAN2_PATTERN.sub("wan2.7", normalized)
     normalized = re.sub(r"wan2\.7_", "wan2.7-", normalized)
-    return _WAN27_IMAGE_TO_VIDEO_PATTERN.sub("i2v", normalized)
+    return WAN_IMAGE_TO_VIDEO_PATTERN.sub("i2v", normalized)
 
 
 # 按 model id 派发能力声明。happyhorse-r2v 仅 reference_image（无 first_frame）；
@@ -217,7 +281,7 @@ def _is_wan3(model: str | None) -> bool:
 def _profile_for_model(model: str | None) -> VideoCapabilities:
     """按 model_id 解析能力档：先精确命中，再容忍代理中转的前后缀装饰。
 
-    infer_endpoint 用 WAN2_PATTERN / WAN3_PATTERN 路由到 dashscope-async-video，故此处也须
+    infer_endpoint 用 classify_wan_model 的同一结论路由到 dashscope-async-video，故此处也须
     子串容忍，否则 "proxy/happyhorse-1.0-r2v" / "wan2.7-r2v-0715" 这类装饰名会退回 _DEFAULT_PROFILE、
     丢掉 r2v 的 max_reference_images，_build_media 据此构造出错误 payload。
     仅带系列名而无变体后缀（如裸 "happyhorse"）无法判别 t2v/i2v/r2v，按设计回落通用默认。
@@ -228,21 +292,15 @@ def _profile_for_model(model: str | None) -> VideoCapabilities:
         return _DEFAULT_PROFILE
     if normalized in _MODEL_PROFILES:
         return _MODEL_PROFILES[normalized]
-    # wan3 家族按 WAN3_PATTERN 先行判定（先于下方子串匹配）：discovery 返回的 "wan-3-turbo" /
-    # "wan3-turbo" 这类别名不含字面量 "wan3.0-video" 子串，若只靠子串匹配会静默落到
-    # _DEFAULT_PROFILE，丢失参考图/尾帧/音轨参数等 wan3 专属能力声明。
-    if WAN3_PATTERN.search(normalized):
-        return _MODEL_PROFILES[_WAN3_MODEL_KEY]
-    # wan2.7 家族有 t2v/i2v/r2v 三档，无法像 wan3 那样单 key 直返，改走 _normalize_wan27_alias
-    # 把 wan 前缀、版本号与模态之间的分隔符都折成 _MODEL_PROFILES key 固定使用的连字符形态，
-    # 再走下方子串匹配。
-    if WAN2_PATTERN.search(normalized):
-        normalized = _normalize_wan27_alias(normalized)
-    # 各 profile key（happyhorse-{1.0,1.1}-{t2v,i2v,r2v} / wan2.7-{t2v,i2v,r2v}）互不为子串，无歧义。
-    # 两侧标识符边界均要求非字母数字：左侧避免 "swan2.7-r2v"（"s" 紧贴 "wan2.7-r2v"）、
-    # "myhappyhorse-1.0-r2v" 这类第三方型号名被字面子串误吞；右侧避免 "wan2.7-i2vfoo"、
-    # "happyhorse-1.0-r2vfoo" 这类未知变体后缀被截断误判成已知 key。代理中转的装饰
-    # 前缀/后缀（"proxy/xxx"、"xxx-0715"）靠非字母数字分隔符天然满足两侧边界，不受影响。
+    classification = classify_wan_model(normalized)
+    if classification.profile_key is not None:
+        normalized = classification.profile_key
+    # 各 profile key（happyhorse-{1.0,1.1}-{t2v,i2v,r2v} / wan2.7-{t2v,i2v,r2v} /
+    # wan3.0-video）互不为子串，无歧义。两侧标识符边界均要求非字母数字：左侧避免
+    # "swan2.7-r2v"（"s" 紧贴 "wan2.7-r2v"）、"myhappyhorse-1.0-r2v" 这类第三方型号名被字面
+    # 子串误吞；右侧避免 "wan2.7-i2vfoo"、"happyhorse-1.0-r2vfoo" 这类未知变体后缀被截断误判成
+    # 已知 key。代理中转的装饰前缀/后缀（"proxy/xxx"、"xxx-0715"）靠非字母数字分隔符天然满足
+    # 两侧边界，不受影响。
     for known, profile in _MODEL_PROFILES.items():
         if re.search(r"(?<![a-z0-9])" + re.escape(known) + r"(?![a-z0-9])", normalized):
             return profile

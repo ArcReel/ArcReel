@@ -22,7 +22,6 @@ from lib.custom_provider.backends import (
     CustomTextBackend,
     CustomVideoBackend,
 )
-from lib.custom_provider.duration_presets import WAN3_PATTERN
 from lib.image_backends.base import ImageCapability
 from lib.image_backends.dashscope import DashScopeImageBackend
 from lib.image_backends.gemini import GeminiImageBackend
@@ -33,7 +32,7 @@ from lib.text_backends.gemini import GeminiTextBackend
 from lib.text_backends.openai import OpenAITextBackend
 from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import VideoCapabilities
-from lib.video_backends.dashscope import WAN2_PATTERN, DashScopeVideoBackend
+from lib.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
 from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.minimax import MiniMaxVideoBackend
 from lib.video_backends.newapi import NewAPIVideoBackend
@@ -532,26 +531,6 @@ _VIDEO_PATTERN = re.compile(
 _AUDIO_PATTERN = re.compile(r"tts|speech|cosyvoice", re.IGNORECASE)
 # 裸 "speech" 会撞上 ASR（语音转文字）家族 id，按内容排除，避免把识别模型默认归到 TTS 端点
 _ASR_PATTERN = re.compile(r"transcribe|speech.?to.?text|recognition", re.IGNORECASE)
-# wan 家族 image-to-video 续接语法："image" 紧跟 "to"/"2" 再接 "video"（wan-3-turbo-image-to-video /
-# wan3-image2video）。只挑这一种确定形态当"实为视频"的例外，不覆盖 img2vid/i2v 等未见实例的缩写——
-# 出现新形态再补，不预先扩面。
-_WAN_IMAGE_TO_VIDEO_PATTERN = re.compile(r"image[-_]?(?:to|2)[-_]?video", re.IGNORECASE)
-
-# 点号形态万相 2.x（2.7 以外，如 "wan2.1-kf2v"）的家族判定：标识符边界要求非字母数字，避免
-# "swan2.7-r2v"、"vendorwan2.7-t2v" 这类含 "wan2." 子串但并非该家族的第三方型号名被误判。
-_WAN_DOT_FORM_PATTERN = re.compile(r"(?<![a-z0-9])wan2\.\d", re.IGNORECASE)
-
-# wan2.7-videoedit（指令式视频编辑，见 docs/research/arcreel-vendor-integration-research.md）是
-# 万相家族内真实存在的独立模态，但 DashScopeVideoBackend 只实现了 t2v/i2v/r2v 三档的请求构造，
-# 没有该模态所需的输入视频传输字段。命中家族正则但落这个模态的 id 须排除出原生路由，否则会带着
-# _DEFAULT_PROFILE（丢失该模态实际所需的能力声明）发出本后端无法正确构造的请求。
-_WAN_VIDEOEDIT_PATTERN = re.compile(r"video[-_]?edit", re.IGNORECASE)
-
-# happyhorse 家族路由判定：标识符边界要求非字母数字，与 DashScopeVideoBackend._profile_for_model
-# 兜底子串匹配对同一 key 的边界要求保持一致——两处宽度不同会出现"路由到本后端却拿不到对应能力
-# 档"的矛盾（如 "myhappyhorse-1.0-r2v" 若只在能力档一侧排除，会被路由到原生端点却丢失
-# max_reference_images，_build_media 据此漏发参考图）。
-_HAPPYHORSE_PATTERN = re.compile(r"(?<![a-z0-9])happyhorse", re.IGNORECASE)
 
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
@@ -567,11 +546,11 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        （中转可能是 OpenAI 兼容）：qwen-image / wan2.7-image / wan-2.7-image / wan3.0-video-image
        及带版本/日期后缀的同类 id 落到既有图像家族推断；wan-3-turbo-image-to-video /
        wan3-image2video 这类显式 image-to-video 续接语法仍归视频（同 2.5 节 kling-image2video
-       的处理原则），按 _WAN_IMAGE_TO_VIDEO_PATTERN 精确挑出这一种形态，不对图像变体的命名形态
-       （结尾 token 等）做任何假设。原生路由只认 2.7（含点号形态 "wan2.x"，见下方 is_wan_family
-       的说明）与 wan3；其余 2.x 连字符/下划线形态（wan-2.1、wan_2.2-s2v 等）落到下方 5) 的通用
-       视频端点。2.7 家族内 videoedit 模态（wan2.7-videoedit）本后端未实现请求构造，同样排除出
-       原生路由（见 _WAN_VIDEOEDIT_PATTERN 处的说明）。
+       的处理原则），按 classify_wan_model 的 is_image_to_video 精确挑出这一种形态，不对图像变体
+       的命名形态（结尾 token 等）做任何假设。原生路由只认 2.7（含点号形态 "wan2.x"，见下方
+       classify_wan_model 的说明）与 wan3；其余 2.x 连字符/下划线形态（wan-2.1、wan_2.2-s2v 等）
+       落到下方 5) 的通用视频端点。2.7 家族内 videoedit 模态（wan2.7-videoedit）本后端未实现
+       请求构造，同样排除出原生路由（见 classify_wan_model 的 is_videoedit 处的说明）。
     2) MiniMax 原生 token → 海螺 / S2V 走 "minimax-video"，image-01 走 "minimax-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
     2.5) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
@@ -588,35 +567,28 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     """
     lowered = model_id.lower()
     is_image = bool(_IMAGE_PATTERN.search(model_id))
-    # 走百炼原生端点的万相家族 id（视频与图像变体都命中），下面路由与 is_video 排除各用一次。
-    # WAN2_PATTERN 只认 2.7（含连字符/下划线形态）、WAN3_PATTERN 不锚版本号，均源出
-    # video_backends.dashscope，两侧标识符边界避免误吞 "swan2"/"wan20" 一类第三方型号名，与
-    # DashScopeVideoBackend 的请求形态分派保持同一匹配宽度，否则同一 model_id 会出现"路由到
-    # 本后端却被当通用型号丢失能力声明"的矛盾。wan3 分支额外与 duration_presets.WAN3_PATTERN
-    # 共用同一常量，保持时长档位推断口径一致。
-    #
-    # 点号形态的其余 2.x（"wan2.1-kf2v"、"wan2.2-s2v"）额外用 _WAN_DOT_FORM_PATTERN 判定：命中
-    # "wan2.<digit>" 即算万相家族，不要求版本号是 2.7。本后端固定请求
-    # video-generation/video-synthesis 端点，与万相 2.1/2.2 实际使用的旧端点及不同 payload 字段
-    # 不符（出处见 DashScopeVideoBackend 模块顶部 WAN2_PATTERN 处的说明）；是否收窄该判定需要
-    # 供应商 API 事实与产品判断，不由本函数代为决定。
-    is_wan_family = bool(
-        WAN2_PATTERN.search(model_id) or WAN3_PATTERN.search(model_id) or _WAN_DOT_FORM_PATTERN.search(model_id)
-    )
+    # 走百炼原生端点的万相/happyhorse 家族 id（视频与图像变体都命中），下面路由与 is_video 排除
+    # 各用一次。家族归属、分隔符归一化、标识符边界、image-to-video 续接语法、videoedit 模态排除
+    # 全部只在 classify_wan_model（lib.video_backends.dashscope）里判定一次，本函数与
+    # DashScopeVideoBackend._profile_for_model、duration_presets.infer_supported_durations 三处
+    # 只消费其结论，不再各自对 model_id 做正则匹配——避免三处宽度各自漂移，出现"路由到本后端却拿
+    # 不到对应能力档"一类互斥组合。
+    classification = classify_wan_model(model_id)
+    is_wan_family = classification.family is not None and classification.family != "happyhorse"
     # wan 家族的 image-to-video 别名（如 wan-3-turbo-image-to-video / wan3-image2video）含 "image"
     # 子串但本质是视频模型，与下方 kling-image2video 同类陷阱：笼统 is_image 会把它们错判成图像
     # 变体。反过来"以 image 结尾才算图像变体"同样错——wan3.0-image-edit / wan-3-turbo-image-preview /
     # 带日期后缀的 wan3.0-video-image-20260801 这类真图像别名不以 "image" 结尾，会被误判成视频。
     # 故只把 image-to-video 续接语法（"image" 后紧跟 "to"/"2" 再接 "video"）当例外挑出来，其余
     # 含 image 语义一律按图像变体处理，不对图像变体的命名形态做任何假设。
-    wan_video_continuation = is_wan_family and bool(_WAN_IMAGE_TO_VIDEO_PATTERN.search(model_id))
+    wan_video_continuation = is_wan_family and classification.is_image_to_video
     wan_image_variant = is_wan_family and is_image and not wan_video_continuation
-    # videoedit 模态本后端未实现请求构造，即便命中家族正则也不走原生端点（见
-    # _WAN_VIDEOEDIT_PATTERN 处的说明），落到下方 5) 的通用视频端点。
-    wan_unsupported_modality = is_wan_family and bool(_WAN_VIDEOEDIT_PATTERN.search(model_id))
+    # videoedit 模态本后端未实现请求构造，即便命中家族正则也不走原生端点（见 classify_wan_model
+    # 的 is_videoedit 处的说明），落到下方 5) 的通用视频端点。
+    wan_unsupported_modality = is_wan_family and classification.is_videoedit
 
     # 阿里百炼视频先于通用 is_video 拦截到原生异步端点
-    if _HAPPYHORSE_PATTERN.search(model_id):
+    if classification.family == "happyhorse":
         return "dashscope-async-video"
     if is_wan_family and not wan_image_variant and not wan_unsupported_modality:
         return "dashscope-async-video"
