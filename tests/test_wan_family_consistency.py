@@ -335,3 +335,45 @@ def test_native_route_and_non_default_profile_agree(model_id: str) -> None:
     has_known_profile = caps is not _DEFAULT_PROFILE
     assert routed_native is True
     assert has_known_profile is True
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "wan2.7-i2v-s2v",  # 已知 token 与未实现模态共存，has_known_modality 应被后者排除
+        "wan-2.7-r2v-v2v",
+        "wan2.7-r2v-videoedit",
+        "image-proxy/wan-2.7-s2v",  # 未实现模态本身即被排除，装饰前缀不改变结论
+    ],
+)
+def test_excluded_from_native_route_agrees_with_default_profile(model_id: str) -> None:
+    """一致性断言的排除方向：has_known_modality=False 时两个判定点须一致落回默认档，不能出现
+    「不落原生路由却仍解析出真实能力档」的互斥组合——`_profile_for_model` 的子串容忍匹配若不
+    检查 has_known_modality，会在装饰后缀里找到共存的已知 token（如 "wan2.7-i2v-s2v" 里的
+    "i2v"）而误判出该已实现模态的能力档。"""
+    routed_native = infer_endpoint(model_id, "openai") == "dashscope-async-video"
+    caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
+    assert routed_native is False
+    assert caps is _DEFAULT_PROFILE
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "image-to-video-proxy/wan2.7-image",  # 装饰前缀含完整 "image-to-video" 拼写
+        "video-continuation-proxy/wan-2.7-image",
+    ],
+)
+def test_wan27_image_variant_not_upgraded_by_image_to_video_decoration_before_marker(model_id: str) -> None:
+    """image-to-video 续接语法的识别同 videoedit/s2v/v2v 一样只在 wan2.7 标记之后的模态段内生效：
+    标记前的装饰前缀即便字面拼出完整 "image-to-video"，也不能把真图像变体误判成视频续接。"""
+    assert infer_endpoint(model_id, "openai") == "openai-images"
+
+
+@pytest.mark.parametrize("model_id", ["wan2.7-image-to-video", "wan_2.7-image2video"])
+def test_wan27_image_to_video_detected_within_modality_segment_after_marker(model_id: str) -> None:
+    """真正的 image-to-video 续接语法出现在 wan2.7 标记之后的模态段内时，仍要正确命中并折算成
+    i2v，落原生路由与非默认能力档。"""
+    assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
+    caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
+    assert caps is not _DEFAULT_PROFILE
