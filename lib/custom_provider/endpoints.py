@@ -562,8 +562,10 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     lowered = model_id.lower()
     is_image = bool(_IMAGE_PATTERN.search(model_id))
     # 走百炼原生端点的万相家族 id（视频与图像变体都命中），下面路由与 is_video 排除各用一次。
-    # wan3 分支复用 duration_presets.WAN3_PATTERN（连字符可选、不锚版本号），与时长档位推断
-    # 保持同一匹配宽度，否则同一 model_id 会出现"档位按 wan3 给、路由却按普通 wan 走"的矛盾。
+    # wan3 分支复用 duration_presets.WAN3_PATTERN（源出 video_backends.dashscope，连字符可选、
+    # 不锚版本号），与时长档位推断、DashScopeVideoBackend 的请求形态分派保持同一匹配宽度，
+    # 否则同一 model_id 会出现"档位按 wan3 给、路由却按普通 wan 走"或"路由到本后端却被当
+    # 通用型号丢失能力声明"的矛盾。
     # wan2 保留字面量：连字符形态的 wan2 在时长推断走通用 wan 预设、路由走 openai-video，
     # 两处结论自洽，无须并入正则。
     is_wan_family = "wan2." in lowered or bool(WAN3_PATTERN.search(model_id))

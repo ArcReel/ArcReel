@@ -924,6 +924,22 @@ class TestWan3:
         assert caps.reference_audio_per_image is False
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["wan-3-turbo", "wan3-turbo"])
+    def test_alias_forms_get_wan3_capabilities(self, model):
+        """discovery 返回的连字符别名（endpoints.py 已路由到本后端）须认作 wan3.0，不落回默认档案。
+
+        与 endpoints.infer_endpoint / duration_presets 共用 WAN3_PATTERN：三处不同宽即会出现
+        "路由到本后端却被当通用型号丢失参考图/尾帧/音轨参数" 的矛盾。
+        """
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        assert caps.last_frame is True
+        assert caps.max_reference_images == 10
+        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
+        assert caps.max_prompt_chars == 20000
+
+    @pytest.mark.unit
     def test_first_and_last_frame_in_media(self, tmp_path):
         payload = self._backend()._build_payload(
             VideoGenerationRequest(
@@ -987,6 +1003,17 @@ class TestWan3:
             VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=False)
         )
         assert "audio" not in payload["parameters"]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("model", ["wan-3-turbo", "wan3-turbo"])
+    def test_audio_switch_is_sent_for_alias_forms(self, tmp_path, model):
+        """别名同样按可控音轨型号分派，不落回恒有声默认档案。"""
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        payload = DashScopeVideoBackend(api_key="sk", model=model)._build_payload(
+            VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=False)
+        )
+        assert payload["parameters"]["audio"] is False
 
     @pytest.mark.unit
     def test_prompt_over_limit_rejected_before_submit(self, tmp_path):

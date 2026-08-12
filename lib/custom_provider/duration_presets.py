@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import re
 
+from lib.video_backends.dashscope import WAN3_PATTERN
+
 DEFAULT_FALLBACK: list[int] = [4, 8]
 
-# 万相 3.0 家族 model_id 识别（连字符可选、不锚版本号），供 endpoints.py 路由推断复用，
-# 避免两处各写一份正则、匹配宽度悄悄漂移。
-WAN3_PATTERN = re.compile(r"wan-?3", re.I)
+# WAN3_PATTERN（连字符可选、不锚版本号）源出 lib.video_backends.dashscope——那里是本后端
+# 请求形态分派的单一真相源，endpoints.py 路由推断与本模块的时长档位推断均复用同一份，
+# 避免三处各写一份正则、匹配宽度悄悄漂移。
 
 # 按特异性从高到低排列；命中一条即返回。range 全展开为离散集。
 PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
