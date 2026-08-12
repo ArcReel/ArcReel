@@ -233,11 +233,16 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
         # image-to-video 续接语法的标识符边界匹配与家族归属判定相互独立：不满足家族严格边界的 id
         # （如 "wan-2.2-image-to-video"，"wan" 与版本号间的连字符不满足点号形态边界）依然可能是
         # 视频模型的显式续接语法命名，家族未命中不代表该语法信息作废，须原样带出，供 endpoints.py
-        # 的 image 变体排除判定消费——否则这类 id 会被笼统 image 判定误吞成图像端点。家族未命中时
-        # 没有标记位置可供切分，只能退回全串搜索。
+        # 的 image 变体排除判定消费——否则这类 id 会被笼统 image 判定误吞成图像端点。搜索范围仍须
+        # 从字面 "wan" 子串本身开始切分（不要求满足严格标识符边界，"swan2.7-image" 里的 "wan" 同样
+        # 定位），不含其前的装饰前缀——否则 "image-to-video-proxy/swan2.7-image" 这类与模态无关的
+        # 代理命名空间前缀会把真图像变体误判成视频续接。字面无 "wan" 子串时该字段不被下游消费
+        # （endpoints.py 先决 `"wan" in lowered` 才读取本字段），退回全串搜索即可。
+        wan_locator = normalized.find("wan")
+        fallback_scope = normalized[wan_locator:] if wan_locator != -1 else normalized
         return WanClassification(
             family=None,
-            is_image_to_video=bool(WAN_IMAGE_TO_VIDEO_PATTERN.search(normalized)),
+            is_image_to_video=bool(WAN_IMAGE_TO_VIDEO_PATTERN.search(fallback_scope)),
             is_videoedit=False,
             profile_key=None,
             has_known_modality=True,

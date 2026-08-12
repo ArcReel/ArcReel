@@ -223,6 +223,26 @@ def test_minimax_s2v_routing_survives_incidental_wan_substring(model_id: str) ->
     assert infer_endpoint(model_id, "openai") == "minimax-video"
 
 
+@pytest.mark.parametrize("model_id", ["wan2-s2v", "wan-2-s2v", "wan_2-s2v"])
+def test_wan_glued_bare_digit_version_excluded_from_minimax_routing(model_id: str) -> None:
+    """ "wan" 与纯整数版本号（无小数点）完全粘连时，只要满足标识符左边界（"wan2" 非 "swan2"），
+    仍应识别为 wan 版本号 token、排除 MiniMax S2V 路由，与带分隔符的等价形态（"wan-2"/"wan_2"）
+    结论一致。"""
+    assert infer_endpoint(model_id, "openai") == "openai-video"
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    ["image-to-video-proxy/swan2.7-image", "image-to-video-proxy/vendorwan2.7-image"],
+)
+def test_fallback_image_to_video_syntax_scoped_to_wan_marker_not_decoration_prefix(model_id: str) -> None:
+    """family=None 兜底路径的 image-to-video 续接语法识别同样须从字面 "wan" 子串本身开始搜索——
+    "swan2.7-image"/"vendorwan2.7-image" 均不满足家族严格边界（family=None），装饰前缀
+    "image-to-video-proxy/" 里的续接语法拼写不属于该 id 自身的模态段，不能把真图像变体误判成
+    视频续接。"""
+    assert infer_endpoint(model_id, "openai") == "openai-images"
+
+
 def test_wan27_videoedit_excluded_from_family_duration_preset() -> None:
     """wan2.7-videoedit 本后端未实现该模态的请求构造，时长不套用 t2v/i2v/r2v 家族档
     （落到通用预设，而非家族专属的 2-15s 全档）。"""

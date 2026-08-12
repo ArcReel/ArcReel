@@ -532,12 +532,14 @@ _AUDIO_PATTERN = re.compile(r"tts|speech|cosyvoice", re.IGNORECASE)
 # 裸 "speech" 会撞上 ASR（语音转文字）家族 id，按内容排除，避免把识别模型默认归到 TTS 端点
 _ASR_PATTERN = re.compile(r"transcribe|speech.?to.?text|recognition", re.IGNORECASE)
 # wan 版本号 token，用于 MiniMax S2V 二级路由的排除判定：既要认出 "wan-2.2-s2v"/
-# "vendorwan2.7-s2v" 一类版本号相邻 wan token（无需满足家族严格标识符边界），又要排除
-# "swan"/"swan2" 这类只是把 "wan" 作为普通单词一部分、后面恰好粘连数字的无关子串。两条分支：
+# "vendorwan2.7-s2v"/"wan2-s2v" 一类版本号相邻 wan token（无需满足家族严格标识符边界），又要排除
+# "swan"/"swan2" 这类只是把 "wan" 作为普通单词一部分、后面恰好粘连数字的无关子串。三条分支：
 # "wan" 与数字间有显式分隔符（"wan-2"/"wan_2"，此时无论数字后是否带小数点均视为版本号，前缀
 # 是否字母粘连不影响判定，"vendorwan-2" 同样成立）；或 "wan" 与数字完全粘连但数字本身是带小数点
-# 的版本号形态（"wan2.7"）——粘连且数字不含小数点（"swan2"）两条分支都不命中，不会被误判成版本号。
-_WAN_VERSION_TOKEN_PATTERN = re.compile(r"wan[-_]\d|wan\d+\.\d+", re.IGNORECASE)
+# 的版本号形态（"wan2.7"，前缀字母粘连不影响判定，与上一分支同理）；或 "wan" 与数字完全粘连、
+# 数字不含小数点，但 "wan" 前须满足标识符左边界（"wan2"，"swan2" 因左边界不成立被拒）——粘连纯
+# 整数版本号没有小数点这一结构信号可用，只能靠左边界区分真实 wan token 与恰好粘连数字的无关单词。
+_WAN_VERSION_TOKEN_PATTERN = re.compile(r"wan[-_]\d|wan\d+\.\d+|(?<![a-z0-9])wan\d+(?![a-z0-9])", re.IGNORECASE)
 
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
