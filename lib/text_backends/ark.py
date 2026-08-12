@@ -7,7 +7,7 @@ import logging
 
 from openai import OpenAI
 
-from lib.ark_shared import ARK_BASE_URL, create_ark_client, resolve_ark_api_key
+from lib.ark_shared import ark_base_url, create_ark_client, resolve_ark_api_key
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_ARK
 from lib.retry import with_retry_async
@@ -36,7 +36,7 @@ class ArkTextBackend:
         # Instructor 要求 openai.OpenAI 实例；Ark SDK client 类型不兼容，
         # 但 Ark API 是 OpenAI 兼容的，因此额外创建原生 OpenAI 客户端供降级使用。
         resolved_key = resolve_ark_api_key(api_key)
-        effective_base_url = base_url or ARK_BASE_URL
+        effective_base_url = ark_base_url(base_url)
         self._client = create_ark_client(api_key=resolved_key, base_url=effective_base_url)
         self._openai_client = OpenAI(base_url=effective_base_url, api_key=resolved_key)
         self._model = model or DEFAULT_MODEL
