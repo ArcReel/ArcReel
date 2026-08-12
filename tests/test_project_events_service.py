@@ -1224,9 +1224,18 @@ class TestProjectEventService:
         reorder_changes = service._diff_snapshots(before_reorder, after_reorder)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in reorder_changes)
 
-        # 同值时长确认只清除规划标记，正文/时长/引用均不变；仍须通知其它会话解除生成阻断。
+        # 内容修复先清除迁移来源标记，但独立的规划问题仍存在：即使 needs_replan 不变也须发 updated。
         script = pm.load_script("ref-edit", "episode_1.json")
         script["video_units"][0]["needs_replan"] = True
+        script["video_units"][0]["migration_requires_content_replan"] = True
+        with project_change_source("filesystem"):
+            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
+        before_migration_repair = service._build_snapshot("ref-edit")
+        before_migration_repair_item = before_migration_repair["scripts"]["episode_1.json"]["items"]["E1U01"]
+        assert before_migration_repair_item["needs_replan"] is True
+        assert before_migration_repair_item["migration_requires_content_replan"] is True
+
+        script = pm.load_script("ref-edit", "episode_1.json")
         script["video_units"][0]["migration_requires_content_replan"] = False
         with project_change_source("filesystem"):
             pm.save_script("ref-edit", script, "episode_1.json", validate=False)
@@ -1234,7 +1243,10 @@ class TestProjectEventService:
         before_repair_item = before_repair["scripts"]["episode_1.json"]["items"]["E1U01"]
         assert before_repair_item["needs_replan"] is True
         assert before_repair_item["migration_requires_content_replan"] is False
+        migration_repair_changes = service._diff_snapshots(before_migration_repair, before_repair)
+        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in migration_repair_changes)
 
+        # 同值时长确认再清除规划标记，正文/时长/引用均不变；仍须通知其它会话解除生成阻断。
         script = pm.load_script("ref-edit", "episode_1.json")
         script["video_units"][0]["needs_replan"] = False
         with project_change_source("filesystem"):
