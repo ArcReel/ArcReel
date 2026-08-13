@@ -34,7 +34,7 @@ function checkOrphanTranslations() {
 // 还是改回 Markdown 标题；已登记文件若不再含 JSX 标题也会 fail（登记项过期，须及时摘除）。
 const JSX_HEADING_EXEMPT_FILES = new Set(["docs/index.mdx"]);
 
-const FENCE = /^\s*(```|~~~)/;
+const FENCE = /^ {0,3}(```|~~~)/;
 const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*$/;
 const ANCHOR_SUFFIX = /\{#([a-z0-9-]+)\}$/;
 const JSX_HEADING = /<h[1-6][\s/>]/i;
