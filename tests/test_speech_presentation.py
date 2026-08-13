@@ -82,6 +82,13 @@ def test_character_post_uses_actual_video_boundary_and_unity_provider_audio() ->
         (0, 1_600_000, "甲"),
         (1_600_000, 4_800_000, "乙乙乙"),
     ]
+    assert all(cue.owner is SpeechOwner.CHARACTER for cue in presentation.subtitles)
+    artifact_cues = presentation.subtitle_artifact_dict()["cues"]
+    assert isinstance(artifact_cues, list)
+    first_artifact_cue = artifact_cues[0]
+    assert isinstance(first_artifact_cue, dict)
+    assert first_artifact_cue["owner"] == "character"
+    assert "00:00:01.600 --> 00:00:06.400" in presentation.subtitles_webvtt()
     assert presentation.timing == "mechanical"
     assert presentation.subtitles_adjustable is True
 

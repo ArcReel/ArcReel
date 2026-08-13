@@ -18,6 +18,7 @@ from lib.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.audio_utils import probe_existing_media_duration_seconds
+from lib.generation_admission import generation_admission_lock
 from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.narration_delivery import (
     POST_PRODUCTION,
@@ -30,13 +31,16 @@ from lib.path_safety import safe_join
 from lib.project_manager import ProjectManager
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
-from lib.speech_artifact_provenance import RenditionVariant, SelectedMediaEvidence
+from lib.speech_artifact_provenance import RenditionVariant, SelectedMediaEvidence, media_content_digest
 from lib.speech_composition import SpeechMode, admit_script_unit
 from lib.speech_presentation import (
     MediaCurrency,
     MediaSelection,
     PresentationMedia,
+    PresentationValue,
+    RawPresentationMedia,
     SpeechPresentation,
+    materialize_raw_video_presentation,
     materialize_speech_presentation,
 )
 from lib.version_manager import VersionManager
@@ -55,6 +59,10 @@ class PresentationUnavailableError(ValueError):
     """Selected media cannot safely form a presentation."""
 
 
+class _PresentationSelectionChanged(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class MaterializedPresentation:
     """Project coordinates plus the transport-neutral presentation value."""
@@ -63,7 +71,7 @@ class MaterializedPresentation:
     resource_type: str
     script_file: str
     transition_to_next: str
-    presentation: SpeechPresentation
+    presentation: PresentationValue
     subtitle_artifact_path: str | None
     presentation_artifact_path: str | None
 
@@ -87,7 +95,7 @@ class MaterializedPresentation:
 @dataclass(frozen=True, slots=True)
 class _SelectedVersion:
     record: Mapping[str, Any]
-    target: TypedMediaRestoreTarget
+    target: TypedMediaRestoreTarget | None
     path: Path
     relative_path: str
     version: int
@@ -123,6 +131,38 @@ class PresentationReadModelService:
         video_version: int | None = None,
         audio_version: int | None = None,
     ) -> MaterializedPresentation:
+        for attempt in range(2):
+            async with generation_admission_lock(
+                project_name=project_name,
+                script_file="",
+                resource_id=resource_id,
+            ):
+                try:
+                    return await self._materialize_unit_once(
+                        project_name=project_name,
+                        resource_type=resource_type,
+                        resource_id=resource_id,
+                        variant=variant,
+                        video_version=video_version,
+                        audio_version=audio_version,
+                    )
+                except _PresentationSelectionChanged:
+                    if attempt > 0:
+                        raise PresentationUnavailableError(
+                            "media selection kept changing while the presentation was materialized"
+                        ) from None
+        raise AssertionError("presentation selection retry loop did not return")
+
+    async def _materialize_unit_once(
+        self,
+        *,
+        project_name: str,
+        resource_type: str,
+        resource_id: str,
+        variant: RenditionVariant,
+        video_version: int | None = None,
+        audio_version: int | None = None,
+    ) -> MaterializedPresentation:
         if resource_type not in {"videos", "reference_videos"}:
             raise PresentationUnavailableError(f"unsupported presentation resource type: {resource_type!r}")
         if variant not in {POST_PRODUCTION, USE_TTS}:
@@ -139,6 +179,16 @@ class PresentationReadModelService:
             resource_id=resource_id,
             version=video_version,
         )
+        if selected_video.target is None:
+            return await self._materialize_manual_upload(
+                project_name=project_name,
+                project=project,
+                project_path=project_path,
+                versions=versions,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                selected=selected_video,
+            )
         script_file = self._current_episode_script(project, selected_video.target.episode)
         script = await asyncio.to_thread(self._project_manager.load_script, project_name, script_file)
         item, kind = self._find_item(script, resource_id)
@@ -165,6 +215,7 @@ class PresentationReadModelService:
             raise PresentationUnavailableError("video version does not record its provider-audio setting")
         video_media = await self._materialize_media(selected_video, currency=video_currency)
 
+        selected_audio: _SelectedVersion | None = None
         audio_media: PresentationMedia | None = None
         if variant == USE_TTS:
             selected_audio = await asyncio.to_thread(
@@ -175,6 +226,8 @@ class PresentationReadModelService:
                 resource_id=resource_id,
                 version=audio_version,
             )
+            if selected_audio.target is None:
+                raise PresentationUnavailableError("narration audio lacks typed presentation provenance")
             if selected_audio.target.episode != selected_video.target.episode:
                 raise PresentationUnavailableError("video and narration audio belong to different episodes")
             audio_currency = self._audio_currency(
@@ -213,9 +266,15 @@ class PresentationReadModelService:
         if presentation.selection == "current":
             result = await asyncio.to_thread(
                 self._persist_current,
+                project_name=project_name,
                 project_path=project_path,
+                versions=versions,
                 resource_id=resource_id,
                 result=result,
+                project_snapshot=project,
+                script_snapshot=script,
+                selected_video=selected_video,
+                selected_audio=selected_audio,
             )
         return result
 
@@ -315,7 +374,7 @@ class PresentationReadModelService:
         if selected_record is None:
             raise PresentationUnavailableError(f"media version is unavailable: {resource_type}/{resource_id}")
         try:
-            target = parse_typed_media_version_record(resource_type, selected_record)
+            target = _presentation_restore_target(resource_type, selected_record)
         except (TypeError, ValueError) as exc:
             raise PresentationUnavailableError("media version lacks typed presentation provenance") from exc
         raw_path = selected_record.get("file")
@@ -343,7 +402,7 @@ class PresentationReadModelService:
         resource_id: str,
         selected: _SelectedVersion,
     ) -> None:
-        if selected.selection != "current":
+        if selected.selection != "current" or selected.target is None:
             return
         artifact_path = resource_relative_path(resource_type, resource_id)
         adapter = ProjectArtifactManifestAdapter(project_path)
@@ -419,6 +478,8 @@ class PresentationReadModelService:
         selected: _SelectedVersion,
         settings: TtsSynthesisSettings | None,
     ) -> MediaCurrency:
+        if selected.target is None:
+            raise PresentationUnavailableError("video currency requires typed presentation provenance")
         current = build_current_video_artifact_basis(
             project_path=project_path,
             project=project,
@@ -438,12 +499,16 @@ class PresentationReadModelService:
         selected: _SelectedVersion,
         settings: TtsSynthesisSettings | None,
     ) -> MediaCurrency:
+        if selected.target is None:
+            raise PresentationUnavailableError("audio currency requires typed presentation provenance")
         if settings is None:
             return "stale"
         expected = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation, settings))
         return "current" if expected == selected.target.basis else "stale"
 
     async def _materialize_media(self, selected: _SelectedVersion, *, currency: MediaCurrency) -> PresentationMedia:
+        if selected.target is None:
+            raise PresentationUnavailableError("verified presentation media requires typed provenance")
         duration = await self._duration_probe(selected.path)
         if duration is None:
             raise PresentationUnavailableError(f"selected media duration is unavailable: {selected.relative_path}")
@@ -464,17 +529,186 @@ class PresentationReadModelService:
             evidence=evidence,
         )
 
-    @staticmethod
+    async def _materialize_manual_upload(
+        self,
+        *,
+        project_name: str,
+        project: dict[str, Any],
+        project_path: Path,
+        versions: VersionManager,
+        resource_type: str,
+        resource_id: str,
+        selected: _SelectedVersion,
+    ) -> MaterializedPresentation:
+        episode, script_file, item = await self._locate_unverified_video_unit(
+            project_name=project_name,
+            project=project,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+        duration = await self._duration_probe(selected.path)
+        if duration is None:
+            raise PresentationUnavailableError(f"selected media duration is unavailable: {selected.relative_path}")
+        try:
+            media = RawPresentationMedia(
+                artifact_path=selected.relative_path,
+                version=selected.version,
+                selection=selected.selection,
+                content_digest=await asyncio.to_thread(media_content_digest, selected.path),
+                actual_duration_seconds=round(duration * 1_000_000) / 1_000_000,
+            )
+            presentation = materialize_raw_video_presentation(unit_id=resource_id, video=media)
+        except (OSError, TypeError, ValueError) as exc:
+            raise PresentationUnavailableError(f"selected media cannot be inspected: {selected.relative_path}") from exc
+        transition = item.get("transition_to_next")
+        await asyncio.to_thread(
+            self._require_selection_unchanged,
+            project_path=project_path,
+            versions=versions,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            selected=selected,
+        )
+        return MaterializedPresentation(
+            episode=episode,
+            resource_type=resource_type,
+            script_file=script_file,
+            transition_to_next=transition if isinstance(transition, str) else "cut",
+            presentation=presentation,
+            subtitle_artifact_path=None,
+            presentation_artifact_path=None,
+        )
+
+    async def _locate_unverified_video_unit(
+        self,
+        *,
+        project_name: str,
+        project: Mapping[str, Any],
+        resource_type: str,
+        resource_id: str,
+    ) -> tuple[int, str, dict[str, Any]]:
+        matches: list[tuple[int, str, dict[str, Any]]] = []
+        entries = project.get("episodes")
+        for entry in entries if isinstance(entries, list) else []:
+            if not isinstance(entry, Mapping):
+                continue
+            episode = entry.get("episode")
+            raw_script_file = entry.get("script_file")
+            if type(episode) is not int or episode <= 0 or not isinstance(raw_script_file, str):
+                continue
+            script_file = ProjectManager.normalize_script_filename(raw_script_file)
+            script = await asyncio.to_thread(self._project_manager.load_script, project_name, script_file)
+            items, id_field, kind = resolve_items(script)
+            expected_type = "reference_videos" if kind == "video_units" else "videos"
+            if expected_type != resource_type:
+                continue
+            item = next(
+                (
+                    candidate
+                    for candidate in items
+                    if isinstance(candidate, dict) and str(candidate.get(id_field)) == resource_id
+                ),
+                None,
+            )
+            if item is not None:
+                matches.append((episode, script_file, item))
+        if len(matches) != 1:
+            raise PresentationUnavailableError(f"manual-upload unit identity is ambiguous: {resource_id}")
+        return matches[0]
+
+    def _require_selection_unchanged(
+        self,
+        *,
+        project_path: Path,
+        versions: VersionManager,
+        resource_type: str,
+        resource_id: str,
+        selected: _SelectedVersion,
+    ) -> None:
+        with versions.locked_version_snapshot(resource_type, resource_id):
+            current = self._load_selection(
+                project_path=project_path,
+                versions=versions,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                version=selected.version,
+            )
+            if current != selected:
+                raise _PresentationSelectionChanged
+
     def _persist_current(
+        self,
+        *,
+        project_name: str,
+        project_path: Path,
+        versions: VersionManager,
+        resource_id: str,
+        result: MaterializedPresentation,
+        project_snapshot: dict[str, Any],
+        script_snapshot: dict[str, Any],
+        selected_video: _SelectedVersion,
+        selected_audio: _SelectedVersion | None,
+    ) -> MaterializedPresentation:
+        presentation = result.presentation
+        if not isinstance(presentation, SpeechPresentation):
+            raise TypeError("only verified speech presentations may be persisted")
+        with self._project_manager.locked_project_script_snapshot(
+            project_name,
+            result.script_file,
+        ) as (current_project, current_script):
+            if current_project != project_snapshot or current_script != script_snapshot:
+                raise _PresentationSelectionChanged
+            with versions.locked_version_snapshot(result.resource_type, resource_id):
+                current_video = self._load_selection(
+                    project_path=project_path,
+                    versions=versions,
+                    resource_type=result.resource_type,
+                    resource_id=resource_id,
+                    version=None,
+                )
+                if current_video != selected_video:
+                    raise _PresentationSelectionChanged
+                self._require_current_manifest_selection(
+                    project_path=project_path,
+                    resource_type=result.resource_type,
+                    resource_id=resource_id,
+                    selected=current_video,
+                )
+                if selected_audio is not None:
+                    current_audio = self._load_selection(
+                        project_path=project_path,
+                        versions=versions,
+                        resource_type="audio",
+                        resource_id=resource_id,
+                        version=None,
+                    )
+                    if current_audio != selected_audio:
+                        raise _PresentationSelectionChanged
+                    self._require_current_manifest_selection(
+                        project_path=project_path,
+                        resource_type="audio",
+                        resource_id=resource_id,
+                        selected=current_audio,
+                    )
+                return self._persist_current_under_locks(
+                    project_path=project_path,
+                    resource_id=resource_id,
+                    result=result,
+                    presentation=presentation,
+                )
+
+    @staticmethod
+    def _persist_current_under_locks(
         *,
         project_path: Path,
         resource_id: str,
         result: MaterializedPresentation,
+        presentation: SpeechPresentation,
     ) -> MaterializedPresentation:
         subtitle_path, presentation_path = presentation_artifact_paths(
             result.episode,
             resource_id,
-            result.presentation.variant,
+            presentation.variant,
         )
         subtitle_file = safe_join(project_path, subtitle_path)
         presentation_file = safe_join(project_path, presentation_path)
@@ -483,8 +717,8 @@ class PresentationReadModelService:
         subtitle_snapshot = subtitle_file.read_bytes() if subtitle_file.is_file() else None
         presentation_snapshot = presentation_file.read_bytes() if presentation_file.is_file() else None
         adapter = ProjectArtifactManifestAdapter(project_path)
-        subtitle_key = ArtifactKey.episode_subtitle(result.episode, resource_id, result.presentation.variant)
-        presentation_key = ArtifactKey.episode_presentation(result.episode, resource_id, result.presentation.variant)
+        subtitle_key = ArtifactKey.episode_subtitle(result.episode, resource_id, presentation.variant)
+        presentation_key = ArtifactKey.episode_presentation(result.episode, resource_id, presentation.variant)
         prior_subtitle_entry = adapter.get_entry(subtitle_key)
         prior_presentation_entry = adapter.get_entry(presentation_key)
         committed = MaterializedPresentation(
@@ -492,34 +726,26 @@ class PresentationReadModelService:
             resource_type=result.resource_type,
             script_file=result.script_file,
             transition_to_next=result.transition_to_next,
-            presentation=result.presentation,
+            presentation=presentation,
             subtitle_artifact_path=subtitle_path,
             presentation_artifact_path=presentation_path,
         )
         try:
             atomic_write_json(
                 subtitle_file,
-                {
-                    "schema_version": 1,
-                    "unit_id": resource_id,
-                    "variant": result.presentation.variant,
-                    "timing": result.presentation.timing,
-                    "adjustable": result.presentation.subtitles_adjustable,
-                    "basis": ArtifactBasisDescriptor.from_basis(result.presentation.subtitle_basis).to_dict(),
-                    "cues": [cue.to_dict() for cue in result.presentation.subtitles],
-                },
+                presentation.subtitle_artifact_dict(),
             )
             atomic_write_json(presentation_file, committed.to_dict())
             manifest = ArtifactManifest(adapter)
             manifest.register(
                 subtitle_key,
                 artifact_path=subtitle_path,
-                basis=result.presentation.subtitle_basis,
+                basis=presentation.subtitle_basis,
             )
             manifest.register(
                 presentation_key,
                 artifact_path=presentation_path,
-                basis=result.presentation.presentation_basis,
+                basis=presentation.presentation_basis,
             )
         except BaseException:
             try:
@@ -549,6 +775,30 @@ def presentation_artifact_paths(episode: int, resource_id: str, variant: Renditi
     )
 
 
+def is_presentation_version_available(resource_type: str, record: Mapping[str, Any]) -> bool:
+    """Report whether the shared reader can present a video version without restoring it."""
+
+    if resource_type not in {"videos", "reference_videos"}:
+        return False
+    try:
+        _presentation_restore_target(resource_type, record)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _presentation_restore_target(
+    resource_type: str,
+    record: Mapping[str, Any],
+) -> TypedMediaRestoreTarget | None:
+    try:
+        return parse_typed_media_version_record(resource_type, record)
+    except (TypeError, ValueError):
+        if resource_type in {"videos", "reference_videos"} and record.get("source") == "manual_upload":
+            return None
+        raise
+
+
 def _restore_file(path: Path, snapshot: bytes | None) -> None:
     if snapshot is None:
         path.unlink(missing_ok=True)
@@ -571,5 +821,6 @@ __all__ = [
     "MaterializedPresentation",
     "PresentationReadModelService",
     "PresentationUnavailableError",
+    "is_presentation_version_available",
     "presentation_artifact_paths",
 ]

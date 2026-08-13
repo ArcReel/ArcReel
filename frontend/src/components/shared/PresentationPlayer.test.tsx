@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
+import { useProjectsStore } from "@/stores/projects-store";
 import type { PresentationReadModel } from "@/types/presentation";
 import { PresentationPlayer } from "./PresentationPlayer";
 
@@ -15,6 +16,7 @@ vi.mock("@/api", () => ({
 
 const post: PresentationReadModel = {
   schema_version: 1,
+  provenance: "verified",
   episode: 1,
   resource_type: "videos",
   script_file: "episode_1.json",
@@ -48,6 +50,7 @@ const post: PresentationReadModel = {
   presentation_basis: { kind: "artifact-speech/presentation", kind_version: 1, digest: "sha256-v1:p" },
   timing: "mechanical",
   subtitles_adjustable: true,
+  subtitles_webvtt: "WEBVTT\n\n1\n00:00:00.000 --> 00:00:06.000\n机械字幕\n",
 };
 
 const tts: PresentationReadModel = {
@@ -71,6 +74,7 @@ const tts: PresentationReadModel = {
 
 describe("PresentationPlayer", () => {
   beforeEach(() => {
+    useProjectsStore.setState({ assetFingerprints: {} });
     vi.mocked(API.getPresentation).mockImplementation(async (_project, _type, _id, options) =>
       options?.variant === "use_tts" ? tts : post,
     );
@@ -96,7 +100,7 @@ describe("PresentationPlayer", () => {
     Object.defineProperty(video, "volume", { configurable: true, writable: true, value: 0.5 });
     fireEvent.volumeChange(video);
     expect(video).toHaveProperty("muted", true);
-    expect(video).toHaveProperty("volume", 0);
+    expect(video).toHaveProperty("volume", 0.5);
     expect(video.querySelector("track")).toHaveAttribute("kind", "captions");
     expect(screen.getByText("已过期")).toBeInTheDocument();
     expect(screen.getByText("机械字幕")).toBeInTheDocument();
@@ -124,6 +128,15 @@ describe("PresentationPlayer", () => {
     fireEvent.play(video);
     await waitFor(() => expect(play).toHaveBeenCalled());
 
+    Object.defineProperty(video, "volume", { configurable: true, writable: true, value: 0.4 });
+    Object.defineProperty(video, "muted", { configurable: true, writable: true, value: true });
+    Object.defineProperty(video, "playbackRate", { configurable: true, writable: true, value: 1.5 });
+    fireEvent.volumeChange(video);
+    fireEvent.rateChange(video);
+    expect(audio).toHaveProperty("volume", 0.4);
+    expect(audio).toHaveProperty("muted", true);
+    expect(audio).toHaveProperty("playbackRate", 1.5);
+
     await user.click(screen.getByRole("button", { name: "下载可编辑包" }));
     expect(API.downloadPresentationBundle).toHaveBeenCalledWith(
       "demo",
@@ -131,6 +144,75 @@ describe("PresentationPlayer", () => {
       "E1S01",
       expect.objectContaining({ variant: "use_tts", videoVersion: 3, audioVersion: 2 }),
     );
+  });
+
+  it("reloads the shared model when the selected narration audio changes", async () => {
+    render(
+      <PresentationPlayer
+        projectName="demo"
+        resourceType="videos"
+        resourceId="E1S01"
+        initialVariant="use_tts"
+      />,
+    );
+    await screen.findByLabelText("E1S01 TTS 音轨");
+    expect(API.getPresentation).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useProjectsStore.getState().updateAssetFingerprints({
+        "audio/segment_E1S01.wav": 2,
+      });
+    });
+
+    await waitFor(() => expect(API.getPresentation).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps TTS at unity when the provider track is explicitly disabled", async () => {
+    vi.mocked(API.getPresentation).mockResolvedValue({
+      ...tts,
+      video: { ...tts.video, audio_enabled: false, gain: 0 },
+    });
+    render(
+      <PresentationPlayer
+        projectName="demo"
+        resourceType="videos"
+        resourceId="E1S01"
+        initialVariant="use_tts"
+      />,
+    );
+
+    const video = await screen.findByLabelText("E1S01 成片预览");
+    const audio = await screen.findByLabelText("E1S01 TTS 音轨");
+    expect(video).toHaveProperty("muted", true);
+    expect(video).toHaveProperty("volume", 1);
+    expect(audio).toHaveProperty("muted", false);
+    expect(audio).toHaveProperty("volume", 1);
+
+    Object.defineProperty(video, "muted", { configurable: true, writable: true, value: false });
+    Object.defineProperty(video, "volume", { configurable: true, writable: true, value: 0.25 });
+    fireEvent.volumeChange(video);
+    expect(video).toHaveProperty("muted", true);
+    expect(video).toHaveProperty("volume", 0.25);
+    expect(audio).toHaveProperty("muted", false);
+    expect(audio).toHaveProperty("volume", 0.25);
+  });
+
+  it("keeps rendition recovery available when a TTS presentation cannot be built", async () => {
+    vi.mocked(API.getPresentation).mockImplementation(async (_project, _type, _id, options) => {
+      if (options?.variant === "use_tts") throw new Error("TTS unavailable");
+      return post;
+    });
+    const user = userEvent.setup();
+    render(
+      <PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />,
+    );
+    await screen.findByLabelText("E1S01 成片预览");
+
+    await user.click(screen.getByRole("button", { name: "TTS 叠加" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("TTS unavailable");
+    await user.click(screen.getByRole("button", { name: "原音成片" }));
+
+    expect(await screen.findByLabelText("E1S01 成片预览")).toBeInTheDocument();
   });
 
   it("requests an explicit historical version without restoring it", async () => {

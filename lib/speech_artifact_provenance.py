@@ -58,7 +58,7 @@ class CharacterVoiceEvidence:
             "speaker": self.speaker,
             "voice_style": self.voice_style,
             "reference_audio_digest": (
-                _file_content_digest(self.reference_audio) if self.reference_audio is not None else None
+                media_content_digest(self.reference_audio) if self.reference_audio is not None else None
             ),
         }
 
@@ -93,7 +93,7 @@ class SelectedMediaEvidence:
     ) -> SelectedMediaEvidence:
         return cls(
             basis=_basis_descriptor("basis", basis),
-            content_digest=_file_content_digest(path),
+            content_digest=media_content_digest(path),
             actual_duration_seconds=actual_duration_seconds,
         )
 
@@ -386,7 +386,9 @@ def _canonical_text(value: object) -> str:
     return unicodedata.normalize("NFC", value.replace("\r\n", "\n").replace("\r", "\n")).strip()
 
 
-def _file_content_digest(path: Path) -> str:
+def media_content_digest(path: Path) -> str:
+    """Return the canonical content identity used by presentation media."""
+
     if not path.is_file():
         raise FileNotFoundError(path)
     digest = hashlib.sha256()
@@ -405,6 +407,7 @@ __all__ = [
     "build_presentation_basis",
     "build_video_duration_basis",
     "build_video_speech_basis",
+    "media_content_digest",
     "project_subtitle_utterances",
     "project_character_voice_evidence",
 ]

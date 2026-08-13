@@ -415,6 +415,7 @@ export default {
   'presentation_captions': 'Mechanical captions',
   'presentation_current': 'Current',
   'presentation_history': 'History',
+  'presentation_provenance_unavailable': 'Provenance unavailable',
   'presentation_stale': 'Stale',
   'presentation_mechanical_timing': 'Mechanical timing',
   'presentation_post_production': 'Original audio',

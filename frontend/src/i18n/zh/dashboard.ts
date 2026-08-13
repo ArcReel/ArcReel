@@ -415,6 +415,7 @@ export default {
   'presentation_captions': '机械字幕',
   'presentation_current': '当前版本',
   'presentation_history': '历史版本',
+  'presentation_provenance_unavailable': '来源不可用',
   'presentation_stale': '已过期',
   'presentation_mechanical_timing': '机械计时',
   'presentation_post_production': '原音成片',

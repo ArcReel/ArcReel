@@ -206,6 +206,14 @@ async def test_stale_current_tts_remains_materializable_without_touching_paid_me
     assert result.presentation.currency == "stale"
     assert (project_path / "videos" / "scene_E1S01.mp4").read_bytes() == video_before
     assert (project_path / "audio" / "segment_E1S01.wav").read_bytes() == audio_before
+    bundle = await PresentationBundleService(pm, presentation_reader=service).export_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="use_tts",
+    )
+    with zipfile.ZipFile(bundle) as archive:
+        assert json.loads(archive.read("presentation.json"))["currency"] == "stale"
 
 
 async def test_history_read_does_not_replace_current_presentation_or_manifest(tmp_path: Path) -> None:
@@ -263,6 +271,17 @@ async def test_history_read_does_not_replace_current_presentation_or_manifest(tm
         )
         == before_entry
     )
+    bundle = await PresentationBundleService(pm, presentation_reader=service).export_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="post_production",
+        video_version=1,
+    )
+    with zipfile.ZipFile(bundle) as archive:
+        bundled_model = json.loads(archive.read("presentation.json"))
+        assert bundled_model["selection"] == "history"
+        assert bundled_model["video"]["version"] == 1
 
 
 async def test_editable_bundle_contains_exact_selected_media_model_and_subtitles(tmp_path: Path) -> None:
@@ -326,3 +345,105 @@ async def test_overlong_selected_tts_is_unavailable_instead_of_clipped(tmp_path:
             resource_id="E1S01",
             variant="use_tts",
         )
+
+
+async def test_manual_upload_uses_explicit_unverified_raw_presentation_everywhere(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    versions_path = project_path / "versions" / "versions.json"
+    versions_value = json.loads(versions_path.read_text(encoding="utf-8"))
+    record = versions_value["videos"]["E1S01"]["versions"][0]
+    versions_value["videos"]["E1S01"]["versions"][0] = {
+        key: value
+        for key, value in record.items()
+        if key in {"version", "file", "prompt", "created_at", "_previous_current_version"}
+    } | {"source": "manual_upload"}
+    _write_json(versions_path, versions_value)
+    adapter = ProjectArtifactManifestAdapter(project_path)
+    adapter.delete_entry(ArtifactKey.episode_video(1, "E1S01"))
+
+    async def probe(_path: Path) -> float | None:
+        return 6.25
+
+    read_model = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+    result = await read_model.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="use_tts",
+    )
+
+    assert result.persisted is False
+    assert result.presentation.provenance == "unavailable"
+    assert result.presentation.variant == "post_production"
+    assert result.presentation.currency is None
+    assert result.presentation.narration_audio is None
+    assert result.presentation.subtitles == ()
+    assert result.to_dict()["presentation_basis"] is None
+    assert adapter.get_entry(ArtifactKey.episode_presentation(1, "E1S01", "post_production")) is None
+
+    bundle = await PresentationBundleService(pm, presentation_reader=read_model).export_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="use_tts",
+    )
+    with zipfile.ZipFile(bundle) as archive:
+        assert set(archive.namelist()) == {"media/video.mp4", "presentation.json"}
+        assert archive.read("media/video.mp4") == b"provider-video-v1"
+        assert json.loads(archive.read("presentation.json"))["provenance"] == "unavailable"
+
+
+async def test_current_presentation_reselects_when_version_changes_during_media_probe(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    versions = VersionManager(project_path)
+    switched = False
+
+    async def probe(path: Path) -> float | None:
+        nonlocal switched
+        if path.suffix == ".mp4" and not switched:
+            switched = True
+            current = versions.get_versions("videos", "E1S01")["versions"][0]
+            versions.add_version(
+                "videos",
+                "E1S01",
+                "replacement",
+                source_file=project_path / current["file"],
+                **{
+                    key: value
+                    for key, value in current.items()
+                    if key
+                    not in {
+                        "version",
+                        "file",
+                        "filename",
+                        "prompt",
+                        "created_at",
+                        "is_current",
+                        "file_url",
+                        "restored_from",
+                        "_previous_current_version",
+                    }
+                },
+            )
+        return 6.25
+
+    service = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+    result = await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="post_production",
+    )
+
+    assert result.presentation.video.media.version == 2
+    assert result.presentation_artifact_path is not None
+    persisted = json.loads((project_path / result.presentation_artifact_path).read_text(encoding="utf-8"))
+    assert persisted["video"]["version"] == 2

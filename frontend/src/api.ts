@@ -303,6 +303,8 @@ export interface VersionInfo {
   is_current: boolean;
   /** Whether this history record carries verified provenance for restore. */
   restorable?: boolean;
+  /** Whether the shared presentation reader can preview/export this video version. */
+  presentation_available?: boolean;
   file_url?: string;
   prompt?: string;
   restored_from?: number;

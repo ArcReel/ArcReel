@@ -364,8 +364,8 @@ export function VersionTimeMachine({
                     {selectedInfo.file_url &&
                       (resourceType === "videos" || resourceType === "reference_videos" ? (
                         <div className="mb-2 aspect-video w-full overflow-hidden rounded-lg border border-gray-800 bg-black">
-                          {selectedInfo.restorable === false ? (
-                            // eslint-disable-next-line jsx-a11y/media-has-caption -- Legacy history has no verified subtitle provenance, so only its unchanged raw media is shown.
+                          {selectedInfo.presentation_available !== true ? (
+                            // eslint-disable-next-line jsx-a11y/media-has-caption -- 无法进入共享成片读取器的历史视频仅展示原始媒体
                             <video
                               src={selectedInfo.file_url}
                               aria-label={t("version_preview_alt", { version: selectedInfo.version })}

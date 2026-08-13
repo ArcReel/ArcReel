@@ -42,6 +42,7 @@ C:\Users\<username>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.dr
 | Parameter | Description |
 |------|------|
 | **Episode** | Select the episode to export (a dropdown selector appears for projects with multiple episodes) |
+| **Presentation Audio** | **Original Audio** keeps audio explicitly enabled in the generated video; **TTS Overlay** adds the selected TTS track to narration units |
 | **CapCut Version** | Select **6.0+** (recommended) or **5.x** to match the locally installed CapCut version |
 | **Draft Directory** | Enter the CapCut draft path located above (it is remembered automatically after the first entry) |
 
@@ -71,10 +72,15 @@ com.lveditor.draft/
 
 ## Exported Content {#export-contents}
 
+CapCut export, the workspace presentation preview, and editable bundle downloads all read the same presentation selection. Video and optional TTS tracks use the selected versions, and track lengths come from the media files' actual durations. Original audio and TTS remain at their original speed and unity gain; ArcReel does not truncate, time-stretch, mix, or re-encode them. Mechanical subtitle timing is allocated from the actual media boundary and text length, and remains adjustable or replaceable in CapCut.
+
+A manually uploaded video without generation provenance is exported unchanged and is explicitly marked as having unavailable provenance. ArcReel does not infer its currency or generate TTS or subtitles for it.
+
 ### Narration Mode {#narration-mode-export}
 
 - **Video track**: All generated video clips arranged in order
 - **Subtitle track**: The corresponding original novel text is automatically added as subtitles for each clip (white text with a black outline); the style and position can be adjusted freely in CapCut
+- **Narration track**: **TTS Overlay** includes existing TTS; **Original Audio** does not add a separate narration track
 
 ### Drama Mode {#drama-mode-export}
 

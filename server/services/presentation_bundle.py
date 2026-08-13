@@ -13,7 +13,6 @@ from typing import Protocol
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager
 from lib.speech_artifact_provenance import RenditionVariant
-from lib.speech_presentation import SubtitleCue
 from server.services.presentation_read_model import (
     MaterializedPresentation,
     PresentationReadModelService,
@@ -79,15 +78,8 @@ class PresentationBundleService:
         temp_dir = Path(tempfile.mkdtemp(prefix="arcreel_presentation_"))
         bundle_path = temp_dir / "presentation.zip"
         try:
-            subtitle_value = {
-                "schema_version": 1,
-                "unit_id": presentation.unit_id,
-                "variant": presentation.variant,
-                "timing": presentation.timing,
-                "adjustable": presentation.subtitles_adjustable,
-                "basis": presentation.to_dict()["subtitle_basis"],
-                "cues": [cue.to_dict() for cue in presentation.subtitles],
-            }
+            subtitle_value = presentation.subtitle_artifact_dict()
+            subtitle_webvtt = presentation.subtitles_webvtt()
             with zipfile.ZipFile(bundle_path, "w") as archive:
                 archive.write(video, f"media/video{video.suffix.lower()}", compress_type=zipfile.ZIP_STORED)
                 if narration is not None:
@@ -100,11 +92,14 @@ class PresentationBundleService:
                     "presentation.json",
                     json.dumps(result.to_dict(), ensure_ascii=False, indent=2) + "\n",
                 )
-                archive.writestr(
-                    "subtitles.json",
-                    json.dumps(subtitle_value, ensure_ascii=False, indent=2) + "\n",
-                )
-                archive.writestr("subtitles.vtt", _webvtt(presentation.subtitles))
+                if subtitle_value is not None:
+                    if subtitle_webvtt is None:
+                        raise RuntimeError("presentation subtitle projections disagree")
+                    archive.writestr(
+                        "subtitles.json",
+                        json.dumps(subtitle_value, ensure_ascii=False, indent=2) + "\n",
+                    )
+                    archive.writestr("subtitles.vtt", subtitle_webvtt)
             return bundle_path
         except BaseException:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -116,28 +111,6 @@ def _selected_path(project_path: Path, relative_path: str) -> Path:
         return safe_join(project_path, relative_path, require_file=True)
     except (PathTraversalError, FileNotFoundError) as exc:
         raise PresentationUnavailableError("selected presentation media is unavailable") from exc
-
-
-def _webvtt(cues: tuple[SubtitleCue, ...]) -> str:
-    lines = ["WEBVTT", ""]
-    for index, cue in enumerate(cues, start=1):
-        lines.extend(
-            (
-                str(index),
-                f"{_vtt_timestamp(cue.start_microseconds)} --> {_vtt_timestamp(cue.end_microseconds)}",
-                cue.text,
-                "",
-            )
-        )
-    return "\n".join(lines)
-
-
-def _vtt_timestamp(microseconds: int) -> str:
-    milliseconds = microseconds // 1_000
-    hours, remainder = divmod(milliseconds, 3_600_000)
-    minutes, remainder = divmod(remainder, 60_000)
-    seconds, millis = divmod(remainder, 1_000)
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{millis:03d}"
 
 
 __all__ = ["PresentationBundleService", "UnitPresentationReader"]

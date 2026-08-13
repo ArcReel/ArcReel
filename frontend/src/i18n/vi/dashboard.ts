@@ -407,6 +407,7 @@ export default {
   'presentation_captions': 'Phụ đề cơ học',
   'presentation_current': 'Hiện tại',
   'presentation_history': 'Lịch sử',
+  'presentation_provenance_unavailable': 'Không có thông tin nguồn gốc',
   'presentation_stale': 'Đã cũ',
   'presentation_mechanical_timing': 'Căn thời gian cơ học',
   'presentation_post_production': 'Âm thanh gốc',

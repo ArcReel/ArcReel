@@ -13,8 +13,13 @@ from lib.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.project_manager import ProjectManager
 from lib.speech_artifact_provenance import SelectedMediaEvidence
 from lib.speech_composition import SpeechFieldLocation, SpeechMode, SpeechOwner, SpeechPreparation, SpeechUtterance
-from lib.speech_presentation import PresentationMedia, materialize_speech_presentation
-from server.services.jianying_draft_service import JianyingDraftService, NoCompletedSegmentsError, StagedPresentation
+from lib.speech_presentation import (
+    PresentationMedia,
+    RawPresentationMedia,
+    materialize_raw_video_presentation,
+    materialize_speech_presentation,
+)
+from server.services.jianying_draft_service import JianyingDraftService, NoCompletedSegmentsError
 from server.services.presentation_read_model import MaterializedPresentation
 from tests.conftest import make_test_audio, make_test_video
 
@@ -100,7 +105,7 @@ class _Reader:
         return self.values
 
 
-def _project(tmp_path: Path, title: str = "测试项目") -> tuple[ProjectManager, Path]:
+def _project(tmp_path: Path, title: str = "测试项目", aspect_ratio: object = "9:16") -> tuple[ProjectManager, Path]:
     root = tmp_path / "projects"
     path = root / "demo"
     path.mkdir(parents=True)
@@ -110,7 +115,7 @@ def _project(tmp_path: Path, title: str = "测试项目") -> tuple[ProjectManage
                 "title": title,
                 "content_mode": "narration",
                 "generation_mode": "storyboard",
-                "aspect_ratio": "9:16",
+                "aspect_ratio": aspect_ratio,
                 "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
             },
             ensure_ascii=False,
@@ -120,12 +125,14 @@ def _project(tmp_path: Path, title: str = "测试项目") -> tuple[ProjectManage
     return ProjectManager(root), path
 
 
-def _read_draft(path: Path) -> dict:
-    return json.loads((path / "draft_content.json").read_text(encoding="utf-8"))
+def _read_draft_archive(path: Path) -> dict:
+    with zipfile.ZipFile(path) as archive:
+        info_name = next(name for name in archive.namelist() if name.endswith("draft_info.json"))
+        return json.loads(archive.read(info_name))
 
 
-def test_generate_draft_serializes_only_shared_track_gains_actual_boundaries_and_cues(tmp_path: Path) -> None:
-    project_path = tmp_path / "project"
+async def test_export_serializes_only_shared_track_gains_actual_boundaries_and_cues(tmp_path: Path) -> None:
+    pm, project_path = _project(tmp_path)
     video = project_path / "versions" / "videos" / "E1S01_v1.mp4"
     audio = project_path / "versions" / "audio" / "E1S01_v1.wav"
     video.parent.mkdir(parents=True)
@@ -142,17 +149,11 @@ def test_generate_draft_serializes_only_shared_track_gains_actual_boundaries_and
         audio_duration=0.9,
         provider_audio_enabled=False,
     )
-    draft_dir = tmp_path / "drafts" / "shared"
-
-    JianyingDraftService.__new__(JianyingDraftService)._generate_draft(
-        draft_dir=draft_dir,
-        draft_name="shared",
-        presentations=(StagedPresentation(value=value, video_path=str(video), narration_audio_path=str(audio)),),
-        width=1080,
-        height=1920,
+    archive = await JianyingDraftService(pm, presentation_reader=_Reader((value,))).export_episode_draft(
+        "demo", 1, "/mock/JianyingDrafts", variant=USE_TTS
     )
 
-    content = _read_draft(draft_dir)
+    content = _read_draft_archive(archive)
     video_track = next(track for track in content["tracks"] if track.get("type") == "video")
     audio_track = next(track for track in content["tracks"] if track.get("type") == "audio")
     text_track = next(track for track in content["tracks"] if track.get("type") == "text")
@@ -166,8 +167,8 @@ def test_generate_draft_serializes_only_shared_track_gains_actual_boundaries_and
     ]
 
 
-def test_generate_draft_uses_shared_transition_and_unity_provider_track(tmp_path: Path) -> None:
-    project_path = tmp_path / "project"
+async def test_export_uses_shared_transition_and_unity_provider_track(tmp_path: Path) -> None:
+    pm, project_path = _project(tmp_path)
     first = project_path / "versions" / "videos" / "first.mp4"
     second = project_path / "versions" / "videos" / "second.mp4"
     first.parent.mkdir(parents=True)
@@ -175,20 +176,11 @@ def test_generate_draft_uses_shared_transition_and_unity_provider_track(tmp_path
     make_test_video(second, duration_sec=1.0)
     one = _result(project_path, unit_id="one", video_path=first, duration=1.0, transition="fade")
     two = _result(project_path, unit_id="two", video_path=second, duration=1.0, transition="fade")
-    draft_dir = tmp_path / "drafts" / "transition"
-
-    JianyingDraftService.__new__(JianyingDraftService)._generate_draft(
-        draft_dir=draft_dir,
-        draft_name="transition",
-        presentations=(
-            StagedPresentation(value=one, video_path=str(first), narration_audio_path=None),
-            StagedPresentation(value=two, video_path=str(second), narration_audio_path=None),
-        ),
-        width=1920,
-        height=1080,
+    archive = await JianyingDraftService(pm, presentation_reader=_Reader((one, two))).export_episode_draft(
+        "demo", 1, "/mock/JianyingDrafts"
     )
 
-    content = _read_draft(draft_dir)
+    content = _read_draft_archive(archive)
     track = next(candidate for candidate in content["tracks"] if candidate.get("type") == "video")
     assert [segment["volume"] for segment in track["segments"]] == pytest.approx([1.0, 1.0])
     transitions = content.get("materials", {}).get("transitions", [])
@@ -257,23 +249,6 @@ async def test_export_revalidates_shared_media_path_inside_project(tmp_path: Pat
         await service.export_episode_draft("demo", 1, "/mock/JianyingDrafts")
 
 
-def test_replace_paths_walks_nested_json(tmp_path: Path) -> None:
-    path = tmp_path / "draft_content.json"
-    path.write_text(
-        json.dumps({"items": [{"path": "/tmp/stage/a.mp4"}], "other": "unchanged"}),
-        encoding="utf-8",
-    )
-
-    JianyingDraftService.__new__(JianyingDraftService)._replace_paths_in_draft(
-        json_path=path,
-        tmp_prefix="/tmp/stage",
-        target_prefix="/Users/test/drafts/demo/assets",
-    )
-
-    value = json.loads(path.read_text(encoding="utf-8"))
-    assert value == {"items": [{"path": "/Users/test/drafts/demo/assets/a.mp4"}], "other": "unchanged"}
-
-
 @pytest.mark.parametrize(
     ("project", "expected"),
     [
@@ -282,5 +257,55 @@ def test_replace_paths_walks_nested_json(tmp_path: Path) -> None:
         ({"aspect_ratio": "16:9"}, (1920, 1080)),
     ],
 )
-def test_canvas_size_uses_project_aspect_ratio(project: dict, expected: tuple[int, int]) -> None:
-    assert JianyingDraftService.__new__(JianyingDraftService)._resolve_canvas_size(project) == expected
+async def test_export_canvas_uses_project_aspect_ratio(
+    tmp_path: Path,
+    project: dict,
+    expected: tuple[int, int],
+) -> None:
+    pm, project_path = _project(tmp_path, aspect_ratio=project["aspect_ratio"])
+    video = project_path / "versions" / "videos" / "unit.mp4"
+    video.parent.mkdir(parents=True)
+    make_test_video(video, duration_sec=1.0)
+    value = _result(project_path, unit_id="unit", video_path=video, duration=1.0)
+
+    archive = await JianyingDraftService(pm, presentation_reader=_Reader((value,))).export_episode_draft(
+        "demo", 1, "/mock/JianyingDrafts"
+    )
+
+    content = _read_draft_archive(archive)
+    assert (content["canvas_config"]["width"], content["canvas_config"]["height"]) == expected
+
+
+async def test_export_keeps_unverified_manual_upload_raw_without_speech_tracks(tmp_path: Path) -> None:
+    pm, project_path = _project(tmp_path)
+    video = project_path / "versions" / "videos" / "manual.mp4"
+    video.parent.mkdir(parents=True)
+    make_test_video(video, duration_sec=1.0)
+    presentation = materialize_raw_video_presentation(
+        unit_id="manual",
+        video=RawPresentationMedia(
+            artifact_path=video.relative_to(project_path).as_posix(),
+            version=4,
+            selection="current",
+            content_digest=f"sha256-v1:{'a' * 64}",
+            actual_duration_seconds=1.0,
+        ),
+    )
+    value = MaterializedPresentation(
+        episode=1,
+        resource_type="videos",
+        script_file="episode_1.json",
+        transition_to_next="cut",
+        presentation=presentation,
+        subtitle_artifact_path=None,
+        presentation_artifact_path=None,
+    )
+
+    archive = await JianyingDraftService(pm, presentation_reader=_Reader((value,))).export_episode_draft(
+        "demo", 1, "/mock/JianyingDrafts", variant=USE_TTS
+    )
+
+    content = _read_draft_archive(archive)
+    assert [track["type"] for track in content["tracks"]] == ["video"]
+    with zipfile.ZipFile(archive) as package:
+        assert any(name.endswith("/assets/manual.mp4") for name in package.namelist())

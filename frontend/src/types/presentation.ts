@@ -13,8 +13,8 @@ export interface PresentationMedia {
   artifact_path: string;
   version: number;
   selection: PresentationSelection;
-  currency: PresentationCurrency;
-  basis: ArtifactBasisDescriptor;
+  currency: PresentationCurrency | null;
+  basis: ArtifactBasisDescriptor | null;
   content_digest: string;
   actual_duration_seconds: number;
 }
@@ -42,6 +42,7 @@ export interface PresentationSubtitleCue {
 
 export interface PresentationReadModel {
   schema_version: 1;
+  provenance: "verified" | "unavailable";
   episode: number;
   resource_type: PresentationResourceType;
   script_file: string;
@@ -51,16 +52,17 @@ export interface PresentationReadModel {
   persisted: boolean;
   unit_id: string;
   variant: PresentationVariant;
-  speech_mode: "silent" | "character_speech" | "narrator_voiceover";
+  speech_mode: "silent" | "character_speech" | "narrator_voiceover" | null;
   selection: PresentationSelection;
-  currency: PresentationCurrency;
+  currency: PresentationCurrency | null;
   video: PresentationVideoTrack;
   narration_audio: PresentationNarrationTrack | null;
   subtitles: PresentationSubtitleCue[];
-  subtitle_basis: ArtifactBasisDescriptor;
-  presentation_basis: ArtifactBasisDescriptor;
-  timing: "mechanical";
+  subtitle_basis: ArtifactBasisDescriptor | null;
+  presentation_basis: ArtifactBasisDescriptor | null;
+  timing: "mechanical" | null;
   subtitles_adjustable: boolean;
+  subtitles_webvtt: string | null;
 }
 
 export interface PresentationRequestOptions {

@@ -7,7 +7,6 @@ import { useProjectsStore } from "@/stores/projects-store";
 import type {
   PresentationReadModel,
   PresentationResourceType,
-  PresentationSubtitleCue,
   PresentationVariant,
 } from "@/types/presentation";
 import { errMsg } from "@/utils/async";
@@ -24,9 +23,11 @@ interface PresentationPlayerProps {
 }
 
 interface PresentationLoadState {
+  resourceKey: string;
   requestKey: string;
   presentation: PresentationReadModel | null;
   error: string | null;
+  supportsVariants: boolean;
 }
 
 export function PresentationPlayer({
@@ -45,9 +46,11 @@ export function PresentationPlayer({
   const requestEpochRef = useRef(0);
   const [variant, setVariant] = useState<PresentationVariant>(initialVariant);
   const [loadState, setLoadState] = useState<PresentationLoadState>({
+    resourceKey: "",
     requestKey: "",
     presentation: null,
     error: null,
+    supportsVariants: false,
   });
   const [downloading, setDownloading] = useState(false);
   const [positionMicroseconds, setPositionMicroseconds] = useState(0);
@@ -56,9 +59,13 @@ export function PresentationPlayer({
       ? `videos/scene_${resourceId}.mp4`
       : `reference_videos/${resourceId}.mp4`;
   const fingerprint = useProjectsStore((state) => state.getAssetFingerprint(canonicalPath));
+  const narrationFingerprint = useProjectsStore((state) =>
+    state.getAssetFingerprint(`audio/segment_${resourceId}.wav`),
+  );
   const posterFingerprint = useProjectsStore((state) =>
     posterPath ? state.getAssetFingerprint(posterPath) : null,
   );
+  const resourceKey = JSON.stringify([projectName, resourceType, resourceId, videoVersion, audioVersion]);
   const requestKey = JSON.stringify([
     projectName,
     resourceType,
@@ -67,6 +74,7 @@ export function PresentationPlayer({
     videoVersion,
     audioVersion,
     fingerprint,
+    narrationFingerprint,
   ]);
   const requestMatches = loadState.requestKey === requestKey;
   const presentation = requestMatches ? loadState.presentation : null;
@@ -84,7 +92,13 @@ export function PresentationPlayer({
     })
       .then((value) => {
         if (requestEpochRef.current !== epoch) return;
-        setLoadState({ requestKey, presentation: value, error: null });
+        setLoadState({
+          resourceKey,
+          requestKey,
+          presentation: value,
+          error: null,
+          supportsVariants: value.speech_mode === "narrator_voiceover",
+        });
         setPositionMicroseconds(0);
       })
       .catch((cause: unknown) => {
@@ -94,35 +108,61 @@ export function PresentationPlayer({
         ) {
           return;
         }
-        setLoadState({ requestKey, presentation: null, error: errMsg(cause) });
+        setLoadState((previous) => ({
+          resourceKey,
+          requestKey,
+          presentation: null,
+          error: errMsg(cause),
+          supportsVariants: previous.resourceKey === resourceKey && previous.supportsVariants,
+        }));
       });
     return () => {
       controller.abort();
       if (requestEpochRef.current === epoch) requestEpochRef.current += 1;
     };
-  }, [projectName, resourceType, resourceId, variant, videoVersion, audioVersion, fingerprint, requestKey]);
+  }, [
+    projectName,
+    resourceType,
+    resourceId,
+    variant,
+    videoVersion,
+    audioVersion,
+    fingerprint,
+    narrationFingerprint,
+    resourceKey,
+    requestKey,
+  ]);
 
   const enforceVideoAudioPolicy = useCallback(
     (video: HTMLVideoElement) => {
       if (!presentation) return;
       if (!presentation.video.audio_enabled || presentation.video.gain === 0) {
-        if (video.volume !== 0) video.volume = 0;
         if (!video.muted) video.muted = true;
       }
     },
     [presentation],
   );
 
+  const synchronizeNarrationControls = useCallback(
+    (video: HTMLVideoElement) => {
+      const audio = audioRef.current;
+      const narration = presentation?.narration_audio;
+      if (!audio || !narration || !presentation) return;
+      audio.volume = Math.min(1, video.volume * narration.gain);
+      audio.muted = presentation.video.audio_enabled && presentation.video.gain > 0 ? video.muted : false;
+      audio.playbackRate = video.playbackRate;
+    },
+    [presentation],
+  );
+
   useEffect(() => {
     if (videoRef.current && presentation) {
-      videoRef.current.volume = presentation.video.gain;
+      videoRef.current.volume = presentation.narration_audio?.gain ?? presentation.video.gain;
       videoRef.current.muted = !presentation.video.audio_enabled || presentation.video.gain === 0;
       enforceVideoAudioPolicy(videoRef.current);
+      synchronizeNarrationControls(videoRef.current);
     }
-    if (audioRef.current && presentation?.narration_audio) {
-      audioRef.current.volume = presentation.narration_audio.gain;
-    }
-  }, [enforceVideoAudioPolicy, presentation]);
+  }, [enforceVideoAudioPolicy, presentation, synchronizeNarrationControls]);
 
   const synchronizeNarration = useCallback(
     (play: boolean) => {
@@ -130,6 +170,7 @@ export function PresentationPlayer({
       const audio = audioRef.current;
       const narration = presentation?.narration_audio;
       if (!video || !audio || !narration) return;
+      synchronizeNarrationControls(video);
       const start = narration.start_microseconds / 1_000_000;
       const duration = narration.duration_microseconds / 1_000_000;
       const audioTime = video.currentTime - start;
@@ -140,7 +181,7 @@ export function PresentationPlayer({
       if (Math.abs(audio.currentTime - audioTime) > 0.1) audio.currentTime = audioTime;
       if (play) void audio.play().catch(() => undefined);
     },
-    [presentation],
+    [presentation, synchronizeNarrationControls],
   );
 
   const videoUrl = presentation
@@ -157,7 +198,10 @@ export function PresentationPlayer({
     ? API.getFileUrl(projectName, posterPath, posterFingerprint)
     : undefined;
   const captions = useMemo(
-    () => (presentation ? webvttDataUrl(presentation.subtitles) : undefined),
+    () =>
+      presentation?.subtitles_webvtt
+        ? `data:text/vtt;charset=utf-8,${encodeURIComponent(presentation.subtitles_webvtt)}`
+        : undefined,
     [presentation],
   );
   const activeCue = presentation?.subtitles.find(
@@ -210,10 +254,20 @@ export function PresentationPlayer({
 
   if (!presentation || !videoUrl) {
     return (
-      <div className={`grid h-full w-full place-items-center bg-black/40 p-4 text-center ${className}`}>
+      <div
+        className={`flex h-full w-full flex-col items-center justify-center gap-2 bg-black/40 p-4 text-center ${className}`}
+      >
         <p role="alert" className="text-xs text-amber-200">
           {error || t("presentation_unavailable")}
         </p>
+        {loadState.supportsVariants && (
+          <VariantControls
+            variant={variant}
+            postProductionLabel={t("presentation_post_production")}
+            useTtsLabel={t("presentation_use_tts")}
+            onChoose={chooseVariant}
+          />
+        )}
       </div>
     );
   }
@@ -229,7 +283,11 @@ export function PresentationPlayer({
         playsInline
         preload="metadata"
         muted={!presentation.video.audio_enabled || presentation.video.gain === 0}
-        onVolumeChange={(event) => enforceVideoAudioPolicy(event.currentTarget)}
+        onVolumeChange={(event) => {
+          enforceVideoAudioPolicy(event.currentTarget);
+          synchronizeNarrationControls(event.currentTarget);
+        }}
+        onRateChange={(event) => synchronizeNarrationControls(event.currentTarget)}
         onPlay={() => synchronizeNarration(true)}
         onPause={() => audioRef.current?.pause()}
         onSeeked={() => synchronizeNarration(!videoRef.current?.paused)}
@@ -243,14 +301,15 @@ export function PresentationPlayer({
         <track kind="captions" src={captions} srcLang="und" label={t("presentation_captions")} />
       </video>
       {narrationUrl && (
-        /* eslint-disable-next-line jsx-a11y/media-has-caption -- This hidden synchronized track shares the video's visible captions. */
         <audio
           ref={audioRef}
           src={narrationUrl}
           aria-label={t("presentation_tts_track_aria", { id: presentation.unit_id })}
           preload="metadata"
           className="hidden"
-        />
+        >
+          <track kind="captions" src={captions} srcLang="und" label={t("presentation_captions")} />
+        </audio>
       )}
 
       {activeCue && (
@@ -265,32 +324,35 @@ export function PresentationPlayer({
         <span className="rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold text-white/85">
           {t(`presentation_${presentation.selection}`)}
         </span>
-        <span
-          className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
-            presentation.currency === "current"
-              ? "bg-emerald-950/80 text-emerald-200"
-              : "bg-amber-950/85 text-amber-200"
-          }`}
-        >
-          {t(`presentation_${presentation.currency}`)}
-        </span>
-        <span className="rounded bg-black/70 px-1.5 py-0.5 text-[9px] text-white/70">
-          {t("presentation_mechanical_timing")}
-        </span>
+        {presentation.provenance === "unavailable" && (
+          <span className="rounded bg-amber-950/85 px-1.5 py-0.5 text-[9px] font-semibold text-amber-200">
+            {t("presentation_provenance_unavailable")}
+          </span>
+        )}
+        {presentation.currency && (
+          <span
+            className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
+              presentation.currency === "current"
+                ? "bg-emerald-950/80 text-emerald-200"
+                : "bg-amber-950/85 text-amber-200"
+            }`}
+          >
+            {t(`presentation_${presentation.currency}`)}
+          </span>
+        )}
+        {presentation.timing === "mechanical" && (
+          <span className="rounded bg-black/70 px-1.5 py-0.5 text-[9px] text-white/70">
+            {t("presentation_mechanical_timing")}
+          </span>
+        )}
         <span className="flex-1" />
         {presentation.speech_mode === "narrator_voiceover" && (
-          <div className="flex rounded-md bg-black/70 p-0.5">
-            <VariantButton
-              active={variant === "post_production"}
-              label={t("presentation_post_production")}
-              onClick={() => chooseVariant("post_production")}
-            />
-            <VariantButton
-              active={variant === "use_tts"}
-              label={t("presentation_use_tts")}
-              onClick={() => chooseVariant("use_tts")}
-            />
-          </div>
+          <VariantControls
+            variant={variant}
+            postProductionLabel={t("presentation_post_production")}
+            useTtsLabel={t("presentation_use_tts")}
+            onChoose={chooseVariant}
+          />
         )}
         <button
           type="button"
@@ -311,6 +373,33 @@ export function PresentationPlayer({
   );
 }
 
+function VariantControls({
+  variant,
+  postProductionLabel,
+  useTtsLabel,
+  onChoose,
+}: {
+  variant: PresentationVariant;
+  postProductionLabel: string;
+  useTtsLabel: string;
+  onChoose: (variant: PresentationVariant) => void;
+}) {
+  return (
+    <div className="flex rounded-md bg-black/70 p-0.5">
+      <VariantButton
+        active={variant === "post_production"}
+        label={postProductionLabel}
+        onClick={() => onChoose("post_production")}
+      />
+      <VariantButton
+        active={variant === "use_tts"}
+        label={useTtsLabel}
+        onClick={() => onChoose("use_tts")}
+      />
+    </div>
+  );
+}
+
 function VariantButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
   return (
     <button
@@ -324,26 +413,4 @@ function VariantButton({ active, label, onClick }: { active: boolean; label: str
       {label}
     </button>
   );
-}
-
-function webvttDataUrl(cues: PresentationSubtitleCue[]): string {
-  const lines = ["WEBVTT", ""];
-  cues.forEach((cue, index) => {
-    lines.push(
-      String(index + 1),
-      `${timestamp(cue.start_microseconds)} --> ${timestamp(cue.start_microseconds + cue.duration_microseconds)}`,
-      cue.text,
-      "",
-    );
-  });
-  return `data:text/vtt;charset=utf-8,${encodeURIComponent(lines.join("\n"))}`;
-}
-
-function timestamp(microseconds: number): string {
-  const milliseconds = Math.floor(microseconds / 1_000);
-  const hours = Math.floor(milliseconds / 3_600_000);
-  const minutes = Math.floor((milliseconds % 3_600_000) / 60_000);
-  const seconds = Math.floor((milliseconds % 60_000) / 1_000);
-  const millis = milliseconds % 1_000;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 }
