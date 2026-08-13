@@ -1,0 +1,80 @@
+---
+name: translate-docs
+description: Translate every dirty ArcReel documentation source into English and refresh the translation lockfile.
+disable-model-invocation: true
+---
+
+# Translate Docs
+
+Run this workflow from the repository root. Translate prose directly; the bundled script only discovers source/target pairs and records source fingerprints.
+
+## 1. Discover the batch
+
+Run:
+
+```bash
+node .claude/skills/translate-docs/scripts/translation-lock.mjs status
+```
+
+Treat every reported item as one batch:
+
+- `missing`: create the reported target from the complete source.
+- `stale`: retranslate the complete source into the reported target.
+- `orphan`: delete the reported target if it exists; the later `record` command removes the obsolete lock entry.
+
+Finish discovery only after every item has an explicit action. Never hand-edit `website/i18n/translation.lock.json`.
+
+## 2. Load terminology
+
+Before translating prose, search these truth sources for established English product terms:
+
+- Frontend English locale: `frontend/src/i18n/en/`
+- `README.en.md`
+
+Reuse their exact terminology. Do not create a separate glossary.
+
+When those sources conflict, use the reader-facing official product name. In particular, translate `剪映` as `CapCut`; the frontend locale's `Jianying` wording is a UI-specific inconsistency.
+
+## 3. Translate every dirty source
+
+Translate natural-language prose and link text into clear technical English. Preserve the document's information, tone, section order, lists, tables, and formatting.
+
+Apply these invariants to every file:
+
+- In frontmatter, translate only values of `title`, `description`, and `sidebar_label`. Preserve `id`, `slug`, every other key, and all non-translated values exactly.
+- Preserve fenced code blocks and inline code exactly, including whitespace inside them.
+- Preserve URL destinations exactly. Translate human-readable link text.
+- Preserve `:::` admonition marker lines exactly. Translate prose inside the admonition.
+- Preserve explicit anchor IDs such as `{#deployment}` exactly. Translate their headings.
+- Keep product names, command names, paths, configuration keys, environment variables, identifiers, and version constraints unchanged.
+
+`README.md` maps to `README.en.md`. `CONTRIBUTING.md` maps to `website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md`; base that target on the synchronized `website/docs/dev/contributing.md` so its generated frontmatter and `{#contributing}` anchor remain intact, while the lockfile continues to fingerprint the root source. Other Markdown sources use the exact targets printed by `status`.
+
+Finish this step only when every `missing` or `stale` target is a complete English rendering and every `orphan` target is gone.
+
+## 4. Refresh UI translations
+
+Generate the current Docusaurus message inventory, then translate any Chinese `message` values in the English JSON files:
+
+```bash
+cd website
+pnpm sync-contributing
+pnpm write-translations --locale en
+cd ..
+```
+
+Maintain every generated English JSON file, including `code.json`, navbar/footer JSON, and `docusaurus-plugin-content-docs/current.json`. Preserve JSON keys, `description` values, and placeholders such as `{count}` exactly. Finish when the English inventory has every generated key and no user-facing Chinese message remains.
+
+## 5. Record and verify
+
+After all translations are complete, record LF-normalized SHA-256 fingerprints and verify the batch is clean:
+
+```bash
+node .claude/skills/translate-docs/scripts/translation-lock.mjs record
+node .claude/skills/translate-docs/scripts/translation-lock.mjs status
+cd website
+pnpm typecheck
+pnpm build
+```
+
+`record` refuses to update the lockfile while a target is missing. Completion requires `status` to print `Translations are up to date.`, typecheck to pass, and the build to emit both `build/` and `build/en/` without broken links or anchors.
