@@ -154,7 +154,11 @@ def test_webvtt_projection_collapses_blank_paragraphs_without_changing_canonical
     )
 
     assert presentation.subtitles[0].text == "第一段\n\n第二段"
-    assert presentation.subtitle_artifact_dict()["cues"][0]["text"] == "第一段\n\n第二段"
+    artifact_cues = presentation.subtitle_artifact_dict()["cues"]
+    assert isinstance(artifact_cues, list)
+    artifact_cue = artifact_cues[0]
+    assert isinstance(artifact_cue, dict)
+    assert artifact_cue["text"] == "第一段\n\n第二段"
     assert presentation.subtitles_webvtt() == ("WEBVTT\n\n1\n00:00:00.000 --> 00:00:05.000\n第一段\n第二段\n")
 
 
