@@ -23,6 +23,22 @@ from lib.video_backends.base import ResumeExpiredError
 pytestmark = pytest.mark.unit
 
 
+def _select_formal_video(gen: MediaGenerator):
+    def _commit(staged_file, current_file, duration_seconds, version_metadata):
+        return gen.versions.commit_staged_paid_version(
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            prompt="",
+            staged_file=staged_file,
+            current_file=current_file,
+            select_current=True,
+            duration_seconds=duration_seconds,
+            **version_metadata,
+        )
+
+    return _commit
+
+
 class _FakeVideoResult:
     def __init__(self) -> None:
         self.video_uri = "video-uri-resume"
@@ -319,6 +335,17 @@ async def test_resume_formal_output_uses_same_staged_version_transaction(tmp_pat
     current.parent.mkdir(parents=True)
     current.write_bytes(b"old-current")
 
+    events = []
+
+    async def _prepare(staged_file, duration_seconds, version_metadata):
+        assert staged_file.read_bytes() == b"fake-resume-video"
+        assert duration_seconds == 8
+        events.append("prepared")
+
+    def _commit(*args):
+        events.append("committed")
+        return _select_formal_video(gen)(*args)
+
     output, version, _, _ = await gen.resume_video_async(
         job_id="provider-job-1",
         resource_type="reference_videos",
@@ -326,6 +353,8 @@ async def test_resume_formal_output_uses_same_staged_version_transaction(tmp_pat
         task_id="T-1",
         api_call_id=42,
         formal_output=True,
+        before_formal_commit=_prepare,
+        commit_formal_output=_commit,
         execution_request_digest="d" * 64,
     )
 
@@ -334,6 +363,7 @@ async def test_resume_formal_output_uses_same_staged_version_transaction(tmp_pat
     history = gen.versions.get_versions("reference_videos", "E1U1")
     assert [item["prompt"] for item in history["versions"]] == ["", ""]
     assert history["versions"][-1]["execution_request_digest"] == "d" * 64
+    assert events == ["prepared", "committed"]
 
 
 @pytest.mark.asyncio

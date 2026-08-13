@@ -144,7 +144,7 @@ describe("VersionTimeMachine", () => {
     expect(previewImage.parentElement).toHaveClass("h-80");
   });
 
-  it("previews and downloads historical narration audio without offering restore", async () => {
+  it("previews, downloads, and restores historical narration audio", async () => {
     vi.spyOn(API, "getVersions").mockResolvedValue({
       resource_type: "audio",
       resource_id: "E1S01",
@@ -168,14 +168,13 @@ describe("VersionTimeMachine", () => {
         },
       ],
     });
-    const restore = vi.spyOn(API, "restoreVersion");
+    const restore = vi.spyOn(API, "restoreVersion").mockResolvedValue({ success: true });
 
     render(
       <VersionTimeMachine
         projectName="demo"
         resourceType="audio"
         resourceId="E1S01"
-        readOnly
       />,
     );
 
@@ -187,8 +186,10 @@ describe("VersionTimeMachine", () => {
       "/api/v1/files/demo/versions/audio/E1S01_v1.wav",
     );
     expect(screen.getByRole("link", { name: /下载音频/ })).toHaveAttribute("download");
-    expect(screen.queryByRole("button", { name: /切换到此版本/ })).not.toBeInTheDocument();
-    expect(restore).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /切换到此版本/ }));
+    await waitFor(() => {
+      expect(restore).toHaveBeenCalledWith("demo", "audio", "E1S01", 1);
+    });
   });
 
   it("disables version restore while the resource is busy (image_edit in flight)", async () => {

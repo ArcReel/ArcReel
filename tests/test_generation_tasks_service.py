@@ -734,6 +734,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         item = fake_pm.script["segments"][0]
+        item["novel_text"] = "旁白正文"
         current_prompt = {"action": "current action", "camera_motion": "Static", "dialogue": []}
         item["video_prompt"] = current_prompt
         item["duration_seconds"] = 8
@@ -751,6 +752,9 @@ class TestGenerationTasks:
                 metadata = await kwargs["before_submit"](41)
                 assert metadata is not None
                 submitted["metadata"] = metadata
+                from lib.version_manager import PaidVersionCommit
+
+                kwargs["commit_formal_output"].outcome = PaidVersionCommit(version=2, selected=True)
                 return project_path / "videos" / "scene_E1S01.mp4", 2, "ref", "uri"
 
         fake_generator = _CheckpointingGenerator()
@@ -940,8 +944,6 @@ class TestGenerationTasks:
             fake_prepare_current_narrated_video_duration,
         )
         monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
-        output_guard = AsyncMock()
-        monkeypatch.setattr(generation_tasks, "require_generated_video_covers_current_tts", output_guard)
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
         payload = {
@@ -955,7 +957,6 @@ class TestGenerationTasks:
 
         await generation_tasks.execute_video_task("demo", "E1S01", payload)
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
-        output_guard.assert_awaited_once()
         assert len(seen_lane_requests) == 1
         assert seen_lane_requests[0]["video"] is not None
         assert seen_lane_requests[0]["audio"] is not None
@@ -977,6 +978,13 @@ class TestGenerationTasks:
         monkeypatch,
         tmp_path,
     ):
+        from lib.artifact_manifest import (
+            ArtifactBasis,
+            ArtifactBasisDescriptor,
+            ArtifactKey,
+            ArtifactManifest,
+            ProjectArtifactManifestAdapter,
+        )
         from lib.version_manager import VersionManager
 
         project_path = _prepare_files(tmp_path)
@@ -1010,6 +1018,9 @@ class TestGenerationTasks:
             has_utterances=False,
             voice_characters=None,
         )
+        artifact_video_basis = ArtifactBasisDescriptor.from_basis(
+            ArtifactBasis.build("artifact-components/video", kind_version=1, inputs={"unit": "E1S01"})
+        )
         selected_version = fake_generator.versions.add_version(
             "videos",
             "E1S01",
@@ -1017,6 +1028,13 @@ class TestGenerationTasks:
             source_file=current,
             duration_seconds=8,
             visual_basis_digest=visual_basis.digest,
+            artifact_episode=1,
+            artifact_video_basis=artifact_video_basis.to_dict(),
+        )
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register_descriptor(
+            ArtifactKey.episode_video(1, "E1S01"),
+            artifact_path="videos/scene_E1S01.mp4",
+            basis=artifact_video_basis,
         )
         script_before = copy.deepcopy(fake_pm.script)
         history_before = copy.deepcopy(fake_generator.versions.get_versions("videos", "E1S01"))
@@ -1056,10 +1074,8 @@ class TestGenerationTasks:
             "server.services.narration_delivery_tasks.probe_existing_media_duration_seconds",
             AsyncMock(return_value=8.0),
         )
-        output_guard = AsyncMock()
         fake_queue = type("Queue", (), {})()
         fake_queue.persist_execution_checkpoint = AsyncMock()
-        monkeypatch.setattr(generation_tasks, "require_generated_video_covers_current_tts", output_guard)
         monkeypatch.setattr(generation_tasks, "get_generation_queue", lambda: fake_queue)
 
         result = await generation_tasks.execute_video_task(
@@ -1082,7 +1098,6 @@ class TestGenerationTasks:
         assert fake_generator.video_calls == []
         fake_queue.persist_execution_checkpoint.assert_not_awaited()
         assert not (project_path / ".arcreel" / "tasks" / "task-reuse" / "provider_media").exists()
-        output_guard.assert_not_awaited()
         assert fake_pm.script == script_before
         assert fake_generator.versions.get_versions("videos", "E1S01") == history_before
         assert current.read_bytes() == b"existing-paid-video"

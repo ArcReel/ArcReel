@@ -15,6 +15,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from lib.artifact_manifest import (
+    ArtifactBasisDescriptor,
+    ArtifactKey,
+    ArtifactManifestEntry,
+    ArtifactManifestError,
+    ProjectArtifactManifestAdapter,
+)
 from lib.audio_utils import probe_existing_media_duration_seconds
 from lib.config.resolver import ConfigResolver, VideoCapability
 from lib.db import async_session_factory
@@ -108,14 +115,8 @@ def _selected_current_video_record(
     resource_id: str,
     visual_basis_digest: str | None,
 ) -> tuple[str, Path, dict[str, Any], int] | None:
-    if item.get("stale"):
-        return None
-    assets = item.get("generated_assets")
-    if not isinstance(assets, dict) or assets.get("status") != "completed":
-        return None
+    del item  # Script path/status fields are presentation metadata, not artifact currency.
     canonical_rel = resource_relative_path(resource_type, resource_id)
-    if assets.get("video_clip") != canonical_rel:
-        return None
 
     formal_file = try_safe_join(project_path, canonical_rel, require_file=True)
     if formal_file is None:
@@ -138,6 +139,24 @@ def _selected_current_video_record(
         None,
     )
     if current_record is None:
+        return None
+    episode = current_record.get("artifact_episode")
+    try:
+        recorded_basis = ArtifactBasisDescriptor.from_dict(current_record.get("artifact_video_basis"))
+    except (TypeError, ValueError):
+        return None
+    if type(episode) is not int or episode < 1 or recorded_basis.kind != "artifact-components/video":
+        return None
+    try:
+        manifest_entry = ProjectArtifactManifestAdapter(project_path).get_entry(
+            ArtifactKey.episode_video(episode, resource_id)
+        )
+    except ArtifactManifestError:
+        return None
+    if manifest_entry != ArtifactManifestEntry(
+        artifact_path=canonical_rel,
+        basis_digest=recorded_basis.digest,
+    ):
         return None
     if not visual_basis_digest or current_record.get("visual_basis_digest") != visual_basis_digest:
         return None
@@ -785,6 +804,37 @@ async def require_generated_video_covers_current_tts(
 ) -> None:
     """Reject a paid video unless it covers the latest current TTS in full."""
 
+    try:
+        await validate_generated_video_covers_current_tts(
+            project_name=project_name,
+            script_file=script_file,
+            request_duration_seconds=request_duration_seconds,
+            output_path=output_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+    except NarratedVideoDurationBlockedError:
+        await asyncio.to_thread(
+            versions.reject_current_version,
+            resource_type,
+            resource_id,
+            rejected_version=version,
+            current_file=output_path,
+        )
+        raise
+
+
+async def validate_generated_video_covers_current_tts(
+    *,
+    project_name: str,
+    script_file: str,
+    request_duration_seconds: int,
+    output_path: Path,
+    resource_type: str,
+    resource_id: str,
+) -> None:
+    """Validate staged paid media before it can become the formal selection."""
+
     narration = await _prepare_current_task_narration_delivery(
         project_name=project_name,
         script_file=script_file,
@@ -806,13 +856,6 @@ async def require_generated_video_covers_current_tts(
     )
     if checked.allowed:
         return
-    await asyncio.to_thread(
-        versions.reject_current_version,
-        resource_type,
-        resource_id,
-        rejected_version=version,
-        current_file=output_path,
-    )
     raise NarratedVideoDurationBlockedError(checked)
 
 
@@ -878,6 +921,7 @@ __all__ = [
     "prepare_current_reference_video_request_options",
     "ResolvedTtsSettingsResolver",
     "require_generated_video_covers_current_tts",
+    "validate_generated_video_covers_current_tts",
     "reuse_current_video_for_tier",
     "tts_task_in_progress",
 ]

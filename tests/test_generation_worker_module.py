@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
+from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor, compose_video_artifact_basis
 from lib.db import Base
 from lib.generation_worker import (
     _ORPHAN_RESCAN_LEASE_LOST_MULT,
@@ -39,6 +39,19 @@ def _phase_ids(slots: SlotTable, provider: str, media: str) -> tuple[set[str], s
 def _worker_reference_checkpoint(task_id: str, *, provider_id: str = "ark") -> str:
     from lib.reference_video.execution_checkpoint import NarrationExecutionFacts, ReferenceSubmissionCheckpoint
 
+    visual = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U1"})
+    )
+    speech = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    )
+    duration = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build(
+            "artifact-speech/video-duration",
+            kind_version=1,
+            inputs={"request_duration_seconds": 8},
+        )
+    )
     return ReferenceSubmissionCheckpoint.create(
         task_id=task_id,
         project_name="demo",
@@ -58,9 +71,16 @@ def _worker_reference_checkpoint(task_id: str, *, provider_id: str = "ark") -> s
         service_tier="default",
         seed=None,
         visual_basis_digest="a" * 64,
-        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
-            ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U1"})
+        artifact_episode=1,
+        artifact_visual_basis=visual,
+        artifact_speech_basis=speech,
+        artifact_duration_basis=duration,
+        artifact_video_basis=ArtifactBasisDescriptor.from_basis(
+            compose_video_artifact_basis(visual=visual, speech=speech, duration=duration)
         ),
+        artifact_voice_style_speakers=(),
+        artifact_duration_tiers=(8,),
+        artifact_reference_image_limit=None,
         narration=NarrationExecutionFacts(
             delivery="post_production",
             tts_status="not_applicable",
@@ -80,6 +100,19 @@ def _worker_storyboard_checkpoint(task_id: str, *, provider_id: str = "ark") -> 
         StoryboardSubmissionCheckpoint,
     )
 
+    visual = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+    )
+    speech = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    )
+    duration = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build(
+            "artifact-speech/video-duration",
+            kind_version=1,
+            inputs={"request_duration_seconds": 8},
+        )
+    )
     return StoryboardSubmissionCheckpoint.create(
         task_id=task_id,
         project_name="demo",
@@ -99,9 +132,16 @@ def _worker_storyboard_checkpoint(task_id: str, *, provider_id: str = "ark") -> 
         service_tier="default",
         seed=None,
         visual_basis_digest="a" * 64,
-        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
-            ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+        artifact_episode=1,
+        artifact_visual_basis=visual,
+        artifact_speech_basis=speech,
+        artifact_duration_basis=duration,
+        artifact_video_basis=ArtifactBasisDescriptor.from_basis(
+            compose_video_artifact_basis(visual=visual, speech=speech, duration=duration)
         ),
+        artifact_voice_style_speakers=(),
+        artifact_duration_tiers=(8,),
+        artifact_reference_image_limit=None,
         narration=NarrationExecutionFacts(
             delivery="post_production",
             tts_status="not_applicable",

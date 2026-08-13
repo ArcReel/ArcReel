@@ -38,7 +38,7 @@ from lib.ledger import Ledger
 from lib.path_safety import PathTraversalError, safe_join
 from lib.providers import CallType, require_provider_pair
 from lib.resource_paths import resource_relative_path
-from lib.version_manager import VersionManager
+from lib.version_manager import PaidVersionCommit, VersionManager
 
 logger = logging.getLogger(__name__)
 
@@ -224,28 +224,41 @@ class MediaGenerator:
         staged_output_path: Path | None,
         duration_seconds: int,
         version_metadata: Mapping[str, Any],
-    ) -> int:
+        commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
+    ) -> PaidVersionCommit:
         """Register a normal or resumed video through one identical formal-output commit path."""
 
         if staged_output_path is None:
-            return self.versions.add_version(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                prompt=prompt,
-                source_file=output_path,
-                duration_seconds=duration_seconds,
-                **version_metadata,
+            return PaidVersionCommit(
+                version=self.versions.add_version(
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    prompt=prompt,
+                    source_file=output_path,
+                    duration_seconds=duration_seconds,
+                    **version_metadata,
+                ),
+                selected=True,
             )
         try:
-            return self.versions.commit_staged_version(
+            if commit_formal_output is not None:
+                return commit_formal_output(
+                    staged_output_path,
+                    output_path,
+                    duration_seconds,
+                    version_metadata,
+                )
+            self.versions.commit_staged_paid_version(
                 resource_type=resource_type,
                 resource_id=resource_id,
                 prompt=prompt,
                 staged_file=staged_output_path,
                 current_file=output_path,
+                select_current=False,
                 duration_seconds=duration_seconds,
                 **version_metadata,
             )
+            raise RuntimeError("formal video output requires an artifact commit callback")
         finally:
             staged_output_path.unlink(missing_ok=True)
 
@@ -532,7 +545,7 @@ class MediaGenerator:
         language_type: str = "Chinese",
         speed: float | None = None,
         before_commit: Callable[[Path], Awaitable[None]] | None = None,
-        commit_staged: Callable[[Path, Path], int] | None = None,
+        commit_staged: Callable[[Path, Path], int | PaidVersionCommit] | None = None,
         **version_metadata,
     ) -> tuple[Path, int]:
         """
@@ -600,6 +613,7 @@ class MediaGenerator:
             if before_commit is not None:
                 await before_commit(staged_path)
             commit = commit_staged
+            selected_current = True
             if commit is None:
                 version = self.versions.commit_staged_version(
                     resource_type=resource_type,
@@ -610,8 +624,13 @@ class MediaGenerator:
                     **version_metadata,
                 )
             else:
-                version = commit(staged_path, output_path)
-            if not output_path.is_file():
+                committed = commit(staged_path, output_path)
+                if isinstance(committed, PaidVersionCommit):
+                    version = committed.version
+                    selected_current = committed.selected
+                else:
+                    version = committed
+            if selected_current and not output_path.is_file():
                 raise RuntimeError("audio commit completed without a regular formal output file")
             return output_path, version
         finally:
@@ -687,6 +706,8 @@ class MediaGenerator:
         task_id: str | None = None,
         before_submit: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = None,
         formal_output: bool = False,
+        before_formal_commit: Callable[[Path, int, Mapping[str, Any]], Awaitable[None]] | None = None,
+        commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """
@@ -814,6 +835,8 @@ class MediaGenerator:
             formal_output=formal_output,
             task_id=task_id,
         )
+        if before_formal_commit is not None and staged_output_path is None:
+            raise ValueError("before_formal_commit requires formal video output")
 
         # video 实际计费时长（result.duration_seconds）覆盖请求时长的语义转写已收进 ledger union
         # 分发（_settlement_from_result），此处仅递交 backend 结果对象。
@@ -916,8 +939,12 @@ class MediaGenerator:
             video_uri = result.video_uri
             call.success(result)
 
+        if before_formal_commit is not None:
+            assert staged_output_path is not None
+            await before_formal_commit(staged_output_path, duration_int, version_metadata)
+
         # 5. 记录新版本
-        new_version = self._commit_video_output_version(
+        committed = self._commit_video_output_version(
             resource_type=resource_type,
             resource_id=resource_id,
             prompt=prompt,
@@ -925,9 +952,10 @@ class MediaGenerator:
             staged_output_path=staged_output_path,
             duration_seconds=duration_int,
             version_metadata=version_metadata,
+            commit_formal_output=commit_formal_output,
         )
 
-        return output_path, new_version, video_ref, video_uri
+        return output_path, committed.version, video_ref, video_uri
 
     async def resume_video_async(
         self,
@@ -943,6 +971,8 @@ class MediaGenerator:
         api_call_id: int | None = None,
         submitted_base_url: str | None = None,
         formal_output: bool = False,
+        before_formal_commit: Callable[[Path, int, Mapping[str, Any]], Awaitable[None]] | None = None,
+        commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """接续 provider 上已发起的 video job：调 backend.resume_video 而非 generate。
@@ -987,6 +1017,8 @@ class MediaGenerator:
             formal_output=formal_output,
             task_id=task_id,
         )
+        if before_formal_commit is not None and staged_output_path is None:
+            raise ValueError("before_formal_commit requires formal video output")
 
         from lib.video_backends.base import ResumeExpiredError, VideoGenerationRequest
 
@@ -1051,7 +1083,11 @@ class MediaGenerator:
         # - versions.json 空时（submit→poll 中崩）add_version 直接登记 v1，避免下游 versions[-1] IndexError；
         # - versions.json 已有 v_n（覆盖式重新生成）时 add_version 登记 v_(n+1)，避免 output_path
         #   被新内容覆盖却仍报旧版本号导致 versions.json 与磁盘文件错位。
-        new_version = self._commit_video_output_version(
+        if before_formal_commit is not None:
+            assert staged_output_path is not None
+            await before_formal_commit(staged_output_path, duration_int, version_metadata)
+
+        committed = self._commit_video_output_version(
             resource_type=resource_type,
             resource_id=resource_id,
             prompt=prompt,
@@ -1059,6 +1095,7 @@ class MediaGenerator:
             staged_output_path=staged_output_path,
             duration_seconds=duration_int,
             version_metadata=version_metadata,
+            commit_formal_output=commit_formal_output,
         )
 
-        return output_path, new_version, video_ref, video_uri
+        return output_path, committed.version, video_ref, video_uri

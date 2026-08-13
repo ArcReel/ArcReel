@@ -3,7 +3,38 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
+from lib.artifact_manifest import (
+    ArtifactBasis,
+    ArtifactBasisDescriptor,
+    ArtifactKey,
+    ArtifactManifest,
+    ProjectArtifactManifestAdapter,
+)
 from server.services import narration_delivery_tasks
+
+
+def _typed_video_metadata(
+    project_path: Path,
+    *,
+    resource_id: str,
+    artifact_path: str,
+    visual_basis_digest: str,
+    register: bool = True,
+) -> dict[str, object]:
+    descriptor = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-components/video", kind_version=1, inputs={"resource_id": resource_id})
+    )
+    if register:
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register_descriptor(
+            ArtifactKey.episode_video(1, resource_id),
+            artifact_path=artifact_path,
+            basis=descriptor,
+        )
+    return {
+        "artifact_episode": 1,
+        "artifact_video_basis": descriptor.to_dict(),
+        "visual_basis_digest": visual_basis_digest,
+    }
 
 
 @pytest.mark.unit
@@ -265,14 +296,20 @@ async def test_current_visual_is_reused_only_for_the_selected_trusted_duration_t
         "prompt",
         source_file=current,
         duration_seconds=8,
-        visual_basis_digest="current-visual-basis",
+        **_typed_video_metadata(
+            tmp_path,
+            resource_id="E1S01",
+            artifact_path="videos/scene_E1S01.mp4",
+            visual_basis_digest="current-visual-basis",
+        ),
     )
     item = {
         "generated_assets": {
-            "status": "completed",
-            "video_clip": "videos/scene_E1S01.mp4",
+            "status": "pending",
+            "video_clip": "legacy/wrong-path.mp4",
             "video_uri": "provider://video/1",
-        }
+        },
+        "stale": True,
     }
 
     monkeypatch.setattr(
@@ -352,7 +389,12 @@ async def test_current_visual_tier_is_retained_when_media_is_too_short_for_curre
         "prompt",
         source_file=current,
         duration_seconds=4,
-        visual_basis_digest="current-visual-basis",
+        **_typed_video_metadata(
+            tmp_path,
+            resource_id="E1S01",
+            artifact_path="videos/scene_E1S01.mp4",
+            visual_basis_digest="current-visual-basis",
+        ),
     )
     item = {
         "generated_assets": {
@@ -399,7 +441,7 @@ async def test_current_visual_tier_is_retained_when_media_is_too_short_for_curre
     "unsafe_state",
     [
         "missing_metadata",
-        "stale",
+        "missing_manifest",
         "wrong_tier",
         "unselected_bytes",
         "short_media",
@@ -421,15 +463,23 @@ async def test_current_visual_without_reusable_current_media_is_not_reused(
     metadata = (
         {}
         if unsafe_state == "missing_metadata"
-        else {"duration_seconds": 8, "visual_basis_digest": "recorded-visual-basis"}
+        else {
+            "duration_seconds": 8,
+            **_typed_video_metadata(
+                tmp_path,
+                resource_id="E1U1",
+                artifact_path="reference_videos/E1U1.mp4",
+                visual_basis_digest="recorded-visual-basis",
+                register=unsafe_state != "missing_manifest",
+            ),
+        }
     )
     versions.add_version("reference_videos", "E1U1", "prompt", source_file=current, **metadata)
     item = {
         "generated_assets": {
             "status": "completed",
             "video_clip": "reference_videos/E1U1.mp4",
-        },
-        "stale": unsafe_state == "stale",
+        }
     }
     request_duration = 12 if unsafe_state == "wrong_tier" else 8
     if unsafe_state == "unselected_bytes":

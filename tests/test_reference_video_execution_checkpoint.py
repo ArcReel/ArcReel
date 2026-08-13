@@ -10,7 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from lib.artifact_manifest import MANIFEST_FILENAME, ArtifactBasis, ArtifactBasisDescriptor
+from lib.artifact_manifest import (
+    MANIFEST_FILENAME,
+    ArtifactBasis,
+    ArtifactBasisDescriptor,
+    compose_video_artifact_basis,
+)
 from lib.path_safety import PathTraversalError
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
@@ -59,6 +64,13 @@ def _stage_inputs(project_path: Path) -> tuple[ProviderMediaInput, ...]:
 
 def _checkpoint(project_path: Path) -> ReferenceSubmissionCheckpoint:
     staged = stage_provider_media(project_path, "task-1", _stage_inputs(project_path))
+    visual = ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U1"})
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"speaker": "Alice"})
+    duration = ArtifactBasis.build(
+        "artifact-speech/video-duration",
+        kind_version=1,
+        inputs={"request_duration_seconds": 8},
+    )
     return ReferenceSubmissionCheckpoint.create(
         task_id="task-1",
         project_name="demo",
@@ -78,9 +90,16 @@ def _checkpoint(project_path: Path) -> ReferenceSubmissionCheckpoint:
         service_tier="default",
         seed=None,
         visual_basis_digest="a" * 64,
-        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
-            ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U1"})
+        artifact_episode=1,
+        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(visual),
+        artifact_speech_basis=ArtifactBasisDescriptor.from_basis(speech),
+        artifact_duration_basis=ArtifactBasisDescriptor.from_basis(duration),
+        artifact_video_basis=ArtifactBasisDescriptor.from_basis(
+            compose_video_artifact_basis(visual=visual, speech=speech, duration=duration)
         ),
+        artifact_voice_style_speakers=("Alice",),
+        artifact_duration_tiers=(4, 8, 12),
+        artifact_reference_image_limit=3,
         narration=NarrationExecutionFacts(
             delivery="use_tts",
             tts_status="current",
@@ -253,11 +272,19 @@ def test_checkpoint_round_trip_is_versioned_strict_and_self_authenticating(tmp_p
     assert restored.media[0].source_locator == "characters/Alice.png"
     assert restored.narration.actual_duration_seconds == 6.25
     assert restored.artifact_visual_basis == artifact_visual_basis
+    assert restored.artifact_speech_basis is not None
+    assert restored.artifact_duration_basis is not None
+    assert restored.artifact_video_basis is not None
+    assert restored.artifact_episode == 1
+    assert restored.artifact_voice_style_speakers == ("Alice",)
+    assert restored.artifact_duration_tiers == (4, 8, 12)
+    assert restored.artifact_reference_image_limit == 3
     assert checkpoint_version_metadata(restored)["artifact_visual_basis"] == {
         "kind": "artifact-visual/video-reference",
         "kind_version": 1,
         "digest": artifact_visual_basis.digest,
     }
+    assert checkpoint_version_metadata(restored)["artifact_video_basis"] == restored.artifact_video_basis.to_dict()
     assert not (tmp_path / "demo" / MANIFEST_FILENAME).exists()
 
     raw = json.loads(checkpoint.to_json())
@@ -300,13 +327,26 @@ def test_request_digest_is_stable_across_local_ledger_call_ids(tmp_path: Path) -
     assert replay.request_digest == checkpoint.request_digest
 
 
-def test_artifact_visual_basis_does_not_change_execution_request_digest(tmp_path: Path) -> None:
+def test_artifact_currency_facts_do_not_change_execution_request_digest(tmp_path: Path) -> None:
     checkpoint = _checkpoint(tmp_path / "demo")
     changed_artifact_basis = ArtifactBasisDescriptor.from_basis(
         ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U2"})
     )
 
-    with_changed_artifact_basis = replace(checkpoint, artifact_visual_basis=changed_artifact_basis)
+    with_changed_artifact_basis = replace(
+        checkpoint,
+        artifact_visual_basis=changed_artifact_basis,
+        artifact_video_basis=ArtifactBasisDescriptor.from_basis(
+            compose_video_artifact_basis(
+                visual=changed_artifact_basis,
+                speech=checkpoint.artifact_speech_basis,
+                duration=checkpoint.artifact_duration_basis,
+            )
+        ),
+        artifact_voice_style_speakers=("Bob",),
+        artifact_duration_tiers=(8, 16),
+        artifact_reference_image_limit=1,
+    )
 
     assert with_changed_artifact_basis.request_digest == checkpoint.request_digest
 
@@ -324,7 +364,17 @@ def test_reference_checkpoint_rejects_storyboard_artifact_visual_basis(tmp_path:
 def test_legacy_checkpoint_remains_resumable_without_inventing_artifact_basis(tmp_path: Path) -> None:
     raw = json.loads(_checkpoint(tmp_path / "demo").to_json())
     raw["schema_version"] = 1
-    raw.pop("artifact_visual_basis")
+    for field in (
+        "artifact_episode",
+        "artifact_visual_basis",
+        "artifact_speech_basis",
+        "artifact_duration_basis",
+        "artifact_video_basis",
+        "artifact_voice_style_speakers",
+        "artifact_duration_tiers",
+        "artifact_reference_image_limit",
+    ):
+        raw.pop(field)
     digest_payload = {key: value for key, value in raw.items() if key not in {"api_call_id", "request_digest"}}
     raw["request_digest"] = hashlib.sha256(
         json.dumps(
@@ -340,6 +390,36 @@ def test_legacy_checkpoint_remains_resumable_without_inventing_artifact_basis(tm
     assert restored.schema_version == 1
     assert restored.artifact_visual_basis is None
     assert "artifact_visual_basis" not in checkpoint_version_metadata(restored)
+
+
+def test_visual_only_checkpoint_remains_resumable_but_cannot_claim_complete_video_basis(tmp_path: Path) -> None:
+    raw = json.loads(_checkpoint(tmp_path / "demo").to_json())
+    raw["schema_version"] = 2
+    for field in (
+        "artifact_episode",
+        "artifact_speech_basis",
+        "artifact_duration_basis",
+        "artifact_video_basis",
+        "artifact_voice_style_speakers",
+        "artifact_duration_tiers",
+        "artifact_reference_image_limit",
+    ):
+        raw.pop(field)
+    digest_payload = {
+        key: value
+        for key, value in raw.items()
+        if key not in {"api_call_id", "request_digest", "artifact_visual_basis"}
+    }
+    raw["request_digest"] = hashlib.sha256(
+        json.dumps(digest_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+    restored = ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
+
+    assert restored.schema_version == 2
+    assert restored.artifact_visual_basis is not None
+    assert restored.artifact_video_basis is None
+    assert "artifact_video_basis" not in checkpoint_version_metadata(restored)
 
 
 def test_checkpoint_rejects_incoherent_narration_and_media_facts(tmp_path: Path) -> None:
@@ -391,7 +471,14 @@ def test_checkpoint_rejects_noncanonical_staged_locator_and_wrong_identity(tmp_p
             service_tier=checkpoint.service_tier,
             seed=checkpoint.seed,
             visual_basis_digest=checkpoint.visual_basis_digest,
+            artifact_episode=checkpoint.artifact_episode,
             artifact_visual_basis=artifact_visual_basis,
+            artifact_speech_basis=checkpoint.artifact_speech_basis,
+            artifact_duration_basis=checkpoint.artifact_duration_basis,
+            artifact_video_basis=checkpoint.artifact_video_basis,
+            artifact_voice_style_speakers=checkpoint.artifact_voice_style_speakers,
+            artifact_duration_tiers=checkpoint.artifact_duration_tiers,
+            artifact_reference_image_limit=checkpoint.artifact_reference_image_limit,
             narration=checkpoint.narration,
             media=(wrong_task, *checkpoint.media[1:]),
             reference_audio_targets=checkpoint.reference_audio_targets,
@@ -479,9 +566,36 @@ def test_storyboard_checkpoint_round_trip_and_four_resume_states(tmp_path: Path)
         service_tier="default",
         seed=123,
         visual_basis_digest="c" * 64,
-        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
-            ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+        artifact_episode=1,
+        artifact_visual_basis=(
+            storyboard_visual := ArtifactBasisDescriptor.from_basis(
+                ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+            )
         ),
+        artifact_speech_basis=(
+            storyboard_speech := ArtifactBasisDescriptor.from_basis(
+                ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+            )
+        ),
+        artifact_duration_basis=(
+            storyboard_duration := ArtifactBasisDescriptor.from_basis(
+                ArtifactBasis.build(
+                    "artifact-speech/video-duration",
+                    kind_version=1,
+                    inputs={"request_duration_seconds": 8},
+                )
+            )
+        ),
+        artifact_video_basis=ArtifactBasisDescriptor.from_basis(
+            compose_video_artifact_basis(
+                visual=storyboard_visual,
+                speech=storyboard_speech,
+                duration=storyboard_duration,
+            )
+        ),
+        artifact_voice_style_speakers=(),
+        artifact_duration_tiers=(4, 8, 12),
+        artifact_reference_image_limit=None,
         narration=NarrationExecutionFacts(
             delivery="post_production",
             tts_status="not_applicable",

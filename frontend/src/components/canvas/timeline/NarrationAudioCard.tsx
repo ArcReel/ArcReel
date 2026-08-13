@@ -67,7 +67,7 @@ export function NarrationAudioCard({
               resourceType="audio"
               resourceId={segmentId}
               iconOnly
-              readOnly
+              busy={Boolean(generating)}
             />
           </div>
         )}

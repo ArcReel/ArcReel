@@ -25,6 +25,7 @@ from lib.generation_queue import CompensableGenerationResult
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis, register_narration_audio
 from lib.script_editor import resolve_items
 from lib.speech_composition import admit_script_unit
+from lib.version_manager import PaidVersionCommit
 from server.services import generation_context, generation_tasks
 from server.services.generation_context import AudioLaneResult, GenerationContext
 
@@ -120,6 +121,8 @@ class _FakeAudioGenerator:
         self.versions = self
         self.previous_formal: bytes | None = None
         self.rejected_versions: list[int] = []
+        self.version_records: list[dict[str, Any]] = []
+        self.current_version = 0
 
     async def generate_audio_async(self, **kwargs):
         self.audio_calls.append(kwargs)
@@ -130,7 +133,8 @@ class _FakeAudioGenerator:
         if before_commit := kwargs.get("before_commit"):
             await before_commit(staged)
         if commit_staged := kwargs.get("commit_staged"):
-            version = commit_staged(staged, output)
+            committed = commit_staged(staged, output)
+            version = committed.version if isinstance(committed, PaidVersionCommit) else committed
         else:
             staged.replace(output)
             version = 3
@@ -152,6 +156,53 @@ class _FakeAudioGenerator:
             raise
         return 3
 
+    def commit_staged_paid_version(
+        self,
+        *,
+        resource_type,
+        resource_id,
+        prompt,
+        staged_file,
+        current_file,
+        select_current,
+        on_select=None,
+        **metadata,
+    ):
+        assert resource_type == "audio"
+        previous = current_file.read_bytes() if current_file.is_file() else None
+        self.previous_formal = previous
+        version = max((record["version"] for record in self.version_records), default=2) + 1
+        version_rel = f"versions/audio/{resource_id}_v{version}.wav"
+        version_file = self.project_path / version_rel
+        version_file.parent.mkdir(parents=True, exist_ok=True)
+        version_file.write_bytes(staged_file.read_bytes())
+        record = {
+            "version": version,
+            "file": version_rel,
+            "prompt": prompt,
+            "created_at": "2026-06-01T00:00:00Z",
+            **metadata,
+        }
+        self.version_records.append(record)
+
+        should_select = select_current() if callable(select_current) else select_current
+        if not should_select:
+            staged_file.unlink(missing_ok=True)
+            return PaidVersionCommit(version=version, selected=False)
+
+        staged_file.replace(current_file)
+        try:
+            if on_select is not None:
+                on_select()
+        except BaseException:
+            if previous is None:
+                current_file.unlink(missing_ok=True)
+            else:
+                current_file.write_bytes(previous)
+            raise
+        self.current_version = version
+        return PaidVersionCommit(version=version, selected=True)
+
     def reject_current_version(self, resource_type, resource_id, *, rejected_version, current_file, **kwargs):
         del resource_type, resource_id
         self.rejected_versions.append(rejected_version)
@@ -168,7 +219,16 @@ class _FakeAudioGenerator:
         return {"restored_version": 3}
 
     def get_versions(self, resource_type, resource_id):
-        return {"versions": [{"created_at": "2026-06-01T00:00:00Z"}]}
+        del resource_type, resource_id
+        if self.version_records:
+            return {
+                "current_version": self.current_version,
+                "versions": [
+                    {**record, "is_current": record["version"] == self.current_version}
+                    for record in self.version_records
+                ],
+            }
+        return {"current_version": 3, "versions": [{"version": 3, "created_at": "2026-06-01T00:00:00Z"}]}
 
 
 @pytest.fixture
@@ -223,6 +283,7 @@ class TestExecuteTtsTask:
             "resource_id": "E1S01",
             "duration_seconds": 5.25,
             "tts_basis_digest": None,
+            "selected_current": True,
         }
         call = gen.audio_calls[0]
         assert call["text"] == "你好世界"
@@ -233,9 +294,13 @@ class TestExecuteTtsTask:
 
     async def test_text_from_script_segment_and_writeback(self, tts_env):
         pm, gen = tts_env
-        await generation_tasks.execute_tts_task("demo", "E1S01", {"script_file": "episode_1.json"})
+        result = await generation_tasks.execute_tts_task("demo", "E1S01", {"script_file": "episode_1.json"})
         assert gen.audio_calls[0]["text"] == "却说天下大势，分久必合，合久必分。"
         assert pm.script["segments"][0]["generated_assets"]["narration_audio"] == "audio/segment_E1S01.wav"
+        assert gen.version_records[-1]["artifact_episode"] == 1
+        assert gen.version_records[-1]["artifact_audio_basis"]["digest"] == result["tts_basis_digest"]
+        assert gen.version_records[-1]["tts_actual_duration_seconds"] == 5.25
+        assert gen.version_records[-1]["execution_script_file"] == "episode_1.json"
 
         settings = TtsSynthesisSettings(
             provider_id="dashscope",
@@ -274,7 +339,37 @@ class TestExecuteTtsTask:
 
         pm.rebind_on_next_lock = "scripts/episode_1_rebound.json"
 
-        with pytest.raises(RuntimeError, match="script binding changed"):
+        result = await generation_tasks.execute_tts_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json"},
+            task_id="tts-task",
+        )
+
+        assert formal.read_bytes() == b"paid-old-audio"
+        assert result["selected_current"] is False
+        assert (pm.project_path / result["file_path"]).read_bytes() == b"RIFF-current-audio"
+        assert "generated_assets" not in pm.script["segments"][0]
+
+    async def test_project_transaction_failure_still_archives_paid_audio(
+        self,
+        tts_env,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        pm, gen = tts_env
+        formal = pm.project_path / "audio" / "segment_E1S01.wav"
+        formal.parent.mkdir(parents=True, exist_ok=True)
+        formal.write_bytes(b"paid-old-audio")
+        pm.project["episodes"] = [{"episode": 1, "script_file": "scripts/episode_1.json"}]
+
+        @contextmanager
+        def _failed_transaction(*_args, **_kwargs):
+            raise OSError("project snapshot unavailable")
+            yield
+
+        monkeypatch.setattr(pm, "locked_episode_script", _failed_transaction)
+
+        with pytest.raises(OSError, match="project snapshot unavailable"):
             await generation_tasks.execute_tts_task(
                 "demo",
                 "E1S01",
@@ -283,9 +378,11 @@ class TestExecuteTtsTask:
             )
 
         assert formal.read_bytes() == b"paid-old-audio"
-        assert "generated_assets" not in pm.script["segments"][0]
+        assert len(gen.version_records) == 1
+        assert (pm.project_path / gen.version_records[0]["file"]).read_bytes() == b"RIFF-current-audio"
+        assert gen.current_version == 0
 
-    async def test_narration_change_before_commit_preserves_old_formal_audio_and_basis(
+    async def test_narration_change_before_commit_keeps_paid_history_without_taking_current(
         self,
         tts_env,
         monkeypatch: pytest.MonkeyPatch,
@@ -321,19 +418,69 @@ class TestExecuteTtsTask:
 
         monkeypatch.setattr(gen, "generate_audio_async", _edit_before_commit)
 
-        with pytest.raises(RuntimeError, match="narration changed before TTS commit"):
-            await generation_tasks.execute_tts_task(
-                "demo",
-                "E1S01",
-                {"script_file": "episode_1.json"},
-            )
+        result = await generation_tasks.execute_tts_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json"},
+        )
 
         assert formal.read_bytes() == b"paid-old-audio"
+        assert result["selected_current"] is False
+        assert result["file_path"].startswith("versions/audio/")
+        assert (pm.project_path / result["file_path"]).read_bytes() == b"RIFF-current-audio"
         assert pm.script["segments"][0]["novel_text"] == "合成期间并发改写的旁白。"
         assert pm.script["segments"][0]["generated_assets"] == {
             "narration_audio": "audio/segment_E1S01.wav",
             "status": "pending",
         }
+        assert adapter.get_entry(ArtifactKey.episode_audio(1, "E1S01")) == prior_entry
+
+    async def test_tts_settings_change_before_commit_keeps_paid_history_without_taking_current(
+        self,
+        tts_env,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        pm, gen = tts_env
+        formal = pm.project_path / "audio" / "segment_E1S01.wav"
+        formal.parent.mkdir(parents=True, exist_ok=True)
+        formal.write_bytes(b"paid-old-audio")
+        pm.script["segments"][0]["generated_assets"] = {
+            "narration_audio": "audio/segment_E1S01.wav",
+            "status": "pending",
+        }
+        items, _id_field, kind = resolve_items(pm.script)
+        initial_settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
+        register_narration_audio(
+            project_path=pm.project_path,
+            episode=1,
+            preparation=admit_script_unit(kind, items[0]).preparation,
+            settings=initial_settings,
+        )
+        adapter = ProjectArtifactManifestAdapter(pm.project_path)
+        prior_entry = adapter.get_entry(ArtifactKey.episode_audio(1, "E1S01"))
+        initial_resolver = _audio_ctx(gen, voice="Cherry")
+        changed_resolver = _audio_ctx(gen, voice="Ada")
+        calls = 0
+
+        async def _settings_change(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            resolver = initial_resolver if calls == 1 else changed_resolver
+            return await resolver(*args, **kwargs)
+
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _settings_change)
+
+        result = await generation_tasks.execute_tts_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json"},
+        )
+
+        assert calls == 2
+        assert result["selected_current"] is False
+        assert formal.read_bytes() == b"paid-old-audio"
+        assert (pm.project_path / result["file_path"]).read_bytes() == b"RIFF-current-audio"
+        assert gen.version_records[-1]["tts_voice"] == "Cherry"
         assert adapter.get_entry(ArtifactKey.episode_audio(1, "E1S01")) == prior_entry
 
     async def test_reference_video_unit_uses_its_own_narrator_text_and_manifest_key(self, tts_env):
@@ -451,7 +598,7 @@ class TestExecuteTtsTask:
         monkeypatch,
         measured_duration: float | None,
     ):
-        pm, _gen = tts_env
+        pm, gen = tts_env
         formal = pm.project_path / "audio" / "segment_E1S01.wav"
         formal.parent.mkdir(parents=True, exist_ok=True)
         formal.write_bytes(b"paid-old-audio")
@@ -480,6 +627,9 @@ class TestExecuteTtsTask:
 
         assert formal.read_bytes() == b"paid-old-audio"
         assert pm.script["segments"][0]["generated_assets"]["narration_audio"] == "audio/segment_E1S01.wav"
+        assert len(gen.version_records) == 1
+        assert (pm.project_path / gen.version_records[0]["file"]).read_bytes() == b"RIFF-current-audio"
+        assert gen.current_version == 0
         comparison = ArtifactManifest(ProjectArtifactManifestAdapter(pm.project_path)).compare(
             ArtifactKey.episode_audio(1, "E1S01"),
             artifact_path="audio/segment_E1S01.wav",

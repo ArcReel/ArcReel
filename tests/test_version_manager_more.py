@@ -63,6 +63,34 @@ class TestVersionManagerMore:
         current.write_bytes(b"png-v3")
         assert vm.add_version("characters", "Alice", "p3", source_file=current) == 3
 
+    def test_restore_callback_runs_under_selection_and_failure_restores_old_current(self, tmp_path):
+        project = tmp_path / "demo"
+        vm = VersionManager(project)
+        current = project / "audio" / "segment_E1S01.wav"
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"audio-v1")
+        v1 = vm.add_version(
+            "audio",
+            "E1S01",
+            "v1",
+            source_file=current,
+            artifact_audio_basis={"kind": "narration-delivery/tts-audio", "digest": "sha256-v1:" + "1" * 64},
+        )
+        current.write_bytes(b"audio-v2")
+        v2 = vm.add_version("audio", "E1S01", "v2", source_file=current)
+        observed = []
+
+        def _fail(record):
+            observed.append(record)
+            raise RuntimeError("manifest restore failed")
+
+        with pytest.raises(RuntimeError, match="manifest restore failed"):
+            vm.restore_version("audio", "E1S01", v1, current, on_restore=_fail)
+
+        assert current.read_bytes() == b"audio-v2"
+        assert vm.get_current_version("audio", "E1S01") == v2
+        assert observed[0]["artifact_audio_basis"]["kind"] == "narration-delivery/tts-audio"
+
     def test_restore_errors_and_missing_current(self, tmp_path):
         project = tmp_path / "demo"
         vm = VersionManager(project)
@@ -168,3 +196,93 @@ class TestVersionManagerMore:
         history = vm.get_versions("videos", "E1S01")
         assert history["current_version"] == versions[0]
         assert len(history["versions"]) == 4
+
+    def test_commit_paid_version_can_append_history_without_exposing_it_as_current(self, tmp_path):
+        project = tmp_path / "demo"
+        vm = VersionManager(project)
+        current = project / "videos" / "scene_E1S01.mp4"
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"selected-video")
+        selected_version = vm.add_version("videos", "E1S01", "selected", source_file=current)
+        staged = current.with_name(".scene_E1S01.late.mp4")
+        staged.write_bytes(b"late-paid-video")
+
+        outcome = vm.commit_staged_paid_version(
+            resource_type="videos",
+            resource_id="E1S01",
+            prompt="late",
+            staged_file=staged,
+            current_file=current,
+            select_current=False,
+            artifact_video_basis={"kind": "artifact-components/video"},
+        )
+
+        assert outcome.selected is False
+        assert outcome.version == selected_version + 1
+        assert current.read_bytes() == b"selected-video"
+        assert not staged.exists()
+        history = vm.get_versions("videos", "E1S01")
+        assert history["current_version"] == selected_version
+        assert len(history["versions"]) == 2
+        assert history["versions"][-1]["is_current"] is False
+        assert (project / history["versions"][-1]["file"]).read_bytes() == b"late-paid-video"
+
+    def test_paid_version_selection_failure_keeps_history_and_old_current(self, tmp_path):
+        project = tmp_path / "demo"
+        vm = VersionManager(project)
+        current = project / "videos" / "scene_E1S01.mp4"
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"selected-video")
+        selected_version = vm.add_version("videos", "E1S01", "selected", source_file=current)
+        staged = current.with_name(".scene_E1S01.new.mp4")
+        staged.write_bytes(b"new-paid-video")
+
+        def _registration_failure() -> None:
+            raise RuntimeError("manifest registration failed")
+
+        with pytest.raises(RuntimeError, match="manifest registration failed"):
+            vm.commit_staged_paid_version(
+                resource_type="videos",
+                resource_id="E1S01",
+                prompt="new",
+                staged_file=staged,
+                current_file=current,
+                select_current=True,
+                on_select=_registration_failure,
+            )
+
+        assert current.read_bytes() == b"selected-video"
+        history = vm.get_versions("videos", "E1S01")
+        assert history["current_version"] == selected_version
+        assert len(history["versions"]) == 2
+        assert history["versions"][-1]["is_current"] is False
+        assert (project / history["versions"][-1]["file"]).read_bytes() == b"new-paid-video"
+
+    def test_paid_version_selection_decision_runs_after_history_is_durable_under_the_version_lock(self, tmp_path):
+        project = tmp_path / "demo"
+        vm = VersionManager(project)
+        current = project / "videos" / "scene_E1S01.mp4"
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"selected-video")
+        selected_version = vm.add_version("videos", "E1S01", "selected", source_file=current)
+        staged = current.with_name(".scene_E1S01.late.mp4")
+        staged.write_bytes(b"late-paid-video")
+        observed: list[tuple[int, int, bytes]] = []
+
+        def _still_current() -> bool:
+            history = vm.get_versions("videos", "E1S01")
+            observed.append((history["current_version"], len(history["versions"]), current.read_bytes()))
+            return False
+
+        outcome = vm.commit_staged_paid_version(
+            resource_type="videos",
+            resource_id="E1S01",
+            prompt="late",
+            staged_file=staged,
+            current_file=current,
+            select_current=_still_current,
+        )
+
+        assert outcome.selected is False
+        assert observed == [(selected_version, 2, b"selected-video")]
+        assert current.read_bytes() == b"selected-video"

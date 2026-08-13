@@ -1,13 +1,16 @@
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.api_errors import BadRequestError
+from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
 from lib.script_editor import ScriptEditError
+from lib.version_manager import VersionManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import versions
@@ -108,6 +111,64 @@ class _StoryboardSyncPM:
             raise ScriptEditError("segments 必须是列表，当前为 NoneType")
 
 
+def _typed_video_versions(project_path: Path, resource_type: str, resource_id: str) -> VersionManager:
+    current_file, _relative = versions._resolve_resource_path(resource_type, resource_id, project_path)
+    current_file.parent.mkdir(parents=True, exist_ok=True)
+    current_file.write_bytes(b"typed-video")
+    basis = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-components/video", kind_version=1, inputs={"resource_id": resource_id})
+    )
+    manager = VersionManager(project_path)
+    manager.add_version(
+        resource_type,
+        resource_id,
+        "typed video",
+        source_file=current_file,
+        artifact_episode=1,
+        artifact_video_basis=basis.to_dict(),
+        execution_script_file="episode_1.json",
+    )
+    return manager
+
+
+def _typed_audio_project(tmp_path: Path) -> tuple[object, Path, VersionManager]:
+    from lib.project_manager import ProjectManager
+
+    pm = ProjectManager(tmp_path)
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    pm.save_script(
+        "demo",
+        {
+            "episode": 1,
+            "title": "E1",
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "novel_text": "旁白", "generated_assets": {}}],
+        },
+        "episode_1.json",
+        validate=False,
+    )
+    project_path = pm.get_project_path("demo")
+    current = project_path / "audio" / "segment_E1S01.wav"
+    current.parent.mkdir(parents=True, exist_ok=True)
+    current.write_bytes(b"audio-v1")
+    basis = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("narration-delivery/tts-audio", kind_version=1, inputs={"text": "旁白"})
+    )
+    manager = VersionManager(project_path)
+    manager.add_version(
+        "audio",
+        "E1S01",
+        "旁白",
+        source_file=current,
+        artifact_episode=1,
+        artifact_audio_basis=basis.to_dict(),
+        execution_script_file="episode_1.json",
+        tts_actual_duration_seconds=3.0,
+    )
+    return pm, project_path, manager
+
+
 def _client(monkeypatch):
     fake_pm = _FakePM()
     monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
@@ -165,6 +226,67 @@ class TestVersionsRouter:
             assert restore_resp.status_code == 200
             assert restore_resp.json()["file_path"] == "products/保温杯.png"
             assert any(item[0] == "product" for item in fake_pm.updated)
+
+    def test_audio_restore_is_enabled_for_typed_history(self, tmp_path, monkeypatch):
+        pm, _project_path, manager = _typed_audio_project(tmp_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: manager)
+        monkeypatch.setattr(versions, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
+        monkeypatch.setattr(versions, "active_narrated_video_resource_ids", AsyncMock(return_value=frozenset()))
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        with TestClient(app) as client:
+            response = client.post("/api/v1/projects/demo/versions/audio/E1S01/restore/1")
+
+        assert response.status_code == 200
+        assert response.json()["file_path"] == "audio/segment_E1S01.wav"
+
+    def test_audio_restore_is_blocked_while_tts_is_active(self, tmp_path, monkeypatch):
+        pm, project_path, manager = _typed_audio_project(tmp_path)
+        before = (project_path / "audio" / "segment_E1S01.wav").read_bytes()
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: manager)
+        monkeypatch.setattr(
+            versions,
+            "active_tts_resource_ids",
+            AsyncMock(return_value=frozenset({"E1S01"})),
+        )
+        monkeypatch.setattr(versions, "active_narrated_video_resource_ids", AsyncMock(return_value=frozenset()))
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        with TestClient(app) as client:
+            response = client.post("/api/v1/projects/demo/versions/audio/E1S01/restore/1")
+
+        assert response.status_code == 409
+        assert (project_path / "audio" / "segment_E1S01.wav").read_bytes() == before
+
+    def test_audio_restore_is_blocked_while_video_consumes_current_tts(self, tmp_path, monkeypatch):
+        pm, project_path, manager = _typed_audio_project(tmp_path)
+        before = (project_path / "audio" / "segment_E1S01.wav").read_bytes()
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: manager)
+        monkeypatch.setattr(versions, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
+        monkeypatch.setattr(
+            versions,
+            "active_narrated_video_resource_ids",
+            AsyncMock(return_value=frozenset({"E1S01"})),
+        )
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        with TestClient(app) as client:
+            response = client.post("/api/v1/projects/demo/versions/audio/E1S01/restore/1")
+
+        assert response.status_code == 409
+        assert (project_path / "audio" / "segment_E1S01.wav").read_bytes() == before
 
     def test_restore_error_mapping(self, monkeypatch):
         client, _ = _client(monkeypatch)
@@ -371,9 +493,10 @@ class TestVersionsRouter:
         thumb = project_path / "reference_videos" / "thumbnails" / "E1U1.jpg"
         thumb.parent.mkdir(parents=True, exist_ok=True)
         thumb.write_bytes(b"jpg")
+        vm = _typed_video_versions(project_path, "reference_videos", "E1U1")
 
         monkeypatch.setattr(versions, "get_project_manager", lambda: real_pm)
-        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: vm)
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -425,9 +548,11 @@ class TestVersionsRouter:
             "episode_1.json",
             validate=False,
         )
+        project_path = real_pm.get_project_path("demo")
+        vm = _typed_video_versions(project_path, "reference_videos", "E1U1")
 
         monkeypatch.setattr(versions, "get_project_manager", lambda: real_pm)
-        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: vm)
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -476,9 +601,10 @@ class TestVersionsRouter:
         thumb = project_path / "thumbnails" / "scene_E1S01.jpg"
         thumb.parent.mkdir(parents=True, exist_ok=True)
         thumb.write_bytes(b"jpg")
+        vm = _typed_video_versions(project_path, "videos", "E1S01")
 
         monkeypatch.setattr(versions, "get_project_manager", lambda: real_pm)
-        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: vm)
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")

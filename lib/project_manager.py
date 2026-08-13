@@ -780,6 +780,26 @@ class ProjectManager:
             yield script
             self._write_script_unlocked(project_name, script, norm, validate=validate, before=before)
 
+    @contextmanager
+    def locked_project_script_snapshot(self, project_name: str, script_filename: str):
+        """Yield a read-only project/script snapshot under the canonical write locks.
+
+        Artifact selection must compare execution-frozen inputs with one coherent
+        current snapshot, but a read-only comparison must not rewrite the script
+        or touch project metadata.  The lock order mirrors
+        :meth:`locked_episode_script` (script, then project), so callers can keep
+        the comparison and a guarded downstream commit serialized with both
+        source edit paths.
+        """
+
+        norm = self.normalize_script_filename(script_filename)
+        with self._script_lock(project_name, norm):
+            with self._project_lock(project_name):
+                project = self._read_project_raw_unlocked(project_name)
+                self._migrate_legacy_style(project)
+                script, _migrated = self._read_script_unlocked(project_name, norm)
+                yield project, script
+
     def _read_project_raw_unlocked(self, project_name: str) -> dict:
         """裸读 project.json（不取锁、不迁移）。仅供已持 `_project_lock` 的复核调用。"""
         project_file = self._get_project_file_path(project_name)

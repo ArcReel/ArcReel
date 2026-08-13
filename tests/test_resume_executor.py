@@ -16,12 +16,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
+from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor, compose_video_artifact_basis
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
     StagedProviderMedia,
     StoryboardSubmissionCheckpoint,
 )
+from lib.version_manager import PaidVersionCommit
 from lib.video_backends.base import ResumeExpiredError
 
 pytestmark = pytest.mark.unit
@@ -55,7 +56,20 @@ class _FakeGenerator:
         self.resume_calls.append(kwargs)
         if self.raises is not None:
             raise self.raises
-        output_path = kwargs["output_path"] if "output_path" in kwargs else Path(tempfile.gettempdir()) / "video.mp4"
+        output_path = kwargs.get("output_path") or Path(tempfile.gettempdir()) / "video.mp4"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"paid-resume-video")
+        prepare = kwargs.get("before_formal_commit")
+        if prepare is not None:
+            metadata = {
+                key: value
+                for key, value in kwargs.items()
+                if key.startswith("execution_") or key.startswith("artifact_")
+            }
+            await prepare(output_path, int(kwargs.get("duration_seconds") or 8), metadata)
+        commit = kwargs.get("commit_formal_output")
+        if commit is not None:
+            commit.outcome = PaidVersionCommit(version=3, selected=True)
         return output_path, 3, None, "video-uri-xyz"
 
     def get_versions(self, _resource_type: str, _resource_id: str) -> dict[str, Any]:
@@ -109,6 +123,19 @@ def _storyboard_checkpoint_json(
         sha256="a" * 64,
         size_bytes=1,
     )
+    visual = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+    )
+    speech = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    )
+    duration = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build(
+            "artifact-speech/video-duration",
+            kind_version=1,
+            inputs={"request_duration_seconds": 8},
+        )
+    )
     return StoryboardSubmissionCheckpoint.create(
         task_id=task_id,
         project_name="demo",
@@ -128,9 +155,16 @@ def _storyboard_checkpoint_json(
         service_tier="default",
         seed=None,
         visual_basis_digest="b" * 64,
-        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
-            ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+        artifact_episode=1,
+        artifact_visual_basis=visual,
+        artifact_speech_basis=speech,
+        artifact_duration_basis=duration,
+        artifact_video_basis=ArtifactBasisDescriptor.from_basis(
+            compose_video_artifact_basis(visual=visual, speech=speech, duration=duration)
         ),
+        artifact_voice_style_speakers=(),
+        artifact_duration_tiers=(8,),
+        artifact_reference_image_limit=None,
         narration=NarrationExecutionFacts(
             delivery="post_production",
             tts_status="not_applicable",
@@ -457,6 +491,19 @@ def _reference_checkpoint(
     staging = project_path / ".arcreel" / "tasks" / "T-ref" / "provider_media"
     staging.mkdir(parents=True, exist_ok=True)
     (staging / "crash-leftover").write_bytes(b"staged")
+    visual = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U1"})
+    )
+    speech = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    )
+    duration = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build(
+            "artifact-speech/video-duration",
+            kind_version=1,
+            inputs={"request_duration_seconds": 12},
+        )
+    )
     return ReferenceSubmissionCheckpoint.create(
         task_id="T-ref",
         project_name="demo",
@@ -476,9 +523,16 @@ def _reference_checkpoint(
         service_tier="pro",
         seed=123,
         visual_basis_digest="sha256-v1:" + "a" * 64,
-        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
-            ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U1"})
+        artifact_episode=1,
+        artifact_visual_basis=visual,
+        artifact_speech_basis=speech,
+        artifact_duration_basis=duration,
+        artifact_video_basis=ArtifactBasisDescriptor.from_basis(
+            compose_video_artifact_basis(visual=visual, speech=speech, duration=duration)
         ),
+        artifact_voice_style_speakers=(),
+        artifact_duration_tiers=(12,),
+        artifact_reference_image_limit=None,
         narration=(
             NarrationExecutionFacts(
                 delivery="use_tts",
@@ -523,7 +577,10 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
 
     monkeypatch.setattr(resume_executor, "resolve_generation_context", _resolve)
     output_guard = AsyncMock()
-    monkeypatch.setattr(resume_executor, "require_generated_video_covers_current_tts", output_guard)
+    monkeypatch.setattr(
+        "server.services.video_artifact_currency.validate_generated_video_covers_current_tts",
+        output_guard,
+    )
     finalize = AsyncMock(return_value={"resource_type": "reference_videos", "resource_id": "E1U1"})
     monkeypatch.setattr(resume_executor, "_finalize_reference_video_unit", finalize)
     monkeypatch.setattr(resume_executor, "emit_generation_success_batch", lambda **_kwargs: None)
@@ -581,10 +638,8 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
         script_file="scripts/frozen.json",
         request_duration_seconds=12,
         output_path=Path(tempfile.gettempdir()) / "video.mp4",
-        versions=fake_gen.versions,
         resource_type="reference_videos",
         resource_id="E1U1",
-        version=3,
     )
     finalize.assert_awaited_once()
     assert finalize.await_args.kwargs["script_file"] == "scripts/frozen.json"
@@ -611,7 +666,10 @@ async def test_reference_resume_post_production_does_not_reproject_tts(monkeypat
         ),
     )
     output_guard = AsyncMock()
-    monkeypatch.setattr(resume_executor, "require_generated_video_covers_current_tts", output_guard)
+    monkeypatch.setattr(
+        "server.services.video_artifact_currency.validate_generated_video_covers_current_tts",
+        output_guard,
+    )
     monkeypatch.setattr(
         resume_executor,
         "_finalize_reference_video_unit",

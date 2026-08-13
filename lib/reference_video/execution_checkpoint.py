@@ -18,7 +18,8 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar, Literal, Self, cast
 
-from lib.artifact_manifest import ArtifactBasisDescriptor
+from lib.artifact_manifest import ArtifactBasisDescriptor, compose_video_artifact_basis
+from lib.asset_types import asset_name_comparison_key
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
 
@@ -27,7 +28,8 @@ logger = logging.getLogger(__name__)
 ProviderMediaRole = Literal["reference_image", "reference_audio", "start_image", "end_image"]
 ReferenceCapability = Literal["i2v", "r2v"]
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
+_VISUAL_BASIS_SCHEMA_VERSION = 2
 _LEGACY_SCHEMA_VERSION = 1
 _CHECKPOINT_KIND = "reference_video_submit"
 _STORYBOARD_CHECKPOINT_KIND = "storyboard_video_submit"
@@ -551,7 +553,14 @@ class _VideoSubmissionCheckpoint:
     service_tier: str
     seed: int | None
     visual_basis_digest: str
+    artifact_episode: int | None
     artifact_visual_basis: ArtifactBasisDescriptor | None
+    artifact_speech_basis: ArtifactBasisDescriptor | None
+    artifact_duration_basis: ArtifactBasisDescriptor | None
+    artifact_video_basis: ArtifactBasisDescriptor | None
+    artifact_voice_style_speakers: tuple[str, ...]
+    artifact_duration_tiers: tuple[int, ...]
+    artifact_reference_image_limit: int | None
     narration: NarrationExecutionFacts
     media: tuple[StagedProviderMedia, ...]
     reference_audio_targets: tuple[int, ...] | None
@@ -586,13 +595,22 @@ class _VideoSubmissionCheckpoint:
             "request_digest",
         }
     )
-    _FIELDS = _LEGACY_FIELDS | {"artifact_visual_basis"}
+    _VISUAL_BASIS_FIELDS = _LEGACY_FIELDS | {"artifact_visual_basis"}
+    _FIELDS = _VISUAL_BASIS_FIELDS | {
+        "artifact_episode",
+        "artifact_speech_basis",
+        "artifact_duration_basis",
+        "artifact_video_basis",
+        "artifact_voice_style_speakers",
+        "artifact_duration_tiers",
+        "artifact_reference_image_limit",
+    }
 
     def __post_init__(self) -> None:
         if (
             not isinstance(self.schema_version, int)
             or isinstance(self.schema_version, bool)
-            or self.schema_version not in {_LEGACY_SCHEMA_VERSION, _SCHEMA_VERSION}
+            or self.schema_version not in {_LEGACY_SCHEMA_VERSION, _VISUAL_BASIS_SCHEMA_VERSION, _SCHEMA_VERSION}
             or self.kind != self.CHECKPOINT_KIND
         ):
             raise ValueError("unsupported video submission checkpoint version or kind")
@@ -626,13 +644,64 @@ class _VideoSubmissionCheckpoint:
         if self.seed is not None and (not isinstance(self.seed, int) or isinstance(self.seed, bool)):
             raise ValueError("seed must be an integer or null")
         _require_basis_digest(self.visual_basis_digest, "visual_basis_digest")
-        if self.schema_version == _SCHEMA_VERSION:
+        if self.schema_version in {_VISUAL_BASIS_SCHEMA_VERSION, _SCHEMA_VERSION}:
             if not isinstance(self.artifact_visual_basis, ArtifactBasisDescriptor):
                 raise ValueError("artifact_visual_basis must be a strict artifact basis descriptor")
             if self.artifact_visual_basis.kind != self.ARTIFACT_VISUAL_BASIS_KIND:
                 raise ValueError("artifact_visual_basis kind does not match checkpoint kind")
         elif self.artifact_visual_basis is not None:
             raise ValueError("legacy checkpoint cannot carry artifact_visual_basis")
+        if self.schema_version == _SCHEMA_VERSION:
+            if type(self.artifact_episode) is not int or self.artifact_episode < 1:
+                raise ValueError("artifact_episode must be a positive integer")
+            if not isinstance(self.artifact_speech_basis, ArtifactBasisDescriptor):
+                raise ValueError("artifact_speech_basis must be a strict artifact basis descriptor")
+            if self.artifact_speech_basis.kind != "artifact-speech/video":
+                raise ValueError("artifact_speech_basis kind does not describe video speech")
+            if not isinstance(self.artifact_duration_basis, ArtifactBasisDescriptor):
+                raise ValueError("artifact_duration_basis must be a strict artifact basis descriptor")
+            if self.artifact_duration_basis.kind != "artifact-speech/video-duration":
+                raise ValueError("artifact_duration_basis kind does not describe a video duration tier")
+            if not isinstance(self.artifact_video_basis, ArtifactBasisDescriptor):
+                raise ValueError("artifact_video_basis must be a strict artifact basis descriptor")
+            expected_video = ArtifactBasisDescriptor.from_basis(
+                compose_video_artifact_basis(
+                    visual=cast(ArtifactBasisDescriptor, self.artifact_visual_basis),
+                    speech=self.artifact_speech_basis,
+                    duration=self.artifact_duration_basis,
+                )
+            )
+            if self.artifact_video_basis != expected_video:
+                raise ValueError("artifact_video_basis does not compose the checkpoint components")
+            if any(
+                not isinstance(speaker, str) or not speaker or asset_name_comparison_key(speaker) != speaker
+                for speaker in self.artifact_voice_style_speakers
+            ):
+                raise ValueError("artifact_voice_style_speakers must contain canonical non-empty names")
+            if len(set(self.artifact_voice_style_speakers)) != len(self.artifact_voice_style_speakers):
+                raise ValueError("artifact_voice_style_speakers must be unique")
+            if (
+                not self.artifact_duration_tiers
+                or tuple(sorted(set(self.artifact_duration_tiers))) != self.artifact_duration_tiers
+                or any(type(tier) is not int or tier <= 0 for tier in self.artifact_duration_tiers)
+                or self.duration_seconds not in self.artifact_duration_tiers
+            ):
+                raise ValueError("artifact_duration_tiers must be sorted positive tiers containing the request tier")
+            limit = self.artifact_reference_image_limit
+            if limit is not None and (type(limit) is not int or limit < 0):
+                raise ValueError("artifact_reference_image_limit must be a non-negative integer or null")
+            if self.kind == _STORYBOARD_CHECKPOINT_KIND and limit is not None:
+                raise ValueError("storyboard checkpoint cannot carry an artifact reference-image limit")
+        elif (
+            self.artifact_episode is not None
+            or self.artifact_speech_basis is not None
+            or self.artifact_duration_basis is not None
+            or self.artifact_video_basis is not None
+            or self.artifact_voice_style_speakers
+            or self.artifact_duration_tiers
+            or self.artifact_reference_image_limit is not None
+        ):
+            raise ValueError("older checkpoint cannot carry complete artifact currency facts")
         if tuple(item.index for item in self.media) != tuple(range(len(self.media))):
             raise ValueError("provider media indexes must be contiguous and ordered")
         expected_prefix = f".arcreel/tasks/{self.task_id}/provider_media/"
@@ -699,6 +768,22 @@ class _VideoSubmissionCheckpoint:
         }
         if self.artifact_visual_basis is not None:
             payload["artifact_visual_basis"] = self.artifact_visual_basis.to_dict()
+        if self.schema_version == _SCHEMA_VERSION:
+            assert self.artifact_episode is not None
+            assert self.artifact_speech_basis is not None
+            assert self.artifact_duration_basis is not None
+            assert self.artifact_video_basis is not None
+            payload.update(
+                {
+                    "artifact_episode": self.artifact_episode,
+                    "artifact_speech_basis": self.artifact_speech_basis.to_dict(),
+                    "artifact_duration_basis": self.artifact_duration_basis.to_dict(),
+                    "artifact_video_basis": self.artifact_video_basis.to_dict(),
+                    "artifact_voice_style_speakers": list(self.artifact_voice_style_speakers),
+                    "artifact_duration_tiers": list(self.artifact_duration_tiers),
+                    "artifact_reference_image_limit": self.artifact_reference_image_limit,
+                }
+            )
         return payload
 
     def _request_digest_payload(self) -> dict[str, object]:
@@ -708,7 +793,17 @@ class _VideoSubmissionCheckpoint:
         del payload["api_call_id"]
         # Artifact currency is independent source evidence, not part of provider
         # execution identity. Keep the existing request digest's meaning stable.
-        payload.pop("artifact_visual_basis", None)
+        for field in (
+            "artifact_episode",
+            "artifact_visual_basis",
+            "artifact_speech_basis",
+            "artifact_duration_basis",
+            "artifact_video_basis",
+            "artifact_voice_style_speakers",
+            "artifact_duration_tiers",
+            "artifact_reference_image_limit",
+        ):
+            payload.pop(field, None)
         return payload
 
     def to_dict(self) -> dict[str, object]:
@@ -739,7 +834,14 @@ class _VideoSubmissionCheckpoint:
         service_tier: str,
         seed: int | None,
         visual_basis_digest: str,
+        artifact_episode: int,
         artifact_visual_basis: ArtifactBasisDescriptor,
+        artifact_speech_basis: ArtifactBasisDescriptor,
+        artifact_duration_basis: ArtifactBasisDescriptor,
+        artifact_video_basis: ArtifactBasisDescriptor,
+        artifact_voice_style_speakers: tuple[str, ...],
+        artifact_duration_tiers: tuple[int, ...],
+        artifact_reference_image_limit: int | None,
         narration: NarrationExecutionFacts,
         media: tuple[StagedProviderMedia, ...],
         reference_audio_targets: tuple[int, ...] | None,
@@ -767,13 +869,33 @@ class _VideoSubmissionCheckpoint:
             "service_tier": service_tier,
             "seed": seed,
             "visual_basis_digest": visual_basis_digest,
+            "artifact_episode": artifact_episode,
             "artifact_visual_basis": artifact_visual_basis.to_dict(),
+            "artifact_speech_basis": artifact_speech_basis.to_dict(),
+            "artifact_duration_basis": artifact_duration_basis.to_dict(),
+            "artifact_video_basis": artifact_video_basis.to_dict(),
+            "artifact_voice_style_speakers": list(artifact_voice_style_speakers),
+            "artifact_duration_tiers": list(artifact_duration_tiers),
+            "artifact_reference_image_limit": artifact_reference_image_limit,
             "narration": narration.to_dict(),
             "media": [item.to_dict() for item in media],
             "reference_audio_targets": list(reference_audio_targets) if reference_audio_targets is not None else None,
         }
         digest_values = {
-            key: value for key, value in values.items() if key not in {"api_call_id", "artifact_visual_basis"}
+            key: value
+            for key, value in values.items()
+            if key
+            not in {
+                "api_call_id",
+                "artifact_episode",
+                "artifact_visual_basis",
+                "artifact_speech_basis",
+                "artifact_duration_basis",
+                "artifact_video_basis",
+                "artifact_voice_style_speakers",
+                "artifact_duration_tiers",
+                "artifact_reference_image_limit",
+            }
         }
         request_digest = _sha256_bytes(_canonical_json(digest_values).encode("utf-8"))
         return cls(
@@ -798,7 +920,14 @@ class _VideoSubmissionCheckpoint:
             service_tier=service_tier,
             seed=seed,
             visual_basis_digest=visual_basis_digest,
+            artifact_episode=artifact_episode,
             artifact_visual_basis=artifact_visual_basis,
+            artifact_speech_basis=artifact_speech_basis,
+            artifact_duration_basis=artifact_duration_basis,
+            artifact_video_basis=artifact_video_basis,
+            artifact_voice_style_speakers=artifact_voice_style_speakers,
+            artifact_duration_tiers=artifact_duration_tiers,
+            artifact_reference_image_limit=artifact_reference_image_limit,
             narration=narration,
             media=media,
             reference_audio_targets=reference_audio_targets,
@@ -817,11 +946,21 @@ class _VideoSubmissionCheckpoint:
             raise ValueError("execution checkpoint must be a JSON object")
         raw = cast(dict[str, Any], decoded)
         schema_version = raw.get("schema_version")
-        if type(schema_version) is not int or schema_version not in {_LEGACY_SCHEMA_VERSION, _SCHEMA_VERSION}:
+        if type(schema_version) is not int or schema_version not in {
+            _LEGACY_SCHEMA_VERSION,
+            _VISUAL_BASIS_SCHEMA_VERSION,
+            _SCHEMA_VERSION,
+        }:
             raise ValueError("unsupported video submission checkpoint version or kind")
         _require_exact_keys(
             raw,
-            cls._LEGACY_FIELDS if schema_version == _LEGACY_SCHEMA_VERSION else cls._FIELDS,
+            (
+                cls._LEGACY_FIELDS
+                if schema_version == _LEGACY_SCHEMA_VERSION
+                else cls._VISUAL_BASIS_FIELDS
+                if schema_version == _VISUAL_BASIS_SCHEMA_VERSION
+                else cls._FIELDS
+            ),
             "checkpoint",
         )
         targets = raw["reference_audio_targets"]
@@ -830,6 +969,12 @@ class _VideoSubmissionCheckpoint:
         media = raw["media"]
         if not isinstance(media, list):
             raise ValueError("checkpoint media must be an array")
+        voice_style_speakers = raw.get("artifact_voice_style_speakers", [])
+        if not isinstance(voice_style_speakers, list):
+            raise ValueError("artifact_voice_style_speakers must be an array")
+        duration_tiers = raw.get("artifact_duration_tiers", [])
+        if not isinstance(duration_tiers, list):
+            raise ValueError("artifact_duration_tiers must be an array")
         return cls(
             schema_version=raw["schema_version"],
             kind=raw["kind"],
@@ -852,11 +997,30 @@ class _VideoSubmissionCheckpoint:
             service_tier=raw["service_tier"],
             seed=raw["seed"],
             visual_basis_digest=raw["visual_basis_digest"],
+            artifact_episode=raw.get("artifact_episode"),
             artifact_visual_basis=(
                 ArtifactBasisDescriptor.from_dict(raw["artifact_visual_basis"])
+                if schema_version in {_VISUAL_BASIS_SCHEMA_VERSION, _SCHEMA_VERSION}
+                else None
+            ),
+            artifact_speech_basis=(
+                ArtifactBasisDescriptor.from_dict(raw["artifact_speech_basis"])
                 if schema_version == _SCHEMA_VERSION
                 else None
             ),
+            artifact_duration_basis=(
+                ArtifactBasisDescriptor.from_dict(raw["artifact_duration_basis"])
+                if schema_version == _SCHEMA_VERSION
+                else None
+            ),
+            artifact_video_basis=(
+                ArtifactBasisDescriptor.from_dict(raw["artifact_video_basis"])
+                if schema_version == _SCHEMA_VERSION
+                else None
+            ),
+            artifact_voice_style_speakers=tuple(voice_style_speakers),
+            artifact_duration_tiers=tuple(duration_tiers),
+            artifact_reference_image_limit=raw.get("artifact_reference_image_limit"),
             narration=NarrationExecutionFacts.from_dict(raw["narration"]),
             media=tuple(StagedProviderMedia.from_dict(item) for item in media),
             reference_audio_targets=tuple(targets) if targets is not None else None,
@@ -913,6 +1077,21 @@ def checkpoint_version_metadata(checkpoint: VideoSubmissionCheckpoint) -> dict[s
     }
     if checkpoint.artifact_visual_basis is not None:
         metadata["artifact_visual_basis"] = checkpoint.artifact_visual_basis.to_dict()
+    if checkpoint.artifact_video_basis is not None:
+        assert checkpoint.artifact_episode is not None
+        assert checkpoint.artifact_speech_basis is not None
+        assert checkpoint.artifact_duration_basis is not None
+        metadata.update(
+            {
+                "artifact_episode": checkpoint.artifact_episode,
+                "artifact_speech_basis": checkpoint.artifact_speech_basis.to_dict(),
+                "artifact_duration_basis": checkpoint.artifact_duration_basis.to_dict(),
+                "artifact_video_basis": checkpoint.artifact_video_basis.to_dict(),
+                "artifact_voice_style_speakers": list(checkpoint.artifact_voice_style_speakers),
+                "artifact_duration_tiers": list(checkpoint.artifact_duration_tiers),
+                "artifact_reference_image_limit": checkpoint.artifact_reference_image_limit,
+            }
+        )
     return metadata
 
 

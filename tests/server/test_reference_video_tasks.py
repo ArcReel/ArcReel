@@ -127,7 +127,21 @@ def _wire_context(
     （如 ark-agent-plan 族复用 Ark backend）两者不同，需显式区分以覆盖 registry 查表路径。
     """
     from lib.config.resolver import ProviderModel
+    from lib.version_manager import PaidVersionCommit
     from server.services.generation_context import AudioLaneResult, GenerationContext, VideoLaneResult
+
+    class _SelectedArtifactCommitter:
+        def __init__(self, **_kwargs):
+            self.outcome = PaidVersionCommit(version=1, selected=True)
+            self.selection_error = None
+
+        async def prepare_selection(self, *_args, **_kwargs):
+            return None
+
+        def __call__(self, *_args, **_kwargs):
+            return self.outcome
+
+    monkeypatch.setattr(rvt, "VideoArtifactCommitter", _SelectedArtifactCommitter)
 
     lane = VideoLaneResult(
         provider_model=ProviderModel(provider_id=registry_provider_id or backend_name, model_id=backend_model),
@@ -2204,8 +2218,6 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
         "server.services.narration_delivery_tasks.probe_existing_media_duration_seconds",
         AsyncMock(return_value=8.0),
     )
-    output_guard = AsyncMock()
-    monkeypatch.setattr(rvt, "require_generated_video_covers_current_tts", output_guard)
     fake_queue = MagicMock()
     fake_queue.persist_execution_checkpoint = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
@@ -2232,7 +2244,7 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
     assert checkpoint.narration.basis_digest
     assert checkpoint.narration.actual_duration_seconds == 6.2
     assert all(media.source_locator != "audio/segment_E1U1.wav" for media in checkpoint.media)
-    output_guard.assert_awaited_once()
+    assert callable(captured["before_formal_commit"])
     assert len(seen_lane_requests) == 1
     assert seen_lane_requests[0]["video"] is not None
     assert seen_lane_requests[0]["audio"] is not None
@@ -2265,7 +2277,15 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+    from lib.artifact_manifest import (
+        ArtifactBasis,
+        ArtifactBasisDescriptor,
+        ArtifactComparison,
+        ArtifactKey,
+        ArtifactManifest,
+        ArtifactStatus,
+        ProjectArtifactManifestAdapter,
+    )
     from lib.narration_delivery import NarrationAudioEvidence, TtsSynthesisSettings, prepare_narration_delivery
     from lib.reference_video.request_projection import (
         ProviderProjectionCandidate,
@@ -2320,6 +2340,9 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
         request_assets=resolve_reference_assets(project, proj_dir, unit),
         candidate=candidate,
     )
+    artifact_video_basis = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-components/video", kind_version=1, inputs={"unit": "E1U1"})
+    )
     selected_version = versions.add_version(
         "reference_videos",
         "E1U1",
@@ -2327,6 +2350,13 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
         source_file=current,
         duration_seconds=8,
         visual_basis_digest=visual_basis_digest,
+        artifact_episode=1,
+        artifact_video_basis=artifact_video_basis.to_dict(),
+    )
+    ArtifactManifest(ProjectArtifactManifestAdapter(proj_dir)).register_descriptor(
+        ArtifactKey.episode_video(1, "E1U1"),
+        artifact_path="reference_videos/E1U1.mp4",
+        basis=artifact_video_basis,
     )
     versions_before = (proj_dir / "versions" / "versions.json").read_bytes()
 
@@ -2380,8 +2410,6 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
         "server.services.narration_delivery_tasks.probe_existing_media_duration_seconds",
         AsyncMock(return_value=8.0),
     )
-    output_guard = AsyncMock()
-    monkeypatch.setattr(rvt, "require_generated_video_covers_current_tts", output_guard)
     fake_queue = MagicMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
@@ -2403,7 +2431,6 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     assert result["version"] == selected_version
     assert result["request_duration_seconds"] == 8
     fake_generator.generate_video_async.assert_not_awaited()
-    output_guard.assert_not_awaited()
     assert script_path.read_bytes() == script_before
     assert (proj_dir / "versions" / "versions.json").read_bytes() == versions_before
     assert current.read_bytes() == b"existing-paid-video"

@@ -11,7 +11,6 @@ import asyncio
 import logging
 from typing import Any
 
-from lib.narration_delivery import USE_TTS
 from lib.project_change_hints import project_change_source
 from lib.reference_video.execution_checkpoint import (
     ReferenceExecutionIdentityError,
@@ -28,8 +27,12 @@ from server.services.generation_tasks import (
     emit_generation_success_batch,
     get_project_manager,
 )
-from server.services.narration_delivery_tasks import require_generated_video_covers_current_tts
 from server.services.reference_video_tasks import _finalize_reference_video_unit
+from server.services.video_artifact_currency import (
+    VideoArtifactCommitter,
+    finalize_selected_video_result,
+    paid_video_history_result,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +162,15 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
         script_file = checkpoint.script_file
         api_call_id: int | None = checkpoint.api_call_id
         event_payload: dict[str, Any] = {"script_file": checkpoint.script_file}
+        artifact_committer = VideoArtifactCommitter(
+            project_manager=get_project_manager(),
+            project_name=project_name,
+            project_path=project_path,
+            versions=generator.versions,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            prompt=prompt_text,
+        )
 
         with project_change_source("worker"):
             output_path, version, _, video_uri = await generator.resume_video_async(
@@ -174,48 +186,62 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
                 submitted_base_url=_submitted_base_url(task, ctx.video.endpoint),
                 seed=seed,
                 service_tier=service_tier,
+                before_formal_commit=artifact_committer.prepare_selection,
+                commit_formal_output=artifact_committer,
                 **optional_kwargs,
             )
 
-            if checkpoint.narration.delivery == USE_TTS:
-                await require_generated_video_covers_current_tts(
-                    project_name=project_name,
-                    script_file=script_file,
-                    request_duration_seconds=duration_seconds,
-                    output_path=output_path,
+            if artifact_committer.outcome is None:
+                raise RuntimeError("formal video resume returned without invoking the artifact commit callback")
+            if artifact_committer.selection_error is not None:
+                raise artifact_committer.selection_error
+            if not artifact_committer.outcome.selected:
+                result = await asyncio.to_thread(
+                    paid_video_history_result,
                     versions=generator.versions,
                     resource_type=resource_type,
                     resource_id=resource_id,
                     version=version,
-                )
-            if task_type == "reference_video":
-                result = await _finalize_reference_video_unit(
-                    project_name=project_name,
-                    script_file=script_file,
-                    project_path=project_path,
-                    resource_id=resource_id,
-                    output_path=output_path,
-                    version=version,
                     video_uri=video_uri,
-                    versions=generator.versions,
                 )
-            else:
-                result = await _finalize_video_task(
+                emit_generation_success_batch(
+                    task_type=task_type,
                     project_name=project_name,
-                    script_file=script_file,
-                    project_path=project_path,
                     resource_id=resource_id,
-                    version=version,
-                    video_uri=video_uri,
-                    generator=generator,
+                    payload=event_payload,
                 )
+                return result
 
-            emit_generation_success_batch(
-                task_type=task_type,
-                project_name=project_name,
-                resource_id=resource_id,
-                payload=event_payload,
-            )
-            return result
+            async def _finalize() -> dict[str, Any]:
+                if task_type == "reference_video":
+                    selected_result = await _finalize_reference_video_unit(
+                        project_name=project_name,
+                        script_file=script_file,
+                        project_path=project_path,
+                        resource_id=resource_id,
+                        output_path=output_path,
+                        version=version,
+                        video_uri=video_uri,
+                        versions=generator.versions,
+                    )
+                else:
+                    selected_result = await _finalize_video_task(
+                        project_name=project_name,
+                        script_file=script_file,
+                        project_path=project_path,
+                        resource_id=resource_id,
+                        version=version,
+                        video_uri=video_uri,
+                        generator=generator,
+                    )
+                emit_generation_success_batch(
+                    task_type=task_type,
+                    project_name=project_name,
+                    resource_id=resource_id,
+                    payload=event_payload,
+                )
+                return selected_result
+
+            return await finalize_selected_video_result(committer=artifact_committer, finalize=_finalize)
     finally:
         await asyncio.to_thread(cleanup_staged_provider_media, project_path, checkpoint.task_id)
