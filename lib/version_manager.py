@@ -330,7 +330,6 @@ class VersionManager:
                         current_file.unlink(missing_ok=True)
                     else:
                         os.replace(current_backup, current_file)
-                        current_backup = None
                 except OSError as exc:
                     rollback_errors.append(exc)
                 try:
@@ -507,7 +506,6 @@ class VersionManager:
                         current_file.unlink(missing_ok=True)
                     else:
                         os.replace(current_backup, current_file)
-                        current_backup = None
                 except OSError as exc:
                     selection_rollback_errors.append(exc)
                 resource_data["current_version"] = prior_current
@@ -644,7 +642,6 @@ class VersionManager:
                         current_file.unlink(missing_ok=True)
                     else:
                         os.replace(current_backup, current_file)
-                        current_backup = None
                 except OSError as exc:
                     rollback_errors.append(exc)
                 try:
@@ -860,7 +857,6 @@ class VersionManager:
                         current_file.unlink(missing_ok=True)
                     else:
                         os.replace(current_backup, current_file)
-                        current_backup = None
                 except OSError as exc:
                     rollback_errors.append(exc)
                 try:
