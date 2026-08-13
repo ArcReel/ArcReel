@@ -317,7 +317,8 @@ class MediaGenerator:
             await before_formal_commit(staged_output_path, duration_seconds, version_metadata)
         except (Exception, asyncio.CancelledError) as failure:
             try:
-                self.versions.commit_staged_paid_version(
+                await run_noninterruptible_sync(
+                    self.versions.commit_staged_paid_version,
                     resource_type=resource_type,
                     resource_id=resource_id,
                     prompt=prompt,

@@ -566,6 +566,44 @@ class TestMediaGenerator:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure", [RuntimeError("validation failed"), asyncio.CancelledError()])
+    async def test_formal_video_prepare_failure_archives_paid_history_off_the_event_loop(
+        self,
+        tmp_path,
+        monkeypatch,
+        failure: BaseException,
+    ):
+        import threading
+
+        gen = _build_generator(tmp_path)
+        event_loop_thread = threading.get_ident()
+        archive_threads: list[int] = []
+
+        def _archive(**_kwargs):
+            archive_threads.append(threading.get_ident())
+
+        monkeypatch.setattr(gen.versions, "commit_staged_paid_version", _archive, raising=False)
+
+        async def _fail_prepare(*_args):
+            raise failure
+
+        with pytest.raises(type(failure)):
+            await gen._prepare_formal_video_commit(
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                prompt="paid request",
+                output_path=tmp_path / "current.mp4",
+                staged_output_path=tmp_path / "staged.mp4",
+                duration_seconds=8,
+                version_metadata={},
+                before_formal_commit=_fail_prepare,
+            )
+
+        assert archive_threads
+        assert archive_threads[0] != event_loop_thread
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
     async def test_video_commit_thread_keeps_event_loop_responsive_and_defers_cancellation(
         self,
         tmp_path,
