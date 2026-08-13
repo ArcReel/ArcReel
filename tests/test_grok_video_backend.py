@@ -98,6 +98,33 @@ class TestGrokVideoBackend:
             assert call_kwargs["resolution"] == "720p"
             assert "image_url" not in call_kwargs
 
+    async def test_marks_resubmit_unsafe_before_opaque_provider_call(self, output_path: Path):
+        from lib.video_backends.grok import GrokVideoBackend
+
+        mock_video = MagicMock()
+        mock_video.generate = AsyncMock(side_effect=RuntimeError("service unavailable"))
+        mock_client = MagicMock()
+        mock_client.video = mock_video
+        resubmit_unsafe = MagicMock()
+
+        with (
+            patch("lib.video_backends.grok.create_grok_client", return_value=mock_client),
+            patch("lib.retry.asyncio.sleep", new=AsyncMock()),
+        ):
+            backend = GrokVideoBackend(api_key="test-key")
+            request = VideoGenerationRequest(
+                prompt="A cat walking",
+                output_path=output_path,
+                duration_seconds=5,
+                on_provider_resubmit_unsafe=resubmit_unsafe,
+            )
+
+            with pytest.raises(RuntimeError, match="service unavailable"):
+                await backend.generate(request)
+
+        resubmit_unsafe.assert_called_once_with()
+        assert mock_video.generate.await_count == 1
+
     async def test_image_to_video(self, output_path: Path, tmp_path: Path):
         from lib.video_backends.grok import GrokVideoBackend
 

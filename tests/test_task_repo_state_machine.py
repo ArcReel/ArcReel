@@ -289,6 +289,52 @@ class TestRepoStateMachineGuards:
         refreshed = await repo.get(t["task_id"])
         assert refreshed["submitted_base_url"] == "https://custom-a.example.com/api/v1"
 
+    @pytest.mark.parametrize("task_type", ["video", "reference_video"])
+    async def test_persist_video_checkpoint_atomically_locks_actual_provider(self, db_session, task_type):
+        repo = TaskRepository(db_session)
+        task = await repo.enqueue(
+            project_name="demo",
+            task_type=task_type,
+            media_type="video",
+            resource_id="E1U1",
+            payload={"script_file": "scripts/episode_1.json"},
+            script_file="scripts/episode_1.json",
+            provider_id="enqueue-advisory",
+        )
+        await repo.claim_next("video")
+
+        await repo.persist_execution_checkpoint(task["task_id"], '{"schema_version":1}', "actual-provider")
+
+        refreshed = await repo.get(task["task_id"])
+        assert refreshed["execution_checkpoint_json"] == '{"schema_version":1}'
+        assert refreshed["provider_id"] == "actual-provider"
+        assert refreshed["provider_job_id"] is None
+        assert refreshed["payload"] == {"script_file": "scripts/episode_1.json"}
+
+    @pytest.mark.parametrize("task_type", ["video", "reference_video"])
+    async def test_persist_video_checkpoint_is_once_only_and_requires_running_before_job(self, db_session, task_type):
+        repo = TaskRepository(db_session)
+        task = await repo.enqueue(
+            project_name="demo",
+            task_type=task_type,
+            media_type="video",
+            resource_id="E1U1",
+            payload={},
+            script_file="scripts/episode_1.json",
+        )
+
+        with pytest.raises(ValueError, match="checkpoint persistence guard"):
+            await repo.persist_execution_checkpoint(task["task_id"], "first", "provider-a")
+
+        await repo.claim_next("video")
+        await repo.persist_execution_checkpoint(task["task_id"], "first", "provider-a")
+        with pytest.raises(ValueError, match="checkpoint persistence guard"):
+            await repo.persist_execution_checkpoint(task["task_id"], "second", "provider-b")
+
+        refreshed = await repo.get(task["task_id"])
+        assert refreshed["execution_checkpoint_json"] == "first"
+        assert refreshed["provider_id"] == "provider-a"
+
     async def test_list_orphan_returns_running_and_cancelling(self, db_session):
         repo = TaskRepository(db_session)
         t1 = await repo.enqueue(

@@ -41,6 +41,9 @@ class Task(UserOwnedMixin, Base):
     # 自定义供应商提交该 job 时实际请求的域名（连接维度），与 provider_job_id 同一次写入落地，
     # 供续跑回放原域名轮询——该类供应商的 provider_endpoint 已被协议标识占用，域名另存于此。
     submitted_base_url: Mapped[str | None] = mapped_column(String)
+    # 参考视频首次提交前冻结的严格执行事实。独立列避免与可变 enqueue payload 混合，且让
+    # checkpoint/job 组合在重启时可无歧义分流；只由 worker 内部消费，不属于 tasks API 契约。
+    execution_checkpoint_json: Mapped[str | None] = mapped_column(Text)
     queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

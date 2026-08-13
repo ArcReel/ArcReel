@@ -157,6 +157,14 @@ class TestWarningRendering:
 
 
 class TestWarningPassthroughAndTolerance:
+    def test_execution_checkpoint_is_removed_without_mutating_internal_task(self):
+        task = _task(execution_checkpoint_json='{"provider_id":"secret"}')
+
+        localized = _localize_task(task, _translator("zh"))
+
+        assert "execution_checkpoint_json" not in localized
+        assert task["execution_checkpoint_json"] == '{"provider_id":"secret"}'
+
     def test_task_without_result_is_returned_unchanged(self):
         task = _task()
 

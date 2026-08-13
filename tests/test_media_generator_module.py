@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lib.image_backends.base import ImageCapability, ImageGenerationResult
-from lib.media_generator import MediaGenerator, segment_id_for
+from lib.media_generator import MediaGenerator, cleanup_staged_video_output, segment_id_for, task_video_staging_path
 
 
 class _FakeImageBackend:
@@ -259,6 +259,299 @@ class TestMediaGenerator:
         assert video_path2.name == "scene_E1S02.mp4"
         assert version2 == 2
         assert gen.ledger.started[-1]["call_type"] == "video"
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_video_before_submit_runs_once_immediately_before_first_backend_call(self, tmp_path):
+        from lib.version_manager import VersionManager
+
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        events: list[object] = []
+
+        class _Backend(_FakeVideoBackend):
+            async def generate(self, request):
+                events.append("provider")
+                return await super().generate(request)
+
+        gen._video_backend = _Backend()
+
+        async def _checkpoint(call_id: int) -> dict[str, object]:
+            events.append(("checkpoint", call_id))
+            return {"execution_api_call_id": call_id}
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            before_submit=_checkpoint,
+        )
+
+        assert events == [("checkpoint", 1), "provider"]
+        history = gen.versions.get_versions("reference_videos", "E1U1")
+        assert history["versions"][0]["execution_api_call_id"] == 1
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_video_before_submit_failure_prevents_provider_call(self, tmp_path):
+        gen = _build_generator(tmp_path)
+
+        async def _checkpoint(_call_id: int) -> None:
+            raise RuntimeError("checkpoint unavailable")
+
+        with pytest.raises(RuntimeError, match="checkpoint unavailable"):
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                before_submit=_checkpoint,
+            )
+
+        assert gen._video_backend.calls == []
+        assert [outcome["status"] for outcome in gen.ledger.outcomes] == ["failed"]
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_video_before_submit_is_not_repeated_for_413_compression_retry(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        ref = _solid_png(tmp_path, "ref-checkpoint.png", 16, 16)
+
+        class _RetryBackend(_FakeVideoBackend):
+            from lib.video_backends.base import VideoCapabilities
+
+            video_capabilities = VideoCapabilities(max_reference_images=9)
+
+            def __init__(self):
+                super().__init__(video_capabilities=type(self).video_capabilities)
+                self.attempts = 0
+
+            async def generate(self, request):
+                self.attempts += 1
+                self.calls.append(request)
+                if self.attempts == 1:
+                    raise _http_413_error()
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"paid-video")
+                return _FakeVideoResult()
+
+        backend = _RetryBackend()
+        gen._video_backend = backend
+        checkpoint_calls: list[int] = []
+
+        async def _checkpoint(call_id: int) -> None:
+            checkpoint_calls.append(call_id)
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            reference_images=[ref],
+            before_submit=_checkpoint,
+        )
+
+        assert backend.attempts == 2
+        assert checkpoint_calls == [1]
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_video_413_after_provider_acceptance_never_resubmits(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        ref = _solid_png(tmp_path, "ref-after-submit.png", 16, 16)
+
+        class _Poll413Backend(_FakeVideoBackend):
+            from lib.video_backends.base import VideoCapabilities
+
+            video_capabilities = VideoCapabilities(max_reference_images=9)
+
+            def __init__(self):
+                super().__init__(video_capabilities=type(self).video_capabilities)
+                self.attempts = 0
+
+            async def generate(self, request):
+                self.attempts += 1
+                if request.on_provider_resubmit_unsafe is not None:
+                    request.on_provider_resubmit_unsafe()
+                raise _http_413_error()
+
+        backend = _Poll413Backend()
+        gen._video_backend = backend
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                reference_images=[ref],
+            )
+
+        assert backend.attempts == 1
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_formal_video_output_uses_staged_transaction_and_preserves_old_current_on_failure(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        from lib.version_manager import VersionManager
+
+        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        current = gen._get_output_path("reference_videos", "E1U1")
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"old-current")
+
+        class _FailAfterWrite(_FakeVideoBackend):
+            async def generate(self, request):
+                request.output_path.write_bytes(b"partial-new")
+                raise RuntimeError("provider download failed")
+
+        gen._video_backend = _FailAfterWrite()
+        with pytest.raises(RuntimeError, match="provider download failed"):
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                formal_output=True,
+                task_id="task-output-failure",
+            )
+
+        assert current.read_bytes() == b"old-current"
+        assert list(current.parent.glob(".E1U1.*.mp4")) == []
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_formal_video_output_cleans_staging_when_ledger_settlement_fails(self, tmp_path, monkeypatch):
+        from lib.version_manager import VersionManager
+
+        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        current = gen._get_output_path("reference_videos", "E1U1")
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"old-current")
+
+        class _FailingSettlementLedger(_FakeLedger):
+            @asynccontextmanager
+            async def record(self, **kwargs):
+                async with super().record(**kwargs) as call:
+                    yield call
+                raise RuntimeError("ledger settlement failed")
+
+        gen.ledger = _FailingSettlementLedger()
+
+        with pytest.raises(RuntimeError, match="ledger settlement failed"):
+            await gen.generate_video_async(
+                prompt="paid request",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                formal_output=True,
+                task_id="task-ledger-failure",
+            )
+
+        assert current.read_bytes() == b"old-current"
+        assert list(current.parent.glob(".E1U1.*.mp4")) == []
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_formal_video_output_commits_file_and_history_together(self, tmp_path, monkeypatch):
+        from lib.version_manager import VersionManager
+
+        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+
+        output, version, _, _ = await gen.generate_video_async(
+            prompt="paid request",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            formal_output=True,
+            task_id="task-output-success",
+            execution_request_digest="d" * 64,
+        )
+
+        assert output.read_bytes() == b"fake-video-data"
+        assert version == 1
+        history = gen.versions.get_versions("reference_videos", "E1U1")
+        assert history["versions"][0]["execution_request_digest"] == "d" * 64
+        assert Path(gen.project_path / history["versions"][0]["file"]).read_bytes() == b"fake-video-data"
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_formal_video_output_reclaims_the_same_task_path_after_interruption(self, tmp_path, monkeypatch):
+        from lib.version_manager import VersionManager
+
+        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        current = gen._get_output_path("reference_videos", "E1U1")
+        current.parent.mkdir(parents=True)
+        staged = task_video_staging_path(current, "task-restarted")
+        staged.write_bytes(b"interrupted-download")
+
+        class _CapturePathBackend(_FakeVideoBackend):
+            async def generate(self, request):
+                assert request.output_path == staged
+                assert not request.output_path.exists()
+                return await super().generate(request)
+
+        gen._video_backend = _CapturePathBackend()
+        await gen.generate_video_async(
+            prompt="paid request",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            formal_output=True,
+            task_id="task-restarted",
+        )
+
+        assert current.read_bytes() == b"fake-video-data"
+        assert not staged.exists()
+
+    @pytest.mark.integration
+    def test_formal_video_cleanup_unlinks_a_symlink_without_touching_its_target(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        current = gen._get_output_path("reference_videos", "E1U1")
+        current.parent.mkdir(parents=True)
+        paid_history = tmp_path / "paid-history.mp4"
+        paid_history.write_bytes(b"paid-history")
+        staged = task_video_staging_path(current, "task-symlink")
+        staged.symlink_to(paid_history)
+
+        cleanup_staged_video_output(
+            gen.project_path,
+            "reference_videos",
+            "E1U1",
+            "task-symlink",
+        )
+
+        assert not staged.exists()
+        assert paid_history.read_bytes() == b"paid-history"
+
+    @pytest.mark.integration
+    def test_formal_video_cleanup_removes_a_junction_without_file_unlink(self, tmp_path, monkeypatch):
+        from lib import media_generator
+
+        gen = _build_generator(tmp_path)
+        current = gen._get_output_path("reference_videos", "E1U1")
+        current.parent.mkdir(parents=True)
+        staged = task_video_staging_path(current, "task-junction")
+        staged.mkdir()
+        monkeypatch.setattr(
+            media_generator.os.path,
+            "isjunction",
+            lambda path: Path(path) == staged,
+            raising=False,
+        )
+
+        cleanup_staged_video_output(
+            gen.project_path,
+            "reference_videos",
+            "E1U1",
+            "task-junction",
+        )
+
+        assert not staged.exists()
 
     @pytest.mark.integration
     @pytest.mark.asyncio

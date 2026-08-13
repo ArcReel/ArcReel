@@ -230,6 +230,8 @@ class ViduVideoBackend:
         async with create_vidu_client(api_key=self._api_key, base_url=self._base_url) as client:
             payload = await self._create_task(client, endpoint, body)
             task_id = payload["task_id"]
+            if request.on_provider_resubmit_unsafe is not None:
+                request.on_provider_resubmit_unsafe()
             credits = payload.get("credits")
             logger.info(
                 "Vidu 视频任务已创建: endpoint=%s task_id=%s credits=%s model=%s",

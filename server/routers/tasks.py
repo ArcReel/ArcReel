@@ -79,11 +79,16 @@ def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[
     rows pass through unchanged (see ``lib.task_failure.render_failure``). Generation
     warnings stored as ``result.warnings`` (``{key, params}`` entries written by the
     reference-video pipeline) are rendered in place into a list of strings, mirroring
-    how ``error_message`` is rendered. The input dict is never mutated — a rendered copy
-    is returned — so dicts owned by the queue layer stay locale-neutral and cannot be
-    polluted across requests.
+    how ``error_message`` is rendered. Internal execution checkpoints are stripped at
+    this API serialization boundary. The input dict is never mutated — a rendered copy
+    is returned when necessary — so dicts owned by the queue layer stay locale-neutral
+    and cannot be polluted across requests.
     """
-    localized = task
+    localized = (
+        {key: value for key, value in task.items() if key != "execution_checkpoint_json"}
+        if "execution_checkpoint_json" in task
+        else task
+    )
     message = localized.get("error_message")
     if message:
         failure = parse_failure(message)

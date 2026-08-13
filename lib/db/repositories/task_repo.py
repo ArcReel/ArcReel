@@ -111,6 +111,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "provider_job_id": row.provider_job_id,
         "provider_endpoint": row.provider_endpoint,
         "submitted_base_url": row.submitted_base_url,
+        "execution_checkpoint_json": row.execution_checkpoint_json,
         "queued_at": dt_to_iso(row.queued_at),
         "started_at": dt_to_iso(row.started_at),
         "finished_at": dt_to_iso(row.finished_at),
@@ -748,14 +749,39 @@ class TaskRepository(BaseRepository):
         await self.session.execute(update(Task).where(Task.task_id == task_id).values(**values))
         await self.session.commit()
 
+    async def persist_execution_checkpoint(self, task_id: str, checkpoint_json: str, provider_id: str) -> None:
+        """Persist the once-only pre-submit checkpoint and actual provider atomically.
+
+        The guarded transition is deliberately narrower than ordinary task metadata updates: only a running
+        video task with neither a checkpoint nor a provider job may cross the submit boundary. A
+        zero-row update is an execution conflict and must abort before the provider call.
+        """
+        result = await self.session.execute(
+            update(Task)
+            .where(
+                Task.task_id == task_id,
+                Task.task_type.in_(("video", "reference_video")),
+                Task.status == "running",
+                Task.execution_checkpoint_json.is_(None),
+                Task.provider_job_id.is_(None),
+            )
+            .values(
+                execution_checkpoint_json=checkpoint_json,
+                provider_id=provider_id,
+                updated_at=utc_now(),
+            )
+        )
+        if rowcount(result) != 1:
+            await self.session.rollback()
+            raise ValueError(f"execution checkpoint persistence guard rejected task: {task_id}")
+        await self.session.commit()
+
     async def _merge_payload_field(self, task_id: str, key: str, value: Any, *, raise_if_missing: bool = True) -> None:
         """把单个字段并入 task.payload 并提交；``raise_if_missing`` 决定 task 缺失时的处置。
 
         Task.payload_json 是 TEXT 列存 JSON 字符串（非 native JSONB），故用 read-modify-write
-        模式更新。并发安全前提：写 payload 的路径在同一 task 的执行协程内串行——
-        ``persist_effective_duration`` 与 ``persist_execution_identity`` 在向 provider 提交前
-        各写一次，``persist_api_call_id`` 由 media_generator 在其后拿到 call_id 时写一次，
-        互不并发。引入真正并发写 payload 的路径时需要外层加
+        模式更新。并发安全前提：写 payload 的路径在同一 task 的执行协程内串行。
+        引入真正并发写 payload 的路径时需要外层加
         ``SELECT ... FOR UPDATE`` 或单事务串行化。
         """
         # 用 .first() 而非 scalar_one_or_none()：Task.payload_json 允许 NULL（迁移输入可含
@@ -787,17 +813,6 @@ class TaskRepository(BaseRepository):
         """
         await self._merge_payload_field(task_id, "api_call_id", call_id)
 
-    async def persist_effective_duration(self, task_id: str, duration_seconds: int) -> None:
-        """把取档后实际申请的秒数写回 ``task.payload["duration_seconds"]``。
-
-        参考视频执行层按 model 能力取档后申请的秒数可能偏离入队时的剧本原值；
-        resume 路径读的正是这个字段（见 ``server.services.resume_executor``），
-        不写回会让 resume 时按剧本原值重新申请，与该任务执行时实际申请的秒数不一致。
-        task 不存在时静默跳过（不影响该任务的生成结果，仅是 resume 元数据，不必 fail-fast
-        阻断执行）。
-        """
-        await self._merge_payload_field(task_id, "duration_seconds", duration_seconds, raise_if_missing=False)
-
     async def persist_execution_provider_id(self, task_id: str, provider_id: str) -> None:
         """把 worker 重投影的 provider advisory 写回 ``task.provider_id``。
 
@@ -809,30 +824,6 @@ class TaskRepository(BaseRepository):
         await self.session.execute(
             update(Task).where(Task.task_id == task_id).values(provider_id=provider_id, updated_at=now)
         )
-        await self.session.commit()
-
-    async def persist_execution_identity(self, task_id: str, provider_id: str, payload_patch: dict[str, Any]) -> None:
-        """把执行期实际解析出的身份写回 ``task.provider_id`` 列并按 ``payload_patch`` 改写 payload。
-
-        ``payload_patch`` 值为 ``None`` 表示删除该键，其余键覆盖写入；列与 payload 在同一次
-        提交内落地。task 不存在时 UPDATE 命中 0 行、静默返回，与
-        ``persist_execution_provider_id`` 同口径。写 payload 的串行前提见
-        ``_merge_payload_field`` docstring。
-        """
-        result = await self.session.execute(select(Task.payload_json).where(Task.task_id == task_id))
-        row = result.first()
-        values: dict[str, Any] = {"provider_id": provider_id, "updated_at": utc_now()}
-        if row is not None:
-            data = _json_loads(row[0], {})
-            if not isinstance(data, dict):
-                data = {}
-            for key, value in payload_patch.items():
-                if value is None:
-                    data.pop(key, None)
-                else:
-                    data[key] = value
-            values["payload_json"] = _json_dumps(data)
-        await self.session.execute(update(Task).where(Task.task_id == task_id).values(**values))
         await self.session.commit()
 
     async def list_orphan_tasks_on_start(self) -> list[dict[str, Any]]:

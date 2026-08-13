@@ -270,12 +270,12 @@ def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoCapabi
 def _payload_video_pinned_pair(
     payload: dict, capability: VideoCapability | None
 ) -> tuple[VideoCapability, tuple[str, str]] | None:
-    """读 payload 里已物化的视频执行身份（桶键 ``video_provider_<cap>``），连同命中的桶一并返回。
+    """读请求 payload 里显式的视频执行身份（桶键 ``video_provider_<cap>``），连同命中的桶一并返回。
 
-    值是 ``ProviderModel.pair_key`` 形态的复合值，写入方是 ``lib.generation_queue``：
-    分镜视频入队时写入，reference_video 在开始处理后、提交 provider 前写入。
-    任务只保留所属的那一个桶键，故 ``capability`` 未声明（resume 等不承诺桶的调用方）
-    时按固定桶序扫两个桶键——至多命中一个，桶序不产生歧义。
+    值是 ``ProviderModel.pair_key`` 形态的复合值。正常队列执行会先移除 enqueue payload
+    中的这类旧键，再按当前配置求值；已提交视频的 resume executor 则根据 immutable
+    checkpoint 构造恰好一个桶键，用它重建原 backend。``capability`` 未声明时按固定桶序
+    扫两个桶键——至多命中一个，桶序不产生歧义。
 
     provider 不可信（见 ``_trusted_payload_provider``）不在此丢弃：视频侧身份可用性由
     ``_ensure_video_identity_resolvable`` 收口，供应商已下线时该报错，回退等于换供应商执行。

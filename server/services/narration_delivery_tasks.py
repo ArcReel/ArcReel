@@ -685,10 +685,35 @@ def reference_video_visual_basis_digest(
     else:
         audio_speakers = list(rendered.audio_speakers)
         audio_targets = None
-    return build_reference_video_visual_basis(
+    return materialized_reference_video_visual_basis_digest(
         rendered_prompt=rendered.prompt,
         aspect_ratio=resolve_video_aspect_ratio(project),
         reference_images=[asset.path for asset in request_assets],
+        request_assets=request_assets,
+        reference_audio_files=[audio_paths[speaker] for speaker in audio_speakers],
+        reference_audio_speakers=audio_speakers,
+        reference_audio_targets=audio_targets,
+        candidate=candidate,
+    )
+
+
+def materialized_reference_video_visual_basis_digest(
+    *,
+    rendered_prompt: object,
+    aspect_ratio: object,
+    reference_images: Sequence[Path],
+    request_assets: Sequence[ResolvedReferenceAsset],
+    reference_audio_files: Sequence[Path],
+    reference_audio_speakers: Sequence[str],
+    reference_audio_targets: Sequence[int] | None,
+    candidate: ProviderProjectionCandidate,
+) -> str:
+    """Hash a fully rendered request against the exact media bytes that will be submitted."""
+
+    return build_reference_video_visual_basis(
+        rendered_prompt=rendered_prompt,
+        aspect_ratio=aspect_ratio,
+        reference_images=reference_images,
         reference_descriptors=[
             {
                 "type": asset.reference.type,
@@ -697,9 +722,9 @@ def reference_video_visual_basis_digest(
             }
             for asset in request_assets
         ],
-        reference_audio_files=[audio_paths[speaker] for speaker in audio_speakers],
-        reference_audio_speakers=audio_speakers,
-        reference_audio_targets=audio_targets,
+        reference_audio_files=reference_audio_files,
+        reference_audio_speakers=reference_audio_speakers,
+        reference_audio_targets=reference_audio_targets,
         request_context={
             "capability": candidate.capability,
             "provider_id": candidate.provider_id,
@@ -849,6 +874,7 @@ __all__ = [
     "current_selected_video_tier",
     "current_reusable_video_tier",
     "prepare_current_storyboard_narrated_video_duration",
+    "materialized_reference_video_visual_basis_digest",
     "prepare_current_reference_video_request_options",
     "ResolvedTtsSettingsResolver",
     "require_generated_video_covers_current_tts",

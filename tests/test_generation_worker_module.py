@@ -1,5 +1,6 @@
 import asyncio
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -32,6 +33,109 @@ def _phase_ids(slots: SlotTable, provider: str, media: str) -> tuple[set[str], s
     inflight = {tid for tid, occ in bucket.items() if not occ.pending}
     pending = {tid for tid, occ in bucket.items() if occ.pending}
     return inflight, pending
+
+
+def _worker_reference_checkpoint(task_id: str, *, provider_id: str = "ark") -> str:
+    from lib.reference_video.execution_checkpoint import NarrationExecutionFacts, ReferenceSubmissionCheckpoint
+
+    return ReferenceSubmissionCheckpoint.create(
+        task_id=task_id,
+        project_name="demo",
+        script_file="scripts/episode_1.json",
+        unit_id="E1U1",
+        capability="r2v",
+        provider_id=provider_id,
+        provider_model_id="model-v1",
+        backend_model_id="model-v1",
+        endpoint_guard=None,
+        api_call_id=7,
+        prompt="frozen",
+        duration_seconds=8,
+        aspect_ratio="9:16",
+        resolution="1080p",
+        generate_audio=True,
+        service_tier="default",
+        seed=None,
+        visual_basis_digest="a" * 64,
+        narration=NarrationExecutionFacts(
+            delivery="post_production",
+            tts_status="not_applicable",
+            artifact_path="",
+            basis_digest=None,
+            actual_duration_seconds=None,
+        ),
+        media=(),
+        reference_audio_targets=None,
+    ).to_json()
+
+
+def _worker_storyboard_checkpoint(task_id: str, *, provider_id: str = "ark") -> str:
+    from lib.reference_video.execution_checkpoint import (
+        NarrationExecutionFacts,
+        StagedProviderMedia,
+        StoryboardSubmissionCheckpoint,
+    )
+
+    return StoryboardSubmissionCheckpoint.create(
+        task_id=task_id,
+        project_name="demo",
+        script_file="scripts/episode_1.json",
+        unit_id="E1S01",
+        capability="i2v",
+        provider_id=provider_id,
+        provider_model_id="model-v1",
+        backend_model_id="model-v1",
+        endpoint_guard=None,
+        api_call_id=7,
+        prompt="frozen",
+        duration_seconds=8,
+        aspect_ratio="9:16",
+        resolution="1080p",
+        generate_audio=True,
+        service_tier="default",
+        seed=None,
+        visual_basis_digest="a" * 64,
+        narration=NarrationExecutionFacts(
+            delivery="post_production",
+            tts_status="not_applicable",
+            artifact_path="",
+            basis_digest=None,
+            actual_duration_seconds=None,
+        ),
+        media=(
+            StagedProviderMedia(
+                index=0,
+                role="start_image",
+                logical_type="storyboard",
+                logical_name="E1S01",
+                kind="storyboard",
+                source_locator="storyboards/E1S01.png",
+                staged_locator=f".arcreel/tasks/{task_id}/provider_media/000-start_image.png",
+                sha256="b" * 64,
+                size_bytes=5,
+            ),
+        ),
+        reference_audio_targets=None,
+    ).to_json()
+
+
+def _storyboard_resume_task(task_id: str, *, provider_id: str = "ark", job_id: str = "job-1") -> dict[str, Any]:
+    return {
+        "task_id": task_id,
+        "task_type": "video",
+        "media_type": "video",
+        "provider_id": provider_id,
+        "provider_job_id": job_id,
+        "execution_checkpoint_json": _worker_storyboard_checkpoint(task_id, provider_id=provider_id),
+        "payload": {},
+        "project_name": "demo",
+        "resource_id": "E1S01",
+        "script_file": "scripts/episode_1.json",
+    }
+
+
+def _storyboard_orphan(task_id: str, *, provider_id: str = "ark", job_id: str = "job-1") -> dict[str, Any]:
+    return {**_storyboard_resume_task(task_id, provider_id=provider_id, job_id=job_id), "status": "running"}
 
 
 class _FakeQueue:
@@ -123,10 +227,10 @@ class TestExtractProvider:
     """_extract_provider 是解析链的薄投影：按 task_type 派发，取 .provider_id。"""
 
     @pytest.mark.unit
-    async def test_video_payload_pinned_bucket_provider(self):
-        """payload 携带入队锁定的桶键 → 投影直接取到（payload 层短路，无需 DB）。"""
+    async def test_video_payload_identity_is_advisory_only(self, _patch_empty_db):
+        """分镜视频认领忽略 enqueue payload 的旧身份；无当前配置时只回退限流默认。"""
         task = {"payload": {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"}, "task_type": "video"}
-        assert await _extract_provider(task) == "ark"
+        assert await _extract_provider(task) == DEFAULT_PROVIDER
 
     @pytest.mark.unit
     async def test_image_payload_provider(self):
@@ -232,6 +336,48 @@ class TestExtractProvider:
         assert await _extract_provider(task) == expected_provider
 
     @pytest.mark.unit
+    async def test_reference_video_claim_uses_frozen_task_script_locator(self, tmp_path, monkeypatch):
+        project = {
+            "video_provider_i2v": "ark/doubao-seedance-1-5-pro-251215",
+            "video_provider_r2v": "minimax/S2V-01",
+            "video_generate_audio": True,
+            "characters": {"A": {"character_sheet": "characters/A.png"}},
+        }
+        (tmp_path / "characters").mkdir()
+        (tmp_path / "characters" / "A.png").write_bytes(b"image")
+        scripts = {
+            "stale.json": {"video_units": [{"unit_id": "E1U1", "references": [], "shots": [{"text": "t"}]}]},
+            "frozen.json": {
+                "video_units": [
+                    {
+                        "unit_id": "E1U1",
+                        "references": [{"type": "character", "name": "A"}],
+                        "shots": [{"text": "t"}],
+                    }
+                ]
+            },
+        }
+        pm_cls = type(
+            "PM",
+            (),
+            {
+                "load_project": lambda self, name: project,
+                "load_script": lambda self, name, filename: scripts[filename],
+                "get_project_path": lambda self, name: tmp_path,
+            },
+        )
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", pm_cls)
+        task = {
+            "payload": {"script_file": "stale.json"},
+            "script_file": "frozen.json",
+            "project_name": "demo",
+            "task_type": "reference_video",
+            "resource_id": "E1U1",
+        }
+
+        assert await _extract_provider(task) == "minimax"
+
+    @pytest.mark.unit
     async def test_reference_video_script_read_failure_falls_back_to_r2v(self, monkeypatch):
         """剧本读取失败时投影回退 r2v 代表桶，不冒泡阻断认领。"""
 
@@ -327,15 +473,15 @@ class TestExtractProvider:
         assert await _extract_provider(task) == "grok"
 
     @pytest.mark.unit
-    async def test_payload_provider_takes_precedence_over_project(self, monkeypatch):
-        """payload 锁定的 provider 优先于项目级。"""
+    async def test_current_project_provider_takes_precedence_over_stale_payload(self, monkeypatch):
+        """分镜视频在认领时重投影当前项目配置，不复用 enqueue payload 的旧 provider。"""
         _patch_pm(monkeypatch, {"video_backend": "grok/grok-imagine-video"})
         task = {
             "payload": {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"},
             "project_name": "demo",
             "task_type": "video",
         }
-        assert await _extract_provider(task) == "ark"
+        assert await _extract_provider(task) == "grok"
 
     @pytest.mark.unit
     async def test_deleted_project_load_failure_falls_back_not_raises(self, monkeypatch):
@@ -741,7 +887,8 @@ class TestGenerationWorker:
             "reused_existing": True,
         }
 
-        async def _fake_execute(_task):
+        async def _fake_execute(_task, *, claimed_provider_id):
+            assert claimed_provider_id
             return reused
 
         monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _fake_execute)
@@ -1253,6 +1400,38 @@ class TestGenerationWorker:
         await worker._handle_orphan_tasks_on_start()
         assert queue.cancelled and queue.cancelled[0][0] == "orphan-cancelling"
 
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_video_orphan_cleanup_removes_provider_media_and_task_output(self, tmp_path, monkeypatch):
+        from lib.media_generator import task_video_staging_path
+
+        project_path = tmp_path / "demo"
+        output_path = project_path / "videos" / "scene_E1S01.mp4"
+        output_path.parent.mkdir(parents=True)
+        staged_output = task_video_staging_path(output_path, "orphan-cleanup")
+        staged_output.write_bytes(b"interrupted-download")
+        provider_media = project_path / ".arcreel" / "tasks" / "orphan-cleanup" / "provider_media"
+        provider_media.mkdir(parents=True)
+        (provider_media / "000-start_image.png").write_bytes(b"staged-input")
+
+        class _ProjectManager:
+            def get_project_path(self, _project_name):
+                return project_path
+
+        monkeypatch.setattr("lib.project_manager.get_project_manager", lambda: _ProjectManager())
+        worker = GenerationWorker(queue=_FakeQueue())
+        await worker._cleanup_video_staging(
+            {
+                "task_id": "orphan-cleanup",
+                "task_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1S01",
+            }
+        )
+
+        assert not staged_output.exists()
+        assert not provider_media.exists()
+
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_running_no_job_id_marks_restart_lost(self, monkeypatch):
@@ -1274,6 +1453,160 @@ class TestGenerationWorker:
         await worker._handle_orphan_tasks_on_start()
         assert queue.failed and queue.failed[0][0] == "orphan-lost"
         assert "[restart_lost_no_job_id]" in queue.failed[0][1]
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_reference_orphans_apply_strict_four_state_checkpoint_job_matrix(self, monkeypatch):
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "ref-neither",
+                "status": "running",
+                "task_type": "reference_video",
+                "media_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1U1",
+                "script_file": "scripts/episode_1.json",
+                "provider_job_id": None,
+                "payload": {},
+            },
+            {
+                "task_id": "ref-checkpoint-only",
+                "status": "running",
+                "task_type": "reference_video",
+                "media_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1U1",
+                "script_file": "scripts/episode_1.json",
+                "provider_job_id": None,
+                "execution_checkpoint_json": _worker_reference_checkpoint("ref-checkpoint-only"),
+                "payload": {},
+            },
+            {
+                "task_id": "ref-job-only",
+                "status": "running",
+                "task_type": "reference_video",
+                "media_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1U1",
+                "script_file": "scripts/episode_1.json",
+                "provider_job_id": "job-1",
+                "payload": {},
+            },
+            {
+                "task_id": "ref-bad-checkpoint",
+                "status": "running",
+                "task_type": "reference_video",
+                "media_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1U1",
+                "script_file": "scripts/episode_1.json",
+                "provider_job_id": "job-2",
+                "execution_checkpoint_json": "{broken",
+                "payload": {},
+            },
+        ]
+        worker = GenerationWorker(queue=queue)
+        cleaned: list[str] = []
+
+        async def _clean(_self, task):
+            cleaned.append(task["task_id"])
+
+        monkeypatch.setattr(GenerationWorker, "_cleanup_video_staging", _clean)
+
+        await worker._handle_orphan_tasks_on_start()
+
+        failures = {task_id: reason for task_id, reason in queue.failed}
+        assert "[restart_lost_no_job_id]" in failures["ref-neither"]
+        assert "[restart_lost_checkpoint_no_job_id]" in failures["ref-checkpoint-only"]
+        assert "[execution_identity_unrecoverable]" in failures["ref-job-only"]
+        assert "[execution_identity_unrecoverable]" in failures["ref-bad-checkpoint"]
+        assert set(cleaned) == {task["task_id"] for task in queue._orphans}
+        assert worker._orphan_dispatcher_task is None
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_storyboard_orphans_apply_strict_four_state_checkpoint_job_matrix(self, monkeypatch):
+        base = {
+            "status": "running",
+            "task_type": "video",
+            "media_type": "video",
+            "project_name": "demo",
+            "resource_id": "E1S01",
+            "script_file": "scripts/episode_1.json",
+            "payload": {},
+        }
+        queue = _FakeQueue()
+        queue._orphans = [
+            {**base, "task_id": "story-neither", "provider_job_id": None},
+            {
+                **base,
+                "task_id": "story-checkpoint-only",
+                "provider_job_id": None,
+                "execution_checkpoint_json": _worker_storyboard_checkpoint("story-checkpoint-only"),
+            },
+            {**base, "task_id": "story-job-only", "provider_job_id": "job-1"},
+            {
+                **base,
+                "task_id": "story-bad-checkpoint",
+                "provider_job_id": "job-2",
+                "execution_checkpoint_json": "{broken",
+            },
+        ]
+        worker = GenerationWorker(queue=queue)
+        cleaned: list[str] = []
+
+        async def _clean(_self, task):
+            cleaned.append(task["task_id"])
+
+        monkeypatch.setattr(GenerationWorker, "_cleanup_video_staging", _clean)
+
+        await worker._handle_orphan_tasks_on_start()
+
+        failures = {task_id: reason for task_id, reason in queue.failed}
+        assert "[restart_lost_no_job_id]" in failures["story-neither"]
+        assert "[restart_lost_checkpoint_no_job_id]" in failures["story-checkpoint-only"]
+        assert "[execution_identity_unrecoverable]" in failures["story-job-only"]
+        assert "[execution_identity_unrecoverable]" in failures["story-bad-checkpoint"]
+        assert set(cleaned) == {task["task_id"] for task in queue._orphans}
+        assert worker._orphan_dispatcher_task is None
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_reference_orphan_with_checkpoint_and_job_routes_by_checkpoint_provider(self, monkeypatch):
+        from lib.providers import PROVIDER_GROK
+
+        queue = _FakeQueue()
+        task = {
+            "task_id": "ref-ready",
+            "status": "running",
+            "task_type": "reference_video",
+            "media_type": "video",
+            "project_name": "demo",
+            "resource_id": "E1U1",
+            "script_file": "scripts/episode_1.json",
+            "provider_id": PROVIDER_GROK,
+            "provider_job_id": "job-ready",
+            "execution_checkpoint_json": _worker_reference_checkpoint("ref-ready", provider_id="ark"),
+            "payload": {"video_provider_r2v": "current/wrong"},
+        }
+        queue._orphans = [task]
+        worker = GenerationWorker(queue=queue)
+        captured: dict[str, list[dict[str, Any]]] = {}
+
+        async def _capture(_self, buckets):
+            captured.update(buckets)
+
+        monkeypatch.setattr(GenerationWorker, "_dispatch_resume_orphans_background", _capture)
+
+        await worker._handle_orphan_tasks_on_start()
+        dispatcher_task = worker._orphan_dispatcher_task
+        assert dispatcher_task is not None
+        await asyncio.wait_for(dispatcher_task, timeout=5)
+
+        assert list(captured) == ["ark"]
+        assert captured["ark"][0]["provider_id"] == "ark"
+        assert queue.failed == []
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -1388,7 +1721,8 @@ class TestGenerationWorker:
 
         monkeypatch.setattr("lib.generation_worker._extract_provider", _current_provider)
 
-        async def _execute(_task):
+        async def _execute(_task, *, claimed_provider_id):
+            assert claimed_provider_id == "ark"
             return {"ok": True}
 
         monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _execute)
@@ -1494,18 +1828,7 @@ class TestGenerationWorker:
         from lib.providers import PROVIDER_GROK
 
         queue = _FakeQueue()
-        queue._orphans = [
-            {
-                "task_id": "grok-orphan",
-                "status": "running",
-                "provider_id": PROVIDER_GROK,
-                "provider_job_id": "some-job",
-                "media_type": "video",
-                "task_type": "video",
-                "payload": {},
-                "project_name": "demo",
-            }
-        ]
+        queue._orphans = [_storyboard_orphan("grok-orphan", provider_id=PROVIDER_GROK, job_id="some-job")]
         worker = GenerationWorker(queue=queue)
         requeued: list[str] = []
 
@@ -1541,16 +1864,7 @@ class TestGenerationWorker:
                 "payload": {},
                 "project_name": "demo",
             },
-            {
-                "task_id": "grok-raced",
-                "status": "running",
-                "provider_id": PROVIDER_GROK,
-                "provider_job_id": "job",
-                "media_type": "video",
-                "task_type": "video",
-                "payload": {},
-                "project_name": "demo",
-            },
+            _storyboard_orphan("grok-raced", provider_id=PROVIDER_GROK, job_id="job"),
         ]
         worker = GenerationWorker(queue=queue)
         await worker._handle_orphan_tasks_on_start()
@@ -1559,29 +1873,20 @@ class TestGenerationWorker:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_handle_orphan_uses_persisted_provider_id(self, monkeypatch):
-        """task.provider_id 优先于 _extract_provider 的当前项目解析。
+    async def test_handle_orphan_uses_checkpoint_provider_id(self, monkeypatch):
+        """checkpoint provider 优先于 task 投影列和当前项目解析。
 
-        如果 task 持久化的 provider_id 是 Grok（不支持 resume），即便当前项目配置
+        如果 checkpoint provider 是 Grok（不支持 resume），即便 task advisory 列和当前项目
         已切换成 Ark（支持 resume），孤儿仍应被识别为 non_resumable → [resume_unsupported]，
         而不是去派发 _process_resume_task 拿旧 job_id 给新 backend 轮询。
         """
         from lib.providers import PROVIDER_GROK
 
         queue = _FakeQueue()
-        queue._orphans = [
-            {
-                "task_id": "ghost-orphan",
-                "status": "running",
-                "provider_id": PROVIDER_GROK,  # 持久化的是 Grok
-                "provider_job_id": "stale-job",
-                "media_type": "video",
-                "task_type": "video",
-                # payload 锁定桶键写 ark，模拟"项目已切换" → _extract_provider 会解析成 ark
-                "payload": {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"},
-                "project_name": "demo",
-            }
-        ]
+        orphan = _storyboard_orphan("ghost-orphan", provider_id=PROVIDER_GROK, job_id="stale-job")
+        orphan["provider_id"] = "ark"
+        orphan["payload"] = {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"}
+        queue._orphans = [orphan]
         worker = GenerationWorker(queue=queue)
         requeued: list[str] = []
         resume_dispatched: list[str] = []
@@ -1595,7 +1900,7 @@ class TestGenerationWorker:
         monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
         monkeypatch.setattr(GenerationWorker, "_process_resume_task", _capture_resume)
         await worker._handle_orphan_tasks_on_start()
-        # 用持久化的 Grok → [resume_unsupported]；若误用 payload 里的 ark → 会派发 _process_resume_task
+        # 用 checkpoint 的 Grok → [resume_unsupported]；若误用 advisory/payload 的 ark → 会派发 resume
         assert requeued == []
         assert resume_dispatched == []
         assert queue.failed and queue.failed[0][0] == "ghost-orphan"
@@ -1610,18 +1915,7 @@ class TestGenerationWorker:
         dispatched 列表收到目标 task 即可（dispatcher 完成时 inflight 已被清理）。
         """
         queue = _FakeQueue()
-        queue._orphans = [
-            {
-                "task_id": "ark-orphan",
-                "status": "running",
-                "provider_id": "ark",
-                "provider_job_id": "ark-job-1",
-                "media_type": "video",
-                "task_type": "video",
-                "payload": {},
-                "project_name": "demo",
-            }
-        ]
+        queue._orphans = [_storyboard_orphan("ark-orphan", job_id="ark-job-1")]
         worker = GenerationWorker(queue=queue)
         dispatched: list[dict] = []
 
@@ -1659,19 +1953,7 @@ class TestGenerationWorker:
         import time
 
         queue = _FakeQueue()
-        queue._orphans = [
-            {
-                "task_id": f"orphan-{i}",
-                "status": "running",
-                "provider_id": "ark",
-                "provider_job_id": f"job-{i}",
-                "media_type": "video",
-                "task_type": "video",
-                "payload": {},
-                "project_name": "demo",
-            }
-            for i in range(5)
-        ]
+        queue._orphans = [_storyboard_orphan(f"orphan-{i}", job_id=f"job-{i}") for i in range(5)]
         worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 2}}))
 
         # 让 _process_resume_task block 住——验证 fast path 不等它完成
@@ -1699,19 +1981,7 @@ class TestGenerationWorker:
         """后台 dispatcher 受 video 容量约束分批 promote 进 INFLIGHT，
         任一时刻 inflight 占用 ≤ cap（pending 不消耗 sem，不计入此上限）。"""
         queue = _FakeQueue()
-        queue._orphans = [
-            {
-                "task_id": f"orphan-{i}",
-                "status": "running",
-                "provider_id": "ark",
-                "provider_job_id": f"job-{i}",
-                "media_type": "video",
-                "task_type": "video",
-                "payload": {},
-                "project_name": "demo",
-            }
-            for i in range(4)
-        ]
+        queue._orphans = [_storyboard_orphan(f"orphan-{i}", job_id=f"job-{i}") for i in range(4)]
         worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 2}}))
 
         # 用 controlled event 让 resume 任务可控完成；同时记录每次 dispatch 时的占用
@@ -1770,19 +2040,7 @@ class TestGenerationWorker:
     async def test_handle_orphan_dispatcher_exits_on_stop_event(self, monkeypatch):
         """`_stop_event` 触发时 dispatcher 干净退出，不再 dispatch 剩余 orphan。"""
         queue = _FakeQueue()
-        queue._orphans = [
-            {
-                "task_id": f"orphan-{i}",
-                "status": "running",
-                "provider_id": "ark",
-                "provider_job_id": f"job-{i}",
-                "media_type": "video",
-                "task_type": "video",
-                "payload": {},
-                "project_name": "demo",
-            }
-            for i in range(3)
-        ]
+        queue._orphans = [_storyboard_orphan(f"orphan-{i}", job_id=f"job-{i}") for i in range(3)]
         worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
 
         dispatched_count = 0
@@ -1818,11 +2076,8 @@ class TestGenerationWorker:
     # ------------------------------------------------------------------
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_process_resume_task_keeps_pinned_video_identity(self, monkeypatch):
-        """视频任务的续跑身份由入队锁定的桶键决定，persisted provider_id 不注入 payload。
-
-        注入只覆盖 provider、盖不住 model，两者分裂即静默换模型续跑。
-        """
+    async def test_process_resume_task_uses_storyboard_checkpoint_identity(self, monkeypatch):
+        """分镜视频只有 checkpoint + job 齐备才续跑；enqueue payload 不再承担身份锁定。"""
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
         captured_task: dict | None = None
@@ -1836,18 +2091,11 @@ class TestGenerationWorker:
 
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _fake_resume)
 
-        task = {
-            "task_id": "resume-locked",
-            "task_type": "video",
-            "media_type": "video",
-            "provider_id": "openai",
-            "provider_job_id": "openai-job",
-            "payload": {"video_provider_i2v": "gemini-aistudio/veo-3.1-fast-generate-preview"},
-            "project_name": "demo",
-        }
+        task = _storyboard_resume_task("resume-locked", provider_id="openai", job_id="openai-job")
+        task["payload"] = {"video_provider_i2v": "gemini-aistudio/veo-3.1-fast-generate-preview"}
         await worker._process_resume_task(task)
         assert captured_task is not None
-        # 锁定键原样交给 resume，persisted provider_id 不写进 payload
+        # Resume executor receives the row unchanged and loads its immutable checkpoint itself.
         assert captured_task["payload"] == {"video_provider_i2v": "gemini-aistudio/veo-3.1-fast-generate-preview"}
         assert captured_job_id == "openai-job"
         assert queue.succeeded == [("resume-locked", {"ok": True})]
@@ -1865,15 +2113,7 @@ class TestGenerationWorker:
             raise ResumeExpiredError(job_id=job_id, provider="ark")
 
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _expire)
-        task = {
-            "task_id": "exp",
-            "task_type": "video",
-            "media_type": "video",
-            "provider_id": "ark",
-            "provider_job_id": "x",
-            "payload": {},
-            "project_name": "demo",
-        }
+        task = _storyboard_resume_task("exp", job_id="x")
         await worker._process_resume_task(task)
         assert queue.failed and queue.failed[0][0] == "exp"
         assert "[resume_expired_detail]" in queue.failed[0][1]
@@ -1896,15 +2136,7 @@ class TestGenerationWorker:
             )
 
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _changed)
-        task = {
-            "task_id": "ep",
-            "task_type": "video",
-            "media_type": "video",
-            "provider_id": "custom-7",
-            "provider_job_id": "x",
-            "payload": {},
-            "project_name": "demo",
-        }
+        task = _storyboard_resume_task("ep", provider_id="custom-7", job_id="x")
         await worker._process_resume_task(task)
         assert queue.failed and queue.failed[0][0] == "ep"
         assert "[resume_endpoint_changed_detail]" in queue.failed[0][1]
@@ -1923,15 +2155,7 @@ class TestGenerationWorker:
             raise NotImplementedError("no resume_video")
 
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _unsup)
-        task = {
-            "task_id": "uns",
-            "task_type": "video",
-            "media_type": "video",
-            "provider_id": "vidu",
-            "provider_job_id": "x",
-            "payload": {},
-            "project_name": "demo",
-        }
+        task = _storyboard_resume_task("uns", provider_id="vidu", job_id="x")
         await worker._process_resume_task(task)
         assert queue.failed and queue.failed[0][0] == "uns"
         assert "[resume_unsupported_detail]" in queue.failed[0][1]
@@ -1947,15 +2171,7 @@ class TestGenerationWorker:
             raise RuntimeError("transient backend error")
 
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _boom)
-        task = {
-            "task_id": "boom",
-            "task_type": "video",
-            "media_type": "video",
-            "provider_id": "ark",
-            "provider_job_id": "x",
-            "payload": {},
-            "project_name": "demo",
-        }
+        task = _storyboard_resume_task("boom", job_id="x")
         await worker._process_resume_task(task)
         assert queue.failed and queue.failed[0][0] == "boom"
         # 无 [resume_*] 前缀
@@ -1974,20 +2190,26 @@ class TestGenerationWorker:
             raise ScriptEditError("generated_assets 必须是 dict", key="script_edit_generated_assets_invalid")
 
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _raise_script_edit_error)
+        cleanup = AsyncMock()
+        monkeypatch.setattr(GenerationWorker, "_cleanup_video_staging", cleanup)
         task = {
             "task_id": "resume_script_edit",
             "task_type": "reference_video",
             "media_type": "video",
             "provider_id": "ark",
             "provider_job_id": "x",
+            "execution_checkpoint_json": _worker_reference_checkpoint("resume_script_edit"),
             "payload": {},
             "project_name": "demo",
+            "resource_id": "E1U1",
+            "script_file": "scripts/episode_1.json",
         }
         await worker._process_resume_task(task)
         assert queue.failed and queue.failed[0] == (
             "resume_script_edit",
             "[script_edit_generated_assets_invalid]",
         )
+        cleanup.assert_awaited_once_with(task)
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -2000,15 +2222,7 @@ class TestGenerationWorker:
             raise asyncio.CancelledError
 
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _cancel)
-        task = {
-            "task_id": "rc",
-            "task_type": "video",
-            "media_type": "video",
-            "provider_id": "ark",
-            "provider_job_id": "x",
-            "payload": {},
-            "project_name": "demo",
-        }
+        task = _storyboard_resume_task("rc", job_id="x")
         with pytest.raises(asyncio.CancelledError):
             await worker._process_resume_task(task)
         assert queue.cancelled and queue.cancelled[0][0] == "rc"
@@ -2029,7 +2243,7 @@ class TestGenerationWorker:
         }
         await worker._process_resume_task(task)
         assert queue.failed and queue.failed[0][0] == "no-job"
-        assert "[restart_lost_resume_no_job_id]" in queue.failed[0][1]
+        assert "[restart_lost_no_job_id]" in queue.failed[0][1]
 
 
 class TestDispatcherFailFastAndPendingTracking:
@@ -2195,18 +2409,7 @@ class TestDispatcherFailFastAndPendingTracking:
     async def test_dispatcher_handle_set_after_handle_orphan(self, monkeypatch):
         """_handle_orphan_tasks_on_start 后 self._orphan_dispatcher_task 应被设置。"""
         queue = _FakeQueue()
-        queue._orphans = [
-            {
-                "task_id": "orphan-x",
-                "status": "running",
-                "provider_id": "ark",
-                "provider_job_id": "job-x",
-                "media_type": "video",
-                "task_type": "video",
-                "payload": {},
-                "project_name": "demo",
-            }
-        ]
+        queue._orphans = [_storyboard_orphan("orphan-x", job_id="job-x")]
         worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
 
         block = asyncio.Event()
@@ -2333,18 +2536,7 @@ class TestOrphanDispatcherNonBlockingOverride:
     async def test_old_dispatcher_not_awaited_on_re_scan(self, monkeypatch):
         """旧 dispatcher 跑 5s 时，再次进 _handle_orphan_tasks_on_start 应秒级返回（不阻塞）。"""
         queue = _FakeQueue()
-        queue._orphans = [
-            {
-                "task_id": "orphan-x",
-                "status": "running",
-                "provider_id": "ark",
-                "provider_job_id": "job-x",
-                "media_type": "video",
-                "task_type": "video",
-                "payload": {},
-                "project_name": "demo",
-            }
-        ]
+        queue._orphans = [_storyboard_orphan("orphan-x", job_id="job-x")]
         worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
 
         block = asyncio.Event()

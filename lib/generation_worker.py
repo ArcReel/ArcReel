@@ -41,6 +41,12 @@ from lib.generation_queue import (
 from lib.image_backends.base import ImageCapabilityError
 from lib.narration_delivery import NarratedVideoDurationBlockedError
 from lib.reference_compression import ReferencePayloadFloorError
+from lib.reference_video.execution_checkpoint import (
+    ReferenceExecutionIdentityError,
+    VideoResumeState,
+    classify_video_resume_state,
+    cleanup_staged_provider_media,
+)
 from lib.reference_video.request_projection import ReferenceProjectionBlockedError
 from lib.script_editor import ScriptEditError
 from lib.task_failure import encode_failure
@@ -98,7 +104,8 @@ def _encode_task_failure_message(exc: Exception) -> str:
         | ReferencePayloadFloorError
         | VideoBucketCapabilityError
         | ReferenceProjectionBlockedError
-        | NarratedVideoDurationBlockedError,
+        | NarratedVideoDurationBlockedError
+        | ReferenceExecutionIdentityError,
     ):
         # 结构化执行拒绝没有通用兜底 code 可退，退回 str(exc)（即 code 本身）——
         # 非结构化文本在读侧原样透传，不会丢失原因。
@@ -379,14 +386,20 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``capability="t2i"`` 取一个
     **代表性** provider——worker 认领时拿不到真实 capability（见 ``docs/adr/0001``），这点近似不影响
     生成正确性（执行层会独立精确再解析一次）；``image_edit`` 是唯一例外（必然 i2i、入队即知），
-    按 i2i 槽精确解析。分镜视频定桶经 ``video_bucket_for_queued_task`` 与入队派生共用；
-    reference_video 则重读最新 project/script/unit，以实际可用资产调用公共 request projection。
+    按 i2i 槽精确解析。两条视频路线都忽略 enqueue payload 中的旧身份，分镜视频定桶经
+    ``video_bucket_for_queued_task`` 与入队派生共用；reference_video 则重读最新
+    project/script/unit，以实际可用资产调用公共 request projection。
     这份 provider 投影只服务 claim 过滤与限流路由，不是执行身份；正常 executor 会在开始时
     再按同一最新状态物化请求。
     解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
-    payload = task.get("payload") or {}
+    raw_payload = task.get("payload")
+    payload = raw_payload if isinstance(raw_payload, dict) else {}
+    if task.get("task_type") == "reference_video" and isinstance(task.get("script_file"), str):
+        # Task.script_file is the immutable queue coordinate. The payload copy is retained only for old/direct
+        # callers and must not be able to redirect claim-time current-state projection to a different script.
+        payload = {**payload, "script_file": task["script_file"]}
     # 以 media lane 区分 video / audio / image：reference_video 等 task_type 同属 video lane。
     is_video = task.get("media_type") == "video" or task.get("task_type") in ("video", "reference_video")
     is_audio = task.get("media_type") == "audio" or task.get("task_type") == "tts"
@@ -647,8 +660,8 @@ class GenerationWorker:
                             "回队前投影刷新失败 task_id=%s provider=%s", task["task_id"], provider_id, exc_info=True
                         )
                     await self._requeue_single_task(task["task_id"])
-                    if task.get("task_type") == "reference_video":
-                        # reference_video 必须先重投影才能判断当前 provider；本 cycle 排除已
+                    if task.get("task_type") in ("video", "reference_video"):
+                        # 两条视频路线都必须先重投影才能判断当前 provider；本 cycle 排除已
                         # 重投影且仍池满的任务，继续寻找其它 provider 的可运行任务。
                         attempted_current_state_tasks.add(task["task_id"])
                         continue
@@ -658,7 +671,7 @@ class GenerationWorker:
 
                 # Dispatch：登记占用（INFLIGHT），bucket 由 register 自动创建
                 claimed_any = True
-                if task.get("task_type") == "reference_video":
+                if task.get("task_type") in ("video", "reference_video"):
                     process_task = self._process_task(task, claimed_provider_id=provider_id)
                 else:
                     process_task = self._process_task(task)
@@ -767,7 +780,7 @@ class GenerationWorker:
         from server.services.generation_tasks import execute_generation_task
 
         try:
-            if task_type == "reference_video":
+            if task_type in ("video", "reference_video"):
                 result = await execute_generation_task(task, claimed_provider_id=provider_id)
             else:
                 result = await execute_generation_task(task)
@@ -776,7 +789,7 @@ class GenerationWorker:
             await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
             raise
         except DispatchProviderChanged as exc:
-            # reference_video 在执行入口重新读取当前状态；若 provider 已从认领时的槽漂移，
+            # 视频任务在执行入口重新读取当前状态；若 provider 已从认领时的槽漂移，
             # 不得占着旧槽提交到新 provider。刷新 advisory 列并回队，让下一 cycle 在新槽
             # 完成容量校验后再执行。此处尚未调用 provider，不会造成重复扣费。
             try:
@@ -845,9 +858,9 @@ class GenerationWorker:
     async def _process_resume_task(self, task: dict[str, Any]) -> None:
         """重启自愈入口：直接调 backend.resume_video，绕过 normal executor 流水线。
 
-        身份锁定：分镜视频在入队时写入 payload 能力桶键；reference_video 在 worker
-        开始时按最新状态物化，并在 provider 提交前写入同样的实际身份。``ConfigResolver``
-        因此能在任务已提交且进程重启后，按提交时的身份而非当前项目配置恢复 backend。
+        两条视频路线都在 worker 开始时按最新状态物化，并在 provider 提交前写入不可变
+        execution checkpoint。重启后只从 checkpoint 构造固定的解析请求，不从当前项目
+        配置或 enqueue payload 重算执行身份。
 
         非视频媒体退到把持久化的 ``task["provider_id"]`` 注入 payload 的 ``image_provider``
         字段（只锁 provider、锁不住 model）。孤儿扫描只把 video 交到这里，image / audio 孤儿
@@ -855,6 +868,28 @@ class GenerationWorker:
         """
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
+
+        checkpoint = None
+        if task_type in ("video", "reference_video"):
+            state, checkpoint = classify_video_resume_state(task)
+            if state is not VideoResumeState.READY:
+                code = (
+                    "restart_lost_checkpoint_no_job_id"
+                    if state is VideoResumeState.CHECKPOINT_WITHOUT_JOB
+                    else "restart_lost_no_job_id"
+                    if state is VideoResumeState.NO_CHECKPOINT_NO_JOB
+                    else "execution_identity_unrecoverable"
+                )
+                params = (
+                    {"detail": "missing, malformed, or mismatched video submission checkpoint"}
+                    if (code == "execution_identity_unrecoverable")
+                    else {}
+                )
+                rows = await asyncio.shield(self.queue.mark_task_failed(task_id, encode_failure(code, **params)))
+                if rows == 0:
+                    await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+                await self._cleanup_video_staging(task)
+                return
 
         job_id = task.get("provider_job_id") or ""
         if not job_id:
@@ -864,11 +899,12 @@ class GenerationWorker:
             )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            await self._cleanup_video_staging(task)
             return
 
         # 非视频媒体：锁定持久化 provider 到 payload（resolver 优先级：payload > project > 默认）。
-        # 已提交视频任务的身份走能力桶键，不在此注入——注入只覆盖 provider、盖不住 model。
-        persisted_provider_id = task.get("provider_id")
+        # 已提交视频任务的身份走 checkpoint，不在此注入——注入只覆盖 provider、盖不住 model。
+        persisted_provider_id = checkpoint.provider_id if checkpoint is not None else task.get("provider_id")
         is_video = task.get("media_type") == "video" or task_type in ("video", "reference_video")
         if persisted_provider_id and not is_video:
             payload = task.get("payload")
@@ -877,7 +913,7 @@ class GenerationWorker:
                 task["payload"] = payload
             payload["image_provider"] = persisted_provider_id
 
-        provider_id = await _extract_provider(task)
+        provider_id = checkpoint.provider_id if checkpoint is not None else await _extract_provider(task)
         logger.info(
             "重启自愈处理任务 %s (type=%s, provider=%s, job=%s)",
             task_id,
@@ -889,8 +925,15 @@ class GenerationWorker:
         from lib.video_backends.base import ResumeEndpointChangedError, ResumeExpiredError
         from server.services.resume_executor import execute_resume_video_task
 
+        async def _execute_with_video_cleanup() -> dict[str, Any]:
+            try:
+                return await execute_resume_video_task(task, job_id=job_id)
+            finally:
+                if checkpoint is not None:
+                    await asyncio.shield(self._cleanup_video_staging(task))
+
         try:
-            result = await execute_resume_video_task(task, job_id=job_id)
+            result = await _execute_with_video_cleanup()
         except asyncio.CancelledError:
             await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
             raise
@@ -955,6 +998,40 @@ class GenerationWorker:
         logger.info("request_cancel: task %s 不在 inflight (worker finally 兜底)", task_id)
         return False
 
+    async def _cleanup_video_staging(self, task: dict[str, Any]) -> None:
+        """Best-effort cleanup when either video route becomes terminal outside normal finalization."""
+
+        if task.get("task_type") not in ("video", "reference_video"):
+            return
+        try:
+            from lib.project_manager import get_project_manager
+
+            project_path = await asyncio.to_thread(get_project_manager().get_project_path, task["project_name"])
+        except Exception:
+            logger.warning("video staging project lookup failed task_id=%s", task.get("task_id"), exc_info=True)
+            return
+
+        resource_id = task.get("resource_id")
+        if resource_id is not None:
+            try:
+                from lib.media_generator import cleanup_staged_video_output
+
+                resource_type = "reference_videos" if task["task_type"] == "reference_video" else "videos"
+                await asyncio.to_thread(
+                    cleanup_staged_video_output,
+                    project_path,
+                    resource_type,
+                    str(resource_id),
+                    task["task_id"],
+                )
+            except Exception:
+                logger.warning("video formal output cleanup failed task_id=%s", task.get("task_id"), exc_info=True)
+
+        try:
+            await asyncio.to_thread(cleanup_staged_provider_media, project_path, task["task_id"])
+        except Exception:
+            logger.warning("video provider media cleanup failed task_id=%s", task.get("task_id"), exc_info=True)
+
     async def _handle_orphan_tasks_on_start(self) -> None:
         """重启自愈：扫 running + cancelling 孤儿，按"是否可安全 resume"分流。
 
@@ -1003,6 +1080,7 @@ class GenerationWorker:
             status = task.get("status")
             if status == "cancelling":
                 await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
+                await self._cleanup_video_staging(task)
                 logger.info("孤儿 cancelling → cancelled: %s", task_id)
                 continue
 
@@ -1041,11 +1119,33 @@ class GenerationWorker:
                     await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
                 continue
 
-            # video 路径：判断 provider 是否支持 resume。优先用持久化的 provider_id：
-            # 否则项目配置在重启前后切换时，_extract_provider 会按当前项目重新解析，
-            # 可能把原本 Grok/Vidu 孤儿误判成可 resume，或把可 resume 任务路由到错池。
-            # 与 _process_resume_task 的 provider 锁定策略保持一致。
-            provider_id = task.get("provider_id") or await _extract_provider(task)
+            checkpoint = None
+            if task_type in ("video", "reference_video"):
+                resume_state, checkpoint = classify_video_resume_state(task)
+                if resume_state is not VideoResumeState.READY:
+                    if resume_state is VideoResumeState.NO_CHECKPOINT_NO_JOB:
+                        failure = encode_failure("restart_lost_no_job_id")
+                    elif resume_state is VideoResumeState.CHECKPOINT_WITHOUT_JOB:
+                        failure = encode_failure("restart_lost_checkpoint_no_job_id")
+                    else:
+                        failure = encode_failure(
+                            "execution_identity_unrecoverable",
+                            detail="missing, malformed, or mismatched video submission checkpoint",
+                        )
+                    rows = await self.queue.mark_task_failed(task_id, failure)
+                    if rows == 0:
+                        await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
+                    await self._cleanup_video_staging(task)
+                    continue
+
+            # video 路径：判断 provider 是否支持 resume。两条路线均只用不可变 checkpoint；
+            # 否则项目配置在重启前后切换时，_extract_provider 会按当前项目重新解析，可能把原本
+            # Grok/Vidu 孤儿误判成可 resume，或把可 resume 任务路由到错池。
+            provider_id = (
+                checkpoint.provider_id
+                if checkpoint is not None
+                else task.get("provider_id") or await _extract_provider(task)
+            )
             if provider_id in NON_RESUMABLE_VIDEO_PROVIDERS:
                 # Grok/Vidu 当前不实现 resume_video——原 job 已发给供应商无接续手段，
                 # 重跑会重复扣费。丢弃，由用户手动决定是否重试。
@@ -1060,6 +1160,7 @@ class GenerationWorker:
                 )
                 if rows == 0:
                     await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
+                await self._cleanup_video_staging(task)
                 continue
 
             job_id = task.get("provider_job_id")
@@ -1068,6 +1169,7 @@ class GenerationWorker:
                 rows = await self.queue.mark_task_failed(task_id, encode_failure("restart_lost_no_job_id"))
                 if rows == 0:
                     await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
+                await self._cleanup_video_staging(task)
                 continue
 
             # 收集到 provider 桶，交给后台 dispatcher 受 pool 容量约束分批处理。
@@ -1159,6 +1261,7 @@ class GenerationWorker:
                 )
                 if rows == 0:
                     await self.queue.mark_task_cancelled(t["task_id"], cancelled_by="user")
+                await self._cleanup_video_staging(t)
             return
 
         sem = asyncio.Semaphore(cap)
@@ -1185,6 +1288,7 @@ class GenerationWorker:
                 #    cancelled 行返回 0 rows，无副作用
                 try:
                     await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+                    await asyncio.shield(self._cleanup_video_staging(t))
                 except Exception:
                     logger.exception("sem dispatch cancel 落终态失败 task_id=%s", task_id)
                 raise
