@@ -13,6 +13,7 @@ Run this workflow from the repository root. Translate prose directly; the bundle
 Synchronize the generated contributing copy first, so Step 3's `CONTRIBUTING.md` translation always reads current content rather than a stale or absent file:
 
 ```bash
+set -euo pipefail
 cd website
 pnpm sync-contributing
 cd ..
@@ -63,6 +64,7 @@ Finish this step only when every `missing` or `stale` target is a complete Engli
 Generate the current Docusaurus message inventory, then translate any Chinese `message` values in the English JSON files:
 
 ```bash
+set -euo pipefail
 cd website
 pnpm write-translations --locale en
 cd ..
@@ -77,6 +79,7 @@ Delete `footer.json`'s generated `copyright` key. It snapshots `themeConfig.foot
 After all translations are complete, record LF-normalized SHA-256 fingerprints and verify the batch is clean:
 
 ```bash
+set -euo pipefail
 node .claude/skills/translate-docs/scripts/translation-lock.mjs record
 node .claude/skills/translate-docs/scripts/translation-lock.mjs status
 cd website
