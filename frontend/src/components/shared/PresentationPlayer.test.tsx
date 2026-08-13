@@ -338,4 +338,57 @@ describe("PresentationPlayer", () => {
 
     expect(pause).toHaveBeenCalledTimes(2);
   });
+
+  it("stops browser playback at the modeled video-stream boundary", async () => {
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    render(
+      <PresentationPlayer
+        projectName="demo"
+        resourceType="videos"
+        resourceId="E1S01"
+        initialVariant="use_tts"
+      />,
+    );
+    const video = await screen.findByLabelText("E1S01 成片预览");
+    await screen.findByLabelText("E1S01 TTS 音轨");
+    Object.defineProperty(video, "currentTime", { configurable: true, writable: true, value: 6.2 });
+    pause.mockClear();
+
+    fireEvent.timeUpdate(video);
+
+    expect(video).toHaveProperty("currentTime", 6);
+    expect(pause).toHaveBeenCalledTimes(2);
+  });
+
+  it("suppresses the custom cue while native captions are showing", async () => {
+    const nativeTrack = { mode: "hidden" };
+    const textTracks = new EventTarget() as EventTarget & { length: number; 0: typeof nativeTrack };
+    Object.defineProperties(textTracks, {
+      length: { configurable: true, value: 1 },
+      0: { configurable: true, value: nativeTrack },
+    });
+    const priorDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "textTracks");
+    Object.defineProperty(HTMLMediaElement.prototype, "textTracks", {
+      configurable: true,
+      get: () => textTracks,
+    });
+    try {
+      render(
+        <PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />,
+      );
+      await screen.findByLabelText("E1S01 成片预览");
+      expect(screen.getByText("机械字幕")).toBeInTheDocument();
+
+      nativeTrack.mode = "showing";
+      act(() => textTracks.dispatchEvent(new Event("change")));
+
+      expect(screen.queryByText("机械字幕")).not.toBeInTheDocument();
+    } finally {
+      if (priorDescriptor) {
+        Object.defineProperty(HTMLMediaElement.prototype, "textTracks", priorDescriptor);
+      } else {
+        Reflect.deleteProperty(HTMLMediaElement.prototype, "textTracks");
+      }
+    }
+  });
 });

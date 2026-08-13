@@ -57,6 +57,7 @@ export function PresentationPlayer({
   });
   const [downloading, setDownloading] = useState(false);
   const [positionMicroseconds, setPositionMicroseconds] = useState(0);
+  const [nativeCaptionsShowing, setNativeCaptionsShowing] = useState(false);
   const canonicalPath =
     resourceType === "videos"
       ? `videos/scene_${resourceId}.mp4`
@@ -211,6 +212,43 @@ export function PresentationPlayer({
     [presentation, synchronizeNarrationControls],
   );
 
+  const stopAtPresentationBoundary = useCallback(
+    (video: HTMLVideoElement) => {
+      if (!presentation) return false;
+      const boundaryMicroseconds =
+        presentation.video.start_microseconds + presentation.video.duration_microseconds;
+      const boundarySeconds = boundaryMicroseconds / 1_000_000;
+      if (video.currentTime < boundarySeconds) return false;
+      if (video.currentTime !== boundarySeconds) video.currentTime = boundarySeconds;
+      video.pause();
+      audioRef.current?.pause();
+      setPositionMicroseconds(presentation.video.duration_microseconds);
+      return true;
+    },
+    [presentation],
+  );
+
+  const refreshNativeCaptionMode = useCallback(() => {
+    const tracks = videoRef.current?.textTracks;
+    let showing = false;
+    if (tracks) {
+      for (let index = 0; index < tracks.length; index += 1) {
+        if (tracks[index]?.mode === "showing") {
+          showing = true;
+          break;
+        }
+      }
+    }
+    setNativeCaptionsShowing(showing);
+  }, []);
+
+  useEffect(() => {
+    const tracks = videoRef.current?.textTracks;
+    refreshNativeCaptionMode();
+    tracks?.addEventListener?.("change", refreshNativeCaptionMode);
+    return () => tracks?.removeEventListener?.("change", refreshNativeCaptionMode);
+  }, [presentation, refreshNativeCaptionMode]);
+
   const videoUrl = presentation
     ? API.getFileUrl(projectName, presentation.video.artifact_path, presentation.video.content_digest)
     : null;
@@ -310,15 +348,25 @@ export function PresentationPlayer({
           synchronizeNarrationControls(event.currentTarget);
         }}
         onRateChange={(event) => synchronizeNarrationControls(event.currentTarget)}
-        onPlay={() => synchronizeNarration(true)}
-        onPlaying={() => synchronizeNarration(true)}
+        onPlay={(event) => {
+          if (!stopAtPresentationBoundary(event.currentTarget)) synchronizeNarration(true);
+        }}
+        onPlaying={(event) => {
+          if (!stopAtPresentationBoundary(event.currentTarget)) synchronizeNarration(true);
+        }}
         onPause={() => audioRef.current?.pause()}
         onWaiting={() => audioRef.current?.pause()}
         onStalled={() => audioRef.current?.pause()}
-        onSeeked={() => synchronizeNarration(!videoRef.current?.paused)}
+        onSeeked={(event) => {
+          if (!stopAtPresentationBoundary(event.currentTarget)) {
+            synchronizeNarration(!event.currentTarget.paused);
+          }
+        }}
         onTimeUpdate={(event) => {
-          setPositionMicroseconds(Math.round(event.currentTarget.currentTime * 1_000_000));
-          synchronizeNarration(!event.currentTarget.paused);
+          if (!stopAtPresentationBoundary(event.currentTarget)) {
+            setPositionMicroseconds(Math.round(event.currentTarget.currentTime * 1_000_000));
+            synchronizeNarration(!event.currentTarget.paused);
+          }
         }}
         onEnded={() => audioRef.current?.pause()}
         className="h-full w-full object-contain"
@@ -337,7 +385,7 @@ export function PresentationPlayer({
         </audio>
       )}
 
-      {activeCue && (
+      {activeCue && !nativeCaptionsShowing && (
         <div className="pointer-events-none absolute inset-x-3 bottom-12 flex justify-center">
           <span className="max-w-[92%] rounded-md bg-black/75 px-2.5 py-1 text-center text-xs leading-relaxed text-white shadow-lg">
             {activeCue.text}

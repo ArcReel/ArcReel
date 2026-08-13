@@ -67,8 +67,12 @@ describe("projects-store refreshProject", () => {
 
   it("同一项目每次完整快照落定时推进其独立修订", () => {
     const store = useProjectsStore.getState();
+    store.setCurrentProject("A", null);
+    expect(useProjectsStore.getState().projectSnapshotRevisions).toEqual({});
+
     store.setCurrentProject("A", makeProject("A-1"), {}, {});
     store.setCurrentProject("A", makeProject("A-2"), {}, {});
+    store.setCurrentProject("B", null);
     store.setCurrentProject("B", makeProject("B-1"), {}, {});
 
     expect(useProjectsStore.getState().projectSnapshotRevisions).toEqual({ A: 2, B: 1 });

@@ -223,7 +223,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
         currentProjectData: data,
         currentScripts: scripts ?? {},
         projectSnapshotRevisions:
-          name === null
+          name === null || data === null
             ? s.projectSnapshotRevisions
             : {
                 ...s.projectSnapshotRevisions,
