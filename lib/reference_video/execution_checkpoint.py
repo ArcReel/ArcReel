@@ -703,6 +703,9 @@ class _VideoSubmissionCheckpoint:
 
         payload = self._request_payload()
         del payload["api_call_id"]
+        # Artifact currency is independent source evidence, not part of provider
+        # execution identity. Keep the existing request digest's meaning stable.
+        payload.pop("artifact_visual_basis", None)
         return payload
 
     def to_dict(self) -> dict[str, object]:
@@ -766,7 +769,9 @@ class _VideoSubmissionCheckpoint:
             "media": [item.to_dict() for item in media],
             "reference_audio_targets": list(reference_audio_targets) if reference_audio_targets is not None else None,
         }
-        digest_values = {key: value for key, value in values.items() if key != "api_call_id"}
+        digest_values = {
+            key: value for key, value in values.items() if key not in {"api_call_id", "artifact_visual_basis"}
+        }
         request_digest = _sha256_bytes(_canonical_json(digest_values).encode("utf-8"))
         return cls(
             schema_version=_SCHEMA_VERSION,

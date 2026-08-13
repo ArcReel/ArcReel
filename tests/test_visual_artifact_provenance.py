@@ -29,7 +29,7 @@ from lib.visual_artifact_provenance import (
     build_storyboard_video_artifact_visual_basis,
 )
 
-pytestmark = pytest.mark.unit
+pytestmark = pytest.mark.integration
 
 
 @pytest.mark.parametrize("asset_type", ["character", "scene", "prop", "product"])
@@ -247,7 +247,6 @@ def test_grid_composite_and_member_bases_keep_member_changes_local(tmp_path: Pat
             columns=2,
             style="水墨",
             grid_aspect_ratio="1:1",
-            member_aspect_ratio="16:9",
             references=references,
         )
 
@@ -317,11 +316,28 @@ def test_grid_composite_ignores_last_action_that_is_not_rendered(tmp_path: Path)
             columns=2,
             style="水墨",
             grid_aspect_ratio="1:1",
-            member_aspect_ratio="16:9",
             references=(VisualReference(path=reference, role="asset_sheet"),),
         )
 
     assert build(changed_last).digest == build(members).digest
+
+
+def test_grid_composite_tracks_only_the_aspect_ratio_sent_for_the_composite(tmp_path: Path) -> None:
+    reference = tmp_path / "reference.png"
+    reference.write_bytes(b"visual")
+    common = {
+        "group_id": "grid_1",
+        "members": _grid_members(),
+        "rows": 2,
+        "columns": 2,
+        "style": "水墨",
+        "references": (VisualReference(path=reference, role="asset_sheet"),),
+    }
+
+    landscape = build_grid_composite_visual_basis(grid_aspect_ratio="16:9", **common)
+    portrait = build_grid_composite_visual_basis(grid_aspect_ratio="9:16", **common)
+
+    assert portrait.digest != landscape.digest
 
 
 def test_storyboard_video_visual_basis_excludes_sound_execution_and_duration(tmp_path: Path) -> None:

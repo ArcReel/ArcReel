@@ -298,6 +298,17 @@ def test_request_digest_is_stable_across_local_ledger_call_ids(tmp_path: Path) -
     assert replay.request_digest == checkpoint.request_digest
 
 
+def test_artifact_visual_basis_does_not_change_execution_request_digest(tmp_path: Path) -> None:
+    checkpoint = _checkpoint(tmp_path / "demo")
+    changed_artifact_basis = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U2"})
+    )
+
+    with_changed_artifact_basis = replace(checkpoint, artifact_visual_basis=changed_artifact_basis)
+
+    assert with_changed_artifact_basis.request_digest == checkpoint.request_digest
+
+
 def test_legacy_checkpoint_remains_resumable_without_inventing_artifact_basis(tmp_path: Path) -> None:
     raw = json.loads(_checkpoint(tmp_path / "demo").to_json())
     raw["schema_version"] = 1

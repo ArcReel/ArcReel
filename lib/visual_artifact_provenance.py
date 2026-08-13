@@ -152,7 +152,6 @@ def build_grid_composite_visual_basis(
     columns: int,
     style: str,
     grid_aspect_ratio: str,
-    member_aspect_ratio: str,
     references: Sequence[VisualReference] = (),
 ) -> ArtifactBasis:
     """Describe one grid composite without hashing its rendered provider prompt."""
@@ -169,7 +168,6 @@ def build_grid_composite_visual_basis(
                 "rows": rows,
                 "columns": columns,
                 "grid_aspect_ratio": _require_non_empty("grid_aspect_ratio", grid_aspect_ratio),
-                "member_aspect_ratio": _require_non_empty("member_aspect_ratio", member_aspect_ratio),
             },
             "style": style,
             "references": _reference_evidence(references),
