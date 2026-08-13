@@ -1,9 +1,9 @@
 name: domain-filter
 description: >-
-  按变更域裁剪 CI：输出 backend / frontend / docker 三个域是否被本次变更命中。
-  workflow 域（CI 配置本身）变更时保守全量触发；full 输入为 true 时跳过路径
-  过滤，所有域视为已变更（供 nightly 全量与 schedule 事件使用——paths-filter
-  不支持 schedule 事件的变更比对）。
+  按变更域裁剪 CI：输出 backend / frontend / docker / website 四个域是否被本次
+  变更命中。workflow 域（CI 配置本身）变更时保守全量触发；full 输入为 true 时
+  跳过路径过滤，所有域视为已变更（供 nightly 全量与 schedule 事件使用——
+  paths-filter 不支持 schedule 事件的变更比对）。
 
 inputs:
   full:
@@ -21,6 +21,9 @@ outputs:
   docker:
     description: 镜像装配域（Dockerfile/.dockerignore 及不属于代码域的 COPY 源）是否变更
     value: ${{ steps.gate.outputs.docker }}
+  website:
+    description: 文档站域（website/ 及上站 README/CONTRIBUTING）是否变更
+    value: ${{ steps.gate.outputs.website }}
 
 runs:
   using: composite
@@ -56,6 +59,13 @@ runs:
             - '.dockerignore'
             - 'public/**'
             - 'README.md'
+          # CONTRIBUTING.md/README.md/README.en.md 不上站，但在翻译 lockfile 的特例映射内
+          # （见 .claude/skills/translate-docs/），改动须当场冒出缺译/滞后报告
+          website:
+            - 'website/**'
+            - 'CONTRIBUTING.md'
+            - 'README.md'
+            - 'README.en.md'
 
     - id: gate
       shell: bash
@@ -66,13 +76,16 @@ runs:
         F_BACKEND: ${{ steps.filter.outputs.backend || 'false' }}
         F_FRONTEND: ${{ steps.filter.outputs.frontend || 'false' }}
         F_DOCKER: ${{ steps.filter.outputs.docker || 'false' }}
+        F_WEBSITE: ${{ steps.filter.outputs.website || 'false' }}
       run: |
         if [[ "$FULL" == "true" || "$F_WORKFLOW" == "true" ]]; then
           echo "backend=true" >> "$GITHUB_OUTPUT"
           echo "frontend=true" >> "$GITHUB_OUTPUT"
           echo "docker=true" >> "$GITHUB_OUTPUT"
+          echo "website=true" >> "$GITHUB_OUTPUT"
         else
           echo "backend=$F_BACKEND" >> "$GITHUB_OUTPUT"
           echo "frontend=$F_FRONTEND" >> "$GITHUB_OUTPUT"
           echo "docker=$F_DOCKER" >> "$GITHUB_OUTPUT"
+          echo "website=$F_WEBSITE" >> "$GITHUB_OUTPUT"
         fi
