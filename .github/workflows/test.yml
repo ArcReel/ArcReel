@@ -233,6 +233,10 @@ jobs:
           persist-credentials: false
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          # 版本取自 website/package.json 的 packageManager（含完整性哈希），不在此重复写死；
+          # 该输入必须显式指定——默认值是仓库根的 package.json，本仓库根目录没有这个文件
+          package_json_file: website/package.json
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

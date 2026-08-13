@@ -4,7 +4,7 @@
 // 由 workflow 单独一步写入 step summary，不阻断构建）。
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -124,28 +124,39 @@ function readKeys(relativePath) {
 }
 
 function checkUiJsonKeys() {
+  const problems = [];
   const before = new Map(UI_JSON_FILES.map((file) => [file, readKeys(file)]));
+  // write-translations 会就地改写委托文件。恢复用内存快照按字节写回，而不是 git checkout：
+  // 后者会连同工作区里尚未提交的译文编辑一起抹掉（本地跑这个检查的正是刚编辑完 UI JSON 的人），
+  // 且原本不存在、被 write-translations 新建的文件也无法靠 checkout 清除。
+  const snapshots = new Map(
+    UI_JSON_FILES.map((file) => {
+      const path = resolve(websiteDir, file);
+      return [file, existsSync(path) ? readFileSync(path) : null];
+    }),
+  );
 
   try {
     execFileSync("pnpm", ["exec", "docusaurus", "write-translations", "--locale", "en"], {
       cwd: websiteDir,
       stdio: "pipe",
     });
+    for (const file of UI_JSON_FILES) {
+      const beforeKeys = before.get(file);
+      const omitted = KNOWN_OMITTED_KEYS.get(file) ?? new Set();
+      const missing = [...readKeys(file)].filter((key) => !beforeKeys.has(key) && !omitted.has(key));
+      if (missing.length > 0) {
+        problems.push(`${file} 缺少 write-translations 生成的 key：${missing.join(", ")}`);
+      }
+    }
   } finally {
-    // write-translations 就地改写委托文件；不管结果如何都把工作树恢复到改动前，
-    // 让后续的双 locale build 只看到仓库里已提交的状态。
-    execFileSync("git", ["checkout", "--", ...UI_JSON_FILES], { cwd: websiteDir });
-  }
-
-  const problems = [];
-  for (const file of UI_JSON_FILES) {
-    const beforeKeys = before.get(file);
-    const omitted = KNOWN_OMITTED_KEYS.get(file) ?? new Set();
-    const missing = [...readKeys(file)].filter((key) => !beforeKeys.has(key) && !omitted.has(key));
-    if (missing.length > 0) {
-      problems.push(`${file} 缺少 write-translations 生成的 key：${missing.join(", ")}`);
+    for (const [file, content] of snapshots) {
+      const path = resolve(websiteDir, file);
+      if (content === null) rmSync(path, { force: true });
+      else writeFileSync(path, content);
     }
   }
+
   return problems;
 }
 
