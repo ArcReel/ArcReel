@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
     StagedProviderMedia,
@@ -127,6 +128,9 @@ def _storyboard_checkpoint_json(
         service_tier="default",
         seed=None,
         visual_basis_digest="b" * 64,
+        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
+            ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+        ),
         narration=NarrationExecutionFacts(
             delivery="post_production",
             tts_status="not_applicable",
@@ -261,6 +265,9 @@ async def test_execute_resume_video_calls_backend_resume_directly(monkeypatch, f
     assert call["execution_provider_model_id"] == "sora-2"
     assert call["execution_backend_model_id"] == "sora-2"
     assert call["execution_visual_basis_digest"] == "b" * 64
+    checkpoint = StoryboardSubmissionCheckpoint.from_json(video_task["execution_checkpoint_json"])
+    assert checkpoint.artifact_visual_basis is not None
+    assert call["artifact_visual_basis"] == checkpoint.artifact_visual_basis.to_dict()
     assert call["execution_provider_media"][0]["source_locator"] == "storyboards/scene_E1S01.png"
     # 返回结果带 file_path / resource_type，供 worker mark_succeeded
     assert result["resource_type"] == "videos"
@@ -469,6 +476,9 @@ def _reference_checkpoint(
         service_tier="pro",
         seed=123,
         visual_basis_digest="sha256-v1:" + "a" * 64,
+        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
+            ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U1"})
+        ),
         narration=(
             NarrationExecutionFacts(
                 delivery="use_tts",
@@ -564,6 +574,8 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
     assert call["execution_request_digest"] == checkpoint.request_digest
     assert call["execution_provider_media"] == []
     assert call["visual_basis_digest"] == checkpoint.visual_basis_digest
+    assert checkpoint.artifact_visual_basis is not None
+    assert call["artifact_visual_basis"] == checkpoint.artifact_visual_basis.to_dict()
     output_guard.assert_awaited_once_with(
         project_name="demo",
         script_file="scripts/frozen.json",

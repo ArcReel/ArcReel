@@ -18,6 +18,7 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar, Literal, Self, cast
 
+from lib.artifact_manifest import ArtifactBasisDescriptor
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
 
@@ -26,7 +27,8 @@ logger = logging.getLogger(__name__)
 ProviderMediaRole = Literal["reference_image", "reference_audio", "start_image", "end_image"]
 ReferenceCapability = Literal["i2v", "r2v"]
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
+_LEGACY_SCHEMA_VERSION = 1
 _CHECKPOINT_KIND = "reference_video_submit"
 _STORYBOARD_CHECKPOINT_KIND = "storyboard_video_submit"
 _STAGING_MANIFEST_VERSION = 1
@@ -526,6 +528,7 @@ class _VideoSubmissionCheckpoint:
     """Strict, versioned identity shared by both video execution routes."""
 
     CHECKPOINT_KIND: ClassVar[str]
+    ARTIFACT_VISUAL_BASIS_KIND: ClassVar[str]
 
     schema_version: int
     kind: str
@@ -548,12 +551,13 @@ class _VideoSubmissionCheckpoint:
     service_tier: str
     seed: int | None
     visual_basis_digest: str
+    artifact_visual_basis: ArtifactBasisDescriptor | None
     narration: NarrationExecutionFacts
     media: tuple[StagedProviderMedia, ...]
     reference_audio_targets: tuple[int, ...] | None
     request_digest: str
 
-    _FIELDS = frozenset(
+    _LEGACY_FIELDS = frozenset(
         {
             "schema_version",
             "kind",
@@ -582,12 +586,13 @@ class _VideoSubmissionCheckpoint:
             "request_digest",
         }
     )
+    _FIELDS = _LEGACY_FIELDS | {"artifact_visual_basis"}
 
     def __post_init__(self) -> None:
         if (
             not isinstance(self.schema_version, int)
             or isinstance(self.schema_version, bool)
-            or self.schema_version != _SCHEMA_VERSION
+            or self.schema_version not in {_LEGACY_SCHEMA_VERSION, _SCHEMA_VERSION}
             or self.kind != self.CHECKPOINT_KIND
         ):
             raise ValueError("unsupported video submission checkpoint version or kind")
@@ -621,6 +626,13 @@ class _VideoSubmissionCheckpoint:
         if self.seed is not None and (not isinstance(self.seed, int) or isinstance(self.seed, bool)):
             raise ValueError("seed must be an integer or null")
         _require_basis_digest(self.visual_basis_digest, "visual_basis_digest")
+        if self.schema_version == _SCHEMA_VERSION:
+            if not isinstance(self.artifact_visual_basis, ArtifactBasisDescriptor):
+                raise ValueError("artifact_visual_basis must be a strict artifact basis descriptor")
+            if self.artifact_visual_basis.kind != self.ARTIFACT_VISUAL_BASIS_KIND:
+                raise ValueError("artifact_visual_basis kind does not match checkpoint kind")
+        elif self.artifact_visual_basis is not None:
+            raise ValueError("legacy checkpoint cannot carry artifact_visual_basis")
         if tuple(item.index for item in self.media) != tuple(range(len(self.media))):
             raise ValueError("provider media indexes must be contiguous and ordered")
         expected_prefix = f".arcreel/tasks/{self.task_id}/provider_media/"
@@ -657,7 +669,7 @@ class _VideoSubmissionCheckpoint:
             raise ValueError("request_digest does not match checkpoint request")
 
     def _request_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "schema_version": self.schema_version,
             "kind": self.kind,
             "task_id": self.task_id,
@@ -685,12 +697,18 @@ class _VideoSubmissionCheckpoint:
                 list(self.reference_audio_targets) if self.reference_audio_targets is not None else None
             ),
         }
+        if self.artifact_visual_basis is not None:
+            payload["artifact_visual_basis"] = self.artifact_visual_basis.to_dict()
+        return payload
 
     def _request_digest_payload(self) -> dict[str, object]:
         """Return frozen request facts without the local accounting coordinate."""
 
         payload = self._request_payload()
         del payload["api_call_id"]
+        # Artifact currency is independent source evidence, not part of provider
+        # execution identity. Keep the existing request digest's meaning stable.
+        payload.pop("artifact_visual_basis", None)
         return payload
 
     def to_dict(self) -> dict[str, object]:
@@ -721,6 +739,7 @@ class _VideoSubmissionCheckpoint:
         service_tier: str,
         seed: int | None,
         visual_basis_digest: str,
+        artifact_visual_basis: ArtifactBasisDescriptor,
         narration: NarrationExecutionFacts,
         media: tuple[StagedProviderMedia, ...],
         reference_audio_targets: tuple[int, ...] | None,
@@ -748,11 +767,14 @@ class _VideoSubmissionCheckpoint:
             "service_tier": service_tier,
             "seed": seed,
             "visual_basis_digest": visual_basis_digest,
+            "artifact_visual_basis": artifact_visual_basis.to_dict(),
             "narration": narration.to_dict(),
             "media": [item.to_dict() for item in media],
             "reference_audio_targets": list(reference_audio_targets) if reference_audio_targets is not None else None,
         }
-        digest_values = {key: value for key, value in values.items() if key != "api_call_id"}
+        digest_values = {
+            key: value for key, value in values.items() if key not in {"api_call_id", "artifact_visual_basis"}
+        }
         request_digest = _sha256_bytes(_canonical_json(digest_values).encode("utf-8"))
         return cls(
             schema_version=_SCHEMA_VERSION,
@@ -776,6 +798,7 @@ class _VideoSubmissionCheckpoint:
             service_tier=service_tier,
             seed=seed,
             visual_basis_digest=visual_basis_digest,
+            artifact_visual_basis=artifact_visual_basis,
             narration=narration,
             media=media,
             reference_audio_targets=reference_audio_targets,
@@ -793,7 +816,14 @@ class _VideoSubmissionCheckpoint:
         if not isinstance(decoded, dict):
             raise ValueError("execution checkpoint must be a JSON object")
         raw = cast(dict[str, Any], decoded)
-        _require_exact_keys(raw, cls._FIELDS, "checkpoint")
+        schema_version = raw.get("schema_version")
+        if type(schema_version) is not int or schema_version not in {_LEGACY_SCHEMA_VERSION, _SCHEMA_VERSION}:
+            raise ValueError("unsupported video submission checkpoint version or kind")
+        _require_exact_keys(
+            raw,
+            cls._LEGACY_FIELDS if schema_version == _LEGACY_SCHEMA_VERSION else cls._FIELDS,
+            "checkpoint",
+        )
         targets = raw["reference_audio_targets"]
         if targets is not None and not isinstance(targets, list):
             raise ValueError("reference_audio_targets must be an array or null")
@@ -822,6 +852,11 @@ class _VideoSubmissionCheckpoint:
             service_tier=raw["service_tier"],
             seed=raw["seed"],
             visual_basis_digest=raw["visual_basis_digest"],
+            artifact_visual_basis=(
+                ArtifactBasisDescriptor.from_dict(raw["artifact_visual_basis"])
+                if schema_version == _SCHEMA_VERSION
+                else None
+            ),
             narration=NarrationExecutionFacts.from_dict(raw["narration"]),
             media=tuple(StagedProviderMedia.from_dict(item) for item in media),
             reference_audio_targets=tuple(targets) if targets is not None else None,
@@ -834,6 +869,7 @@ class ReferenceSubmissionCheckpoint(_VideoSubmissionCheckpoint):
 
     __slots__ = ()
     CHECKPOINT_KIND = _CHECKPOINT_KIND
+    ARTIFACT_VISUAL_BASIS_KIND = "artifact-visual/video-reference"
 
 
 class StoryboardSubmissionCheckpoint(_VideoSubmissionCheckpoint):
@@ -841,6 +877,7 @@ class StoryboardSubmissionCheckpoint(_VideoSubmissionCheckpoint):
 
     __slots__ = ()
     CHECKPOINT_KIND = _STORYBOARD_CHECKPOINT_KIND
+    ARTIFACT_VISUAL_BASIS_KIND = "artifact-visual/video-storyboard"
 
 
 VideoSubmissionCheckpoint = ReferenceSubmissionCheckpoint | StoryboardSubmissionCheckpoint
@@ -849,7 +886,7 @@ VideoSubmissionCheckpoint = ReferenceSubmissionCheckpoint | StoryboardSubmission
 def checkpoint_version_metadata(checkpoint: VideoSubmissionCheckpoint) -> dict[str, object]:
     """Source facts shared by normal and resumed paid-version registration."""
 
-    return {
+    metadata: dict[str, object] = {
         "execution_checkpoint_schema_version": checkpoint.schema_version,
         "execution_task_id": checkpoint.task_id,
         "execution_api_call_id": checkpoint.api_call_id,
@@ -874,6 +911,9 @@ def checkpoint_version_metadata(checkpoint: VideoSubmissionCheckpoint) -> dict[s
             list(checkpoint.reference_audio_targets) if checkpoint.reference_audio_targets is not None else None
         ),
     }
+    if checkpoint.artifact_visual_basis is not None:
+        metadata["artifact_visual_basis"] = checkpoint.artifact_visual_basis.to_dict()
+    return metadata
 
 
 def load_task_video_checkpoint(task: dict[str, Any]) -> VideoSubmissionCheckpoint:

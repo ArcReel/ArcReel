@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from lib.artifact_manifest import ArtifactBasis
+from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
 from lib.artifact_provenance import build_episode_script_basis, build_step1_basis
 
 pytestmark = pytest.mark.unit
@@ -26,6 +26,34 @@ def test_artifact_basis_has_deterministic_canonical_json() -> None:
     )
     assert second.normalized_bytes() == first.normalized_bytes()
     assert second.digest == first.digest
+
+
+def test_artifact_basis_descriptor_round_trips_strict_source_fact() -> None:
+    basis = ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=3, inputs={"frame": "v1"})
+
+    descriptor = ArtifactBasisDescriptor.from_basis(basis)
+
+    assert descriptor.to_dict() == {
+        "kind": "artifact-visual/video-storyboard",
+        "kind_version": 3,
+        "digest": basis.digest,
+    }
+    assert ArtifactBasisDescriptor.from_dict(descriptor.to_dict()) == descriptor
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {},
+        {"kind": "visual", "kind_version": 1, "digest": "sha256-v1:" + "a" * 64, "extra": True},
+        {"kind": "", "kind_version": 1, "digest": "sha256-v1:" + "a" * 64},
+        {"kind": "visual", "kind_version": True, "digest": "sha256-v1:" + "a" * 64},
+        {"kind": "visual", "kind_version": 1, "digest": "a" * 64},
+    ],
+)
+def test_artifact_basis_descriptor_rejects_noncanonical_source_fact(value: object) -> None:
+    with pytest.raises(ValueError):
+        ArtifactBasisDescriptor.from_dict(value)
 
 
 def test_structured_content_basis_tracks_only_the_direct_formal_chain() -> None:

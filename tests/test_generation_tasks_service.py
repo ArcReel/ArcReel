@@ -737,7 +737,7 @@ class TestGenerationTasks:
         current_prompt = {"action": "current action", "camera_motion": "Static", "dialogue": []}
         item["video_prompt"] = current_prompt
         item["duration_seconds"] = 8
-        manifest = project_path / ".artifact_manifest.json"
+        manifest = project_path / ".arcreel_artifacts.json"
         manifest.write_bytes(b'{"unchanged":true}')
         submitted: dict[str, Mapping[str, object]] = {}
 
@@ -788,6 +788,9 @@ class TestGenerationTasks:
         assert checkpoint.duration_seconds == 8
         assert checkpoint.provider_id == "ark"
         assert [media.role for media in checkpoint.media] == ["start_image"]
+        assert checkpoint.artifact_visual_basis is not None
+        assert checkpoint.artifact_visual_basis.kind == "artifact-visual/video-storyboard"
+        assert submitted["metadata"]["artifact_visual_basis"] == checkpoint.artifact_visual_basis.to_dict()
         assert call["formal_output"] is True
         assert submitted["metadata"]["execution_request_digest"] == checkpoint.request_digest
         assert manifest.read_bytes() == b'{"unchanged":true}'
