@@ -62,6 +62,16 @@ describe("projects-store refreshProject", () => {
     expect(s.currentProjectName).toBe("demo");
     expect(s.currentProjectData?.title).toBe("Demo");
     expect(s.getAssetFingerprint("a.png")).toBe(1);
+    expect(s.projectSnapshotRevisions.demo).toBe(1);
+  });
+
+  it("同一项目每次完整快照落定时推进其独立修订", () => {
+    const store = useProjectsStore.getState();
+    store.setCurrentProject("A", makeProject("A-1"), {}, {});
+    store.setCurrentProject("A", makeProject("A-2"), {}, {});
+    store.setCurrentProject("B", makeProject("B-1"), {}, {});
+
+    expect(useProjectsStore.getState().projectSnapshotRevisions).toEqual({ A: 2, B: 1 });
   });
 
   it("成功后按 invalidateKeys 失效实体版本", async () => {

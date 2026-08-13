@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import zipfile
+from collections import Counter
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -17,7 +19,11 @@ from lib.artifact_manifest import (
 )
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis, canonical_narration_text
 from lib.project_manager import ProjectManager
-from lib.speech_artifact_provenance import build_video_duration_basis, build_video_speech_basis
+from lib.speech_artifact_provenance import (
+    build_video_duration_basis,
+    build_video_speech_basis,
+    media_content_digest,
+)
 from lib.speech_composition import admit_script_unit
 from lib.version_manager import VersionManager
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
@@ -175,6 +181,84 @@ async def test_current_tts_presentation_materializes_manifest_and_actual_media_b
     adapter = ProjectArtifactManifestAdapter(project_path)
     assert adapter.get_entry(ArtifactKey.episode_subtitle(1, "E1S01", "use_tts")) is not None
     assert adapter.get_entry(ArtifactKey.episode_presentation(1, "E1S01", "use_tts")) is not None
+
+
+async def test_video_and_audio_use_their_semantic_duration_probes(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    video_probe = AsyncMock(return_value=6.25)
+    audio_probe = AsyncMock(return_value=4.5)
+    service = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        video_duration_probe=video_probe,
+        audio_duration_probe=audio_probe,
+    )
+
+    result = await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="use_tts",
+    )
+
+    assert result.presentation.video.duration_microseconds == 6_250_000
+    assert result.presentation.narration_audio is not None
+    assert result.presentation.narration_audio.duration_microseconds == 4_500_000
+    video_probe.assert_awaited_once()
+    audio_probe.assert_awaited_once()
+
+    manual_versions_path = project_path / "versions" / "versions.json"
+    manual_versions = json.loads(manual_versions_path.read_text(encoding="utf-8"))
+    manual_record = manual_versions["videos"]["E1S01"]["versions"][0]
+    manual_versions["videos"]["E1S01"]["versions"][0] = {
+        key: value
+        for key, value in manual_record.items()
+        if key in {"version", "file", "prompt", "created_at", "_previous_current_version"}
+    } | {"source": "manual_upload"}
+    _write_json(manual_versions_path, manual_versions)
+    ProjectArtifactManifestAdapter(project_path).delete_entry(ArtifactKey.episode_video(1, "E1S01"))
+    video_probe.reset_mock()
+    audio_probe.reset_mock()
+
+    await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="post_production",
+    )
+
+    video_probe.assert_awaited_once()
+    audio_probe.assert_not_awaited()
+
+
+async def test_current_media_content_identity_is_reused_after_manifest_verification(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    digest_calls: Counter[Path] = Counter()
+
+    def digest(path: Path) -> str:
+        digest_calls[path] += 1
+        return media_content_digest(path)
+
+    async def probe(_path: Path) -> float | None:
+        return 6.25
+
+    service = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+        content_digest=digest,
+    )
+    await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="post_production",
+    )
+
+    record = VersionManager(project_path).get_versions("videos", "E1S01")["versions"][0]
+    selected_path = project_path / record["file"]
+    canonical_path = project_path / "videos" / "scene_E1S01.mp4"
+    assert digest_calls == Counter({selected_path: 1, canonical_path: 1})
 
 
 async def test_stale_current_tts_remains_materializable_without_touching_paid_media(tmp_path: Path) -> None:

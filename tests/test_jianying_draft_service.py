@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import shutil
 import zipfile
 from pathlib import Path
 
 import pytest
 
 from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
+from lib.audio_utils import probe_existing_video_duration_seconds
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.project_manager import ProjectManager
 from lib.speech_artifact_provenance import SelectedMediaEvidence
@@ -21,7 +23,7 @@ from lib.speech_presentation import (
 )
 from server.services.jianying_draft_service import JianyingDraftService, NoCompletedSegmentsError
 from server.services.presentation_read_model import MaterializedPresentation
-from tests.conftest import make_test_audio, make_test_video
+from tests.conftest import make_test_audio, make_test_video, make_test_video_with_audio_tail
 
 pytestmark = pytest.mark.integration
 
@@ -165,6 +167,27 @@ async def test_export_serializes_only_shared_track_gains_actual_boundaries_and_c
         {"start": 0, "duration": 300_000},
         {"start": 300_000, "duration": 600_000},
     ]
+
+
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="ffmpeg/ffprobe not available",
+)
+async def test_export_accepts_video_track_boundary_when_container_has_a_longer_audio_tail(tmp_path: Path) -> None:
+    pm, project_path = _project(tmp_path)
+    video = project_path / "versions" / "videos" / "tail.mp4"
+    make_test_video_with_audio_tail(video)
+    duration = await probe_existing_video_duration_seconds(video)
+    assert duration is not None
+    value = _result(project_path, unit_id="E1S01", video_path=video, duration=duration)
+
+    archive = await JianyingDraftService(pm, presentation_reader=_Reader((value,))).export_episode_draft(
+        "demo", 1, "/mock/JianyingDrafts"
+    )
+
+    content = _read_draft_archive(archive)
+    video_track = next(track for track in content["tracks"] if track.get("type") == "video")
+    assert video_track["segments"][0]["source_timerange"] == {"start": 0, "duration": 1_000_000}
 
 
 async def test_export_uses_shared_transition_and_unity_provider_track(tmp_path: Path) -> None:

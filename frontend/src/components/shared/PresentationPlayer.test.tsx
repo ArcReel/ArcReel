@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
+import type { ProjectData } from "@/types";
 import type { PresentationReadModel } from "@/types/presentation";
 import { PresentationPlayer } from "./PresentationPlayer";
 
@@ -74,7 +75,7 @@ const tts: PresentationReadModel = {
 
 describe("PresentationPlayer", () => {
   beforeEach(() => {
-    useProjectsStore.setState({ assetFingerprints: {} });
+    useProjectsStore.setState({ assetFingerprints: {}, projectSnapshotRevisions: {} });
     vi.mocked(API.getPresentation).mockImplementation(async (_project, _type, _id, options) =>
       options?.variant === "use_tts" ? tts : post,
     );
@@ -165,6 +166,20 @@ describe("PresentationPlayer", () => {
       useProjectsStore.getState().updateAssetFingerprints({
         "audio/segment_E1S01.wav": 2,
       });
+    });
+
+    await waitFor(() => expect(API.getPresentation).toHaveBeenCalledTimes(2));
+  });
+
+  it("reloads the shared model when canonical project or script input refreshes", async () => {
+    render(
+      <PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />,
+    );
+    await screen.findByLabelText("E1S01 成片预览");
+    expect(API.getPresentation).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useProjectsStore.getState().setCurrentProject("demo", { title: "Demo" } as ProjectData, {});
     });
 
     await waitFor(() => expect(API.getPresentation).toHaveBeenCalledTimes(2));

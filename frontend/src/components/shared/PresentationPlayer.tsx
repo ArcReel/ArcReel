@@ -65,6 +65,9 @@ export function PresentationPlayer({
   const narrationFingerprint = useProjectsStore((state) =>
     state.getAssetFingerprint(`audio/segment_${resourceId}.wav`),
   );
+  const projectSnapshotRevision = useProjectsStore(
+    (state) => state.projectSnapshotRevisions[projectName] ?? 0,
+  );
   const posterFingerprint = useProjectsStore((state) =>
     posterPath ? state.getAssetFingerprint(posterPath) : null,
   );
@@ -78,6 +81,7 @@ export function PresentationPlayer({
     audioVersion,
     fingerprint,
     narrationFingerprint,
+    projectSnapshotRevision,
   ]);
   const requestMatches = loadState.requestKey === requestKey;
   const presentation = requestMatches ? loadState.presentation : null;
@@ -150,6 +154,7 @@ export function PresentationPlayer({
     audioVersion,
     fingerprint,
     narrationFingerprint,
+    projectSnapshotRevision,
     resourceKey,
     requestKey,
     stopRetainedMedia,

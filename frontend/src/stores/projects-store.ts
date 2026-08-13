@@ -32,6 +32,9 @@ interface ProjectsState {
   currentScripts: Record<string, EpisodeScript>;
   projectDetailLoading: boolean;
 
+  // project.json + 剧本规范快照按项目递增的修订号。
+  projectSnapshotRevisions: Record<string, number>;
+
   // Create modal
   showCreateModal: boolean;
   creatingProject: boolean;
@@ -203,6 +206,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
     currentProjectData: null,
     currentScripts: {},
     projectDetailLoading: false,
+    projectSnapshotRevisions: {},
     showCreateModal: false,
     creatingProject: false,
     assetFingerprints: {},
@@ -218,6 +222,13 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
         currentProjectName: name,
         currentProjectData: data,
         currentScripts: scripts ?? {},
+        projectSnapshotRevisions:
+          name === null
+            ? s.projectSnapshotRevisions
+            : {
+                ...s.projectSnapshotRevisions,
+                [name]: (s.projectSnapshotRevisions[name] ?? 0) + 1,
+              },
         assetFingerprints: fingerprints ?? s.assetFingerprints,
         hasLoadedAnyProject: s.hasLoadedAnyProject || name !== null,
       }));

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import filecmp
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,7 +16,7 @@ from lib.artifact_manifest import (
     ArtifactManifestEntry,
     ProjectArtifactManifestAdapter,
 )
-from lib.audio_utils import probe_existing_media_duration_seconds
+from lib.audio_utils import probe_existing_media_duration_seconds, probe_existing_video_duration_seconds
 from lib.generation_admission import generation_admission_lock
 from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.narration_delivery import (
@@ -52,6 +51,7 @@ from server.services.narration_delivery_tasks import CurrentTtsSettingsResolver
 from server.services.video_artifact_currency import build_current_video_artifact_basis
 
 DurationProbe = Callable[[Path], Awaitable[float | None]]
+ContentDigest = Callable[[Path], str]
 SettingsResolverFactory = Callable[[str, Path], TtsSettingsResolver]
 
 
@@ -110,7 +110,10 @@ class PresentationReadModelService:
         project_manager: ProjectManager,
         *,
         settings_resolver_factory: SettingsResolverFactory | None = None,
-        duration_probe: DurationProbe = probe_existing_media_duration_seconds,
+        duration_probe: DurationProbe | None = None,
+        video_duration_probe: DurationProbe = probe_existing_video_duration_seconds,
+        audio_duration_probe: DurationProbe = probe_existing_media_duration_seconds,
+        content_digest: ContentDigest = media_content_digest,
     ) -> None:
         self._project_manager = project_manager
         self._settings_resolver_factory = settings_resolver_factory or (
@@ -119,7 +122,9 @@ class PresentationReadModelService:
                 project_path=project_path,
             )
         )
-        self._duration_probe = duration_probe
+        self._video_duration_probe = duration_probe or video_duration_probe
+        self._audio_duration_probe = duration_probe or audio_duration_probe
+        self._content_digest = content_digest
 
     async def materialize_unit(
         self,
@@ -171,7 +176,7 @@ class PresentationReadModelService:
             raise PresentationUnavailableError("post_production cannot select a narration-audio version")
 
         project_path = await asyncio.to_thread(self._project_manager.get_project_path, project_name)
-        project, versions, selected_video = await asyncio.to_thread(
+        project, versions, selected_video, video_content_digest = await asyncio.to_thread(
             self._load_video_selection,
             project_name=project_name,
             project_path=project_path,
@@ -213,7 +218,12 @@ class PresentationReadModelService:
         provider_audio_enabled = selected_video.record.get("execution_generate_audio")
         if not isinstance(provider_audio_enabled, bool):
             raise PresentationUnavailableError("video version does not record its provider-audio setting")
-        video_media = await self._materialize_media(selected_video, currency=video_currency)
+        video_media = await self._materialize_media(
+            selected_video,
+            currency=video_currency,
+            duration_probe=self._video_duration_probe,
+            content_digest=video_content_digest,
+        )
 
         selected_audio: _SelectedVersion | None = None
         audio_media: PresentationMedia | None = None
@@ -235,13 +245,19 @@ class PresentationReadModelService:
                 selected=selected_audio,
                 settings=settings,
             )
-            self._require_current_manifest_selection(
+            audio_content_digest = await asyncio.to_thread(
+                self._require_current_manifest_selection,
                 project_path=project_path,
                 resource_type="audio",
                 resource_id=resource_id,
                 selected=selected_audio,
             )
-            audio_media = await self._materialize_media(selected_audio, currency=audio_currency)
+            audio_media = await self._materialize_media(
+                selected_audio,
+                currency=audio_currency,
+                duration_probe=self._audio_duration_probe,
+                content_digest=audio_content_digest,
+            )
 
         try:
             presentation = materialize_speech_presentation(
@@ -335,7 +351,7 @@ class PresentationReadModelService:
         resource_type: str,
         resource_id: str,
         version: int | None,
-    ) -> tuple[dict[str, Any], VersionManager, _SelectedVersion]:
+    ) -> tuple[dict[str, Any], VersionManager, _SelectedVersion, str | None]:
         project = self._project_manager.load_project(project_name)
         versions = VersionManager(project_path)
         selected = self._load_selection(
@@ -345,13 +361,13 @@ class PresentationReadModelService:
             resource_id=resource_id,
             version=version,
         )
-        self._require_current_manifest_selection(
+        content_digest = self._require_current_manifest_selection(
             project_path=project_path,
             resource_type=resource_type,
             resource_id=resource_id,
             selected=selected,
         )
-        return project, versions, selected
+        return project, versions, selected, content_digest
 
     @staticmethod
     def _load_selection(
@@ -397,16 +413,45 @@ class PresentationReadModelService:
             selection="current" if selected_record.get("is_current") is True else "history",
         )
 
-    @staticmethod
     def _require_current_manifest_selection(
+        self,
         *,
         project_path: Path,
         resource_type: str,
         resource_id: str,
         selected: _SelectedVersion,
-    ) -> None:
+    ) -> str | None:
+        artifact_path = self._require_current_manifest_pointer(
+            project_path=project_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            selected=selected,
+        )
+        if artifact_path is None:
+            return None
+        try:
+            canonical = safe_join(project_path, artifact_path, require_file=True)
+        except (FileNotFoundError, ValueError) as exc:
+            raise PresentationUnavailableError("current media file is unavailable") from exc
+        try:
+            canonical_digest = self._content_digest(canonical)
+            selected_digest = self._content_digest(selected.path)
+        except (OSError, TypeError, ValueError) as exc:
+            raise PresentationUnavailableError("current media selection cannot be verified") from exc
+        if canonical_digest != selected_digest:
+            raise PresentationUnavailableError("current media and selected version snapshot differ")
+        return selected_digest
+
+    @staticmethod
+    def _require_current_manifest_pointer(
+        *,
+        project_path: Path,
+        resource_type: str,
+        resource_id: str,
+        selected: _SelectedVersion,
+    ) -> str | None:
         if selected.selection != "current" or selected.target is None:
-            return
+            return None
         artifact_path = resource_relative_path(resource_type, resource_id)
         adapter = ProjectArtifactManifestAdapter(project_path)
         try:
@@ -421,16 +466,7 @@ class PresentationReadModelService:
         expected = ArtifactManifestEntry(artifact_path=artifact_path, basis_digest=selected.target.basis.digest)
         if observation.blocker is not None or not observation.present or adapter.get_entry(key) != expected:
             raise PresentationUnavailableError("current media selection is not backed by its typed manifest entry")
-        try:
-            canonical = safe_join(project_path, artifact_path, require_file=True)
-        except (FileNotFoundError, ValueError) as exc:
-            raise PresentationUnavailableError("current media file is unavailable") from exc
-        try:
-            identical = filecmp.cmp(canonical, selected.path, shallow=False)
-        except OSError as exc:
-            raise PresentationUnavailableError("current media selection cannot be verified") from exc
-        if not identical:
-            raise PresentationUnavailableError("current media and selected version snapshot differ")
+        return artifact_path
 
     @staticmethod
     def _current_episode_script(project: Mapping[str, Any], episode: int) -> str:
@@ -509,17 +545,24 @@ class PresentationReadModelService:
         expected = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation, settings))
         return "current" if expected == selected.target.basis else "stale"
 
-    async def _materialize_media(self, selected: _SelectedVersion, *, currency: MediaCurrency) -> PresentationMedia:
+    async def _materialize_media(
+        self,
+        selected: _SelectedVersion,
+        *,
+        currency: MediaCurrency,
+        duration_probe: DurationProbe,
+        content_digest: str | None,
+    ) -> PresentationMedia:
         if selected.target is None:
             raise PresentationUnavailableError("verified presentation media requires typed provenance")
-        duration = await self._duration_probe(selected.path)
+        duration = await duration_probe(selected.path)
         if duration is None:
             raise PresentationUnavailableError(f"selected media duration is unavailable: {selected.relative_path}")
         try:
-            evidence = await asyncio.to_thread(
-                SelectedMediaEvidence.from_file,
+            observed_digest = content_digest or await asyncio.to_thread(self._content_digest, selected.path)
+            evidence = SelectedMediaEvidence(
                 basis=selected.target.basis,
-                path=selected.path,
+                content_digest=observed_digest,
                 actual_duration_seconds=round(duration * 1_000_000) / 1_000_000,
             )
         except (OSError, TypeError, ValueError) as exc:
@@ -549,7 +592,7 @@ class PresentationReadModelService:
             resource_type=resource_type,
             resource_id=resource_id,
         )
-        duration = await self._duration_probe(selected.path)
+        duration = await self._video_duration_probe(selected.path)
         if duration is None:
             raise PresentationUnavailableError(f"selected media duration is unavailable: {selected.relative_path}")
         try:
@@ -557,7 +600,7 @@ class PresentationReadModelService:
                 artifact_path=selected.relative_path,
                 version=selected.version,
                 selection=selected.selection,
-                content_digest=await asyncio.to_thread(media_content_digest, selected.path),
+                content_digest=await asyncio.to_thread(self._content_digest, selected.path),
                 actual_duration_seconds=round(duration * 1_000_000) / 1_000_000,
             )
             presentation = materialize_raw_video_presentation(unit_id=resource_id, video=media)
@@ -671,7 +714,9 @@ class PresentationReadModelService:
                 )
                 if current_video != selected_video:
                     raise _PresentationSelectionChanged
-                self._require_current_manifest_selection(
+                # The outer admission guard keeps the hashed immutable selection stable. Under
+                # the version lock only the current manifest pointer needs to be revalidated.
+                self._require_current_manifest_pointer(
                     project_path=project_path,
                     resource_type=result.resource_type,
                     resource_id=resource_id,
@@ -687,7 +732,7 @@ class PresentationReadModelService:
                     )
                     if current_audio != selected_audio:
                         raise _PresentationSelectionChanged
-                    self._require_current_manifest_selection(
+                    self._require_current_manifest_pointer(
                         project_path=project_path,
                         resource_type="audio",
                         resource_id=resource_id,
