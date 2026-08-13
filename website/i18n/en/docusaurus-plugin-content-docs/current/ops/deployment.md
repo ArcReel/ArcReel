@@ -35,8 +35,8 @@ Edit `.env`:
 
 ```dotenv
 AUTH_USERNAME=admin
-AUTH_PASSWORD=请设置强密码
-AUTH_TOKEN_SECRET=请设置长期固定的随机密钥
+AUTH_PASSWORD=set a strong password
+AUTH_TOKEN_SECRET=set a long-lived random secret
 # LOG_LEVEL=INFO
 ```
 
@@ -89,9 +89,9 @@ Edit `.env`:
 
 ```dotenv
 AUTH_USERNAME=admin
-AUTH_PASSWORD=请设置强密码
-AUTH_TOKEN_SECRET=请设置长期固定的随机密钥
-POSTGRES_PASSWORD=请设置数据库密码
+AUTH_PASSWORD=set a strong password
+AUTH_TOKEN_SECRET=set a long-lived random secret
+POSTGRES_PASSWORD=set a database password
 # LOG_LEVEL=INFO
 ```
 
@@ -179,13 +179,13 @@ curl -f http://localhost:1241/health
 ### 4.2 View Logs {#view-logs}
 
 ```bash
-# 最近 200 行
+# Last 200 lines
 docker compose logs --tail=200 arcreel
 
-# 持续跟踪
+# Follow continuously
 docker compose logs -f arcreel
 
-# 生产数据库日志
+# Production database logs
 docker compose logs -f postgres
 ```
 
@@ -212,7 +212,7 @@ Do not paste complete logs directly into a public issue. Remove the following be
 From `deploy/`:
 
 ```bash
-# 先备份，见后文
+# Back up first; see below
 docker compose pull
 docker compose up -d
 
@@ -226,7 +226,7 @@ curl -f http://localhost:1241/health
 From `deploy/production/`:
 
 ```bash
-# 先备份数据库和 projects/
+# Back up the database and projects/ first
 docker compose pull
 docker compose up -d
 
@@ -381,7 +381,7 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # ArcReel 使用 SSE 推送 Agent 回复和项目事件
+        # ArcReel uses SSE to push Agent replies and project events
         proxy_buffering off;
         proxy_cache off;
         proxy_read_timeout 3600s;

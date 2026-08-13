@@ -90,15 +90,15 @@ The Agent Runtime is built on the Claude Agent SDK and follows an “Orchestrati
 
 ```mermaid
 flowchart TD
-    U["用户意图"] --> MAIN["主 Agent"]
-    MAIN --> SKILL["工作流编排 Skill"]
-    SKILL --> STATE["读取项目状态"]
-    STATE --> DECIDE{"下一阶段"}
-    DECIDE --> A["角色 / 场景 / 道具分析 Subagent"]
-    DECIDE --> B["分集规划 Subagent"]
-    DECIDE --> C["剧本规范化 Subagent"]
-    DECIDE --> D["资产生成 Subagent"]
-    A --> SUMMARY["精炼摘要"]
+    U["User Intent"] --> MAIN["Main Agent"]
+    MAIN --> SKILL["Workflow Orchestration Skill"]
+    SKILL --> STATE["Read Project State"]
+    STATE --> DECIDE{"Next Stage"}
+    DECIDE --> A["Character / Scene / Prop Analysis Subagent"]
+    DECIDE --> B["Episode Planning Subagent"]
+    DECIDE --> C["Script Normalization Subagent"]
+    DECIDE --> D["Asset Generation Subagent"]
+    A --> SUMMARY["Condensed Summary"]
     B --> SUMMARY
     C --> SUMMARY
     D --> SUMMARY

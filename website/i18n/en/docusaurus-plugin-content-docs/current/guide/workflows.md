@@ -97,12 +97,12 @@ Product projects should establish stable product reference assets before generat
 
 ```mermaid
 flowchart LR
-    A["原文"] --> B["旁白片段"]
-    B --> C["画面描述"]
-    C --> D["分镜图"]
-    D --> E["视频片段"]
-    B --> F["TTS 旁白"]
-    E --> G["合成 / 剪映草稿"]
+    A["Source Text"] --> B["Narration Segments"]
+    B --> C["Visual Descriptions"]
+    C --> D["Storyboard Images"]
+    D --> E["Video Clips"]
+    B --> F["TTS Narration"]
+    E --> G["Composition / CapCut Draft"]
     F --> G
 ```
 
@@ -133,13 +133,13 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A["小说 / 剧本"] --> B["角色、场景与道具提取"]
-    B --> C["分集规划"]
-    C --> D["结构化剧本"]
-    D --> E["角色 / 场景资产"]
-    E --> F["分镜"]
-    F --> G["视频"]
-    G --> H["成片 / 剪映草稿"]
+    A["Novel / Screenplay"] --> B["Character, Scene & Prop Extraction"]
+    B --> C["Episode Planning"]
+    C --> D["Structured Script"]
+    D --> E["Character / Scene Assets"]
+    E --> F["Storyboards"]
+    F --> G["Video"]
+    G --> H["Final Cut / CapCut Draft"]
 ```
 
 #### Review Focus {#drama-review}
@@ -170,14 +170,14 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A["产品多图 + 卖点"] --> B["标准产品参考"]
-    B --> C["短片镜头脚本"]
-    C --> D["产品锚定分镜"]
-    D --> E["视频片段"]
-    C --> F["口播文案 / 字幕"]
-    E --> G["剪映草稿 / 无配音导出"]
+    A["Product Images + Selling Points"] --> B["Standard Product References"]
+    B --> C["Short-Video Shot Script"]
+    C --> D["Product-Anchored Storyboards"]
+    D --> E["Video Clips"]
+    C --> F["Voice-over Copy / Subtitles"]
+    E --> G["CapCut Draft / Export Without Dubbing"]
     F --> G
-    G --> H["添加配音后成片"]
+    G --> H["Final Cut After Dubbing"]
 ```
 
 #### Review Focus {#ad-review}

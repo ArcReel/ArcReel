@@ -33,7 +33,7 @@ Before translating prose, search these truth sources for established English pro
 
 Reuse their exact terminology. Do not create a separate glossary.
 
-When those sources conflict, use the reader-facing official product name. In particular, translate `剪映` as `CapCut`; the frontend locale's `Jianying` wording is a UI-specific inconsistency.
+When those sources conflict, use the official product name a reader outside China would recognize. Documentation translates `剪映` as `CapCut`, which is the term `README.en.md` already uses; the frontend locale's `Jianying` does not govern documentation.
 
 ## 3. Translate every dirty source
 
@@ -42,8 +42,10 @@ Translate natural-language prose and link text into clear technical English. Pre
 Apply these invariants to every file:
 
 - In frontmatter, translate only values of `title`, `description`, and `sidebar_label`. Preserve `id`, `slug`, every other key, and all non-translated values exactly.
-- Preserve fenced code blocks and inline code exactly, including whitespace inside them.
+- Preserve inline code exactly.
+- Inside fenced code blocks, preserve the executable substance exactly: commands, program output, identifiers, configuration keys, and paths or filenames that other software really produces. Translate the human-readable text a reader is meant to read: diagram node labels, comments, instructional placeholder values, and fences that hold prose rather than code. A literal repository convention written in Chinese stays in Chinese — Chinese commit-message examples, changelog section names, and placeholders such as `<中文理由>` describe what a contributor must actually type.
 - Preserve URL destinations exactly. Translate human-readable link text.
+- A link to a heading inside the same document is an exception: point it at the target document's own heading. `README.md` has no explicit anchor IDs, so `README.en.md` links to the English heading slug — `#快速开始` becomes `#quick-start`. Never inject an `<a id>` tag to keep a Chinese fragment alive.
 - Preserve `:::` admonition marker lines exactly. Translate prose inside the admonition.
 - Preserve explicit anchor IDs such as `{#deployment}` exactly. Translate their headings.
 - Keep product names, command names, paths, configuration keys, environment variables, identifiers, and version constraints unchanged.

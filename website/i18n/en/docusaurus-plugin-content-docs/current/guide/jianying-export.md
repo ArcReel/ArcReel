@@ -21,12 +21,12 @@ Before exporting, you need to know where local CapCut drafts are stored.
 
 **macOS:**
 ```
-/Users/<用户名>/Movies/JianyingPro/User Data/Projects/com.lveditor.draft
+/Users/<username>/Movies/JianyingPro/User Data/Projects/com.lveditor.draft
 ```
 
 **Windows:**
 ```
-C:\Users\<用户名>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft
+C:\Users\<username>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft
 ```
 
 > **Tip**: You can find the "Draft Location" in CapCut Settings. If you changed the default location, use the actual draft directory.
@@ -53,9 +53,9 @@ Extract the downloaded ZIP file into the CapCut draft directory entered above. T
 
 ```
 com.lveditor.draft/
-├── ... (其他已有草稿)
-└── {项目名}_第{N}集/          ← 解压出来的文件夹
-    ├── draft_info.json        (剪映 6+) 或 draft_content.json (5.x)
+├── ... (other existing drafts)
+└── {项目名}_第{N}集/          ← the extracted folder
+    ├── draft_info.json        (CapCut 6+) or draft_content.json (5.x)
     ├── draft_meta_info.json
     └── assets/
         ├── segment_S1.mp4

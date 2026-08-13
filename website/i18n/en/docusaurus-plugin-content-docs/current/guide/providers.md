@@ -75,7 +75,7 @@ ArcReel supports:
 The priority is generally:
 
 ```text
-项目级配置 > 全局默认配置
+Project-level configuration > Global default configuration
 ```
 
 Project-level overrides are suitable when:

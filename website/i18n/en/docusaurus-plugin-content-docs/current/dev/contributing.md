@@ -12,29 +12,29 @@ Contributions of code, bug reports, and feature proposals are welcome!
 ## Local Development Environment {#local-development}
 
 ```bash
-# 前置要求：Python 3.12+, Node.js 20+, uv, pnpm, ffmpeg
-# 文档站 website/ 另需 Node 24（版本钉在 website/.node-version）
-# 操作系统：Linux / MacOS / Windows WSL2（Windows 原生不支持）
+# Prerequisites: Python 3.12+, Node.js 20+, uv, pnpm, ffmpeg
+# The documentation site website/ also needs Node 24 (pinned in website/.node-version)
+# Operating system: Linux / MacOS / Windows WSL2 (native Windows is unsupported)
 
-# 安装依赖
+# Install dependencies
 uv sync
 cd frontend && pnpm install && cd ..
 
-# 一次性安装 pre-commit 钩子（ruff / eslint / pull_request_target tripwire）
+# Install the pre-commit hooks once (ruff / eslint / pull_request_target tripwire)
 uv run pre-commit install
 
-# 初始化数据库
+# Initialize the database
 uv run alembic upgrade head
 
-# 启动后端 (终端 1)
-# 注意：必须用 --reload-dir 限定监视目录，否则 watchfiles 会扫描
-# node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+
+# Start the backend (terminal 1)
+# Note: --reload-dir is required to limit the watched directories; otherwise watchfiles
+# scans node_modules / .venv / .git / .worktrees and hundreds of thousands of files, costing 50%+ of one core
 uv run uvicorn server.app:app --reload --reload-dir server --reload-dir lib --port 1241
 
-# 启动前端 (终端 2)
+# Start the frontend (terminal 2)
 cd frontend && pnpm dev
 
-# 访问 http://localhost:5173
+# Open http://localhost:5173
 ```
 
 ### Documentation Site {#docs-site}
@@ -44,21 +44,21 @@ cd frontend && pnpm dev
 ```bash
 cd website && pnpm install
 
-pnpm start        # 开发预览
-pnpm build        # 双 locale 构建，broken link / anchor 直接 fail
+pnpm start        # Development preview
+pnpm build        # Dual-locale build; a broken link or anchor fails outright
 pnpm typecheck
 
-# 站内搜索只在构建产物上生效，dev server 里不工作
+# Site search only works against build output, not in the dev server
 pnpm build && pnpm serve
 ```
 
 ## Running Tests {#running-tests}
 
 ```bash
-# 后端测试
+# Backend tests
 python -m pytest
 
-# 前端类型检查 + 测试
+# Frontend typecheck + tests
 cd frontend && pnpm check
 ```
 
@@ -77,8 +77,8 @@ uv run ruff check . && uv run ruff format .
 **Lint (frontend ESLint):**
 
 ```bash
-cd frontend && pnpm lint          # 检查
-cd frontend && pnpm lint:fix      # 自动修可修的部分
+cd frontend && pnpm lint          # Check
+cd frontend && pnpm lint:fix      # Auto-fix what can be fixed
 ```
 
 - Configuration: `frontend/eslint.config.js` (flat config)
@@ -219,8 +219,8 @@ Version numbers and the changelog are maintained automatically by [release-pleas
 
 | commit type | Version increment | changelog |
 |-------------|---------|-----------|
-| `feat`      | minor   | ✨ Features |
-| `fix`       | patch   | 🐛 Bug Fixes |
+| `feat`      | minor   | ✨ 新功能 |
+| `fix`       | patch   | 🐛 Bug 修复 |
 | `feat!` / any type + `!` / footer containing `BREAKING CHANGE:` | **major** (minor when version <1.0.0) | ⚠️ BREAKING CHANGES (at the top of the changelog) |
 | `perf` / `refactor` / `docs` / `revert` | No increment | Shown (⚡ / ♻️ / 📚 / ↩️) |
 | `chore` / `ci` / `build` / `test` / `style` | No increment | Hidden |
@@ -232,13 +232,13 @@ The fields in `pyproject.toml` and `frontend/package.json` named `version` are m
 ### commit examples {#commit-examples}
 
 ```
-# 新功能（minor bump）
+# New feature (minor bump)
 feat(image-backends): 支持 OpenAI DALL-E 3 后端
 
-# Bug 修复（patch bump）
+# Bug fix (patch bump)
 fix(queue): 修复任务 lease 超时后未正确归还的问题
 
-# 带 scope 与正文
+# With a scope and a body
 feat(grid): 支持 grid_12 布局
 
 将宫格系统扩展到 12 宫格，适用于长篇剧集的批量预览。
@@ -249,10 +249,10 @@ feat(grid): 支持 grid_12 布局
 The following syntax is documented only to help identify incorrect markers. There are two equivalent ways to mark a **breaking change**:
 
 ```
-# 写法 1：type 后加 !
+# Form 1: append ! after the type
 feat(api)!: 移除 /api/v1/legacy 端点
 
-# 写法 2：footer 含 BREAKING CHANGE（更常用，可以写多行说明）
+# Form 2: a footer containing BREAKING CHANGE (more common; allows a multi-line description)
 feat(auth): 统一 API Key 验证逻辑
 
 BREAKING CHANGE: /api/v1/api-keys 的返回结构改为 { items: [...] }，

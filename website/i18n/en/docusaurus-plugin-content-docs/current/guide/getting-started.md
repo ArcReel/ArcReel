@@ -109,8 +109,8 @@ Edit `.env`:
 
 ```dotenv
 AUTH_USERNAME=admin
-AUTH_PASSWORD=请设置一个强密码
-AUTH_TOKEN_SECRET=请设置一个长期固定的随机密钥
+AUTH_PASSWORD=set a strong password
+AUTH_TOKEN_SECRET=set a long-lived random secret
 ```
 
 You can generate `AUTH_TOKEN_SECRET` with this command:
@@ -156,9 +156,9 @@ Edit `.env`:
 
 ```dotenv
 AUTH_USERNAME=admin
-AUTH_PASSWORD=请设置一个强密码
-AUTH_TOKEN_SECRET=请设置一个长期固定的随机密钥
-POSTGRES_PASSWORD=仅使用字母数字的数据库密码
+AUTH_PASSWORD=set a strong password
+AUTH_TOKEN_SECRET=set a long-lived random secret
+POSTGRES_PASSWORD=alphanumeric-only database password
 ```
 
 Start the service:

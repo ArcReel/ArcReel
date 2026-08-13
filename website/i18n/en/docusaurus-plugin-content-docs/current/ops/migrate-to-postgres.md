@@ -18,10 +18,10 @@ This guide is for ArcReel deployments currently using the default SQLite configu
 ### 1. Stop the ArcReel services {#stop-services}
 
 ```bash
-# 如果通过 Docker 运行
+# If running via Docker
 docker compose down
 
-# 如果通过命令行直接运行，停止 uvicorn 进程
+# If running directly from the command line, stop the uvicorn process
 ```
 
 ### 2. Back up the SQLite database {#backup-sqlite}
@@ -35,7 +35,7 @@ cp projects/.arcreel.db projects/.arcreel.db.bak
 Add the following variable to `.env` (used to initialize the PostgreSQL container in docker-compose):
 
 ```env
-POSTGRES_PASSWORD=你的数据库密码
+POSTGRES_PASSWORD=your database password
 ```
 
 > You do not need to set `DATABASE_URL` manually. It is assembled automatically in `docker-compose.yml` from `POSTGRES_PASSWORD`.
@@ -51,7 +51,7 @@ docker compose up -d postgres
 Wait for the health check to pass:
 
 ```bash
-docker compose ps  # 确认 postgres 状态为 healthy
+docker compose ps  # Confirm that postgres is healthy
 ```
 
 ### 5. Migrate the data {#migrate-data}
@@ -103,7 +103,7 @@ sqlite3 projects/.arcreel.db "
 docker compose up -d
 ```
 
-Visit `http://<你的IP>:1241` and verify that the service is working.
+Visit `http://<your-ip>:1241` and verify that the service is working.
 
 ---
 
