@@ -27,7 +27,6 @@ from server.services.generation_tasks import (
     emit_generation_success_batch,
     get_project_manager,
 )
-from server.services.narration_delivery_tasks import ResolvedTtsSettingsResolver
 from server.services.reference_video_tasks import _finalize_reference_video_unit
 from server.services.video_artifact_currency import (
     VideoArtifactCommitter,
@@ -171,11 +170,6 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
             resource_type=resource_type,
             resource_id=resource_id,
             prompt=prompt_text,
-            current_tts_settings=(
-                ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio).settings
-                if checkpoint.narration.delivery == "use_tts"
-                else None
-            ),
         )
 
         with project_change_source("worker"):

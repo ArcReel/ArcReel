@@ -30,6 +30,7 @@ from lib.narration_delivery import (
     NarratedVideoDurationPreparation,
     NarrationDeliveryPreparation,
     NarrationDeliveryRequestOptions,
+    NarrationTtsStatus,
     TtsSettingsResolver,
     TtsSynthesisSettings,
     VideoRequestCostFacts,
@@ -840,6 +841,47 @@ async def validate_generated_video_covers_current_tts(
         resource_type=resource_type,
         resource_id=resource_id,
     )
+    await _validate_generated_video_covers_narration(
+        narration=narration,
+        request_duration_seconds=request_duration_seconds,
+        output_path=output_path,
+    )
+
+
+async def validate_generated_video_covers_tts_duration(
+    *,
+    resource_id: str,
+    request_duration_seconds: int,
+    output_path: Path,
+    tts_actual_duration_seconds: float,
+) -> None:
+    """Validate paid media against the immutable TTS duration accepted at submit."""
+
+    if not math.isfinite(tts_actual_duration_seconds) or tts_actual_duration_seconds <= 0:
+        raise ValueError("execution TTS duration must be positive and finite")
+    narration = NarrationDeliveryPreparation(
+        delivery=USE_TTS,
+        unit_id=resource_id,
+        speech_mode=None,
+        tts_status=NarrationTtsStatus.CURRENT,
+        artifact_path="",
+        basis_digest=None,
+        actual_duration_seconds=tts_actual_duration_seconds,
+        problems=(),
+    )
+    await _validate_generated_video_covers_narration(
+        narration=narration,
+        request_duration_seconds=request_duration_seconds,
+        output_path=output_path,
+    )
+
+
+async def _validate_generated_video_covers_narration(
+    *,
+    narration: NarrationDeliveryPreparation,
+    request_duration_seconds: int,
+    output_path: Path,
+) -> None:
     actual_duration = await probe_existing_media_duration_seconds(output_path)
     preparation = NarratedVideoDurationPreparation(
         narration=narration,
@@ -920,6 +962,7 @@ __all__ = [
     "prepare_current_reference_video_request_options",
     "ResolvedTtsSettingsResolver",
     "require_generated_video_covers_current_tts",
+    "validate_generated_video_covers_tts_duration",
     "validate_generated_video_covers_current_tts",
     "reuse_current_video_for_tier",
     "tts_task_in_progress",

@@ -1090,37 +1090,44 @@ async def execute_tts_task(
                 raise EpisodeScriptReboundError(f"episode {episode} script binding changed before TTS cancellation")
             return current_binding
 
-        with pm.locked_episode_script(
-            project_name,
-            _same_script,
-            validate=False,
-            on_commit=lambda _script_path: _reject_with_manifest_restore(),
-        ) as current_script:
-            items, id_field, _kind = _resolve_tts_task_items(
-                current_script,
-                reference_video_route=reference_video_route,
-            )
-            item = next(
-                (
-                    candidate
-                    for candidate in items
-                    if isinstance(candidate, dict) and str(candidate.get(id_field)) == str(resource_id)
-                ),
-                None,
-            )
-            if item is None:
-                raise ValueError(f"segment not found during TTS cancellation: {resource_id}")
-            assets = item.get("generated_assets")
-            if not isinstance(assets, dict):
-                assets = ProjectManager.create_generated_assets(str(current_script.get("content_mode") or "narration"))
-                item["generated_assets"] = assets
-            if assets.get("narration_audio") != audio_rel:
-                raise RuntimeError("narration audio changed before cancellation compensation")
-            if prior_narration_audio is missing_narration_audio:
-                assets.pop("narration_audio", None)
-            else:
-                assets["narration_audio"] = copy.deepcopy(prior_narration_audio)
-            pm.update_scene_status(item)
+        try:
+            with pm.locked_episode_script(
+                project_name,
+                _same_script,
+                validate=False,
+                on_commit=lambda _script_path: _reject_with_manifest_restore(),
+            ) as current_script:
+                items, id_field, _kind = _resolve_tts_task_items(
+                    current_script,
+                    reference_video_route=reference_video_route,
+                )
+                item = next(
+                    (
+                        candidate
+                        for candidate in items
+                        if isinstance(candidate, dict) and str(candidate.get(id_field)) == str(resource_id)
+                    ),
+                    None,
+                )
+                if item is None:
+                    raise ValueError(f"segment not found during TTS cancellation: {resource_id}")
+                assets = item.get("generated_assets")
+                if not isinstance(assets, dict):
+                    assets = ProjectManager.create_generated_assets(
+                        str(current_script.get("content_mode") or "narration")
+                    )
+                    item["generated_assets"] = assets
+                if assets.get("narration_audio") != audio_rel:
+                    raise RuntimeError("narration audio changed before cancellation compensation")
+                if prior_narration_audio is missing_narration_audio:
+                    assets.pop("narration_audio", None)
+                else:
+                    assets["narration_audio"] = copy.deepcopy(prior_narration_audio)
+                pm.update_scene_status(item)
+        except EpisodeScriptReboundError:
+            # The old script is no longer the episode's current edit target, but
+            # cancellation must still revoke this task's formal media selection.
+            _reject_with_manifest_restore()
 
     return CompensableGenerationResult(result, cancel_compensation=_compensate_cancelled_tts)
 
@@ -1636,11 +1643,6 @@ async def execute_video_task(
             resource_type="videos",
             resource_id=resource_id,
             prompt=prompt_text,
-            current_tts_settings=(
-                ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio).settings
-                if delivery_projection is not None
-                else None
-            ),
         )
         if task_id is not None
         else None

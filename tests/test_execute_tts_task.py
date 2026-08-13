@@ -743,6 +743,24 @@ class TestExecuteTtsTask:
         assert not (pm.project_path / "audio" / "segment_E1S01.wav").exists()
         assert "narration_audio" not in pm.script["segments"][0]["generated_assets"]
 
+    async def test_cancel_after_episode_rebind_still_rejects_selected_tts(self, tts_env):
+        pm, gen = tts_env
+
+        result = await generation_tasks.execute_tts_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json"},
+            task_id="rebound-tts-task",
+        )
+        pm.project["episodes"] = [{"episode": 1, "script_file": "scripts/rebound_episode_1.json"}]
+
+        assert isinstance(result, CompensableGenerationResult)
+        result.compensate_cancelled()
+
+        assert gen.rejected_versions == [3]
+        assert not (pm.project_path / "audio" / "segment_E1S01.wav").exists()
+        assert ProjectArtifactManifestAdapter(pm.project_path).get_entry(ArtifactKey.episode_audio(1, "E1S01")) is None
+
     async def test_narration_speed_passed_to_generator(self, tts_env, monkeypatch):
         pm, gen = tts_env
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _audio_ctx(gen, speed=1.5))

@@ -850,11 +850,6 @@ async def execute_reference_video_task(
             resource_type="reference_videos",
             resource_id=resource_id,
             prompt=rendered_prompt,
-            current_tts_settings=(
-                ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio).settings
-                if options.narration_delivery == USE_TTS
-                else None
-            ),
         )
         if task_id is not None
         else None

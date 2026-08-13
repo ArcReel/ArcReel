@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lib.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
+from lib.narration_delivery import TtsSynthesisSettings
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
     StagedProviderMedia,
@@ -599,8 +600,12 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
     monkeypatch.setattr(resume_executor, "resolve_generation_context", _resolve)
     output_guard = AsyncMock()
     monkeypatch.setattr(
-        "server.services.video_artifact_currency.validate_generated_video_covers_current_tts",
+        "server.services.video_artifact_currency.validate_generated_video_covers_tts_duration",
         output_guard,
+    )
+    monkeypatch.setattr(
+        "server.services.video_artifact_currency.CurrentTtsSettingsResolver.resolve_tts_synthesis_settings",
+        AsyncMock(return_value=TtsSynthesisSettings("dashscope", "tts-model", "Cherry", None)),
     )
     finalize = AsyncMock(return_value={"resource_type": "reference_videos", "resource_id": "E1U1"})
     monkeypatch.setattr(resume_executor, "_finalize_reference_video_unit", finalize)
@@ -656,12 +661,10 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
     assert checkpoint.artifact_currency is not None
     assert call["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
     output_guard.assert_awaited_once_with(
-        project_name="demo",
-        script_file="scripts/frozen.json",
+        resource_id="E1U1",
         request_duration_seconds=12,
         output_path=Path(tempfile.gettempdir()) / "video.mp4",
-        resource_type="reference_videos",
-        resource_id="E1U1",
+        tts_actual_duration_seconds=10.5,
     )
     finalize.assert_awaited_once()
     assert finalize.await_args.kwargs["script_file"] == "scripts/frozen.json"
@@ -689,7 +692,7 @@ async def test_reference_resume_post_production_does_not_reproject_tts(monkeypat
     )
     output_guard = AsyncMock()
     monkeypatch.setattr(
-        "server.services.video_artifact_currency.validate_generated_video_covers_current_tts",
+        "server.services.video_artifact_currency.validate_generated_video_covers_tts_duration",
         output_guard,
     )
     monkeypatch.setattr(

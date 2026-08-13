@@ -10,12 +10,12 @@ from typing import Any
 
 from lib.api_errors import NotFoundError
 from lib.artifact_manifest import (
-    ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifest,
     ProjectArtifactManifestAdapter,
 )
+from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
 from lib.project_manager import ProjectManager, find_episode
 from lib.script_editor import resolve_items
 from lib.version_manager import VersionManager
@@ -233,19 +233,13 @@ def _validate_audio_basis(record: Mapping[str, Any], basis: ArtifactBasisDescrip
         or duration <= 0
     ):
         raise ValueError("version does not contain complete typed artifact metadata")
-    expected = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build(
-            "narration-delivery/tts-audio",
-            kind_version=1,
-            inputs={
-                "text": text,
-                "provider_id": provider_id,
-                "model_id": model_id,
-                "voice": voice,
-                "speed": speed,
-            },
-        )
+    settings = TtsSynthesisSettings(
+        provider_id=provider_id,
+        model_id=model_id,
+        voice=voice,
+        speed=speed,
     )
+    expected = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis_from_canonical_text(text, settings))
     if basis != expected or record.get("tts_basis_digest") != expected.digest:
         raise ValueError("version does not contain complete typed artifact metadata")
 

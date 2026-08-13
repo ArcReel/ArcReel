@@ -24,6 +24,7 @@ from lib.json_io import atomic_write_bytes
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
 from lib.project_manager import ProjectManager, find_episode
 from lib.reference_video.duration_slots import resolve_duration_slot
+from lib.reference_video.execution_checkpoint import NarrationExecutionFacts
 from lib.reference_video.prompt_render import resolve_reference_audio_paths
 from lib.reference_video.request_projection import (
     FilesystemReferenceAssets,
@@ -51,7 +52,7 @@ from lib.visual_artifact_provenance import (
 from server.services.narration_delivery_tasks import (
     CurrentTtsSettingsResolver,
     resolve_storyboard_video_inputs,
-    validate_generated_video_covers_current_tts,
+    validate_generated_video_covers_tts_duration,
 )
 
 
@@ -111,7 +112,6 @@ class VideoArtifactCommitter:
         resource_type: str,
         resource_id: str,
         prompt: str,
-        current_tts_settings: TtsSynthesisSettings | None = None,
     ) -> None:
         if resource_type not in {"videos", "reference_videos"}:
             raise ValueError(f"unsupported video artifact resource type: {resource_type!r}")
@@ -132,7 +132,8 @@ class VideoArtifactCommitter:
         self._prior_manifest_entry: ArtifactManifestEntry | None = None
         self._prior_assets: dict[str, tuple[bool, Any]] | None = None
         self._prior_thumbnail: tuple[Path, bool, bytes | None] | None = None
-        self._current_tts_settings = current_tts_settings
+        self._current_tts_settings: TtsSynthesisSettings | None = None
+        self._current_tts_basis_resolved = False
 
     async def prepare_selection(
         self,
@@ -148,32 +149,40 @@ class VideoArtifactCommitter:
         the invalid media as current.
         """
 
-        narration = version_metadata.get("execution_narration")
-        if not isinstance(narration, Mapping) or narration.get("delivery") != "use_tts":
-            return
-        script_file = version_metadata.get("execution_script_file")
-        if not isinstance(script_file, str) or not script_file:
+        raw_narration = version_metadata.get("execution_narration")
+        if not isinstance(raw_narration, Mapping) or raw_narration.get("delivery") != "use_tts":
             return
         try:
-            current_project = await asyncio.to_thread(self._project_manager.load_project, self._project_name)
-            try:
-                frozen_currency = VideoArtifactCurrencyFacts.from_dict(version_metadata.get("artifact_video_currency"))
-            except (TypeError, ValueError):
-                frozen_currency = None
-            if frozen_currency is not None and self._current_tts_settings is None:
-                self._current_tts_settings = await CurrentTtsSettingsResolver(
-                    self._project_name
-                ).resolve_tts_synthesis_settings(current_project)
-            await validate_generated_video_covers_current_tts(
-                project_name=self._project_name,
-                script_file=script_file,
+            narration = NarrationExecutionFacts.from_dict(dict(raw_narration))
+            if narration.actual_duration_seconds is None:
+                raise ValueError("use_tts execution facts are missing actual duration")
+            await validate_generated_video_covers_tts_duration(
+                resource_id=self._resource_id,
                 request_duration_seconds=duration_seconds,
                 output_path=staged_file,
-                resource_type=self._resource_type,
-                resource_id=self._resource_id,
+                tts_actual_duration_seconds=narration.actual_duration_seconds,
             )
         except BaseException as exc:
             self.selection_error = exc
+            return
+
+        try:
+            VideoArtifactCurrencyFacts.from_dict(version_metadata.get("artifact_video_currency"))
+        except (TypeError, ValueError):
+            return
+        try:
+            current_project = await asyncio.to_thread(self._project_manager.load_project, self._project_name)
+            self._current_tts_settings = await CurrentTtsSettingsResolver(
+                self._project_name
+            ).resolve_tts_synthesis_settings(current_project)
+        except ValueError:
+            # No configured current TTS means there is no fresh duration that can
+            # invalidate the execution-frozen video tier.
+            self._current_tts_settings = None
+        except BaseException as exc:
+            self.selection_error = exc
+            return
+        self._current_tts_basis_resolved = True
 
     def __call__(
         self,
@@ -201,6 +210,13 @@ class VideoArtifactCommitter:
 
         def _current_basis(metadata: Mapping[str, Any]) -> ArtifactBasisDescriptor | None:
             if self.selection_error is not None:
+                return None
+            narration = metadata.get("execution_narration")
+            if (
+                isinstance(narration, Mapping)
+                and narration.get("delivery") == "use_tts"
+                and not self._current_tts_basis_resolved
+            ):
                 return None
             project = snapshot["project"]
             script = snapshot["script"]
@@ -276,6 +292,9 @@ class VideoArtifactCommitter:
         class _SelectionChanged(RuntimeError):
             pass
 
+        class _ScriptBindingChanged(_SelectionChanged):
+            pass
+
         def _same_script(project: dict[str, Any]) -> str:
             entry = find_episode(project, episode)
             current_binding = entry.get("script_file") if isinstance(entry, dict) else None
@@ -283,7 +302,7 @@ class VideoArtifactCommitter:
                 ProjectManager.normalize_script_filename(current_binding)
                 != ProjectManager.normalize_script_filename(script_file)
             ):
-                raise _SelectionChanged("episode script binding changed before video compensation")
+                raise _ScriptBindingChanged("episode script binding changed before video compensation")
             return current_binding
 
         def _restore_manifest_and_thumbnail() -> None:
@@ -348,8 +367,20 @@ class VideoArtifactCommitter:
                         assets[field] = copy.deepcopy(value)
                     else:
                         assets.pop(field, None)
+        except _ScriptBindingChanged:
+            restored = self._versions.reject_current_version(
+                self._resource_type,
+                self._resource_id,
+                rejected_version=outcome.version,
+                current_file=current_file,
+                on_reject=_restore_manifest_and_thumbnail,
+            )
+            return (
+                restored
+                or self._versions.get_current_version(self._resource_type, self._resource_id) != outcome.version
+            )
         except _SelectionChanged:
-            return False
+            return self._versions.get_current_version(self._resource_type, self._resource_id) != outcome.version
         return True
 
     def _capture_prior_manifest(self, entry: ArtifactManifestEntry | None) -> None:
@@ -399,15 +430,20 @@ async def finalize_selected_video_result(
         result = await finalize()
     except BaseException as failure:
         try:
-            committer.compensate_selection()
+            _require_video_selection_compensation(committer)
         except BaseException as compensation_failure:
             failure.add_note(f"video selection compensation also failed: {compensation_failure}")
         raise
 
     def _compensate_cancelled() -> None:
-        committer.compensate_selection()
+        _require_video_selection_compensation(committer)
 
     return CompensableGenerationResult(result, cancel_compensation=_compensate_cancelled)
+
+
+def _require_video_selection_compensation(committer: VideoArtifactCommitter) -> None:
+    if not committer.compensate_selection():
+        raise RuntimeError("video artifact remains selected after compensation")
 
 
 def build_current_video_artifact_basis(
@@ -436,6 +472,14 @@ def build_current_video_artifact_basis(
     except ValueError:
         return None
     if current_episode != episode:
+        return None
+    episode_entry = find_episode(project, episode)
+    current_binding = episode_entry.get("script_file") if isinstance(episode_entry, dict) else None
+    if not (current_binding is None and not (project.get("episodes") or [])) and (
+        not isinstance(current_binding, str)
+        or ProjectManager.normalize_script_filename(current_binding)
+        != ProjectManager.normalize_script_filename(script_file)
+    ):
         return None
 
     items, id_field, kind = resolve_items(script)

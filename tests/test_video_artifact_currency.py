@@ -17,6 +17,7 @@ from lib.artifact_manifest import (
 )
 from lib.generation_queue import CompensableGenerationResult
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
+from lib.reference_video.execution_checkpoint import NarrationExecutionFacts
 from lib.speech_artifact_provenance import (
     build_video_duration_basis,
     build_video_speech_basis,
@@ -102,18 +103,13 @@ async def test_shared_video_completion_returns_nonselected_paid_history_without_
 
 
 @pytest.mark.asyncio
-async def test_formal_selection_preparation_turns_tts_validation_failure_into_history_only(
+async def test_formal_selection_preparation_turns_execution_tts_validation_failure_into_history_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    failure = RuntimeError("generated video does not cover current TTS")
+    failure = RuntimeError("generated video does not cover execution TTS")
     validate = AsyncMock(side_effect=failure)
-    monkeypatch.setattr(video_artifact_currency, "validate_generated_video_covers_current_tts", validate)
-    monkeypatch.setattr(
-        video_artifact_currency.CurrentTtsSettingsResolver,
-        "resolve_tts_synthesis_settings",
-        AsyncMock(return_value=TtsSynthesisSettings("p", "m", "v", None)),
-    )
+    monkeypatch.setattr(video_artifact_currency, "validate_generated_video_covers_tts_duration", validate)
     committer = VideoArtifactCommitter(
         project_manager=MagicMock(),
         project_name="demo",
@@ -127,20 +123,150 @@ async def test_formal_selection_preparation_turns_tts_validation_failure_into_hi
     staged.write_bytes(b"paid-video")
     metadata = {
         "execution_script_file": "episode_1.json",
-        "execution_narration": {"delivery": "use_tts"},
+        "execution_narration": NarrationExecutionFacts(
+            delivery="use_tts",
+            tts_status="current",
+            artifact_path="audio/segment_E1S01.wav",
+            basis_digest="sha256-v1:" + "a" * 64,
+            actual_duration_seconds=6.2,
+        ).to_dict(),
     }
 
     await committer.prepare_selection(staged, 8, metadata)
 
     assert committer.selection_error is failure
     validate.assert_awaited_once_with(
-        project_name="demo",
-        script_file="episode_1.json",
+        resource_id="E1S01",
         request_duration_seconds=8,
         output_path=staged,
+        tts_actual_duration_seconds=6.2,
+    )
+
+
+@pytest.mark.asyncio
+async def test_formal_selection_validates_frozen_tts_when_current_tts_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A paid result is judged against the TTS accepted at submission, not mutable current state."""
+
+    current_projection = AsyncMock(side_effect=RuntimeError("current TTS became stale"))
+    monkeypatch.setattr(
+        "server.services.narration_delivery_tasks._prepare_current_task_narration_delivery",
+        current_projection,
+    )
+    monkeypatch.setattr(
+        "server.services.narration_delivery_tasks.probe_existing_media_duration_seconds",
+        AsyncMock(return_value=8.0),
+    )
+    monkeypatch.setattr(
+        video_artifact_currency.CurrentTtsSettingsResolver,
+        "resolve_tts_synthesis_settings",
+        AsyncMock(side_effect=ValueError("current TTS is no longer configured")),
+    )
+    project_manager = MagicMock()
+    project_manager.load_project.return_value = {}
+    committer = VideoArtifactCommitter(
+        project_manager=project_manager,
+        project_name="demo",
+        project_path=tmp_path,
+        versions=MagicMock(),
         resource_type="videos",
         resource_id="E1S01",
+        prompt="p",
     )
+    staged = tmp_path / "staged.mp4"
+    staged.write_bytes(b"paid-video")
+    narration = NarrationExecutionFacts(
+        delivery="use_tts",
+        tts_status="current",
+        artifact_path="audio/segment_E1S01.wav",
+        basis_digest="sha256-v1:" + "a" * 64,
+        actual_duration_seconds=6.2,
+    )
+
+    await committer.prepare_selection(
+        staged,
+        8,
+        {
+            "artifact_video_currency": _currency("frozen").to_dict(),
+            "execution_script_file": "episode_1.json",
+            "execution_narration": narration.to_dict(),
+        },
+    )
+
+    assert committer.selection_error is None
+    current_projection.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_formal_selection_reloads_current_tts_settings_for_currency_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_path = tmp_path / "demo"
+    current = project_path / "videos" / "scene_E1S01.mp4"
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"old-current")
+    staged = current.with_name(".paid-staged.mp4")
+    staged.write_bytes(b"paid-video")
+    versions = VersionManager(project_path)
+    old_version = versions.add_version("videos", "E1S01", "old", source_file=current)
+    currency = _currency("frozen", parent_version=old_version)
+    current_settings = TtsSynthesisSettings("new-provider", "new-model", "new-voice", 1.2)
+
+    class _PM:
+        @staticmethod
+        def load_project(_name):
+            return {}
+
+        @contextmanager
+        def locked_project_script_snapshot(self, *_args):
+            yield {}, {}
+
+    monkeypatch.setattr(
+        video_artifact_currency,
+        "validate_generated_video_covers_tts_duration",
+        AsyncMock(),
+    )
+    resolve_settings = AsyncMock(return_value=current_settings)
+    monkeypatch.setattr(
+        video_artifact_currency.CurrentTtsSettingsResolver,
+        "resolve_tts_synthesis_settings",
+        resolve_settings,
+    )
+
+    def _current_basis(**kwargs):
+        assert kwargs["current_tts_settings"] == current_settings
+        return ArtifactBasisDescriptor.from_basis(build_video_duration_basis(12))
+
+    monkeypatch.setattr(video_artifact_currency, "build_current_video_artifact_basis", _current_basis)
+    committer = VideoArtifactCommitter(
+        project_manager=_PM(),  # type: ignore[arg-type]
+        project_name="demo",
+        project_path=project_path,
+        versions=versions,
+        resource_type="videos",
+        resource_id="E1S01",
+        prompt="p",
+    )
+    metadata = {
+        "artifact_video_currency": currency.to_dict(),
+        "execution_script_file": "episode_1.json",
+        "execution_narration": NarrationExecutionFacts(
+            delivery="use_tts",
+            tts_status="current",
+            artifact_path="audio/segment_E1S01.wav",
+            basis_digest="sha256-v1:" + "a" * 64,
+            actual_duration_seconds=6.2,
+        ).to_dict(),
+    }
+
+    await committer.prepare_selection(staged, 8, metadata)
+    outcome = committer(staged, current, 8, metadata)
+
+    assert outcome.selected is False
+    resolve_settings.assert_awaited_once_with({})
 
 
 @pytest.mark.asyncio
@@ -170,7 +296,7 @@ async def test_failed_formal_selection_validation_archives_paid_video_without_cu
     failure = RuntimeError("short output")
     monkeypatch.setattr(
         video_artifact_currency,
-        "validate_generated_video_covers_current_tts",
+        "validate_generated_video_covers_tts_duration",
         AsyncMock(side_effect=failure),
     )
     monkeypatch.setattr(
@@ -190,7 +316,13 @@ async def test_failed_formal_selection_validation_archives_paid_video_without_cu
     metadata = {
         "artifact_video_currency": currency.to_dict(),
         "execution_script_file": "episode_1.json",
-        "execution_narration": {"delivery": "use_tts"},
+        "execution_narration": NarrationExecutionFacts(
+            delivery="use_tts",
+            tts_status="current",
+            artifact_path="audio/segment_E1S01.wav",
+            basis_digest="sha256-v1:" + "a" * 64,
+            actual_duration_seconds=6.2,
+        ).to_dict(),
     }
 
     await committer.prepare_selection(staged, 8, metadata)
@@ -204,9 +336,11 @@ async def test_failed_formal_selection_validation_archives_paid_video_without_cu
     assert (project_path / history["versions"][-1]["file"]).read_bytes() == b"short-paid-video"
 
 
+@pytest.mark.parametrize("script_rebound", [False, True])
 def test_selected_video_cancellation_compensation_restores_media_manifest_and_only_video_asset_fields(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    script_rebound: bool,
 ) -> None:
     project_path = tmp_path / "demo"
     current = project_path / "videos" / "scene_E1S01.mp4"
@@ -297,20 +431,25 @@ def test_selected_video_cancellation_compensation_restores_media_manifest_and_on
         }
     )
     thumbnail.write_bytes(b"new-thumbnail")
+    if script_rebound:
+        project["episodes"][0]["script_file"] = "scripts/rebound_episode_1.json"
 
     assert committer.compensate_selection() is True
 
     assert current.read_bytes() == b"old-current"
     assert versions.get_current_version("videos", "E1S01") == old_version
-    assert adapter.get_entry(ArtifactKey.episode_video(1, "E1S01")).basis_digest == old_basis.digest
+    manifest_entry = adapter.get_entry(ArtifactKey.episode_video(1, "E1S01"))
+    assert manifest_entry is not None
+    assert manifest_entry.basis_digest == old_basis.digest
     assert thumbnail.read_bytes() == b"old-thumbnail"
-    assert assets == {
-        "video_clip": "videos/old.mp4",
-        "video_uri": "provider://old",
-        "video_thumbnail": "thumbnails/scene_E1S01.jpg",
-        "status": "completed",
-        "unrelated": "concurrent",
-    }
+    if not script_rebound:
+        assert assets == {
+            "video_clip": "videos/old.mp4",
+            "video_uri": "provider://old",
+            "video_thumbnail": "thumbnails/scene_E1S01.jpg",
+            "status": "completed",
+            "unrelated": "concurrent",
+        }
 
 
 @pytest.mark.asyncio
@@ -346,6 +485,21 @@ async def test_selected_video_finalize_result_compensates_once_when_terminal_can
     result.compensate_cancelled()
     result.compensate_cancelled()
     committer.compensate_selection.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_terminal_cancellation_does_not_silently_ignore_incomplete_video_compensation() -> None:
+    committer = MagicMock()
+    committer.outcome = PaidVersionCommit(version=2, selected=True)
+    committer.compensate_selection.return_value = False
+
+    async def _finalize() -> dict[str, object]:
+        return {"version": 2, "selected_current": True}
+
+    result = await finalize_selected_video_result(committer=committer, finalize=_finalize)
+
+    with pytest.raises(RuntimeError, match="remains selected"):
+        result.compensate_cancelled()
 
 
 def _storyboard_state(tmp_path: Path) -> tuple[Path, dict, dict, dict[str, object]]:
@@ -468,6 +622,24 @@ def test_storyboard_current_basis_tracks_speech_and_ignores_provider_metadata(tm
             version_metadata=metadata,
         )
         != expected
+    )
+
+
+def test_current_video_basis_rejects_an_episode_rebound_to_another_script(tmp_path: Path) -> None:
+    project_path, project, script, metadata = _storyboard_state(tmp_path)
+    project["episodes"] = [{"episode": 1, "script_file": "scripts/rebound_episode_1.json"}]
+
+    assert (
+        build_current_video_artifact_basis(
+            project_path=project_path,
+            project=project,
+            script=script,
+            resource_type="videos",
+            resource_id="E1S01",
+            versions=VersionManager(project_path),
+            version_metadata=metadata,
+        )
+        is None
     )
 
 
