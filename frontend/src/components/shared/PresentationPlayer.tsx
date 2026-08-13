@@ -44,6 +44,8 @@ export function PresentationPlayer({
   const { t } = useTranslation("dashboard");
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const retainedVideoRef = useRef<HTMLVideoElement>(null);
+  const retainedAudioRef = useRef<HTMLAudioElement>(null);
   const requestEpochRef = useRef(0);
   const [variant, setVariant] = useState<PresentationVariant>(initialVariant);
   const [loadState, setLoadState] = useState<PresentationLoadState>({
@@ -82,6 +84,23 @@ export function PresentationPlayer({
   const error = requestMatches ? loadState.error : null;
   const loading = !requestMatches;
 
+  const bindVideo = useCallback((video: HTMLVideoElement | null) => {
+    videoRef.current = video;
+    if (video) retainedVideoRef.current = video;
+  }, []);
+
+  const bindNarration = useCallback((audio: HTMLAudioElement | null) => {
+    audioRef.current = audio;
+    if (audio) retainedAudioRef.current = audio;
+  }, []);
+
+  const stopRetainedMedia = useCallback(() => {
+    retainedVideoRef.current?.pause();
+    retainedAudioRef.current?.pause();
+    retainedVideoRef.current = null;
+    retainedAudioRef.current = null;
+  }, []);
+
   useEffect(() => {
     const epoch = ++requestEpochRef.current;
     const controller = new AbortController();
@@ -119,6 +138,7 @@ export function PresentationPlayer({
       });
     return () => {
       controller.abort();
+      stopRetainedMedia();
       if (requestEpochRef.current === epoch) requestEpochRef.current += 1;
     };
   }, [
@@ -132,6 +152,7 @@ export function PresentationPlayer({
     narrationFingerprint,
     resourceKey,
     requestKey,
+    stopRetainedMedia,
   ]);
 
   const enforceVideoAudioPolicy = useCallback(
@@ -271,7 +292,7 @@ export function PresentationPlayer({
   return (
     <div className={`relative h-full w-full bg-black ${className}`}>
       <video
-        ref={videoRef}
+        ref={bindVideo}
         src={videoUrl}
         poster={posterUrl}
         aria-label={t("presentation_video_aria", { id: presentation.unit_id })}
@@ -301,7 +322,7 @@ export function PresentationPlayer({
       </video>
       {narrationUrl && (
         <audio
-          ref={audioRef}
+          ref={bindNarration}
           src={narrationUrl}
           aria-label={t("presentation_tts_track_aria", { id: presentation.unit_id })}
           preload="metadata"

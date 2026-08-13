@@ -301,4 +301,23 @@ describe("PresentationPlayer", () => {
     });
     expect(screen.queryByLabelText("E1S01 成片预览")).not.toBeInTheDocument();
   });
+
+  it("pauses active media before loading another rendition", async () => {
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    render(
+      <PresentationPlayer
+        projectName="demo"
+        resourceType="videos"
+        resourceId="E1S01"
+        initialVariant="use_tts"
+      />,
+    );
+    await screen.findByLabelText("E1S01 TTS 音轨");
+    pause.mockClear();
+
+    await user.click(screen.getByRole("button", { name: "原音成片" }));
+
+    expect(pause).toHaveBeenCalledTimes(2);
+  });
 });
