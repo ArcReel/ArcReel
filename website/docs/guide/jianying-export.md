@@ -4,7 +4,7 @@ title: 剪映草稿导出
 sidebar_position: 4
 ---
 
-# 剪映草稿导出指南 {#jianying-export}
+# 剪映草稿导出 {#jianying-export}
 
 将 ArcReel 已生成的视频片段按集导出为剪映（JianYing）草稿文件，在剪映桌面版中直接打开并进行二次编辑——调整节奏、添加字幕、转场、配音等。
 

@@ -12,26 +12,28 @@ const target = resolve(websiteDir, "docs", "dev", "contributing.md");
 
 // 显式锚点 ID 在复制时注入，不写进仓库根的真相源：GitHub 不认 `{#id}` 语法，会把它当正文原样显示。
 // 标题改动后这里必须同步登记，否则复制失败——锚点是中英两个 locale 共用的链接目标，不能静默漂移。
+// 键是「井号前缀 + 标题文本」：同名标题（如两处「工作流程」）出现在不同层级时才能各自登记。
 const ANCHORS = new Map([
-  ["贡献指南", "contributing"],
-  ["本地开发环境", "local-development"],
-  ["文档站", "docs-site"],
-  ["运行测试", "running-tests"],
-  ["代码质量", "code-quality"],
-  ["ESLint disable 使用规范", "eslint-disable-policy"],
-  ["Pytest markers 纪律", "pytest-markers"],
-  ["文档维护", "docs-maintenance"],
-  ["各页职责", "page-responsibilities"],
-  ["写作约定", "writing-conventions"],
-  ["工作流程", "workflow"],
-  ["分支策略（trunk-based）", "branching-strategy"],
-  ["分支命名约定", "branch-naming"],
-  ["短分支寿命", "short-lived-branches"],
-  ["Squash merge", "squash-merge"],
-  ["提交规范", "commit-convention"],
-  ["发版流程", "release-process"],
-  ["commit type → 版本步进", "commit-type-version-bump"],
-  ["commit 示例", "commit-examples"],
+  ["# 贡献指南", "contributing"],
+  ["## 本地开发环境", "local-development"],
+  ["### 文档站", "docs-site"],
+  ["## 运行测试", "running-tests"],
+  ["## 代码质量", "code-quality"],
+  ["### ESLint disable 使用规范", "eslint-disable-policy"],
+  ["### Pytest markers 纪律", "pytest-markers"],
+  ["## 文档维护", "docs-maintenance"],
+  ["### 各页职责", "page-responsibilities"],
+  ["### 写作约定", "writing-conventions"],
+  ["## 工作流程", "workflow"],
+  ["### 分支策略（trunk-based）", "branching-strategy"],
+  ["### 分支命名约定", "branch-naming"],
+  ["### 短分支寿命", "short-lived-branches"],
+  ["### Squash merge", "squash-merge"],
+  ["## 提交规范", "commit-convention"],
+  ["## 发版流程", "release-process"],
+  ["### 工作流程", "release-workflow"],
+  ["### commit type → 版本步进", "commit-type-version-bump"],
+  ["### commit 示例", "commit-examples"],
 ]);
 
 const FENCE = /^\s*(```|~~~)/;
@@ -39,6 +41,7 @@ const HEADING = /^(#{1,6})\s+(.*?)\s*$/;
 
 function injectAnchors(markdown) {
   const seen = new Set();
+  const usedAnchors = new Set();
   let fence = "";
   const lines = markdown.split("\n").map((line) => {
     const fenceMatch = FENCE.exec(line);
@@ -56,17 +59,23 @@ function injectAnchors(markdown) {
     if (!heading) return line;
 
     const [, hashes, text] = heading;
-    const anchor = ANCHORS.get(text);
+    const key = `${hashes} ${text}`;
+    const anchor = ANCHORS.get(key);
     if (!anchor) {
       throw new Error(
-        `CONTRIBUTING.md 的标题「${text}」没有登记锚点 ID，请在 website/scripts/sync-contributing.mjs 的 ANCHORS 中补上`,
+        `CONTRIBUTING.md 的标题「${key}」没有登记锚点 ID，请在 website/scripts/sync-contributing.mjs 的 ANCHORS 中补上`,
       );
     }
-    seen.add(text);
+    // 重复 id 会产出无效 HTML，且锚点链接只会落到第一处；onBrokenAnchors 查不出这种碰撞。
+    if (usedAnchors.has(anchor)) {
+      throw new Error(`锚点 ID「${anchor}」被多个标题共用（最后一处是「${key}」），请在 ANCHORS 中改成唯一值`);
+    }
+    usedAnchors.add(anchor);
+    seen.add(key);
     return `${hashes} ${text} {#${anchor}}`;
   });
 
-  const stale = [...ANCHORS.keys()].filter((text) => !seen.has(text));
+  const stale = [...ANCHORS.keys()].filter((key) => !seen.has(key));
   if (stale.length > 0) {
     throw new Error(`ANCHORS 中登记了 CONTRIBUTING.md 里已不存在的标题：${stale.join("、")}`);
   }
