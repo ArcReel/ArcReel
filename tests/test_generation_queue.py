@@ -27,7 +27,16 @@ async def queue():
 
 
 class TestGenerationQueue:
-    async def test_narration_task_admission_waits_for_the_shared_restore_guard(self, queue):
+    async def test_narration_task_admission_waits_for_the_shared_restore_guard(
+        self,
+        queue,
+        tmp_path,
+        monkeypatch,
+    ):
+        from lib.app_data_dir import _reset_for_tests
+
+        monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "app-data"))
+        _reset_for_tests()
         async with generation_admission_lock(
             project_name="admission-demo",
             script_file="scripts/episode_01.json",

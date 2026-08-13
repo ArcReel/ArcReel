@@ -223,7 +223,10 @@ class VideoArtifactCommitter:
                     return None
                 try:
                     self._current_tts_settings = bridge.run(
-                        CurrentTtsSettingsResolver(self._project_name).resolve_tts_synthesis_settings(project)
+                        CurrentTtsSettingsResolver(
+                            self._project_name,
+                            project_path=self._project_path,
+                        ).resolve_tts_synthesis_settings(project)
                     )
                 except ValueError:
                     # No configured current TTS means there is no fresh duration
@@ -369,16 +372,20 @@ class VideoArtifactCommitter:
                 validate=False,
                 on_commit=_reject,
             ) as script:
-                item = _find_script_item(script, self._resource_id)
-                assets = item.get("generated_assets")
-                if not isinstance(assets, dict):
-                    assets = {}
-                    item["generated_assets"] = assets
-                for field, (present, value) in prior_assets.items():
-                    if present:
-                        assets[field] = copy.deepcopy(value)
-                    else:
-                        assets.pop(field, None)
+                try:
+                    item = _find_script_item(script, self._resource_id)
+                except KeyError:
+                    pass
+                else:
+                    assets = item.get("generated_assets")
+                    if not isinstance(assets, dict):
+                        assets = {}
+                        item["generated_assets"] = assets
+                    for field, (present, value) in prior_assets.items():
+                        if present:
+                            assets[field] = copy.deepcopy(value)
+                        else:
+                            assets.pop(field, None)
         except _ScriptBindingChanged:
             restored = self._versions.reject_current_version(
                 self._resource_type,

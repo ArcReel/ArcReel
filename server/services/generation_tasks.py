@@ -943,6 +943,7 @@ async def execute_tts_task(
                         CurrentTtsSettingsResolver(
                             project_name,
                             user_id=user_id,
+                            project_path=project_path,
                             context_resolver=resolve_generation_context,
                         ).resolve_tts_synthesis_settings(guarded_project)
                     )
@@ -1111,21 +1112,20 @@ async def execute_tts_task(
                     ),
                     None,
                 )
-                if item is None:
-                    raise ValueError(f"segment not found during TTS cancellation: {resource_id}")
-                assets = item.get("generated_assets")
-                if not isinstance(assets, dict):
-                    assets = ProjectManager.create_generated_assets(
-                        str(current_script.get("content_mode") or "narration")
-                    )
-                    item["generated_assets"] = assets
-                if assets.get("narration_audio") != audio_rel:
-                    raise RuntimeError("narration audio changed before cancellation compensation")
-                if prior_narration_audio is missing_narration_audio:
-                    assets.pop("narration_audio", None)
-                else:
-                    assets["narration_audio"] = copy.deepcopy(prior_narration_audio)
-                pm.update_scene_status(item)
+                if item is not None:
+                    assets = item.get("generated_assets")
+                    if not isinstance(assets, dict):
+                        assets = ProjectManager.create_generated_assets(
+                            str(current_script.get("content_mode") or "narration")
+                        )
+                        item["generated_assets"] = assets
+                    if assets.get("narration_audio") != audio_rel:
+                        raise RuntimeError("narration audio changed before cancellation compensation")
+                    if prior_narration_audio is missing_narration_audio:
+                        assets.pop("narration_audio", None)
+                    else:
+                        assets["narration_audio"] = copy.deepcopy(prior_narration_audio)
+                    pm.update_scene_status(item)
         except EpisodeScriptReboundError:
             # The old script is no longer the episode's current edit target, but
             # cancellation must still revoke this task's formal media selection.

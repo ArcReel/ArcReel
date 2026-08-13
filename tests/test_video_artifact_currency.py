@@ -356,11 +356,11 @@ async def test_failed_formal_selection_validation_archives_paid_video_without_cu
     assert is_typed_media_version_restorable("videos", rejected) is False
 
 
-@pytest.mark.parametrize("script_rebound", [False, True])
+@pytest.mark.parametrize("script_change", ["none", "rebound", "removed"])
 def test_selected_video_cancellation_compensation_restores_media_manifest_and_only_video_asset_fields(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    script_rebound: bool,
+    script_change: str,
 ) -> None:
     project_path = tmp_path / "demo"
     current = project_path / "videos" / "scene_E1S01.mp4"
@@ -451,8 +451,10 @@ def test_selected_video_cancellation_compensation_restores_media_manifest_and_on
         }
     )
     thumbnail.write_bytes(b"new-thumbnail")
-    if script_rebound:
+    if script_change == "rebound":
         project["episodes"][0]["script_file"] = "scripts/rebound_episode_1.json"
+    elif script_change == "removed":
+        script["segments"].clear()
 
     assert committer.compensate_selection() is True
 
@@ -462,7 +464,7 @@ def test_selected_video_cancellation_compensation_restores_media_manifest_and_on
     assert manifest_entry is not None
     assert manifest_entry.basis_digest == old_basis.digest
     assert thumbnail.read_bytes() == b"old-thumbnail"
-    if not script_rebound:
+    if script_change == "none":
         assert assets == {
             "video_clip": "videos/old.mp4",
             "video_uri": "provider://old",
@@ -470,6 +472,8 @@ def test_selected_video_cancellation_compensation_restores_media_manifest_and_on
             "status": "completed",
             "unrelated": "concurrent",
         }
+    elif script_change == "removed":
+        assert script["segments"] == []
 
 
 def test_selected_video_compensation_preserves_the_original_and_rollback_failures(

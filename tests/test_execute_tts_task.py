@@ -473,6 +473,7 @@ class TestExecuteTtsTask:
             calls += 1
             if calls == 2:
                 assert pm.episode_lock_active
+                assert kwargs["project_path"] == pm.project_path
             resolver = initial_resolver if calls == 1 else changed_resolver
             return await resolver(*args, **kwargs)
 
@@ -766,6 +767,25 @@ class TestExecuteTtsTask:
         assert gen.rejected_versions == [3]
         assert not (pm.project_path / "audio" / "segment_E1S01.wav").exists()
         assert ProjectArtifactManifestAdapter(pm.project_path).get_entry(ArtifactKey.episode_audio(1, "E1S01")) is None
+
+    async def test_cancel_after_unit_removal_still_rejects_selected_tts(self, tts_env):
+        pm, gen = tts_env
+
+        result = await generation_tasks.execute_tts_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json"},
+            task_id="removed-unit-tts-task",
+        )
+        pm.script["segments"].clear()
+
+        assert isinstance(result, CompensableGenerationResult)
+        result.compensate_cancelled()
+
+        assert gen.rejected_versions == [3]
+        assert not (pm.project_path / "audio" / "segment_E1S01.wav").exists()
+        assert ProjectArtifactManifestAdapter(pm.project_path).get_entry(ArtifactKey.episode_audio(1, "E1S01")) is None
+        assert pm.script["segments"] == []
 
     async def test_narration_speed_passed_to_generator(self, tts_env, monkeypatch):
         pm, gen = tts_env

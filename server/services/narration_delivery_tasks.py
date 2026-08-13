@@ -100,19 +100,26 @@ class CurrentTtsSettingsResolver:
         project_name: str,
         *,
         user_id: str = DEFAULT_USER_ID,
+        project_path: Path | None = None,
         context_resolver: Callable[..., Awaitable[Any]] | None = None,
     ) -> None:
         self._project_name = project_name
         self._user_id = user_id
+        self._project_path = project_path
         self._context_resolver = context_resolver or resolve_generation_context
 
     async def resolve_tts_synthesis_settings(self, project: dict) -> TtsSynthesisSettings:
+        context_kwargs: dict[str, Any] = {
+            "project": project,
+            "user_id": self._user_id,
+            "audio": AudioLaneRequest(),
+        }
+        if self._project_path is not None:
+            context_kwargs["project_path"] = self._project_path
         ctx = await self._context_resolver(
             self._project_name,
             None,
-            project=project,
-            user_id=self._user_id,
-            audio=AudioLaneRequest(),
+            **context_kwargs,
         )
         return ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio).settings
 
