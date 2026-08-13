@@ -15,7 +15,7 @@ import secrets
 import shutil
 import time
 import unicodedata
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1397,6 +1397,8 @@ class ProjectManager:
         scene_id: str,
         asset_type: str,
         asset_path: str,
+        *,
+        on_commit: Callable[[Path], None] | None = None,
     ) -> dict:
         """
         更新场景的生成资源路径
@@ -1418,35 +1420,118 @@ class ProjectManager:
         # `resolve_items` 三模式判别（narration/drama/reference_video）与 `_write_script_unlocked`
         # / 读取 helper 共用同一源——避免 `_script_items_shape` 那种 reference 模式落到 drama 兜底
         # 取 "scenes" 键、静默返回 [] 然后 KeyError 报"场景不存在"的根因被掩盖路径。
-        with self.locked_script(project_name, script_filename, validate=False) as script:
-            content_mode = script.get("content_mode", "narration")
-            items, id_field, _kind = resolve_items(script)
-
-            for item in items:
-                # 损坏脚本的非 dict 元素跳过（镜像 script_editor._find_index 的 isinstance 守卫），
-                # 避免 item.get(id_field) 抛 AttributeError；未命中仍走下方 else 的 KeyError fail-loud。
-                if not isinstance(item, dict):
-                    continue
-                if str(item.get(id_field)) == str(scene_id):
-                    assets = item.get("generated_assets")
-                    if not isinstance(assets, dict):
-                        assets = {}
-                        item["generated_assets"] = assets
-
-                    assets_template = self.create_generated_assets(content_mode)
-                    for key, default_value in assets_template.items():
-                        if key not in assets:
-                            assets[key] = default_value
-
-                    assets[asset_type] = asset_path
-
-                    # 使用 update_scene_status 更新状态
-                    self.update_scene_status(item)
-                    break
-            else:
-                # 未命中：在锁内抛出，locked_script 跳过写回
-                raise KeyError(f"场景 '{scene_id}' 不存在")
+        with self.locked_script(
+            project_name,
+            script_filename,
+            validate=False,
+            on_commit=on_commit,
+        ) as script:
+            self._set_scene_asset_in_script(script, scene_id, asset_type, asset_path)
         return script
+
+    def _set_scene_asset_in_script(
+        self,
+        script: dict[str, Any],
+        scene_id: str,
+        asset_type: str,
+        asset_path: str,
+    ) -> dict[str, Any]:
+        """Mutate one loaded script; the caller owns its canonical script lock."""
+
+        content_mode = script.get("content_mode", "narration")
+        items, id_field, _kind = resolve_items(script)
+        for item in items:
+            # 损坏脚本的非 dict 元素跳过（镜像 script_editor._find_index 的 isinstance 守卫），
+            # 避免 item.get(id_field) 抛 AttributeError；未命中仍走下方 KeyError fail-loud。
+            if not isinstance(item, dict):
+                continue
+            if str(item.get(id_field)) != str(scene_id):
+                continue
+            assets = item.get("generated_assets")
+            if not isinstance(assets, dict):
+                assets = {}
+                item["generated_assets"] = assets
+            for key, default_value in self.create_generated_assets(content_mode).items():
+                if key not in assets:
+                    assets[key] = default_value
+            assets[asset_type] = asset_path
+            self.update_scene_status(item)
+            return item
+        raise KeyError(f"场景 '{scene_id}' 不存在")
+
+    def update_scene_asset_across_scripts(
+        self,
+        project_name: str,
+        script_filenames: Sequence[str],
+        scene_id: str,
+        asset_type: str,
+        asset_path: str,
+        *,
+        on_commit: Callable[[], None] | None = None,
+    ) -> tuple[str, ...]:
+        """Update every matching script and a final sidecar under one lock set.
+
+        Restore operations can touch several episode scripts before registering
+        one Manifest identity.  Holding every canonical script lock plus the
+        project lock through rollback prevents a failed final registration from
+        restoring blanket snapshots over a concurrent script edit.
+        """
+
+        normalized = tuple(sorted({self.normalize_script_filename(name) for name in script_filenames}))
+        project_path = self.get_project_path(project_name)
+        scripts_dir = project_path / "scripts"
+        script_paths = [Path(self._safe_subpath(scripts_dir, name)) for name in normalized]
+        project_file = self._get_project_file_path(project_name)
+        changed: list[str] = []
+
+        with ExitStack() as locks:
+            for name in normalized:
+                locks.enter_context(self._script_lock(project_name, name))
+            locks.enter_context(self._project_lock(project_name))
+            with formal_write_transaction(*script_paths, project_file):
+                project = self._read_project_raw_unlocked(project_name)
+                for name in normalized:
+                    try:
+                        script, _migrated = self._read_script_unlocked(project_name, name)
+                        before = copy.deepcopy(script)
+                        self._set_scene_asset_in_script(script, scene_id, asset_type, asset_path)
+                        self._write_script_unlocked(
+                            project_name,
+                            script,
+                            name,
+                            sync_project=False,
+                            validate=False,
+                            before=before,
+                            emit_change=False,
+                        )
+                    except KeyError:
+                        continue
+                    except ScriptEditError as exc:
+                        logger.warning("跨集同步元数据跳过脏脚本 %s: %s", name, exc)
+                        continue
+                    except OSError as exc:
+                        logger.warning("跨集同步元数据 sibling 集 %s IO 失败: %s", name, exc)
+                        continue
+                    if isinstance(script.get("episode"), int):
+                        self._apply_episode_sync(project, script, name)
+                    changed.append(name)
+
+                if changed:
+                    self._migrate_legacy_resolution_on_save(project)
+                    self._migrate_legacy_style(project)
+                    self._touch_metadata(project)
+                    if self._requires_unique_asset_namespace(project):
+                        ensure_project_asset_namespace(project)
+                    atomic_write_json(project_file, project)
+                if on_commit is not None:
+                    on_commit()
+
+        if changed:
+            emit_project_change_hint(
+                project_name,
+                changed_paths=[*(f"scripts/{name}" for name in changed), self.PROJECT_FILE],
+            )
+        return tuple(changed)
 
     def batch_update_scene_assets(
         self,

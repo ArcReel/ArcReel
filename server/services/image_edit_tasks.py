@@ -23,11 +23,11 @@ from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.services.generation_context import ImageLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
+    _finalize_asset_sheet_task,
+    _finalize_storyboard_image_task,
     compensable_formal_task_result,
     get_aspect_ratio,
     get_project_manager,
-    register_formal_task_artifact,
-    run_formal_task_finalizer,
 )
 
 # 版本记录里标记「指令式编辑」的 source 值；前端据此展示编辑标记（与 manual_upload 同机制）
@@ -168,29 +168,28 @@ async def execute_image_edit_task(
 
     canonical_rel = resource_relative_path(version_resource_type, resource_key)
 
-    def _finalize():
-        pm = get_project_manager()
-        if resource_type == "storyboard":
-            pm.update_scene_asset(
-                project_name=project_name,
-                script_filename=str(script_file),
-                scene_id=resource_key,
-                asset_type="storyboard_image",
-                asset_path=canonical_rel,
-            )
-        else:
-            pm._update_asset_sheet(resource_type, project_name, resource_key, canonical_rel)
-        created_at = generator.versions.get_versions(version_resource_type, resource_key)["versions"][-1]["created_at"]
-        receipt = register_formal_task_artifact(
-            pm.get_project_path(project_name),
-            resource_type=version_resource_type,
+    if resource_type == "storyboard":
+        created_at, receipt = await _finalize_storyboard_image_task(
+            project_name=project_name,
+            script_file=str(script_file),
             resource_id=resource_key,
-            script_file=str(script_file) if resource_type == "storyboard" else None,
+            artifact_path=canonical_rel,
+            generator=generator,
+            version=version,
             task_id=task_id,
+            project_manager=get_project_manager(),
         )
-        return created_at, receipt
-
-    created_at, receipt = await run_formal_task_finalizer(_finalize, task_id=task_id)
+    else:
+        created_at, receipt = await _finalize_asset_sheet_task(
+            asset_type=resource_type,
+            project_name=project_name,
+            resource_id=resource_key,
+            sheet_path=canonical_rel,
+            generator=generator,
+            version=version,
+            task_id=task_id,
+            project_manager=get_project_manager(),
+        )
 
     return compensable_formal_task_result(
         {

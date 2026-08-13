@@ -310,6 +310,77 @@ class TestExecuteGridTask:
         assert updated_grid_data["status"] == "failed"
         assert updated_grid_data["grid_image_path"] is None
 
+    async def test_terminal_cancellation_restores_grid_selection_and_preserves_later_edits(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from lib.generation_queue import CompensableGenerationResult
+        from lib.grid_manager import GridManager
+        from lib.version_manager import VersionManager
+        from server.services.generation_tasks import execute_grid_task
+
+        grid_id = grid_json.id
+        current = project_with_script / "grids" / f"{grid_id}.png"
+        current.write_bytes(b"old-grid")
+        versions = VersionManager(project_with_script)
+        old_version = versions.add_version("grids", grid_id, "old", source_file=current)
+
+        class _Generator:
+            def __init__(self):
+                self.versions = versions
+
+            async def generate_image_async(self, **_kwargs):
+                current.write_bytes(b"cancelled-grid")
+                selected = self.versions.add_version("grids", grid_id, "new", source_file=current)
+                return current, selected
+
+        compensated: list[str] = []
+
+        class _ManifestReceipt:
+            def compensate_cancelled(self) -> None:
+                compensated.append("manifest")
+
+        generator = _Generator()
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(generator),
+            ),
+            patch(
+                "server.services.generation_tasks.register_formal_task_artifact",
+                return_value=_ManifestReceipt(),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm_fn.return_value = mock_pm
+
+            result = await execute_grid_task(
+                "test-project",
+                grid_id,
+                {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+                task_id="grid-task",
+            )
+
+        assert isinstance(result, CompensableGenerationResult)
+        GridManager(project_with_script).update(grid_id, lambda grid: setattr(grid, "provider", "later-provider"))
+
+        result.compensate_cancelled()
+
+        restored = GridManager(project_with_script).get(grid_id)
+        assert restored is not None
+        assert restored.status == "pending"
+        assert restored.grid_image_path is None
+        assert restored.reference_images is None
+        assert restored.provider == "later-provider"
+        assert versions.get_current_version("grids", grid_id) == old_version
+        assert current.read_bytes() == b"old-grid"
+        assert compensated == ["manifest"]
+
     async def test_execute_grid_task_does_not_touch_storyboards(self, project_with_script, grid_json):
         """生成任务只产出联合图：不写任何分镜格文件、不回写剧本、不登记分镜版本——
         落格由独立的切分操作（apply_grid_split）显式执行。"""

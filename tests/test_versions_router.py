@@ -1,6 +1,8 @@
 import json
 import os
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -36,11 +38,21 @@ class _FakePM:
 
         return Path("/tmp") / project_name
 
-    def _update_asset_sheet(self, asset_type, *args):
+    def _update_asset_sheet(self, asset_type, *args, on_commit=None):
         self.updated.append((asset_type, args))
+        if on_commit is not None:
+            on_commit(self.get_project_path(args[0]) / "project.json")
 
     def update_scene_asset(self, *args, **kwargs):
         self.updated.append(("storyboard", args, kwargs))
+
+    def update_scene_asset_across_scripts(
+        self, project_name, script_filenames, scene_id, asset_type, asset_path, *, on_commit=None
+    ):
+        for script_filename in script_filenames:
+            self.update_scene_asset(project_name, script_filename, scene_id, asset_type, asset_path)
+        if on_commit is not None:
+            on_commit()
 
 
 class _FakeVM:
@@ -119,6 +131,17 @@ class _StoryboardSyncPM:
         if script_filename == "b.json":
             # ScriptEditError = 该集脚本脏(分镜数组键损坏),路由层精确捕获 + warning 后跳过
             raise ScriptEditError("segments 必须是列表，当前为 NoneType")
+
+    def update_scene_asset_across_scripts(
+        self, project_name, script_filenames, scene_id, asset_type, asset_path, *, on_commit=None
+    ):
+        for script_filename in script_filenames:
+            try:
+                self.update_scene_asset(project_name, script_filename, scene_id, asset_type, asset_path)
+            except (KeyError, ScriptEditError, OSError):
+                continue
+        if on_commit is not None:
+            on_commit()
 
 
 def _typed_video_versions(project_path: Path, resource_type: str, resource_id: str) -> VersionManager:
@@ -368,6 +391,79 @@ class TestVersionsRouter:
         assert manager.get_current_version("storyboards", "DUP") == 2
         assert all(path.read_bytes() == content for path, content in snapshots.items())
         assert not (project_path / ".arcreel_artifacts.json").exists()
+
+    def test_storyboard_restore_rollback_holds_script_lock_against_concurrent_edit(self, tmp_path, monkeypatch):
+        from lib.project_manager import ProjectManager
+
+        pm = ProjectManager(tmp_path)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "novel_text": "旁白",
+                        "image_prompt": "画面",
+                        "generated_assets": {
+                            "storyboard_image": "storyboards/old.png",
+                            "video_clip": None,
+                        },
+                    }
+                ],
+            },
+            "episode_1.json",
+            validate=False,
+        )
+        project_path = pm.get_project_path("demo")
+        registration_started = threading.Event()
+        release_registration = threading.Event()
+        edit_finished = threading.Event()
+
+        def _fail_registration(*_args, **_kwargs):
+            registration_started.set()
+            assert release_registration.wait(timeout=5)
+            raise RuntimeError("manifest commit failed")
+
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(versions, "register_current_resource_artifact", _fail_registration)
+
+        def _restore() -> None:
+            versions._restore_non_typed_sidecars(
+                resource_type="storyboards",
+                project_name="demo",
+                resource_id="E1S01",
+                file_path="storyboards/scene_E1S01.png",
+                project_path=project_path,
+            )
+
+        def _concurrent_edit() -> None:
+            pm.update_scene_asset(
+                "demo",
+                "episode_1.json",
+                "E1S01",
+                "video_clip",
+                "videos/concurrent.mp4",
+            )
+            edit_finished.set()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            restore_future = pool.submit(_restore)
+            assert registration_started.wait(timeout=5)
+            edit_future = pool.submit(_concurrent_edit)
+            assert not edit_finished.wait(timeout=0.1)
+            release_registration.set()
+            with pytest.raises(RuntimeError, match="manifest commit failed"):
+                restore_future.result(timeout=5)
+            edit_future.result(timeout=5)
+
+        script = pm.load_script("demo", "episode_1.json")
+        assets = script["segments"][0]["generated_assets"]
+        assert assets["storyboard_image"] == "storyboards/old.png"
+        assert assets["video_clip"] == "videos/concurrent.mp4"
 
     def test_get_versions_and_restore(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
@@ -950,7 +1046,7 @@ class TestVersionsRouter:
             def get_project_path(self, project_name):
                 return self.project_path
 
-            def update_scene_asset(self, *args, **kwargs):
+            def update_scene_asset_across_scripts(self, *args, **kwargs):
                 raise RuntimeError("unexpected crash")
 
         fake_pm = _CrashingPM(project_path)
@@ -989,6 +1085,17 @@ class TestVersionsRouter:
                 self.calls.append(script_filename)
                 if script_filename == "b.json":
                     raise OSError("transient flock timeout")
+
+            def update_scene_asset_across_scripts(
+                self, project_name, script_filenames, scene_id, asset_type, asset_path, *, on_commit=None
+            ):
+                for script_filename in script_filenames:
+                    try:
+                        self.update_scene_asset(project_name, script_filename, scene_id, asset_type, asset_path)
+                    except OSError:
+                        continue
+                if on_commit is not None:
+                    on_commit()
 
         fake_pm = _TransientIOFailPM(project_path)
         monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)

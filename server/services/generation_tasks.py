@@ -10,7 +10,7 @@ import logging
 import math
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from lib.api_errors import ConflictError
 from lib.artifact_activation import (
@@ -21,6 +21,7 @@ from lib.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifact_manifest import (
+    ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifestEntry,
@@ -45,7 +46,6 @@ from lib.audio_utils import (
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import constrain_durations, video_bucket_for_generation_mode
 from lib.db.base import DEFAULT_USER_ID
-from lib.formal_write import formal_write_transaction
 from lib.generation_queue import (
     CompensableGenerationResult,
     DispatchProviderChanged,
@@ -116,12 +116,22 @@ from lib.version_manager import PaidVersionCommit
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_backends.base import VideoCapabilityError
 from lib.video_visual_provenance import build_storyboard_video_visual_basis, resolve_video_aspect_ratio
-from lib.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
+from lib.visual_artifact_provenance import (
+    VisualReference,
+    build_storyboard_image_visual_basis,
+    build_storyboard_video_artifact_visual_basis,
+)
 from server.services.generation_context import (
     AudioLaneRequest,
     ImageLaneRequest,
     VideoLaneRequest,
     resolve_generation_context,
+)
+from server.services.image_artifact_currency import (
+    OptimisticMappingMemberPatch,
+    OptimisticMappingPatch,
+    SelectedImageArtifactReceipt,
+    reject_failed_image_selection,
 )
 from server.services.narration_delivery_tasks import (
     CurrentTtsSettingsResolver,
@@ -140,6 +150,10 @@ from server.services.video_artifact_currency import (
 logger = logging.getLogger(__name__)
 
 
+class _CancellationReceipt(Protocol):
+    def compensate_cancelled(self) -> None: ...
+
+
 def register_formal_task_artifact(
     project_path: Path,
     *,
@@ -147,6 +161,8 @@ def register_formal_task_artifact(
     resource_id: str,
     script_file: str | None,
     task_id: str | None,
+    artifact_path: str | None = None,
+    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
 ) -> ArtifactRegistrationReceipt | None:
     """Use the task-aware registration seam only when a terminal gate exists."""
 
@@ -156,6 +172,8 @@ def register_formal_task_artifact(
             resource_type=resource_type,
             resource_id=resource_id,
             script_file=script_file,
+            artifact_path=artifact_path,
+            basis=basis,
         )
         return None
     return register_task_current_resource_artifact(
@@ -163,20 +181,38 @@ def register_formal_task_artifact(
         resource_type=resource_type,
         resource_id=resource_id,
         script_file=script_file,
+        artifact_path=artifact_path,
+        basis=basis,
     )
 
 
-async def run_formal_task_finalizer[T](finalize: Callable[[], T], *, task_id: str | None) -> T:
+async def run_formal_task_finalizer[T](
+    finalize: Callable[[], T],
+    *,
+    task_id: str | None,
+    compensate_failure: Callable[[], None] | None = None,
+) -> T:
     """Finish a task's formal-write transaction so cancellation can compensate it."""
 
+    def _finalize_with_compensation() -> T:
+        try:
+            return finalize()
+        except BaseException as failure:
+            if compensate_failure is not None:
+                try:
+                    compensate_failure()
+                except BaseException as compensation_failure:
+                    failure.add_note(f"formal image selection compensation also failed: {compensation_failure}")
+            raise
+
     if task_id is None:
-        return await asyncio.to_thread(finalize)
-    return await run_noninterruptible_sync(finalize)
+        return await asyncio.to_thread(_finalize_with_compensation)
+    return await run_noninterruptible_sync(_finalize_with_compensation)
 
 
 def compensable_formal_task_result(
     result: dict[str, Any],
-    receipt: ArtifactRegistrationReceipt | None,
+    receipt: _CancellationReceipt | None,
 ) -> dict[str, Any]:
     if receipt is None:
         return result
@@ -276,6 +312,7 @@ def _collect_sheet_references(
     scene_field: str,
     prop_field: str,
     max_count: int = 0,
+    visual_references: list[VisualReference] | None = None,
 ) -> tuple[list[dict], set[str]]:
     """Collect character_sheet, scene_sheet and prop_sheet references from scene/segment items.
 
@@ -308,6 +345,16 @@ def _collect_sheet_references(
                 path = project_path / sheet
                 if path.exists():
                     refs.append({"image": path, "label": char_name})
+                    if visual_references is not None:
+                        visual_references.append(
+                            VisualReference(
+                                path=path,
+                                role="asset_sheet",
+                                logical_type="character",
+                                logical_id=char_name,
+                                kind="sheet",
+                            )
+                        )
                     seen.add(sheet)
         for scene_name in item.get(scene_field) or []:
             if not isinstance(scene_name, str):
@@ -318,6 +365,16 @@ def _collect_sheet_references(
                 path = project_path / sheet
                 if path.exists():
                     refs.append({"image": path, "label": scene_name})
+                    if visual_references is not None:
+                        visual_references.append(
+                            VisualReference(
+                                path=path,
+                                role="asset_sheet",
+                                logical_type="scene",
+                                logical_id=scene_name,
+                                kind="sheet",
+                            )
+                        )
                     seen.add(sheet)
         for prop_name in item.get(prop_field) or []:
             if not isinstance(prop_name, str):
@@ -328,6 +385,16 @@ def _collect_sheet_references(
                 path = project_path / sheet
                 if path.exists():
                     refs.append({"image": path, "label": prop_name})
+                    if visual_references is not None:
+                        visual_references.append(
+                            VisualReference(
+                                path=path,
+                                role="asset_sheet",
+                                logical_type="prop",
+                                logical_id=prop_name,
+                                kind="sheet",
+                            )
+                        )
                     seen.add(sheet)
         if max_count and len(refs) >= max_count:
             break
@@ -345,9 +412,17 @@ def _collect_reference_images(
     prop_field: str,
     extra_reference_images: list[str] | None = None,
     previous_storyboard_path: Path | None = None,
+    previous_storyboard_id: str | None = None,
+    visual_references: list[VisualReference] | None = None,
 ) -> list[object] | None:
     sheet_refs, _ = _collect_sheet_references(
-        project, project_path, [target_item], char_field=char_field, scene_field=scene_field, prop_field=prop_field
+        project,
+        project_path,
+        [target_item],
+        char_field=char_field,
+        scene_field=scene_field,
+        prop_field=prop_field,
+        visual_references=visual_references,
     )
     reference_images: list[object] = list(sheet_refs)
 
@@ -357,9 +432,22 @@ def _collect_reference_images(
             extra_path = project_path / extra_path
         if extra_path.exists():
             reference_images.append(extra_path)
+            if visual_references is not None:
+                visual_references.append(VisualReference(path=extra_path, role="extra_reference"))
 
     if previous_storyboard_path and previous_storyboard_path.exists():
         reference_images.append(build_previous_storyboard_reference(previous_storyboard_path))
+        if visual_references is not None:
+            if not previous_storyboard_id:
+                raise ValueError("previous_storyboard_id is required for storyboard basis evidence")
+            visual_references.append(
+                VisualReference(
+                    path=previous_storyboard_path,
+                    role="previous_storyboard",
+                    logical_type="storyboard",
+                    logical_id=previous_storyboard_id,
+                )
+            )
 
     return reference_images or None
 
@@ -439,6 +527,257 @@ def collect_product_references_for_names(
 def _product_names_in_references(product_references: list[dict]) -> list[str]:
     """从产品参考集提取去重保序的产品名——高保真指令只点名实际注入了参考的产品。"""
     return list(dict.fromkeys(ref["name"] for ref in product_references))
+
+
+def _product_visual_references(product_references: Sequence[Mapping[str, object]]) -> list[VisualReference]:
+    """Project provider-facing product refs into canonical generation evidence."""
+
+    evidence: list[VisualReference] = []
+    for reference in product_references:
+        path = reference.get("image")
+        name = reference.get("name")
+        kind = reference.get("kind")
+        if not isinstance(path, Path) or not isinstance(name, str) or kind not in {"sheet", "original"}:
+            raise ValueError("product reference metadata is incomplete")
+        evidence.append(
+            VisualReference(
+                path=path,
+                role="asset_sheet" if kind == "sheet" else "source",
+                logical_type="product",
+                logical_id=name,
+                kind=str(kind),
+            )
+        )
+    return evidence
+
+
+async def _finalize_asset_sheet_task(
+    *,
+    asset_type: str,
+    project_name: str,
+    resource_id: str,
+    sheet_path: str,
+    generator: Any,
+    version: int,
+    task_id: str | None,
+    project_manager: ProjectManager | None = None,
+) -> tuple[str, _CancellationReceipt | None]:
+    """Commit one asset sheet and span the task terminal-cancellation window."""
+
+    spec = ASSET_SPECS[asset_type]
+    pm = project_manager or get_project_manager()
+    project_path = pm.get_project_path(project_name)
+
+    def _finalize() -> tuple[str, _CancellationReceipt | None]:
+        created_at = generator.versions.get_versions(spec.bucket_key, resource_id)["versions"][-1]["created_at"]
+        if task_id is None:
+
+            def _register_current(_project_file: Path) -> None:
+                register_formal_task_artifact(
+                    project_path,
+                    resource_type=spec.bucket_key,
+                    resource_id=resource_id,
+                    script_file=None,
+                    task_id=None,
+                )
+
+            pm._update_asset_sheet(
+                asset_type,
+                project_name,
+                resource_id,
+                sheet_path,
+                on_commit=_register_current,
+            )
+            return created_at, None
+
+        manifest_box: list[ArtifactRegistrationReceipt] = []
+        mutation_box: list[OptimisticMappingPatch] = []
+
+        def _mutate(project: dict[str, Any]) -> None:
+            bucket = project.get(spec.bucket_key)
+            key = resolve_asset_key(bucket, resource_id)
+            if not isinstance(bucket, dict) or key is None:
+                raise KeyError(f"{spec.label_zh} '{resource_id}' 不存在")
+            entry = bucket[key]
+            if not isinstance(entry, dict):
+                raise ValueError(f"{spec.label_zh} '{resource_id}' metadata must be an object")
+            before = copy.deepcopy(entry)
+            entry[spec.sheet_field] = sheet_path
+            mutation_box.append(OptimisticMappingPatch.capture(before, entry))
+
+        def _register(_project_file: Path) -> None:
+            receipt = register_formal_task_artifact(
+                project_path,
+                resource_type=spec.bucket_key,
+                resource_id=resource_id,
+                script_file=None,
+                task_id=task_id,
+            )
+            if receipt is None:
+                raise RuntimeError("task-aware asset registration did not return a receipt")
+            manifest_box.append(receipt)
+
+        pm.update_project(project_name, _mutate, on_commit=_register)
+        manifest = manifest_box[0]
+        mutation = mutation_box[0]
+
+        def _compensate_metadata(reject: Callable[[], None]) -> None:
+            def _restore(project: dict[str, Any]) -> None:
+                bucket = project.get(spec.bucket_key)
+                key = resolve_asset_key(bucket, resource_id)
+                if isinstance(bucket, dict) and key is not None and isinstance(bucket[key], dict):
+                    mutation.restore(bucket[key])
+
+            def _reject(_project_file: Path) -> None:
+                reject()
+
+            pm.update_project(project_name, _restore, on_commit=_reject)
+
+        receipt = SelectedImageArtifactReceipt(
+            versions=generator.versions,
+            resource_type=spec.bucket_key,
+            resource_id=resource_id,
+            version=version,
+            current_file=project_path / sheet_path,
+            manifest=manifest,
+            compensate_metadata=_compensate_metadata,
+        )
+        return created_at, receipt
+
+    def _compensate_failed_selection() -> None:
+        reject_failed_image_selection(
+            versions=generator.versions,
+            resource_type=spec.bucket_key,
+            resource_id=resource_id,
+            version=version,
+            current_file=project_path / sheet_path,
+        )
+
+    return await run_formal_task_finalizer(
+        _finalize,
+        task_id=task_id,
+        compensate_failure=_compensate_failed_selection,
+    )
+
+
+async def _finalize_storyboard_image_task(
+    *,
+    project_name: str,
+    script_file: str,
+    resource_id: str,
+    artifact_path: str,
+    generator: Any,
+    version: int,
+    task_id: str | None,
+    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
+    project_manager: ProjectManager | None = None,
+) -> tuple[str, _CancellationReceipt | None]:
+    """Commit storyboard metadata and image selection through one shared seam."""
+
+    pm = project_manager or get_project_manager()
+    project_path = pm.get_project_path(project_name)
+
+    def _finalize() -> tuple[str, _CancellationReceipt | None]:
+        created_at = generator.versions.get_versions("storyboards", resource_id)["versions"][-1]["created_at"]
+        if task_id is None:
+
+            def _register_current(_script_path: Path) -> None:
+                register_formal_task_artifact(
+                    project_path,
+                    resource_type="storyboards",
+                    resource_id=resource_id,
+                    script_file=script_file,
+                    task_id=None,
+                    artifact_path=artifact_path,
+                    basis=basis,
+                )
+
+            pm.update_scene_asset(
+                project_name=project_name,
+                script_filename=script_file,
+                scene_id=resource_id,
+                asset_type="storyboard_image",
+                asset_path=artifact_path,
+                on_commit=_register_current,
+            )
+            return created_at, None
+
+        manifest_box: list[ArtifactRegistrationReceipt] = []
+        mutation_box: list[OptimisticMappingMemberPatch] = []
+
+        def _register(_script_path: Path) -> None:
+            receipt = register_formal_task_artifact(
+                project_path,
+                resource_type="storyboards",
+                resource_id=resource_id,
+                script_file=script_file,
+                task_id=task_id,
+                artifact_path=artifact_path,
+                basis=basis,
+            )
+            if receipt is None:
+                raise RuntimeError("task-aware storyboard registration did not return a receipt")
+            manifest_box.append(receipt)
+
+        with pm.locked_script(project_name, script_file, validate=False, on_commit=_register) as script:
+            items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
+            resolved = find_storyboard_item(items, id_field, resource_id)
+            if resolved is None:
+                raise KeyError(f"场景 '{resource_id}' 不存在")
+            item, _index = resolved
+            before = copy.deepcopy(item)
+            pm._set_scene_asset_in_script(script, resource_id, "storyboard_image", artifact_path)
+            selected_assets = item.get("generated_assets")
+            if not isinstance(selected_assets, Mapping):
+                raise RuntimeError("storyboard metadata commit did not produce generated_assets")
+            mutation_box.append(OptimisticMappingMemberPatch.capture(before, "generated_assets", selected_assets))
+
+        manifest = manifest_box[0]
+        mutation = mutation_box[0]
+
+        def _compensate_metadata(reject: Callable[[], None]) -> None:
+            def _reject(_script_path: Path) -> None:
+                reject()
+
+            try:
+                with pm.locked_script(
+                    project_name,
+                    script_file,
+                    validate=False,
+                    on_commit=_reject,
+                ) as script:
+                    items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
+                    resolved = find_storyboard_item(items, id_field, resource_id)
+                    if resolved is not None:
+                        mutation.restore(resolved[0])
+            except (FileNotFoundError, KeyError):
+                reject()
+
+        receipt = SelectedImageArtifactReceipt(
+            versions=generator.versions,
+            resource_type="storyboards",
+            resource_id=resource_id,
+            version=version,
+            current_file=project_path / artifact_path,
+            manifest=manifest,
+            compensate_metadata=_compensate_metadata,
+        )
+        return created_at, receipt
+
+    def _compensate_failed_selection() -> None:
+        reject_failed_image_selection(
+            versions=generator.versions,
+            resource_type="storyboards",
+            resource_id=resource_id,
+            version=version,
+            current_file=project_path / artifact_path,
+        )
+
+    return await run_formal_task_finalizer(
+        _finalize,
+        task_id=task_id,
+        compensate_failure=_compensate_failed_selection,
+    )
 
 
 def _episode_from_script(script: dict[str, Any] | None) -> int | None:
@@ -705,10 +1044,16 @@ async def execute_storyboard_task(
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
         if _resolved is None:
             raise ValueError(f"scene/segment not found: {resource_id}")
-        _target_item, _ = _resolved
+        _target_item, _target_index = _resolved
 
         _prev_path = resolve_previous_storyboard_path(_project_path, _project, _items, _id_field, resource_id)
+        _previous_id = (
+            str(_items[_target_index - 1].get(_id_field) or "")
+            if _prev_path is not None and _target_index > 0
+            else None
+        )
         _prompt_text = _normalize_storyboard_prompt(prompt, _project.get("style", ""))
+        _visual_references: list[VisualReference] = []
         _ref_images = _collect_reference_images(
             _project,
             _project_path,
@@ -718,16 +1063,26 @@ async def execute_storyboard_task(
             prop_field=_prop_field,
             extra_reference_images=payload.get("extra_reference_images") or [],
             previous_storyboard_path=_prev_path,
+            previous_storyboard_id=_previous_id,
+            visual_references=_visual_references,
         )
         # 产品镜头：产品参考全量注入且排序绝对优先（先于角色/场景/道具 sheet），
         # 并附高保真还原指令；氛围镜头零产品图，既有装配不变。
         _product_refs = _collect_shot_product_references(_project, _project_path, _target_item)
         if _product_refs:
             _ref_images = _product_refs + (_ref_images or [])
+            _visual_references = _product_visual_references(_product_refs) + _visual_references
             _prompt_text = append_product_fidelity_tail(_prompt_text, _product_names_in_references(_product_refs))
-        return _project, _project_path, _prompt_text, _ref_images
+        _basis = build_storyboard_image_visual_basis(
+            resource_id=resource_id,
+            image_prompt=prompt,
+            style=str(_project.get("style") or ""),
+            aspect_ratio=get_aspect_ratio(_project, "storyboards"),
+            references=_visual_references,
+        )
+        return _project, _project_path, _prompt_text, _ref_images, _basis
 
-    project, project_path, prompt_text, reference_images = await asyncio.to_thread(_prepare)
+    project, project_path, prompt_text, reference_images, storyboard_basis = await asyncio.to_thread(_prepare)
     _needs_i2i = bool(reference_images)
 
     ctx = await resolve_generation_context(
@@ -741,7 +1096,7 @@ async def execute_storyboard_task(
     aspect_ratio = get_aspect_ratio(project, "storyboards")
     image_size = ctx.image.resolution
 
-    _, version = await generator.generate_image_async(
+    _generated_path, version = await generator.generate_image_async(
         prompt=prompt_text,
         resource_type="storyboards",
         resource_id=resource_id,
@@ -750,25 +1105,16 @@ async def execute_storyboard_task(
         image_size=image_size,
     )
 
-    def _finalize() -> tuple[str, ArtifactRegistrationReceipt | None]:
-        get_project_manager().update_scene_asset(
-            project_name=project_name,
-            script_filename=script_file,
-            scene_id=resource_id,
-            asset_type="storyboard_image",
-            asset_path=f"storyboards/scene_{resource_id}.png",
-        )
-        created_at = generator.versions.get_versions("storyboards", resource_id)["versions"][-1]["created_at"]
-        receipt = register_formal_task_artifact(
-            project_path,
-            resource_type="storyboards",
-            resource_id=resource_id,
-            script_file=str(script_file),
-            task_id=task_id,
-        )
-        return created_at, receipt
-
-    created_at, receipt = await run_formal_task_finalizer(_finalize, task_id=task_id)
+    created_at, receipt = await _finalize_storyboard_image_task(
+        project_name=project_name,
+        script_file=str(script_file),
+        resource_id=resource_id,
+        artifact_path=f"storyboards/scene_{resource_id}.png",
+        generator=generator,
+        version=version,
+        task_id=task_id,
+        basis=storyboard_basis,
+    )
 
     return compensable_formal_task_result(
         {
@@ -1870,25 +2216,15 @@ async def execute_character_task(
 
     sheet_path = f"characters/{resource_id}.png"
 
-    def _finalize_char() -> tuple[str, ArtifactRegistrationReceipt | None]:
-        def _set_character_sheet(p: dict) -> None:
-            key = resolve_asset_key(p.get("characters"), resource_id)
-            if key is None:
-                raise KeyError(f"角色 '{resource_id}' 不存在")
-            p["characters"][key]["character_sheet"] = sheet_path
-
-        get_project_manager().update_project(project_name, _set_character_sheet)
-        created_at = generator.versions.get_versions("characters", resource_id)["versions"][-1]["created_at"]
-        receipt = register_formal_task_artifact(
-            get_project_manager().get_project_path(project_name),
-            resource_type="characters",
-            resource_id=resource_id,
-            script_file=None,
-            task_id=task_id,
-        )
-        return created_at, receipt
-
-    created_at, receipt = await run_formal_task_finalizer(_finalize_char, task_id=task_id)
+    created_at, receipt = await _finalize_asset_sheet_task(
+        asset_type="character",
+        project_name=project_name,
+        resource_id=resource_id,
+        sheet_path=sheet_path,
+        generator=generator,
+        version=version,
+        task_id=task_id,
+    )
 
     return compensable_formal_task_result(
         {
@@ -1989,19 +2325,15 @@ async def execute_design_task(
 
     sheet_path = f"{bucket_key}/{resource_id}.png"
 
-    def _finalize() -> tuple[str, ArtifactRegistrationReceipt | None]:
-        get_project_manager()._update_asset_sheet(kind, project_name, resource_id, sheet_path)
-        created_at = generator.versions.get_versions(bucket_key, resource_id)["versions"][-1]["created_at"]
-        receipt = register_formal_task_artifact(
-            get_project_manager().get_project_path(project_name),
-            resource_type=bucket_key,
-            resource_id=resource_id,
-            script_file=None,
-            task_id=task_id,
-        )
-        return created_at, receipt
-
-    created_at, receipt = await run_formal_task_finalizer(_finalize, task_id=task_id)
+    created_at, receipt = await _finalize_asset_sheet_task(
+        asset_type=kind,
+        project_name=project_name,
+        resource_id=resource_id,
+        sheet_path=sheet_path,
+        generator=generator,
+        version=version,
+        task_id=task_id,
+    )
 
     return compensable_formal_task_result(
         {
@@ -2168,6 +2500,7 @@ async def execute_grid_task(
     grid = grid_manager.get(resource_id)
     if grid is None:
         raise ValueError(f"grid not found: {resource_id}")
+    initial_grid = copy.deepcopy(grid.to_dict())
 
     version: int | None = None
     generator: Any = None
@@ -2224,21 +2557,63 @@ async def execute_grid_task(
 
         # e) Mark joint image ready；联合图内容已更新，旧的落格结果不再对应当前图，
         # split_at 清空表示「待显式切分」。
-        with formal_write_transaction(project_path / "grids" / f"{resource_id}.json"):
-            grid.grid_image_path = f"grids/{resource_id}.png"
-            grid.status = "completed"
-            grid.split_at = None
-            grid_manager.save(grid)
-            receipt = await run_formal_task_finalizer(
-                lambda: register_formal_task_artifact(
-                    project_path,
-                    resource_type="grids",
-                    resource_id=resource_id,
-                    script_file=None,
-                    task_id=task_id,
-                ),
-                task_id=task_id,
+        def _commit_grid() -> _CancellationReceipt | None:
+            assert grid is not None
+            manifest_box: list[ArtifactRegistrationReceipt | None] = []
+
+            def _complete(current_grid) -> None:
+                current_grid.grid_image_path = f"grids/{resource_id}.png"
+                current_grid.status = "completed"
+                current_grid.split_at = None
+
+            def _register() -> None:
+                manifest_box.append(
+                    register_formal_task_artifact(
+                        project_path,
+                        resource_type="grids",
+                        resource_id=resource_id,
+                        script_file=None,
+                        task_id=task_id,
+                    )
+                )
+
+            committed_grid = grid_manager.update(resource_id, _complete, on_commit=_register)
+            if committed_grid is None:
+                raise ValueError(f"grid not found: {resource_id}")
+            grid.grid_image_path = committed_grid.grid_image_path
+            grid.status = committed_grid.status
+            grid.split_at = committed_grid.split_at
+            manifest = manifest_box[0]
+            if task_id is None:
+                return manifest
+            if manifest is None:
+                raise RuntimeError("task-aware grid registration did not return a receipt")
+            if version is None:
+                raise RuntimeError("grid generation did not return a selected version")
+            mutation = OptimisticMappingPatch.capture(initial_grid, grid.to_dict())
+
+            def _compensate_metadata(reject: Callable[[], None]) -> None:
+                def _restore(current) -> None:
+                    current_data = current.to_dict()
+                    mutation.restore(current_data)
+                    restored = type(current).from_dict(current_data)
+                    current.__dict__.update(restored.__dict__)
+
+                restored = grid_manager.update(resource_id, _restore, on_commit=reject)
+                if restored is None:
+                    reject()
+
+            return SelectedImageArtifactReceipt(
+                versions=generator.versions,
+                resource_type="grids",
+                resource_id=resource_id,
+                version=version,
+                current_file=project_path / "grids" / f"{resource_id}.png",
+                manifest=manifest,
+                compensate_metadata=_compensate_metadata,
             )
+
+        receipt = await run_formal_task_finalizer(_commit_grid, task_id=task_id)
 
     except Exception as failure:
         if version is not None and generator is not None:

@@ -299,18 +299,19 @@ def write_step1_locked(
         atomic_write_json(path, content)
         if changed and clear_step2_quarantine:
             clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
-        if changed:
-            from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_artifact_if_provable
-            from lib.artifact_manifest import ArtifactKey
+        from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_artifact_if_provable
+        from lib.artifact_manifest import ArtifactKey
 
-            project_file = project_path / "project.json"
-            try:
-                project = json.loads(project_file.read_text(encoding="utf-8"))
-            except (OSError, UnicodeDecodeError, ValueError) as exc:
-                logger.warning("cannot inspect project schema after formal step1 write: %s", exc)
-                project = None
-            if isinstance(project, dict) and project.get("schema_version") == TARGET_SCHEMA_VERSION:
-                register_current_artifact_if_provable(project_path, ArtifactKey.episode_step1(episode))
+        project_file = project_path / "project.json"
+        try:
+            project = json.loads(project_file.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            logger.warning("cannot inspect project schema after formal step1 write: %s", exc)
+            project = None
+        if isinstance(project, dict) and project.get("schema_version") == TARGET_SCHEMA_VERSION:
+            # A successful no-op write can still repair a missing claim after a
+            # temporarily unavailable source made activation skip this target.
+            register_current_artifact_if_provable(project_path, ArtifactKey.episode_step1(episode))
     return changed
 
 

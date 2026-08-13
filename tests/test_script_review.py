@@ -1217,6 +1217,30 @@ class TestStep1WriteStore:
             script_review.write_step1_locked(project_path, 1, {"units": [{"v": 3}]}, clear_step2_quarantine=False)
         assert step2_q.exists()
 
+    @pytest.mark.unit
+    def test_successful_noop_refreshes_active_manifest_claim(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        project_path = self._project_path(tmp_path)
+        project_file = project_path / "project.json"
+        project = json.loads(project_file.read_text(encoding="utf-8"))
+        project["schema_version"] = 8
+        atomic_write_json(project_file, project)
+        content = {"units": [{"v": 1}]}
+        with script_review.step1_write_lock(project_path, 1):
+            script_review.write_step1_locked(project_path, 1, content)
+
+        registered: list[object] = []
+        monkeypatch.setattr(
+            "lib.artifact_activation.register_current_artifact_if_provable",
+            lambda _project_path, key: registered.append(key),
+        )
+
+        with script_review.step1_write_lock(project_path, 1):
+            assert script_review.write_step1_locked(project_path, 1, content) is False
+
+        from lib.artifact_manifest import ArtifactKey
+
+        assert registered == [ArtifactKey.episode_step1(1)]
+
 
 # ---------------------------------------------------------------------------
 # step2 工具阻塞 enforcement：pending 时 generate_episode_script 拒绝

@@ -16,13 +16,11 @@ logger = logging.getLogger(__name__)
 from lib.api_errors import BadRequestError, ConflictError
 from lib.artifact_activation import register_current_resource_artifact
 from lib.async_thread import run_noninterruptible_sync
-from lib.formal_write import formal_write_transaction
 from lib.generation_admission import generation_admission_lock
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager
 from lib.resource_paths import resource_relative_path
-from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
 from server.services.artifact_version_restore import (
     TypedMediaRestoreTarget,
@@ -68,52 +66,12 @@ def _resolve_resource_path(
     return current_file, relative
 
 
-def _sync_scripts_best_effort(project_path: Path, apply: Callable[[str], None]) -> None:
-    """对项目内每集剧本执行 apply（入参为脚本文件名），逐集降级而非整体失败。
-
-    - KeyError：该集脚本不引用此资源，跳过同步是正常情况而非脏数据。
-    - ScriptEditError：脏脚本（结构键损坏）降级跳过，warning 标出集名 + 原因。
-    - OSError：transient IO 错误（单文件权限 / EBUSY / flock 超时 / 损坏 inode 等）。
-      跨集同步是 best-effort housekeeping，主集恢复在调用本函数前已成功，不应让
-      sibling 集的临时 IO 失败把整个 restore 操作 5xx。真正未预期的异常
-      （RuntimeError / ImportError / ...）仍让它冒到 router 5xx 暴露。
-    """
-    scripts_dir = project_path / "scripts"
-    if not scripts_dir.exists():
-        return
-    for script_file in scripts_dir.glob("*.json"):
-        try:
-            with project_change_source("webui"):
-                apply(script_file.name)
-        except KeyError:
-            continue
-        except ScriptEditError as exc:
-            logger.warning("跨集同步元数据跳过脏脚本 %s: %s", script_file.name, exc)
-            continue
-        except OSError as exc:
-            logger.warning("跨集同步元数据 sibling 集 %s IO 失败: %s", script_file.name, exc)
-            continue
-
-
-def _sync_storyboard_metadata(
-    project_name: str,
-    resource_id: str,
-    file_path: str,
+def _sync_grid_record(
     project_path: Path,
+    resource_id: str,
+    *,
+    on_commit: Callable[[], None] | None = None,
 ) -> None:
-    def _apply(script_name: str) -> None:
-        get_project_manager().update_scene_asset(
-            project_name=project_name,
-            script_filename=script_name,
-            scene_id=resource_id,
-            asset_type="storyboard_image",
-            asset_path=file_path,
-        )
-
-    _sync_scripts_best_effort(project_path, _apply)
-
-
-def _sync_grid_record(project_path: Path, resource_id: str) -> None:
     """还原联合图后复位宫格记录：内容已换回历史版本，旧的落格结果不再对应当前图。
 
     只动宫格记录自身（split_at / 失败态），不同步剧本或分镜——落格由切分端点显式执行；
@@ -125,14 +83,14 @@ def _sync_grid_record(project_path: Path, resource_id: str) -> None:
     from lib.grid_manager import GridManager
 
     manager = GridManager(project_path)
-    try:
-        grid = manager.get(resource_id)
-    except Exception:
-        grid = None
-    if grid is None:
-        return
-    grid.mark_composite_replaced()
-    manager.save(grid)
+    updated = manager.update(
+        resource_id,
+        lambda grid: grid.mark_composite_replaced(),
+        on_commit=on_commit,
+        ignore_invalid=True,
+    )
+    if updated is None and on_commit is not None:
+        on_commit()
 
 
 # resource_type（复数，URL 段）→ asset_type（单数，ASSET_SPECS 键）
@@ -154,32 +112,68 @@ def _restore_non_typed_sidecars(
 ) -> None:
     """Commit restore metadata and its Manifest claim under one compensation seam."""
 
-    sidecars: list[Path] = []
+    if resource_type == "storyboards":
+        scripts_dir = project_path / "scripts"
+        script_names = [path.name for path in sorted(scripts_dir.glob("*.json"))] if scripts_dir.exists() else []
+
+        def _register_storyboard() -> None:
+            register_current_resource_artifact(
+                project_path,
+                resource_type=resource_type,
+                resource_id=resource_id,
+            )
+
+        with project_change_source("webui"):
+            get_project_manager().update_scene_asset_across_scripts(
+                project_name,
+                script_names,
+                resource_id,
+                "storyboard_image",
+                file_path,
+                on_commit=_register_storyboard,
+            )
+        return
+
     asset_type = _RESOURCE_TO_ASSET_TYPE.get(resource_type)
     if asset_type is not None:
-        sidecars.append(project_path / "project.json")
-    elif resource_type == "storyboards":
-        sidecars.extend(sorted((project_path / "scripts").glob("*.json")))
-        sidecars.append(project_path / "project.json")
-    elif resource_type == "grids":
-        sidecars.append(project_path / "grids" / f"{resource_id}.json")
 
-    with formal_write_transaction(*sidecars):
-        if asset_type is not None:
-            try:
-                with project_change_source("webui"):
-                    get_project_manager()._update_asset_sheet(asset_type, project_name, resource_id, file_path)
-            except KeyError:
-                pass  # 资产条目可能已从 project.json 删除，跳过元数据同步
-        elif resource_type == "storyboards":
-            _sync_storyboard_metadata(project_name, resource_id, file_path, project_path)
-        elif resource_type == "grids":
-            _sync_grid_record(project_path, resource_id)
-        register_current_resource_artifact(
-            project_path,
-            resource_type=resource_type,
-            resource_id=resource_id,
-        )
+        def _register_asset(_project_file: Path) -> None:
+            register_current_resource_artifact(
+                project_path,
+                resource_type=resource_type,
+                resource_id=resource_id,
+            )
+
+        try:
+            with project_change_source("webui"):
+                get_project_manager()._update_asset_sheet(
+                    asset_type,
+                    project_name,
+                    resource_id,
+                    file_path,
+                    on_commit=_register_asset,
+                )
+        except KeyError:
+            _register_asset(project_path / "project.json")
+        return
+
+    if resource_type == "grids":
+
+        def _register_grid() -> None:
+            register_current_resource_artifact(
+                project_path,
+                resource_type=resource_type,
+                resource_id=resource_id,
+            )
+
+        _sync_grid_record(project_path, resource_id, on_commit=_register_grid)
+        return
+
+    register_current_resource_artifact(
+        project_path,
+        resource_type=resource_type,
+        resource_id=resource_id,
+    )
 
 
 # ==================== 版本查询 ====================

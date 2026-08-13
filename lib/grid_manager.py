@@ -3,9 +3,15 @@
 import json
 import logging
 import re
+from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 
+import portalocker
+
+from lib.formal_write import formal_write_transaction
 from lib.grid.models import GridGeneration
+from lib.json_io import atomic_write_json
 from lib.path_safety import safe_join
 
 logger = logging.getLogger(__name__)
@@ -40,14 +46,54 @@ class GridManager:
     def save(self, grid: GridGeneration) -> None:
         """Write grid as JSON to {grid_id}.json."""
         path = self._path(grid.id)
-        path.write_text(json.dumps(grid.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        with self._record_lock(path):
+            atomic_write_json(path, grid.to_dict())
 
     def get(self, grid_id: str) -> GridGeneration | None:
         """Read and return a GridGeneration by id, or None if not found."""
         path = self._path(grid_id)
+        with self._record_lock(path):
+            return self._get_unlocked(path)
+
+    def update(
+        self,
+        grid_id: str,
+        mutate: Callable[[GridGeneration], None],
+        *,
+        on_commit: Callable[[], None] | None = None,
+        ignore_invalid: bool = False,
+    ) -> GridGeneration | None:
+        """Read, mutate, and save one record under its canonical file lock."""
+
+        path = self._path(grid_id)
+        with self._record_lock(path), formal_write_transaction(path):
+            try:
+                grid = self._get_unlocked(path)
+            except Exception:  # noqa: BLE001 - optional best-effort restore semantics apply only to the read
+                if not ignore_invalid:
+                    raise
+                return None
+            if grid is None:
+                return None
+            mutate(grid)
+            atomic_write_json(path, grid.to_dict())
+            if on_commit is not None:
+                on_commit()
+            return grid
+
+    @staticmethod
+    def _get_unlocked(path: Path) -> GridGeneration | None:
         if not path.exists():
             return None
         return GridGeneration.from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+    @staticmethod
+    @contextmanager
+    def _record_lock(path: Path):
+        lock_path = path.parent / f".{path.name}.lock"
+        lock_path.touch(exist_ok=True)
+        with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
+            yield
 
     def delete(self, grid_id: str) -> bool:
         """Delete a grid record and its image file. Returns True if found and deleted."""

@@ -19,6 +19,7 @@ from lib import script_review
 from lib.artifact_manifest import (
     MANIFEST_FILENAME,
     ArtifactBasis,
+    ArtifactBasisDescriptor,
     ArtifactComparison,
     ArtifactKey,
     ArtifactManifest,
@@ -1173,8 +1174,10 @@ def register_current_resource_artifact(
     resource_type: str,
     resource_id: str,
     script_file: str | None = None,
+    artifact_path: str | None = None,
+    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
 ) -> bool:
-    """Register a successful formal commit when its target basis is provable."""
+    """Register a successful formal commit from target or execution-frozen evidence."""
 
     if not _artifact_manifest_is_active(project_dir):
         return False
@@ -1185,6 +1188,15 @@ def register_current_resource_artifact(
         resource_id=resource_id,
         script_file=script_file,
     )
+    if basis is not None:
+        descriptor = basis if isinstance(basis, ArtifactBasisDescriptor) else ArtifactBasisDescriptor.from_basis(basis)
+        if artifact_path is None:
+            artifact_path = resource_relative_path(resource_type, resource_id)
+        return ArtifactManifest(ProjectArtifactManifestAdapter(project_dir)).register_descriptor_transactionally(
+            key,
+            artifact_path=artifact_path,
+            basis=descriptor,
+        )
     return register_current_artifact_if_provable(project_dir, key)
 
 
@@ -1194,8 +1206,10 @@ def register_task_current_resource_artifact(
     resource_type: str,
     resource_id: str,
     script_file: str | None = None,
+    artifact_path: str | None = None,
+    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
 ) -> ArtifactRegistrationReceipt:
-    """Register a provable task result and return its terminal-cancel receipt."""
+    """Register a task's frozen evidence and return its terminal-cancel receipt."""
 
     if not _artifact_manifest_is_active(project_dir):
         return ArtifactRegistrationReceipt(None, None, None, None)
@@ -1206,9 +1220,16 @@ def register_task_current_resource_artifact(
         resource_id=resource_id,
         script_file=script_file,
     )
-    entry = resolve_current_artifact_target(project_dir, key)
-    if entry is None:
-        raise ValueError(f"formal task artifact target is not provable: {key.encode()}")
+    if basis is None:
+        entry = resolve_current_artifact_target(project_dir, key)
+        if entry is None:
+            raise ValueError(f"formal task artifact target is not provable: {key.encode()}")
+    else:
+        descriptor = basis if isinstance(basis, ArtifactBasisDescriptor) else ArtifactBasisDescriptor.from_basis(basis)
+        entry = ArtifactManifestEntry(
+            artifact_path=artifact_path or resource_relative_path(resource_type, resource_id),
+            basis_digest=descriptor.digest,
+        )
     adapter = ProjectArtifactManifestAdapter(project_dir)
     previous = adapter.get_entry(key)
     changed = ArtifactManifest(adapter).register_entry_transactionally(key, entry)

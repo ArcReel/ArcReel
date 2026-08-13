@@ -95,10 +95,15 @@ class _FakePM:
         return self.script
 
     def update_scene_asset(self, **kwargs):
+        on_commit = kwargs.pop("on_commit", None)
         self.scene_asset_updates.append(kwargs)
+        if on_commit is not None:
+            on_commit(self.project_path / "scripts" / kwargs["script_filename"])
 
-    def _update_asset_sheet(self, asset_type, project_name, name, sheet_path):
+    def _update_asset_sheet(self, asset_type, project_name, name, sheet_path, *, on_commit=None):
         self.sheet_updates.append((asset_type, name, sheet_path))
+        if on_commit is not None:
+            on_commit(self.project_path / "project.json")
 
 
 def _prepare_files(tmp_path: Path) -> Path:
