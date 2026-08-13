@@ -1,4 +1,10 @@
-"""Read-only provenance for deciding whether a selected video is still current."""
+"""Execution-sensitive fingerprints for exact video-request reuse.
+
+These digests intentionally include provider request configuration and sound
+inputs. They support same-tier reuse and immutable execution checkpoints; they are
+not canonical visual-content bases for the Artifact Manifest. That separate
+contract lives in :mod:`lib.visual_artifact_provenance`.
+"""
 
 from __future__ import annotations
 

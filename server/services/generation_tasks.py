@@ -13,7 +13,12 @@ from pathlib import Path
 from typing import Any
 
 from lib.api_errors import ConflictError
-from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.artifact_manifest import (
+    ArtifactBasisDescriptor,
+    ArtifactKey,
+    ArtifactManifestEntry,
+    ProjectArtifactManifestAdapter,
+)
 from lib.asset_types import (
     ASSET_SPECS,
     normalize_asset_bucket,
@@ -98,6 +103,7 @@ from lib.storyboard_sequence import (
 from lib.thumbnail import extract_video_thumbnail
 from lib.video_backends.base import VideoCapabilityError
 from lib.video_visual_provenance import build_storyboard_video_visual_basis, resolve_video_aspect_ratio
+from lib.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
 from server.services.generation_context import (
     AudioLaneRequest,
     ImageLaneRequest,
@@ -1432,6 +1438,17 @@ async def execute_video_task(
                     ).digest
                 )
             )
+            artifact_visual_basis = await asyncio.to_thread(
+                lambda: ArtifactBasisDescriptor.from_basis(
+                    build_storyboard_video_artifact_visual_basis(
+                        resource_id=resource_id,
+                        visual_prompt=requested_visual_prompt,
+                        storyboard_image=provider_start_image,
+                        end_frame_image=provider_end_image,
+                        aspect_ratio=aspect_ratio,
+                    )
+                )
+            )
             narration = delivery_projection.narration if delivery_projection is not None else None
             narration_facts = NarrationExecutionFacts(
                 delivery=delivery_options.narration_delivery,
@@ -1461,6 +1478,7 @@ async def execute_video_task(
                     service_tier=service_tier,
                     seed=seed,
                     visual_basis_digest=visual_basis_digest,
+                    artifact_visual_basis=artifact_visual_basis,
                     narration=narration_facts,
                     media=staged_media,
                     reference_audio_targets=None,

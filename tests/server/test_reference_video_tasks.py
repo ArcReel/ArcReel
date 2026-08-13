@@ -2711,11 +2711,15 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
     assert checkpoint.prompt == submitted["prompt"]
     assert [media.role for media in checkpoint.media] == ["reference_image", "reference_image"]
     assert all(media.source_locator != "audio/segment_E1U1.wav" for media in checkpoint.media)
+    assert checkpoint.artifact_visual_basis is not None
+    assert checkpoint.artifact_visual_basis.kind == "artifact-visual/video-reference"
     metadata = submitted["checkpoint_metadata"]
     assert metadata["execution_api_call_id"] == checkpoint.api_call_id
     assert metadata["execution_request_digest"] == checkpoint.request_digest
     assert metadata["execution_prompt_sha256"] == checkpoint.prompt_sha256
     assert metadata["execution_visual_basis_digest"] == checkpoint.visual_basis_digest
+    assert metadata["artifact_visual_basis"] == checkpoint.artifact_visual_basis.to_dict()
+    assert not (proj_dir / ".arcreel_artifacts.json").exists()
     assert not (proj_dir / ".arcreel" / "tasks" / "task-submit" / "provider_media").exists()
 
     async def _cancel_after_staging(**_kwargs):

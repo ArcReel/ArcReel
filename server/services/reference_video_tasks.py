@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from lib.artifact_manifest import ArtifactBasisDescriptor
 from lib.config.resolver import (
     ConfigResolver,
     VideoCapability,
@@ -66,6 +67,7 @@ from lib.speech_composition import video_unit_replan_problems
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
 from lib.video_visual_provenance import resolve_video_aspect_ratio
+from lib.visual_artifact_provenance import build_reference_video_artifact_visual_basis
 from server.services.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import get_project_manager
 from server.services.narration_delivery_tasks import (
@@ -749,6 +751,19 @@ async def execute_reference_video_task(
                 reference_audio_targets=reference_audio_targets,
                 candidate=candidate,
             )
+            staged_request_assets = tuple(
+                replace(entry, path=path) for entry, path in zip(constrained_entries, provider_refs, strict=True)
+            )
+            artifact_visual_basis = await asyncio.to_thread(
+                lambda: ArtifactBasisDescriptor.from_basis(
+                    build_reference_video_artifact_visual_basis(
+                        unit=unit,
+                        request_assets=staged_request_assets,
+                        style=project.get("style"),
+                        aspect_ratio=aspect_ratio,
+                    )
+                )
+            )
 
             def _build_checkpoint(api_call_id: int) -> ReferenceSubmissionCheckpoint:
                 return ReferenceSubmissionCheckpoint.create(
@@ -770,6 +785,7 @@ async def execute_reference_video_task(
                     service_tier="default",
                     seed=None,
                     visual_basis_digest=visual_basis_digest,
+                    artifact_visual_basis=artifact_visual_basis,
                     narration=narration_facts,
                     media=staged_media,
                     reference_audio_targets=audio_targets_tuple,

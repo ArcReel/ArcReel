@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
 from lib.db import Base
 from lib.generation_worker import (
     _ORPHAN_RESCAN_LEASE_LOST_MULT,
@@ -57,6 +58,9 @@ def _worker_reference_checkpoint(task_id: str, *, provider_id: str = "ark") -> s
         service_tier="default",
         seed=None,
         visual_basis_digest="a" * 64,
+        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
+            ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U1"})
+        ),
         narration=NarrationExecutionFacts(
             delivery="post_production",
             tts_status="not_applicable",
@@ -95,6 +99,9 @@ def _worker_storyboard_checkpoint(task_id: str, *, provider_id: str = "ark") -> 
         service_tier="default",
         seed=None,
         visual_basis_digest="a" * 64,
+        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
+            ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+        ),
         narration=NarrationExecutionFacts(
             delivery="post_production",
             tts_status="not_applicable",

@@ -803,6 +803,84 @@ class ArtifactBasis:
 
 
 @dataclass(frozen=True, slots=True)
+class ArtifactBasisDescriptor:
+    """Strict, portable identity for a canonical basis used as source evidence."""
+
+    kind: str
+    kind_version: int
+    digest: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, str) or not self.kind:
+            raise ValueError("artifact basis descriptor kind must be a non-empty string")
+        if type(self.kind_version) is not int or self.kind_version < 1:
+            raise ValueError("artifact basis descriptor kind_version must be a positive integer")
+        if not isinstance(self.digest, str) or _DIGEST_RE.fullmatch(self.digest) is None:
+            raise ValueError("artifact basis descriptor digest must be a canonical sha256-v1 digest")
+
+    @classmethod
+    def from_basis(cls, basis: ArtifactBasis) -> Self:
+        if not isinstance(basis, ArtifactBasis):
+            raise TypeError("basis must be an ArtifactBasis")
+        return cls(kind=basis.kind, kind_version=basis.kind_version, digest=basis.digest)
+
+    @classmethod
+    def from_dict(cls, value: object) -> Self:
+        if not isinstance(value, Mapping):
+            raise ValueError("artifact basis descriptor must be an object")
+        if set(value) != {"kind", "kind_version", "digest"}:
+            raise ValueError("artifact basis descriptor has an invalid schema")
+        return cls(
+            kind=cast(str, value["kind"]),
+            kind_version=cast(int, value["kind_version"]),
+            digest=cast(str, value["digest"]),
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "kind": self.kind,
+            "kind_version": self.kind_version,
+            "digest": self.digest,
+        }
+
+
+def compose_video_artifact_basis(
+    *,
+    visual: ArtifactBasis,
+    speech: ArtifactBasis | None = None,
+    duration: ArtifactBasis | None = None,
+) -> ArtifactBasis:
+    """Compose independently owned video inputs into one manifest basis.
+
+    The resulting basis is registered under the existing episode-video key. A
+    change in any present component consequently produces one stale comparison,
+    rather than parallel visual/speech/duration artifact states.
+    """
+
+    if not isinstance(visual, ArtifactBasis):
+        raise TypeError("visual must be an ArtifactBasis")
+    if speech is not None and not isinstance(speech, ArtifactBasis):
+        raise TypeError("speech must be an ArtifactBasis or null")
+    if duration is not None and not isinstance(duration, ArtifactBasis):
+        raise TypeError("duration must be an ArtifactBasis or null")
+    return ArtifactBasis.build(
+        "artifact-components/video",
+        kind_version=1,
+        inputs={
+            "components": {
+                "visual": _artifact_basis_descriptor(visual),
+                "speech": _artifact_basis_descriptor(speech) if speech is not None else None,
+                "duration": _artifact_basis_descriptor(duration) if duration is not None else None,
+            }
+        },
+    )
+
+
+def _artifact_basis_descriptor(basis: ArtifactBasis) -> dict[str, object]:
+    return ArtifactBasisDescriptor.from_basis(basis).to_dict()
+
+
+@dataclass(frozen=True, slots=True)
 class ArtifactKey:
     """Typed artifact identity with a canonical reversible wire representation."""
 
