@@ -23,6 +23,8 @@ batch-poll 只产出 gh/git 事实与机械汇总，不做语义判断。取得�
 
 ## 第二步：制定计划，主动请求一次前置授权
 
+制定计划前检查 `HERDR_ENV`；值为 `1` 时先读 [Herdr 跨 harness 委派](references/herdr-teammate.md)，把跨 harness teammate 纳入本批次的委派选择。
+
 1. 依赖顺序按 batch-poll 的 `blocked_by` / `ready_to_start` 排；并发槽位优先给改动域互不相交的 issue，同域或足迹重叠者靠依赖序或补位串行——冲突事前避而非事后解；`stage_hint` 已起的 issue 在计划中标明现状与接力起点（按第三步阶段表的交付物反推），随计划一并交用户确认
 2. 分流：`ready-for-agent` 进批次；`ready-for-human` 跳过——它与下游被阻塞链都不启动；已被他人 assign 的 issue 视为已认领，同样跳过（batch-poll 不含 assignee，用 `gh issue view <N> --json assignees` 核对）；无标签的读正文判断归类（batch-poll 的 `ready_to_start` 只算依赖与未起，triage 由你定）
 3. 向用户展示批次计划：成员清单、依赖顺序、每个 issue 的模型（**各附一句选择理由**，见 [模型选择](references/model-selection.md)）、跳过项及连带不启动的下游、实现 / 本地审查并发上限（默认 3）与 AI 审查循环软上限（默认 6）；两者均可由用户覆盖
