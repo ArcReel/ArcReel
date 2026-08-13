@@ -6,6 +6,7 @@
 
 ```bash
 # 前置要求：Python 3.12+, Node.js 20+, uv, pnpm, ffmpeg
+# 文档站 website/ 另需 Node 24（版本钉在 website/.node-version）
 # 操作系统：Linux / MacOS / Windows WSL2（Windows 原生不支持）
 
 # 安装依赖
@@ -27,6 +28,21 @@ uv run uvicorn server.app:app --reload --reload-dir server --reload-dir lib --po
 cd frontend && pnpm dev
 
 # 访问 http://localhost:5173
+```
+
+### 文档站
+
+`website/` 是独立包根，有自己的 lockfile，不与 frontend 组 workspace：
+
+```bash
+cd website && pnpm install
+
+pnpm start        # 开发预览
+pnpm build        # 双 locale 构建，broken link / anchor 直接 fail
+pnpm typecheck
+
+# 站内搜索只在构建产物上生效，dev server 里不工作
+pnpm build && pnpm serve
 ```
 
 ## 运行测试

@@ -8,4 +8,4 @@ sidebar_position: 1
 
 从零安装 ArcReel、配置模型供应商，并跑通第一条成片的完整流程。
 
-正文由 `docs/getting-started.md` 迁入，迁移前此页为占位。
+本页正文正在整理中，当前完整内容见仓库里的 [docs/getting-started.md](https://github.com/ArcReel/ArcReel/blob/main/docs/getting-started.md)。
