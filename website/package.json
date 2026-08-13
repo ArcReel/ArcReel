@@ -9,6 +9,7 @@
     "serve": "docusaurus serve",
     "clear": "docusaurus clear",
     "sync-contributing": "node scripts/sync-contributing.mjs",
+    "check-consistency": "node scripts/check-consistency.mjs",
     "typecheck": "tsc",
     "write-translations": "docusaurus write-translations"
   },
