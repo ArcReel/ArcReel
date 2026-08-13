@@ -94,6 +94,8 @@ const frontmatter = [
   "",
 ].join("\n");
 
-const body = injectAnchors(await readFile(source, "utf8"));
+// Windows 下 Git 若开启 autocrlf，CONTRIBUTING.md 会以 CRLF 检出；split("\n") 按行切分后非标题行仍带尾部
+// \r、标题行被替换后丢失 \r，混合换行符写入产物会触发 Prettier 等格式检查。读取后统一归一为 \n。
+const body = injectAnchors((await readFile(source, "utf8")).replace(/\r\n/g, "\n"));
 await mkdir(dirname(target), { recursive: true });
 await writeFile(target, frontmatter + body, "utf8");

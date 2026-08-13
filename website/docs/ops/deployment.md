@@ -14,7 +14,7 @@ sidebar_position: 1
 |---|---|---|---|
 | 首次体验、个人轻量使用 | `deploy/` | SQLite | 配置最少，启动最快 |
 | 长期运行、并发访问、正式服务 | `deploy/production/` | PostgreSQL | 更适合并发、备份和运维，但不提供用户隔离 |
-| 本地开发 | 源码启动 | SQLite 或 PostgreSQL | 见 `CONTRIBUTING.md` |
+| 本地开发 | 源码启动 | SQLite 或 PostgreSQL | 见[贡献指南](../dev/contributing.md) |
 
 无论选择哪种方式，项目图片、视频和其他生成资产都需要持久化保存。
 
