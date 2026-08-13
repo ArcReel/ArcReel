@@ -1,0 +1,8 @@
+# Docusaurus 构建产物与缓存
+/build/
+/.docusaurus/
+/node_modules/
+
+# 依赖工具产物
+.pnpm-store/
+*.tsbuildinfo
