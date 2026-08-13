@@ -528,6 +528,7 @@ class _VideoSubmissionCheckpoint:
     """Strict, versioned identity shared by both video execution routes."""
 
     CHECKPOINT_KIND: ClassVar[str]
+    ARTIFACT_VISUAL_BASIS_KIND: ClassVar[str]
 
     schema_version: int
     kind: str
@@ -628,6 +629,8 @@ class _VideoSubmissionCheckpoint:
         if self.schema_version == _SCHEMA_VERSION:
             if not isinstance(self.artifact_visual_basis, ArtifactBasisDescriptor):
                 raise ValueError("artifact_visual_basis must be a strict artifact basis descriptor")
+            if self.artifact_visual_basis.kind != self.ARTIFACT_VISUAL_BASIS_KIND:
+                raise ValueError("artifact_visual_basis kind does not match checkpoint kind")
         elif self.artifact_visual_basis is not None:
             raise ValueError("legacy checkpoint cannot carry artifact_visual_basis")
         if tuple(item.index for item in self.media) != tuple(range(len(self.media))):
@@ -866,6 +869,7 @@ class ReferenceSubmissionCheckpoint(_VideoSubmissionCheckpoint):
 
     __slots__ = ()
     CHECKPOINT_KIND = _CHECKPOINT_KIND
+    ARTIFACT_VISUAL_BASIS_KIND = "artifact-visual/video-reference"
 
 
 class StoryboardSubmissionCheckpoint(_VideoSubmissionCheckpoint):
@@ -873,6 +877,7 @@ class StoryboardSubmissionCheckpoint(_VideoSubmissionCheckpoint):
 
     __slots__ = ()
     CHECKPOINT_KIND = _STORYBOARD_CHECKPOINT_KIND
+    ARTIFACT_VISUAL_BASIS_KIND = "artifact-visual/video-storyboard"
 
 
 VideoSubmissionCheckpoint = ReferenceSubmissionCheckpoint | StoryboardSubmissionCheckpoint

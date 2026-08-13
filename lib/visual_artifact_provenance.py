@@ -91,7 +91,8 @@ def build_asset_sheet_visual_basis(
     if asset_type not in ASSET_TYPES:
         raise ValueError(f"unsupported asset type: {asset_type!r}")
     canonical_id = normalize_asset_name(_require_non_empty("asset_id", asset_id))
-    normalized_description = _require_non_empty("description", description).strip()
+    normalized_description = _require_string("description", description).strip()
+    _require_non_empty("description", normalized_description)
     _require_string("style", style)
     _require_string("style_description", style_description)
     canvas_ratio = _require_non_empty("aspect_ratio", aspect_ratio)
@@ -288,10 +289,13 @@ def build_reference_video_artifact_visual_basis(
         raw_text = raw_shot.get("text")
         if not isinstance(raw_text, str):
             raise ValueError(f"unit.shots[{index}].text must be a string")
+        visual_lines = _reference_visual_lines(raw_text)
+        if not visual_lines:
+            continue
         visual_shots.append(
             {
-                "shot_index": index,
-                "lines": _reference_visual_lines(raw_text),
+                "shot_index": len(visual_shots),
+                "lines": visual_lines,
             }
         )
     references: list[VisualReference] = []

@@ -115,6 +115,18 @@ def test_asset_sheet_visual_basis_uses_canonical_asset_identity(tmp_path: Path) 
     assert same.digest == first.digest
 
 
+def test_asset_sheet_visual_basis_rejects_whitespace_only_description() -> None:
+    with pytest.raises(ValueError, match="description"):
+        build_asset_sheet_visual_basis(
+            asset_type="character",
+            asset_id="阿黎",
+            description="   ",
+            style="",
+            style_description="",
+            aspect_ratio="16:9",
+        )
+
+
 def test_visual_reference_requires_real_image_evidence(tmp_path: Path) -> None:
     missing = tmp_path / "missing.png"
     reference = VisualReference(path=missing, role="source")
@@ -509,8 +521,19 @@ def test_reference_video_visual_basis_uses_unit_visual_text_and_actual_request_a
             "utterances": [{"kind": "dialogue", "text": "另一声音事实"}],
         }
     )
+    with_speech_only_shot = build(
+        current_unit={
+            **unit,
+            "shots": [
+                unit["shots"][0],
+                {"text": "@[阿黎]：{新插入的台词。}\n{新插入的画外音。}"},
+                unit["shots"][1],
+            ],
+        }
+    )
 
     assert changed_speech_and_legacy.digest == baseline.digest
+    assert with_speech_only_shot.digest == baseline.digest
     assert (
         build(
             current_unit={

@@ -242,6 +242,8 @@ def test_cleanup_does_not_traverse_a_symlinked_task_ancestor(tmp_path: Path) -> 
 
 def test_checkpoint_round_trip_is_versioned_strict_and_self_authenticating(tmp_path: Path) -> None:
     checkpoint = _checkpoint(tmp_path / "demo")
+    artifact_visual_basis = checkpoint.artifact_visual_basis
+    assert artifact_visual_basis is not None
 
     restored = ReferenceSubmissionCheckpoint.from_json(checkpoint.to_json())
 
@@ -250,11 +252,11 @@ def test_checkpoint_round_trip_is_versioned_strict_and_self_authenticating(tmp_p
     assert len(restored.request_digest) == 64
     assert restored.media[0].source_locator == "characters/Alice.png"
     assert restored.narration.actual_duration_seconds == 6.25
-    assert restored.artifact_visual_basis == checkpoint.artifact_visual_basis
+    assert restored.artifact_visual_basis == artifact_visual_basis
     assert checkpoint_version_metadata(restored)["artifact_visual_basis"] == {
         "kind": "artifact-visual/video-reference",
         "kind_version": 1,
-        "digest": checkpoint.artifact_visual_basis.digest,
+        "digest": artifact_visual_basis.digest,
     }
     assert not (tmp_path / "demo" / MANIFEST_FILENAME).exists()
 
@@ -282,7 +284,7 @@ def test_checkpoint_round_trip_is_versioned_strict_and_self_authenticating(tmp_p
         {"kind": "", "kind_version": 1, "digest": "sha256-v1:" + "a" * 64},
         {"kind": "visual", "kind_version": True, "digest": "sha256-v1:" + "a" * 64},
         {"kind": "visual", "kind_version": 1, "digest": "a" * 64},
-        {**checkpoint.artifact_visual_basis.to_dict(), "extra": True},
+        {**artifact_visual_basis.to_dict(), "extra": True},
     ):
         raw = json.loads(checkpoint.to_json())
         raw["artifact_visual_basis"] = invalid
@@ -307,6 +309,16 @@ def test_artifact_visual_basis_does_not_change_execution_request_digest(tmp_path
     with_changed_artifact_basis = replace(checkpoint, artifact_visual_basis=changed_artifact_basis)
 
     assert with_changed_artifact_basis.request_digest == checkpoint.request_digest
+
+
+def test_reference_checkpoint_rejects_storyboard_artifact_visual_basis(tmp_path: Path) -> None:
+    checkpoint = _checkpoint(tmp_path / "demo")
+    storyboard_basis = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+    )
+
+    with pytest.raises(ValueError, match="artifact_visual_basis kind"):
+        replace(checkpoint, artifact_visual_basis=storyboard_basis)
 
 
 def test_legacy_checkpoint_remains_resumable_without_inventing_artifact_basis(tmp_path: Path) -> None:
@@ -350,6 +362,8 @@ def test_checkpoint_rejects_incoherent_narration_and_media_facts(tmp_path: Path)
 
 def test_checkpoint_rejects_noncanonical_staged_locator_and_wrong_identity(tmp_path: Path) -> None:
     checkpoint = _checkpoint(tmp_path / "demo")
+    artifact_visual_basis = checkpoint.artifact_visual_basis
+    assert artifact_visual_basis is not None
     with pytest.raises(ValueError, match="staged_locator"):
         replace(checkpoint.media[0], staged_locator="../outside.png")
 
@@ -377,7 +391,7 @@ def test_checkpoint_rejects_noncanonical_staged_locator_and_wrong_identity(tmp_p
             service_tier=checkpoint.service_tier,
             seed=checkpoint.seed,
             visual_basis_digest=checkpoint.visual_basis_digest,
-            artifact_visual_basis=checkpoint.artifact_visual_basis,
+            artifact_visual_basis=artifact_visual_basis,
             narration=checkpoint.narration,
             media=(wrong_task, *checkpoint.media[1:]),
             reference_audio_targets=checkpoint.reference_audio_targets,
@@ -478,6 +492,12 @@ def test_storyboard_checkpoint_round_trip_and_four_resume_states(tmp_path: Path)
         media=staged,
         reference_audio_targets=None,
     )
+    reference_basis = ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U01"})
+    )
+    with pytest.raises(ValueError, match="artifact_visual_basis kind"):
+        replace(checkpoint, artifact_visual_basis=reference_basis)
+
     restored = StoryboardSubmissionCheckpoint.from_json(checkpoint.to_json())
     assert restored == checkpoint
     assert restored.media[0].role == "start_image"
