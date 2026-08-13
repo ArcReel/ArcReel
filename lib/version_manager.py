@@ -274,6 +274,7 @@ class VersionManager:
             records = resource_data.setdefault("versions", [])
             created_snapshots: list[Path] = []
             current_backup: Path | None = None
+            activation_succeeded = False
 
             def _append_version(source: Path, version_prompt: str, version_metadata: dict) -> int:
                 previous_current_version = resource_data.get("current_version", 0)
@@ -320,8 +321,9 @@ class VersionManager:
                 self._save_versions(data)
                 if on_commit is not None:
                     on_commit()
+                activation_succeeded = True
                 return new_version
-            except BaseException:
+            except BaseException as failure:
                 rollback_errors: list[OSError] = []
                 try:
                     if current_backup is None:
@@ -344,13 +346,14 @@ class VersionManager:
                     except OSError as exc:
                         rollback_errors.append(exc)
                 if rollback_errors:
+                    rollback_errors[0].__cause__ = failure
                     raise RuntimeError(
                         "version activation failed and durable rollback was incomplete"
                     ) from rollback_errors[0]
                 raise
             finally:
-                if current_backup is not None:
-                    current_backup.unlink(missing_ok=True)
+                if activation_succeeded:
+                    _report_cleanup_failures(_unlink_paths(current_backup), active_failure=sys.exception())
 
     def commit_staged_paid_version(
         self,
@@ -599,6 +602,7 @@ class VersionManager:
             versions_snapshot = self.versions_file.read_bytes()
             current_backup: Path | None = None
             replacement: Path | None = None
+            rejection_succeeded = False
             try:
                 current_file.parent.mkdir(parents=True, exist_ok=True)
                 if current_file.is_file():
@@ -631,8 +635,9 @@ class VersionManager:
                 self._save_versions(data)
                 if on_reject is not None:
                     on_reject()
+                rejection_succeeded = True
                 return True
-            except BaseException:
+            except BaseException as failure:
                 rollback_errors: list[OSError] = []
                 try:
                     if current_backup is None:
@@ -647,15 +652,17 @@ class VersionManager:
                 except OSError as exc:
                     rollback_errors.append(exc)
                 if rollback_errors:
+                    rollback_errors[0].__cause__ = failure
                     raise RuntimeError(
                         "version rejection failed and durable rollback was incomplete"
                     ) from rollback_errors[0]
                 raise
             finally:
-                if current_backup is not None:
-                    current_backup.unlink(missing_ok=True)
-                if replacement is not None:
-                    replacement.unlink(missing_ok=True)
+                cleanup_failures = _unlink_paths(
+                    replacement,
+                    current_backup if rejection_succeeded else None,
+                )
+                _report_cleanup_failures(cleanup_failures, active_failure=sys.exception())
 
     def rename_resource(self, resource_type: str, old_id: str, new_id: str, *, dry_run: bool = False) -> int:
         """把资源的版本历史整体迁移到新 id：re-key 元数据、重命名快照文件、改写记录内路径。
@@ -828,6 +835,7 @@ class VersionManager:
             versions_existed = self.versions_file.is_file()
             versions_snapshot = self.versions_file.read_bytes() if versions_existed else None
             current_backup: Path | None = None
+            restore_succeeded = False
             try:
                 current_file.parent.mkdir(parents=True, exist_ok=True)
                 if current_file.is_file():
@@ -844,7 +852,8 @@ class VersionManager:
                 self._save_versions(data)
                 if on_restore is not None:
                     on_restore(dict(target_version))
-            except BaseException:
+                restore_succeeded = True
+            except BaseException as failure:
                 rollback_errors: list[OSError] = []
                 try:
                     if current_backup is None:
@@ -862,13 +871,14 @@ class VersionManager:
                 except OSError as exc:
                     rollback_errors.append(exc)
                 if rollback_errors:
+                    rollback_errors[0].__cause__ = failure
                     raise RuntimeError(
                         "version restore failed and durable rollback was incomplete"
                     ) from rollback_errors[0]
                 raise
             finally:
-                if current_backup is not None:
-                    current_backup.unlink(missing_ok=True)
+                if restore_succeeded:
+                    _report_cleanup_failures(_unlink_paths(current_backup), active_failure=sys.exception())
 
         restored_prompt = target_version.get("prompt", "")
         return {

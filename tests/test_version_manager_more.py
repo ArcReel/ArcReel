@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -92,6 +93,91 @@ class TestVersionManagerMore:
         assert current.read_bytes() == b"audio-v2"
         assert vm.get_current_version("audio", "E1S01") == v2
         assert observed[0]["artifact_audio_basis"]["kind"] == "narration-delivery/tts-audio"
+
+    @pytest.mark.parametrize(
+        ("transaction", "message"),
+        [
+            ("activation", "version activation failed and durable rollback was incomplete"),
+            ("rejection", "version rejection failed and durable rollback was incomplete"),
+            ("restore", "version restore failed and durable rollback was incomplete"),
+        ],
+    )
+    def test_failed_media_rollback_preserves_the_recovery_backup(
+        self,
+        tmp_path,
+        monkeypatch,
+        transaction,
+        message,
+    ):
+        project = tmp_path / "demo"
+        vm = VersionManager(project)
+        current = project / "audio" / "segment_E1S01.wav"
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"old-current")
+        old_version = vm.add_version("audio", "E1S01", "old", source_file=current)
+        operation_failure = RuntimeError("registration failed")
+        rollback_failure = OSError("media rollback failed")
+        original_replace = os.replace
+
+        def _fail_media_rollback(source, destination):
+            if Path(source).suffix == ".rollback" and Path(destination) == current:
+                raise rollback_failure
+            return original_replace(source, destination)
+
+        def _fail_registration(*_args):
+            raise operation_failure
+
+        if transaction == "activation":
+            staged = current.with_name(".segment_E1S01.new.wav")
+            staged.write_bytes(b"new-current")
+
+            def _run_transaction():
+                vm.commit_staged_version(
+                    "audio",
+                    "E1S01",
+                    "new",
+                    staged_file=staged,
+                    current_file=current,
+                    on_commit=_fail_registration,
+                )
+
+        elif transaction == "rejection":
+            current.write_bytes(b"new-current")
+            rejected_version = vm.add_version("audio", "E1S01", "new", source_file=current)
+
+            def _run_transaction():
+                vm.reject_current_version(
+                    "audio",
+                    "E1S01",
+                    rejected_version=rejected_version,
+                    current_file=current,
+                    on_reject=_fail_registration,
+                )
+
+        else:
+            current.write_bytes(b"new-current")
+            vm.add_version("audio", "E1S01", "new", source_file=current)
+
+            def _run_transaction():
+                vm.restore_version(
+                    "audio",
+                    "E1S01",
+                    old_version,
+                    current,
+                    on_restore=_fail_registration,
+                )
+
+        monkeypatch.setattr("lib.version_manager.os.replace", _fail_media_rollback)
+
+        with pytest.raises(RuntimeError, match=message) as caught:
+            _run_transaction()
+
+        backups = list(current.parent.glob(".*.rollback"))
+        assert len(backups) == 1
+        expected_backup = b"old-current" if transaction == "activation" else b"new-current"
+        assert backups[0].read_bytes() == expected_backup
+        assert caught.value.__cause__ is rollback_failure
+        assert rollback_failure.__cause__ is operation_failure
 
     def test_restore_errors_and_missing_current(self, tmp_path):
         project = tmp_path / "demo"
