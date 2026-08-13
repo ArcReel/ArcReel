@@ -16,13 +16,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor, compose_video_artifact_basis
+from lib.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
     StagedProviderMedia,
     StoryboardSubmissionCheckpoint,
 )
 from lib.version_manager import PaidVersionCommit
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_backends.base import ResumeExpiredError
 
 pytestmark = pytest.mark.unit
@@ -123,18 +124,21 @@ def _storyboard_checkpoint_json(
         sha256="a" * 64,
         size_bytes=1,
     )
-    visual = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+    visual = ArtifactBasis.build(
+        "artifact-visual/video-storyboard",
+        kind_version=1,
+        inputs={
+            "resource_id": "E1S01",
+            "visual_prompt": {"action": "Run.", "camera_motion": "Static"},
+            "canvas": {"aspect_ratio": "9:16"},
+            "frames": [{"role": "storyboard", "sha256": "a" * 64}],
+        },
     )
-    speech = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
-    )
-    duration = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build(
-            "artifact-speech/video-duration",
-            kind_version=1,
-            inputs={"request_duration_seconds": 8},
-        )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = ArtifactBasis.build(
+        "artifact-speech/video-duration",
+        kind_version=1,
+        inputs={"request_duration_seconds": 8},
     )
     return StoryboardSubmissionCheckpoint.create(
         task_id=task_id,
@@ -155,16 +159,18 @@ def _storyboard_checkpoint_json(
         service_tier="default",
         seed=None,
         visual_basis_digest="b" * 64,
-        artifact_episode=1,
-        artifact_visual_basis=visual,
-        artifact_speech_basis=speech,
-        artifact_duration_basis=duration,
-        artifact_video_basis=ArtifactBasisDescriptor.from_basis(
-            compose_video_artifact_basis(visual=visual, speech=speech, duration=duration)
+        artifact_currency=VideoArtifactCurrencyFacts(
+            episode=1,
+            request_duration_seconds=8,
+            visual_basis=visual,
+            speech_basis=speech,
+            duration_basis=duration,
+            video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+            voice_style_speakers=(),
+            duration_tiers=(8,),
+            reference_image_limit=None,
+            parent_version=0,
         ),
-        artifact_voice_style_speakers=(),
-        artifact_duration_tiers=(8,),
-        artifact_reference_image_limit=None,
         narration=NarrationExecutionFacts(
             delivery="post_production",
             tts_status="not_applicable",
@@ -191,7 +197,7 @@ def _fake_video_context(
     与生产路径（``video=VideoLaneRequest()``）一致。
     """
     from lib.config.resolver import ProviderModel
-    from server.services.generation_context import GenerationContext, VideoLaneResult
+    from server.services.generation_context import AudioLaneResult, GenerationContext, VideoLaneResult
 
     return GenerationContext(
         generator=fake_generator,  # type: ignore[arg-type]
@@ -205,6 +211,14 @@ def _fake_video_context(
             max_duration=8,
             max_reference_images=None,
             endpoint=endpoint,
+        ),
+        audio_lane=AudioLaneResult(
+            provider_model=ProviderModel("dashscope", "tts-model"),
+            backend_name="dashscope",
+            backend_model="tts-model",
+            narration_voice="Cherry",
+            narration_speed=None,
+            voices=(),
         ),
     )
 
@@ -301,7 +315,8 @@ async def test_execute_resume_video_calls_backend_resume_directly(monkeypatch, f
     assert call["execution_visual_basis_digest"] == "b" * 64
     checkpoint = StoryboardSubmissionCheckpoint.from_json(video_task["execution_checkpoint_json"])
     assert checkpoint.artifact_visual_basis is not None
-    assert call["artifact_visual_basis"] == checkpoint.artifact_visual_basis.to_dict()
+    assert checkpoint.artifact_currency is not None
+    assert call["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
     assert call["execution_provider_media"][0]["source_locator"] == "storyboards/scene_E1S01.png"
     # 返回结果带 file_path / resource_type，供 worker mark_succeeded
     assert result["resource_type"] == "videos"
@@ -491,18 +506,22 @@ def _reference_checkpoint(
     staging = project_path / ".arcreel" / "tasks" / "T-ref" / "provider_media"
     staging.mkdir(parents=True, exist_ok=True)
     (staging / "crash-leftover").write_bytes(b"staged")
-    visual = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U1"})
+    visual = ArtifactBasis.build(
+        "artifact-visual/video-reference",
+        kind_version=1,
+        inputs={
+            "unit_id": "E1U1",
+            "visual_shots": [{"shot_index": 0, "lines": ["Run."]}],
+            "style": "cinematic",
+            "canvas": {"aspect_ratio": "16:9"},
+            "request_references": [],
+        },
     )
-    speech = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
-    )
-    duration = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build(
-            "artifact-speech/video-duration",
-            kind_version=1,
-            inputs={"request_duration_seconds": 12},
-        )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = ArtifactBasis.build(
+        "artifact-speech/video-duration",
+        kind_version=1,
+        inputs={"request_duration_seconds": 12},
     )
     return ReferenceSubmissionCheckpoint.create(
         task_id="T-ref",
@@ -523,16 +542,18 @@ def _reference_checkpoint(
         service_tier="pro",
         seed=123,
         visual_basis_digest="sha256-v1:" + "a" * 64,
-        artifact_episode=1,
-        artifact_visual_basis=visual,
-        artifact_speech_basis=speech,
-        artifact_duration_basis=duration,
-        artifact_video_basis=ArtifactBasisDescriptor.from_basis(
-            compose_video_artifact_basis(visual=visual, speech=speech, duration=duration)
+        artifact_currency=VideoArtifactCurrencyFacts(
+            episode=1,
+            request_duration_seconds=12,
+            visual_basis=visual,
+            speech_basis=speech,
+            duration_basis=duration,
+            video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+            voice_style_speakers=(),
+            duration_tiers=(12,),
+            reference_image_limit=3,
+            parent_version=0,
         ),
-        artifact_voice_style_speakers=(),
-        artifact_duration_tiers=(12,),
-        artifact_reference_image_limit=None,
         narration=(
             NarrationExecutionFacts(
                 delivery="use_tts",
@@ -632,7 +653,8 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
     assert call["execution_provider_media"] == []
     assert call["visual_basis_digest"] == checkpoint.visual_basis_digest
     assert checkpoint.artifact_visual_basis is not None
-    assert call["artifact_visual_basis"] == checkpoint.artifact_visual_basis.to_dict()
+    assert checkpoint.artifact_currency is not None
+    assert call["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
     output_guard.assert_awaited_once_with(
         project_name="demo",
         script_file="scripts/frozen.json",

@@ -857,6 +857,31 @@ class ArtifactBasis:
     def normalized_bytes(self) -> bytes:
         return self._normalized
 
+    def to_evidence_dict(self) -> dict[str, object]:
+        """Return the complete canonical basis together with its verified digest."""
+
+        payload = json.loads(self._normalized)
+        if not isinstance(payload, dict):  # pragma: no cover - constructor invariant
+            raise RuntimeError("canonical artifact basis is not an object")
+        return {**payload, "digest": self.digest}
+
+    @classmethod
+    def from_evidence_dict(cls, value: object) -> Self:
+        """Parse complete portable evidence and verify its canonical digest."""
+
+        if not isinstance(value, Mapping) or set(value) != {"kind", "kind_version", "inputs", "digest"}:
+            raise ValueError("artifact basis evidence has an invalid schema")
+        kind = value["kind"]
+        kind_version = value["kind_version"]
+        inputs = value["inputs"]
+        digest = value["digest"]
+        if not isinstance(kind, str) or not isinstance(inputs, Mapping):
+            raise ValueError("artifact basis evidence has invalid canonical inputs")
+        basis = cls(kind, kind_version=cast(int, kind_version), inputs=cast(Mapping[str, object], inputs))
+        if not isinstance(digest, str) or basis.digest != digest:
+            raise ValueError("artifact basis evidence digest does not match its canonical inputs")
+        return basis
+
 
 @dataclass(frozen=True, slots=True)
 class ArtifactBasisDescriptor:

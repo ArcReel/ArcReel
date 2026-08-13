@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from lib.artifact_manifest import (
+    ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifestEntry,
@@ -18,6 +21,7 @@ from lib.artifact_manifest import (
 from lib.asset_types import asset_name_comparison_key
 from lib.generation_queue import CompensableGenerationResult
 from lib.json_io import atomic_write_bytes
+from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
 from lib.project_manager import ProjectManager, find_episode
 from lib.reference_video.duration_slots import resolve_duration_slot
 from lib.reference_video.prompt_render import resolve_reference_audio_paths
@@ -35,18 +39,63 @@ from lib.speech_artifact_provenance import (
     build_video_speech_basis,
     project_character_voice_evidence,
 )
-from lib.speech_composition import admit_script_unit
+from lib.speech_composition import SpeechMode, SpeechPreparation, admit_script_unit
 from lib.version_manager import PaidVersionCommit, VersionManager
 from lib.video_artifact_commit import commit_paid_video_artifact
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_visual_provenance import resolve_video_aspect_ratio
 from lib.visual_artifact_provenance import (
     build_reference_video_artifact_visual_basis,
     build_storyboard_video_artifact_visual_basis,
 )
 from server.services.narration_delivery_tasks import (
+    CurrentTtsSettingsResolver,
     resolve_storyboard_video_inputs,
     validate_generated_video_covers_current_tts,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenVideoSpeechFacts:
+    """Canonical speech component and the execution-local voice dependencies it used."""
+
+    basis: ArtifactBasis
+    voice_style_speakers: tuple[str, ...]
+
+
+def freeze_video_speech_facts(
+    preparation: SpeechPreparation,
+    *,
+    characters: object,
+    include_voice_styles: bool,
+    reference_audio_paths: Mapping[str, Path] | None = None,
+) -> FrozenVideoSpeechFacts:
+    """Freeze route-independent character speech evidence for a paid video request."""
+
+    speakers = (
+        tuple(
+            dict.fromkeys(
+                asset_name_comparison_key(str(utterance.speaker))
+                for utterance in preparation.utterances
+                if utterance.speaker
+            )
+        )
+        if preparation.mode is SpeechMode.CHARACTER_SPEECH and include_voice_styles
+        else ()
+    )
+    basis = build_video_speech_basis(
+        preparation,
+        voices=project_character_voice_evidence(
+            preparation,
+            characters=characters,
+            voice_style_speakers=speakers,
+            reference_audio_paths=reference_audio_paths,
+        ),
+    )
+    return FrozenVideoSpeechFacts(
+        basis=basis,
+        voice_style_speakers=speakers,
+    )
 
 
 class VideoArtifactCommitter:
@@ -62,6 +111,7 @@ class VideoArtifactCommitter:
         resource_type: str,
         resource_id: str,
         prompt: str,
+        current_tts_settings: TtsSynthesisSettings | None = None,
     ) -> None:
         if resource_type not in {"videos", "reference_videos"}:
             raise ValueError(f"unsupported video artifact resource type: {resource_type!r}")
@@ -82,6 +132,7 @@ class VideoArtifactCommitter:
         self._prior_manifest_entry: ArtifactManifestEntry | None = None
         self._prior_assets: dict[str, tuple[bool, Any]] | None = None
         self._prior_thumbnail: tuple[Path, bool, bytes | None] | None = None
+        self._current_tts_settings = current_tts_settings
 
     async def prepare_selection(
         self,
@@ -104,6 +155,15 @@ class VideoArtifactCommitter:
         if not isinstance(script_file, str) or not script_file:
             return
         try:
+            current_project = await asyncio.to_thread(self._project_manager.load_project, self._project_name)
+            try:
+                frozen_currency = VideoArtifactCurrencyFacts.from_dict(version_metadata.get("artifact_video_currency"))
+            except (TypeError, ValueError):
+                frozen_currency = None
+            if frozen_currency is not None and self._current_tts_settings is None:
+                self._current_tts_settings = await CurrentTtsSettingsResolver(
+                    self._project_name
+                ).resolve_tts_synthesis_settings(current_project)
             await validate_generated_video_covers_current_tts(
                 project_name=self._project_name,
                 script_file=script_file,
@@ -154,17 +214,17 @@ class VideoArtifactCommitter:
                 resource_id=self._resource_id,
                 versions=self._versions,
                 version_metadata=metadata,
+                current_tts_settings=self._current_tts_settings,
             )
 
         self._current_file = current_file
-        episode = version_metadata.get("artifact_episode")
-        raw_basis = version_metadata.get("artifact_video_basis")
-        self._selected_episode = episode if type(episode) is int and episode > 0 else None
-        self._selected_script_file = script_file if isinstance(script_file, str) and script_file else None
         try:
-            self._selected_basis = ArtifactBasisDescriptor.from_dict(raw_basis)
+            artifact_currency = VideoArtifactCurrencyFacts.from_dict(version_metadata.get("artifact_video_currency"))
         except (TypeError, ValueError):
-            self._selected_basis = None
+            artifact_currency = None
+        self._selected_episode = artifact_currency.episode if artifact_currency is not None else None
+        self._selected_script_file = script_file if isinstance(script_file, str) and script_file else None
+        self._selected_basis = artifact_currency.video_descriptor if artifact_currency is not None else None
         try:
             self._selected_artifact_path = (
                 current_file.resolve(strict=False).relative_to(self._project_path.resolve(strict=True)).as_posix()
@@ -359,12 +419,15 @@ def build_current_video_artifact_basis(
     resource_id: str,
     versions: VersionManager,
     version_metadata: Mapping[str, Any],
+    current_tts_settings: TtsSynthesisSettings | None = None,
 ) -> ArtifactBasisDescriptor | None:
     """Rebuild current input basis using only frozen execution dependency shape."""
 
-    episode = version_metadata.get("artifact_episode")
-    if type(episode) is not int or episode < 1:
+    try:
+        artifact_currency = VideoArtifactCurrencyFacts.from_dict(version_metadata.get("artifact_video_currency"))
+    except (TypeError, ValueError):
         return None
+    episode = artifact_currency.episode
     script_file = version_metadata.get("execution_script_file")
     if not isinstance(script_file, str) or not script_file:
         return None
@@ -390,9 +453,7 @@ def build_current_video_artifact_basis(
     if not admission.allowed:
         return None
 
-    style_speakers = _string_sequence(version_metadata.get("artifact_voice_style_speakers"))
-    if style_speakers is None:
-        return None
+    style_speakers = artifact_currency.voice_style_speakers
     audio_speakers = _execution_reference_audio_speakers(version_metadata.get("execution_provider_media"))
     if audio_speakers is None:
         return None
@@ -423,9 +484,7 @@ def build_current_video_artifact_basis(
             aspect_ratio=resolve_video_aspect_ratio(project),
         )
     elif resource_type == "reference_videos":
-        limit = version_metadata.get("artifact_reference_image_limit")
-        if limit is not None and (type(limit) is not int or limit < 0):
-            return None
+        limit = artifact_currency.reference_image_limit
         declared = canonicalize_references(item.get("references"))
         resolved = resolve_reference_assets(project, project_path, item)
         hydration = hydrate_reference_assets(declared, resolved, FilesystemReferenceAssets(project_path))
@@ -448,6 +507,9 @@ def build_current_video_artifact_basis(
         episode=episode,
         versions=versions,
         version_metadata=version_metadata,
+        artifact_currency=artifact_currency,
+        preparation=admission.preparation,
+        current_tts_settings=current_tts_settings,
     )
     if duration is None:
         return None
@@ -465,10 +527,11 @@ def _current_duration_tier_basis(
     episode: int,
     versions: VersionManager,
     version_metadata: Mapping[str, Any],
+    artifact_currency: VideoArtifactCurrencyFacts,
+    preparation: SpeechPreparation,
+    current_tts_settings: TtsSynthesisSettings | None,
 ):
-    tiers = _positive_integer_tiers(version_metadata.get("artifact_duration_tiers"))
-    if tiers is None:
-        return None
+    tiers = artifact_currency.duration_tiers
     planned = item.get("duration_seconds")
     if type(planned) is not int or planned <= 0:
         planned = project.get("default_duration")
@@ -482,9 +545,12 @@ def _current_duration_tier_basis(
             versions=versions,
             episode=episode,
             resource_id=resource_id,
+            preparation=preparation,
+            current_tts_settings=current_tts_settings,
         )
-        if actual is not None:
-            duration_input = max(duration_input, actual)
+        if actual is None:
+            return artifact_currency.duration_basis
+        duration_input = max(duration_input, actual)
     slot = resolve_duration_slot(duration_input, tiers)
     if slot.adjustment == "down" and duration_input > slot.seconds:
         return None
@@ -497,6 +563,8 @@ def _selected_current_tts_duration(
     versions: VersionManager,
     episode: int,
     resource_id: str,
+    preparation: SpeechPreparation,
+    current_tts_settings: TtsSynthesisSettings | None,
 ) -> float | None:
     history = versions.get_versions("audio", resource_id)
     selected = next((record for record in history["versions"] if record.get("is_current")), None)
@@ -511,6 +579,14 @@ def _selected_current_tts_duration(
     except ValueError:
         return None
     if descriptor.kind != "narration-delivery/tts-audio" or actual <= 0:
+        return None
+    if current_tts_settings is None:
+        return None
+    try:
+        expected = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation, current_tts_settings))
+    except (TypeError, ValueError):
+        return None
+    if descriptor != expected:
         return None
     entry = ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_audio(episode, resource_id))
     expected_path = resource_relative_path("audio", resource_id)
@@ -621,9 +697,54 @@ def paid_video_history_result(
     return result
 
 
+async def complete_video_artifact_commit(
+    *,
+    committer: VideoArtifactCommitter | None,
+    versions: VersionManager,
+    resource_type: str,
+    resource_id: str,
+    version: int,
+    video_uri: str | None,
+    finalize: Callable[[], Awaitable[dict[str, Any]]],
+    warnings: Sequence[dict[str, Any]] = (),
+    on_completed: Callable[[], None] | None = None,
+) -> dict[str, Any]:
+    """Finish normal and resumed video generation through one selection seam."""
+
+    async def _finalize_and_complete() -> dict[str, Any]:
+        result = await finalize()
+        if on_completed is not None:
+            on_completed()
+        return result
+
+    if committer is None:
+        return await _finalize_and_complete()
+    if committer.outcome is None:
+        raise RuntimeError("formal video generator returned without invoking the artifact commit callback")
+    if committer.selection_error is not None:
+        raise committer.selection_error
+    if not committer.outcome.selected:
+        result = await asyncio.to_thread(
+            paid_video_history_result,
+            versions=versions,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            version=version,
+            video_uri=video_uri,
+            warnings=warnings,
+        )
+        if on_completed is not None:
+            on_completed()
+        return result
+    return await finalize_selected_video_result(committer=committer, finalize=_finalize_and_complete)
+
+
 __all__ = [
     "VideoArtifactCommitter",
+    "FrozenVideoSpeechFacts",
     "build_current_video_artifact_basis",
+    "complete_video_artifact_commit",
     "finalize_selected_video_result",
+    "freeze_video_speech_facts",
     "paid_video_history_result",
 ]

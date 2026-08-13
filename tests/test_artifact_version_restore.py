@@ -14,13 +14,24 @@ from lib.artifact_manifest import (
 )
 from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
-from server.services.artifact_version_restore import restore_typed_media_version
+from server.services.artifact_version_restore import get_typed_media_restore_target, restore_typed_media_version
 
-pytestmark = pytest.mark.unit
+pytestmark = pytest.mark.integration
 
 
 def _descriptor(seed: str, *, kind: str = "narration-delivery/tts-audio") -> ArtifactBasisDescriptor:
-    return ArtifactBasisDescriptor.from_basis(ArtifactBasis.build(kind, kind_version=1, inputs={"seed": seed}))
+    inputs = (
+        {
+            "text": seed,
+            "provider_id": "dashscope",
+            "model_id": "qwen3-tts-flash",
+            "voice": "Cherry",
+            "speed": None,
+        }
+        if kind == "narration-delivery/tts-audio"
+        else {"seed": seed}
+    )
+    return ArtifactBasisDescriptor.from_basis(ArtifactBasis.build(kind, kind_version=1, inputs=inputs))
 
 
 def _project(tmp_path: Path) -> tuple[ProjectManager, Path]:
@@ -65,6 +76,11 @@ def _add_audio_version(
             "artifact_audio_basis": basis.to_dict(),
             "execution_script_file": "episode_1.json",
             "tts_actual_duration_seconds": 5.0,
+            "tts_provider_id": "dashscope",
+            "tts_model_id": "qwen3-tts-flash",
+            "tts_voice": "Cherry",
+            "tts_speed": None,
+            "tts_basis_digest": basis.digest,
         }
         if basis is not None
         else {}
@@ -173,3 +189,54 @@ def test_legacy_audio_restore_without_typed_basis_is_rejected_without_mutation(t
 
     assert current.read_bytes() == b"current"
     assert vm.get_current_version("audio", "E1S01") == current_version
+
+
+def test_audio_restore_rejects_kind_only_descriptor_that_metadata_cannot_verify(tmp_path):
+    pm, project_path = _project(tmp_path)
+    vm = VersionManager(project_path)
+    current = project_path / "audio" / "segment_E1S01.wav"
+    unverifiable = _descriptor("different prompt")
+    invalid_version = _add_audio_version(vm, current, content=b"old", basis=unverifiable)
+    current_version = _add_audio_version(vm, current, content=b"current", basis=_descriptor("current"))
+
+    with pytest.raises(ValueError, match="typed artifact metadata"):
+        restore_typed_media_version(
+            project_manager=pm,
+            project_name="demo",
+            project_path=project_path,
+            versions=vm,
+            resource_type="audio",
+            resource_id="E1S01",
+            version=invalid_version,
+            current_file=current,
+            artifact_path="audio/segment_E1S01.wav",
+        )
+
+    assert current.read_bytes() == b"current"
+    assert vm.get_current_version("audio", "E1S01") == current_version
+
+
+def test_video_restore_rejects_composite_kind_without_complete_v3_components(tmp_path):
+    project_path = tmp_path / "demo"
+    current = project_path / "videos" / "scene_E1S01.mp4"
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"video")
+    vm = VersionManager(project_path)
+    kind_only = _descriptor("video", kind="artifact-components/video")
+    version = vm.add_version(
+        "videos",
+        "E1S01",
+        "video",
+        source_file=current,
+        artifact_episode=1,
+        execution_script_file="episode_1.json",
+        artifact_video_basis=kind_only.to_dict(),
+    )
+
+    with pytest.raises(ValueError, match="typed artifact metadata"):
+        get_typed_media_restore_target(
+            vm,
+            resource_type="videos",
+            resource_id="E1S01",
+            version=version,
+        )

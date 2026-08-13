@@ -7,22 +7,7 @@ import pytest
 
 from lib.image_backends.base import ImageCapability, ImageGenerationResult
 from lib.media_generator import MediaGenerator, cleanup_staged_video_output, segment_id_for, task_video_staging_path
-
-
-def _select_formal_video(gen: MediaGenerator, prompt: str = "paid request"):
-    def _commit(staged_file, current_file, duration_seconds, version_metadata):
-        return gen.versions.commit_staged_paid_version(
-            resource_type="reference_videos",
-            resource_id="E1U1",
-            prompt=prompt,
-            staged_file=staged_file,
-            current_file=current_file,
-            select_current=True,
-            duration_seconds=duration_seconds,
-            **version_metadata,
-        )
-
-    return _commit
+from tests.fakes import select_formal_video
 
 
 class _FakeImageBackend:
@@ -488,7 +473,7 @@ class TestMediaGenerator:
 
         def _commit(*args):
             events.append("committed")
-            return _select_formal_video(gen)(*args)
+            return select_formal_video(gen, prompt="paid request")(*args)
 
         output, version, _, _ = await gen.generate_video_async(
             prompt="paid request",
@@ -566,7 +551,7 @@ class TestMediaGenerator:
             resource_id="E1U1",
             formal_output=True,
             task_id="task-restarted",
-            commit_formal_output=_select_formal_video(gen),
+            commit_formal_output=select_formal_video(gen, prompt="paid request"),
         )
 
         assert current.read_bytes() == b"fake-video-data"

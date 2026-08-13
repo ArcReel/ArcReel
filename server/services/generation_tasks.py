@@ -22,7 +22,6 @@ from lib.artifact_manifest import (
 )
 from lib.asset_types import (
     ASSET_SPECS,
-    asset_name_comparison_key,
     normalize_asset_bucket,
     normalize_asset_name,
     resolve_asset_key,
@@ -94,12 +93,8 @@ from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
 from lib.script_models import resolve_content_mode
 from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
-from lib.speech_artifact_provenance import (
-    build_video_duration_basis,
-    build_video_speech_basis,
-    project_character_voice_evidence,
-)
-from lib.speech_composition import SpeechAdmissionError, SpeechMode, admit_script_unit
+from lib.speech_artifact_provenance import build_video_duration_basis
+from lib.speech_composition import SpeechAdmissionError, admit_script_unit
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
@@ -109,6 +104,7 @@ from lib.storyboard_sequence import (
 )
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import PaidVersionCommit
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_backends.base import VideoCapabilityError
 from lib.video_visual_provenance import build_storyboard_video_visual_basis, resolve_video_aspect_ratio
 from lib.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
@@ -128,8 +124,8 @@ from server.services.narration_delivery_tasks import (
 )
 from server.services.video_artifact_currency import (
     VideoArtifactCommitter,
-    finalize_selected_video_result,
-    paid_video_history_result,
+    complete_video_artifact_commit,
+    freeze_video_speech_facts,
 )
 
 logger = logging.getLogger(__name__)
@@ -854,17 +850,20 @@ async def execute_tts_task(
     def _commit_staged(staged_path: Path, output_path: Path) -> int | PaidVersionCommit:
         nonlocal prior_narration_audio, selected_current
         if script_file is None or preparation is None or episode is None or basis is None:
-            return generator.versions.commit_staged_version(
+            selected_current = False
+            return generator.versions.commit_staged_paid_version(
                 resource_type="audio",
                 resource_id=resource_id,
                 prompt=text,
                 staged_file=staged_path,
                 current_file=output_path,
+                select_current=False,
                 tts_provider_id=settings.provider_id,
                 tts_model_id=settings.model_id,
                 tts_voice=settings.voice,
                 tts_speed=settings.speed,
                 tts_basis_digest=None,
+                tts_actual_duration_seconds=duration_seconds,
             )
 
         committed_preparation = preparation
@@ -1484,24 +1483,10 @@ async def execute_video_task(
     if task_id is not None:
         artifact_episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
         artifact_speech_preparation = admit_script_unit(script_kind, item).preparation
-        artifact_voice_style_speakers = (
-            tuple(
-                dict.fromkeys(
-                    asset_name_comparison_key(str(utterance.speaker))
-                    for utterance in artifact_speech_preparation.utterances
-                    if utterance.speaker
-                )
-            )
-            if artifact_speech_preparation.mode is SpeechMode.CHARACTER_SPEECH and not ctx.video.is_silent
-            else ()
-        )
-        artifact_speech_basis = build_video_speech_basis(
+        artifact_speech = freeze_video_speech_facts(
             artifact_speech_preparation,
-            voices=project_character_voice_evidence(
-                artifact_speech_preparation,
-                characters=project.get("characters"),
-                voice_style_speakers=artifact_voice_style_speakers,
-            ),
+            characters=project.get("characters"),
+            include_voice_styles=not ctx.video.is_silent,
         )
         artifact_duration_basis = build_video_duration_basis(duration_seconds)
         artifact_duration_tiers = tuple(
@@ -1571,22 +1556,18 @@ async def execute_video_task(
                 )
             )
             artifact_visual_basis = await asyncio.to_thread(
-                lambda: ArtifactBasisDescriptor.from_basis(
-                    build_storyboard_video_artifact_visual_basis(
-                        resource_id=resource_id,
-                        visual_prompt=requested_visual_prompt,
-                        storyboard_image=provider_start_image,
-                        end_frame_image=provider_end_image,
-                        aspect_ratio=aspect_ratio,
-                    )
+                lambda: build_storyboard_video_artifact_visual_basis(
+                    resource_id=resource_id,
+                    visual_prompt=requested_visual_prompt,
+                    storyboard_image=provider_start_image,
+                    end_frame_image=provider_end_image,
+                    aspect_ratio=aspect_ratio,
                 )
             )
-            artifact_video_basis = ArtifactBasisDescriptor.from_basis(
-                compose_video_artifact_basis(
-                    visual=artifact_visual_basis,
-                    speech=artifact_speech_basis,
-                    duration=artifact_duration_basis,
-                )
+            artifact_video_basis = compose_video_artifact_basis(
+                visual=artifact_visual_basis,
+                speech=artifact_speech.basis,
+                duration=artifact_duration_basis,
             )
             narration = delivery_projection.narration if delivery_projection is not None else None
             narration_facts = NarrationExecutionFacts(
@@ -1598,6 +1579,18 @@ async def execute_video_task(
             )
 
             async def _checkpoint_before_submit(api_call_id: int) -> Mapping[str, object]:
+                artifact_currency = VideoArtifactCurrencyFacts(
+                    episode=artifact_episode,
+                    request_duration_seconds=duration_seconds,
+                    visual_basis=artifact_visual_basis,
+                    speech_basis=artifact_speech.basis,
+                    duration_basis=artifact_duration_basis,
+                    video_basis=artifact_video_basis,
+                    voice_style_speakers=artifact_speech.voice_style_speakers,
+                    duration_tiers=artifact_duration_tiers,
+                    reference_image_limit=None,
+                    parent_version=generator.versions.get_current_version("videos", resource_id),
+                )
                 checkpoint = StoryboardSubmissionCheckpoint.create(
                     task_id=task_id,
                     project_name=project_name,
@@ -1617,14 +1610,7 @@ async def execute_video_task(
                     service_tier=service_tier,
                     seed=seed,
                     visual_basis_digest=visual_basis_digest,
-                    artifact_episode=artifact_episode,
-                    artifact_visual_basis=artifact_visual_basis,
-                    artifact_speech_basis=ArtifactBasisDescriptor.from_basis(artifact_speech_basis),
-                    artifact_duration_basis=ArtifactBasisDescriptor.from_basis(artifact_duration_basis),
-                    artifact_video_basis=artifact_video_basis,
-                    artifact_voice_style_speakers=artifact_voice_style_speakers,
-                    artifact_duration_tiers=artifact_duration_tiers,
-                    artifact_reference_image_limit=None,
+                    artifact_currency=artifact_currency,
                     narration=narration_facts,
                     media=staged_media,
                     reference_audio_targets=None,
@@ -1650,6 +1636,11 @@ async def execute_video_task(
             resource_type="videos",
             resource_id=resource_id,
             prompt=prompt_text,
+            current_tts_settings=(
+                ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio).settings
+                if delivery_projection is not None
+                else None
+            ),
         )
         if task_id is not None
         else None
@@ -1675,21 +1666,6 @@ async def execute_video_task(
             generate_audio=ctx.video.requested_generate_audio,
         )
 
-        if artifact_committer is not None:
-            if artifact_committer.outcome is None:
-                raise RuntimeError("formal video generator returned without invoking the artifact commit callback")
-            if artifact_committer.selection_error is not None:
-                raise artifact_committer.selection_error
-            if not artifact_committer.outcome.selected:
-                return await asyncio.to_thread(
-                    paid_video_history_result,
-                    versions=generator.versions,
-                    resource_type="videos",
-                    resource_id=resource_id,
-                    version=version,
-                    video_uri=video_uri,
-                )
-
         async def _finalize() -> dict[str, Any]:
             return await _finalize_video_task(
                 project_name=project_name,
@@ -1701,9 +1677,15 @@ async def execute_video_task(
                 generator=generator,
             )
 
-        if artifact_committer is not None:
-            return await finalize_selected_video_result(committer=artifact_committer, finalize=_finalize)
-        return await _finalize()
+        return await complete_video_artifact_commit(
+            committer=artifact_committer,
+            versions=generator.versions,
+            resource_type="videos",
+            resource_id=resource_id,
+            version=version,
+            video_uri=video_uri,
+            finalize=_finalize,
+        )
     finally:
         if task_id is not None:
             await asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id)

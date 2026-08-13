@@ -144,7 +144,7 @@ describe("VersionTimeMachine", () => {
     expect(previewImage.parentElement).toHaveClass("h-80");
   });
 
-  it("previews, downloads, and restores historical narration audio", async () => {
+  it("previews, downloads, and restores verified historical narration audio", async () => {
     vi.spyOn(API, "getVersions").mockResolvedValue({
       resource_type: "audio",
       resource_id: "E1S01",
@@ -156,6 +156,7 @@ describe("VersionTimeMachine", () => {
           created_at: "2026-02-01T00:00:00Z",
           file_size: 10,
           is_current: false,
+          restorable: true,
           file_url: "/api/v1/files/demo/versions/audio/E1S01_v1.wav",
         },
         {
@@ -190,6 +191,49 @@ describe("VersionTimeMachine", () => {
     await waitFor(() => {
       expect(restore).toHaveBeenCalledWith("demo", "audio", "E1S01", 1);
     });
+  });
+
+  it("does not offer restore for history-only narration audio", async () => {
+    vi.spyOn(API, "getVersions").mockResolvedValue({
+      resource_type: "audio",
+      resource_id: "E1S01",
+      current_version: 2,
+      versions: [
+        {
+          version: 1,
+          filename: "E1S01_v1.wav",
+          created_at: "2026-02-01T00:00:00Z",
+          file_size: 10,
+          is_current: false,
+          restorable: false,
+          file_url: "/api/v1/files/demo/versions/audio/E1S01_v1.wav",
+        },
+        {
+          version: 2,
+          filename: "E1S01_v2.wav",
+          created_at: "2026-02-01T01:00:00Z",
+          file_size: 12,
+          is_current: true,
+          restorable: true,
+          file_url: "/api/v1/files/demo/versions/audio/E1S01_v2.wav",
+        },
+      ],
+    });
+    const restore = vi.spyOn(API, "restoreVersion").mockResolvedValue({ success: true });
+
+    render(
+      <VersionTimeMachine
+        projectName="demo"
+        resourceType="audio"
+        resourceId="E1S01"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /版本/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "v1" }));
+
+    expect(await screen.findByLabelText("旁白音频版本 v1")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /切换到此版本/ })).not.toBeInTheDocument();
+    expect(restore).not.toHaveBeenCalled();
   });
 
   it("disables version restore while the resource is busy (image_edit in flight)", async () => {

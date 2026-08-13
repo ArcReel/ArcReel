@@ -407,6 +407,9 @@ class _FakeGenerator:
     def get_versions(self, resource_type, resource_id):
         return {"versions": [{"created_at": "2026-01-01T00:00:00Z"}]}
 
+    def get_current_version(self, resource_type, resource_id):
+        return 0
+
 
 def _prepare_files(tmp_path: Path):
     project_path = tmp_path / "projects" / "demo"
@@ -794,7 +797,8 @@ class TestGenerationTasks:
         assert [media.role for media in checkpoint.media] == ["start_image"]
         assert checkpoint.artifact_visual_basis is not None
         assert checkpoint.artifact_visual_basis.kind == "artifact-visual/video-storyboard"
-        assert submitted["metadata"]["artifact_visual_basis"] == checkpoint.artifact_visual_basis.to_dict()
+        assert checkpoint.artifact_currency is not None
+        assert submitted["metadata"]["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
         assert call["formal_output"] is True
         assert submitted["metadata"]["execution_request_digest"] == checkpoint.request_digest
         assert manifest.read_bytes() == b'{"unchanged":true}'
@@ -979,13 +983,16 @@ class TestGenerationTasks:
         tmp_path,
     ):
         from lib.artifact_manifest import (
-            ArtifactBasis,
-            ArtifactBasisDescriptor,
             ArtifactKey,
             ArtifactManifest,
             ProjectArtifactManifestAdapter,
+            compose_video_artifact_basis,
         )
+        from lib.speech_artifact_provenance import build_video_duration_basis, build_video_speech_basis
+        from lib.speech_composition import admit_script_unit
         from lib.version_manager import VersionManager
+        from lib.video_artifact_facts import VideoArtifactCurrencyFacts
+        from lib.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -1018,8 +1025,30 @@ class TestGenerationTasks:
             has_utterances=False,
             voice_characters=None,
         )
-        artifact_video_basis = ArtifactBasisDescriptor.from_basis(
-            ArtifactBasis.build("artifact-components/video", kind_version=1, inputs={"unit": "E1S01"})
+        artifact_visual_basis = build_storyboard_video_artifact_visual_basis(
+            resource_id="E1S01",
+            visual_prompt=visual_prompt,
+            storyboard_image=project_path / "storyboards" / "scene_E1S01.png",
+            end_frame_image=None,
+            aspect_ratio="9:16",
+        )
+        artifact_speech_basis = build_video_speech_basis(admit_script_unit("segments", item).preparation)
+        artifact_duration_basis = build_video_duration_basis(8)
+        artifact_currency = VideoArtifactCurrencyFacts(
+            episode=1,
+            request_duration_seconds=8,
+            visual_basis=artifact_visual_basis,
+            speech_basis=artifact_speech_basis,
+            duration_basis=artifact_duration_basis,
+            video_basis=compose_video_artifact_basis(
+                visual=artifact_visual_basis,
+                speech=artifact_speech_basis,
+                duration=artifact_duration_basis,
+            ),
+            voice_style_speakers=(),
+            duration_tiers=(4, 8, 12),
+            reference_image_limit=None,
+            parent_version=0,
         )
         selected_version = fake_generator.versions.add_version(
             "videos",
@@ -1028,13 +1057,17 @@ class TestGenerationTasks:
             source_file=current,
             duration_seconds=8,
             visual_basis_digest=visual_basis.digest,
-            artifact_episode=1,
-            artifact_video_basis=artifact_video_basis.to_dict(),
+            execution_checkpoint_schema_version=3,
+            execution_script_file="episode_1.json",
+            execution_duration_seconds=8,
+            execution_request_digest="d" * 64,
+            execution_provider_media=[],
+            artifact_video_currency=artifact_currency.to_dict(),
         )
         ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register_descriptor(
             ArtifactKey.episode_video(1, "E1S01"),
             artifact_path="videos/scene_E1S01.mp4",
-            basis=artifact_video_basis,
+            basis=artifact_currency.video_descriptor,
         )
         script_before = copy.deepcopy(fake_pm.script)
         history_before = copy.deepcopy(fake_generator.versions.get_versions("videos", "E1S01"))
@@ -1046,7 +1079,7 @@ class TestGenerationTasks:
                 speech_mode=None,
                 tts_status=NarrationTtsStatus.CURRENT,
                 artifact_path="audio/segment_E1S01.wav",
-                basis_digest="current-basis",
+                basis_digest="sha256-v1:" + "c" * 64,
                 actual_duration_seconds=6.2,
                 problems=(),
             )

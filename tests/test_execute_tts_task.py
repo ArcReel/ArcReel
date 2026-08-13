@@ -277,19 +277,21 @@ class TestExecuteTtsTask:
         result = await generation_tasks.execute_tts_task("demo", "E1S01", {"text": "你好世界"})
         assert result == {
             "version": 3,
-            "file_path": "audio/segment_E1S01.wav",
+            "file_path": "versions/audio/E1S01_v3.wav",
             "created_at": "2026-06-01T00:00:00Z",
             "resource_type": "audio",
             "resource_id": "E1S01",
             "duration_seconds": 5.25,
             "tts_basis_digest": None,
-            "selected_current": True,
+            "selected_current": False,
         }
         call = gen.audio_calls[0]
         assert call["text"] == "你好世界"
         assert call["voice"] == "Cherry"
         assert call["resource_id"] == "E1S01"
-        # 无 script_file → 不写回 narration_audio
+        assert not (pm.project_path / "audio" / "segment_E1S01.wav").exists()
+        assert gen.version_records[-1]["tts_basis_digest"] is None
+        # 无 script_file → 只保存付费历史，不写回 narration_audio 或抢占 current
         assert pm.updated_assets == []
 
     async def test_text_from_script_segment_and_writeback(self, tts_env):

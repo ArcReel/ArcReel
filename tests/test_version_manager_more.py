@@ -286,3 +286,31 @@ class TestVersionManagerMore:
         assert outcome.selected is False
         assert observed == [(selected_version, 2, b"selected-video")]
         assert current.read_bytes() == b"selected-video"
+
+    def test_paid_version_selection_token_rejects_a_late_result_without_running_the_basis_callback(self, tmp_path):
+        project = tmp_path / "demo"
+        vm = VersionManager(project)
+        current = project / "videos" / "scene_E1S01.mp4"
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"first")
+        submitted_parent = vm.add_version("videos", "E1S01", "first", source_file=current)
+        current.write_bytes(b"user-restored")
+        user_selection = vm.add_version("videos", "E1S01", "user", source_file=current)
+        staged = current.with_name(".scene_E1S01.late.mp4")
+        staged.write_bytes(b"late-paid")
+
+        outcome = vm.commit_staged_paid_version(
+            resource_type="videos",
+            resource_id="E1S01",
+            prompt="late",
+            staged_file=staged,
+            current_file=current,
+            select_current=lambda: pytest.fail("a changed selection token must short-circuit basis comparison"),
+            expected_current_version=submitted_parent,
+        )
+
+        assert outcome.selected is False
+        assert current.read_bytes() == b"user-restored"
+        history = vm.get_versions("videos", "E1S01")
+        assert history["current_version"] == user_selection
+        assert (project / history["versions"][-1]["file"]).read_bytes() == b"late-paid"

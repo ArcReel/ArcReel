@@ -12,8 +12,7 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.artifact_manifest import ArtifactBasisDescriptor, compose_video_artifact_basis
-from lib.asset_types import asset_name_comparison_key
+from lib.artifact_manifest import compose_video_artifact_basis
 from lib.config.resolver import (
     ConfigResolver,
     VideoCapability,
@@ -65,14 +64,11 @@ from lib.reference_video.units import reference_video_bucket
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_editor import ScriptEditError
 from lib.script_models import ReferenceResource
-from lib.speech_artifact_provenance import (
-    build_video_duration_basis,
-    build_video_speech_basis,
-    project_character_voice_evidence,
-)
-from lib.speech_composition import SpeechMode, admit_script_unit, video_unit_replan_problems
+from lib.speech_artifact_provenance import build_video_duration_basis
+from lib.speech_composition import admit_script_unit, video_unit_replan_problems
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_visual_provenance import resolve_video_aspect_ratio
 from lib.visual_artifact_provenance import build_reference_video_artifact_visual_basis
 from server.services.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
@@ -87,8 +83,8 @@ from server.services.narration_delivery_tasks import (
 )
 from server.services.video_artifact_currency import (
     VideoArtifactCommitter,
-    finalize_selected_video_result,
-    paid_video_history_result,
+    complete_video_artifact_commit,
+    freeze_video_speech_facts,
 )
 from server.services.video_caps import project_video_caps
 
@@ -694,17 +690,6 @@ async def execute_reference_video_task(
     if task_id is not None:
         artifact_episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
         artifact_speech_preparation = admit_script_unit("video_units", unit).preparation
-        artifact_voice_style_speakers = (
-            tuple(
-                dict.fromkeys(
-                    asset_name_comparison_key(str(utterance.speaker))
-                    for utterance in artifact_speech_preparation.utterances
-                    if utterance.speaker
-                )
-            )
-            if artifact_speech_preparation.mode is SpeechMode.CHARACTER_SPEECH and not voice_settings.is_silent
-            else ()
-        )
         artifact_duration_basis = build_video_duration_basis(effective_duration)
         image_inputs = tuple(
             ProviderMediaInput(
@@ -780,34 +765,39 @@ async def execute_reference_video_task(
                 replace(entry, path=path) for entry, path in zip(constrained_entries, provider_refs, strict=True)
             )
             artifact_visual_basis = await asyncio.to_thread(
-                lambda: ArtifactBasisDescriptor.from_basis(
-                    build_reference_video_artifact_visual_basis(
-                        unit=unit,
-                        request_assets=staged_request_assets,
-                        style=project.get("style"),
-                        aspect_ratio=aspect_ratio,
-                    )
+                lambda: build_reference_video_artifact_visual_basis(
+                    unit=unit,
+                    request_assets=staged_request_assets,
+                    style=project.get("style"),
+                    aspect_ratio=aspect_ratio,
                 )
             )
-            artifact_speech_basis = await asyncio.to_thread(
-                build_video_speech_basis,
+            artifact_speech = await asyncio.to_thread(
+                freeze_video_speech_facts,
                 artifact_speech_preparation,
-                voices=project_character_voice_evidence(
-                    artifact_speech_preparation,
-                    characters=project.get("characters"),
-                    voice_style_speakers=artifact_voice_style_speakers,
-                    reference_audio_paths=dict(zip(audio_names, reference_audio_files, strict=True)),
-                ),
+                characters=project.get("characters"),
+                include_voice_styles=not voice_settings.is_silent,
+                reference_audio_paths=dict(zip(audio_names, staged_audio_paths, strict=True)),
             )
-            artifact_video_basis = ArtifactBasisDescriptor.from_basis(
-                compose_video_artifact_basis(
-                    visual=artifact_visual_basis,
-                    speech=artifact_speech_basis,
-                    duration=artifact_duration_basis,
-                )
+            artifact_video_basis = compose_video_artifact_basis(
+                visual=artifact_visual_basis,
+                speech=artifact_speech.basis,
+                duration=artifact_duration_basis,
             )
 
             def _build_checkpoint(api_call_id: int) -> ReferenceSubmissionCheckpoint:
+                artifact_currency = VideoArtifactCurrencyFacts(
+                    episode=artifact_episode,
+                    request_duration_seconds=effective_duration,
+                    visual_basis=artifact_visual_basis,
+                    speech_basis=artifact_speech.basis,
+                    duration_basis=artifact_duration_basis,
+                    video_basis=artifact_video_basis,
+                    voice_style_speakers=artifact_speech.voice_style_speakers,
+                    duration_tiers=candidate.supported_durations,
+                    reference_image_limit=candidate.max_reference_images,
+                    parent_version=generator.versions.get_current_version("reference_videos", resource_id),
+                )
                 return ReferenceSubmissionCheckpoint.create(
                     task_id=task_id,
                     project_name=project_name,
@@ -827,14 +817,7 @@ async def execute_reference_video_task(
                     service_tier="default",
                     seed=None,
                     visual_basis_digest=visual_basis_digest,
-                    artifact_episode=artifact_episode,
-                    artifact_visual_basis=artifact_visual_basis,
-                    artifact_speech_basis=ArtifactBasisDescriptor.from_basis(artifact_speech_basis),
-                    artifact_duration_basis=ArtifactBasisDescriptor.from_basis(artifact_duration_basis),
-                    artifact_video_basis=artifact_video_basis,
-                    artifact_voice_style_speakers=artifact_voice_style_speakers,
-                    artifact_duration_tiers=candidate.supported_durations,
-                    artifact_reference_image_limit=candidate.max_reference_images,
+                    artifact_currency=artifact_currency,
                     narration=narration_facts,
                     media=staged_media,
                     reference_audio_targets=audio_targets_tuple,
@@ -867,6 +850,11 @@ async def execute_reference_video_task(
             resource_type="reference_videos",
             resource_id=resource_id,
             prompt=rendered_prompt,
+            current_tts_settings=(
+                ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio).settings
+                if options.narration_delivery == USE_TTS
+                else None
+            ),
         )
         if task_id is not None
         else None
@@ -893,22 +881,6 @@ async def execute_reference_video_task(
             generate_audio=video.requested_generate_audio,
         )
 
-        if artifact_committer is not None:
-            if artifact_committer.outcome is None:
-                raise RuntimeError("formal video generator returned without invoking the artifact commit callback")
-            if artifact_committer.selection_error is not None:
-                raise artifact_committer.selection_error
-            if not artifact_committer.outcome.selected:
-                return await asyncio.to_thread(
-                    paid_video_history_result,
-                    versions=generator.versions,
-                    resource_type="reference_videos",
-                    resource_id=resource_id,
-                    version=version,
-                    video_uri=video_uri,
-                    warnings=warnings,
-                )
-
         async def _finalize() -> dict[str, Any]:
             return await _finalize_reference_video_unit(
                 project_name=project_name,
@@ -922,9 +894,16 @@ async def execute_reference_video_task(
                 warnings=warnings,
             )
 
-        if artifact_committer is not None:
-            return await finalize_selected_video_result(committer=artifact_committer, finalize=_finalize)
-        return await _finalize()
+        return await complete_video_artifact_commit(
+            committer=artifact_committer,
+            versions=generator.versions,
+            resource_type="reference_videos",
+            resource_id=resource_id,
+            version=version,
+            video_uri=video_uri,
+            finalize=_finalize,
+            warnings=warnings,
+        )
     finally:
         if task_id is not None:
             await asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id)

@@ -11,9 +11,12 @@ from lib.artifact_manifest import (
     ArtifactBasisDescriptor,
     ArtifactKey,
     ProjectArtifactManifestAdapter,
+    compose_video_artifact_basis,
 )
+from lib.speech_artifact_provenance import build_video_duration_basis
 from lib.version_manager import VersionManager
 from lib.video_artifact_commit import commit_paid_video_artifact
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 
 pytestmark = pytest.mark.integration
 
@@ -21,6 +24,33 @@ pytestmark = pytest.mark.integration
 def _descriptor(label: str) -> ArtifactBasisDescriptor:
     return ArtifactBasisDescriptor.from_basis(
         ArtifactBasis.build("artifact-components/video", kind_version=1, inputs={"label": label})
+    )
+
+
+def _currency(label: str, *, parent_version: int) -> VideoArtifactCurrencyFacts:
+    visual = ArtifactBasis.build(
+        "artifact-visual/video-storyboard",
+        kind_version=1,
+        inputs={
+            "resource_id": label,
+            "visual_prompt": {"action": label, "camera_motion": "Static"},
+            "canvas": {"aspect_ratio": "9:16"},
+            "frames": [{"role": "storyboard", "sha256": "a" * 64}],
+        },
+    )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = build_video_duration_basis(8)
+    return VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=8,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(8,),
+        reference_image_limit=None,
+        parent_version=parent_version,
     )
 
 
@@ -36,10 +66,11 @@ def test_matching_typed_basis_selects_and_registers_inside_the_shared_guard(tmp_
     project = tmp_path / "project"
     project.mkdir()
     versions = VersionManager(project)
-    current, _old_version = _seed_current(project, versions)
+    current, old_version = _seed_current(project, versions)
     staged = current.with_name(".scene_E1S01.new.mp4")
     staged.write_bytes(b"new-current")
-    basis = _descriptor("new")
+    currency = _currency("new", parent_version=old_version)
+    basis = currency.video_descriptor
     events: list[str] = []
 
     @contextmanager
@@ -61,7 +92,7 @@ def test_matching_typed_basis_selects_and_registers_inside_the_shared_guard(tmp_
         staged_file=staged,
         current_file=current,
         duration_seconds=8,
-        version_metadata={"artifact_episode": 1, "artifact_video_basis": basis.to_dict()},
+        version_metadata={"artifact_video_currency": currency.to_dict()},
         resolve_current_basis=_current,
         selection_guard=_guard,
     )
@@ -79,8 +110,8 @@ def test_matching_typed_basis_selects_and_registers_inside_the_shared_guard(tmp_
     "metadata",
     [
         {},
-        {"artifact_episode": 1},
-        {"artifact_episode": 1, "artifact_video_basis": {"kind": "broken"}},
+        {"artifact_video_currency": {}},
+        {"artifact_video_currency": {"schema_version": 1}},
     ],
 )
 def test_incomplete_or_malformed_typed_facts_are_history_only(
@@ -122,7 +153,7 @@ def test_late_basis_mismatch_preserves_paid_history_without_taking_current(tmp_p
     current, old_version = _seed_current(project, versions)
     staged = current.with_name(".scene_E1S01.late.mp4")
     staged.write_bytes(b"late-paid")
-    frozen = _descriptor("submitted")
+    frozen = _currency("submitted", parent_version=old_version)
 
     outcome = commit_paid_video_artifact(
         project_path=project,
@@ -133,7 +164,7 @@ def test_late_basis_mismatch_preserves_paid_history_without_taking_current(tmp_p
         staged_file=staged,
         current_file=current,
         duration_seconds=8,
-        version_metadata={"artifact_episode": 1, "artifact_video_basis": frozen.to_dict()},
+        version_metadata={"artifact_video_currency": frozen.to_dict()},
         resolve_current_basis=lambda _metadata: _descriptor("edited"),
     )
 
@@ -164,7 +195,8 @@ def test_manifest_failure_restores_old_selection_but_keeps_paid_history(
     )
     staged = current.with_name(".scene_E1S01.new.mp4")
     staged.write_bytes(b"new-paid")
-    new_basis = _descriptor("new")
+    currency = _currency("new", parent_version=old_version)
+    new_basis = currency.video_descriptor
     original_put = ProjectArtifactManifestAdapter.put_entry
 
     def _write_then_fail(self, artifact_key, entry):
@@ -185,7 +217,7 @@ def test_manifest_failure_restores_old_selection_but_keeps_paid_history(
             staged_file=staged,
             current_file=current,
             duration_seconds=8,
-            version_metadata={"artifact_episode": 1, "artifact_video_basis": new_basis.to_dict()},
+            version_metadata={"artifact_video_currency": currency.to_dict()},
             resolve_current_basis=lambda _metadata: new_basis,
         )
 
@@ -206,7 +238,8 @@ def test_selection_guard_failure_still_archives_the_paid_video(tmp_path: Path) -
     current, old_version = _seed_current(project, versions)
     staged = current.with_name(".scene_E1S01.paid.mp4")
     staged.write_bytes(b"paid-before-project-read-failed")
-    basis = _descriptor("submitted")
+    currency = _currency("submitted", parent_version=old_version)
+    basis = currency.video_descriptor
 
     @contextmanager
     def _failed_guard() -> Iterator[object]:
@@ -223,7 +256,7 @@ def test_selection_guard_failure_still_archives_the_paid_video(tmp_path: Path) -
             staged_file=staged,
             current_file=current,
             duration_seconds=8,
-            version_metadata={"artifact_episode": 1, "artifact_video_basis": basis.to_dict()},
+            version_metadata={"artifact_video_currency": currency.to_dict()},
             resolve_current_basis=lambda _metadata: basis,
             selection_guard=_failed_guard,
         )
@@ -233,3 +266,34 @@ def test_selection_guard_failure_still_archives_the_paid_video(tmp_path: Path) -
     assert history["current_version"] == old_version
     assert len(history["versions"]) == 2
     assert (project / history["versions"][-1]["file"]).read_bytes() == b"paid-before-project-read-failed"
+
+
+def test_same_basis_late_result_cannot_replace_a_newer_user_selection(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    versions = VersionManager(project)
+    current, submitted_parent = _seed_current(project, versions)
+    currency = _currency("same", parent_version=submitted_parent)
+    current.write_bytes(b"user-selection")
+    user_version = versions.add_version("videos", "E1S01", "user", source_file=current)
+    staged = current.with_name(".scene_E1S01.late.mp4")
+    staged.write_bytes(b"late-paid")
+
+    outcome = commit_paid_video_artifact(
+        project_path=project,
+        versions=versions,
+        resource_type="videos",
+        resource_id="E1S01",
+        prompt="late",
+        staged_file=staged,
+        current_file=current,
+        duration_seconds=8,
+        version_metadata={"artifact_video_currency": currency.to_dict()},
+        resolve_current_basis=lambda _metadata: currency.video_descriptor,
+    )
+
+    assert outcome.selected is False
+    assert current.read_bytes() == b"user-selection"
+    history = versions.get_versions("videos", "E1S01")
+    assert history["current_version"] == user_version
+    assert (project / history["versions"][-1]["file"]).read_bytes() == b"late-paid"

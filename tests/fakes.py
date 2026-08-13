@@ -7,13 +7,45 @@ Single-file fakes stay in their respective test modules.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from instructor.core import InstructorRetryException
 
 if TYPE_CHECKING:
+    from lib.media_generator import MediaGenerator
     from lib.reference_video.voice_settings import VoiceRenderSettings
+    from lib.version_manager import PaidVersionCommit
+
+
+def select_formal_video(
+    generator: MediaGenerator,
+    *,
+    resource_type: str = "reference_videos",
+    resource_id: str = "E1U1",
+    prompt: str = "",
+) -> Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit]:
+    """Build the minimal paid-video formal commit callback used by generator tests."""
+
+    def _commit(
+        staged_file: Path,
+        current_file: Path,
+        duration_seconds: int,
+        version_metadata: Mapping[str, Any],
+    ) -> PaidVersionCommit:
+        return generator.versions.commit_staged_paid_version(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            prompt=prompt,
+            staged_file=staged_file,
+            current_file=current_file,
+            select_current=True,
+            duration_seconds=duration_seconds,
+            **version_metadata,
+        )
+
+    return _commit
 
 
 class FakeSDKClient:

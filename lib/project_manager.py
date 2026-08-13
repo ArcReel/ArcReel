@@ -359,7 +359,7 @@ class ProjectManager:
     _DELETE_RETRYABLE_ERRNOS = (errno.ENOTEMPTY, errno.EACCES)
 
     def delete_project_directory(self, name: str) -> None:
-        """删除项目目录，容忍并发扫描与本次删除竞态产生的临时性错误。"""
+        """删除项目目录，容忍并发扫描与删除操作竞态产生的临时性错误。"""
         project_dir = self.get_project_path(name)
         attempts = 5
         for attempt in range(attempts):
@@ -673,7 +673,7 @@ class ProjectManager:
         再次获取 `_project_lock`，故已持有项目锁的调用方（见 `locked_episode_script`）须传 False
         以免同进程自死锁。仅写脚本内容、不改 episode 元数据的场景跳过同步无副作用。
 
-        `validate=True`（默认，fail-safe）时按「不更坏」语义做结构校验：仅当本次写入把一个
+        `validate=True`（默认，fail-safe）时按「不更坏」语义做结构校验：仅当待写数据把一个
         原本合法的剧本改成非法时才 `raise ScriptStructureValidationError`，改前就已非法的旧
         剧本照常放行。读-改-写流程（`locked_script` 一族）已持有改前剧本，应作 `before` 传入
         以零额外读盘；直连保存不传 `before`，由本函数按需读盘取改前（无改前则按严格校验）。
@@ -925,7 +925,7 @@ class ProjectManager:
 
     @staticmethod
     def _guard_no_worse(before: dict | None, after: dict) -> None:
-        """「不更坏」守卫：仅当本次写入引入新结构错误时拒绝。
+        """「不更坏」守卫：仅当待写数据引入新结构错误时拒绝。
 
         改后合法 → 放行；改后非法时：改前合法或无改前 → 拒绝（`raise`）；改前已非法 → 放行
         （不为历史遗留背锅）。校验器经函数内延迟 import，打破 project_manager → 校验器 →
@@ -2046,7 +2046,7 @@ class ProjectManager:
         """按 table（characters/scenes/props/products）+ name upsert 资产：不存在则新增、存在则改字段。
 
         在 `update_project` 的单一文件锁内完成 read-modify-write；apply 后、落盘前对结果
-        project dict 做 payload 级结构校验，按**「不更坏」语义**裁决：仅当本次 upsert 把原本
+        project dict 做 payload 级结构校验，按**「不更坏」语义**裁决：仅当该 upsert 把原本
         合法的 project 改成非法时才 raise 且**不落盘**（mutation 抛错时 `update_project` 不执行
         atomic_write）；改前已非法（历史遗留脏数据，如空 `style`）则照常放行——否则带历史问题的
         项目会整条 patch_project 路径不可用（旧 `add_assets.py` 报告校验错误也不阻断写入）。
@@ -2163,7 +2163,7 @@ class ProjectManager:
             # 「不更坏」按 error set diff 判定：after 不应比 before 多任何 errors。
             #   - 改前合法、改后非法 → new_errors=全部 after errors → 拒
             #   - 改前已脏、改后相同脏 → new_errors=∅ → 放行（允许带历史脏数据的项目继续 patch）
-            #   - 改前已脏、改后引入新错误（如本次 entries 缺 description）→ new_errors≠∅ → 拒
+            #   - 改前已脏、改后引入新错误（如 entries 缺 description）→ new_errors≠∅ → 拒
             #   - 改前已脏、改后修复了部分 → new_errors=∅ → 放行（允许 patch 改进历史脏数据）
             # 比单纯比 valid 标志更严：堵住「带历史脏数据的项目里新 entry 的结构错误 piggyback 落盘」。
             new_errors = after_errors - before_errors

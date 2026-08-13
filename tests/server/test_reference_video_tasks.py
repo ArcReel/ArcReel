@@ -142,6 +142,8 @@ def _wire_context(
             return self.outcome
 
     monkeypatch.setattr(rvt, "VideoArtifactCommitter", _SelectedArtifactCommitter)
+    if isinstance(fake_generator.versions, MagicMock):
+        fake_generator.versions.get_current_version.return_value = 0
 
     lane = VideoLaneResult(
         provider_model=ProviderModel(provider_id=registry_provider_id or backend_name, model_id=backend_model),
@@ -962,7 +964,7 @@ async def test_execute_reference_video_task_bucket_follows_resolved_references(
     assert "video_provider_r2v" not in captured["payload"]
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_sends_reference_audio_in_prompt_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1039,6 +1041,34 @@ async def test_execute_reference_video_task_sends_reference_audio_in_prompt_orde
     # speaker 位不产生参考图：李四没有 @图片N 绑定
     assert "<张三>@图片1。" in prompt
     assert "<李四>@图片" not in prompt
+
+    frozen_speech_paths: dict[str, Path] = {}
+    submitted_audio_paths: list[Path] = []
+    real_freeze_speech = rvt.freeze_video_speech_facts
+
+    def _capture_frozen_speech(*args, **kwargs):
+        frozen_speech_paths.update(kwargs.get("reference_audio_paths") or {})
+        return real_freeze_speech(*args, **kwargs)
+
+    async def _stop_after_currency_freeze(**kwargs):
+        submitted_audio_paths.extend(kwargs["reference_audio_files"] or [])
+        raise RuntimeError("stop after frozen speech evidence")
+
+    monkeypatch.setattr(rvt, "freeze_video_speech_facts", _capture_frozen_speech)
+    fake_generator.generate_video_async = AsyncMock(side_effect=_stop_after_currency_freeze)
+    with pytest.raises(RuntimeError, match="stop after frozen speech evidence"):
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "episode_1.json"},
+            user_id="u1",
+            task_id="task-audio-evidence",
+        )
+
+    assert list(frozen_speech_paths.values()) == submitted_audio_paths
+    assert all(
+        ".arcreel/tasks/task-audio-evidence/provider_media/" in path.as_posix() for path in submitted_audio_paths
+    )
 
 
 @pytest.mark.asyncio
@@ -2278,13 +2308,12 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     monkeypatch: pytest.MonkeyPatch,
 ):
     from lib.artifact_manifest import (
-        ArtifactBasis,
-        ArtifactBasisDescriptor,
         ArtifactComparison,
         ArtifactKey,
         ArtifactManifest,
         ArtifactStatus,
         ProjectArtifactManifestAdapter,
+        compose_video_artifact_basis,
     )
     from lib.narration_delivery import NarrationAudioEvidence, TtsSynthesisSettings, prepare_narration_delivery
     from lib.reference_video.request_projection import (
@@ -2292,8 +2321,11 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
         reference_audio_model_facts,
         resolve_reference_assets,
     )
+    from lib.speech_artifact_provenance import build_video_duration_basis, build_video_speech_basis
     from lib.speech_composition import admit_script_unit
     from lib.version_manager import VersionManager
+    from lib.video_artifact_facts import VideoArtifactCurrencyFacts
+    from lib.visual_artifact_provenance import build_reference_video_artifact_visual_basis
     from server.services import reference_video_tasks as rvt
     from server.services.narration_delivery_tasks import reference_video_visual_basis_digest
 
@@ -2333,15 +2365,37 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
         has_audio_track=has_audio_track,
         audio_switch_controllable=audio_switch_controllable,
     )
+    request_assets = resolve_reference_assets(project, proj_dir, unit)
     visual_basis_digest = reference_video_visual_basis_digest(
         project=project,
         project_path=proj_dir,
         unit=unit,
-        request_assets=resolve_reference_assets(project, proj_dir, unit),
+        request_assets=request_assets,
         candidate=candidate,
     )
-    artifact_video_basis = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-components/video", kind_version=1, inputs={"unit": "E1U1"})
+    artifact_visual_basis = build_reference_video_artifact_visual_basis(
+        unit=unit,
+        request_assets=request_assets,
+        style=project.get("style"),
+        aspect_ratio="9:16",
+    )
+    artifact_speech_basis = build_video_speech_basis(admit_script_unit("video_units", unit).preparation)
+    artifact_duration_basis = build_video_duration_basis(8)
+    artifact_currency = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=8,
+        visual_basis=artifact_visual_basis,
+        speech_basis=artifact_speech_basis,
+        duration_basis=artifact_duration_basis,
+        video_basis=compose_video_artifact_basis(
+            visual=artifact_visual_basis,
+            speech=artifact_speech_basis,
+            duration=artifact_duration_basis,
+        ),
+        voice_style_speakers=(),
+        duration_tiers=(4, 8, 12),
+        reference_image_limit=9,
+        parent_version=0,
     )
     selected_version = versions.add_version(
         "reference_videos",
@@ -2350,13 +2404,17 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
         source_file=current,
         duration_seconds=8,
         visual_basis_digest=visual_basis_digest,
-        artifact_episode=1,
-        artifact_video_basis=artifact_video_basis.to_dict(),
+        execution_checkpoint_schema_version=3,
+        execution_script_file="scripts/episode_1.json",
+        execution_duration_seconds=8,
+        execution_request_digest="d" * 64,
+        execution_provider_media=[],
+        artifact_video_currency=artifact_currency.to_dict(),
     )
     ArtifactManifest(ProjectArtifactManifestAdapter(proj_dir)).register_descriptor(
         ArtifactKey.episode_video(1, "E1U1"),
         artifact_path="reference_videos/E1U1.mp4",
-        basis=artifact_video_basis,
+        basis=artifact_currency.video_descriptor,
     )
     versions_before = (proj_dir / "versions" / "versions.json").read_bytes()
 
@@ -2745,7 +2803,8 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
     assert metadata["execution_request_digest"] == checkpoint.request_digest
     assert metadata["execution_prompt_sha256"] == checkpoint.prompt_sha256
     assert metadata["execution_visual_basis_digest"] == checkpoint.visual_basis_digest
-    assert metadata["artifact_visual_basis"] == checkpoint.artifact_visual_basis.to_dict()
+    assert checkpoint.artifact_currency is not None
+    assert metadata["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
     assert not (proj_dir / ".arcreel_artifacts.json").exists()
     assert not (proj_dir / ".arcreel" / "tasks" / "task-submit" / "provider_media").exists()
 

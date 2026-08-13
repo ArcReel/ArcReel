@@ -8,9 +8,15 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.api_errors import BadRequestError
-from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
+from lib.artifact_manifest import (
+    ArtifactBasis,
+    ArtifactBasisDescriptor,
+    compose_video_artifact_basis,
+)
 from lib.script_editor import ScriptEditError
+from lib.speech_artifact_provenance import build_video_duration_basis
 from lib.version_manager import VersionManager
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import versions
@@ -115,8 +121,43 @@ def _typed_video_versions(project_path: Path, resource_type: str, resource_id: s
     current_file, _relative = versions._resolve_resource_path(resource_type, resource_id, project_path)
     current_file.parent.mkdir(parents=True, exist_ok=True)
     current_file.write_bytes(b"typed-video")
-    basis = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-components/video", kind_version=1, inputs={"resource_id": resource_id})
+    visual = ArtifactBasis.build(
+        (
+            "artifact-visual/video-reference"
+            if resource_type == "reference_videos"
+            else "artifact-visual/video-storyboard"
+        ),
+        kind_version=1,
+        inputs=(
+            {
+                "unit_id": resource_id,
+                "visual_shots": [{"shot_index": 0, "lines": ["Run."]}],
+                "style": "cinematic",
+                "canvas": {"aspect_ratio": "9:16"},
+                "request_references": [],
+            }
+            if resource_type == "reference_videos"
+            else {
+                "resource_id": resource_id,
+                "visual_prompt": {"action": "Run.", "camera_motion": "Static"},
+                "canvas": {"aspect_ratio": "9:16"},
+                "frames": [{"role": "storyboard", "sha256": "a" * 64}],
+            }
+        ),
+    )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "narrator_voiceover"})
+    duration = build_video_duration_basis(4)
+    currency = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=4,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(4,),
+        reference_image_limit=1 if resource_type == "reference_videos" else None,
+        parent_version=0,
     )
     manager = VersionManager(project_path)
     manager.add_version(
@@ -124,8 +165,10 @@ def _typed_video_versions(project_path: Path, resource_type: str, resource_id: s
         resource_id,
         "typed video",
         source_file=current_file,
-        artifact_episode=1,
-        artifact_video_basis=basis.to_dict(),
+        execution_checkpoint_schema_version=3,
+        execution_duration_seconds=4,
+        execution_request_digest="d" * 64,
+        artifact_video_currency=currency.to_dict(),
         execution_script_file="episode_1.json",
     )
     return manager
@@ -153,7 +196,17 @@ def _typed_audio_project(tmp_path: Path) -> tuple[object, Path, VersionManager]:
     current.parent.mkdir(parents=True, exist_ok=True)
     current.write_bytes(b"audio-v1")
     basis = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("narration-delivery/tts-audio", kind_version=1, inputs={"text": "旁白"})
+        ArtifactBasis.build(
+            "narration-delivery/tts-audio",
+            kind_version=1,
+            inputs={
+                "text": "旁白",
+                "provider_id": "dashscope",
+                "model_id": "qwen3-tts-flash",
+                "voice": "Cherry",
+                "speed": None,
+            },
+        )
     )
     manager = VersionManager(project_path)
     manager.add_version(
@@ -165,6 +218,11 @@ def _typed_audio_project(tmp_path: Path) -> tuple[object, Path, VersionManager]:
         artifact_audio_basis=basis.to_dict(),
         execution_script_file="episode_1.json",
         tts_actual_duration_seconds=3.0,
+        tts_provider_id="dashscope",
+        tts_model_id="qwen3-tts-flash",
+        tts_voice="Cherry",
+        tts_speed=None,
+        tts_basis_digest=basis.digest,
     )
     return pm, project_path, manager
 

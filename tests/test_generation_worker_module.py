@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor, compose_video_artifact_basis
+from lib.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
 from lib.db import Base
 from lib.generation_worker import (
     _ORPHAN_RESCAN_LEASE_LOST_MULT,
@@ -17,6 +17,7 @@ from lib.generation_worker import (
     _read_int_env,
 )
 from lib.script_editor import ScriptEditError
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 
 
 def _cap(limits: dict[str, dict[str, int]] | None = None, *, image: int = 5, video: int = 3) -> CapacityTable:
@@ -39,18 +40,22 @@ def _phase_ids(slots: SlotTable, provider: str, media: str) -> tuple[set[str], s
 def _worker_reference_checkpoint(task_id: str, *, provider_id: str = "ark") -> str:
     from lib.reference_video.execution_checkpoint import NarrationExecutionFacts, ReferenceSubmissionCheckpoint
 
-    visual = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U1"})
+    visual = ArtifactBasis.build(
+        "artifact-visual/video-reference",
+        kind_version=1,
+        inputs={
+            "unit_id": "E1U1",
+            "visual_shots": [{"shot_index": 0, "lines": ["Run."]}],
+            "style": "cinematic",
+            "canvas": {"aspect_ratio": "9:16"},
+            "request_references": [],
+        },
     )
-    speech = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
-    )
-    duration = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build(
-            "artifact-speech/video-duration",
-            kind_version=1,
-            inputs={"request_duration_seconds": 8},
-        )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = ArtifactBasis.build(
+        "artifact-speech/video-duration",
+        kind_version=1,
+        inputs={"request_duration_seconds": 8},
     )
     return ReferenceSubmissionCheckpoint.create(
         task_id=task_id,
@@ -71,16 +76,18 @@ def _worker_reference_checkpoint(task_id: str, *, provider_id: str = "ark") -> s
         service_tier="default",
         seed=None,
         visual_basis_digest="a" * 64,
-        artifact_episode=1,
-        artifact_visual_basis=visual,
-        artifact_speech_basis=speech,
-        artifact_duration_basis=duration,
-        artifact_video_basis=ArtifactBasisDescriptor.from_basis(
-            compose_video_artifact_basis(visual=visual, speech=speech, duration=duration)
+        artifact_currency=VideoArtifactCurrencyFacts(
+            episode=1,
+            request_duration_seconds=8,
+            visual_basis=visual,
+            speech_basis=speech,
+            duration_basis=duration,
+            video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+            voice_style_speakers=(),
+            duration_tiers=(8,),
+            reference_image_limit=1,
+            parent_version=0,
         ),
-        artifact_voice_style_speakers=(),
-        artifact_duration_tiers=(8,),
-        artifact_reference_image_limit=None,
         narration=NarrationExecutionFacts(
             delivery="post_production",
             tts_status="not_applicable",
@@ -100,18 +107,21 @@ def _worker_storyboard_checkpoint(task_id: str, *, provider_id: str = "ark") -> 
         StoryboardSubmissionCheckpoint,
     )
 
-    visual = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+    visual = ArtifactBasis.build(
+        "artifact-visual/video-storyboard",
+        kind_version=1,
+        inputs={
+            "resource_id": "E1S01",
+            "visual_prompt": {"action": "Run.", "camera_motion": "Static"},
+            "canvas": {"aspect_ratio": "9:16"},
+            "frames": [{"role": "storyboard", "sha256": "a" * 64}],
+        },
     )
-    speech = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
-    )
-    duration = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build(
-            "artifact-speech/video-duration",
-            kind_version=1,
-            inputs={"request_duration_seconds": 8},
-        )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = ArtifactBasis.build(
+        "artifact-speech/video-duration",
+        kind_version=1,
+        inputs={"request_duration_seconds": 8},
     )
     return StoryboardSubmissionCheckpoint.create(
         task_id=task_id,
@@ -132,16 +142,18 @@ def _worker_storyboard_checkpoint(task_id: str, *, provider_id: str = "ark") -> 
         service_tier="default",
         seed=None,
         visual_basis_digest="a" * 64,
-        artifact_episode=1,
-        artifact_visual_basis=visual,
-        artifact_speech_basis=speech,
-        artifact_duration_basis=duration,
-        artifact_video_basis=ArtifactBasisDescriptor.from_basis(
-            compose_video_artifact_basis(visual=visual, speech=speech, duration=duration)
+        artifact_currency=VideoArtifactCurrencyFacts(
+            episode=1,
+            request_duration_seconds=8,
+            visual_basis=visual,
+            speech_basis=speech,
+            duration_basis=duration,
+            video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+            voice_style_speakers=(),
+            duration_tiers=(8,),
+            reference_image_limit=None,
+            parent_version=0,
         ),
-        artifact_voice_style_speakers=(),
-        artifact_duration_tiers=(8,),
-        artifact_reference_image_limit=None,
         narration=NarrationExecutionFacts(
             delivery="post_production",
             tts_status="not_applicable",

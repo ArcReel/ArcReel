@@ -21,6 +21,7 @@ from lib.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.version_manager import PaidVersionCommit, VersionManager
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 
 SelectionGuard = Callable[[], AbstractContextManager[object]]
 CurrentBasisResolver = Callable[[Mapping[str, Any]], ArtifactBasisDescriptor | None]
@@ -51,7 +52,9 @@ def commit_paid_video_artifact(
     """
 
     metadata = dict(version_metadata)
-    episode, frozen_basis = _typed_video_identity(metadata)
+    artifact_currency = _typed_video_identity(metadata)
+    episode = artifact_currency.episode if artifact_currency is not None else None
+    frozen_basis = artifact_currency.video_descriptor if artifact_currency is not None else None
     guard_factory = selection_guard or nullcontext
 
     def _archive_paid_history() -> PaidVersionCommit:
@@ -105,6 +108,7 @@ def commit_paid_video_artifact(
                 staged_file=staged_file,
                 current_file=current_file,
                 select_current=_select_if_current,
+                expected_current_version=(artifact_currency.parent_version if artifact_currency is not None else None),
                 on_select=_register_selected_basis,
                 duration_seconds=duration_seconds,
                 **metadata,
@@ -120,18 +124,11 @@ def commit_paid_video_artifact(
 
 def _typed_video_identity(
     metadata: Mapping[str, Any],
-) -> tuple[int | None, ArtifactBasisDescriptor | None]:
-    episode = metadata.get("artifact_episode")
-    raw_basis = metadata.get("artifact_video_basis")
-    if type(episode) is not int or episode < 1 or not isinstance(raw_basis, Mapping):
-        return None, None
+) -> VideoArtifactCurrencyFacts | None:
     try:
-        descriptor = ArtifactBasisDescriptor.from_dict(raw_basis)
+        return VideoArtifactCurrencyFacts.from_dict(metadata.get("artifact_video_currency"))
     except (TypeError, ValueError):
-        return None, None
-    if descriptor.kind != "artifact-components/video":
-        return None, None
-    return episode, descriptor
+        return None
 
 
 def _relative_artifact_path(project_path: Path, current_file: Path) -> str:

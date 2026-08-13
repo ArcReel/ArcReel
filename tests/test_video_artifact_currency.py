@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from lib.artifact_manifest import (
+    ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifest,
@@ -23,15 +24,81 @@ from lib.speech_artifact_provenance import (
 )
 from lib.speech_composition import admit_script_unit
 from lib.version_manager import PaidVersionCommit, VersionManager
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
 from server.services import video_artifact_currency
 from server.services.video_artifact_currency import (
     VideoArtifactCommitter,
     build_current_video_artifact_basis,
+    complete_video_artifact_commit,
     finalize_selected_video_result,
 )
 
 pytestmark = pytest.mark.integration
+
+
+def _currency(
+    label: str,
+    *,
+    request_duration: int = 8,
+    duration_tiers: tuple[int, ...] = (4, 8),
+    parent_version: int = 0,
+) -> VideoArtifactCurrencyFacts:
+    visual = ArtifactBasis.build(
+        "artifact-visual/video-storyboard",
+        kind_version=1,
+        inputs={
+            "resource_id": label,
+            "visual_prompt": {"action": label, "camera_motion": "Static"},
+            "canvas": {"aspect_ratio": "9:16"},
+            "frames": [{"role": "storyboard", "sha256": "a" * 64}],
+        },
+    )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = build_video_duration_basis(request_duration)
+    return VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=request_duration,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=duration_tiers,
+        reference_image_limit=None,
+        parent_version=parent_version,
+    )
+
+
+@pytest.mark.asyncio
+async def test_shared_video_completion_returns_nonselected_paid_history_without_finalizing(tmp_path: Path) -> None:
+    project_path = tmp_path / "demo"
+    paid = project_path / "paid.mp4"
+    paid.parent.mkdir(parents=True)
+    paid.write_bytes(b"paid")
+    versions = VersionManager(project_path)
+    version = versions.add_version("videos", "E1S01", "p", source_file=paid)
+    committer = MagicMock()
+    committer.outcome = PaidVersionCommit(version=version, selected=False)
+    committer.selection_error = None
+    finalize = AsyncMock()
+    completed = MagicMock()
+
+    result = await complete_video_artifact_commit(
+        committer=committer,
+        versions=versions,
+        resource_type="videos",
+        resource_id="E1S01",
+        version=version,
+        video_uri="provider://paid",
+        finalize=finalize,
+        on_completed=completed,
+    )
+
+    assert result["selected_current"] is False
+    assert (project_path / str(result["file_path"])).read_bytes() == b"paid"
+    finalize.assert_not_awaited()
+    completed.assert_called_once_with()
 
 
 @pytest.mark.asyncio
@@ -42,6 +109,11 @@ async def test_formal_selection_preparation_turns_tts_validation_failure_into_hi
     failure = RuntimeError("generated video does not cover current TTS")
     validate = AsyncMock(side_effect=failure)
     monkeypatch.setattr(video_artifact_currency, "validate_generated_video_covers_current_tts", validate)
+    monkeypatch.setattr(
+        video_artifact_currency.CurrentTtsSettingsResolver,
+        "resolve_tts_synthesis_settings",
+        AsyncMock(return_value=TtsSynthesisSettings("p", "m", "v", None)),
+    )
     committer = VideoArtifactCommitter(
         project_manager=MagicMock(),
         project_name="demo",
@@ -84,15 +156,13 @@ async def test_failed_formal_selection_validation_archives_paid_video_without_cu
     staged.write_bytes(b"short-paid-video")
     versions = VersionManager(project_path)
     old_version = versions.add_version("videos", "E1S01", "old", source_file=current)
-    frozen = ArtifactBasisDescriptor.from_basis(
-        compose_video_artifact_basis(
-            visual=build_video_duration_basis(1),
-            speech=build_video_duration_basis(2),
-            duration=build_video_duration_basis(8),
-        )
-    )
+    currency = _currency("frozen", parent_version=old_version)
 
     class _PM:
+        @staticmethod
+        def load_project(_name):
+            return {}
+
         @contextmanager
         def locked_project_script_snapshot(self, *_args):
             yield {}, {}
@@ -102,6 +172,11 @@ async def test_failed_formal_selection_validation_archives_paid_video_without_cu
         video_artifact_currency,
         "validate_generated_video_covers_current_tts",
         AsyncMock(side_effect=failure),
+    )
+    monkeypatch.setattr(
+        video_artifact_currency.CurrentTtsSettingsResolver,
+        "resolve_tts_synthesis_settings",
+        AsyncMock(return_value=TtsSynthesisSettings("p", "m", "v", None)),
     )
     committer = VideoArtifactCommitter(
         project_manager=_PM(),  # type: ignore[arg-type]
@@ -113,8 +188,7 @@ async def test_failed_formal_selection_validation_archives_paid_video_without_cu
         prompt="p",
     )
     metadata = {
-        "artifact_episode": 1,
-        "artifact_video_basis": frozen.to_dict(),
+        "artifact_video_currency": currency.to_dict(),
         "execution_script_file": "episode_1.json",
         "execution_narration": {"delivery": "use_tts"},
     }
@@ -152,13 +226,8 @@ def test_selected_video_cancellation_compensation_restores_media_manifest_and_on
             duration=build_video_duration_basis(4),
         )
     )
-    new_basis = ArtifactBasisDescriptor.from_basis(
-        compose_video_artifact_basis(
-            visual=build_video_duration_basis(1),
-            speech=build_video_duration_basis(2),
-            duration=build_video_duration_basis(8),
-        )
-    )
+    new_currency = _currency("new", parent_version=old_version)
+    new_basis = new_currency.video_descriptor
     adapter = ProjectArtifactManifestAdapter(project_path)
     ArtifactManifest(adapter).register_descriptor(
         ArtifactKey.episode_video(1, "E1S01"),
@@ -211,8 +280,7 @@ def test_selected_video_cancellation_compensation_restores_media_manifest_and_on
         prompt="new",
     )
     metadata = {
-        "artifact_episode": 1,
-        "artifact_video_basis": new_basis.to_dict(),
+        "artifact_video_currency": new_currency.to_dict(),
         "execution_script_file": "episode_1.json",
         "execution_narration": {"delivery": "post_production"},
     }
@@ -303,11 +371,37 @@ def _storyboard_state(tmp_path: Path) -> tuple[Path, dict, dict, dict[str, objec
             }
         ],
     }
+    preparation = admit_script_unit("scenes", script["scenes"][0]).preparation
+    visual = build_storyboard_video_artifact_visual_basis(
+        resource_id="E1S01",
+        visual_prompt=script["scenes"][0]["video_prompt"],
+        storyboard_image=storyboard,
+        end_frame_image=None,
+        aspect_ratio="16:9",
+    )
+    speech = build_video_speech_basis(
+        preparation,
+        voices=project_character_voice_evidence(
+            preparation,
+            characters=project["characters"],
+            voice_style_speakers=("阿离",),
+        ),
+    )
+    duration = build_video_duration_basis(4)
+    currency = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=4,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=("阿离",),
+        duration_tiers=(4, 8),
+        reference_image_limit=None,
+        parent_version=0,
+    )
     metadata: dict[str, object] = {
-        "artifact_episode": 1,
-        "artifact_voice_style_speakers": ["阿离"],
-        "artifact_duration_tiers": [4, 8],
-        "artifact_reference_image_limit": None,
+        "artifact_video_currency": currency.to_dict(),
         "execution_script_file": "episode_1.json",
         "execution_provider_media": [],
         "execution_narration": {
@@ -394,16 +488,21 @@ def test_current_selected_tts_changes_video_only_when_it_crosses_a_frozen_tier(t
             }
         ],
     }
-    metadata["artifact_voice_style_speakers"] = []
     metadata["execution_narration"] = {"delivery": "use_tts"}
+    metadata["artifact_video_currency"] = _currency(
+        "narration",
+        request_duration=8,
+        duration_tiers=(4, 8),
+    ).to_dict()
     versions = VersionManager(project_path)
     audio = project_path / "audio" / "segment_E1S01.wav"
     audio.parent.mkdir(parents=True)
     audio.write_bytes(b"audio")
     preparation = admit_script_unit("segments", script["segments"][0]).preparation
+    settings = TtsSynthesisSettings(provider_id="p", model_id="m", voice="v", speed=1.0)
     audio_basis = build_narration_audio_basis(
         preparation,
-        TtsSynthesisSettings(provider_id="p", model_id="m", voice="v", speed=1.0),
+        settings,
     )
     descriptor = ArtifactBasisDescriptor.from_basis(audio_basis)
     versions.add_version(
@@ -428,6 +527,7 @@ def test_current_selected_tts_changes_video_only_when_it_crosses_a_frozen_tier(t
         resource_id="E1S01",
         versions=versions,
         version_metadata=metadata,
+        current_tts_settings=settings,
     )
 
     versions.add_version(
@@ -446,6 +546,7 @@ def test_current_selected_tts_changes_video_only_when_it_crosses_a_frozen_tier(t
         resource_id="E1S01",
         versions=versions,
         version_metadata=metadata,
+        current_tts_settings=settings,
     )
     versions.add_version(
         "audio",
@@ -463,7 +564,33 @@ def test_current_selected_tts_changes_video_only_when_it_crosses_a_frozen_tier(t
         resource_id="E1S01",
         versions=versions,
         version_metadata=metadata,
+        current_tts_settings=settings,
+    )
+    stale_script = deepcopy(script)
+    stale_script["segments"][0]["novel_text"] = "旁白已修改，当前配音不再 fresh。"
+    stale_tts = build_current_video_artifact_basis(
+        project_path=project_path,
+        project=project,
+        script=stale_script,
+        resource_type="videos",
+        resource_id="E1S01",
+        versions=versions,
+        version_metadata=metadata,
+        current_tts_settings=settings,
+    )
+    ProjectArtifactManifestAdapter(project_path).delete_entry(ArtifactKey.episode_audio(1, "E1S01"))
+    unavailable_tts = build_current_video_artifact_basis(
+        project_path=project_path,
+        project=project,
+        script=script,
+        resource_type="videos",
+        resource_id="E1S01",
+        versions=versions,
+        version_metadata=metadata,
+        current_tts_settings=settings,
     )
 
     assert long_basis == same_tier
     assert shorter_tier != long_basis
+    assert stale_tts == long_basis
+    assert unavailable_tts == long_basis

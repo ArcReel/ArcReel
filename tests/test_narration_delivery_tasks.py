@@ -5,11 +5,13 @@ import pytest
 
 from lib.artifact_manifest import (
     ArtifactBasis,
-    ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifest,
     ProjectArtifactManifestAdapter,
+    compose_video_artifact_basis,
 )
+from lib.speech_artifact_provenance import build_video_duration_basis
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from server.services import narration_delivery_tasks
 
 
@@ -19,20 +21,57 @@ def _typed_video_metadata(
     resource_id: str,
     artifact_path: str,
     visual_basis_digest: str,
+    request_duration_seconds: int = 8,
     register: bool = True,
 ) -> dict[str, object]:
-    descriptor = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-components/video", kind_version=1, inputs={"resource_id": resource_id})
+    is_reference = artifact_path.startswith("reference_videos/")
+    visual = ArtifactBasis.build(
+        "artifact-visual/video-reference" if is_reference else "artifact-visual/video-storyboard",
+        kind_version=1,
+        inputs=(
+            {
+                "unit_id": resource_id,
+                "visual_shots": [{"shot_index": 0, "lines": ["Run."]}],
+                "style": "cinematic",
+                "canvas": {"aspect_ratio": "9:16"},
+                "request_references": [],
+            }
+            if is_reference
+            else {
+                "resource_id": resource_id,
+                "visual_prompt": {"action": "Run.", "camera_motion": "Static"},
+                "canvas": {"aspect_ratio": "9:16"},
+                "frames": [{"role": "storyboard", "sha256": "a" * 64}],
+            }
+        ),
+    )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = build_video_duration_basis(request_duration_seconds)
+    currency = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=request_duration_seconds,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(4, 8, 12),
+        reference_image_limit=0 if is_reference else None,
+        parent_version=0,
     )
     if register:
         ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register_descriptor(
             ArtifactKey.episode_video(1, resource_id),
             artifact_path=artifact_path,
-            basis=descriptor,
+            basis=currency.video_descriptor,
         )
     return {
-        "artifact_episode": 1,
-        "artifact_video_basis": descriptor.to_dict(),
+        "execution_checkpoint_schema_version": 3,
+        "execution_script_file": "episode_1.json",
+        "execution_duration_seconds": request_duration_seconds,
+        "execution_request_digest": "d" * 64,
+        "execution_provider_media": [],
+        "artifact_video_currency": currency.to_dict(),
         "visual_basis_digest": visual_basis_digest,
     }
 
@@ -301,6 +340,7 @@ async def test_current_visual_is_reused_only_for_the_selected_trusted_duration_t
             resource_id="E1S01",
             artifact_path="videos/scene_E1S01.mp4",
             visual_basis_digest="current-visual-basis",
+            request_duration_seconds=4,
         ),
     )
     item = {

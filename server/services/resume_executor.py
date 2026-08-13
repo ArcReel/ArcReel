@@ -20,18 +20,18 @@ from lib.reference_video.execution_checkpoint import (
     load_task_video_checkpoint,
 )
 from lib.video_backends.base import ResumeEndpointChangedError
-from server.services.generation_context import VideoLaneRequest, resolve_generation_context
+from server.services.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
     DEFAULT_USER_ID,
     _finalize_video_task,
     emit_generation_success_batch,
     get_project_manager,
 )
+from server.services.narration_delivery_tasks import ResolvedTtsSettingsResolver
 from server.services.reference_video_tasks import _finalize_reference_video_unit
 from server.services.video_artifact_currency import (
     VideoArtifactCommitter,
-    finalize_selected_video_result,
-    paid_video_history_result,
+    complete_video_artifact_commit,
 )
 
 logger = logging.getLogger(__name__)
@@ -141,6 +141,7 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
             project=project,
             user_id=user_id,
             video=video_request,
+            audio=(AudioLaneRequest() if checkpoint.narration.delivery == "use_tts" else None),
         )
         generator = ctx.generator
 
@@ -170,6 +171,11 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
             resource_type=resource_type,
             resource_id=resource_id,
             prompt=prompt_text,
+            current_tts_settings=(
+                ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio).settings
+                if checkpoint.narration.delivery == "use_tts"
+                else None
+            ),
         )
 
         with project_change_source("worker"):
@@ -191,26 +197,13 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
                 **optional_kwargs,
             )
 
-            if artifact_committer.outcome is None:
-                raise RuntimeError("formal video resume returned without invoking the artifact commit callback")
-            if artifact_committer.selection_error is not None:
-                raise artifact_committer.selection_error
-            if not artifact_committer.outcome.selected:
-                result = await asyncio.to_thread(
-                    paid_video_history_result,
-                    versions=generator.versions,
-                    resource_type=resource_type,
-                    resource_id=resource_id,
-                    version=version,
-                    video_uri=video_uri,
-                )
+            def _emit_success() -> None:
                 emit_generation_success_batch(
                     task_type=task_type,
                     project_name=project_name,
                     resource_id=resource_id,
                     payload=event_payload,
                 )
-                return result
 
             async def _finalize() -> dict[str, Any]:
                 if task_type == "reference_video":
@@ -234,14 +227,17 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
                         video_uri=video_uri,
                         generator=generator,
                     )
-                emit_generation_success_batch(
-                    task_type=task_type,
-                    project_name=project_name,
-                    resource_id=resource_id,
-                    payload=event_payload,
-                )
                 return selected_result
 
-            return await finalize_selected_video_result(committer=artifact_committer, finalize=_finalize)
+            return await complete_video_artifact_commit(
+                committer=artifact_committer,
+                versions=generator.versions,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                version=version,
+                video_uri=video_uri,
+                finalize=_finalize,
+                on_completed=_emit_success,
+            )
     finally:
         await asyncio.to_thread(cleanup_staged_provider_media, project_path, checkpoint.task_id)

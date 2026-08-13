@@ -3,8 +3,8 @@
 关注点：
 - resume 路径不落新 pending 行（不开记账括号）
 - ledger.resume_success / resume_failed 按 api_call_id 精准翻 pending → success/failed
-- 版本管理用 add_version：resume 成功后总是 bump 新版本，让 versions.json 与磁盘文件一致
-  （submit→poll 崩 → 登记 v1；已有 v_n 的覆盖式重新生成 → 登记 v_(n+1)）
+- resume 成功后保存一个付费版本；正式媒体经 staging callback 原子决定 current，
+  非正式请求直接追加并选中新版本
 - ResumeExpiredError 沿调用链上抛，pending 翻 failed
 """
 
@@ -19,24 +19,9 @@ import pytest
 
 from lib.media_generator import MediaGenerator
 from lib.video_backends.base import ResumeExpiredError
+from tests.fakes import select_formal_video
 
 pytestmark = pytest.mark.unit
-
-
-def _select_formal_video(gen: MediaGenerator):
-    def _commit(staged_file, current_file, duration_seconds, version_metadata):
-        return gen.versions.commit_staged_paid_version(
-            resource_type="reference_videos",
-            resource_id="E1U1",
-            prompt="",
-            staged_file=staged_file,
-            current_file=current_file,
-            select_current=True,
-            duration_seconds=duration_seconds,
-            **version_metadata,
-        )
-
-    return _commit
 
 
 class _FakeVideoResult:
@@ -344,7 +329,7 @@ async def test_resume_formal_output_uses_same_staged_version_transaction(tmp_pat
 
     def _commit(*args):
         events.append("committed")
-        return _select_formal_video(gen)(*args)
+        return select_formal_video(gen)(*args)
 
     output, version, _, _ = await gen.resume_video_async(
         job_id="provider-job-1",

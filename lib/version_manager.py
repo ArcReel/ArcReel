@@ -331,6 +331,7 @@ class VersionManager:
         staged_file: Path,
         current_file: Path,
         select_current: bool | Callable[[], bool],
+        expected_current_version: int | None = None,
         on_select: Callable[[], None] | None = None,
         **metadata,
     ) -> PaidVersionCommit:
@@ -349,6 +350,10 @@ class VersionManager:
             raise ValueError(f"不支持的资源类型: {resource_type}")
         if not isinstance(select_current, bool) and not callable(select_current):
             raise TypeError("select_current must be a boolean or a callable returning one")
+        if expected_current_version is not None and (
+            type(expected_current_version) is not int or expected_current_version < 0
+        ):
+            raise ValueError("expected_current_version must be a non-negative integer or null")
         staged_file = Path(staged_file)
         current_file = Path(current_file)
         if not staged_file.is_file():
@@ -420,7 +425,13 @@ class VersionManager:
                 raise
 
             try:
-                should_select = select_current() if callable(select_current) else select_current
+                should_select = (
+                    False
+                    if expected_current_version is not None and prior_current != expected_current_version
+                    else select_current()
+                    if callable(select_current)
+                    else select_current
+                )
                 if not isinstance(should_select, bool):
                     raise TypeError("select_current callback must return a boolean")
             except BaseException:

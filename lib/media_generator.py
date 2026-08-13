@@ -1079,10 +1079,8 @@ class MediaGenerator:
                 job_id,
             )
 
-        # backend.resume_video 已下载新视频并覆盖 output_path，必须 bump 一个新版本号：
-        # - versions.json 空时（submit→poll 中崩）add_version 直接登记 v1，避免下游 versions[-1] IndexError；
-        # - versions.json 已有 v_n（覆盖式重新生成）时 add_version 登记 v_(n+1)，避免 output_path
-        #   被新内容覆盖却仍报旧版本号导致 versions.json 与磁盘文件错位。
+        # backend.resume_video 已将付费结果下载到请求路径。正式媒体请求写入 staging，随后由
+        # commit callback 在一个受控事务内保存历史并决定是否选中；非正式请求直接追加版本。
         if before_formal_commit is not None:
             assert staged_output_path is not None
             await before_formal_commit(staged_output_path, duration_int, version_metadata)

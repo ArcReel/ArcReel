@@ -16,7 +16,6 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lib.artifact_manifest import (
-    ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifestEntry,
     ArtifactManifestError,
@@ -60,6 +59,7 @@ from lib.script_skeleton import resolve_script_kind
 from lib.speech_composition import admit_script_unit
 from lib.storyboard_sequence import resolve_storyboard_image_ref
 from lib.version_manager import VersionManager
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_visual_provenance import (
     build_reference_video_visual_basis,
     build_storyboard_video_visual_basis,
@@ -140,13 +140,12 @@ def _selected_current_video_record(
     )
     if current_record is None:
         return None
-    episode = current_record.get("artifact_episode")
     try:
-        recorded_basis = ArtifactBasisDescriptor.from_dict(current_record.get("artifact_video_basis"))
+        artifact_currency = VideoArtifactCurrencyFacts.from_dict(current_record.get("artifact_video_currency"))
     except (TypeError, ValueError):
         return None
-    if type(episode) is not int or episode < 1 or recorded_basis.kind != "artifact-components/video":
-        return None
+    episode = artifact_currency.episode
+    recorded_basis = artifact_currency.video_descriptor
     try:
         manifest_entry = ProjectArtifactManifestAdapter(project_path).get_entry(
             ArtifactKey.episode_video(episode, resource_id)
