@@ -17,21 +17,19 @@ from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_artifact_if_provable
 from lib.artifact_manifest import (
     ArtifactKey,
-    ArtifactManifest,
     ArtifactManifestAdapter,
     ArtifactManifestError,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifact_provenance import build_episode_script_basis
 from lib.data_validator import DataValidator
 from lib.episode_paths import episode_script_filename
-from lib.json_io import load_json
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager
 from lib.reference_video import rederive_unit_references
 from lib.script_editor import ScriptEditError, patch_field, resolve_items
-from lib.script_review import content_fingerprint_of_data, step1_path
+from lib.script_review import content_fingerprint_of_data
 from lib.script_structure_validator import validate_script_structure
 from lib.speech_composition import SpeechAdmission, admit_script_unit, refresh_video_unit_replan_state
 from lib.validation_messages import ValidationMessage
@@ -453,37 +451,21 @@ class ScriptBatchEditor:
         script: dict[str, Any],
         script_file: str,
     ) -> Callable[[], None] | None:
+        if project.get("schema_version") != TARGET_SCHEMA_VERSION:
+            return None
         episode = script.get("episode")
         if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
             return None
-        direct_input_path = step1_path(project_dir, project, episode)
-        if direct_input_path is None or not direct_input_path.is_file():
-            return None
-        step1_content = load_json(direct_input_path)
-        basis = build_episode_script_basis(step1_content, project=project)
         adapter = self._manifest_adapter_factory(project_dir)
         key = ArtifactKey.episode_script(episode)
-        previous_entry = adapter.get_entry(key)
+        adapter.get_entry(key)
         artifact_path = f"scripts/{self._pm.normalize_script_filename(script_file)}"
         observation = adapter.inspect_artifact(artifact_path)
         if observation.blocker is not None:
             raise ArtifactManifestError(observation.blocker.detail)
-        manifest = ArtifactManifest(adapter)
 
         def commit() -> None:
-            try:
-                manifest.register(key, artifact_path=artifact_path, basis=basis)
-            except BaseException:
-                try:
-                    if previous_entry is None:
-                        adapter.delete_entry(key)
-                    else:
-                        adapter.put_entry(key, previous_entry)
-                except BaseException as rollback_error:
-                    raise RuntimeError(
-                        "artifact manifest commit failed and rollback was incomplete"
-                    ) from rollback_error
-                raise
+            register_current_artifact_if_provable(project_dir, key, adapter=adapter)
 
         return commit
 

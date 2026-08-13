@@ -20,6 +20,7 @@ from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib.api_errors import NotFoundError
+from lib.artifact_activation import register_current_resource_artifact
 from lib.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
 from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
@@ -186,6 +187,8 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
         host_not_found_key="product_not_found",
     ),
 }
+
+_FORMAL_SHEET_UPLOAD_TYPES = frozenset(ASSET_SPECS)
 
 # 允许的文件类型（前端 frontend/src/utils/source-files.ts 镜像了 source 一项）
 ALLOWED_EXTENSIONS = {upload_type: list(spec.allowed_exts) for upload_type, spec in UPLOAD_SPECS.items()}
@@ -389,6 +392,16 @@ async def upload_file(
                             target_path.unlink(missing_ok=True)
                             raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
                         # 单图类型：资产不存在时忽略，文件路径确定，资产后建仍可引用
+
+                if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
+                    asset_spec = ASSET_SPECS[upload_type]
+                    bucket = manager.load_project(project_name).get(asset_spec.bucket_key)
+                    if resolve_asset_key(bucket, name) is not None:
+                        register_current_resource_artifact(
+                            project_dir,
+                            resource_type=asset_spec.bucket_key,
+                            resource_id=name,
+                        )
 
             return {
                 "success": True,

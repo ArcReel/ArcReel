@@ -80,6 +80,37 @@ def test_project_adapter_persists_deterministic_utf8_and_skips_unchanged_write(t
     assert reloaded.compare(key, artifact_path="scripts/第一集.json", basis=basis).status is ArtifactStatus.CURRENT
 
 
+def test_project_adapter_replaces_the_complete_target_state_atomically(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    (project / "characters").mkdir(parents=True)
+    (project / "characters" / "Alice.png").write_bytes(b"alice")
+    (project / "scenes").mkdir()
+    (project / "scenes" / "Cafe.png").write_bytes(b"cafe")
+    adapter = ProjectArtifactManifestAdapter(project)
+    old_key = ArtifactKey.asset_sheet("character", "Alice")
+    adapter.put_entry(
+        old_key,
+        ArtifactManifestEntry(
+            artifact_path="characters/Alice.png",
+            basis_digest=ArtifactBasis.build("old", kind_version=1, inputs={}).digest,
+        ),
+    )
+    target_key = ArtifactKey.asset_sheet("scene", "Cafe")
+    target_entry = ArtifactManifestEntry(
+        artifact_path="scenes/Cafe.png",
+        basis_digest=ArtifactBasis.build("new", kind_version=1, inputs={}).digest,
+    )
+
+    assert adapter.replace_entries_atomically({target_key: target_entry}) is True
+    assert adapter.get_entry(old_key) is None
+    assert adapter.get_entry(target_key) == target_entry
+
+    manifest_path = project / MANIFEST_FILENAME
+    before = (manifest_path.read_bytes(), manifest_path.stat().st_mtime_ns)
+    assert adapter.replace_entries_atomically({target_key: target_entry}) is False
+    assert (manifest_path.read_bytes(), manifest_path.stat().st_mtime_ns) == before
+
+
 def test_stale_comparison_preserves_paid_artifact_and_manifest(tmp_path: Path) -> None:
     project = tmp_path / "project"
     artifact = project / "videos" / "E1S01.mp4"

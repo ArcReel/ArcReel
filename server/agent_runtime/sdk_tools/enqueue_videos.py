@@ -12,6 +12,11 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.artifact_activation import (
+    active_artifact_currency_resolver,
+    artifact_is_usable,
+)
+from lib.artifact_manifest import ArtifactKey
 from lib.config.resolver import video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.generation_queue_client import (
@@ -920,6 +925,7 @@ async def _run_reference_episode(
     if not units:
         raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
     project = ctx.pm.load_project(ctx.project_name)
+    currency = active_artifact_currency_resolver(ctx.project_path, project)
     result = await _generate_reference_units(
         ctx=ctx,
         units=units,
@@ -935,8 +941,10 @@ async def _run_reference_episode(
         script=script,
         script_filename=script_filename,
         request_options=request_options,
-        reuse_existing=lambda unit: (
-            get_generated_assets(unit).get("video_clip") == _reference_fallback_relpath(str(unit.get("unit_id") or ""))
+        reuse_existing=lambda unit: artifact_is_usable(
+            currency,
+            ArtifactKey.episode_video(episode, str(unit.get("unit_id") or "")),
+            get_generated_assets(unit).get("video_clip"),
         ),
     )
     if isinstance(result, DurationConfirmationPending):
@@ -1315,7 +1323,25 @@ def generate_video_all_tool(ctx: ToolContext):
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             project = ctx.pm.load_project(ctx.project_name)
             content_mode = resolve_content_mode(script, project)
-            pending = [it for it in items if not get_generated_assets(it).get("video_clip")]
+            currency = active_artifact_currency_resolver(project_dir, project)
+            episode = script.get("episode")
+            if currency is not None and (type(episode) is not int or episode < 1):
+                raise ValueError("script episode must be a positive integer")
+            if type(episode) is not int or episode < 1:
+                episode = 1
+            pending: list[dict[str, Any]] = []
+            for item in items:
+                resource_id = item.get(id_field)
+                if (
+                    not isinstance(resource_id, str)
+                    or not resource_id
+                    or not artifact_is_usable(
+                        currency,
+                        ArtifactKey.episode_video(episode, resource_id) if currency is not None else None,
+                        get_generated_assets(item).get("video_clip"),
+                    )
+                ):
+                    pending.append(item)
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
 

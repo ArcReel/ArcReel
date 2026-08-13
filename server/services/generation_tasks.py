@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from lib.api_errors import ConflictError
+from lib.artifact_activation import register_current_resource_artifact
 from lib.artifact_manifest import (
     ArtifactBasisDescriptor,
     ArtifactKey,
@@ -708,7 +709,14 @@ async def execute_storyboard_task(
             asset_type="storyboard_image",
             asset_path=f"storyboards/scene_{resource_id}.png",
         )
-        return generator.versions.get_versions("storyboards", resource_id)["versions"][-1]["created_at"]
+        created_at = generator.versions.get_versions("storyboards", resource_id)["versions"][-1]["created_at"]
+        register_current_resource_artifact(
+            project_path,
+            resource_type="storyboards",
+            resource_id=resource_id,
+            script_file=str(script_file),
+        )
+        return created_at
 
     created_at = await asyncio.to_thread(_finalize)
 
@@ -1810,7 +1818,13 @@ async def execute_character_task(
             p["characters"][key]["character_sheet"] = sheet_path
 
         get_project_manager().update_project(project_name, _set_character_sheet)
-        return generator.versions.get_versions("characters", resource_id)["versions"][-1]["created_at"]
+        created_at = generator.versions.get_versions("characters", resource_id)["versions"][-1]["created_at"]
+        register_current_resource_artifact(
+            get_project_manager().get_project_path(project_name),
+            resource_type="characters",
+            resource_id=resource_id,
+        )
+        return created_at
 
     created_at = await asyncio.to_thread(_finalize_char)
 
@@ -1911,7 +1925,13 @@ async def execute_design_task(
 
     def _finalize():
         get_project_manager()._update_asset_sheet(kind, project_name, resource_id, sheet_path)
-        return generator.versions.get_versions(bucket_key, resource_id)["versions"][-1]["created_at"]
+        created_at = generator.versions.get_versions(bucket_key, resource_id)["versions"][-1]["created_at"]
+        register_current_resource_artifact(
+            get_project_manager().get_project_path(project_name),
+            resource_type=bucket_key,
+            resource_id=resource_id,
+        )
+        return created_at
 
     created_at = await asyncio.to_thread(_finalize)
 
@@ -2135,6 +2155,12 @@ async def execute_grid_task(
         grid.status = "completed"
         grid.split_at = None
         grid_manager.save(grid)
+        await asyncio.to_thread(
+            register_current_resource_artifact,
+            project_path,
+            resource_type="grids",
+            resource_id=resource_id,
+        )
 
     except Exception:
         grid.status = "failed"

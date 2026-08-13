@@ -19,12 +19,14 @@ from lib.project_migrations.v3_to_v4_text_tiers import migrate_v3_to_v4
 from lib.project_migrations.v4_to_v5_generation_route import migrate_v4_to_v5
 from lib.project_migrations.v5_to_v6_asset_namespace import migrate_v5_to_v6
 from lib.project_migrations.v6_to_v7_ad_reference_video_units import migrate_v6_to_v7
+from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 
 logger = logging.getLogger(__name__)
 
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
+_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7})
 
 
 def _versioned_backup_name(base_name: str, from_version: int, ts: int) -> str:
@@ -110,7 +112,11 @@ def migrate_project_dir(project_dir: Path) -> bool:
     if version < 0 or version >= CURRENT_SCHEMA_VERSION:
         return False
     while version < CURRENT_SCHEMA_VERSION:
-        _backup_project_json(project_dir, version)
+        # Activation migrations must finish their complete read-only preflight
+        # before creating any backup.  Their commit boundary owns the backup so
+        # the runner cannot leave writes behind when preflight rejects a project.
+        if version not in _MIGRATORS_WITH_OWNED_BACKUP:
+            _backup_project_json(project_dir, version)
         if version == 0:
             _hardlink_backup_clues(project_dir, version)
         migrator = MIGRATORS.get(version)
@@ -189,3 +195,4 @@ MIGRATORS[3] = migrate_v3_to_v4
 MIGRATORS[4] = migrate_v4_to_v5
 MIGRATORS[5] = migrate_v5_to_v6
 MIGRATORS[6] = migrate_v6_to_v7
+MIGRATORS[7] = migrate_v7_to_v8

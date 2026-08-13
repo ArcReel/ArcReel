@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from lib.artifact_activation import ensure_imported_artifact_target_state
 from lib.asset_types import normalize_asset_name
 from lib.config.resolver import resolve_raw_supported_durations
 from lib.data_validator import DataValidator
@@ -330,6 +331,10 @@ class ProjectArchiveService:
                             warnings=diagnostics.warning_messages(),
                             diagnostics=diagnostics,
                         )
+                    # Artifact Manifest 是 hidden sidecar，不进入归档成员；schema-v8
+                    # 归档因此必须在 staging 激活边界 eager 重建。先让既有 validator
+                    # 保持其结构化导入诊断，再对合法树执行目标态预检与原子提交。
+                    ensure_imported_artifact_target_state(staging_dir)
 
                     project = self._load_project_file(staging_dir / self.project_manager.PROJECT_FILE)
                     target_name = self._resolve_target_project_name(

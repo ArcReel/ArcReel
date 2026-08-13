@@ -14,6 +14,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.artifact_activation import register_current_resource_artifact
 from lib.generation_queue import get_generation_queue
 from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks, video_aspect_ratio_of
 from lib.grid.models import GridGeneration, build_grid_task_payload
@@ -411,6 +412,11 @@ async def upload_grid_image(
             # 未随版本记录，只能沿用记录上的冻结值。
             grid.video_aspect_ratio = aspect_ratio
             grid_manager.save(grid)
+            register_current_resource_artifact(
+                project_path,
+                resource_type="grids",
+                resource_id=grid_id,
+            )
             return emit_generation_success_batch(
                 task_type="grid",
                 project_name=project_name,

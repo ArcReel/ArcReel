@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 
 from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
-from lib.artifact_provenance import build_episode_script_basis, build_step1_basis
+from lib.artifact_provenance import (
+    build_ad_episode_script_basis,
+    build_episode_script_basis,
+    build_step1_basis,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -142,3 +146,110 @@ def test_step1_basis_canonicalizes_default_source_language(source_language: obje
     explicit = build_step1_basis("source", project={**project, "source_language": "中文"})
 
     assert defaulted.digest == explicit.digest
+
+
+def test_ad_script_basis_tracks_only_persisted_prompt_inputs() -> None:
+    project = {
+        "content_mode": "ad",
+        "generation_mode": "storyboard",
+        "target_duration": 30,
+        "brief": "突出耐用",
+        "overview": {
+            "synopsis": "新品发布",
+            "genre": "广告",
+            "theme": "可靠",
+            "world_setting": "工作室",
+            "unused": "must-not-participate",
+        },
+        "style": "实拍",
+        "style_description": "柔和自然光",
+        "aspect_ratio": "9:16",
+        "source_language": "zh",
+        "speech_rate_units_per_second": 6.0,
+        "characters": {"小岚": {"description": "prompt only consumes the name"}},
+        "scenes": {"工作室": {"description": "prompt only consumes the name"}},
+        "props": {"桌子": {"description": "prompt only consumes the name"}},
+        "products": {
+            "水杯": {
+                "brand": "Arc",
+                "description": "钛合金水杯",
+                "selling_points": ["耐摔", "保温"],
+                "product_sheet": "products/水杯.png",
+            }
+        },
+        "provider": "first-provider",
+        "supported_durations": [4, 6, 8],
+        "request_instructions": "first request only",
+    }
+
+    baseline = build_ad_episode_script_basis(1, project=project)
+    execution_only = build_ad_episode_script_basis(
+        1,
+        project={
+            **project,
+            "provider": "second-provider",
+            "supported_durations": [5, 10],
+            "request_instructions": "another request only",
+            "overview": {**project["overview"], "unused": "changed"},
+            "characters": {"小岚": {"description": "changed but not rendered"}},
+            "products": {
+                "水杯": {
+                    **project["products"]["水杯"],
+                    "product_sheet": "products/replaced.png",
+                }
+            },
+        },
+    )
+    changed_brief = build_ad_episode_script_basis(1, project={**project, "brief": "突出轻便"})
+    changed_product = build_ad_episode_script_basis(
+        1,
+        project={
+            **project,
+            "products": {
+                "水杯": {
+                    **project["products"]["水杯"],
+                    "selling_points": ["轻便"],
+                }
+            },
+        },
+    )
+    changed_speech_rate = build_ad_episode_script_basis(
+        1,
+        project={**project, "speech_rate_units_per_second": 7.0},
+    )
+
+    assert execution_only.digest == baseline.digest
+    assert changed_brief.digest != baseline.digest
+    assert changed_product.digest != baseline.digest
+    assert changed_speech_rate.digest != baseline.digest
+
+
+def test_ad_reference_script_basis_excludes_storyboard_only_inputs() -> None:
+    project = {
+        "content_mode": "ad",
+        "generation_mode": "reference_video",
+        "target_duration": 30,
+        "brief": "短片",
+        "overview": {"synopsis": "发布", "world_setting": "unused by reference prompt"},
+        "style": "实拍",
+        "style_description": "自然光",
+        "aspect_ratio": "9:16",
+        "source_language": "zh",
+        "speech_rate_units_per_second": 6.0,
+        "characters": {},
+        "scenes": {},
+        "props": {},
+        "products": {},
+    }
+
+    baseline = build_ad_episode_script_basis(1, project=project)
+    same = build_ad_episode_script_basis(
+        1,
+        project={
+            **project,
+            "speech_rate_units_per_second": 7.0,
+            "overview": {**project["overview"], "world_setting": "changed"},
+        },
+    )
+
+    assert same.digest == baseline.digest

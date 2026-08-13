@@ -13,6 +13,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib import script_review
+from lib.artifact_activation import TARGET_SCHEMA_VERSION, ArtifactCurrencyResolver
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
 from lib.asset_types import ASSET_SPECS
 from lib.data_validator import DataValidator
 from lib.episode_ledger import (
@@ -107,6 +109,7 @@ class _SharedWorkflowFacts:
     inventory: dict[str, Any]
     sheets: dict[str, dict[str, Any]]
     episodes: list[tuple[int, dict[str, Any]]]
+    currency: ArtifactCurrencyResolver | None
     blockers: tuple[WorkflowBlocker, ...]
 
 
@@ -178,6 +181,52 @@ class WorkflowStateService:
     def __init__(self, project_manager: ProjectManager):
         self.pm = project_manager
 
+    @staticmethod
+    def _artifact_state(
+        resolver: ArtifactCurrencyResolver,
+        key: ArtifactKey,
+        artifact_path: str,
+        blockers: list[WorkflowBlocker],
+    ) -> str:
+        try:
+            comparison = resolver.compare(key, artifact_path=artifact_path)
+        except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            blockers.append(
+                WorkflowBlocker(
+                    code="artifact_currency_unavailable",
+                    path=artifact_path,
+                    reason=str(exc),
+                )
+            )
+            return ArtifactStatus.BLOCKED.value
+        if comparison.status is ArtifactStatus.BLOCKED:
+            assert comparison.blocker is not None
+            blockers.append(
+                WorkflowBlocker(
+                    code=comparison.blocker.code,
+                    path=comparison.blocker.path,
+                    reason=comparison.blocker.detail,
+                )
+            )
+        return comparison.status.value
+
+    @classmethod
+    def _classify_artifact(
+        cls,
+        collection: dict[str, Any],
+        *,
+        resolver: ArtifactCurrencyResolver,
+        key: ArtifactKey,
+        artifact_path: str,
+        resource_id: str,
+        blockers: list[WorkflowBlocker],
+    ) -> None:
+        state = cls._artifact_state(resolver, key, artifact_path, blockers)
+        if state == ArtifactStatus.BLOCKED.value:
+            collection["state"] = "blocked"
+        else:
+            collection[f"{state}_ids"].append(resource_id)
+
     def _source_inventory(
         self,
         project_path: Path,
@@ -245,6 +294,7 @@ class WorkflowStateService:
         project_path: Path,
         project: dict[str, Any],
         blockers: list[WorkflowBlocker],
+        resolver: ArtifactCurrencyResolver | None,
     ) -> dict[str, dict[str, Any]]:
         collections: dict[str, dict[str, Any]] = {}
         for asset_type, spec in ASSET_SPECS.items():
@@ -275,7 +325,18 @@ class WorkflowStateService:
                     collection["missing_ids"] = []
                     break
                 path = item.get(spec.sheet_field)
-                if isinstance(path, str) and safe_exists(project_path, path):
+                if resolver is not None and isinstance(path, str) and path:
+                    self._classify_artifact(
+                        collection,
+                        resolver=resolver,
+                        key=ArtifactKey.asset_sheet(asset_type, name),
+                        artifact_path=path,
+                        resource_id=name,
+                        blockers=blockers,
+                    )
+                elif project.get("schema_version") == TARGET_SCHEMA_VERSION:
+                    collection["missing_ids"].append(name)
+                elif isinstance(path, str) and safe_exists(project_path, path):
                     collection["current_ids"].append(name)
                 else:
                     collection["missing_ids"].append(name)
@@ -404,6 +465,7 @@ class WorkflowStateService:
         project: dict[str, Any],
         target: WorkflowTarget,
         blockers: list[WorkflowBlocker],
+        resolver: ArtifactCurrencyResolver | None,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], str | None, dict[str, Any]]:
         path = target.script
         try:
@@ -506,16 +568,26 @@ class WorkflowStateService:
                 )
             )
             return {"state": "blocked", "path": path}, [], kind, script
-        return {"state": "current", "path": path}, raw_items, kind, script
+        state = (
+            self._artifact_state(resolver, ArtifactKey.episode_script(target.episode), path, blockers)
+            if resolver is not None
+            else ArtifactStatus.CURRENT.value
+        )
+        return {"state": state, "path": path}, raw_items, kind, script
 
-    @staticmethod
+    @classmethod
     def _media_collection(
+        cls,
         project_path: Path,
         items: list[dict[str, Any]],
         kind: str | None,
         field: str,
-    ) -> dict[str, list[str]]:
-        collection = _empty_collection()
+        *,
+        episode: int,
+        resolver: ArtifactCurrencyResolver | None,
+        blockers: list[WorkflowBlocker],
+    ) -> dict[str, Any]:
+        collection: dict[str, Any] = _empty_collection()
         if kind is None:
             return collection
         id_field = SKELETONS[kind].id_field
@@ -527,7 +599,25 @@ class WorkflowStateService:
                 collection["stale_ids"].append(resource_id)
                 continue
             artifact_path = get_generated_assets(item).get(field)
-            if isinstance(artifact_path, str) and safe_exists(project_path, artifact_path):
+            if resolver is not None and isinstance(artifact_path, str) and artifact_path:
+                key = (
+                    ArtifactKey.episode_storyboard(episode, resource_id)
+                    if field == "storyboard_image"
+                    else ArtifactKey.episode_video(episode, resource_id)
+                    if field == "video_clip"
+                    else ArtifactKey.episode_audio(episode, resource_id)
+                )
+                cls._classify_artifact(
+                    collection,
+                    resolver=resolver,
+                    key=key,
+                    artifact_path=artifact_path,
+                    resource_id=resource_id,
+                    blockers=blockers,
+                )
+            elif resolver is not None:
+                collection["missing_ids"].append(resource_id)
+            elif isinstance(artifact_path, str) and safe_exists(project_path, artifact_path):
                 collection["current_ids"].append(resource_id)
             else:
                 collection["missing_ids"].append(resource_id)
@@ -578,6 +668,18 @@ class WorkflowStateService:
                         reason="ad workflow does not support grid storyboards",
                     )
                 )
+        currency: ArtifactCurrencyResolver | None = None
+        if project.get("schema_version") == TARGET_SCHEMA_VERSION:
+            try:
+                currency = ArtifactCurrencyResolver(project_path)
+            except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                blockers.append(
+                    WorkflowBlocker(
+                        code="artifact_currency_unavailable",
+                        path=".arcreel_artifacts.json",
+                        reason=str(exc),
+                    )
+                )
         asset_validation = DataValidator(str(self.pm.projects_root)).validate_asset_definitions(project)
         if not asset_validation.valid:
             blockers.append(
@@ -592,7 +694,7 @@ class WorkflowStateService:
             tuple(discover_sources(project_path)) if mode != "ad" and source is not None and not source.blockers else ()
         )
         planning_complete = self._planning_complete(project_path, project, source, planning_sources)
-        sheets = self._asset_sheets(project_path, project, blockers)
+        sheets = self._asset_sheets(project_path, project, blockers, currency)
         episodes = self._episodes(project, blockers)
         return _SharedWorkflowFacts(
             source=source,
@@ -601,6 +703,7 @@ class WorkflowStateService:
             inventory=inventory,
             sheets=sheets,
             episodes=episodes,
+            currency=currency,
             blockers=tuple(blockers),
         )
 
@@ -623,6 +726,7 @@ class WorkflowStateService:
         source = shared.source
         inventory = shared.inventory
         sheets = shared.sheets
+        currency = shared.currency
         artifacts: dict[str, dict[str, Any]] = {
             "asset_inventory": inventory,
             "asset_sheets": sheets,
@@ -777,8 +881,16 @@ class WorkflowStateService:
                 else:
                     step1_path = script_review.step1_path(project_path, project, target.episode)
                     revision = script_review.content_fingerprint(step1_path) if step1_path is not None else None
+                    step1_state = ArtifactStatus.CURRENT.value if revision is not None else ArtifactStatus.MISSING.value
+                    if currency is not None and step1_path is not None:
+                        step1_state = self._artifact_state(
+                            currency,
+                            ArtifactKey.episode_step1(target.episode),
+                            step1_path.relative_to(project_path).as_posix(),
+                            blockers,
+                        )
                     artifacts["step1"] = {
-                        "state": "current" if revision is not None else "missing",
+                        "state": step1_state,
                         "path": str(step1_path.relative_to(project_path)) if step1_path is not None else None,
                         "revision": revision,
                     }
@@ -796,7 +908,11 @@ class WorkflowStateService:
                         state = "STEP1_REVIEW"
                         next_action = _action("none", "quarantined step1 must be repaired before confirmation")
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
-                    if revision is None:
+                    if artifacts["step1"]["state"] == "blocked":
+                        state = "STEP1_CONTENT"
+                        next_action = _action("none", "formal step1 currency is blocked")
+                        return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
+                    if artifacts["step1"]["state"] == "missing":
                         state = "STEP1_CONTENT"
                         next_action = _action(
                             "prepare_step1",
@@ -826,11 +942,12 @@ class WorkflowStateService:
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
 
                 script_artifact, items, kind, script = self._load_script_artifacts(
-                    project_path, project_name, project, target, blockers
+                    project_path, project_name, project, target, blockers, currency
                 )
                 artifacts["script"] = script_artifact
                 if (
-                    mode != "ad"
+                    currency is None
+                    and mode != "ad"
                     and script_artifact["state"] == "current"
                     and script_review.stored_review(project, target.episode).get("fingerprint") is not None
                 ):
@@ -845,7 +962,9 @@ class WorkflowStateService:
                 if blockers:
                     state = "FINAL_SCRIPT"
                     next_action = _action("none", "script is blocked")
-                elif script_artifact["state"] in {"missing", "stale"}:
+                elif script_artifact["state"] == "missing" or (
+                    currency is None and script_artifact["state"] == "stale"
+                ):
                     state = "FINAL_SCRIPT"
                     next_action = _action(
                         "generate_script",
@@ -866,13 +985,37 @@ class WorkflowStateService:
                         )
                     else:
                         artifacts["storyboards"] = (
-                            self._media_collection(project_path, items, kind, "storyboard_image")
+                            self._media_collection(
+                                project_path,
+                                items,
+                                kind,
+                                "storyboard_image",
+                                episode=target.episode,
+                                resolver=currency,
+                                blockers=blockers,
+                            )
                             if generation_mode == "storyboard"
                             else _not_applicable_collection()
                         )
-                        artifacts["videos"] = self._media_collection(project_path, items, kind, "video_clip")
+                        artifacts["videos"] = self._media_collection(
+                            project_path,
+                            items,
+                            kind,
+                            "video_clip",
+                            episode=target.episode,
+                            resolver=currency,
+                            blockers=blockers,
+                        )
                         artifacts["audio"] = (
-                            self._media_collection(project_path, items, kind, "narration_audio")
+                            self._media_collection(
+                                project_path,
+                                items,
+                                kind,
+                                "narration_audio",
+                                episode=target.episode,
+                                resolver=currency,
+                                blockers=blockers,
+                            )
                             if mode == "narration" and generation_mode == "storyboard"
                             else _not_applicable_collection()
                         )
@@ -888,14 +1031,17 @@ class WorkflowStateService:
                                 args={"episode": target.episode},
                                 ids=missing,
                             )
-                        elif artifacts["videos"]["stale_ids"]:
-                            stale = artifacts["videos"]["stale_ids"]
+                        elif replan_ids := [
+                            str(item.get(SKELETONS[kind].id_field))
+                            for item in items
+                            if kind == "video_units" and item.get("needs_replan") is True
+                        ]:
                             state = "VIDEO"
                             next_action = _action(
                                 "repair_video_units",
                                 "video units need replanning before generation",
                                 args={"episode": target.episode},
-                                ids=stale,
+                                ids=replan_ids,
                             )
                         elif artifacts["videos"]["missing_ids"]:
                             missing = artifacts["videos"]["missing_ids"]

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.artifact_manifest import MANIFEST_FILENAME, ArtifactKey
 from lib.i18n import _
 from lib.project_manager import ProjectManager
 from server.services import project_archive as project_archive_module
@@ -343,6 +344,8 @@ class TestProjectArchiveService:
         service = ProjectArchiveService(pm)
 
         archive_path, _ = service.export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            assert not any(name.endswith(f"/{MANIFEST_FILENAME}") for name in archive.namelist())
         shutil.rmtree(pm.get_project_path("demo"))
 
         result = service.import_project_archive(
@@ -354,6 +357,9 @@ class TestProjectArchiveService:
         assert result.conflict_resolution == "none"
         assert (pm.get_project_path("demo") / "videos" / "scene_E1S01.mp4").exists()
         assert (pm.get_project_path("demo") / "drafts" / "episode_2").is_dir()
+        imported_manifest = json.loads((pm.get_project_path("demo") / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+        assert ArtifactKey.asset_sheet("character", "Hero").encode() in imported_manifest["entries"]
+        assert ArtifactKey.episode_storyboard(1, "E1S01").encode() in imported_manifest["entries"]
 
     @pytest.mark.unit
     def test_import_manual_zip_without_manifest(self, tmp_path):
@@ -468,7 +474,7 @@ class TestProjectArchiveService:
         installed_dir = pm.get_project_path(result.project_name)
         installed = json.loads((installed_dir / "project.json").read_text(encoding="utf-8"))
         migrated_script = json.loads((installed_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
-        assert installed["schema_version"] == 7
+        assert installed["schema_version"] == 8
         assert list(installed["characters"]) == ["Hero"]
         assert list(installed["scenes"]) == ["Hero_scene"]
         assert migrated_script["segments"][0]["scenes"] == ["Hero_scene"]

@@ -10,11 +10,12 @@ import re
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
+from lib.artifact_provenance import project_ad_episode_script_inputs
 from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import (
@@ -571,37 +572,20 @@ class ScriptGenerator:
         storyboard 路径把 supported_durations 作为单镜头时长枚举写进 prompt；参考路线
         直接输出统一书写层 video unit，八段式只作为内容规划而不持久化。
         """
-        target_duration = self.project_json.get("target_duration")
-        if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
-            raise ValueError(f"广告/短片项目缺少合法的 target_duration（正整数秒），当前为 {target_duration!r}")
-        # `or` 兜底：project.json 手工编辑时字段可能显式为 null，`.get(key, default)`
-        # 拿到 None 会让 prompt 构建在 `.keys()`/`.get()` 上崩溃。characters/scenes/props/
-        # products/overview 额外校验 isinstance：`or` 无法拦截显式写成非 dict（如 list）的脏数据。
-        characters = self.project_json.get("characters")
-        characters = characters if isinstance(characters, dict) else {}
-        scenes = self.project_json.get("scenes")
-        scenes = scenes if isinstance(scenes, dict) else {}
-        props = self.project_json.get("props")
-        props = props if isinstance(props, dict) else {}
-        products = self.project_json.get("products")
-        products = products if isinstance(products, dict) else {}
-        overview = self.project_json.get("overview")
-        overview = overview if isinstance(overview, dict) else {}
+        direct_inputs = project_ad_episode_script_inputs(episode, project=self.project_json)
         common: dict[str, Any] = {
-            "project_overview": overview,
-            "style": self.project_json.get("style") or "",
-            "style_description": self.project_json.get("style_description") or "",
-            "characters": characters,
-            "scenes": scenes,
-            "props": props,
-            "products": products,
-            "brief": self.project_json.get("brief") or "",
-            "target_duration": target_duration,
-            "episode": episode,
-            "aspect_ratio": self._resolve_aspect_ratio(),
-            # 输出语言与口播语速折算同取项目 source_language，与 drama/narration 同口径
-            # （见 build_ad_prompt 内 speech_rate_units_per_second/reading_unit_noun 调用）。
-            "target_language": self.project_json.get("source_language") or "中文",
+            "project_overview": cast(dict[str, Any], direct_inputs["overview"]),
+            "style": direct_inputs["style"],
+            "style_description": direct_inputs["style_description"],
+            "characters": cast(dict[str, Any], direct_inputs["characters"]),
+            "scenes": cast(dict[str, Any], direct_inputs["scenes"]),
+            "props": cast(dict[str, Any], direct_inputs["props"]),
+            "products": cast(dict[str, Any], direct_inputs["products"]),
+            "brief": direct_inputs["brief"],
+            "target_duration": direct_inputs["target_duration"],
+            "episode": direct_inputs["episode"],
+            "aspect_ratio": direct_inputs["aspect_ratio"],
+            "target_language": direct_inputs["target_language"],
         }
         if gen_mode == "reference_video":
             return build_ad_reference_prompt(**common)
@@ -609,7 +593,7 @@ class ScriptGenerator:
             **common,
             generation_mode=gen_mode,
             supported_durations=supported,
-            speech_rate_override=project_speech_rate_override(self.project_json),
+            speech_rate_override=cast(float | None, direct_inputs["speech_rate_override"]),
         )
 
     async def build_prompt(self, episode: int, *, instructions: str | None = None) -> str:

@@ -9,7 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lib.path_safety import safe_join, try_safe_join
+from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.script_editor import resolve_items
+from lib.script_models import get_generated_assets
 from lib.script_skeleton import SKELETONS
 
 
@@ -103,6 +105,45 @@ def resolve_storyboard_image_ref(project_path: Path, storyboard_rel: object) -> 
         # 是外部编辑过的剧本，运维需要从失败原因直接看出是目录归属而非路径越界。
         raise ValueError(f"storyboard image path must stay under storyboards/: {storyboard_rel!r}") from None
     return storyboard_file
+
+
+def resolve_storyboard_video_inputs(
+    *,
+    project_path: Path,
+    resource_id: str,
+    item: dict[str, object],
+) -> tuple[Path, Path | None]:
+    """Resolve the exact current storyboard and optional canonical end frame."""
+
+    storyboard_rel = get_generated_assets(item).get("storyboard_image")
+    storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
+    if storyboard_file is None:
+        storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
+    if not storyboard_file.is_file():
+        raise ValueError(f"storyboard not found: {storyboard_file.name}")
+
+    end_frame_rel = item.get("end_frame_image")
+    if end_frame_rel in (None, ""):
+        return storyboard_file, None
+    if not isinstance(end_frame_rel, str):
+        raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
+    normalized = end_frame_rel.strip().replace("\\", "/")
+    candidate = normalized if "/" in normalized else f"{END_FRAME_RESOURCE_TYPE}/{normalized}"
+    expected_rel = resource_relative_path(END_FRAME_RESOURCE_TYPE, resource_id)
+    end_frame_file = try_safe_join(project_path, candidate)
+    expected_file = safe_join(project_path, expected_rel)
+    canonical_path_tampered = False
+    current = project_path
+    for component in Path(expected_rel).parts:
+        current = current / component
+        if current.is_symlink() or current.is_junction():
+            canonical_path_tampered = True
+            break
+    if end_frame_file is None or end_frame_file != expected_file or canonical_path_tampered:
+        raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
+    if not end_frame_file.is_file():
+        raise ValueError(f"end frame snapshot not found: {end_frame_file.name}")
+    return storyboard_file, end_frame_file
 
 
 def resolve_previous_storyboard_path(

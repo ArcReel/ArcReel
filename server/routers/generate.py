@@ -17,6 +17,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.artifact_activation import active_artifact_currency_resolver, artifact_is_usable
+from lib.artifact_manifest import ArtifactKey
 from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation_queue import get_generation_queue
@@ -478,6 +480,11 @@ async def generate_tts_batch(
         _project = pm_local.load_project(project_name)
         script = pm_local.load_script(project_name, req.script_file)
         items, id_field, kind = resolve_items(script)
+        raw_episode = script.get("episode")
+        episode = raw_episode if type(raw_episode) is int and raw_episode > 0 else None
+        currency = active_artifact_currency_resolver(pm_local.get_project_path(project_name), _project)
+        if currency is not None and episode is None:
+            raise ValueError("script episode must be a positive integer")
         missing: list[str] = []
         for item in items:
             admission = admit_script_unit(kind, item)
@@ -485,10 +492,14 @@ async def generate_tts_batch(
                 continue
             if not canonical_narration_text(admission.preparation):
                 continue
-            if get_generated_assets(item).get("narration_audio"):
-                continue
             seg_id = item.get(id_field)
-            if seg_id:
+            if seg_id and not artifact_is_usable(
+                currency,
+                ArtifactKey.episode_audio(episode, str(seg_id))
+                if currency is not None and episode is not None
+                else None,
+                get_generated_assets(item).get("narration_audio"),
+            ):
                 missing.append(str(seg_id))
         return _project, missing
 

@@ -118,6 +118,14 @@ class ArtifactManifestAdapter(Protocol):
     def delete_entry(self, key: ArtifactKey) -> bool:
         raise NotImplementedError
 
+    def replace_entries_atomically(
+        self,
+        entries: Mapping[ArtifactKey, ArtifactManifestEntry],
+    ) -> bool:
+        """Replace the complete manifest target state in one storage commit."""
+
+        raise NotImplementedError
+
 
 class ArtifactManifest:
     """Register and compare canonical artifact bases through one storage seam."""
@@ -194,7 +202,83 @@ class ArtifactManifest:
                 raise RuntimeError("artifact basis registration failed and rollback was incomplete") from rollback_error
             raise
 
+    def register_entry_transactionally(
+        self,
+        key: ArtifactKey,
+        entry: ArtifactManifestEntry,
+    ) -> bool:
+        """Register an already resolved target entry with exact rollback.
+
+        Target-state resolvers sometimes possess only a frozen digest (for
+        example a selected paid-media version), not the complete basis payload.
+        This seam preserves the same artifact-presence and rollback guarantees
+        without inventing a synthetic basis kind merely to carry that digest.
+        """
+
+        _encode_target_entries({key: entry})
+        observation = self._adapter.inspect_artifact(entry.artifact_path)
+        if observation.blocker is not None:
+            raise ArtifactRegistrationError(observation.blocker.detail)
+        if not observation.present:
+            raise ArtifactRegistrationError(f"artifact is not present: {observation.artifact_path}")
+        expected = ArtifactManifestEntry(
+            artifact_path=observation.artifact_path,
+            basis_digest=entry.basis_digest,
+        )
+        previous = self._adapter.get_entry(key)
+        try:
+            return self._adapter.put_entry(key, expected)
+        except BaseException as original_error:
+            try:
+                current = self._adapter.get_entry(key)
+                if current == expected:
+                    if previous is None:
+                        self._adapter.delete_entry(key)
+                    else:
+                        self._adapter.put_entry(key, previous)
+            except BaseException as rollback_error:
+                rollback_error.__cause__ = original_error
+                raise RuntimeError("artifact entry registration failed and rollback was incomplete") from rollback_error
+            raise
+
+    def forget_entry_transactionally(self, key: ArtifactKey) -> bool:
+        """Remove one current claim with exact rollback on storage failure."""
+
+        previous = self._adapter.get_entry(key)
+        if previous is None:
+            return False
+        try:
+            return self._adapter.delete_entry(key)
+        except BaseException as original_error:
+            try:
+                if self._adapter.get_entry(key) is None:
+                    self._adapter.put_entry(key, previous)
+            except BaseException as rollback_error:
+                rollback_error.__cause__ = original_error
+                raise RuntimeError("artifact entry removal failed and rollback was incomplete") from rollback_error
+            raise
+
     def compare(self, key: ArtifactKey, *, artifact_path: str, basis: ArtifactBasis) -> ArtifactComparison:
+        if not isinstance(basis, ArtifactBasis):
+            raise TypeError("basis must be an ArtifactBasis")
+        return self.compare_entry(
+            key,
+            artifact_path=artifact_path,
+            expected=ArtifactManifestEntry(
+                artifact_path=artifact_path,
+                basis_digest=basis.digest,
+            ),
+        )
+
+    def compare_entry(
+        self,
+        key: ArtifactKey,
+        *,
+        artifact_path: str,
+        expected: ArtifactManifestEntry | None,
+    ) -> ArtifactComparison:
+        """Compare against a canonical target that may carry only a frozen digest."""
+
         observation = self._adapter.inspect_artifact(artifact_path)
         if observation.blocker is not None:
             return ArtifactComparison(
@@ -219,9 +303,17 @@ class ArtifactManifest:
             )
         if entry is None:
             return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=observation.artifact_path)
+        normalized_expected = (
+            None
+            if expected is None
+            else ArtifactManifestEntry(
+                artifact_path=_normalize_relative_path(expected.artifact_path),
+                basis_digest=expected.basis_digest,
+            )
+        )
         status = (
             ArtifactStatus.CURRENT
-            if entry.artifact_path == observation.artifact_path and entry.basis_digest == basis.digest
+            if entry.artifact_path == observation.artifact_path and entry == normalized_expected
             else ArtifactStatus.STALE
         )
         return ArtifactComparison(status=status, artifact_path=observation.artifact_path)
@@ -265,6 +357,17 @@ class InMemoryArtifactManifestAdapter:
     def delete_entry(self, key: ArtifactKey) -> bool:
         with self._lock:
             return self._entries.pop(key.encode(), None) is not None
+
+    def replace_entries_atomically(
+        self,
+        entries: Mapping[ArtifactKey, ArtifactManifestEntry],
+    ) -> bool:
+        encoded = _encode_target_entries(entries)
+        with self._lock:
+            if self._entries == encoded:
+                return False
+            self._entries = encoded
+            return True
 
     def remove_artifact(self, artifact_path: str) -> None:
         normalized = _normalize_relative_path(artifact_path)
@@ -604,6 +707,32 @@ class ProjectArtifactManifestAdapter:
                     raise ArtifactManifestError(f"cannot remove empty artifact manifest: {exc}") from exc
                 return True
             new_bytes = _serialize_manifest(entries)
+            if original_bytes == new_bytes:
+                return False
+            self._atomic_replace(new_bytes, root_fd)
+            return True
+
+    def replace_entries_atomically(
+        self,
+        entries: Mapping[ArtifactKey, ArtifactManifestEntry],
+    ) -> bool:
+        """Replace the entire manifest through one lock and one atomic rename.
+
+        Activation plans are complete target states.  Persisting them entry by
+        entry would expose a partly activated project after interruption, so the
+        storage boundary accepts and serializes the full set at once.
+        """
+
+        encoded = _encode_target_entries(entries)
+        for entry in encoded.values():
+            observation = self.inspect_artifact(entry.artifact_path)
+            if observation.blocker is not None:
+                raise ArtifactRegistrationError(observation.blocker.detail)
+            if not observation.present:
+                raise ArtifactRegistrationError(f"artifact is not present: {entry.artifact_path}")
+        new_bytes = _serialize_manifest(encoded)
+        with self._locked() as root_fd:
+            _current, original_bytes = self._load_unlocked(root_fd)
             if original_bytes == new_bytes:
                 return False
             self._atomic_replace(new_bytes, root_fd)
@@ -1196,6 +1325,27 @@ def _normalize_relative_path(value: object) -> str:
     ):
         raise ValueError(f"runtime-owned path cannot be registered as an artifact: {value!r}")
     return normalized
+
+
+def _encode_target_entries(
+    entries: Mapping[ArtifactKey, ArtifactManifestEntry],
+) -> dict[str, ArtifactManifestEntry]:
+    encoded: dict[str, ArtifactManifestEntry] = {}
+    for key, entry in entries.items():
+        if not isinstance(key, ArtifactKey):
+            raise TypeError("manifest target keys must be ArtifactKey values")
+        if not isinstance(entry, ArtifactManifestEntry):
+            raise TypeError("manifest target entries must be ArtifactManifestEntry values")
+        normalized_path = _normalize_relative_path(entry.artifact_path)
+        if normalized_path != entry.artifact_path:
+            raise ValueError("manifest target artifact path must be canonical")
+        if _DIGEST_RE.fullmatch(entry.basis_digest) is None:
+            raise ValueError("manifest target basis digest must be a canonical sha256-v1 digest")
+        encoded_key = key.encode()
+        if encoded_key in encoded:
+            raise ValueError(f"duplicate manifest target key: {encoded_key}")
+        encoded[encoded_key] = entry
+    return encoded
 
 
 def _serialize_manifest(entries: Mapping[str, ArtifactManifestEntry]) -> bytes:

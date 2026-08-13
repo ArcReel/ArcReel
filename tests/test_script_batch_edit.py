@@ -12,7 +12,7 @@ from lib.artifact_manifest import (
     ArtifactObservation,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifact_provenance import build_episode_script_basis
+from lib.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis
 from lib.project_manager import ProjectManager
 from lib.script_batch_edit import (
     ScriptBatchEditCommand,
@@ -107,6 +107,75 @@ def test_multi_operation_commit_updates_manifest_and_returns_revision(
     project = pm.load_project("demo")
     assert entry.basis_digest == build_episode_script_basis(step1, project=project).digest
     assert entry.artifact_path == "scripts/episode_1.json"
+
+
+def test_ad_batch_edit_registers_shared_canonical_script_basis(tmp_path: Path) -> None:
+    pm = ProjectManager(str(tmp_path))
+    pm.create_project("demo", content_mode="ad")
+    pm.create_project_metadata("demo", "Demo", "Live action", "ad")
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            {
+                "generation_mode": "storyboard",
+                "target_duration": 30,
+                "brief": "突出便携卖点",
+                "overview": {"synopsis": "产品短片"},
+                "aspect_ratio": "9:16",
+            }
+        ),
+    )
+    script = {
+        "episode": 1,
+        "title": "产品短片",
+        "content_mode": "ad",
+        "shots": [
+            {
+                "shot_id": "E1S01",
+                "section": "hook",
+                "duration_seconds": 4,
+                "voiceover_text": "轻装出发。",
+                "characters_in_shot": [],
+                "scenes": [],
+                "props": [],
+                "products_in_shot": [],
+                "image_prompt": {
+                    "scene": "产品特写",
+                    "composition": {"shot_type": "Close-up", "lighting": "柔光", "ambiance": "清爽"},
+                },
+                "video_prompt": {"action": "缓慢旋转", "camera_motion": "Static", "ambiance_audio": "环境声"},
+                "generated_assets": {},
+            }
+        ],
+    }
+    pm.save_script("demo", script, "episode_1.json")
+    project_dir = pm.get_project_path("demo")
+    (project_dir / ".arcreel_artifacts.json").unlink(missing_ok=True)
+    service = ScriptBatchEditor(pm)
+
+    result = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1S01", "fields": {"note": "保留"}}]),
+    )
+
+    assert result.success is True
+    entry = ProjectArtifactManifestAdapter(project_dir).get_entry(ArtifactKey.episode_script(1))
+    assert entry is not None
+    assert entry.basis_digest == build_ad_episode_script_basis(1, project=pm.load_project("demo")).digest
+
+
+def test_schema7_batch_edit_does_not_activate_manifest(editor: tuple[ProjectManager, ScriptBatchEditor, Path]) -> None:
+    pm, service, project_dir = editor
+    pm.update_project("demo", lambda project: project.update({"schema_version": 7}))
+    (project_dir / ".arcreel_artifacts.json").unlink(missing_ok=True)
+
+    result = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1S01", "fields": {"note": "legacy"}}]),
+    )
+
+    assert result.success is True
+    assert not (project_dir / ".arcreel_artifacts.json").exists()
 
 
 @pytest.mark.parametrize("failure_index", [0, 1, 2])

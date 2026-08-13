@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from lib.artifact_activation import register_current_resource_artifact
 from lib.asset_types import ASSET_SPECS, resolve_asset_key
 from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists
@@ -175,7 +176,14 @@ async def execute_image_edit_task(
             )
         else:
             pm._update_asset_sheet(resource_type, project_name, resource_key, canonical_rel)
-        return generator.versions.get_versions(version_resource_type, resource_key)["versions"][-1]["created_at"]
+        created_at = generator.versions.get_versions(version_resource_type, resource_key)["versions"][-1]["created_at"]
+        register_current_resource_artifact(
+            pm.get_project_path(project_name),
+            resource_type=version_resource_type,
+            resource_id=resource_key,
+            script_file=str(script_file) if resource_type == "storyboard" else None,
+        )
+        return created_at
 
     created_at = await asyncio.to_thread(_finalize)
 

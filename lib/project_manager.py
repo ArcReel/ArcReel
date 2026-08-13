@@ -677,7 +677,18 @@ class ProjectManager:
             filename = f"{chapter.replace(' ', '_')}_script.json"
 
         with self._script_lock(project_name, filename):
-            return self._write_script_unlocked(project_name, script, filename, validate=validate)
+            output = self._write_script_unlocked(project_name, script, filename, validate=validate)
+
+        episode = script.get("episode")
+        if type(episode) is int and episode > 0:
+            from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_artifact_if_provable
+            from lib.artifact_manifest import ArtifactKey
+
+            project_path = self.get_project_path(project_name)
+            project = self.load_project_readonly(project_name)
+            if project.get("schema_version") == TARGET_SCHEMA_VERSION:
+                register_current_artifact_if_provable(project_path, ArtifactKey.episode_script(episode))
+        return output
 
     def _write_script_unlocked(
         self,

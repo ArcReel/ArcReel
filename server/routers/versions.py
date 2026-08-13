@@ -14,6 +14,7 @@ from fastapi import APIRouter
 logger = logging.getLogger(__name__)
 
 from lib.api_errors import BadRequestError, ConflictError
+from lib.artifact_activation import register_current_resource_artifact
 from lib.async_thread import run_noninterruptible_sync
 from lib.generation_admission import generation_admission_lock
 from lib.path_safety import PathTraversalError, safe_join
@@ -286,6 +287,13 @@ async def restore_version(
                 thumbnail_key = f"reference_videos/thumbnails/{resource_id}.jpg"
                 thumbnail_path.unlink(missing_ok=True)
                 asset_fingerprints[thumbnail_key] = 0
+
+            if not is_typed_media_restore_resource(resource_type):
+                register_current_resource_artifact(
+                    project_path,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                )
 
             return {
                 "success": True,

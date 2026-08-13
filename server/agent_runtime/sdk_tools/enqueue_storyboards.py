@@ -10,6 +10,12 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.artifact_activation import (
+    ArtifactCurrencyResolver,
+    active_artifact_currency_resolver,
+    artifact_is_usable,
+)
+from lib.artifact_manifest import ArtifactKey
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
@@ -89,13 +95,33 @@ def _build_prompt(
     return f"{style_prefix}{image_prompt}"
 
 
-def _select_items(items: list[dict[str, Any]], id_field: str, segment_ids: list[str] | None) -> list[dict[str, Any]]:
+def _select_items(
+    items: list[dict[str, Any]],
+    id_field: str,
+    segment_ids: list[str] | None,
+    *,
+    episode: int,
+    resolver: ArtifactCurrencyResolver | None,
+) -> list[dict[str, Any]]:
     # ``None`` 和 ``[]`` 含义不同：``None`` = "不传过滤，默认扫所有缺图项"；
     # ``[]`` = "显式空选择，应当返回空列表交由 handler 报错"。
     if segment_ids is not None:
         wanted = {str(s) for s in segment_ids}
         return [item for item in items if str(item.get(id_field)) in wanted]
-    return [item for item in items if not get_generated_assets(item).get("storyboard_image")]
+    selected: list[dict[str, Any]] = []
+    for item in items:
+        resource_id = item.get(id_field)
+        if (
+            not isinstance(resource_id, str)
+            or not resource_id
+            or not artifact_is_usable(
+                resolver,
+                ArtifactKey.episode_storyboard(episode, resource_id) if resolver is not None else None,
+                get_generated_assets(item).get("storyboard_image"),
+            )
+        ):
+            selected.append(item)
+    return selected
 
 
 def _build_specs(
@@ -171,7 +197,19 @@ def generate_storyboards_tool(ctx: ToolContext):
                 )
 
             items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
-            selected = _select_items(items, id_field, segment_ids)
+            resolver = active_artifact_currency_resolver(project_dir, project_data)
+            episode = script.get("episode")
+            if resolver is not None and (type(episode) is not int or episode < 1):
+                raise ValueError("script episode must be a positive integer")
+            if type(episode) is not int or episode < 1:
+                episode = 1
+            selected = _select_items(
+                items,
+                id_field,
+                segment_ids,
+                episode=episode,
+                resolver=resolver,
+            )
             if not selected:
                 # 区分两种零结果：调用方显式传了 segment_ids（None vs []，None 即
                 # "未传"，[] 与不命中等价都按错误处理）vs 全部已生成（真无事可做）。

@@ -11,6 +11,10 @@ import uuid
 from pathlib import Path
 from typing import BinaryIO, Literal
 
+from lib.artifact_activation import (
+    forget_current_resource_artifact,
+    register_current_resource_artifact,
+)
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
 from server.services.generation_tasks import get_project_manager
@@ -154,14 +158,24 @@ async def finalize_shot_storyboard_upload(
     *, project_name: str, script_file: str, shot_id: str, asset_path: str
 ) -> None:
     """分镜图上传后的剧本元数据回写（status 由 update_scene_status 自动推导）。"""
-    await asyncio.to_thread(
-        get_project_manager().update_scene_asset,
-        project_name=project_name,
-        script_filename=script_file,
-        scene_id=shot_id,
-        asset_type="storyboard_image",
-        asset_path=asset_path,
-    )
+
+    def _finalize() -> None:
+        manager = get_project_manager()
+        manager.update_scene_asset(
+            project_name=project_name,
+            script_filename=script_file,
+            scene_id=shot_id,
+            asset_type="storyboard_image",
+            asset_path=asset_path,
+        )
+        register_current_resource_artifact(
+            manager.get_project_path(project_name),
+            resource_type="storyboards",
+            resource_id=shot_id,
+            script_file=script_file,
+        )
+
+    await asyncio.to_thread(_finalize)
 
 
 async def finalize_shot_video_upload(
@@ -188,4 +202,13 @@ async def finalize_shot_video_upload(
             (shot_id, "video_uri", None),
             (shot_id, "video_thumbnail", thumb_rel),
         ],
+    )
+    # Manual video uploads carry no self-verifying paid-request facts.  The file
+    # remains usable history, but cannot retain an older current-basis claim.
+    await asyncio.to_thread(
+        forget_current_resource_artifact,
+        project_path,
+        resource_type="videos",
+        resource_id=shot_id,
+        script_file=script_file,
     )

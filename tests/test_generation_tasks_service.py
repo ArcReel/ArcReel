@@ -585,6 +585,65 @@ class TestGenerationTasks:
             )
 
     @pytest.mark.unit
+    async def test_storyboard_registers_manifest_only_after_finalization_succeeds(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        registered: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+        class _BrokenVersionLookup(_FakeGenerator):
+            def get_versions(self, resource_type, resource_id):
+                raise RuntimeError("injected finalization failure")
+
+        fake_generator = _BrokenVersionLookup()
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(
+            generation_tasks,
+            "register_current_resource_artifact",
+            lambda *args, **kwargs: registered.append((args, kwargs)),
+        )
+
+        with pytest.raises(RuntimeError, match="injected finalization failure"):
+            await generation_tasks.execute_storyboard_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json", "prompt": "direct prompt"},
+            )
+
+        assert registered == []
+
+    @pytest.mark.unit
+    async def test_storyboard_registers_manifest_after_successful_formal_commit(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        registered: list[tuple[tuple[object, ...], dict[str, object]]] = []
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(
+            generation_tasks,
+            "register_current_resource_artifact",
+            lambda *args, **kwargs: registered.append((args, kwargs)),
+        )
+
+        await generation_tasks.execute_storyboard_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json", "prompt": "direct prompt"},
+        )
+
+        assert registered == [
+            (
+                (project_path,),
+                {
+                    "resource_type": "storyboards",
+                    "resource_id": "E1S01",
+                    "script_file": "episode_1.json",
+                },
+            )
+        ]
+
+    @pytest.mark.unit
     async def test_reused_video_result_emits_the_normal_generation_success_event(self, monkeypatch):
         reused = {
             "version": 3,

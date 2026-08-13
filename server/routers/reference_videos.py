@@ -14,6 +14,7 @@ from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from lib.api_errors import ApiError, BadRequestError, NotFoundError
+from lib.artifact_activation import forget_current_resource_artifact
 from lib.asset_types import asset_name_comparison_key
 from lib.db import async_session_factory
 from lib.generation_queue import get_generation_queue
@@ -717,6 +718,13 @@ async def upload_unit_video(
                 version=version,
                 video_uri=None,
                 versions=versions,
+            )
+            await asyncio.to_thread(
+                forget_current_resource_artifact,
+                project_path,
+                resource_type="reference_videos",
+                resource_id=unit_id,
+                script_file=script_file,
             )
             # emit 内部会读剧本解析 episode 并计算指纹，放线程池避免阻塞事件循环；
             # 返回的指纹直接复用进响应体，免二次计算

@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
 from lib.config.resolver import ConfigResolver, ProviderModel
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -70,6 +71,11 @@ class _FakePM:
 def _client(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True):
     monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
+
+    async def _no_active_narrated_video(**_kwargs):
+        return set()
+
+    monkeypatch.setattr(generate, "active_narrated_video_resource_ids", _no_active_narrated_video)
 
     async def _resolve(self, project, payload):
         if not audio_provider_ready:
@@ -248,6 +254,50 @@ class TestGenerateTtsBatch:
             assert call["resource_id"] == "E1S01"
             assert call["task_type"] == "tts"
             assert call["media_type"] == "audio"
+
+    def test_active_manifest_missing_entry_is_selected_even_with_legacy_path(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.project["schema_version"] = 8
+        fake_pm.script["episode"] = 1
+        fake_queue = _FakeQueue()
+
+        class _MissingResolver:
+            def compare(self, _key, *, artifact_path):
+                return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
+
+        monkeypatch.setattr(generate, "active_artifact_currency_resolver", lambda *_args: _MissingResolver())
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert [call["resource_id"] for call in fake_queue.calls] == ["E1S01", "E1S02"]
+
+    def test_active_manifest_stale_entry_remains_usable_for_batch_selection(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.project["schema_version"] = 8
+        fake_pm.script["episode"] = 1
+        fake_queue = _FakeQueue()
+
+        class _StaleResolver:
+            def compare(self, _key, *, artifact_path):
+                return ArtifactComparison(status=ArtifactStatus.STALE, artifact_path=artifact_path)
+
+        monkeypatch.setattr(generate, "active_artifact_currency_resolver", lambda *_args: _StaleResolver())
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert [call["resource_id"] for call in fake_queue.calls] == ["E1S01"]
 
     def test_reference_video_batch_uses_unit_owned_narration_and_skips_character_speech(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")

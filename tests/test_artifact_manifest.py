@@ -10,6 +10,7 @@ from lib.artifact_manifest import (
     ArtifactKey,
     ArtifactKind,
     ArtifactManifest,
+    ArtifactManifestEntry,
     ArtifactStatus,
     InMemoryArtifactManifestAdapter,
 )
@@ -94,6 +95,26 @@ def test_manifest_compares_registered_basis_without_mutating_the_artifact() -> N
     assert blocked.blocker is not None
     assert blocked.blocker.code == "artifact_symlink"
     assert not blocked.usable
+
+
+def test_manifest_compares_a_resolved_target_entry_without_reconstructing_basis() -> None:
+    path = "videos/scene_E1S01.mp4"
+    adapter = InMemoryArtifactManifestAdapter(artifacts={path})
+    manifest = ArtifactManifest(adapter)
+    key = ArtifactKey.episode_video(1, "E1S01")
+    recorded = ArtifactBasis.build("test/video", kind_version=1, inputs={"prompt": "old"})
+    manifest.register(key, artifact_path=path, basis=recorded)
+
+    current = manifest.compare_entry(
+        key,
+        artifact_path=path,
+        expected=ArtifactManifestEntry(artifact_path=path, basis_digest=recorded.digest),
+    )
+    unprovable = manifest.compare_entry(key, artifact_path=path, expected=None)
+
+    assert current.status is ArtifactStatus.CURRENT
+    assert unprovable.status is ArtifactStatus.STALE
+    assert unprovable.usable
 
 
 def test_manifest_registers_a_strict_frozen_basis_descriptor_after_artifact_exists() -> None:

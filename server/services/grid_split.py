@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from lib.artifact_activation import register_current_resource_artifact
 from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
 from lib.project_manager import get_project_manager
@@ -136,6 +137,13 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
 
         grid.split_at = datetime.now(UTC).isoformat()
         grid_manager.save(grid)
+        for resource_id in updated_ids:
+            register_current_resource_artifact(
+                project_path,
+                resource_type="storyboards",
+                resource_id=resource_id,
+                script_file=script_file,
+            )
         return updated_ids, missing_ids
 
     updated_ids, missing_ids = await asyncio.to_thread(_split_and_assign)
