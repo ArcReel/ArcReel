@@ -43,6 +43,13 @@ pnpm typecheck
 
 # 站内搜索只在构建产物上生效，dev server 里不工作
 pnpm build && pnpm serve
+
+# 把仓库根 CONTRIBUTING.md 同步为开发区页面（start / build 已自动前置执行，一般无需手动跑）
+pnpm sync-contributing
+
+# CI 一致性闸门：孤儿译文 / 上站文档标题缺显式锚点 / UI JSON key 齐全性，任一命中非零退出；
+# 依赖 sync-contributing 已同步过的产物，须先跑 sync-contributing 再跑本命令
+pnpm check-consistency
 ```
 
 ## 运行测试
@@ -156,6 +163,7 @@ cd frontend && pnpm lint:fix      # 自动修可修的部分
 - **供应商信息以运行时能力为准**：文档描述覆盖哪些媒体类型、ArcReel 如何统一配置、不同能力如何选择、具体信息在哪里确认；设置页中实际可选的模型与供应商官方文档是最终依据。
 - **标题带显式锚点 ID**：上站页面的每个标题写成 `## 标题 {#english-id}`，中英两个 locale 共用同一锚点，避免中文自动 slug 随文案改动而失效。站内互引用相对文件路径（如 `../ops/deployment.md`），指向未上站的仓库文件时用 GitHub 绝对链接。
 - **文档变更应与功能变更一起提交**：新增内容模式或视频制作方式、新增供应商或媒体能力、部署目录/端口/环境变量变化、数据目录/备份方式/迁移行为变化、对外 API/许可证或商业使用方式变化，均须同步更新对应文档。
+- **上站 `.md` 不能使用 JSX / import**：`website/docusaurus.config.ts` 设 `markdown.format: "detect"`，`.md` 按 CommonMark 解析而非 MDX：两者都不会报编译错误，但也都不会按 MDX 语法执行——JSX 标签被当作原始 HTML 原样输出（带子内容的标签，子内容会直接显示成页面文本），import 语句被当作普通文本原样显示。需要 JSX 的页面改用 `.mdx`。
 
 ## 工作流程
 
