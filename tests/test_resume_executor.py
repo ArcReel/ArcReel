@@ -16,12 +16,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
+from lib.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
+from lib.narration_delivery import TtsSynthesisSettings
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
     StagedProviderMedia,
     StoryboardSubmissionCheckpoint,
 )
+from lib.version_manager import PaidVersionCommit
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_backends.base import ResumeExpiredError
 
 pytestmark = pytest.mark.unit
@@ -55,7 +58,20 @@ class _FakeGenerator:
         self.resume_calls.append(kwargs)
         if self.raises is not None:
             raise self.raises
-        output_path = kwargs["output_path"] if "output_path" in kwargs else Path(tempfile.gettempdir()) / "video.mp4"
+        output_path = kwargs.get("output_path") or Path(tempfile.gettempdir()) / "video.mp4"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"paid-resume-video")
+        prepare = kwargs.get("before_formal_commit")
+        if prepare is not None:
+            metadata = {
+                key: value
+                for key, value in kwargs.items()
+                if key.startswith("execution_") or key.startswith("artifact_")
+            }
+            await prepare(output_path, int(kwargs.get("duration_seconds") or 8), metadata)
+        commit = kwargs.get("commit_formal_output")
+        if commit is not None:
+            commit.outcome = PaidVersionCommit(version=3, selected=True)
         return output_path, 3, None, "video-uri-xyz"
 
     def get_versions(self, _resource_type: str, _resource_id: str) -> dict[str, Any]:
@@ -109,6 +125,22 @@ def _storyboard_checkpoint_json(
         sha256="a" * 64,
         size_bytes=1,
     )
+    visual = ArtifactBasis.build(
+        "artifact-visual/video-storyboard",
+        kind_version=1,
+        inputs={
+            "resource_id": "E1S01",
+            "visual_prompt": {"action": "Run.", "camera_motion": "Static"},
+            "canvas": {"aspect_ratio": "9:16"},
+            "frames": [{"role": "storyboard", "sha256": "a" * 64}],
+        },
+    )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = ArtifactBasis.build(
+        "artifact-speech/video-duration",
+        kind_version=1,
+        inputs={"request_duration_seconds": 8},
+    )
     return StoryboardSubmissionCheckpoint.create(
         task_id=task_id,
         project_name="demo",
@@ -128,8 +160,17 @@ def _storyboard_checkpoint_json(
         service_tier="default",
         seed=None,
         visual_basis_digest="b" * 64,
-        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
-            ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+        artifact_currency=VideoArtifactCurrencyFacts(
+            episode=1,
+            request_duration_seconds=8,
+            visual_basis=visual,
+            speech_basis=speech,
+            duration_basis=duration,
+            video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+            voice_style_speakers=(),
+            duration_tiers=(8,),
+            reference_image_limit=None,
+            parent_version=0,
         ),
         narration=NarrationExecutionFacts(
             delivery="post_production",
@@ -157,7 +198,7 @@ def _fake_video_context(
     与生产路径（``video=VideoLaneRequest()``）一致。
     """
     from lib.config.resolver import ProviderModel
-    from server.services.generation_context import GenerationContext, VideoLaneResult
+    from server.services.generation_context import AudioLaneResult, GenerationContext, VideoLaneResult
 
     return GenerationContext(
         generator=fake_generator,  # type: ignore[arg-type]
@@ -171,6 +212,14 @@ def _fake_video_context(
             max_duration=8,
             max_reference_images=None,
             endpoint=endpoint,
+        ),
+        audio_lane=AudioLaneResult(
+            provider_model=ProviderModel("dashscope", "tts-model"),
+            backend_name="dashscope",
+            backend_model="tts-model",
+            narration_voice="Cherry",
+            narration_speed=None,
+            voices=(),
         ),
     )
 
@@ -267,7 +316,8 @@ async def test_execute_resume_video_calls_backend_resume_directly(monkeypatch, f
     assert call["execution_visual_basis_digest"] == "b" * 64
     checkpoint = StoryboardSubmissionCheckpoint.from_json(video_task["execution_checkpoint_json"])
     assert checkpoint.artifact_visual_basis is not None
-    assert call["artifact_visual_basis"] == checkpoint.artifact_visual_basis.to_dict()
+    assert checkpoint.artifact_currency is not None
+    assert call["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
     assert call["execution_provider_media"][0]["source_locator"] == "storyboards/scene_E1S01.png"
     # 返回结果带 file_path / resource_type，供 worker mark_succeeded
     assert result["resource_type"] == "videos"
@@ -399,6 +449,50 @@ async def test_execute_resume_failure_does_not_emit(monkeypatch, fake_pm, video_
 
 
 @pytest.mark.asyncio
+async def test_execute_resume_releases_selection_guard_when_generator_fails_after_prepare(
+    monkeypatch,
+    fake_pm,
+    video_task,
+):
+    from server.services import resume_executor
+    from server.services.resume_executor import execute_resume_video_task
+
+    class _FailAfterPrepareGenerator(_FakeGenerator):
+        async def resume_video_async(self, **kwargs: Any) -> tuple[Path, int, Any, str | None]:
+            self.resume_calls.append(kwargs)
+            prepare = kwargs["before_formal_commit"]
+            await prepare(
+                Path(tempfile.gettempdir()) / "video.mp4",
+                int(kwargs["duration_seconds"]),
+                {"execution_script_file": kwargs["execution_script_file"]},
+            )
+            raise RuntimeError("commit failed after selection preparation")
+
+    class _GuardedCommitter:
+        instance: _GuardedCommitter | None = None
+
+        def __init__(self, **_kwargs: Any) -> None:
+            self.guard_active = False
+            type(self).instance = self
+
+        async def prepare_selection(self, *_args: Any, **_kwargs: Any) -> None:
+            self.guard_active = True
+
+        async def release_admission_guard(self) -> None:
+            self.guard_active = False
+
+    fake_gen = _FailAfterPrepareGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen)
+    monkeypatch.setattr(resume_executor, "VideoArtifactCommitter", _GuardedCommitter)
+
+    with pytest.raises(RuntimeError, match="commit failed after selection preparation"):
+        await execute_resume_video_task(video_task, job_id="openai-job-1")
+
+    assert _GuardedCommitter.instance is not None
+    assert not _GuardedCommitter.instance.guard_active
+
+
+@pytest.mark.asyncio
 async def test_execute_resume_accepts_float_string_duration(monkeypatch, fake_pm):
     """Resume ignores legacy payload duration and uses the strict checkpoint value."""
     from server.services.resume_executor import execute_resume_video_task
@@ -457,6 +551,23 @@ def _reference_checkpoint(
     staging = project_path / ".arcreel" / "tasks" / "T-ref" / "provider_media"
     staging.mkdir(parents=True, exist_ok=True)
     (staging / "crash-leftover").write_bytes(b"staged")
+    visual = ArtifactBasis.build(
+        "artifact-visual/video-reference",
+        kind_version=1,
+        inputs={
+            "unit_id": "E1U1",
+            "visual_shots": [{"shot_index": 0, "lines": ["Run."]}],
+            "style": "cinematic",
+            "canvas": {"aspect_ratio": "16:9"},
+            "request_references": [],
+        },
+    )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = ArtifactBasis.build(
+        "artifact-speech/video-duration",
+        kind_version=1,
+        inputs={"request_duration_seconds": 12},
+    )
     return ReferenceSubmissionCheckpoint.create(
         task_id="T-ref",
         project_name="demo",
@@ -476,8 +587,17 @@ def _reference_checkpoint(
         service_tier="pro",
         seed=123,
         visual_basis_digest="sha256-v1:" + "a" * 64,
-        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
-            ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U1"})
+        artifact_currency=VideoArtifactCurrencyFacts(
+            episode=1,
+            request_duration_seconds=12,
+            visual_basis=visual,
+            speech_basis=speech,
+            duration_basis=duration,
+            video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+            voice_style_speakers=(),
+            duration_tiers=(12,),
+            reference_image_limit=3,
+            parent_version=0,
         ),
         narration=(
             NarrationExecutionFacts(
@@ -523,7 +643,14 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
 
     monkeypatch.setattr(resume_executor, "resolve_generation_context", _resolve)
     output_guard = AsyncMock()
-    monkeypatch.setattr(resume_executor, "require_generated_video_covers_current_tts", output_guard)
+    monkeypatch.setattr(
+        "server.services.video_artifact_currency.validate_generated_video_covers_tts_duration",
+        output_guard,
+    )
+    monkeypatch.setattr(
+        "server.services.video_artifact_currency.CurrentTtsSettingsResolver.resolve_tts_synthesis_settings",
+        AsyncMock(return_value=TtsSynthesisSettings("dashscope", "tts-model", "Cherry", None)),
+    )
     finalize = AsyncMock(return_value={"resource_type": "reference_videos", "resource_id": "E1U1"})
     monkeypatch.setattr(resume_executor, "_finalize_reference_video_unit", finalize)
     monkeypatch.setattr(resume_executor, "emit_generation_success_batch", lambda **_kwargs: None)
@@ -575,16 +702,13 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
     assert call["execution_provider_media"] == []
     assert call["visual_basis_digest"] == checkpoint.visual_basis_digest
     assert checkpoint.artifact_visual_basis is not None
-    assert call["artifact_visual_basis"] == checkpoint.artifact_visual_basis.to_dict()
+    assert checkpoint.artifact_currency is not None
+    assert call["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
     output_guard.assert_awaited_once_with(
-        project_name="demo",
-        script_file="scripts/frozen.json",
+        resource_id="E1U1",
         request_duration_seconds=12,
         output_path=Path(tempfile.gettempdir()) / "video.mp4",
-        versions=fake_gen.versions,
-        resource_type="reference_videos",
-        resource_id="E1U1",
-        version=3,
+        tts_actual_duration_seconds=10.5,
     )
     finalize.assert_awaited_once()
     assert finalize.await_args.kwargs["script_file"] == "scripts/frozen.json"
@@ -611,7 +735,10 @@ async def test_reference_resume_post_production_does_not_reproject_tts(monkeypat
         ),
     )
     output_guard = AsyncMock()
-    monkeypatch.setattr(resume_executor, "require_generated_video_covers_current_tts", output_guard)
+    monkeypatch.setattr(
+        "server.services.video_artifact_currency.validate_generated_video_covers_tts_duration",
+        output_guard,
+    )
     monkeypatch.setattr(
         resume_executor,
         "_finalize_reference_video_unit",

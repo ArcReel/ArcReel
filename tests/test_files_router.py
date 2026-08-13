@@ -9,11 +9,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
+import lib.project_manager as project_manager_module
 from lib.i18n.en import assets as en_assets
 from lib.i18n.vi import assets as vi_assets
 from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
-from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files
@@ -51,7 +51,7 @@ def _img_bytes(fmt="JPEG"):
 
 
 def _client(monkeypatch, tmp_path):
-    pm = ProjectManager(tmp_path / "projects")
+    pm = project_manager_module.ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.add_character("demo", "Alice", "desc")
@@ -238,6 +238,19 @@ class TestFilesRouter:
             assert project["characters"]["Alice"]["reference_audio"] == "characters/refs_audio/Alice.wav"
 
     @pytest.mark.unit
+    def test_character_audio_ref_without_name_is_rejected_without_writing_an_orphan(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref",
+                files={"file": ("orphan.wav", _wav_bytes(3), "audio/wav")},
+            )
+
+            assert resp.status_code == 404
+            refs_dir = pm.get_project_path("demo") / "characters" / "refs_audio"
+            assert not refs_dir.exists() or not any(refs_dir.iterdir())
+
+    @pytest.mark.unit
     def test_character_audio_ref_rejects_bad_extension(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
@@ -373,8 +386,8 @@ class TestFilesRouter:
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio") == ""
 
     @pytest.mark.unit
-    def test_delete_character_reference_audio_preserves_pointer_on_unlink_failure(self, tmp_path, monkeypatch):
-        """物理删除失败（权限/IO 错误，含 Windows 文件占用）时保留字段指针，允许重试发现并清理该文件。"""
+    def test_delete_character_reference_audio_succeeds_when_cleanup_fails(self, tmp_path, monkeypatch):
+        """字段已提交清空后，物理删除失败只残留无引用文件，不应让请求误报失败。"""
         client, pm = _client(monkeypatch, tmp_path)
         with client:
             upload = client.post(
@@ -394,6 +407,32 @@ class TestFilesRouter:
                 return original_unlink(self, *args, **kwargs)
 
             monkeypatch.setattr(Path, "unlink", _boom)
+
+            resp = client.delete("/api/v1/projects/demo/characters/Alice/reference-audio")
+            assert resp.status_code == 200
+            assert pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == ""
+            assert audio_path.exists()
+
+    @pytest.mark.unit
+    def test_delete_character_reference_audio_preserves_file_when_project_commit_fails(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            upload = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                files={"file": ("alice_voice.wav", _wav_bytes(3), "audio/wav")},
+            )
+            assert upload.status_code == 200
+            project_dir = pm.get_project_path("demo")
+            project_file = project_dir / "project.json"
+            audio_path = project_dir / "characters" / "refs_audio" / "Alice.wav"
+            real_atomic_write = project_manager_module.atomic_write_json
+
+            def _fail_project_write(path, data):
+                if path == project_file:
+                    raise OSError("injected project write failure")
+                return real_atomic_write(path, data)
+
+            monkeypatch.setattr(project_manager_module, "atomic_write_json", _fail_project_write)
 
             resp = client.delete("/api/v1/projects/demo/characters/Alice/reference-audio")
             assert resp.status_code == 500
@@ -822,6 +861,16 @@ class TestFilesRouter:
                 naming="stable_png",
                 content_check="validate_image",
                 host_not_found_key="product_not_found",
+            )
+
+        # 参考音频的元数据字段是文件唯一指针；清理旧文件的类型不能漏掉宿主存在性约束。
+        with pytest.raises(ValueError):
+            files.UploadSpec(
+                allowed_exts=(".wav",),
+                subdir=("x",),
+                naming="keep_ext",
+                content_check="audio",
+                tracks_stale_audio=True,
             )
 
     @pytest.mark.integration

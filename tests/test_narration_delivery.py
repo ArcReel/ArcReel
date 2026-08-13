@@ -23,6 +23,7 @@ from lib.narration_delivery import (
     NarrationTtsStatus,
     TtsSynthesisSettings,
     build_narration_audio_basis,
+    build_narration_audio_basis_from_canonical_text,
     canonical_narration_text,
     prepare_current_narration_delivery,
     prepare_narrated_video_duration,
@@ -95,6 +96,16 @@ def test_tts_basis_changes_for_each_paid_synthesis_input() -> None:
     assert base != build_narration_audio_basis(preparation, _settings(voice="Ethan"))
     assert base != build_narration_audio_basis(preparation, _settings(model_id="cosyvoice-v3.5-flash"))
     assert base != build_narration_audio_basis(preparation, _settings(speed=1.2))
+
+
+def test_tts_basis_raw_facts_builder_matches_preparation_builder() -> None:
+    preparation = _narrator_preparation("E1U1", "正文")
+    settings = _settings()
+
+    assert build_narration_audio_basis(preparation, settings) == build_narration_audio_basis_from_canonical_text(
+        "正文",
+        settings,
+    )
 
 
 def test_registration_failure_restores_the_previous_current_basis(tmp_path: Path, monkeypatch) -> None:

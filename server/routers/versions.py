@@ -13,15 +13,24 @@ from fastapi import APIRouter
 
 logger = logging.getLogger(__name__)
 
-from lib.api_errors import BadRequestError
+from lib.api_errors import BadRequestError, ConflictError
+from lib.async_thread import run_noninterruptible_sync
+from lib.generation_admission import generation_admission_lock
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
+from server.services.artifact_version_restore import (
+    TypedMediaRestoreTarget,
+    get_typed_media_restore_target,
+    is_typed_media_restore_resource,
+    is_typed_media_version_restorable,
+    restore_typed_media_version,
+)
 from server.services.grid_access import ensure_grid_writable
-from server.services.reference_video_tasks import apply_unit_video_assets
+from server.services.narration_delivery_tasks import active_narrated_video_resource_ids, active_tts_resource_ids
 
 router = APIRouter()
 
@@ -29,7 +38,7 @@ router = APIRouter()
 # 仅放行有还原后元数据同步分支的这几类。grids 的还原只换回联合图文件并复位宫格记录的
 # 切分态，不触发切分、不碰任何分镜图——落格由宫格切分端点显式执行。
 _RESTORABLE_RESOURCE_TYPES = frozenset(
-    {"storyboards", "videos", "characters", "scenes", "props", "products", "reference_videos", "grids"}
+    {"storyboards", "videos", "audio", "characters", "scenes", "props", "products", "reference_videos", "grids"}
 )
 
 
@@ -101,63 +110,6 @@ def _sync_storyboard_metadata(
     _sync_scripts_best_effort(project_path, _apply)
 
 
-def _sync_video_metadata(
-    project_name: str,
-    resource_id: str,
-    file_path: str,
-    project_path: Path,
-) -> None:
-    """还原镜头视频后同步 generated_assets。
-
-    还原的是历史本地文件，旧 provider URI / 缩略图与之不再对应，一并清空
-    （缩略图文件本身由 restore 端点删除，同步路径无法内联 async ffmpeg 重新抽帧）。
-    """
-
-    def _apply(script_name: str) -> None:
-        get_project_manager().batch_update_scene_assets(
-            project_name=project_name,
-            script_filename=script_name,
-            updates=[
-                (resource_id, "video_clip", file_path),
-                (resource_id, "video_uri", None),
-                (resource_id, "video_thumbnail", None),
-            ],
-        )
-
-    _sync_scripts_best_effort(project_path, _apply)
-
-
-def _sync_reference_video_metadata(
-    project_name: str,
-    resource_id: str,
-    project_path: Path,
-    generated_at: str | None = None,
-) -> None:
-    """还原参考视频单元后同步 unit.generated_assets（写回口径与生成 finalize 共用）。
-
-    还原的是历史本地文件，旧 provider URI / 缩略图与之不再对应，一并清空；
-    缩略图文件本身由 restore 端点删除（同步路径无法内联 async ffmpeg 重新抽帧）。
-
-    ``generated_at`` 传被还原版本的入库时间：还原回来的是旧内容，其 video_generated_at
-    应当是那一版的生成时间，否则「早于当前参考音频设置」的存量片段会被还原动作洗成最新。
-
-    """
-
-    def _apply(script_name: str) -> None:
-        # 资产回写热路径：只动 unit.generated_assets，豁免结构校验（与 update_scene_asset 对齐）。
-        # 该集脚本不含此 unit 时 apply_unit_video_assets 抛 KeyError，锁内冒出即跳过写回。
-        with get_project_manager().locked_script(project_name, script_name, validate=False) as script:
-            apply_unit_video_assets(
-                script,
-                resource_id,
-                video_uri=None,
-                thumb_rel=None,
-                generated_at=generated_at,
-            )
-
-    _sync_scripts_best_effort(project_path, _apply)
-
-
 def _sync_grid_record(project_path: Path, resource_id: str) -> None:
     """还原联合图后复位宫格记录：内容已换回历史版本，旧的落格结果不再对应当前图。
 
@@ -195,12 +147,8 @@ def _sync_metadata(
     resource_id: str,
     file_path: str,
     project_path: Path,
-    restored_created_at: str | None = None,
 ) -> None:
-    """还原后同步元数据，确保引用指向统一文件路径。
-
-    ``restored_created_at`` 为被还原版本的入库时间，仅参考视频写回时需要。
-    """
+    """还原非 typed 资源后同步元数据，确保引用指向统一文件路径。"""
     asset_type = _RESOURCE_TO_ASSET_TYPE.get(resource_type)
     if asset_type is not None:
         try:
@@ -210,10 +158,6 @@ def _sync_metadata(
             pass  # 资产条目可能已从 project.json 删除，跳过元数据同步
     elif resource_type == "storyboards":
         _sync_storyboard_metadata(project_name, resource_id, file_path, project_path)
-    elif resource_type == "videos":
-        _sync_video_metadata(project_name, resource_id, file_path, project_path)
-    elif resource_type == "reference_videos":
-        _sync_reference_video_metadata(project_name, resource_id, project_path, restored_created_at)
     elif resource_type == "grids":
         _sync_grid_record(project_path, resource_id)
 
@@ -240,6 +184,9 @@ async def get_versions(
         def _sync():
             vm = get_version_manager(project_name)
             versions_info = vm.get_versions(resource_type, resource_id)
+            for record in versions_info.get("versions", []):
+                if isinstance(record, dict):
+                    record["restorable"] = is_typed_media_version_restorable(resource_type, record)
             return {"resource_type": resource_type, "resource_id": resource_id, **versions_info}
 
         return await asyncio.to_thread(_sync)
@@ -272,6 +219,15 @@ async def restore_version(
         version: 要还原的版本号
     """
     try:
+        target: TypedMediaRestoreTarget | None = None
+        if is_typed_media_restore_resource(resource_type):
+            target = await asyncio.to_thread(
+                get_typed_media_restore_target,
+                get_version_manager(project_name),
+                resource_type=resource_type,
+                resource_id=resource_id,
+                version=version,
+            )
 
         def _sync():
             # 还原同样是一条联合图写入路径（换回历史联合图 + 复位宫格记录），
@@ -283,27 +239,34 @@ async def restore_version(
             project_path = get_project_manager().get_project_path(project_name)
             current_file, file_path = _resolve_resource_path(resource_type, resource_id, project_path)
 
-            result = vm.restore_version(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                version=version,
-                current_file=current_file,
-            )
-
-            # 还原参考视频时把该版本的原始入库时间一并写回，
-            # 避免存量声音判定被还原动作洗新。
-            if resource_type == "reference_videos":
-                restored_created_at = vm.get_version_created_at(resource_type, resource_id, version)
+            if is_typed_media_restore_resource(resource_type):
+                result = restore_typed_media_version(
+                    project_manager=get_project_manager(),
+                    project_name=project_name,
+                    project_path=project_path,
+                    versions=vm,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    version=version,
+                    current_file=current_file,
+                    artifact_path=file_path,
+                )
             else:
-                restored_created_at = None
-            _sync_metadata(
-                resource_type,
-                project_name,
-                resource_id,
-                file_path,
-                project_path,
-                restored_created_at,
-            )
+                result = vm.restore_version(
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    version=version,
+                    current_file=current_file,
+                )
+
+            if not is_typed_media_restore_resource(resource_type):
+                _sync_metadata(
+                    resource_type,
+                    project_name,
+                    resource_id,
+                    file_path,
+                    project_path,
+                )
 
             # 计算还原后文件的 fingerprint；视频还原时同步删除缩略图（内容已失效）
             asset_fingerprints: dict[str, int] = {}
@@ -329,6 +292,28 @@ async def restore_version(
                 "asset_fingerprints": asset_fingerprints,
             }
 
+        if target is not None:
+            async with generation_admission_lock(
+                project_name=project_name,
+                script_file=target.script_file,
+                resource_id=resource_id,
+            ):
+                if resource_type == "audio":
+                    active_tts, active_video = await asyncio.gather(
+                        active_tts_resource_ids(
+                            project_name=project_name,
+                            resource_ids=(resource_id,),
+                            script_file=target.script_file,
+                        ),
+                        active_narrated_video_resource_ids(
+                            project_name=project_name,
+                            resource_ids=(resource_id,),
+                            script_file=target.script_file,
+                        ),
+                    )
+                    if resource_id in active_tts or resource_id in active_video:
+                        raise ConflictError("audio_restore_conflicts_with_active_task", resource_id=resource_id)
+                return await run_noninterruptible_sync(_sync)
         return await asyncio.to_thread(_sync)
 
     except ValueError as e:

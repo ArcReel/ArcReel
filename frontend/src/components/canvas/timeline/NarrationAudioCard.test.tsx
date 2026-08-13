@@ -41,6 +41,12 @@ describe("NarrationAudioCard", () => {
     expect(screen.getByText("尚未生成")).toBeInTheDocument();
   });
 
+  it("keeps paid history reachable when no narration audio is currently selected", () => {
+    renderCard();
+
+    expect(screen.getByRole("button", { name: /版本/ })).toBeInTheDocument();
+  });
+
   it("invokes onGenerate when the generate button is clicked", () => {
     const onGenerate = vi.fn();
     renderCard({ onGenerate });

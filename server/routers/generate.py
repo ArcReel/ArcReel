@@ -18,7 +18,6 @@ from pydantic import BaseModel, Field
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
-from lib.audio_utils import discard_stale_reference_audio, resolve_stale_reference_audio
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec
@@ -663,35 +662,20 @@ async def confirm_character_voice_sample(
 
     def _sync() -> dict:
         pm_local = get_project_manager()
-        project = pm_local.load_project(project_name)
-        char_key = resolve_asset_key(project.get("characters"), char_name)
-        if char_key is None:
-            raise NotFoundError("character_not_found", name=char_name)
-
         project_dir = pm_local.get_project_path(project_name)
         if not safe_exists(project_dir, sample_rel):
             raise NotFoundError("voice_sample_file_missing")
         sample_abs = safe_join(project_dir, sample_rel)
         content = sample_abs.read_bytes()
 
-        refs_audio_dir = project_dir / "characters" / "refs_audio"
-        refs_audio_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{char_name}.wav"
-        target_path = refs_audio_dir / filename
-
-        old_audio = ((project.get("characters") or {}).get(char_key) or {}).get("reference_audio")
-        stale_audio_path = resolve_stale_reference_audio(project_dir, refs_audio_dir, old_audio, target_path)
-
-        target_path.write_bytes(content)
-
         ref_audio_rel = f"characters/refs_audio/{filename}"
+        target_path = project_dir / ref_audio_rel
         try:
             with project_change_source("webui"):
-                pm_local.update_character_reference_audio(project_name, char_name, ref_audio_rel)
+                pm_local.install_character_reference_audio(project_name, char_name, ref_audio_rel, content)
         except KeyError:
             raise NotFoundError("character_not_found", name=char_name)
-
-        discard_stale_reference_audio(stale_audio_path)
 
         # 目标文件名固定为 {char_name}.wav：重新生成后再次确认时 reference_audio 字段值
         # 不变（同一路径字符串），project.json 的字段级 diff 因此检测不到变化、不会自动

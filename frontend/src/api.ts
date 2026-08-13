@@ -283,6 +283,8 @@ export interface VersionInfo {
   created_at: string;
   file_size: number;
   is_current: boolean;
+  /** Whether this history record carries verified provenance for restore. */
+  restorable?: boolean;
   file_url?: string;
   prompt?: string;
   restored_from?: number;

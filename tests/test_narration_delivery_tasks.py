@@ -3,11 +3,81 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
+from lib.artifact_manifest import (
+    ArtifactBasis,
+    ArtifactKey,
+    ArtifactManifest,
+    ProjectArtifactManifestAdapter,
+    compose_video_artifact_basis,
+)
+from lib.speech_artifact_provenance import build_video_duration_basis
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from server.services import narration_delivery_tasks
 
 
+def _typed_video_metadata(
+    project_path: Path,
+    *,
+    resource_id: str,
+    artifact_path: str,
+    visual_basis_digest: str,
+    request_duration_seconds: int = 8,
+    register: bool = True,
+) -> dict[str, object]:
+    is_reference = artifact_path.startswith("reference_videos/")
+    visual = ArtifactBasis.build(
+        "artifact-visual/video-reference" if is_reference else "artifact-visual/video-storyboard",
+        kind_version=1,
+        inputs=(
+            {
+                "unit_id": resource_id,
+                "visual_shots": [{"shot_index": 0, "lines": ["Run."]}],
+                "style": "cinematic",
+                "canvas": {"aspect_ratio": "9:16"},
+                "request_references": [],
+            }
+            if is_reference
+            else {
+                "resource_id": resource_id,
+                "visual_prompt": {"action": "Run.", "camera_motion": "Static"},
+                "canvas": {"aspect_ratio": "9:16"},
+                "frames": [{"role": "storyboard", "sha256": "a" * 64}],
+            }
+        ),
+    )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = build_video_duration_basis(request_duration_seconds)
+    currency = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=request_duration_seconds,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(4, 8, 12),
+        reference_image_limit=0 if is_reference else None,
+        parent_version=0,
+    )
+    if register:
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register_descriptor(
+            ArtifactKey.episode_video(1, resource_id),
+            artifact_path=artifact_path,
+            basis=currency.video_descriptor,
+        )
+    return {
+        "execution_checkpoint_schema_version": 3,
+        "execution_script_file": "episode_1.json",
+        "execution_duration_seconds": request_duration_seconds,
+        "execution_request_digest": "d" * 64,
+        "execution_provider_media": [],
+        "artifact_video_currency": currency.to_dict(),
+        "visual_basis_digest": visual_basis_digest,
+    }
+
+
 @pytest.mark.unit
-async def test_current_settings_use_canonical_provider_and_actual_backend_model(monkeypatch) -> None:
+async def test_current_settings_use_canonical_provider_and_actual_backend_model(monkeypatch, tmp_path: Path) -> None:
     from lib.config.resolver import ProviderModel
     from server.services.generation_context import AudioLaneResult, GenerationContext
 
@@ -25,14 +95,26 @@ async def test_current_settings_use_canonical_provider_and_actual_backend_model(
     resolve = AsyncMock(return_value=ctx)
     monkeypatch.setattr(narration_delivery_tasks, "resolve_generation_context", resolve)
 
-    settings = await narration_delivery_tasks.CurrentTtsSettingsResolver("demo").resolve_tts_synthesis_settings(
-        {"name": "demo"}
-    )
+    project = {"name": "demo"}
+    project_path = tmp_path / "demo"
+    settings = await narration_delivery_tasks.CurrentTtsSettingsResolver(
+        "demo",
+        user_id="owner",
+        project_path=project_path,
+    ).resolve_tts_synthesis_settings(project)
 
     assert settings.provider_id == "custom-7"
     assert settings.model_id == "fallback-model"
     assert settings.voice == "alloy"
     assert settings.speed == 1.2
+    resolve.assert_awaited_once_with(
+        "demo",
+        None,
+        project=project,
+        project_path=project_path,
+        user_id="owner",
+        audio=narration_delivery_tasks.AudioLaneRequest(),
+    )
 
 
 @pytest.mark.parametrize(
@@ -265,14 +347,21 @@ async def test_current_visual_is_reused_only_for_the_selected_trusted_duration_t
         "prompt",
         source_file=current,
         duration_seconds=8,
-        visual_basis_digest="current-visual-basis",
+        **_typed_video_metadata(
+            tmp_path,
+            resource_id="E1S01",
+            artifact_path="videos/scene_E1S01.mp4",
+            visual_basis_digest="current-visual-basis",
+            request_duration_seconds=4,
+        ),
     )
     item = {
         "generated_assets": {
-            "status": "completed",
-            "video_clip": "videos/scene_E1S01.mp4",
+            "status": "pending",
+            "video_clip": "legacy/wrong-path.mp4",
             "video_uri": "provider://video/1",
-        }
+        },
+        "stale": True,
     }
 
     monkeypatch.setattr(
@@ -352,7 +441,12 @@ async def test_current_visual_tier_is_retained_when_media_is_too_short_for_curre
         "prompt",
         source_file=current,
         duration_seconds=4,
-        visual_basis_digest="current-visual-basis",
+        **_typed_video_metadata(
+            tmp_path,
+            resource_id="E1S01",
+            artifact_path="videos/scene_E1S01.mp4",
+            visual_basis_digest="current-visual-basis",
+        ),
     )
     item = {
         "generated_assets": {
@@ -399,7 +493,7 @@ async def test_current_visual_tier_is_retained_when_media_is_too_short_for_curre
     "unsafe_state",
     [
         "missing_metadata",
-        "stale",
+        "missing_manifest",
         "wrong_tier",
         "unselected_bytes",
         "short_media",
@@ -421,15 +515,23 @@ async def test_current_visual_without_reusable_current_media_is_not_reused(
     metadata = (
         {}
         if unsafe_state == "missing_metadata"
-        else {"duration_seconds": 8, "visual_basis_digest": "recorded-visual-basis"}
+        else {
+            "duration_seconds": 8,
+            **_typed_video_metadata(
+                tmp_path,
+                resource_id="E1U1",
+                artifact_path="reference_videos/E1U1.mp4",
+                visual_basis_digest="recorded-visual-basis",
+                register=unsafe_state != "missing_manifest",
+            ),
+        }
     )
     versions.add_version("reference_videos", "E1U1", "prompt", source_file=current, **metadata)
     item = {
         "generated_assets": {
             "status": "completed",
             "video_clip": "reference_videos/E1U1.mp4",
-        },
-        "stale": unsafe_state == "stale",
+        }
     }
     request_duration = 12 if unsafe_state == "wrong_tier" else 8
     if unsafe_state == "unselected_bytes":

@@ -10,7 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from lib.artifact_manifest import MANIFEST_FILENAME, ArtifactBasis, ArtifactBasisDescriptor
+from lib.artifact_manifest import (
+    MANIFEST_FILENAME,
+    ArtifactBasis,
+    compose_video_artifact_basis,
+)
 from lib.path_safety import PathTraversalError
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
@@ -27,8 +31,37 @@ from lib.reference_video.execution_checkpoint import (
     load_task_reference_checkpoint,
     stage_provider_media,
 )
+from lib.speech_artifact_provenance import build_video_duration_basis
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 
 pytestmark = pytest.mark.integration
+
+
+def _reference_visual_basis(unit_id: str) -> ArtifactBasis:
+    return ArtifactBasis.build(
+        "artifact-visual/video-reference",
+        kind_version=1,
+        inputs={
+            "unit_id": unit_id,
+            "visual_shots": [{"shot_index": 0, "lines": ["Alice crosses the room."]}],
+            "style": "cinematic",
+            "canvas": {"aspect_ratio": "9:16"},
+            "request_references": [],
+        },
+    )
+
+
+def _storyboard_visual_basis(resource_id: str) -> ArtifactBasis:
+    return ArtifactBasis.build(
+        "artifact-visual/video-storyboard",
+        kind_version=1,
+        inputs={
+            "resource_id": resource_id,
+            "visual_prompt": {"action": "Alice crosses the room.", "camera_motion": "Static"},
+            "canvas": {"aspect_ratio": "9:16"},
+            "frames": [{"role": "storyboard", "sha256": "a" * 64}],
+        },
+    )
 
 
 def _stage_inputs(project_path: Path) -> tuple[ProviderMediaInput, ...]:
@@ -59,6 +92,21 @@ def _stage_inputs(project_path: Path) -> tuple[ProviderMediaInput, ...]:
 
 def _checkpoint(project_path: Path) -> ReferenceSubmissionCheckpoint:
     staged = stage_provider_media(project_path, "task-1", _stage_inputs(project_path))
+    visual = _reference_visual_basis("E1U1")
+    speech = ArtifactBasis.build(
+        "artifact-speech/video",
+        kind_version=1,
+        inputs={
+            "mode": "character_speech",
+            "utterances": [{"speaker": "Alice", "text": "Move."}],
+            "voices": [{"speaker": "Alice", "voice_style": "", "reference_audio_digest": None}],
+        },
+    )
+    duration = ArtifactBasis.build(
+        "artifact-speech/video-duration",
+        kind_version=1,
+        inputs={"request_duration_seconds": 8},
+    )
     return ReferenceSubmissionCheckpoint.create(
         task_id="task-1",
         project_name="demo",
@@ -78,8 +126,17 @@ def _checkpoint(project_path: Path) -> ReferenceSubmissionCheckpoint:
         service_tier="default",
         seed=None,
         visual_basis_digest="a" * 64,
-        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
-            ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U1"})
+        artifact_currency=VideoArtifactCurrencyFacts(
+            episode=1,
+            request_duration_seconds=8,
+            visual_basis=visual,
+            speech_basis=speech,
+            duration_basis=duration,
+            video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+            voice_style_speakers=("Alice",),
+            duration_tiers=(4, 8, 12),
+            reference_image_limit=3,
+            parent_version=0,
         ),
         narration=NarrationExecutionFacts(
             delivery="use_tts",
@@ -253,11 +310,15 @@ def test_checkpoint_round_trip_is_versioned_strict_and_self_authenticating(tmp_p
     assert restored.media[0].source_locator == "characters/Alice.png"
     assert restored.narration.actual_duration_seconds == 6.25
     assert restored.artifact_visual_basis == artifact_visual_basis
-    assert checkpoint_version_metadata(restored)["artifact_visual_basis"] == {
-        "kind": "artifact-visual/video-reference",
-        "kind_version": 1,
-        "digest": artifact_visual_basis.digest,
-    }
+    assert restored.artifact_speech_basis is not None
+    assert restored.artifact_duration_basis is not None
+    assert restored.artifact_video_basis is not None
+    assert restored.artifact_episode == 1
+    assert restored.artifact_voice_style_speakers == ("Alice",)
+    assert restored.artifact_duration_tiers == (4, 8, 12)
+    assert restored.artifact_reference_image_limit == 3
+    assert restored.artifact_currency is not None
+    assert checkpoint_version_metadata(restored)["artifact_video_currency"] == restored.artifact_currency.to_dict()
     assert not (tmp_path / "demo" / MANIFEST_FILENAME).exists()
 
     raw = json.loads(checkpoint.to_json())
@@ -266,7 +327,7 @@ def test_checkpoint_round_trip_is_versioned_strict_and_self_authenticating(tmp_p
         ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
 
     raw = json.loads(checkpoint.to_json())
-    raw["duration_seconds"] = 12
+    raw["service_tier"] = "priority"
     with pytest.raises(ValueError, match="request_digest"):
         ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
 
@@ -280,16 +341,10 @@ def test_checkpoint_round_trip_is_versioned_strict_and_self_authenticating(tmp_p
     with pytest.raises(ValueError, match="canonical"):
         ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
 
-    for invalid in (
-        {"kind": "", "kind_version": 1, "digest": "sha256-v1:" + "a" * 64},
-        {"kind": "visual", "kind_version": True, "digest": "sha256-v1:" + "a" * 64},
-        {"kind": "visual", "kind_version": 1, "digest": "a" * 64},
-        {**artifact_visual_basis.to_dict(), "extra": True},
-    ):
-        raw = json.loads(checkpoint.to_json())
-        raw["artifact_visual_basis"] = invalid
-        with pytest.raises(ValueError, match="artifact basis descriptor"):
-            ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
+    raw = json.loads(checkpoint.to_json())
+    raw["artifact_currency"]["visual_basis"]["inputs"]["unit_id"] = "tampered"
+    with pytest.raises(ValueError, match="self-verifying"):
+        ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
 
 
 def test_request_digest_is_stable_across_local_ledger_call_ids(tmp_path: Path) -> None:
@@ -300,31 +355,65 @@ def test_request_digest_is_stable_across_local_ledger_call_ids(tmp_path: Path) -
     assert replay.request_digest == checkpoint.request_digest
 
 
-def test_artifact_visual_basis_does_not_change_execution_request_digest(tmp_path: Path) -> None:
+def test_artifact_currency_facts_are_bound_to_execution_request_digest(tmp_path: Path) -> None:
     checkpoint = _checkpoint(tmp_path / "demo")
-    changed_artifact_basis = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U2"})
+    changed_artifact_basis = _reference_visual_basis("E1U2")
+    assert checkpoint.artifact_currency is not None
+    changed_currency = replace(
+        checkpoint.artifact_currency,
+        visual_basis=changed_artifact_basis,
+        video_basis=compose_video_artifact_basis(
+            visual=changed_artifact_basis,
+            speech=checkpoint.artifact_currency.speech_basis,
+            duration=checkpoint.artifact_currency.duration_basis,
+        ),
     )
 
-    with_changed_artifact_basis = replace(checkpoint, artifact_visual_basis=changed_artifact_basis)
-
-    assert with_changed_artifact_basis.request_digest == checkpoint.request_digest
+    with pytest.raises(ValueError, match="request_digest"):
+        replace(checkpoint, artifact_currency=changed_currency)
 
 
 def test_reference_checkpoint_rejects_storyboard_artifact_visual_basis(tmp_path: Path) -> None:
     checkpoint = _checkpoint(tmp_path / "demo")
-    storyboard_basis = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+    storyboard_basis = _storyboard_visual_basis("E1S01")
+    assert checkpoint.artifact_currency is not None
+    changed = replace(
+        checkpoint.artifact_currency,
+        visual_basis=storyboard_basis,
+        video_basis=compose_video_artifact_basis(
+            visual=storyboard_basis,
+            speech=checkpoint.artifact_currency.speech_basis,
+            duration=checkpoint.artifact_currency.duration_basis,
+        ),
+        reference_image_limit=None,
     )
 
-    with pytest.raises(ValueError, match="artifact_visual_basis kind"):
-        replace(checkpoint, artifact_visual_basis=storyboard_basis)
+    with pytest.raises(ValueError, match="visual kind"):
+        replace(checkpoint, artifact_currency=changed)
+
+
+def test_checkpoint_rejects_duration_basis_that_does_not_describe_the_request_tier(tmp_path: Path) -> None:
+    checkpoint = _checkpoint(tmp_path / "demo")
+    assert checkpoint.artifact_currency is not None
+    wrong_duration = build_video_duration_basis(4)
+    wrong_video = compose_video_artifact_basis(
+        visual=checkpoint.artifact_currency.visual_basis,
+        speech=checkpoint.artifact_currency.speech_basis,
+        duration=wrong_duration,
+    )
+
+    with pytest.raises(ValueError, match="paid request tier"):
+        replace(
+            checkpoint.artifact_currency,
+            duration_basis=wrong_duration,
+            video_basis=wrong_video,
+        )
 
 
 def test_legacy_checkpoint_remains_resumable_without_inventing_artifact_basis(tmp_path: Path) -> None:
     raw = json.loads(_checkpoint(tmp_path / "demo").to_json())
     raw["schema_version"] = 1
-    raw.pop("artifact_visual_basis")
+    raw.pop("artifact_currency")
     digest_payload = {key: value for key, value in raw.items() if key not in {"api_call_id", "request_digest"}}
     raw["request_digest"] = hashlib.sha256(
         json.dumps(
@@ -340,6 +429,33 @@ def test_legacy_checkpoint_remains_resumable_without_inventing_artifact_basis(tm
     assert restored.schema_version == 1
     assert restored.artifact_visual_basis is None
     assert "artifact_visual_basis" not in checkpoint_version_metadata(restored)
+
+
+def test_visual_only_checkpoint_remains_resumable_but_cannot_claim_complete_video_basis(tmp_path: Path) -> None:
+    raw = json.loads(_checkpoint(tmp_path / "demo").to_json())
+    artifact_visual_basis = raw["artifact_currency"]["visual_basis"]
+    raw["schema_version"] = 2
+    raw.pop("artifact_currency")
+    raw["artifact_visual_basis"] = {
+        "kind": artifact_visual_basis["kind"],
+        "kind_version": artifact_visual_basis["kind_version"],
+        "digest": artifact_visual_basis["digest"],
+    }
+    digest_payload = {
+        key: value
+        for key, value in raw.items()
+        if key not in {"api_call_id", "request_digest", "artifact_visual_basis"}
+    }
+    raw["request_digest"] = hashlib.sha256(
+        json.dumps(digest_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+    restored = ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
+
+    assert restored.schema_version == 2
+    assert restored.artifact_visual_basis is not None
+    assert restored.artifact_video_basis is None
+    assert "artifact_video_basis" not in checkpoint_version_metadata(restored)
 
 
 def test_checkpoint_rejects_incoherent_narration_and_media_facts(tmp_path: Path) -> None:
@@ -364,6 +480,7 @@ def test_checkpoint_rejects_noncanonical_staged_locator_and_wrong_identity(tmp_p
     checkpoint = _checkpoint(tmp_path / "demo")
     artifact_visual_basis = checkpoint.artifact_visual_basis
     assert artifact_visual_basis is not None
+    assert checkpoint.artifact_currency is not None
     with pytest.raises(ValueError, match="staged_locator"):
         replace(checkpoint.media[0], staged_locator="../outside.png")
 
@@ -391,7 +508,7 @@ def test_checkpoint_rejects_noncanonical_staged_locator_and_wrong_identity(tmp_p
             service_tier=checkpoint.service_tier,
             seed=checkpoint.seed,
             visual_basis_digest=checkpoint.visual_basis_digest,
-            artifact_visual_basis=artifact_visual_basis,
+            artifact_currency=checkpoint.artifact_currency,
             narration=checkpoint.narration,
             media=(wrong_task, *checkpoint.media[1:]),
             reference_audio_targets=checkpoint.reference_audio_targets,
@@ -460,6 +577,9 @@ def test_storyboard_checkpoint_round_trip_and_four_resume_states(tmp_path: Path)
             ),
         ),
     )
+    storyboard_visual = _storyboard_visual_basis("E1S01")
+    storyboard_speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    storyboard_duration = build_video_duration_basis(8)
     checkpoint = StoryboardSubmissionCheckpoint.create(
         task_id="task-storyboard",
         project_name="demo",
@@ -479,8 +599,21 @@ def test_storyboard_checkpoint_round_trip_and_four_resume_states(tmp_path: Path)
         service_tier="default",
         seed=123,
         visual_basis_digest="c" * 64,
-        artifact_visual_basis=ArtifactBasisDescriptor.from_basis(
-            ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs={"unit": "E1S01"})
+        artifact_currency=VideoArtifactCurrencyFacts(
+            episode=1,
+            request_duration_seconds=8,
+            visual_basis=storyboard_visual,
+            speech_basis=storyboard_speech,
+            duration_basis=storyboard_duration,
+            video_basis=compose_video_artifact_basis(
+                visual=storyboard_visual,
+                speech=storyboard_speech,
+                duration=storyboard_duration,
+            ),
+            voice_style_speakers=(),
+            duration_tiers=(4, 8, 12),
+            reference_image_limit=None,
+            parent_version=0,
         ),
         narration=NarrationExecutionFacts(
             delivery="post_production",
@@ -492,11 +625,20 @@ def test_storyboard_checkpoint_round_trip_and_four_resume_states(tmp_path: Path)
         media=staged,
         reference_audio_targets=None,
     )
-    reference_basis = ArtifactBasisDescriptor.from_basis(
-        ArtifactBasis.build("artifact-visual/video-reference", kind_version=1, inputs={"unit": "E1U01"})
+    reference_basis = _reference_visual_basis("E1U01")
+    assert checkpoint.artifact_currency is not None
+    reference_currency = replace(
+        checkpoint.artifact_currency,
+        visual_basis=reference_basis,
+        video_basis=compose_video_artifact_basis(
+            visual=reference_basis,
+            speech=checkpoint.artifact_currency.speech_basis,
+            duration=checkpoint.artifact_currency.duration_basis,
+        ),
+        reference_image_limit=1,
     )
-    with pytest.raises(ValueError, match="artifact_visual_basis kind"):
-        replace(checkpoint, artifact_visual_basis=reference_basis)
+    with pytest.raises(ValueError, match="visual kind"):
+        replace(checkpoint, artifact_currency=reference_currency)
 
     restored = StoryboardSubmissionCheckpoint.from_json(checkpoint.to_json())
     assert restored == checkpoint

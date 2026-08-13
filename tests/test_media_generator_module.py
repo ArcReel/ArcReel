@@ -7,6 +7,8 @@ import pytest
 
 from lib.image_backends.base import ImageCapability, ImageGenerationResult
 from lib.media_generator import MediaGenerator, cleanup_staged_video_output, segment_id_for, task_video_staging_path
+from lib.version_manager import PaidVersionCommit
+from tests.fakes import select_formal_video
 
 
 class _FakeImageBackend:
@@ -462,12 +464,26 @@ class TestMediaGenerator:
         gen = _build_generator(tmp_path)
         gen.versions = VersionManager(gen.project_path)
 
+        events = []
+
+        async def _prepare(staged_file, duration_seconds, version_metadata):
+            assert staged_file.read_bytes() == b"fake-video-data"
+            assert duration_seconds == 8
+            assert version_metadata["execution_request_digest"] == "d" * 64
+            events.append("prepared")
+
+        def _commit(*args):
+            events.append("committed")
+            return select_formal_video(gen, prompt="paid request")(*args)
+
         output, version, _, _ = await gen.generate_video_async(
             prompt="paid request",
             resource_type="reference_videos",
             resource_id="E1U1",
             formal_output=True,
             task_id="task-output-success",
+            before_formal_commit=_prepare,
+            commit_formal_output=_commit,
             execution_request_digest="d" * 64,
         )
 
@@ -476,6 +492,156 @@ class TestMediaGenerator:
         history = gen.versions.get_versions("reference_videos", "E1U1")
         assert history["versions"][0]["execution_request_digest"] == "d" * 64
         assert Path(gen.project_path / history["versions"][0]["file"]).read_bytes() == b"fake-video-data"
+        assert events == ["prepared", "committed"]
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_formal_video_without_commit_callback_keeps_paid_history_but_never_selects_it(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        from lib.version_manager import VersionManager
+
+        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        current = gen._get_output_path("reference_videos", "E1U1")
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"old-current")
+
+        with pytest.raises(RuntimeError, match="commit callback"):
+            await gen.generate_video_async(
+                prompt="paid request",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                formal_output=True,
+                task_id="task-missing-callback",
+            )
+
+        assert current.read_bytes() == b"old-current"
+        history = gen.versions.get_versions("reference_videos", "E1U1")
+        assert history["current_version"] == 1
+        assert len(history["versions"]) == 2
+        assert history["versions"][-1]["is_current"] is False
+        assert (gen.project_path / history["versions"][-1]["file"]).read_bytes() == b"fake-video-data"
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure", [RuntimeError("paid output validation failed"), asyncio.CancelledError()])
+    async def test_formal_video_prepare_failure_or_cancellation_archives_paid_history_without_selecting_it(
+        self,
+        tmp_path,
+        monkeypatch,
+        failure: BaseException,
+    ):
+        from lib.version_manager import VersionManager
+
+        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        current = gen._get_output_path("reference_videos", "E1U1")
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"old-current")
+
+        async def _fail_prepare(*_args):
+            raise failure
+
+        with pytest.raises(type(failure)):
+            await gen.generate_video_async(
+                prompt="paid request",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                formal_output=True,
+                task_id="task-prepare-failure",
+                before_formal_commit=_fail_prepare,
+            )
+
+        assert current.read_bytes() == b"old-current"
+        history = gen.versions.get_versions("reference_videos", "E1U1")
+        assert history["current_version"] == 1
+        assert len(history["versions"]) == 2
+        assert history["versions"][-1]["is_current"] is False
+        assert (gen.project_path / history["versions"][-1]["file"]).read_bytes() == b"fake-video-data"
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure", [RuntimeError("validation failed"), asyncio.CancelledError()])
+    async def test_formal_video_prepare_failure_archives_paid_history_off_the_event_loop(
+        self,
+        tmp_path,
+        monkeypatch,
+        failure: BaseException,
+    ):
+        import threading
+
+        gen = _build_generator(tmp_path)
+        event_loop_thread = threading.get_ident()
+        archive_threads: list[int] = []
+
+        def _archive(**_kwargs):
+            archive_threads.append(threading.get_ident())
+
+        monkeypatch.setattr(gen.versions, "commit_staged_paid_version", _archive, raising=False)
+
+        async def _fail_prepare(*_args):
+            raise failure
+
+        with pytest.raises(type(failure)):
+            await gen._prepare_formal_video_commit(
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                prompt="paid request",
+                output_path=tmp_path / "current.mp4",
+                staged_output_path=tmp_path / "staged.mp4",
+                duration_seconds=8,
+                version_metadata={},
+                before_formal_commit=_fail_prepare,
+            )
+
+        assert archive_threads
+        assert archive_threads[0] != event_loop_thread
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_video_commit_thread_keeps_event_loop_responsive_and_defers_cancellation(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        import threading
+
+        gen = _build_generator(tmp_path)
+        started = threading.Event()
+        release = threading.Event()
+        expected = PaidVersionCommit(version=7, selected=True)
+
+        def _blocked_commit(**_kwargs):
+            started.set()
+            assert release.wait(timeout=5)
+            return expected
+
+        monkeypatch.setattr(gen, "_commit_video_output_version_sync", _blocked_commit)
+        commit_task = asyncio.create_task(
+            gen._commit_video_output_version(
+                resource_type="videos",
+                resource_id="E1S01",
+                prompt="paid request",
+                output_path=tmp_path / "current.mp4",
+                staged_output_path=tmp_path / "staged.mp4",
+                duration_seconds=8,
+                version_metadata={},
+            )
+        )
+
+        assert await asyncio.to_thread(started.wait, 5)
+        await asyncio.sleep(0)
+        commit_task.cancel()
+        await asyncio.sleep(0)
+        assert not commit_task.done()
+
+        release.set()
+        assert await commit_task == expected
 
     @pytest.mark.integration
     @pytest.mark.asyncio
@@ -503,6 +669,7 @@ class TestMediaGenerator:
             resource_id="E1U1",
             formal_output=True,
             task_id="task-restarted",
+            commit_formal_output=select_formal_video(gen, prompt="paid request"),
         )
 
         assert current.read_bytes() == b"fake-video-data"

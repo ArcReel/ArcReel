@@ -346,7 +346,7 @@ export function VersionTimeMachine({
                         <span className="shrink-0 rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-300">
                           {t("current_version_badge")}
                         </span>
-                      ) : !readOnly ? (
+                      ) : !readOnly && selectedInfo.restorable !== false ? (
                         <button
                           type="button"
                           disabled={restoringVersion !== null || busy}

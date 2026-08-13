@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.artifact_manifest import ArtifactBasisDescriptor
+from lib.artifact_manifest import compose_video_artifact_basis
 from lib.config.resolver import (
     ConfigResolver,
     VideoCapability,
@@ -28,6 +28,7 @@ from lib.generation_queue import (
 )
 from lib.narration_delivery import USE_TTS
 from lib.path_safety import safe_join
+from lib.project_manager import ProjectManager
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.errors import MissingReferenceError
 from lib.reference_video.execution_checkpoint import (
@@ -63,9 +64,11 @@ from lib.reference_video.units import reference_video_bucket
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_editor import ScriptEditError
 from lib.script_models import ReferenceResource
-from lib.speech_composition import video_unit_replan_problems
+from lib.speech_artifact_provenance import build_video_duration_basis
+from lib.speech_composition import admit_script_unit, video_unit_replan_problems
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_visual_provenance import resolve_video_aspect_ratio
 from lib.visual_artifact_provenance import build_reference_video_artifact_visual_basis
 from server.services.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
@@ -75,9 +78,13 @@ from server.services.narration_delivery_tasks import (
     materialized_reference_video_visual_basis_digest,
     prepare_current_reference_video_request_options,
     reference_video_visual_basis_digest,
-    require_generated_video_covers_current_tts,
     reuse_current_video_for_tier,
     tts_task_in_progress,
+)
+from server.services.video_artifact_currency import (
+    VideoArtifactCommitter,
+    complete_video_artifact_commit,
+    freeze_video_speech_facts,
 )
 from server.services.video_caps import project_video_caps
 
@@ -681,6 +688,9 @@ async def execute_reference_video_task(
     staged_media: tuple[StagedProviderMedia, ...] = ()
     checkpoint_hook: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = None
     if task_id is not None:
+        artifact_episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
+        artifact_speech_preparation = admit_script_unit("video_units", unit).preparation
+        artifact_duration_basis = build_video_duration_basis(effective_duration)
         image_inputs = tuple(
             ProviderMediaInput(
                 path=entry.path,
@@ -755,17 +765,39 @@ async def execute_reference_video_task(
                 replace(entry, path=path) for entry, path in zip(constrained_entries, provider_refs, strict=True)
             )
             artifact_visual_basis = await asyncio.to_thread(
-                lambda: ArtifactBasisDescriptor.from_basis(
-                    build_reference_video_artifact_visual_basis(
-                        unit=unit,
-                        request_assets=staged_request_assets,
-                        style=project.get("style"),
-                        aspect_ratio=aspect_ratio,
-                    )
+                lambda: build_reference_video_artifact_visual_basis(
+                    unit=unit,
+                    request_assets=staged_request_assets,
+                    style=project.get("style"),
+                    aspect_ratio=aspect_ratio,
                 )
+            )
+            artifact_speech = await asyncio.to_thread(
+                freeze_video_speech_facts,
+                artifact_speech_preparation,
+                characters=project.get("characters"),
+                include_voice_styles=not voice_settings.is_silent,
+                reference_audio_paths=dict(zip(audio_names, staged_audio_paths, strict=True)),
+            )
+            artifact_video_basis = compose_video_artifact_basis(
+                visual=artifact_visual_basis,
+                speech=artifact_speech.basis,
+                duration=artifact_duration_basis,
             )
 
             def _build_checkpoint(api_call_id: int) -> ReferenceSubmissionCheckpoint:
+                artifact_currency = VideoArtifactCurrencyFacts(
+                    episode=artifact_episode,
+                    request_duration_seconds=effective_duration,
+                    visual_basis=artifact_visual_basis,
+                    speech_basis=artifact_speech.basis,
+                    duration_basis=artifact_duration_basis,
+                    video_basis=artifact_video_basis,
+                    voice_style_speakers=artifact_speech.voice_style_speakers,
+                    duration_tiers=candidate.supported_durations,
+                    reference_image_limit=candidate.max_reference_images,
+                    parent_version=generator.versions.get_current_version("reference_videos", resource_id),
+                )
                 return ReferenceSubmissionCheckpoint.create(
                     task_id=task_id,
                     project_name=project_name,
@@ -785,7 +817,7 @@ async def execute_reference_video_task(
                     service_tier="default",
                     seed=None,
                     visual_basis_digest=visual_basis_digest,
-                    artifact_visual_basis=artifact_visual_basis,
+                    artifact_currency=artifact_currency,
                     narration=narration_facts,
                     media=staged_media,
                     reference_audio_targets=audio_targets_tuple,
@@ -809,6 +841,19 @@ async def execute_reference_video_task(
             )
             raise
 
+    artifact_committer = (
+        VideoArtifactCommitter(
+            project_manager=get_project_manager(),
+            project_name=project_name,
+            project_path=project_path,
+            versions=generator.versions,
+            resource_type="reference_videos",
+            resource_id=resource_id,
+            prompt=rendered_prompt,
+        )
+        if task_id is not None
+        else None
+    )
     try:
         # MediaGenerator compresses only transient derivatives of the immutable staged images. A 413 retry keeps
         # the same high-level media identities and cannot rewrite the once-only checkpoint.
@@ -825,37 +870,38 @@ async def execute_reference_video_task(
             task_id=task_id,
             before_submit=checkpoint_hook,
             formal_output=task_id is not None,
+            before_formal_commit=artifact_committer.prepare_selection if artifact_committer is not None else None,
+            commit_formal_output=artifact_committer,
             visual_basis_digest=visual_basis_digest,
             generate_audio=video.requested_generate_audio,
         )
 
-        if request_options.narration_delivery == USE_TTS:
-            narration = options.narration_preparation
-            if narration is None:
-                raise RuntimeError("allowed TTS reference request is missing current narration preparation")
-            await require_generated_video_covers_current_tts(
+        async def _finalize() -> dict[str, Any]:
+            return await _finalize_reference_video_unit(
                 project_name=project_name,
-                script_file=str(script_file),
-                request_duration_seconds=effective_duration,
-                output_path=output_path,
-                versions=generator.versions,
-                resource_type="reference_videos",
+                script_file=script_file,
+                project_path=project_path,
                 resource_id=resource_id,
+                output_path=output_path,
                 version=version,
+                video_uri=video_uri,
+                versions=generator.versions,
+                warnings=warnings,
             )
 
-        return await _finalize_reference_video_unit(
-            project_name=project_name,
-            script_file=script_file,
-            project_path=project_path,
+        return await complete_video_artifact_commit(
+            committer=artifact_committer,
+            versions=generator.versions,
+            resource_type="reference_videos",
             resource_id=resource_id,
-            output_path=output_path,
             version=version,
             video_uri=video_uri,
-            versions=generator.versions,
+            finalize=_finalize,
             warnings=warnings,
         )
     finally:
+        if artifact_committer is not None:
+            await artifact_committer.release_admission_guard()
         if task_id is not None:
             await asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id)
 
@@ -901,7 +947,6 @@ def apply_unit_video_assets(
         else:
             ga.pop("video_thumbnail", None)
         ga["status"] = "completed"
-        u.pop("stale", None)
         return None
     raise KeyError(resource_id)
 
