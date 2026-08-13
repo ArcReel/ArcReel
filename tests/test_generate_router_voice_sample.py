@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 import lib.project_manager as project_manager_module
 from lib.audio_backends.base import VoiceOption
 from lib.config.resolver import ConfigResolver, ProviderModel
-from lib.project_manager import ProjectManager
 from lib.resource_paths import resource_relative_path
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -299,7 +298,7 @@ class TestConfirmCharacterVoiceSample:
         assert (project_path / "characters" / "refs_audio" / "艾莉.wav").read_bytes() == b"fake-wav"
 
     def test_confirm_waits_for_video_selection_before_replacing_reference_audio(self, tmp_path, monkeypatch):
-        pm = ProjectManager(tmp_path / "projects")
+        pm = project_manager_module.ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
         pm.add_character("demo", "艾莉", "desc")

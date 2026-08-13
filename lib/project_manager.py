@@ -2606,26 +2606,28 @@ class ProjectManager:
             discard_stale_reference_audio(stale_audio)
 
     def clear_character_reference_audio(self, project_name: str, char_name: str) -> dict:
-        """Remove the referenced audio file and clear its pointer under the shared project lock."""
+        """Clear the reference first, then best-effort delete the now-unreferenced audio file."""
 
         project_dir = self.get_project_path(project_name)
         refs_audio_dir = project_dir / "characters" / "refs_audio"
+        stale_audio: Path | None = None
 
         def _mutate(project: dict) -> None:
+            nonlocal stale_audio
             key = resolve_asset_key(project.get("characters"), char_name)
             if key is None:
                 raise KeyError(f"角色 '{char_name}' 不存在")
             old_audio = project["characters"][key].get("reference_audio")
-            stale = resolve_audio_ref_path(
+            stale_audio = resolve_audio_ref_path(
                 project_dir,
                 refs_audio_dir,
                 old_audio if isinstance(old_audio, str) else None,
             )
-            if stale is not None:
-                stale.unlink(missing_ok=True)
             self._set_character_reference_audio(project, char_name, "")
 
-        return self.update_project(project_name, _mutate)
+        project = self.update_project(project_name, _mutate)
+        self._discard_stale_reference_audio_if_unreferenced(project_name, stale_audio)
+        return project
 
     def get_project_character(self, project_name: str, name: str) -> dict:
         """获取项目级角色定义"""

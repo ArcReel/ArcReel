@@ -167,6 +167,65 @@ async def test_video_admission_guard_spans_selection_and_finalize(
 
 
 @pytest.mark.asyncio
+async def test_paid_video_guard_acquisition_defers_cancellation_until_the_guard_is_held(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    acquire_started = asyncio.Event()
+    allow_acquire = asyncio.Event()
+    guard_active = False
+
+    @asynccontextmanager
+    async def _guard(**_identity: str):
+        nonlocal guard_active
+        acquire_started.set()
+        await allow_acquire.wait()
+        guard_active = True
+        try:
+            yield
+        finally:
+            guard_active = False
+
+    monkeypatch.setattr(video_artifact_currency, "generation_admission_lock", _guard)
+    committer = VideoArtifactCommitter(
+        project_manager=MagicMock(),
+        project_name="demo",
+        project_path=tmp_path,
+        versions=MagicMock(),
+        resource_type="videos",
+        resource_id="E1S01",
+        prompt="p",
+    )
+    staged = tmp_path / "staged.mp4"
+    staged.write_bytes(b"paid-video")
+    prepare = asyncio.create_task(
+        committer.prepare_selection(
+            staged,
+            8,
+            {
+                "execution_script_file": "episode_1.json",
+                "execution_narration": {"delivery": "post_production"},
+            },
+        )
+    )
+
+    await acquire_started.wait()
+    prepare.cancel()
+    await asyncio.sleep(0)
+    cancelled_before_guard = prepare.done()
+    allow_acquire.set()
+    try:
+        await prepare
+    except asyncio.CancelledError:
+        pass
+
+    assert not cancelled_before_guard
+    assert guard_active
+    await committer.release_admission_guard()
+    assert not guard_active
+
+
+@pytest.mark.asyncio
 async def test_formal_selection_preparation_turns_execution_tts_validation_failure_into_history_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

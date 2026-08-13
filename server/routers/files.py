@@ -116,6 +116,8 @@ class UploadSpec:
         # 宿主约束与其 404 文案必须成对登记，否则拒收路径会拿空 key 去取翻译
         if (self.host_bucket is None) != (not self.host_not_found_key):
             raise ValueError("host_bucket 与 host_not_found_key 必须成对登记")
+        if self.tracks_stale_audio and self.host_bucket is None:
+            raise ValueError("tracks_stale_audio 必须登记宿主约束")
 
 
 UPLOAD_SPECS: dict[str, UploadSpec] = {
@@ -147,6 +149,8 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
         unsupported_ext_key="unsupported_audio_type",
         max_bytes=AUDIO_REFERENCE_MAX_BYTES,
         metadata_setter=ProjectManager.update_character_reference_audio,
+        host_bucket=ASSET_SPECS["character"].bucket_key,
+        host_not_found_key="character_not_found",
         tracks_stale_audio=True,
     ),
     "scene": UploadSpec(

@@ -19,7 +19,7 @@ from lib.artifact_manifest import (
     compose_video_artifact_basis,
 )
 from lib.asset_types import asset_name_comparison_key
-from lib.async_thread import EventLoopBridge
+from lib.async_thread import EventLoopBridge, run_noninterruptible_async
 from lib.generation_admission import generation_admission_lock
 from lib.generation_queue import CompensableGenerationResult
 from lib.json_io import atomic_write_bytes
@@ -163,7 +163,7 @@ class VideoArtifactCommitter:
                 script_file=script_file,
                 resource_id=self._resource_id,
             )
-            await guard.__aenter__()
+            await run_noninterruptible_async(guard.__aenter__())
             self._admission_guard = guard
 
         raw_narration = version_metadata.get("execution_narration")

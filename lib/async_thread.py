@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Self
 
 
@@ -39,6 +39,18 @@ class EventLoopBridge:
         return asyncio.run_coroutine_threadsafe(coroutine, self._loop).result()
 
 
+async def run_noninterruptible_async[T](awaitable: Awaitable[T], /) -> T:
+    """Finish one async transaction boundary even if its awaiting task is cancelled."""
+
+    task = asyncio.ensure_future(awaitable)
+    while True:
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.done():
+                return task.result()
+
+
 async def run_noninterruptible_sync[**P, T](
     func: Callable[P, T],
     /,
@@ -52,13 +64,7 @@ async def run_noninterruptible_sync[**P, T](
     the completed result and compensate it when necessary.
     """
 
-    task = asyncio.create_task(asyncio.to_thread(func, *args, **kwargs))
-    while True:
-        try:
-            return await asyncio.shield(task)
-        except asyncio.CancelledError:
-            if task.done():
-                return task.result()
+    return await run_noninterruptible_async(asyncio.to_thread(func, *args, **kwargs))
 
 
-__all__ = ["EventLoopBridge", "run_noninterruptible_sync"]
+__all__ = ["EventLoopBridge", "run_noninterruptible_async", "run_noninterruptible_sync"]
