@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from contextlib import AbstractAsyncContextManager, contextmanager
+from contextlib import AbstractAsyncContextManager, contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,7 +20,7 @@ from lib.artifact_manifest import (
 )
 from lib.asset_types import asset_name_comparison_key
 from lib.async_thread import EventLoopBridge, run_noninterruptible_async
-from lib.generation_admission import generation_admission_lock
+from lib.generation_admission import generation_admission_lock, generation_admission_lock_sync
 from lib.generation_queue import CompensableGenerationResult
 from lib.json_io import atomic_write_bytes
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
@@ -384,42 +384,52 @@ class VideoArtifactCommitter:
             if not restored:
                 raise _SelectionChanged("video version selection changed before compensation")
 
-        try:
-            with self._project_manager.locked_episode_script(
-                self._project_name,
-                _same_script,
-                validate=False,
-                on_commit=_reject,
-            ) as script:
-                try:
-                    item = _find_script_item(script, self._resource_id)
-                except KeyError:
-                    pass
-                else:
-                    assets = item.get("generated_assets")
-                    if not isinstance(assets, dict):
-                        assets = {}
-                        item["generated_assets"] = assets
-                    for field, (present, value) in prior_assets.items():
-                        if present:
-                            assets[field] = copy.deepcopy(value)
-                        else:
-                            assets.pop(field, None)
-        except _ScriptBindingChanged:
-            restored = self._versions.reject_current_version(
-                self._resource_type,
-                self._resource_id,
-                rejected_version=outcome.version,
-                current_file=current_file,
-                on_reject=_restore_manifest_and_thumbnail,
+        admission_guard = (
+            nullcontext()
+            if self._admission_guard is not None
+            else generation_admission_lock_sync(
+                project_name=self._project_name,
+                script_file=script_file,
+                resource_id=self._resource_id,
             )
-            return (
-                restored
-                or self._versions.get_current_version(self._resource_type, self._resource_id) != outcome.version
-            )
-        except _SelectionChanged:
-            return self._versions.get_current_version(self._resource_type, self._resource_id) != outcome.version
-        return True
+        )
+        with admission_guard:
+            try:
+                with self._project_manager.locked_episode_script(
+                    self._project_name,
+                    _same_script,
+                    validate=False,
+                    on_commit=_reject,
+                ) as script:
+                    try:
+                        item = _find_script_item(script, self._resource_id)
+                    except KeyError:
+                        pass
+                    else:
+                        assets = item.get("generated_assets")
+                        if not isinstance(assets, dict):
+                            assets = {}
+                            item["generated_assets"] = assets
+                        for field, (present, value) in prior_assets.items():
+                            if present:
+                                assets[field] = copy.deepcopy(value)
+                            else:
+                                assets.pop(field, None)
+            except _ScriptBindingChanged:
+                restored = self._versions.reject_current_version(
+                    self._resource_type,
+                    self._resource_id,
+                    rejected_version=outcome.version,
+                    current_file=current_file,
+                    on_reject=_restore_manifest_and_thumbnail,
+                )
+                return (
+                    restored
+                    or self._versions.get_current_version(self._resource_type, self._resource_id) != outcome.version
+                )
+            except _SelectionChanged:
+                return self._versions.get_current_version(self._resource_type, self._resource_id) != outcome.version
+            return True
 
     def _capture_prior_manifest(self, entry: ArtifactManifestEntry | None) -> None:
         self._prior_manifest_entry = entry

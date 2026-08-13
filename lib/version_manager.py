@@ -74,6 +74,24 @@ def _report_cleanup_failures(
             logger.warning("failed to remove temporary version file %s: %s", path, cleanup_failure)
 
 
+def _create_rollback_backup(current_file: Path) -> Path:
+    """Copy current media to a valid rollback file, removing an incomplete candidate on failure."""
+
+    fd, backup_name = tempfile.mkstemp(
+        prefix=f".{current_file.stem}.",
+        suffix=f"{current_file.suffix}.rollback",
+        dir=current_file.parent,
+    )
+    os.close(fd)
+    candidate = Path(backup_name)
+    try:
+        shutil.copy2(current_file, candidate)
+    except BaseException as failure:
+        _report_cleanup_failures(_unlink_paths(candidate), active_failure=failure)
+        raise
+    return candidate
+
+
 class VersionManager:
     """版本管理器"""
 
@@ -274,6 +292,7 @@ class VersionManager:
             records = resource_data.setdefault("versions", [])
             created_snapshots: list[Path] = []
             current_backup: Path | None = None
+            current_existed = current_file.is_file()
             activation_succeeded = False
 
             def _append_version(source: Path, version_prompt: str, version_metadata: dict) -> int:
@@ -304,15 +323,8 @@ class VersionManager:
 
             try:
                 current_file.parent.mkdir(parents=True, exist_ok=True)
-                if current_file.is_file():
-                    fd, backup_name = tempfile.mkstemp(
-                        prefix=f".{current_file.stem}.",
-                        suffix=f"{current_file.suffix}.rollback",
-                        dir=current_file.parent,
-                    )
-                    os.close(fd)
-                    current_backup = Path(backup_name)
-                    shutil.copy2(current_file, current_backup)
+                if current_existed:
+                    current_backup = _create_rollback_backup(current_file)
                     if not resource_data.get("current_version"):
                         _append_version(current_file, "", {})
 
@@ -327,7 +339,8 @@ class VersionManager:
                 rollback_errors: list[OSError] = []
                 try:
                     if current_backup is None:
-                        current_file.unlink(missing_ok=True)
+                        if not current_existed:
+                            current_file.unlink(missing_ok=True)
                     else:
                         os.replace(current_backup, current_file)
                 except OSError as exc:
@@ -480,18 +493,12 @@ class VersionManager:
                 return PaidVersionCommit(version=version, selected=False)
 
             current_backup: Path | None = None
+            current_existed = current_file.is_file()
             selection_succeeded = False
             try:
                 current_file.parent.mkdir(parents=True, exist_ok=True)
-                if current_file.is_file():
-                    fd, backup_name = tempfile.mkstemp(
-                        prefix=f".{current_file.stem}.",
-                        suffix=f"{current_file.suffix}.rollback",
-                        dir=current_file.parent,
-                    )
-                    os.close(fd)
-                    current_backup = Path(backup_name)
-                    shutil.copy2(current_file, current_backup)
+                if current_existed:
+                    current_backup = _create_rollback_backup(current_file)
                 os.replace(staged_file, current_file)
                 resource_data["current_version"] = version
                 self._save_versions(data)
@@ -503,7 +510,8 @@ class VersionManager:
                 selection_rollback_errors: list[OSError] = []
                 try:
                     if current_backup is None:
-                        current_file.unlink(missing_ok=True)
+                        if not current_existed:
+                            current_file.unlink(missing_ok=True)
                     else:
                         os.replace(current_backup, current_file)
                 except OSError as exc:
@@ -599,19 +607,13 @@ class VersionManager:
                 raise ValueError(f"restore version does not exist: {restore_version}")
             versions_snapshot = self.versions_file.read_bytes()
             current_backup: Path | None = None
+            current_existed = current_file.is_file()
             replacement: Path | None = None
             rejection_succeeded = False
             try:
                 current_file.parent.mkdir(parents=True, exist_ok=True)
-                if current_file.is_file():
-                    fd, backup_name = tempfile.mkstemp(
-                        prefix=f".{current_file.stem}.",
-                        suffix=f"{current_file.suffix}.rollback",
-                        dir=current_file.parent,
-                    )
-                    os.close(fd)
-                    current_backup = Path(backup_name)
-                    shutil.copy2(current_file, current_backup)
+                if current_existed:
+                    current_backup = _create_rollback_backup(current_file)
                 if previous is None:
                     current_file.unlink(missing_ok=True)
                     resource_data["current_version"] = 0
@@ -639,7 +641,8 @@ class VersionManager:
                 rollback_errors: list[OSError] = []
                 try:
                     if current_backup is None:
-                        current_file.unlink(missing_ok=True)
+                        if not current_existed:
+                            current_file.unlink(missing_ok=True)
                     else:
                         os.replace(current_backup, current_file)
                 except OSError as exc:
@@ -832,18 +835,12 @@ class VersionManager:
             versions_existed = self.versions_file.is_file()
             versions_snapshot = self.versions_file.read_bytes() if versions_existed else None
             current_backup: Path | None = None
+            current_existed = current_file.is_file()
             restore_succeeded = False
             try:
                 current_file.parent.mkdir(parents=True, exist_ok=True)
-                if current_file.is_file():
-                    fd, backup_name = tempfile.mkstemp(
-                        prefix=f".{current_file.stem}.",
-                        suffix=f"{current_file.suffix}.rollback",
-                        dir=current_file.parent,
-                    )
-                    os.close(fd)
-                    current_backup = Path(backup_name)
-                    shutil.copy2(current_file, current_backup)
+                if current_existed:
+                    current_backup = _create_rollback_backup(current_file)
                 shutil.copy2(target_file, current_file)
                 resource_data["current_version"] = version
                 self._save_versions(data)
@@ -854,7 +851,8 @@ class VersionManager:
                 rollback_errors: list[OSError] = []
                 try:
                     if current_backup is None:
-                        current_file.unlink(missing_ok=True)
+                        if not current_existed:
+                            current_file.unlink(missing_ok=True)
                     else:
                         os.replace(current_backup, current_file)
                 except OSError as exc:

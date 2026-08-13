@@ -217,6 +217,7 @@ async def test_paid_video_guard_acquisition_defers_cancellation_until_the_guard_
     try:
         await prepare
     except asyncio.CancelledError:
+        # The guard state remains the assertion target after callers cancel preparation.
         pass
 
     assert not cancelled_before_guard
@@ -483,6 +484,25 @@ def test_selected_video_cancellation_compensation_restores_media_manifest_and_on
     monkeypatch: pytest.MonkeyPatch,
     script_change: str,
 ) -> None:
+    compensation_guard_entries = 0
+
+    @contextmanager
+    def _compensation_guard(**identity: str):
+        nonlocal compensation_guard_entries
+        assert identity == {
+            "project_name": "demo",
+            "script_file": "episode_1.json",
+            "resource_id": "E1S01",
+        }
+        compensation_guard_entries += 1
+        yield
+
+    monkeypatch.setattr(
+        video_artifact_currency,
+        "generation_admission_lock_sync",
+        _compensation_guard,
+        raising=False,
+    )
     project_path = tmp_path / "demo"
     current = project_path / "videos" / "scene_E1S01.mp4"
     current.parent.mkdir(parents=True)
@@ -580,6 +600,7 @@ def test_selected_video_cancellation_compensation_restores_media_manifest_and_on
         script["segments"].clear()
 
     assert committer.compensate_selection() is True
+    assert compensation_guard_entries == 1
 
     assert current.read_bytes() == b"old-current"
     assert versions.get_current_version("videos", "E1S01") == old_version

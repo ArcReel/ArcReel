@@ -1,5 +1,6 @@
 import copy
 import re
+import threading
 from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -7,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lib.config.resolver import ProviderModel
+from lib.generation_queue import CompensableGenerationResult
 from lib.narration_delivery import (
     USE_TTS,
     NarratedVideoDurationBlockedError,
@@ -622,6 +624,36 @@ class TestGenerationTasks:
                 "payload": {"script_file": "episode_1.json"},
             }
         ]
+
+    @pytest.mark.unit
+    async def test_generation_event_failure_runs_media_compensation_off_the_event_loop(self, monkeypatch):
+        event_loop_thread = threading.get_ident()
+        compensation_threads: list[int] = []
+
+        async def _executor(*_args, **_kwargs):
+            return CompensableGenerationResult(
+                {"resource_type": "storyboards", "resource_id": "E1S01"},
+                cancel_compensation=lambda: compensation_threads.append(threading.get_ident()),
+            )
+
+        def _fail_event(**_kwargs):
+            raise RuntimeError("event emission failed")
+
+        monkeypatch.setitem(generation_tasks._TASK_EXECUTORS, "storyboard", _executor)
+        monkeypatch.setattr(generation_tasks, "emit_generation_success_batch", _fail_event)
+
+        with pytest.raises(RuntimeError, match="event emission failed"):
+            await generation_tasks.execute_generation_task(
+                {
+                    "task_type": "storyboard",
+                    "project_name": "demo",
+                    "resource_id": "E1S01",
+                    "payload": {},
+                }
+            )
+
+        assert len(compensation_threads) == 1
+        assert compensation_threads[0] != event_loop_thread
 
     @pytest.mark.unit
     async def test_execute_product_task_injects_reference_images(self, tmp_path, monkeypatch):

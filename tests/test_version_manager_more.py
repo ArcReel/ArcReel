@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -443,6 +444,65 @@ class TestVersionManagerMore:
         assert len(history["versions"]) == 2
         assert history["versions"][-1]["is_current"] is False
         assert (project / history["versions"][-1]["file"]).read_bytes() == b"new-paid-video"
+
+    def test_paid_version_backup_copy_failure_keeps_the_selected_media_intact(self, tmp_path, monkeypatch):
+        project = tmp_path / "demo"
+        vm = VersionManager(project)
+        current = project / "videos" / "scene_E1S01.mp4"
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"selected-video")
+        vm.add_version("videos", "E1S01", "selected", source_file=current)
+        staged = current.with_name(".scene_E1S01.new.mp4")
+        staged.write_bytes(b"new-paid-video")
+        real_copy2 = shutil.copy2
+
+        def _fail_partial_backup(source, destination, *args, **kwargs):
+            destination = Path(destination)
+            if destination.suffix == ".rollback":
+                destination.write_bytes(b"partial-backup")
+                raise OSError("backup copy failed")
+            return real_copy2(source, destination, *args, **kwargs)
+
+        monkeypatch.setattr(shutil, "copy2", _fail_partial_backup)
+
+        with pytest.raises(OSError, match="backup copy failed"):
+            vm.commit_staged_paid_version(
+                resource_type="videos",
+                resource_id="E1S01",
+                prompt="new",
+                staged_file=staged,
+                current_file=current,
+                select_current=True,
+            )
+
+        assert current.read_bytes() == b"selected-video"
+        assert not list(current.parent.glob(".*.rollback"))
+
+    def test_restore_backup_copy_failure_keeps_the_selected_media_intact(self, tmp_path, monkeypatch):
+        project = tmp_path / "demo"
+        vm = VersionManager(project)
+        current = project / "videos" / "scene_E1S01.mp4"
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"video-v1")
+        first = vm.add_version("videos", "E1S01", "v1", source_file=current)
+        current.write_bytes(b"video-v2")
+        vm.add_version("videos", "E1S01", "v2", source_file=current)
+        real_copy2 = shutil.copy2
+
+        def _fail_partial_backup(source, destination, *args, **kwargs):
+            destination = Path(destination)
+            if destination.suffix == ".rollback":
+                destination.write_bytes(b"partial-backup")
+                raise OSError("backup copy failed")
+            return real_copy2(source, destination, *args, **kwargs)
+
+        monkeypatch.setattr(shutil, "copy2", _fail_partial_backup)
+
+        with pytest.raises(OSError, match="backup copy failed"):
+            vm.restore_version("videos", "E1S01", first, current)
+
+        assert current.read_bytes() == b"video-v2"
+        assert not list(current.parent.glob(".*.rollback"))
 
     def test_paid_version_selection_decision_runs_after_history_is_durable_under_the_version_lock(self, tmp_path):
         project = tmp_path / "demo"

@@ -27,7 +27,7 @@ from lib.asset_types import (
     resolve_asset_key,
     validate_asset_name,
 )
-from lib.async_thread import EventLoopBridge
+from lib.async_thread import EventLoopBridge, run_noninterruptible_sync
 from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
     AUDIO_REFERENCE_MAX_SECONDS,
@@ -2260,6 +2260,6 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
             )
         except BaseException:
             if isinstance(result, CompensableGenerationResult):
-                result.compensate_cancelled()
+                await run_noninterruptible_sync(result.compensate_cancelled)
             raise
         return result
