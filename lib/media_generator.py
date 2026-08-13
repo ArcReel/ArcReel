@@ -214,7 +214,7 @@ class MediaGenerator:
         _remove_task_video_staging_path(staged_output_path)
         return staged_output_path, staged_output_path
 
-    def _commit_video_output_version(
+    def _commit_video_output_version_sync(
         self,
         *,
         resource_type: str,
@@ -261,6 +261,46 @@ class MediaGenerator:
             raise RuntimeError("formal video output requires an artifact commit callback")
         finally:
             staged_output_path.unlink(missing_ok=True)
+
+    async def _commit_video_output_version(
+        self,
+        *,
+        resource_type: str,
+        resource_id: str,
+        prompt: str,
+        output_path: Path,
+        staged_output_path: Path | None,
+        duration_seconds: int,
+        version_metadata: Mapping[str, Any],
+        commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
+    ) -> PaidVersionCommit:
+        """Run the shared normal/resume disk transaction without blocking the event loop.
+
+        User cancellation first marks the queue row as cancelling and then cancels
+        this coroutine. The sync transaction cannot be interrupted safely, so wait
+        for its thread before continuing to the queue's terminal row gate; that gate
+        compensates a selected result when cancellation already won.
+        """
+
+        commit_task = asyncio.create_task(
+            asyncio.to_thread(
+                self._commit_video_output_version_sync,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                prompt=prompt,
+                output_path=output_path,
+                staged_output_path=staged_output_path,
+                duration_seconds=duration_seconds,
+                version_metadata=version_metadata,
+                commit_formal_output=commit_formal_output,
+            )
+        )
+        while True:
+            try:
+                return await asyncio.shield(commit_task)
+            except asyncio.CancelledError:
+                if commit_task.done():
+                    return commit_task.result()
 
     async def _prepare_formal_video_commit(
         self,
@@ -987,7 +1027,7 @@ class MediaGenerator:
         )
 
         # 5. 记录新版本
-        committed = self._commit_video_output_version(
+        committed = await self._commit_video_output_version(
             resource_type=resource_type,
             resource_id=resource_id,
             prompt=prompt,
@@ -1135,7 +1175,7 @@ class MediaGenerator:
             before_formal_commit=before_formal_commit,
         )
 
-        committed = self._commit_video_output_version(
+        committed = await self._commit_video_output_version(
             resource_type=resource_type,
             resource_id=resource_id,
             prompt=prompt,

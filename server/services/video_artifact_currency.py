@@ -697,26 +697,6 @@ def _restore_file(path: Path, present: bool, content: bytes | None) -> None:
         path.unlink(missing_ok=True)
 
 
-def _string_sequence(value: object) -> tuple[str, ...] | None:
-    if not isinstance(value, list) or any(not isinstance(item, str) or not item for item in value):
-        return None
-    canonical = tuple(asset_name_comparison_key(item) for item in value)
-    if len(set(canonical)) != len(canonical):
-        return None
-    return canonical
-
-
-def _positive_integer_tiers(value: object) -> tuple[int, ...] | None:
-    if not isinstance(value, list):
-        return None
-    tiers = tuple(value)
-    if not tiers or any(type(tier) is not int or tier <= 0 for tier in tiers):
-        return None
-    if tuple(sorted(set(tiers))) != tiers:
-        return None
-    return tiers
-
-
 def paid_video_history_result(
     *,
     versions: VersionManager,
