@@ -495,8 +495,11 @@ async def generate_tts_batch(
         _project = pm_local.load_project(project_name)
         script = pm_local.load_script(project_name, req.script_file)
         items, id_field, kind = resolve_items(script)
-        raw_episode = script.get("episode")
-        episode = raw_episode if type(raw_episode) is int and raw_episode > 0 else None
+        episode = resolve_artifact_episode(
+            project=_project,
+            script=script,
+            script_filename=req.script_file,
+        )
         currency = active_artifact_currency_resolver(pm_local.get_project_path(project_name), _project)
         if currency is not None and episode is None:
             raise ValueError("script episode must be a positive integer")

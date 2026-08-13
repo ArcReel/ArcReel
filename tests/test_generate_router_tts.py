@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
 from lib.config.resolver import ConfigResolver, ProviderModel
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -232,6 +232,31 @@ class TestGenerateTtsSingle:
 
 
 class TestGenerateTtsBatch:
+    def test_active_manifest_resolves_episode_from_canonical_filename(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.project["schema_version"] = 8
+        fake_pm.script.pop("episode", None)
+        fake_queue = _FakeQueue()
+        observed_keys: list[ArtifactKey] = []
+
+        class _MissingResolver:
+            def compare(self, key, *, artifact_path):
+                observed_keys.append(key)
+                return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
+
+        monkeypatch.setattr(generate, "active_artifact_currency_resolver", lambda *_args: _MissingResolver())
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_2.json"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert observed_keys
+        assert all(key.components[0] == 2 for key in observed_keys)
+
     def test_enqueues_only_missing_segments(self, tmp_path, monkeypatch):
         """批量只补缺：已有旁白（E1S02）与无原文（E1S03）的段都跳过。"""
         fake_pm = _FakePM(tmp_path / "projects" / "demo")

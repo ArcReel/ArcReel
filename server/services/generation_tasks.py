@@ -205,8 +205,8 @@ async def run_formal_task_finalizer[T](
                     failure.add_note(f"formal image selection compensation also failed: {compensation_failure}")
             raise
 
-    if task_id is None:
-        return await asyncio.to_thread(_finalize_with_compensation)
+    # A synchronous formal-write thread cannot be stopped after cancellation.
+    # Always await its durable outcome before the caller leaves this boundary.
     return await run_noninterruptible_sync(_finalize_with_compensation)
 
 

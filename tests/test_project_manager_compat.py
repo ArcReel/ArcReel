@@ -20,6 +20,21 @@ def _script_path(pm, project_name, filename):
 
 
 class TestProjectManagerCompatibility:
+    def test_save_episode_script_succeeds_before_project_metadata_exists(self, tmp_path):
+        pm = ProjectManager(tmp_path)
+        project_dir = tmp_path / "demo"
+        (project_dir / "scripts").mkdir(parents=True)
+        script = {
+            "episode": 1,
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "novel_text": "旁白"}],
+        }
+
+        saved = pm.save_script("demo", script, "episode_1.json", validate=False)
+
+        assert saved == project_dir / "scripts" / "episode_1.json"
+        assert pm.load_script("demo", "episode_1.json")["episode"] == 1
+
     def test_save_script_backfills_missing_metadata_for_narration_segments(self, pm_env):
         pm, project_name = pm_env
         script = {

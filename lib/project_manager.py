@@ -682,6 +682,8 @@ class ProjectManager:
         def _register_manifest(_script_path: Path) -> None:
             if type(episode) is not int or episode < 1:
                 return
+            if not self.project_exists(project_name):
+                return
             from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_artifact_if_provable
             from lib.artifact_manifest import ArtifactKey
 

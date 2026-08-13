@@ -470,6 +470,23 @@ def _prepare_files(tmp_path: Path):
 
 class TestGenerationTasks:
     @pytest.mark.unit
+    async def test_formal_finalizer_without_task_id_defers_cancellation(self):
+        started = threading.Event()
+        release = threading.Event()
+
+        def _finalize() -> str:
+            started.set()
+            assert release.wait(timeout=5)
+            return "committed"
+
+        task = asyncio.create_task(generation_tasks.run_formal_task_finalizer(_finalize, task_id=None))
+        assert await asyncio.to_thread(started.wait, 5)
+        task.cancel()
+        release.set()
+
+        assert await task == "committed"
+
+    @pytest.mark.unit
     def test_helper_functions(self, tmp_path):
         from lib.storyboard_sequence import get_storyboard_items
 

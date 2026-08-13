@@ -426,17 +426,25 @@ async def test_generate_narration_audio_uses_canonical_filename_when_episode_fie
         encoding="utf-8",
     )
     captured: list[Any] = []
+    selected_episodes: list[int] = []
+    select_items = mod._select_items
+
+    def _capture_episode(*args, **kwargs):
+        selected_episodes.append(kwargs["episode"])
+        return select_items(*args, **kwargs)
 
     async def _batch(*, project_name, specs, on_success=None, on_failure=None):
         captured.extend(specs)
         return [], []
 
+    monkeypatch.setattr(mod, "_select_items", _capture_episode)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
 
-    out = await _call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_1.json"})
+    out = await _call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_2.json"})
 
     assert out.get("is_error") is not True, out
     assert [spec.resource_id for spec in captured] == ["E1S01"]
+    assert selected_episodes == [2]
 
 
 @pytest.mark.unit
@@ -1550,10 +1558,10 @@ async def test_generate_video_episode_resolves_episode_from_canonical_filename(
     monkeypatch.setattr(mod, "_build_video_specs", _capture_episode)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
 
-    out = await _call(generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
+    out = await _call(generate_video_episode_tool(fake_ctx), {"script": "episode_2.json"})
 
     assert out.get("is_error") is not True, out
-    assert captured == {"episode": 1}
+    assert captured == {"episode": 2}
 
 
 @pytest.mark.integration
