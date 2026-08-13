@@ -328,6 +328,88 @@ async def test_episode_materialization_skips_units_with_only_paid_history(tmp_pa
     assert [result.presentation.unit_id for result in results] == ["E1S01"]
 
 
+async def test_episode_tts_materialization_keeps_video_without_selected_narration(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    second_item = {
+        **script["segments"][0],
+        "segment_id": "E1S02",
+        "generated_assets": {
+            "storyboard_image": "storyboards/scene_E1S02.png",
+            "video_clip": "videos/scene_E1S02.mp4",
+            "narration_audio": "audio/segment_E1S02.wav",
+        },
+    }
+    script["segments"].append(second_item)
+    _write_json(script_path, script)
+    storyboard = project_path / "storyboards" / "scene_E1S02.png"
+    storyboard.write_bytes(b"storyboard-2")
+    video = project_path / "videos" / "scene_E1S02.mp4"
+    video.write_bytes(b"provider-video-v2")
+
+    preparation = admit_script_unit("segments", second_item).preparation
+    visual = build_storyboard_video_artifact_visual_basis(
+        resource_id="E1S02",
+        visual_prompt=second_item["video_prompt"],
+        storyboard_image=storyboard,
+        end_frame_image=None,
+        aspect_ratio="9:16",
+    )
+    speech = build_video_speech_basis(preparation)
+    duration = build_video_duration_basis(8)
+    currency = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=8,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(4, 8, 12),
+        reference_image_limit=None,
+        parent_version=0,
+    )
+    VersionManager(project_path).add_version(
+        "videos",
+        "E1S02",
+        "video",
+        source_file=video,
+        execution_checkpoint_schema_version=3,
+        execution_script_file="episode_1.json",
+        execution_duration_seconds=8,
+        execution_request_digest="e" * 64,
+        execution_provider_media=[],
+        execution_generate_audio=True,
+        artifact_video_currency=currency.to_dict(),
+    )
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+        ArtifactKey.episode_video(1, "E1S02"),
+        artifact_path="videos/scene_E1S02.mp4",
+        basis=currency.video_basis,
+    )
+
+    async def probe(path: Path) -> float | None:
+        return 4.5 if path.suffix == ".wav" else 6.25
+
+    service = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+
+    results = await service.materialize_episode(
+        project_name="demo",
+        episode=1,
+        variant="use_tts",
+    )
+
+    assert [(result.presentation.unit_id, result.presentation.variant) for result in results] == [
+        ("E1S01", "use_tts"),
+        ("E1S02", "post_production"),
+    ]
+
+
 async def test_editable_bundle_contains_exact_selected_media_model_and_subtitles(tmp_path: Path) -> None:
     pm, project_path, settings = _setup_narrator_project(tmp_path)
 
@@ -439,6 +521,32 @@ async def test_manual_upload_uses_explicit_unverified_raw_presentation_everywher
         assert set(archive.namelist()) == {"media/video.mp4", "presentation.json"}
         assert archive.read("media/video.mp4") == b"provider-video-v1"
         assert json.loads(archive.read("presentation.json"))["provenance"] == "unavailable"
+
+
+async def test_generated_video_without_typed_provenance_fails_closed(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    versions_path = project_path / "versions" / "versions.json"
+    versions_value = json.loads(versions_path.read_text(encoding="utf-8"))
+    record = versions_value["videos"]["E1S01"]["versions"][0]
+    versions_value["videos"]["E1S01"]["versions"][0] = {
+        key: value
+        for key, value in record.items()
+        if key in {"version", "file", "prompt", "created_at", "_previous_current_version"}
+    }
+    _write_json(versions_path, versions_value)
+
+    read_model = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+    )
+
+    with pytest.raises(PresentationUnavailableError, match="typed presentation provenance"):
+        await read_model.materialize_unit(
+            project_name="demo",
+            resource_type="videos",
+            resource_id="E1S01",
+            variant="post_production",
+        )
 
 
 async def test_current_presentation_reselects_when_version_changes_during_media_probe(tmp_path: Path) -> None:

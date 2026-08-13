@@ -307,8 +307,11 @@ class PresentationReadModelService:
             if not isinstance(resource_id, str) or not resource_id:
                 continue
             admission = admit_script_unit(kind, item)
+            audio_version = await asyncio.to_thread(versions.get_current_version, "audio", resource_id)
             effective_variant = (
-                USE_TTS if variant == USE_TTS and admission.mode is SpeechMode.NARRATOR_VOICEOVER else POST_PRODUCTION
+                USE_TTS
+                if variant == USE_TTS and admission.mode is SpeechMode.NARRATOR_VOICEOVER and audio_version > 0
+                else POST_PRODUCTION
             )
             version_info = await asyncio.to_thread(versions.get_versions, resource_type, resource_id)
             current_version = version_info.get("current_version")

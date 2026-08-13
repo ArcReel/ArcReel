@@ -10,6 +10,7 @@ import type {
   PresentationVariant,
 } from "@/types/presentation";
 import { errMsg } from "@/utils/async";
+import { downloadBlob } from "@/utils/download";
 
 interface PresentationPlayerProps {
   projectName: string;
@@ -229,12 +230,7 @@ export function PresentationPlayer({
           audioVersion: presentation.narration_audio?.version,
         },
       );
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, filename);
     } catch (cause) {
       useAppStore
         .getState()
