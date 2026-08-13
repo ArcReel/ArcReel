@@ -10,9 +10,12 @@ Run this workflow from the repository root. Translate prose directly; the bundle
 
 ## 1. Discover the batch
 
-Run:
+Synchronize the generated contributing copy first, so Step 3's `CONTRIBUTING.md` translation always reads current content rather than a stale or absent file:
 
 ```bash
+cd website
+pnpm sync-contributing
+cd ..
 node .claude/skills/translate-docs/scripts/translation-lock.mjs status
 ```
 
@@ -60,7 +63,6 @@ Generate the current Docusaurus message inventory, then translate any Chinese `m
 
 ```bash
 cd website
-pnpm sync-contributing
 pnpm write-translations --locale en
 cd ..
 ```
