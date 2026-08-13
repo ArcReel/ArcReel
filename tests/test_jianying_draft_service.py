@@ -187,7 +187,10 @@ async def test_export_uses_shared_transition_and_unity_provider_track(tmp_path: 
     assert [transition["effect_id"] for transition in transitions] == ["321493"]
 
 
-async def test_export_uses_reader_variant_and_packages_its_selected_media(tmp_path: Path) -> None:
+async def test_export_uses_reader_variant_and_packages_its_selected_media(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     pm, project_path = _project(tmp_path)
     video = project_path / "versions" / "videos" / "E1S01_v3.mp4"
     audio = project_path / "versions" / "audio" / "E1S01_v2.wav"
@@ -206,6 +209,24 @@ async def test_export_uses_reader_variant_and_packages_its_selected_media(tmp_pa
     )
     reader = _Reader((value,))
     service = JianyingDraftService(pm, presentation_reader=reader)
+    original_iterdir = Path.iterdir
+
+    def mutation_sensitive_iterdir(path: Path):
+        entries = list(original_iterdir(path))
+        if path.name != "staging":
+            return iter(entries)
+
+        def iterate_staging():
+            if not entries:
+                return
+            yield entries[0]
+            if not entries[0].exists():
+                return
+            yield from entries[1:]
+
+        return iterate_staging()
+
+    monkeypatch.setattr(Path, "iterdir", mutation_sensitive_iterdir)
 
     zip_path = await service.export_episode_draft(
         "demo",

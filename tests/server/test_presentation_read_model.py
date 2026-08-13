@@ -284,6 +284,50 @@ async def test_history_read_does_not_replace_current_presentation_or_manifest(tm
         assert bundled_model["video"]["version"] == 1
 
 
+async def test_episode_materialization_skips_units_with_only_paid_history(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    history_only_item = {
+        **script["segments"][0],
+        "segment_id": "E1S02",
+        "generated_assets": {"video_clip": "videos/scene_E1S02.mp4"},
+    }
+    script["segments"].append(history_only_item)
+    _write_json(script_path, script)
+
+    staged = project_path / "late-paid-result.mp4"
+    staged.write_bytes(b"paid-history-only")
+    versions = VersionManager(project_path)
+    outcome = versions.commit_staged_paid_version(
+        "videos",
+        "E1S02",
+        "late result",
+        staged_file=staged,
+        current_file=project_path / "videos" / "scene_E1S02.mp4",
+        select_current=False,
+    )
+    assert outcome.selected is False
+    assert versions.get_versions("videos", "E1S02")["current_version"] == 0
+
+    async def probe(_path: Path) -> float | None:
+        return 6.25
+
+    service = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+
+    results = await service.materialize_episode(
+        project_name="demo",
+        episode=1,
+        variant="post_production",
+    )
+
+    assert [result.presentation.unit_id for result in results] == ["E1S01"]
+
+
 async def test_editable_bundle_contains_exact_selected_media_model_and_subtitles(tmp_path: Path) -> None:
     pm, project_path, settings = _setup_narrator_project(tmp_path)
 

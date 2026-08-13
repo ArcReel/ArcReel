@@ -51,7 +51,8 @@ class EpisodePresentationReader(Protocol):
         project_name: str,
         episode: int,
         variant: RenditionVariant,
-    ) -> tuple[MaterializedPresentation, ...]: ...
+    ) -> tuple[MaterializedPresentation, ...]:
+        raise NotImplementedError
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,7 +305,8 @@ class JianyingDraftService:
 
             assets_dir = draft_dir / "assets"
             assets_dir.mkdir(exist_ok=True)
-            for staged in staging_dir.iterdir():
+            staged_files = tuple(staging_dir.iterdir())
+            for staged in staged_files:
                 source = safe_join(staging_dir, staged.name, require_file=True)
                 destination = safe_join(assets_dir, staged.name)
                 source_root = os.path.realpath(staging_dir) + os.sep

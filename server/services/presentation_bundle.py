@@ -30,7 +30,8 @@ class UnitPresentationReader(Protocol):
         variant: RenditionVariant,
         video_version: int | None = None,
         audio_version: int | None = None,
-    ) -> MaterializedPresentation: ...
+    ) -> MaterializedPresentation:
+        raise NotImplementedError
 
 
 class PresentationBundleService:

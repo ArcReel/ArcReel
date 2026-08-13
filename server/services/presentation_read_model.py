@@ -311,8 +311,8 @@ class PresentationReadModelService:
                 USE_TTS if variant == USE_TTS and admission.mode is SpeechMode.NARRATOR_VOICEOVER else POST_PRODUCTION
             )
             version_info = await asyncio.to_thread(versions.get_versions, resource_type, resource_id)
-            records = version_info.get("versions")
-            if not isinstance(records, list) or not records:
+            current_version = version_info.get("current_version")
+            if type(current_version) is not int or current_version <= 0:
                 continue
             results.append(
                 await self.materialize_unit(

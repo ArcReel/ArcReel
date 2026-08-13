@@ -95,7 +95,7 @@ describe("PresentationPlayer", () => {
     const video = await screen.findByLabelText("E1S01 成片预览");
     expect(video).toHaveAttribute("src", "/media/versions/videos/E1S01_v3.mp4");
     expect(video).toHaveProperty("muted", true);
-    expect(video).toHaveProperty("volume", 0);
+    await waitFor(() => expect(video).toHaveProperty("volume", 0));
     Object.defineProperty(video, "muted", { configurable: true, writable: true, value: false });
     Object.defineProperty(video, "volume", { configurable: true, writable: true, value: 0.5 });
     fireEvent.volumeChange(video);
@@ -195,6 +195,37 @@ describe("PresentationPlayer", () => {
     expect(video).toHaveProperty("volume", 0.25);
     expect(audio).toHaveProperty("muted", false);
     expect(audio).toHaveProperty("volume", 0.25);
+  });
+
+  it("pauses TTS while video buffers and resynchronizes when playback resumes", async () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    render(
+      <PresentationPlayer
+        projectName="demo"
+        resourceType="videos"
+        resourceId="E1S01"
+        initialVariant="use_tts"
+      />,
+    );
+
+    const video = await screen.findByLabelText("E1S01 成片预览");
+    const audio = await screen.findByLabelText("E1S01 TTS 音轨");
+    Object.defineProperty(video, "currentTime", { configurable: true, writable: true, value: 2 });
+    Object.defineProperty(audio, "currentTime", { configurable: true, writable: true, value: 0 });
+
+    play.mockClear();
+    pause.mockClear();
+    fireEvent.waiting(video);
+    expect(pause).toHaveBeenCalledTimes(1);
+
+    fireEvent.playing(video);
+    expect(audio).toHaveProperty("currentTime", 2);
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+
+    pause.mockClear();
+    fireEvent.stalled(video);
+    expect(pause).toHaveBeenCalledTimes(1);
   });
 
   it("keeps rendition recovery available when a TTS presentation cannot be built", async () => {

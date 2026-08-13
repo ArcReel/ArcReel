@@ -289,7 +289,10 @@ export function PresentationPlayer({
         }}
         onRateChange={(event) => synchronizeNarrationControls(event.currentTarget)}
         onPlay={() => synchronizeNarration(true)}
+        onPlaying={() => synchronizeNarration(true)}
         onPause={() => audioRef.current?.pause()}
+        onWaiting={() => audioRef.current?.pause()}
+        onStalled={() => audioRef.current?.pause()}
         onSeeked={() => synchronizeNarration(!videoRef.current?.paused)}
         onTimeUpdate={(event) => {
           setPositionMicroseconds(Math.round(event.currentTarget.currentTime * 1_000_000));
