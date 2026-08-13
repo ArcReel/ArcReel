@@ -56,7 +56,7 @@ async def generation_admission_lock(
             try:
                 portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
                 acquired = True
-            except (portalocker.AlreadyLocked, portalocker.LockException):
+            except portalocker.AlreadyLocked:
                 await asyncio.sleep(_POLL_SECONDS)
         yield
     finally:

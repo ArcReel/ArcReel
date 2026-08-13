@@ -23,7 +23,7 @@ from lib.async_thread import EventLoopBridge
 from lib.generation_queue import CompensableGenerationResult
 from lib.json_io import atomic_write_bytes
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
-from lib.project_manager import ProjectManager, find_episode
+from lib.project_manager import ProjectManager, resolve_episode_script_binding
 from lib.reference_video.duration_slots import resolve_duration_slot
 from lib.reference_video.execution_checkpoint import NarrationExecutionFacts
 from lib.reference_video.prompt_render import resolve_reference_audio_paths
@@ -310,12 +310,8 @@ class VideoArtifactCommitter:
             pass
 
         def _same_script(project: dict[str, Any]) -> str:
-            entry = find_episode(project, episode)
-            current_binding = entry.get("script_file") if isinstance(entry, dict) else None
-            if not isinstance(current_binding, str) or (
-                ProjectManager.normalize_script_filename(current_binding)
-                != ProjectManager.normalize_script_filename(script_file)
-            ):
+            current_binding = resolve_episode_script_binding(project, episode, script_file)
+            if current_binding is None:
                 raise _ScriptBindingChanged("episode script binding changed before video compensation")
             return current_binding
 
@@ -492,13 +488,7 @@ def build_current_video_artifact_basis(
         return None
     if current_episode != episode:
         return None
-    episode_entry = find_episode(project, episode)
-    current_binding = episode_entry.get("script_file") if isinstance(episode_entry, dict) else None
-    if not (current_binding is None and not (project.get("episodes") or [])) and (
-        not isinstance(current_binding, str)
-        or ProjectManager.normalize_script_filename(current_binding)
-        != ProjectManager.normalize_script_filename(script_file)
-    ):
+    if resolve_episode_script_binding(project, episode, script_file) is None:
         return None
 
     items, id_field, kind = resolve_items(script)

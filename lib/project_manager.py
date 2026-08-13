@@ -123,6 +123,30 @@ def find_episode(project: dict[str, Any], episode: int | None) -> dict[str, Any]
     return None
 
 
+def resolve_episode_script_binding(
+    project: dict[str, Any],
+    episode: int,
+    expected_script_file: str,
+) -> str | None:
+    """Return the live binding when it still denotes the expected episode script.
+
+    Legacy projects without an ``episodes`` index use the submitted script as
+    their binding. Indexed projects must retain a matching normalized binding;
+    a missing episode or a concurrent rebind returns ``None``.
+    """
+
+    entry = find_episode(project, episode)
+    current_binding = entry.get("script_file") if isinstance(entry, dict) else None
+    if current_binding is None and not (project.get("episodes") or []):
+        return expected_script_file
+    if isinstance(current_binding, str) and (
+        ProjectManager.normalize_script_filename(current_binding)
+        == ProjectManager.normalize_script_filename(expected_script_file)
+    ):
+        return current_binding
+    return None
+
+
 def is_reference_video_project(project: Mapping[str, Any]) -> bool:
     """项目是否走参考生视频路线。
 

@@ -60,9 +60,9 @@ from lib.project_change_hints import emit_project_change_batch, project_change_s
 from lib.project_manager import (
     EpisodeScriptReboundError,
     ProjectManager,
-    find_episode,
     get_project_manager,
     is_reference_video_project,
+    resolve_episode_script_binding,
 )
 from lib.prompt_builders import (
     append_product_fidelity_tail,
@@ -918,14 +918,8 @@ async def execute_tts_task(
         def _same_script(_project: dict) -> str:
             nonlocal guarded_project
             guarded_project = _project
-            entry = find_episode(_project, committed_episode)
-            current_binding = entry.get("script_file") if isinstance(entry, dict) else None
-            if current_binding is None and not (_project.get("episodes") or []):
-                return str(script_file)
-            if not isinstance(current_binding, str) or (
-                ProjectManager.normalize_script_filename(current_binding)
-                != ProjectManager.normalize_script_filename(str(script_file))
-            ):
+            current_binding = resolve_episode_script_binding(_project, committed_episode, str(script_file))
+            if current_binding is None:
                 raise EpisodeScriptReboundError(f"episode {committed_episode} script binding changed before TTS commit")
             return current_binding
 
@@ -1080,17 +1074,14 @@ async def execute_tts_task(
             return
 
         pm = get_project_manager()
+        cancelled_episode = episode
 
         def _same_script(_project: dict) -> str:
-            entry = find_episode(_project, episode)
-            current_binding = entry.get("script_file") if isinstance(entry, dict) else None
-            if current_binding is None and not (_project.get("episodes") or []):
-                return str(script_file)
-            if not isinstance(current_binding, str) or (
-                ProjectManager.normalize_script_filename(current_binding)
-                != ProjectManager.normalize_script_filename(str(script_file))
-            ):
-                raise EpisodeScriptReboundError(f"episode {episode} script binding changed before TTS cancellation")
+            current_binding = resolve_episode_script_binding(_project, cancelled_episode, str(script_file))
+            if current_binding is None:
+                raise EpisodeScriptReboundError(
+                    f"episode {cancelled_episode} script binding changed before TTS cancellation"
+                )
             return current_binding
 
         try:

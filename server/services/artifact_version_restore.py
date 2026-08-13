@@ -16,7 +16,7 @@ from lib.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
-from lib.project_manager import ProjectManager, find_episode
+from lib.project_manager import ProjectManager, resolve_episode_script_binding
 from lib.script_editor import resolve_items
 from lib.version_manager import VersionManager
 from lib.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
@@ -125,14 +125,8 @@ def restore_typed_media_version(
     restored: dict[str, Any] | None = None
 
     def _same_script(project: dict[str, Any]) -> str:
-        episode_entry = find_episode(project, target.episode)
-        current_binding = episode_entry.get("script_file") if isinstance(episode_entry, dict) else None
-        if current_binding is None and not (project.get("episodes") or []):
-            return target.script_file
-        if not isinstance(current_binding, str) or (
-            ProjectManager.normalize_script_filename(current_binding)
-            != ProjectManager.normalize_script_filename(target.script_file)
-        ):
+        current_binding = resolve_episode_script_binding(project, target.episode, target.script_file)
+        if current_binding is None:
             raise ValueError("typed artifact version no longer matches the episode script binding")
         return current_binding
 

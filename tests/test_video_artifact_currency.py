@@ -356,7 +356,7 @@ async def test_failed_formal_selection_validation_archives_paid_video_without_cu
     assert is_typed_media_version_restorable("videos", rejected) is False
 
 
-@pytest.mark.parametrize("script_change", ["none", "rebound", "removed"])
+@pytest.mark.parametrize("script_change", ["none", "rebound", "removed", "legacy"])
 def test_selected_video_cancellation_compensation_restores_media_manifest_and_only_video_asset_fields(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -405,7 +405,9 @@ def test_selected_video_cancellation_compensation_restores_media_manifest_and_on
             }
         ],
     }
-    project = {"episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}]}
+    project = (
+        {} if script_change == "legacy" else {"episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}]}
+    )
 
     class _PM:
         @contextmanager
@@ -464,7 +466,7 @@ def test_selected_video_cancellation_compensation_restores_media_manifest_and_on
     assert manifest_entry is not None
     assert manifest_entry.basis_digest == old_basis.digest
     assert thumbnail.read_bytes() == b"old-thumbnail"
-    if script_change == "none":
+    if script_change in {"none", "legacy"}:
         assert assets == {
             "video_clip": "videos/old.mp4",
             "video_uri": "provider://old",
