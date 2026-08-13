@@ -148,6 +148,11 @@ def generate_grid_tool(ctx: ToolContext):
                 # （末张不足一档时落小档 + 占位格），与预览、费用估算同源。
                 # 空分组（``plan_grid_chunks`` 的唯一空产出）自然跳过循环体。
                 plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=allow_large_grid)
+                # 与 WebUI 入队路径同源：重生成该组时清理旧的已完成记录（同脚本
+                # 同集、scene_ids 是当前组子集、非在途），前端列表只显示新一代
+                # 宫格图。规则唯一定义在 GridManager.cleanup_superseded。
+                if plans:
+                    gm.cleanup_superseded(script_filename, episode, {item[id_field] for item in group})
                 for chunk, layout in plans:
                     chunk_ids = [item[id_field] for item in chunk]
                     prompt = build_grid_prompt(

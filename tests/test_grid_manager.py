@@ -117,3 +117,66 @@ class TestLegacyRecordMigration:
         payload["status"] = "completed"
         payload["split_at"] = None
         assert GridGeneration.from_dict(payload).split_at is None
+
+
+class TestCleanupSuperseded:
+    """重生成清理规则：同脚本同集、scene_ids 是当前组子集、非在途的旧记录被删。
+
+    HTTP 路由与 SDK 工具 (generate_grid) 共用 GridManager.cleanup_superseded，
+    本类锁定规则的唯一实现。
+    """
+
+    def _save(self, gm: GridManager, *, status: str = "completed", **kwargs) -> GridGeneration:
+        grid = _make_grid(**kwargs)
+        grid.status = status
+        gm.save(grid)
+        return grid
+
+    def test_deletes_superseded_completed_records(self, tmp_path):
+        gm = GridManager(tmp_path)
+        old = self._save(gm, scene_ids=["S1", "S2"])
+        deleted = gm.cleanup_superseded("ep1.json", 1, {"S1", "S2", "S3", "S4"})
+        assert deleted == 1
+        assert gm.get(old.id) is None
+
+    def test_returns_zero_when_nothing_to_delete(self, tmp_path):
+        assert GridManager(tmp_path).cleanup_superseded("ep1.json", 1, {"S1"}) == 0
+
+    def test_skips_inflight_records(self, tmp_path):
+        """pending/generating 的记录必须保留：worker 执行时还要找得到资源。"""
+        gm = GridManager(tmp_path)
+        pending = self._save(gm, status="pending", scene_ids=["S1", "S2"])
+        generating = self._save(gm, status="generating", scene_ids=["S3"])
+        deleted = gm.cleanup_superseded("ep1.json", 1, {"S1", "S2", "S3"})
+        assert deleted == 0
+        assert gm.get(pending.id) is not None
+        assert gm.get(generating.id) is not None
+
+    def test_skips_records_with_non_subset_scene_ids(self, tmp_path):
+        """scene_ids 不是当前组子集的记录属于其它组/代，不得误删。"""
+        gm = GridManager(tmp_path)
+        overlap = self._save(gm, scene_ids=["S1", "S9"])
+        outside = self._save(gm, scene_ids=["S9"])
+        deleted = gm.cleanup_superseded("ep1.json", 1, {"S1", "S2", "S3", "S4"})
+        assert deleted == 0
+        assert gm.get(overlap.id) is not None
+        assert gm.get(outside.id) is not None
+
+    def test_skips_records_of_other_script_or_episode(self, tmp_path):
+        gm = GridManager(tmp_path)
+        other_script = self._save(gm, script_file="ep2.json", scene_ids=["S1", "S2"])
+        other_episode = self._save(gm, episode=2, scene_ids=["S1", "S2"])
+        deleted = gm.cleanup_superseded("ep1.json", 1, {"S1", "S2", "S3", "S4"})
+        assert deleted == 0
+        assert gm.get(other_script.id) is not None
+        assert gm.get(other_episode.id) is not None
+
+    def test_dedupes_many_generations(self, tmp_path):
+        """反复重生成后，同一组只留下最新一批（在途记录除外）。"""
+        gm = GridManager(tmp_path)
+        for _ in range(3):
+            self._save(gm, scene_ids=["S1", "S2", "S3", "S4"])
+        self._save(gm, status="generating", scene_ids=["S1", "S2", "S3", "S4"])
+        deleted = gm.cleanup_superseded("ep1.json", 1, {"S1", "S2", "S3", "S4"})
+        assert deleted == 3
+        assert len(gm.list_all()) == 1

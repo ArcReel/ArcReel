@@ -1277,6 +1277,83 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(
 
 
 @pytest.mark.unit
+async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """重生成清理规则对 SDK 路径生效：旧记录不残留在前端列表。
+
+    通过 generate_grid 重生成某组宫格后，该组旧的已完成记录（同脚本同集、
+    scene_ids 是当前组子集）被清理；其它组/代与非在途无关的记录不得误删。
+    """
+    from lib.grid.models import GridGeneration
+    from lib.grid_manager import GridManager
+
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": f"E1S0{i}", "image_prompt": "p", "video_prompt": "v", "segment_break": False}
+        for i in range(1, 5)
+    ]
+
+    async def _gate(_project: dict) -> bool:
+        return False
+
+    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+        return {"task_id": f"t{resource_id}"}
+
+    async def fake_wait(_task_id: str) -> dict[str, Any]:
+        return {"status": "succeeded"}
+
+    async def fake_split(project_name: str, grid: Any) -> Any:
+        from server.services.grid_split import GridSplitResult
+
+        return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.wait_for_task", fake_wait)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.apply_grid_split", fake_split)
+
+    # 预置两代旧记录：一代属于本组（应被清理），一代属于其它组（不得误删）
+    gm = GridManager(fake_ctx.project_path)
+    superseded = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["E1S01", "E1S02"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="",
+        model="",
+        video_aspect_ratio="9:16",
+    )
+    superseded.status = "completed"
+    gm.save(superseded)
+    other_group = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["E1S99"],
+        rows=1,
+        cols=1,
+        grid_size="grid_1",
+        provider="",
+        model="",
+        video_aspect_ratio="9:16",
+    )
+    other_group.status = "completed"
+    gm.save(other_group)
+
+    tool_obj = generate_grid_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+    assert out.get("is_error") is not True
+
+    remaining = gm.list_all()
+    ids = [g.id for g in remaining]
+    assert superseded.id not in ids, "superseded old record must be cleaned up"
+    assert other_group.id in ids, "records of other groups must not be deleted"
+    fresh = [g for g in remaining if g.id != other_group.id]
+    assert [g.scene_ids for g in fresh] == [["E1S01", "E1S02", "E1S03", "E1S04"]]
+
+
+@pytest.mark.unit
 async def test_generate_grid_list_only_falls_back_on_null_aspect_ratio(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
