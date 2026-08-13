@@ -650,7 +650,7 @@ def test_current_video_basis_rejects_an_episode_rebound_to_another_script(tmp_pa
     )
 
 
-def test_current_selected_tts_changes_video_only_when_it_crosses_a_frozen_tier(tmp_path: Path) -> None:
+def test_current_selected_tts_and_planned_tier_drive_video_currency(tmp_path: Path) -> None:
     project_path, project, script, metadata = _storyboard_state(tmp_path)
     project["content_mode"] = "narration"
     project["characters"] = {}
@@ -768,8 +768,21 @@ def test_current_selected_tts_changes_video_only_when_it_crosses_a_frozen_tier(t
         version_metadata=metadata,
         current_tts_settings=settings,
     )
+    expanded_script = deepcopy(script)
+    expanded_script["segments"][0]["duration_seconds"] = 12
+    unavailable_tts_with_longer_plan = build_current_video_artifact_basis(
+        project_path=project_path,
+        project=project,
+        script=expanded_script,
+        resource_type="videos",
+        resource_id="E1S01",
+        versions=versions,
+        version_metadata=metadata,
+        current_tts_settings=settings,
+    )
 
     assert long_basis == same_tier
     assert shorter_tier != long_basis
-    assert stale_tts == long_basis
-    assert unavailable_tts == long_basis
+    assert stale_tts != long_basis
+    assert unavailable_tts == shorter_tier
+    assert unavailable_tts_with_longer_plan is None

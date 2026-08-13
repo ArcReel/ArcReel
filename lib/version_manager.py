@@ -6,8 +6,10 @@
 """
 
 import json
+import logging
 import os
 import shutil
+import sys
 import tempfile
 import threading
 from collections.abc import Callable
@@ -24,6 +26,7 @@ from lib.resource_paths import resource_extension
 _LOCKS_GUARD = threading.Lock()
 _LOCKS_BY_VERSIONS_FILE: dict[str, threading.RLock] = {}
 _PREVIOUS_CURRENT_VERSION = "_previous_current_version"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +45,33 @@ def _get_versions_file_lock(versions_file: Path) -> threading.RLock:
             lock = threading.RLock()
             _LOCKS_BY_VERSIONS_FILE[key] = lock
         return lock
+
+
+def _unlink_paths(*paths: Path | None) -> list[tuple[Path, OSError]]:
+    """Attempt every unlink and return failures without masking an active operation."""
+
+    failures: list[tuple[Path, OSError]] = []
+    for path in paths:
+        if path is None:
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            failures.append((path, exc))
+    return failures
+
+
+def _report_cleanup_failures(
+    failures: list[tuple[Path, OSError]],
+    *,
+    active_failure: BaseException | None,
+) -> None:
+    for path, cleanup_failure in failures:
+        message = f"failed to remove temporary version file {path}: {cleanup_failure}"
+        if active_failure is not None:
+            active_failure.add_note(message)
+        else:
+            logger.warning("failed to remove temporary version file %s: %s", path, cleanup_failure)
 
 
 class VersionManager:
@@ -410,7 +440,7 @@ class VersionManager:
                 version = _append_snapshot(staged_file, prompt, metadata)
                 # Persist paid history before any selection callback can fail.
                 self._save_versions(data)
-            except BaseException:
+            except BaseException as failure:
                 history_rollback_errors: list[OSError] = []
                 try:
                     if versions_snapshot is None:
@@ -419,13 +449,11 @@ class VersionManager:
                         atomic_write_bytes(self.versions_file, versions_snapshot)
                 except OSError as exc:
                     history_rollback_errors.append(exc)
-                for path in created_snapshots:
-                    try:
-                        path.unlink(missing_ok=True)
-                    except OSError as exc:
-                        history_rollback_errors.append(exc)
-                staged_file.unlink(missing_ok=True)
+                history_rollback_errors.extend(
+                    cleanup_failure for _path, cleanup_failure in _unlink_paths(*created_snapshots, staged_file)
+                )
                 if history_rollback_errors:
+                    history_rollback_errors[0].__cause__ = failure
                     raise RuntimeError(
                         "paid version history commit failed and rollback was incomplete"
                     ) from history_rollback_errors[0]
@@ -441,15 +469,16 @@ class VersionManager:
                 )
                 if not isinstance(should_select, bool):
                     raise TypeError("select_current callback must return a boolean")
-            except BaseException:
-                staged_file.unlink(missing_ok=True)
+            except BaseException as failure:
+                _report_cleanup_failures(_unlink_paths(staged_file), active_failure=failure)
                 raise
 
             if not should_select:
-                staged_file.unlink(missing_ok=True)
+                _report_cleanup_failures(_unlink_paths(staged_file), active_failure=None)
                 return PaidVersionCommit(version=version, selected=False)
 
             current_backup: Path | None = None
+            selection_succeeded = False
             try:
                 current_file.parent.mkdir(parents=True, exist_ok=True)
                 if current_file.is_file():
@@ -466,8 +495,9 @@ class VersionManager:
                 self._save_versions(data)
                 if on_select is not None:
                     on_select()
+                selection_succeeded = True
                 return PaidVersionCommit(version=version, selected=True)
-            except BaseException:
+            except BaseException as failure:
                 selection_rollback_errors: list[OSError] = []
                 try:
                     if current_backup is None:
@@ -483,14 +513,14 @@ class VersionManager:
                 except OSError as exc:
                     selection_rollback_errors.append(exc)
                 if selection_rollback_errors:
+                    selection_rollback_errors[0].__cause__ = failure
                     raise RuntimeError(
                         "paid version selection failed and durable rollback was incomplete"
                     ) from selection_rollback_errors[0]
                 raise
             finally:
-                staged_file.unlink(missing_ok=True)
-                if current_backup is not None:
-                    current_backup.unlink(missing_ok=True)
+                cleanup_failures = _unlink_paths(staged_file, current_backup if selection_succeeded else None)
+                _report_cleanup_failures(cleanup_failures, active_failure=sys.exception())
 
     def reject_current_version(
         self,

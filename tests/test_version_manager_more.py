@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from lib.api_errors import BadRequestError, NotFoundError
@@ -252,6 +254,78 @@ class TestVersionManagerMore:
         assert history["current_version"] == outcome.version
         assert [record["prompt"] for record in history["versions"]] == ["", "new"]
         assert (project / history["versions"][0]["file"]).read_bytes() == b"legacy-current"
+
+    def test_paid_version_history_rollback_preserves_operation_and_cleanup_failures(self, tmp_path, monkeypatch):
+        project = tmp_path / "demo"
+        vm = VersionManager(project)
+        current = project / "videos" / "scene_E1S01.mp4"
+        staged = current.with_name(".scene_E1S01.new.mp4")
+        staged.parent.mkdir(parents=True)
+        staged.write_bytes(b"new-paid-video")
+        operation_failure = RuntimeError("versions persistence failed")
+        cleanup_failure = OSError("staged cleanup failed")
+        original_unlink = Path.unlink
+
+        def _fail_save(_data):
+            raise operation_failure
+
+        def _fail_staged_cleanup(path: Path, *, missing_ok: bool = False):
+            if path == staged:
+                raise cleanup_failure
+            return original_unlink(path, missing_ok=missing_ok)
+
+        monkeypatch.setattr(vm, "_save_versions", _fail_save)
+        monkeypatch.setattr(Path, "unlink", _fail_staged_cleanup)
+
+        with pytest.raises(RuntimeError, match="history commit failed and rollback was incomplete") as exc_info:
+            vm.commit_staged_paid_version(
+                resource_type="videos",
+                resource_id="E1S01",
+                prompt="new",
+                staged_file=staged,
+                current_file=current,
+                select_current=True,
+            )
+
+        assert exc_info.value.__cause__ is cleanup_failure
+        assert cleanup_failure.__cause__ is operation_failure
+
+    def test_paid_version_cleanup_attempts_backup_after_staged_cleanup_failure(self, tmp_path, monkeypatch, caplog):
+        project = tmp_path / "demo"
+        vm = VersionManager(project)
+        current = project / "videos" / "scene_E1S01.mp4"
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"old-current")
+        vm.add_version("videos", "E1S01", "old", source_file=current)
+        staged = current.with_name(".scene_E1S01.new.mp4")
+        staged.write_bytes(b"new-paid-video")
+        cleanup_failure = OSError("staged cleanup failed")
+        original_unlink = Path.unlink
+        cleanup_attempts: list[Path] = []
+
+        def _fail_staged_cleanup(path: Path, *, missing_ok: bool = False):
+            cleanup_attempts.append(path)
+            if path == staged:
+                raise cleanup_failure
+            return original_unlink(path, missing_ok=missing_ok)
+
+        monkeypatch.setattr(Path, "unlink", _fail_staged_cleanup)
+
+        outcome = vm.commit_staged_paid_version(
+            resource_type="videos",
+            resource_id="E1S01",
+            prompt="new",
+            staged_file=staged,
+            current_file=current,
+            select_current=True,
+        )
+
+        assert outcome.selected is True
+        assert current.read_bytes() == b"new-paid-video"
+        assert cleanup_attempts[0] == staged
+        assert len(cleanup_attempts) == 2
+        assert not list(current.parent.glob(".*.rollback"))
+        assert "failed to remove temporary version file" in caplog.text
 
     def test_paid_version_selection_failure_keeps_history_and_old_current(self, tmp_path):
         project = tmp_path / "demo"

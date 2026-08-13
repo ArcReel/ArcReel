@@ -598,9 +598,8 @@ def _current_duration_tier_basis(
             preparation=preparation,
             current_tts_settings=current_tts_settings,
         )
-        if actual is None:
-            return artifact_currency.duration_basis
-        duration_input = max(duration_input, actual)
+        if actual is not None:
+            duration_input = max(duration_input, actual)
     slot = resolve_duration_slot(duration_input, tiers)
     if slot.adjustment == "down" and duration_input > slot.seconds:
         return None
