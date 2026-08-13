@@ -1442,14 +1442,14 @@ wheels = [
 
 [[package]]
 name = "mammoth"
-version = "1.12.0"
+version = "1.12.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cobble" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/af/0c/b8d04b142c28f705ac434aedfb492f62e3fa9082421b6aa0ec7be9202dc7/mammoth-1.12.0.tar.gz", hash = "sha256:10955a55d9173167b550de3aeb8f2ed48b420756fd66378156b2f78661a33dd5", size = 53388, upload-time = "2026-03-12T21:42:37.289Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/92/aca6c4208b3a8e56a788b224e6c9b7bb70fc68e6641124fcf784008338e1/mammoth-1.12.1.tar.gz", hash = "sha256:40521e02568583b671d9976b0fbeed50be734b40f73ca8e1939ab7146bf69bbe", size = 53797, upload-time = "2026-08-09T14:11:20.096Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/14/a4/0cce02ffb7c75211e7723250bf254c7a320a17368345859beba75637262a/mammoth-1.12.0-py2.py3-none-any.whl", hash = "sha256:d195ae2403b98276d7646e252035b6f70adb255987bb267e9eac6bc6531fe38f", size = 54919, upload-time = "2026-03-12T21:42:35.745Z" },
+    { url = "https://files.pythonhosted.org/packages/be/b4/e7907b278386ffec0cf631db93836e02de9a6386add4653a52d7ac6b43ae/mammoth-1.12.1-py2.py3-none-any.whl", hash = "sha256:2af047e3e796faa25740112310ddf11f8de2a24c96dc57de3c87dfd7cb6543b3", size = 55091, upload-time = "2026-08-09T14:11:18.854Z" },
 ]
 
 [[package]]
