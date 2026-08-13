@@ -117,6 +117,25 @@ def test_manifest_compares_a_resolved_target_entry_without_reconstructing_basis(
     assert unprovable.usable
 
 
+def test_manifest_does_not_apply_an_old_path_claim_to_a_new_pointer() -> None:
+    old_path = "storyboards/scene_E1S01.png"
+    new_path = "storyboards/scene_E1S01_first.png"
+    adapter = InMemoryArtifactManifestAdapter(artifacts={old_path, new_path})
+    manifest = ArtifactManifest(adapter)
+    key = ArtifactKey.episode_storyboard(1, "E1S01")
+    basis = ArtifactBasis.build("test/storyboard", kind_version=1, inputs={"prompt": "rain"})
+    manifest.register(key, artifact_path=old_path, basis=basis)
+
+    comparison = manifest.compare_entry(
+        key,
+        artifact_path=new_path,
+        expected=ArtifactManifestEntry(artifact_path=new_path, basis_digest=basis.digest),
+    )
+
+    assert comparison.status is ArtifactStatus.MISSING
+    assert not comparison.usable
+
+
 def test_manifest_registers_a_strict_frozen_basis_descriptor_after_artifact_exists() -> None:
     path = "videos/scene_E1S01.mp4"
     adapter = InMemoryArtifactManifestAdapter(artifacts={path})

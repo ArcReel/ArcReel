@@ -7,10 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from lib.artifact_manifest import MANIFEST_FILENAME
+from lib.artifact_manifest import MANIFEST_FILENAME, ArtifactBasisDescriptor, ArtifactKey
 from lib.i18n import _
+from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
 from lib.project_manager import ProjectManager
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+from lib.version_manager import VersionManager
 from server.services import project_archive as project_archive_module
 from server.services.project_archive import (
     ARCHIVE_MANIFEST_NAME,
@@ -366,6 +368,79 @@ class TestProjectArchiveService:
         assert (pm.get_project_path("demo") / "drafts" / "episode_2").is_dir()
         imported_manifest = json.loads((pm.get_project_path("demo") / MANIFEST_FILENAME).read_text(encoding="utf-8"))
         assert imported_manifest == startup_manifest
+
+    @pytest.mark.unit
+    def test_current_export_keeps_selected_typed_snapshot_for_import_activation(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        script_path = project_dir / "scripts" / "episode_1.json"
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        script["segments"][0]["generated_assets"]["narration_audio"] = "audio/segment_E1S01.wav"
+        _write_json(script_path, script)
+
+        audio = project_dir / "audio" / "segment_E1S01.wav"
+        _write_bytes(audio, b"typed-audio")
+        settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
+        descriptor = ArtifactBasisDescriptor.from_basis(
+            build_narration_audio_basis_from_canonical_text("原文", settings)
+        )
+        manager = VersionManager(project_dir)
+        selected_version = manager.add_version(
+            "audio",
+            "E1S01",
+            "原文",
+            source_file=audio,
+            artifact_episode=1,
+            artifact_audio_basis=descriptor.to_dict(),
+            execution_script_file="episode_1.json",
+            tts_actual_duration_seconds=4.0,
+            tts_provider_id=settings.provider_id,
+            tts_model_id=settings.model_id,
+            tts_voice=settings.voice,
+            tts_speed=settings.speed,
+            tts_basis_digest=descriptor.digest,
+        )
+        record = next(
+            item for item in manager.get_versions("audio", "E1S01")["versions"] if item["version"] == selected_version
+        )
+        selected_snapshot = record["file"]
+
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        migrate_v7_to_v8(project_dir)
+        key = ArtifactKey.episode_audio(1, "E1S01").encode()
+        startup_manifest = json.loads((project_dir / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+        assert key in startup_manifest["entries"]
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo", scope="current")
+        with zipfile.ZipFile(archive_path) as archive:
+            assert f"demo/{selected_snapshot}" in archive.namelist()
+
+        shutil.rmtree(project_dir)
+        service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+        imported_manifest = json.loads((pm.get_project_path("demo") / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+        assert imported_manifest["entries"][key] == startup_manifest["entries"][key]
+
+    @pytest.mark.unit
+    def test_import_reports_artifact_activation_failure_as_archive_validation(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        archive_path = tmp_path / "manual.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        monkeypatch.setattr(
+            project_archive_module,
+            "ensure_imported_artifact_target_state",
+            lambda _path: (_ for _ in ()).throw(ValueError("injected activation failure")),
+        )
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="manual.zip")
+
+        assert any(item.code == "artifact_activation_failed" for item in exc_info.value.diagnostics.blocking)
 
     @pytest.mark.unit
     def test_import_manual_zip_without_manifest(self, tmp_path):

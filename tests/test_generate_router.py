@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -793,6 +794,55 @@ class TestGenerateRouter:
 
         assert video.status_code == 400, video.text
         assert video.json()["detail"] == i18n_message("generate_storyboard_first", segment_id="E1S01")
+        assert fake_queue.calls == []
+
+    @pytest.mark.integration
+    def test_schema8_video_rejects_an_explicit_but_unregistered_storyboard(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project.update(
+            {
+                "schema_version": 8,
+                "generation_mode": "storyboard",
+                "aspect_ratio": "9:16",
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        )
+        fake_pm.script["episode"] = 1
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
+        (project_path / "scripts").mkdir()
+        (project_path / "project.json").write_text(json.dumps(fake_pm.project), encoding="utf-8")
+        (project_path / "scripts" / "episode_1.json").write_text(json.dumps(fake_pm.script), encoding="utf-8")
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == i18n_message("generate_storyboard_first", segment_id="E1S01")
+        assert fake_queue.calls == []
+
+    @pytest.mark.integration
+    def test_video_invalid_end_frame_has_its_own_error_message(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
+        fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == i18n_message("invalid_end_frame_image_path", segment_id="E1S01")
         assert fake_queue.calls == []
 
     @pytest.mark.integration

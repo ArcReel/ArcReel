@@ -11,10 +11,11 @@ import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lib.artifact_activation import ensure_imported_artifact_target_state
+from lib.artifact_manifest import ArtifactManifestError
 from lib.asset_types import normalize_asset_name
 from lib.config.resolver import resolve_raw_supported_durations
 from lib.data_validator import DataValidator
@@ -203,6 +204,7 @@ class ProjectArchiveService:
         }
     )
     _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES)
+    _TYPED_VERSION_HISTORY_DIRS = frozenset({"audio", "videos", "reference_videos"})
     _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
     _PLACEHOLDER_CHARACTER_DESCRIPTION = "Imported placeholder character"
 
@@ -334,7 +336,20 @@ class ProjectArchiveService:
                     # Artifact Manifest 是 hidden sidecar，不进入归档成员；schema-v8
                     # 归档因此必须在 staging 激活边界 eager 重建。先让既有 validator
                     # 保持其结构化导入诊断，再对合法树执行目标态预检与原子提交。
-                    ensure_imported_artifact_target_state(staging_dir)
+                    try:
+                        ensure_imported_artifact_target_state(staging_dir)
+                    except (ArtifactManifestError, OSError, UnicodeError, ValueError) as exc:
+                        diagnostics.add(
+                            "blocking",
+                            "artifact_activation_failed",
+                            ValidationMessage("arch_artifact_activation_failed"),
+                        )
+                        raise ProjectArchiveValidationError(
+                            ValidationMessage("arch_import_validation_failed"),
+                            errors=diagnostics.blocking_messages(),
+                            warnings=diagnostics.warning_messages(),
+                            diagnostics=diagnostics,
+                        ) from exc
 
                     project = self._load_project_file(staging_dir / self.project_manager.PROJECT_FILE)
                     target_name = self._resolve_target_project_name(
@@ -454,6 +469,13 @@ class ProjectArchiveService:
         scope: str,
     ) -> None:
         is_current = scope == "current"
+        trimmed_versions: dict[str, Any] | None = None
+        retained_version_files: frozenset[str] = frozenset()
+        if is_current:
+            versions_path = snapshot_dir / "versions" / "versions.json"
+            payload = self._load_json_file(versions_path) if versions_path.is_file() else None
+            trimmed_versions = self._trim_versions_payload(payload or {})
+            retained_version_files = self._selected_typed_version_files(trimmed_versions)
 
         for current_dir, dirnames, filenames in os.walk(snapshot_dir):
             current_path = Path(current_dir)
@@ -468,7 +490,17 @@ class ProjectArchiveService:
 
             relative_dir = current_path.relative_to(snapshot_dir)
             if is_current and relative_dir.parts == ("versions",):
-                dirnames[:] = [name for name in dirnames if name not in self._VERSION_HISTORY_DIRS]
+                retained_dirs = {PurePosixPath(path).parts[1] for path in retained_version_files}
+                dirnames[:] = [
+                    name for name in dirnames if name not in self._VERSION_HISTORY_DIRS or name in retained_dirs
+                ]
+            elif is_current and relative_dir.parts[:1] == ("versions",):
+                prefix = relative_dir.as_posix().rstrip("/") + "/"
+                dirnames[:] = [
+                    name
+                    for name in dirnames
+                    if any(path.startswith(f"{prefix}{name}/") for path in retained_version_files)
+                ]
 
             visible_files = [
                 name
@@ -477,6 +509,13 @@ class ProjectArchiveService:
                 and not (current_path / name).is_symlink()
                 and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
             ]
+            if is_current and len(relative_dir.parts) >= 2 and relative_dir.parts[0] == "versions":
+                visible_files = [
+                    name
+                    for name in visible_files
+                    if relative_dir.parts[1] not in self._VERSION_HISTORY_DIRS
+                    or (relative_dir / name).as_posix() in retained_version_files
+                ]
 
             if relative_dir != Path("."):
                 self._write_directory_entry(
@@ -489,11 +528,11 @@ class ProjectArchiveService:
                 archive_name = Path(project_name, relative_dir, filename).as_posix()
 
                 if is_current and relative_dir.parts == ("versions",) and filename == "versions.json":
-                    payload = self._load_json_file(source_path) or {}
+                    assert trimmed_versions is not None
                     archive.writestr(
                         archive_name,
                         json.dumps(
-                            self._trim_versions_payload(payload),
+                            trimmed_versions,
                             ensure_ascii=False,
                             indent=2,
                         ),
@@ -520,6 +559,32 @@ class ProjectArchiveService:
                         if isinstance(version, dict) and version.get("version") == current_ver
                     ]
         return trimmed
+
+    @classmethod
+    def _selected_typed_version_files(cls, payload: dict[str, Any]) -> frozenset[str]:
+        """Return exact selected typed snapshots required to prove current media."""
+
+        selected: set[str] = set()
+        for resource_type in cls._TYPED_VERSION_HISTORY_DIRS:
+            resources = payload.get(resource_type)
+            if not isinstance(resources, dict):
+                continue
+            for resource in resources.values():
+                if not isinstance(resource, dict):
+                    continue
+                records = resource.get("versions")
+                if not isinstance(records, list) or len(records) != 1 or not isinstance(records[0], dict):
+                    continue
+                raw_path = records[0].get("file")
+                if not isinstance(raw_path, str) or "\\" in raw_path:
+                    continue
+                path = PurePosixPath(raw_path)
+                if path.is_absolute() or path.parts[:2] != ("versions", resource_type) or len(path.parts) != 3:
+                    continue
+                if any(part in {"", ".", ".."} for part in path.parts):
+                    continue
+                selected.add(path.as_posix())
+        return frozenset(selected)
 
     def _copy_visible_tree(self, source_dir: Path, target_dir: Path) -> None:
         target_dir.mkdir(parents=True, exist_ok=True)

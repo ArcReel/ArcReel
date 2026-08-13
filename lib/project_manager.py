@@ -55,6 +55,7 @@ from lib.episode_paths import (
     STEP1_FILENAMES,
     episode_script_relpath,
 )
+from lib.formal_write import formal_write_transaction
 from lib.json_io import atomic_write_bytes, atomic_write_json, load_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import (
@@ -676,18 +677,91 @@ class ProjectManager:
             chapter = script["novel"].get("chapter", "chapter_01")
             filename = f"{chapter.replace(' ', '_')}_script.json"
 
-        with self._script_lock(project_name, filename):
-            output = self._write_script_unlocked(project_name, script, filename, validate=validate)
-
         episode = script.get("episode")
-        if type(episode) is int and episode > 0:
+
+        def _register_manifest(_script_path: Path) -> None:
+            if type(episode) is not int or episode < 1:
+                return
             from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_artifact_if_provable
             from lib.artifact_manifest import ArtifactKey
 
             project_path = self.get_project_path(project_name)
-            project = self.load_project_readonly(project_name)
+            project = self._read_project_raw_unlocked(project_name)
             if project.get("schema_version") == TARGET_SCHEMA_VERSION:
                 register_current_artifact_if_provable(project_path, ArtifactKey.episode_script(episode))
+
+        with self._script_lock(project_name, filename):
+            return self._commit_script_unlocked(
+                project_name,
+                script,
+                filename,
+                validate=validate,
+                on_commit=_register_manifest,
+            )
+
+    def _commit_script_unlocked(
+        self,
+        project_name: str,
+        script: dict,
+        filename: str,
+        *,
+        validate: bool,
+        before: dict | None | _Unset = _UNSET,
+        on_commit: Callable[[Path], None] | None = None,
+    ) -> Path:
+        """Commit a script, its project index, and an optional sidecar hook together.
+
+        The caller holds the canonical script lock.  When an episode index is
+        present, this method also holds the project lock through the formal
+        write and hook so rollback cannot overwrite a concurrent project edit.
+        """
+
+        scripts_dir = self.get_project_path(project_name) / "scripts"
+        output_path = Path(self._safe_subpath(scripts_dir, filename))
+        project_file = self._get_project_file_path(project_name)
+        sync_project = project_file.is_file() and isinstance(script.get("episode"), int)
+
+        if sync_project:
+            with self._project_lock(project_name):
+                with formal_write_transaction(output_path, project_file):
+                    output = self._write_script_unlocked(
+                        project_name,
+                        script,
+                        filename,
+                        sync_project=False,
+                        validate=validate,
+                        before=before,
+                        emit_change=False,
+                    )
+                    project = self._read_project_raw_unlocked(project_name)
+                    if self._requires_unique_asset_namespace(project):
+                        ensure_project_asset_namespace(project)
+                    self._apply_episode_sync(project, script, filename)
+                    self._migrate_legacy_resolution_on_save(project)
+                    self._migrate_legacy_style(project)
+                    self._touch_metadata(project)
+                    if self._requires_unique_asset_namespace(project):
+                        ensure_project_asset_namespace(project)
+                    atomic_write_json(project_file, project)
+                    if on_commit is not None:
+                        on_commit(output)
+            changed_paths = [f"scripts/{output_path.name}", self.PROJECT_FILE]
+        else:
+            with formal_write_transaction(output_path):
+                output = self._write_script_unlocked(
+                    project_name,
+                    script,
+                    filename,
+                    sync_project=False,
+                    validate=validate,
+                    before=before,
+                    emit_change=False,
+                )
+                if on_commit is not None:
+                    on_commit(output)
+            changed_paths = [f"scripts/{output_path.name}"]
+
+        emit_project_change_hint(project_name, changed_paths=changed_paths)
         return output
 
     def _write_script_unlocked(
@@ -801,7 +875,14 @@ class ProjectManager:
         return "" if normalized == "." else normalized
 
     @contextmanager
-    def locked_script(self, project_name: str, script_filename: str, *, validate: bool = True):
+    def locked_script(
+        self,
+        project_name: str,
+        script_filename: str,
+        *,
+        validate: bool = True,
+        on_commit: Callable[[Path], None] | None = None,
+    ):
         """在单一 `_script_lock` 内完成剧本的 load → mutate → save 读-改-写。
 
         yield 出剧本字典供调用方就地修改；正常退出时写回，with 体内抛异常（如目标 scene/unit
@@ -817,7 +898,14 @@ class ProjectManager:
             script, _migrated = self._read_script_unlocked(project_name, norm)
             before = copy.deepcopy(script) if validate else None
             yield script
-            self._write_script_unlocked(project_name, script, norm, validate=validate, before=before)
+            self._commit_script_unlocked(
+                project_name,
+                script,
+                norm,
+                validate=validate,
+                before=before,
+                on_commit=on_commit,
+            )
 
     @contextmanager
     def locked_project_script_snapshot(self, project_name: str, script_filename: str):
@@ -890,12 +978,10 @@ class ProjectManager:
                     raise EpisodeScriptReboundError(f"episode script binding changed: {norm} -> {cur_norm}")
                 script_path = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
                 project_path = self._get_project_file_path(project_name)
-                before_script_bytes = script_path.read_bytes()
-                before_project_bytes = project_path.read_bytes()
                 script, _migrated = self._read_script_unlocked(project_name, norm)
                 before = copy.deepcopy(script) if validate else None
                 yield script
-                try:
+                with formal_write_transaction(script_path, project_path):
                     self._write_script_unlocked(
                         project_name,
                         script,
@@ -916,21 +1002,6 @@ class ProjectManager:
                     atomic_write_json(project_path, project)
                     if on_commit is not None:
                         on_commit(script_path)
-                except BaseException:
-                    rollback_errors: list[OSError] = []
-                    for path, snapshot in (
-                        (script_path, before_script_bytes),
-                        (project_path, before_project_bytes),
-                    ):
-                        try:
-                            atomic_write_bytes(path, snapshot)
-                        except OSError as rollback_error:
-                            rollback_errors.append(rollback_error)
-                    if rollback_errors:
-                        raise RuntimeError(
-                            "episode script transaction failed and durable rollback was incomplete"
-                        ) from rollback_errors[0]
-                    raise
                 emit_project_change_hint(
                     project_name,
                     changed_paths=[f"scripts/{script_path.name}", self.PROJECT_FILE],
@@ -1673,6 +1744,8 @@ class ProjectManager:
         self,
         project_name: str,
         mutate_fn: Callable[[dict], None],
+        *,
+        on_commit: Callable[[Path], None] | None = None,
     ) -> dict:
         """原子性地更新 project.json：加文件锁 → 读 → 修改 → 原子写回。
 
@@ -1689,7 +1762,9 @@ class ProjectManager:
         """
         project_file = self._get_project_file_path(project_name)
 
-        with self._project_lock(project_name):
+        with self._project_lock(project_name), ExitStack() as transaction:
+            if on_commit is not None:
+                transaction.enter_context(formal_write_transaction(project_file))
             with open(project_file, encoding="utf-8") as f:
                 project = json.load(f)
             if self._requires_unique_asset_namespace(project):
@@ -1701,6 +1776,8 @@ class ProjectManager:
             self._migrate_legacy_style(project)
             self._touch_metadata(project)
             atomic_write_json(project_file, project)
+            if on_commit is not None:
+                on_commit(project_file)
 
         emit_project_change_hint(
             project_name,
@@ -2408,7 +2485,15 @@ class ProjectManager:
         emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
         return report
 
-    def _update_asset_sheet(self, asset_type: str, project_name: str, name: str, sheet_path: str) -> dict:
+    def _update_asset_sheet(
+        self,
+        asset_type: str,
+        project_name: str,
+        name: str,
+        sheet_path: str,
+        *,
+        on_commit: Callable[[Path], None] | None = None,
+    ) -> dict:
         """更新资产 sheet 字段路径。资产不存在抛 KeyError。
 
         通过 update_project 在单一文件锁内完成 read-modify-write，避免与并发 add /
@@ -2423,7 +2508,7 @@ class ProjectManager:
                 raise KeyError(f"{spec.label_zh} '{name}' 不存在")
             bucket[key][spec.sheet_field] = sheet_path
 
-        return self.update_project(project_name, _mutate)
+        return self.update_project(project_name, _mutate, on_commit=on_commit)
 
     def _get_asset(self, asset_type: str, project_name: str, name: str) -> dict:
         """获取资产定义。不存在抛 KeyError。"""

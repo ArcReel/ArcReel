@@ -408,6 +408,38 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
 
 
 @pytest.mark.unit
+async def test_generate_narration_audio_uses_canonical_filename_when_episode_field_is_absent(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+
+    script = _narration_audio_script()
+    script.pop("episode")
+    script["segments"] = script["segments"][:1]
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+        {"schema_version": 8, "content_mode": "narration", "generation_mode": "storyboard"}
+    )
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps(fake_ctx.pm.project_payload),  # type: ignore[attr-defined]
+        encoding="utf-8",
+    )
+    captured: list[Any] = []
+
+    async def _batch(*, project_name, specs, on_success=None, on_failure=None):
+        captured.extend(specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
+
+    out = await _call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert [spec.resource_id for spec in captured] == ["E1S01"]
+
+
+@pytest.mark.unit
 async def test_generate_narration_audio_selects_item_with_corrupt_generated_assets(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -1479,6 +1511,49 @@ async def test_generate_video_episode_happy(fake_ctx: ToolContext, monkeypatch) 
     tool_obj = generate_video_episode_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
+
+
+@pytest.mark.unit
+async def test_generate_video_episode_resolves_episode_from_canonical_filename(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    """A schema-8 script may rely on its canonical filename for the episode identity."""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+        {"schema_version": 8, "content_mode": "narration", "generation_mode": "storyboard"}
+    )
+    captured: dict[str, int] = {}
+    build_video_specs = mod._build_video_specs
+
+    def _capture_episode(**kwargs):
+        captured["episode"] = kwargs["episode"]
+        return build_video_specs(**{**kwargs, "project": {}})
+
+    async def _batch(*, project_name, specs, on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+
+        for spec in specs:
+            if on_success is not None:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"videos/scene_{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "_build_video_specs", _capture_episode)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
+
+    out = await _call(generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert captured == {"episode": 1}
 
 
 @pytest.mark.integration

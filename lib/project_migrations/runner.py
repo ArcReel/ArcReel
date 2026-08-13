@@ -171,7 +171,12 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
     for project_dir in projects_root.iterdir():
         if not project_dir.is_dir():
             continue
-        for bak in project_dir.glob(_backup_glob_pattern("project.json")):
+        # Activation owns backups for project.json, every bound script, and the
+        # pre-existing Manifest.  Cleanup follows the versioned-backup naming
+        # contract recursively so all of those inputs share one retention rule.
+        for bak in project_dir.rglob("*.bak.v*-*"):
+            if bak.is_dir():
+                continue
             try:
                 if bak.stat().st_mtime < cutoff:
                     bak.unlink()

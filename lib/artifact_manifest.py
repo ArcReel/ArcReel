@@ -303,6 +303,11 @@ class ArtifactManifest:
             )
         if entry is None:
             return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=observation.artifact_path)
+        # A claim is evidence for one exact formal path.  Reusing that claim for
+        # a different pointer would turn an unregistered file into a stale-but-
+        # usable artifact.  Digest drift is stale; path drift has no claim.
+        if entry.artifact_path != observation.artifact_path:
+            return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=observation.artifact_path)
         normalized_expected = (
             None
             if expected is None
@@ -311,11 +316,7 @@ class ArtifactManifest:
                 basis_digest=expected.basis_digest,
             )
         )
-        status = (
-            ArtifactStatus.CURRENT
-            if entry.artifact_path == observation.artifact_path and entry == normalized_expected
-            else ArtifactStatus.STALE
-        )
+        status = ArtifactStatus.CURRENT if entry == normalized_expected else ArtifactStatus.STALE
         return ArtifactComparison(status=status, artifact_path=observation.artifact_path)
 
 
@@ -737,6 +738,7 @@ class ProjectArtifactManifestAdapter:
                     else:
                         os.unlink(MANIFEST_FILENAME, dir_fd=root_fd)
                 except FileNotFoundError:
+                    # Deletion is idempotent; another cleanup may already have removed the empty manifest.
                     pass
                 except OSError as exc:
                     raise ArtifactManifestError(f"cannot remove empty artifact manifest: {exc}") from exc

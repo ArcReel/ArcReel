@@ -35,6 +35,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
     episode_script_relpath,
 )
+from lib.formal_write import formal_write_transaction
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.reference_video.duration_migration import migrate_unit_durations
@@ -293,20 +294,23 @@ def write_step1_locked(
     assert_base_fingerprint(path, expected_fingerprint)
     previous = load_json_or_none(path)
     changed = previous != content
-    atomic_write_json(path, content)
-    if changed and clear_step2_quarantine:
-        clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
-    if changed:
-        from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_artifact_if_provable
-        from lib.artifact_manifest import ArtifactKey
+    quarantine = quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2)
+    with formal_write_transaction(path, quarantine):
+        atomic_write_json(path, content)
+        if changed and clear_step2_quarantine:
+            clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
+        if changed:
+            from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_artifact_if_provable
+            from lib.artifact_manifest import ArtifactKey
 
-        project_file = project_path / "project.json"
-        try:
-            project = json.loads(project_file.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, ValueError):
-            project = None
-        if isinstance(project, dict) and project.get("schema_version") == TARGET_SCHEMA_VERSION:
-            register_current_artifact_if_provable(project_path, ArtifactKey.episode_step1(episode))
+            project_file = project_path / "project.json"
+            try:
+                project = json.loads(project_file.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, ValueError) as exc:
+                logger.warning("cannot inspect project schema after formal step1 write: %s", exc)
+                project = None
+            if isinstance(project, dict) and project.get("schema_version") == TARGET_SCHEMA_VERSION:
+                register_current_artifact_if_provable(project_path, ArtifactKey.episode_step1(episode))
     return changed
 
 

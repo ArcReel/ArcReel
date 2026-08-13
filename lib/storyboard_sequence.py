@@ -32,6 +32,10 @@ class StoryboardImageBindingRequired(StoryboardImageUnavailable):
     """A manifest-active project cannot infer a formal storyboard by filename."""
 
 
+class EndFrameImageUnavailable(ValueError):
+    """The optional end-frame binding is invalid or its snapshot is unavailable."""
+
+
 PREVIOUS_STORYBOARD_REFERENCE_LABEL = "上一分镜图（镜头衔接参考）"
 PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = (
     "仅用于延续前一镜头的构图、色调和场景连续性，不是新增角色、服装或道具设定；请以当前 prompt 为准生成当前镜头。"
@@ -140,7 +144,7 @@ def resolve_storyboard_video_inputs(
     if end_frame_rel in (None, ""):
         return storyboard_file, None
     if not isinstance(end_frame_rel, str):
-        raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
+        raise EndFrameImageUnavailable(f"invalid end frame snapshot path: {end_frame_rel!r}")
     normalized = end_frame_rel.strip().replace("\\", "/")
     candidate = normalized if "/" in normalized else f"{END_FRAME_RESOURCE_TYPE}/{normalized}"
     expected_rel = resource_relative_path(END_FRAME_RESOURCE_TYPE, resource_id)
@@ -154,9 +158,9 @@ def resolve_storyboard_video_inputs(
             canonical_path_tampered = True
             break
     if end_frame_file is None or end_frame_file != expected_file or canonical_path_tampered:
-        raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
+        raise EndFrameImageUnavailable(f"invalid end frame snapshot path: {end_frame_rel!r}")
     if not end_frame_file.is_file():
-        raise ValueError(f"end frame snapshot not found: {end_frame_file.name}")
+        raise EndFrameImageUnavailable(f"end frame snapshot not found: {end_frame_file.name}")
     return storyboard_file, end_frame_file
 
 

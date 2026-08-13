@@ -267,6 +267,67 @@ def test_v7_activation_replaces_partial_manifest_from_canonical_target_state(tmp
     assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in tracked] == before
 
 
+def test_runtime_resolver_plans_storyboards_only_once_per_snapshot(tmp_path: Path, monkeypatch) -> None:
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    migrate_v7_to_v8(project_dir)
+    from lib import artifact_activation
+
+    calls = 0
+    original = artifact_activation.build_storyboard_image_visual_basis
+
+    def _counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(artifact_activation, "build_storyboard_image_visual_basis", _counted)
+    resolver = ArtifactCurrencyResolver(project_dir)
+    key = ArtifactKey.episode_storyboard(1, "E1S01")
+
+    assert resolver.compare(key, artifact_path="storyboards/scene_E1S01.png").status is ArtifactStatus.CURRENT
+    assert resolver.compare(key, artifact_path="storyboards/scene_E1S01.png").status is ArtifactStatus.CURRENT
+    assert calls == 1
+
+
+def test_formal_script_registration_failure_restores_script_and_project(tmp_path: Path, monkeypatch) -> None:
+    project_dir, _project_data, _step1, script = _project(tmp_path)
+    migrate_v7_to_v8(project_dir)
+    pm = ProjectManager(tmp_path)
+    script_path = project_dir / "scripts" / "episode_1.json"
+    project_path = project_dir / "project.json"
+    before = (script_path.read_bytes(), project_path.read_bytes())
+    script["title"] = "must roll back"
+
+    def _fail(*_args, **_kwargs):
+        raise RuntimeError("injected manifest failure")
+
+    monkeypatch.setattr("lib.artifact_activation.register_current_artifact_if_provable", _fail)
+
+    with pytest.raises(RuntimeError, match="injected manifest failure"):
+        pm.save_script("demo", script, "episode_1.json", validate=False)
+
+    assert (script_path.read_bytes(), project_path.read_bytes()) == before
+
+
+def test_formal_step1_registration_failure_restores_the_previous_file(tmp_path: Path, monkeypatch) -> None:
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    migrate_v7_to_v8(project_dir)
+    formal_path = project_dir / "drafts" / "episode_1" / "step1_reference_units.json"
+
+    def _fail(*_args, **_kwargs):
+        raise RuntimeError("injected manifest failure")
+
+    monkeypatch.setattr("lib.artifact_activation.register_current_artifact_if_provable", _fail)
+
+    with pytest.raises(RuntimeError, match="injected manifest failure"):
+        with ProjectManager(tmp_path).file_lock(formal_path):
+            from lib.script_review import write_step1_locked
+
+            write_step1_locked(project_dir, 1, {"units": [{"unit_id": "E1U1"}]})
+
+    assert not formal_path.exists()
+
+
 def test_v7_preflight_failure_writes_no_manifest_schema_or_backups(tmp_path: Path) -> None:
     project_dir, _project_data, _step1, _script = _project(tmp_path)
     script_path = project_dir / "scripts" / "episode_1.json"

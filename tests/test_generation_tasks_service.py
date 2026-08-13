@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import json
 import re
 import threading
 from collections.abc import Mapping
@@ -1304,6 +1305,40 @@ class TestGenerationTasks:
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="storyboard not found"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
+    async def test_execute_video_task_schema8_requires_registered_storyboard(self, monkeypatch, tmp_path):
+        """Schema 8 workers reject an existing storyboard whose Manifest claim is absent."""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.project.update(
+            {
+                "schema_version": 8,
+                "generation_mode": "storyboard",
+                "aspect_ratio": "9:16",
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        )
+        fake_pm.script["episode"] = 1
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
+        (project_path / "scripts").mkdir()
+        (project_path / "project.json").write_text(json.dumps(fake_pm.project), encoding="utf-8")
+        (project_path / "scripts" / "episode_1.json").write_text(json.dumps(fake_pm.script), encoding="utf-8")
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="storyboard is not registered"):
             await generation_tasks.execute_video_task(
                 "demo",
                 "E1S01",

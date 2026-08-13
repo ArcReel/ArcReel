@@ -37,7 +37,7 @@ from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.media_artifact_currency import build_current_audio_artifact_basis, build_current_video_artifact_basis
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
-from lib.storyboard_sequence import get_storyboard_items
+from lib.storyboard_sequence import StoryboardImageUnavailable, get_storyboard_items, resolve_storyboard_video_inputs
 from lib.version_manager import VersionManager
 from lib.visual_artifact_provenance import (
     GridStoryboardVisual,
@@ -125,6 +125,7 @@ class _Planner:
         self.entries: dict[ArtifactKey, ArtifactManifestEntry] = {}
         self._versions: dict[str, Any] | None = None
         self._activation_mode = False
+        self._planned: set[str] = set()
 
     def plan(self) -> ArtifactTargetStatePlan:
         schema = self.project.get("schema_version")
@@ -252,6 +253,8 @@ class _Planner:
         self._episodes_loaded = True
 
     def _plan_assets(self) -> None:
+        if "assets" in self._planned:
+            return
         style = self.project.get("style", "")
         style_description = self.project.get("style_description", "")
         if not isinstance(style, str) or not isinstance(style_description, str):
@@ -290,6 +293,7 @@ class _Planner:
                 except (OSError, TypeError, ValueError):
                     continue
                 self._add_if_present(ArtifactKey.asset_sheet(asset_type, name), artifact_path, basis)
+        self._planned.add("assets")
 
     def _asset_sheet_references(
         self,
@@ -326,6 +330,8 @@ class _Planner:
         return tuple(references)
 
     def _plan_structured_content(self) -> None:
+        if "structured-content" in self._planned:
+            return
         if self.project.get("content_mode") == "ad":
             for episode in self.episodes:
                 try:
@@ -337,8 +343,10 @@ class _Planner:
                     episode.script_file,
                     script_basis,
                 )
+            self._planned.add("structured-content")
             return
         if self.project.get("content_mode") not in {"narration", "drama"}:
+            self._planned.add("structured-content")
             return
         step1_by_episode = {
             binding.episode: step1 for binding in self.bindings if (step1 := self._plan_one_step1(binding)) is not None
@@ -356,6 +364,7 @@ class _Planner:
                 episode.script_file,
                 script_basis,
             )
+        self._planned.add("structured-content")
 
     def _plan_one_step1(self, binding: _EpisodeBinding) -> _FormalStep1State | None:
         if self.project.get("content_mode") not in {"narration", "drama"}:
@@ -386,7 +395,10 @@ class _Planner:
         return _FormalStep1State(artifact_path=step1_rel, content=step1_content)
 
     def _plan_storyboards(self) -> None:
+        if "storyboards" in self._planned:
+            return
         if self.project.get("generation_mode") != "storyboard":
+            self._planned.add("storyboards")
             return
         style = self.project.get("style", "")
         aspect_ratio = self.project.get("aspect_ratio") or "9:16"
@@ -449,6 +461,7 @@ class _Planner:
                 except (OSError, TypeError, ValueError):
                     continue
                 self._add_if_present(ArtifactKey.episode_storyboard(episode.episode, resource_id), artifact_path, basis)
+        self._planned.add("storyboards")
 
     def _storyboard_references(
         self,
@@ -531,6 +544,8 @@ class _Planner:
         return references if valid else None
 
     def _plan_grids(self) -> None:
+        if "grids" in self._planned:
+            return
         for grid in self._load_grid_records():
             episode = next(
                 (
@@ -565,6 +580,7 @@ class _Planner:
             except (OSError, TypeError, ValueError):
                 continue
             self._add_if_present(ArtifactKey.episode_grid(grid.episode, grid.id), grid.grid_image_path, basis)
+        self._planned.add("grids")
 
     def _grid_members_by_resource(
         self,
@@ -706,6 +722,8 @@ class _Planner:
         return result
 
     def _plan_typed_media(self) -> None:
+        if "typed-media" in self._planned:
+            return
         versions = self._load_versions()
         for episode in self.episodes:
             for item in episode.items:
@@ -738,6 +756,7 @@ class _Planner:
                         artifact_path=video_path,
                         key=ArtifactKey.episode_video(episode.episode, resource_id),
                     )
+        self._planned.add("typed-media")
 
     def _plan_one_typed_media(
         self,
@@ -986,6 +1005,33 @@ def active_artifact_currency_resolver(
     return ArtifactCurrencyResolver(project_dir) if project.get("schema_version") == TARGET_SCHEMA_VERSION else None
 
 
+def resolve_artifact_episode(
+    *,
+    project: Mapping[str, object],
+    script: dict[str, Any],
+    script_filename: str,
+) -> int | None:
+    """Resolve the Manifest episode identity while preserving legacy fallback.
+
+    Active projects require a positive identity, but the canonical filename is
+    valid evidence when the script omits its redundant top-level field. Before
+    activation, ``None`` tells callers to retain their historical episode-1
+    behavior without weakening the schema-8 gate.
+    """
+
+    from lib.project_manager import ProjectManager
+
+    try:
+        episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+        if episode < 1:
+            raise ValueError("script episode must be a positive integer")
+    except ValueError:
+        if project.get("schema_version") == TARGET_SCHEMA_VERSION:
+            raise
+        return None
+    return episode
+
+
 def artifact_is_usable(
     resolver: ArtifactCurrencyResolver | None,
     key: ArtifactKey | None,
@@ -1009,6 +1055,39 @@ def artifact_is_usable(
         assert comparison.blocker is not None
         raise ArtifactManifestError(comparison.blocker.detail)
     return comparison.status in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}
+
+
+def resolve_usable_storyboard_video_inputs(
+    *,
+    project_path: Path,
+    project: Mapping[str, object],
+    episode: int | None,
+    resource_id: str,
+    item: dict[str, object],
+    resolver: ArtifactCurrencyResolver | None = None,
+    allow_legacy_same_name: bool | None = None,
+) -> tuple[Path, Path | None]:
+    """Resolve video inputs and enforce the active Manifest selection gate."""
+
+    storyboard_file, end_frame = resolve_storyboard_video_inputs(
+        project_path=project_path,
+        project=project,
+        resource_id=resource_id,
+        item=item,
+        allow_legacy_same_name=allow_legacy_same_name,
+    )
+    if resolver is None:
+        resolver = active_artifact_currency_resolver(project_path, project)
+    if resolver is not None and (type(episode) is not int or episode < 1):
+        raise ValueError("script episode must be a positive integer")
+    storyboard_rel = storyboard_file.relative_to(project_path).as_posix()
+    if not artifact_is_usable(
+        resolver,
+        ArtifactKey.episode_storyboard(episode, resource_id) if resolver is not None and episode is not None else None,
+        storyboard_rel,
+    ):
+        raise StoryboardImageUnavailable(f"storyboard is not registered: {storyboard_rel}")
+    return storyboard_file, end_frame
 
 
 def register_current_artifact(
@@ -1253,5 +1332,7 @@ __all__ = [
     "register_current_artifact_if_provable",
     "register_current_resource_artifact",
     "register_task_current_resource_artifact",
+    "resolve_artifact_episode",
     "resolve_current_artifact_target",
+    "resolve_usable_storyboard_video_inputs",
 ]

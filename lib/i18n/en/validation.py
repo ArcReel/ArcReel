@@ -197,6 +197,7 @@ MESSAGES = {
     "arch_invalid_conflict_policy": "Invalid conflict policy",
     "arch_conflict_policy_unsupported": "conflict_policy only supports prompt, rename or overwrite; got: {value}",
     "arch_import_validation_failed": "Import package validation failed",
+    "arch_artifact_activation_failed": "The imported project's artifact state is inconsistent",
     "arch_not_a_zip": "The uploaded file is not a valid ZIP archive",
     "arch_zip_encrypted_entry": "The ZIP contains an encrypted entry and cannot be imported: {name}",
     "arch_zip_absolute_path_entry": "The ZIP contains an absolute-path entry: {name}",

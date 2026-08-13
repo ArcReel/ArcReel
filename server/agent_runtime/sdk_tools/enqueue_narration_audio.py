@@ -13,6 +13,7 @@ from lib.artifact_activation import (
     ArtifactCurrencyResolver,
     active_artifact_currency_resolver,
     artifact_is_usable,
+    resolve_artifact_episode,
 )
 from lib.artifact_manifest import ArtifactKey
 from lib.generation_queue_client import (
@@ -97,11 +98,14 @@ def generate_narration_audio_tool(ctx: ToolContext):
             if not items:
                 raise ValueError("剧本没有可配音的单元")
             resolver = active_artifact_currency_resolver(ctx.project_path, project)
-            episode = script.get("episode")
-            if resolver is not None and (type(episode) is not int or episode < 1):
-                raise ValueError("script episode must be a positive integer")
-            if type(episode) is not int or episode < 1:
-                episode = 1
+            episode = (
+                resolve_artifact_episode(
+                    project=project,
+                    script=script,
+                    script_filename=script_filename,
+                )
+                or 1
+            )
 
             explicit = segment_ids is not None
             selected = _select_items(

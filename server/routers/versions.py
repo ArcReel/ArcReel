@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 from lib.api_errors import BadRequestError, ConflictError
 from lib.artifact_activation import register_current_resource_artifact
 from lib.async_thread import run_noninterruptible_sync
+from lib.formal_write import formal_write_transaction
 from lib.generation_admission import generation_admission_lock
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
@@ -143,25 +144,42 @@ _RESOURCE_TO_ASSET_TYPE: dict[str, str] = {
 }
 
 
-def _sync_metadata(
+def _restore_non_typed_sidecars(
+    *,
     resource_type: str,
     project_name: str,
     resource_id: str,
     file_path: str,
     project_path: Path,
 ) -> None:
-    """还原非 typed 资源后同步元数据，确保引用指向统一文件路径。"""
+    """Commit restore metadata and its Manifest claim under one compensation seam."""
+
+    sidecars: list[Path] = []
     asset_type = _RESOURCE_TO_ASSET_TYPE.get(resource_type)
     if asset_type is not None:
-        try:
-            with project_change_source("webui"):
-                get_project_manager()._update_asset_sheet(asset_type, project_name, resource_id, file_path)
-        except KeyError:
-            pass  # 资产条目可能已从 project.json 删除，跳过元数据同步
+        sidecars.append(project_path / "project.json")
     elif resource_type == "storyboards":
-        _sync_storyboard_metadata(project_name, resource_id, file_path, project_path)
+        sidecars.extend(sorted((project_path / "scripts").glob("*.json")))
+        sidecars.append(project_path / "project.json")
     elif resource_type == "grids":
-        _sync_grid_record(project_path, resource_id)
+        sidecars.append(project_path / "grids" / f"{resource_id}.json")
+
+    with formal_write_transaction(*sidecars):
+        if asset_type is not None:
+            try:
+                with project_change_source("webui"):
+                    get_project_manager()._update_asset_sheet(asset_type, project_name, resource_id, file_path)
+            except KeyError:
+                pass  # 资产条目可能已从 project.json 删除，跳过元数据同步
+        elif resource_type == "storyboards":
+            _sync_storyboard_metadata(project_name, resource_id, file_path, project_path)
+        elif resource_type == "grids":
+            _sync_grid_record(project_path, resource_id)
+        register_current_resource_artifact(
+            project_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
 
 
 # ==================== 版本查询 ====================
@@ -260,15 +278,13 @@ async def restore_version(
                     resource_id=resource_id,
                     version=version,
                     current_file=current_file,
-                )
-
-            if not is_typed_media_restore_resource(resource_type):
-                _sync_metadata(
-                    resource_type,
-                    project_name,
-                    resource_id,
-                    file_path,
-                    project_path,
+                    on_restore=lambda _record: _restore_non_typed_sidecars(
+                        resource_type=resource_type,
+                        project_name=project_name,
+                        resource_id=resource_id,
+                        file_path=file_path,
+                        project_path=project_path,
+                    ),
                 )
 
             # 计算还原后文件的 fingerprint；视频还原时同步删除缩略图（内容已失效）
@@ -287,13 +303,6 @@ async def restore_version(
                 thumbnail_key = f"reference_videos/thumbnails/{resource_id}.jpg"
                 thumbnail_path.unlink(missing_ok=True)
                 asset_fingerprints[thumbnail_key] = 0
-
-            if not is_typed_media_restore_resource(resource_type):
-                register_current_resource_artifact(
-                    project_path,
-                    resource_type=resource_type,
-                    resource_id=resource_id,
-                )
 
             return {
                 "success": True,

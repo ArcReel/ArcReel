@@ -261,6 +261,55 @@ class TestExecuteGridTask:
         # 联合图内容更新后落格状态复位，等待显式切分
         assert updated_grid_data["split_at"] is None
 
+    async def test_manifest_failure_rejects_selected_grid_before_marking_failed(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from PIL import Image
+
+        from server.services.generation_tasks import execute_grid_task
+
+        grid_image_path = project_with_script / "grids" / f"{grid_json.id}.png"
+        Image.new("RGB", (400, 400), color=(128, 200, 100)).save(grid_image_path, format="PNG")
+        mock_generator = MagicMock()
+        mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 2))
+        mock_generator.versions.reject_current_version.return_value = True
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator),
+            ),
+            patch(
+                "server.services.generation_tasks.register_formal_task_artifact",
+                side_effect=RuntimeError("manifest commit failed"),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm_fn.return_value = mock_pm
+
+            with pytest.raises(RuntimeError, match="manifest commit failed"):
+                await execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                )
+
+        mock_generator.versions.reject_current_version.assert_called_once_with(
+            "grids",
+            grid_json.id,
+            rejected_version=2,
+            current_file=grid_image_path,
+        )
+        updated_grid_data = json.loads((project_with_script / "grids" / f"{grid_json.id}.json").read_text())
+        assert updated_grid_data["status"] == "failed"
+        assert updated_grid_data["grid_image_path"] is None
+
     async def test_execute_grid_task_does_not_touch_storyboards(self, project_with_script, grid_json):
         """生成任务只产出联合图：不写任何分镜格文件、不回写剧本、不登记分镜版本——
         落格由独立的切分操作（apply_grid_split）显式执行。"""

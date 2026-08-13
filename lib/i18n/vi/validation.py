@@ -197,6 +197,7 @@ MESSAGES = {
     "arch_invalid_conflict_policy": "Chính sách xử lý xung đột không hợp lệ",
     "arch_conflict_policy_unsupported": "conflict_policy chỉ hỗ trợ prompt, rename hoặc overwrite; nhận được: {value}",
     "arch_import_validation_failed": "Kiểm tra gói nhập thất bại",
+    "arch_artifact_activation_failed": "Trạng thái sản phẩm của dự án nhập không nhất quán",
     "arch_not_a_zip": "Tệp tải lên không phải gói ZIP hợp lệ",
     "arch_zip_encrypted_entry": "ZIP chứa mục đã mã hóa nên không thể nhập: {name}",
     "arch_zip_absolute_path_entry": "ZIP chứa mục có đường dẫn tuyệt đối: {name}",

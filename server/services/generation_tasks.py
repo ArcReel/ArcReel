@@ -17,6 +17,8 @@ from lib.artifact_activation import (
     ArtifactRegistrationReceipt,
     register_current_resource_artifact,
     register_task_current_resource_artifact,
+    resolve_artifact_episode,
+    resolve_usable_storyboard_video_inputs,
 )
 from lib.artifact_manifest import (
     ArtifactBasisDescriptor,
@@ -43,6 +45,7 @@ from lib.audio_utils import (
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import constrain_durations, video_bucket_for_generation_mode
 from lib.db.base import DEFAULT_USER_ID
+from lib.formal_write import formal_write_transaction
 from lib.generation_queue import (
     CompensableGenerationResult,
     DispatchProviderChanged,
@@ -125,7 +128,6 @@ from server.services.narration_delivery_tasks import (
     ResolvedTtsSettingsResolver,
     active_narrated_video_resource_ids,
     current_selected_video_tier,
-    resolve_storyboard_video_inputs,
     reuse_current_video_for_tier,
     tts_task_in_progress,
 )
@@ -1358,9 +1360,15 @@ async def execute_video_task(
     supported_durations: list[int] = list(ctx.video.supported_durations)
     resolution = ctx.video.resolution
 
-    storyboard_file, end_image = resolve_storyboard_video_inputs(
+    artifact_episode = resolve_artifact_episode(
+        project=project,
+        script=script,
+        script_filename=script_file,
+    )
+    storyboard_file, end_image = resolve_usable_storyboard_video_inputs(
         project_path=project_path,
         project=project,
+        episode=artifact_episode,
         resource_id=resource_id,
         item=item,
     )
@@ -2161,6 +2169,8 @@ async def execute_grid_task(
     if grid is None:
         raise ValueError(f"grid not found: {resource_id}")
 
+    version: int | None = None
+    generator: Any = None
     try:
         # b) Set status to generating
         grid.status = "generating"
@@ -2214,22 +2224,41 @@ async def execute_grid_task(
 
         # e) Mark joint image ready；联合图内容已更新，旧的落格结果不再对应当前图，
         # split_at 清空表示「待显式切分」。
-        grid.grid_image_path = f"grids/{resource_id}.png"
-        grid.status = "completed"
-        grid.split_at = None
-        grid_manager.save(grid)
-        receipt = await run_formal_task_finalizer(
-            lambda: register_formal_task_artifact(
-                project_path,
-                resource_type="grids",
-                resource_id=resource_id,
-                script_file=None,
+        with formal_write_transaction(project_path / "grids" / f"{resource_id}.json"):
+            grid.grid_image_path = f"grids/{resource_id}.png"
+            grid.status = "completed"
+            grid.split_at = None
+            grid_manager.save(grid)
+            receipt = await run_formal_task_finalizer(
+                lambda: register_formal_task_artifact(
+                    project_path,
+                    resource_type="grids",
+                    resource_id=resource_id,
+                    script_file=None,
+                    task_id=task_id,
+                ),
                 task_id=task_id,
-            ),
-            task_id=task_id,
-        )
+            )
 
-    except Exception:
+    except Exception as failure:
+        if version is not None and generator is not None:
+            try:
+                rejected = await asyncio.to_thread(
+                    generator.versions.reject_current_version,
+                    "grids",
+                    resource_id,
+                    rejected_version=version,
+                    current_file=project_path / "grids" / f"{resource_id}.png",
+                )
+                if not rejected:
+                    failure.add_note("generated grid version changed before formal-write compensation")
+            except Exception as compensation_failure:  # noqa: BLE001
+                failure.add_note(f"generated grid compensation also failed: {compensation_failure}")
+        # The formal-write transaction restored the durable grid record, but
+        # ``grid`` still carries the rejected completion fields in memory.
+        # Reload before recording failure so the metadata pointer continues to
+        # describe whichever version compensation left selected.
+        grid = grid_manager.get(resource_id) or grid
         grid.status = "failed"
         import traceback
 

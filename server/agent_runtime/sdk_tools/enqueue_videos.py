@@ -15,6 +15,8 @@ from claude_agent_sdk import tool
 from lib.artifact_activation import (
     active_artifact_currency_resolver,
     artifact_is_usable,
+    resolve_artifact_episode,
+    resolve_usable_storyboard_video_inputs,
 )
 from lib.artifact_manifest import ArtifactKey
 from lib.config.resolver import video_bucket_for_generation_mode
@@ -55,7 +57,7 @@ from lib.speech_composition import (
     require_script_unit_admitted,
     video_unit_replan_problems,
 )
-from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
+from lib.storyboard_sequence import get_storyboard_items
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
     tool_error,
@@ -592,6 +594,8 @@ def _build_video_specs(
     project_dir: Path,
     skip_ids: list[str] | None,
     log: list[str],
+    project: dict[str, Any] | None = None,
+    episode: int = 1,
     voice_characters: dict[str, Any] | None = None,
 ) -> tuple[list[TaskSpec], dict[str, int]]:
     item_type = "片段" if content_mode == "narration" else "场景"
@@ -599,25 +603,25 @@ def _build_video_specs(
 
     specs: list[TaskSpec] = []
     order_map: dict[str, int] = {}
+    project = project or {}
+    resolver = active_artifact_currency_resolver(project_dir, project)
     for idx, item in enumerate(items):
         item_id = item.get(id_field) or item.get("scene_id") or item.get("segment_id") or f"item_{idx}"
         if item_id in skip_set:
             continue
 
-        storyboard_image = get_generated_assets(item).get("storyboard_image")
-        # 字段值来自磁盘剧本 JSON，不可信任：非字符串脏数据/越界/绝对路径引用统一交给
-        # resolve_storyboard_image_ref 校验（与路由入队预检、执行层读盘点共用同一份），
-        # 批量场景下单个条目非法只跳过并记日志，不中断整批。
         try:
-            storyboard_path = resolve_storyboard_image_ref(project_dir, storyboard_image)
-        except ValueError as exc:
-            log.append(f"⚠️  {item_type} {item_id} 的分镜图引用无效，跳过: {exc}")
-            continue
-        if storyboard_path is None:
-            log.append(f"⚠️  {item_type} {item_id} 没有分镜图，跳过")
-            continue
-        if not storyboard_path.is_file():
-            log.append(f"⚠️  分镜图不存在: {storyboard_path}，跳过")
+            resolve_usable_storyboard_video_inputs(
+                project_path=project_dir,
+                project=project,
+                episode=episode,
+                resource_id=str(item_id),
+                item=item,
+                resolver=resolver,
+                allow_legacy_same_name=False,
+            )
+        except (OSError, ValueError) as exc:
+            log.append(f"⚠️  {item_type} {item_id} 的视频输入不可用，跳过: {exc}")
             continue
 
         try:
@@ -1104,9 +1108,16 @@ def generate_video_episode_tool(ctx: ToolContext):
                     request_options=request_options,
                     log=log,
                 )
-            episode = ProjectManager.resolve_episode_from_script(script, script_filename)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             project = ctx.pm.load_project(ctx.project_name)
+            episode = (
+                resolve_artifact_episode(
+                    project=project,
+                    script=script,
+                    script_filename=script_filename,
+                )
+                or 1
+            )
             content_mode = resolve_content_mode(script, project)
             if not items:
                 raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
@@ -1130,6 +1141,8 @@ def generate_video_episode_tool(ctx: ToolContext):
                 content_mode=content_mode,
                 script_filename=script_filename,
                 project_dir=project_dir,
+                project=project,
+                episode=episode,
                 skip_ids=already_done,
                 log=log,
                 voice_characters=voice_characters,
@@ -1219,17 +1232,25 @@ def generate_video_scene_tool(ctx: ToolContext):
             item_id = str(item[id_field])
             require_script_unit_admitted(resolve_script_kind(script), item)
 
-            storyboard_image = get_generated_assets(item).get("storyboard_image")
-            # 字段值来自磁盘剧本 JSON，不可信任：resolve_storyboard_image_ref 统一做类型检查 +
-            # 越界 / 绝对路径拒绝（与路由入队预检、执行层读盘点共用同一份），异常经外层
-            # except 转为可读的 tool_error，不再让非字符串脏数据抛未处理 TypeError。
-            storyboard_path = resolve_storyboard_image_ref(project_dir, storyboard_image)
-            if storyboard_path is None:
-                raise ValueError(f"场景/片段 '{item_id}' 没有分镜图，请先运行 generate_storyboards")
-            if not storyboard_path.is_file():
-                raise FileNotFoundError(f"分镜图不存在: {storyboard_path}")
-
             project = ctx.pm.load_project(ctx.project_name)
+            episode = (
+                resolve_artifact_episode(
+                    project=project,
+                    script=script,
+                    script_filename=script_filename,
+                )
+                or 1
+            )
+            if not get_generated_assets(item).get("storyboard_image"):
+                raise ValueError(f"场景/片段 '{item_id}' 没有分镜图，请先运行 generate_storyboards")
+            resolve_usable_storyboard_video_inputs(
+                project_path=project_dir,
+                project=project,
+                episode=episode,
+                resource_id=item_id,
+                item=item,
+                allow_legacy_same_name=False,
+            )
             content_mode = resolve_content_mode(script, project)
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
@@ -1324,11 +1345,14 @@ def generate_video_all_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
             content_mode = resolve_content_mode(script, project)
             currency = active_artifact_currency_resolver(project_dir, project)
-            episode = script.get("episode")
-            if currency is not None and (type(episode) is not int or episode < 1):
-                raise ValueError("script episode must be a positive integer")
-            if type(episode) is not int or episode < 1:
-                episode = 1
+            episode = (
+                resolve_artifact_episode(
+                    project=project,
+                    script=script,
+                    script_filename=script_filename,
+                )
+                or 1
+            )
             pending: list[dict[str, Any]] = []
             for item in items:
                 resource_id = item.get(id_field)
@@ -1352,6 +1376,8 @@ def generate_video_all_tool(ctx: ToolContext):
                 content_mode=content_mode,
                 script_filename=script_filename,
                 project_dir=project_dir,
+                project=project,
+                episode=episode,
                 skip_ids=None,
                 log=log,
                 voice_characters=voice_characters,
@@ -1439,6 +1465,14 @@ def generate_video_selected_tool(ctx: ToolContext):
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             project = ctx.pm.load_project(ctx.project_name)
             content_mode = resolve_content_mode(script, project)
+            episode = (
+                resolve_artifact_episode(
+                    project=project,
+                    script=script,
+                    script_filename=script_filename,
+                )
+                or 1
+            )
 
             items_by_id: dict[str, dict[str, Any]] = {}
             for item in items:
@@ -1489,6 +1523,8 @@ def generate_video_selected_tool(ctx: ToolContext):
                 content_mode=content_mode,
                 script_filename=script_filename,
                 project_dir=project_dir,
+                project=project,
+                episode=episode,
                 skip_ids=already_done,
                 log=log,
                 voice_characters=voice_characters,

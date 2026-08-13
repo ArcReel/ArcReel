@@ -17,7 +17,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError
-from lib.artifact_activation import active_artifact_currency_resolver, artifact_is_usable
+from lib.artifact_activation import (
+    active_artifact_currency_resolver,
+    artifact_is_usable,
+    resolve_artifact_episode,
+    resolve_usable_storyboard_video_inputs,
+)
 from lib.artifact_manifest import ArtifactKey
 from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
@@ -44,10 +49,10 @@ from lib.script_models import get_generated_assets
 from lib.script_skeleton import resolve_script_kind
 from lib.speech_composition import SpeechMode, admit_script_unit
 from lib.storyboard_sequence import (
+    EndFrameImageUnavailable,
     StoryboardImageUnavailable,
     find_storyboard_item,
     get_storyboard_items,
-    resolve_storyboard_video_inputs,
 )
 from server.auth import CurrentUser
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
@@ -261,12 +266,20 @@ async def generate_video(
         # 字段值来自磁盘剧本 JSON，不可信任；路径校验和 schema 激活后的显式绑定要求
         # 与 worker / 当前基线重建共用同一解析器。
         try:
-            resolve_storyboard_video_inputs(
+            artifact_episode = resolve_artifact_episode(
+                project=project,
+                script=script,
+                script_filename=req.script_file,
+            )
+            resolve_usable_storyboard_video_inputs(
                 project_path=project_path,
                 project=project,
+                episode=artifact_episode,
                 resource_id=segment_id,
                 item=resolved[0],
             )
+        except EndFrameImageUnavailable:
+            raise BadRequestError("invalid_end_frame_image_path", segment_id=segment_id) from None
         except StoryboardImageUnavailable:
             raise BadRequestError("generate_storyboard_first", segment_id=segment_id) from None
         except ValueError:
