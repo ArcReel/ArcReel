@@ -1,5 +1,6 @@
 import os
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -284,6 +285,57 @@ class TestVersionsRouter:
             assert restore_resp.status_code == 200
             assert restore_resp.json()["file_path"] == "products/保温杯.png"
             assert any(item[0] == "product" for item in fake_pm.updated)
+
+    @pytest.mark.parametrize("resource_type", ["videos", "reference_videos"])
+    def test_typed_video_restore_uses_selection_finalization_guard(self, tmp_path, monkeypatch, resource_type):
+        resource_id = "E1S01"
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        guard_active = False
+        guard_calls = []
+
+        class _PM:
+            @staticmethod
+            def get_project_path(_project_name):
+                return project_path
+
+        @asynccontextmanager
+        async def _guard(**identity):
+            nonlocal guard_active
+            guard_calls.append(identity)
+            guard_active = True
+            try:
+                yield
+            finally:
+                guard_active = False
+
+        target = versions.TypedMediaRestoreTarget(
+            episode=1,
+            script_file="episode_1.json",
+            basis=ArtifactBasisDescriptor.from_basis(build_video_duration_basis(4)),
+            created_at=None,
+        )
+
+        def _restore(**_kwargs):
+            assert guard_active
+            return {"restored_version": 1, "current_version": 1, "prompt": "p"}
+
+        monkeypatch.setattr(versions, "get_project_manager", _PM)
+        monkeypatch.setattr(versions, "get_version_manager", lambda _project_name: _FakeVM(project_path))
+        monkeypatch.setattr(versions, "get_typed_media_restore_target", lambda *_args, **_kwargs: target)
+        monkeypatch.setattr(versions, "restore_typed_media_version", _restore)
+        monkeypatch.setattr(versions, "generation_admission_lock", _guard)
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        with TestClient(app) as client:
+            response = client.post(f"/api/v1/projects/demo/versions/{resource_type}/{resource_id}/restore/1")
+
+        assert response.status_code == 200
+        assert guard_calls == [{"project_name": "demo", "script_file": "episode_1.json", "resource_id": resource_id}]
+        assert not guard_active
 
     def test_audio_restore_is_enabled_for_typed_history(self, tmp_path, monkeypatch):
         pm, _project_path, manager = _typed_audio_project(tmp_path)

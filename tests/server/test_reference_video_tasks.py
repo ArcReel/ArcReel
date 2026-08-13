@@ -138,6 +138,9 @@ def _wire_context(
         async def prepare_selection(self, *_args, **_kwargs):
             return None
 
+        async def release_admission_guard(self):
+            return None
+
         def __call__(self, *_args, **_kwargs):
             return self.outcome
 

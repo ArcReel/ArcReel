@@ -220,7 +220,7 @@ async def restore_version(
     """
     try:
         target: TypedMediaRestoreTarget | None = None
-        if resource_type == "audio":
+        if is_typed_media_restore_resource(resource_type):
             target = await asyncio.to_thread(
                 get_typed_media_restore_target,
                 get_version_manager(project_name),
@@ -292,27 +292,27 @@ async def restore_version(
                 "asset_fingerprints": asset_fingerprints,
             }
 
-        if resource_type == "audio":
-            assert target is not None
+        if target is not None:
             async with generation_admission_lock(
                 project_name=project_name,
                 script_file=target.script_file,
                 resource_id=resource_id,
             ):
-                active_tts, active_video = await asyncio.gather(
-                    active_tts_resource_ids(
-                        project_name=project_name,
-                        resource_ids=(resource_id,),
-                        script_file=target.script_file,
-                    ),
-                    active_narrated_video_resource_ids(
-                        project_name=project_name,
-                        resource_ids=(resource_id,),
-                        script_file=target.script_file,
-                    ),
-                )
-                if resource_id in active_tts or resource_id in active_video:
-                    raise ConflictError("audio_restore_conflicts_with_active_task", resource_id=resource_id)
+                if resource_type == "audio":
+                    active_tts, active_video = await asyncio.gather(
+                        active_tts_resource_ids(
+                            project_name=project_name,
+                            resource_ids=(resource_id,),
+                            script_file=target.script_file,
+                        ),
+                        active_narrated_video_resource_ids(
+                            project_name=project_name,
+                            resource_ids=(resource_id,),
+                            script_file=target.script_file,
+                        ),
+                    )
+                    if resource_id in active_tts or resource_id in active_video:
+                        raise ConflictError("audio_restore_conflicts_with_active_task", resource_id=resource_id)
                 return await run_noninterruptible_sync(_sync)
         return await asyncio.to_thread(_sync)
 

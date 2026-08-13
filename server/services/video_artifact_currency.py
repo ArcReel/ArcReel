@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import AbstractAsyncContextManager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +20,7 @@ from lib.artifact_manifest import (
 )
 from lib.asset_types import asset_name_comparison_key
 from lib.async_thread import EventLoopBridge
+from lib.generation_admission import generation_admission_lock
 from lib.generation_queue import CompensableGenerationResult
 from lib.json_io import atomic_write_bytes
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
@@ -137,6 +138,7 @@ class VideoArtifactCommitter:
         self._current_tts_basis_resolved = False
         self._tts_settings_bridge: EventLoopBridge | None = None
         self._restore_blocker: str | None = None
+        self._admission_guard: AbstractAsyncContextManager[None] | None = None
 
     async def prepare_selection(
         self,
@@ -151,6 +153,18 @@ class VideoArtifactCommitter:
         which the executor re-raises the stored failure without ever exposing
         the invalid media as current.
         """
+
+        script_file = version_metadata.get("execution_script_file")
+        if isinstance(script_file, str) and script_file:
+            if self._admission_guard is not None:
+                raise RuntimeError("video artifact selection guard was already acquired")
+            guard = generation_admission_lock(
+                project_name=self._project_name,
+                script_file=script_file,
+                resource_id=self._resource_id,
+            )
+            await guard.__aenter__()
+            self._admission_guard = guard
 
         raw_narration = version_metadata.get("execution_narration")
         if not isinstance(raw_narration, Mapping) or raw_narration.get("delivery") != "use_tts":
@@ -176,6 +190,15 @@ class VideoArtifactCommitter:
             VideoArtifactCurrencyFacts.from_dict(version_metadata.get("artifact_video_currency"))
         except (TypeError, ValueError):
             return
+
+    async def release_admission_guard(self) -> None:
+        """Release the selection/finalization guard, if formal preparation acquired it."""
+
+        guard = self._admission_guard
+        if guard is None:
+            return
+        self._admission_guard = None
+        await guard.__aexit__(None, None, None)
 
     def __call__(
         self,
@@ -751,24 +774,27 @@ async def complete_video_artifact_commit(
 
     if committer is None:
         return await _finalize_and_complete()
-    if committer.outcome is None:
-        raise RuntimeError("formal video generator returned without invoking the artifact commit callback")
-    if committer.selection_error is not None:
-        raise committer.selection_error
-    if not committer.outcome.selected:
-        result = await asyncio.to_thread(
-            paid_video_history_result,
-            versions=versions,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            version=version,
-            video_uri=video_uri,
-            warnings=warnings,
-        )
-        if on_completed is not None:
-            on_completed()
-        return result
-    return await finalize_selected_video_result(committer=committer, finalize=_finalize_and_complete)
+    try:
+        if committer.outcome is None:
+            raise RuntimeError("formal video generator returned without invoking the artifact commit callback")
+        if committer.selection_error is not None:
+            raise committer.selection_error
+        if not committer.outcome.selected:
+            result = await asyncio.to_thread(
+                paid_video_history_result,
+                versions=versions,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                version=version,
+                video_uri=video_uri,
+                warnings=warnings,
+            )
+            if on_completed is not None:
+                on_completed()
+            return result
+        return await finalize_selected_video_result(committer=committer, finalize=_finalize_and_complete)
+    finally:
+        await committer.release_admission_guard()
 
 
 __all__ = [

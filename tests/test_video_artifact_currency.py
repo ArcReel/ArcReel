@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -84,6 +84,7 @@ async def test_shared_video_completion_returns_nonselected_paid_history_without_
     committer = MagicMock()
     committer.outcome = PaidVersionCommit(version=version, selected=False)
     committer.selection_error = None
+    committer.release_admission_guard = AsyncMock()
     finalize = AsyncMock()
     completed = MagicMock()
 
@@ -102,6 +103,67 @@ async def test_shared_video_completion_returns_nonselected_paid_history_without_
     assert (project_path / str(result["file_path"])).read_bytes() == b"paid"
     finalize.assert_not_awaited()
     completed.assert_called_once_with()
+    committer.release_admission_guard.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_video_admission_guard_spans_selection_and_finalize(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    guard_active = False
+    guard_calls: list[dict[str, str]] = []
+
+    @asynccontextmanager
+    async def _guard(**identity: str):
+        nonlocal guard_active
+        guard_calls.append(identity)
+        guard_active = True
+        try:
+            yield
+        finally:
+            guard_active = False
+
+    monkeypatch.setattr(video_artifact_currency, "generation_admission_lock", _guard)
+    committer = VideoArtifactCommitter(
+        project_manager=MagicMock(),
+        project_name="demo",
+        project_path=tmp_path,
+        versions=MagicMock(),
+        resource_type="videos",
+        resource_id="E1S01",
+        prompt="p",
+    )
+    staged = tmp_path / "staged.mp4"
+    staged.write_bytes(b"paid-video")
+    await committer.prepare_selection(
+        staged,
+        8,
+        {
+            "execution_script_file": "episode_1.json",
+            "execution_narration": {"delivery": "post_production"},
+        },
+    )
+    assert guard_active
+    committer.outcome = PaidVersionCommit(version=1, selected=True)
+
+    async def _finalize() -> dict[str, object]:
+        assert guard_active
+        return {"version": 1, "selected_current": True}
+
+    result = await complete_video_artifact_commit(
+        committer=committer,
+        versions=MagicMock(),
+        resource_type="videos",
+        resource_id="E1S01",
+        version=1,
+        video_uri="provider://video",
+        finalize=_finalize,
+    )
+
+    assert result["selected_current"] is True
+    assert guard_calls == [{"project_name": "demo", "script_file": "episode_1.json", "resource_id": "E1S01"}]
+    assert not guard_active
 
 
 @pytest.mark.asyncio

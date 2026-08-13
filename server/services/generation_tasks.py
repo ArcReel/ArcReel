@@ -1682,6 +1682,8 @@ async def execute_video_task(
             finalize=_finalize,
         )
     finally:
+        if artifact_committer is not None:
+            await artifact_committer.release_admission_guard()
         if task_id is not None:
             await asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id)
 

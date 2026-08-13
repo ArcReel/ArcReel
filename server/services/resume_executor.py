@@ -131,6 +131,7 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
         )
     )
 
+    artifact_committer: VideoArtifactCommitter | None = None
     try:
         # Only the project snapshot remains live here, and solely to resolve credentials/backend construction.
         # A submitted reference job's prompt, duration, script locator, endpoint and model all come from checkpoint.
@@ -234,4 +235,8 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
                 on_completed=_emit_success,
             )
     finally:
-        await asyncio.to_thread(cleanup_staged_provider_media, project_path, checkpoint.task_id)
+        try:
+            if artifact_committer is not None:
+                await artifact_committer.release_admission_guard()
+        finally:
+            await asyncio.to_thread(cleanup_staged_provider_media, project_path, checkpoint.task_id)

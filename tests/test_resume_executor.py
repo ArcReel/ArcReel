@@ -449,6 +449,50 @@ async def test_execute_resume_failure_does_not_emit(monkeypatch, fake_pm, video_
 
 
 @pytest.mark.asyncio
+async def test_execute_resume_releases_selection_guard_when_generator_fails_after_prepare(
+    monkeypatch,
+    fake_pm,
+    video_task,
+):
+    from server.services import resume_executor
+    from server.services.resume_executor import execute_resume_video_task
+
+    class _FailAfterPrepareGenerator(_FakeGenerator):
+        async def resume_video_async(self, **kwargs: Any) -> tuple[Path, int, Any, str | None]:
+            self.resume_calls.append(kwargs)
+            prepare = kwargs["before_formal_commit"]
+            await prepare(
+                Path(tempfile.gettempdir()) / "video.mp4",
+                int(kwargs["duration_seconds"]),
+                {"execution_script_file": kwargs["execution_script_file"]},
+            )
+            raise RuntimeError("commit failed after selection preparation")
+
+    class _GuardedCommitter:
+        instance: _GuardedCommitter | None = None
+
+        def __init__(self, **_kwargs: Any) -> None:
+            self.guard_active = False
+            type(self).instance = self
+
+        async def prepare_selection(self, *_args: Any, **_kwargs: Any) -> None:
+            self.guard_active = True
+
+        async def release_admission_guard(self) -> None:
+            self.guard_active = False
+
+    fake_gen = _FailAfterPrepareGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen)
+    monkeypatch.setattr(resume_executor, "VideoArtifactCommitter", _GuardedCommitter)
+
+    with pytest.raises(RuntimeError, match="commit failed after selection preparation"):
+        await execute_resume_video_task(video_task, job_id="openai-job-1")
+
+    assert _GuardedCommitter.instance is not None
+    assert not _GuardedCommitter.instance.guard_active
+
+
+@pytest.mark.asyncio
 async def test_execute_resume_accepts_float_string_duration(monkeypatch, fake_pm):
     """Resume ignores legacy payload duration and uses the strict checkpoint value."""
     from server.services.resume_executor import execute_resume_video_task

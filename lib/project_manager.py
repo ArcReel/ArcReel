@@ -46,6 +46,7 @@ from lib.asset_types import (
     resolve_asset_key,
     validate_asset_name,
 )
+from lib.audio_utils import discard_stale_reference_audio, resolve_audio_ref_path, resolve_stale_reference_audio
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
@@ -1700,14 +1701,32 @@ class ProjectManager:
         mutate_fn: Callable[[dict], None],
         copies: list[tuple[Path, Path]],
     ) -> dict:
-        """在项目锁内把文件替换与 project.json 写回作为一个可回滚事务提交。
+        """在项目锁内把文件复制与 project.json 写回作为一个可回滚事务提交。"""
 
-        ``copies`` 的目标路径必须互不重复；``mutate_fn`` 可在锁内完成最终名称规划并向
-        该列表追加拷贝。回调抛错时不会安装任何文件；
-        所有源文件先完成暂存，再逐个替换目标。安装或 JSON 写回失败时按相反顺序恢复
-        已替换目标，恢复失败仅记录日志并保留原始异常；提交成功后清理备份。
+        return self._update_project_with_files(
+            project_name,
+            mutate_fn,
+            copies=copies,
+        )
+
+    def _update_project_with_files(
+        self,
+        project_name: str,
+        mutate_fn: Callable[[dict], None],
+        *,
+        copies: list[tuple[Path, Path]] | None = None,
+        writes: list[tuple[bytes, Path]] | None = None,
+    ) -> dict:
+        """在项目锁内把文件变更与 project.json 写回作为一个可回滚事务提交。
+
+        ``mutate_fn`` 可在锁内完成最终名称规划并向两个列表追加操作。回调抛错时不会安装
+        任何文件；所有复制/字节写入先完成暂存，再逐个替换目标。安装或 JSON 写回失败时按
+        相反顺序恢复，恢复失败仅记录日志并保留原始异常；提交成功后清理备份。全部目标必须
+        互不重复，避免同一事务内操作顺序产生歧义。
         """
         project_file = self._get_project_file_path(project_name)
+        copies = copies if copies is not None else []
+        writes = writes if writes is not None else []
 
         token = secrets.token_hex(8)
         staged: list[tuple[Path, Path]] = []
@@ -1728,13 +1747,20 @@ class ProjectManager:
 
                 # mutate_fn 可在锁内完成最终名称规划并填充 copies；因此目标唯一性也必须
                 # 在回调之后、仍持有同一把项目锁时校验。
-                destinations = [destination for _source, destination in copies]
-                if len(set(destinations)) != len(destinations):
+                replacement_destinations = [destination for _source, destination in copies] + [
+                    destination for _content, destination in writes
+                ]
+                if len(set(replacement_destinations)) != len(replacement_destinations):
                     raise ValueError("项目文件事务包含重复目标路径")
                 for index, (source, destination) in enumerate(copies):
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     temporary = destination.with_name(f".{destination.name}.{token}-{index}.tmp")
                     shutil.copyfile(source, temporary)
+                    staged.append((temporary, destination))
+                for offset, (content, destination) in enumerate(writes, start=len(staged)):
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = destination.with_name(f".{destination.name}.{token}-{offset}.tmp")
+                    atomic_write_bytes(temporary, content)
                     staged.append((temporary, destination))
 
                 for index, (temporary, destination) in enumerate(staged):
@@ -2499,11 +2525,105 @@ class ProjectManager:
         """
 
         def _mutate(project: dict) -> None:
+            self._set_character_reference_audio(project, char_name, ref_path)
+
+        return self.update_project(project_name, _mutate)
+
+    @staticmethod
+    def _set_character_reference_audio(project: dict, char_name: str, ref_path: str) -> None:
+        key = resolve_asset_key(project.get("characters"), char_name)
+        if key is None:
+            raise KeyError(f"角色 '{char_name}' 不存在")
+        project["characters"][key]["reference_audio"] = ref_path
+        project["characters"][key]["voice_updated_at"] = datetime.now(UTC).isoformat()
+
+    def install_character_reference_audio(
+        self,
+        project_name: str,
+        char_name: str,
+        ref_path: str,
+        content: bytes,
+    ) -> dict:
+        """Atomically install reference-audio bytes and point the character at them.
+
+        Video currency selection hashes reference-audio bytes while holding the project lock.  Keeping every
+        physical replacement in that same lock makes the project pointer and the bytes one coherent input snapshot.
+        A replaced file with a different extension is best-effort cleanup after the new pointer commits; it is no
+        longer an input then, so cleanup does not need to prolong the selection-critical section.
+        """
+
+        project_dir = self.get_project_path(project_name)
+        refs_audio_dir = project_dir / "characters" / "refs_audio"
+        target = Path(self._safe_subpath(project_dir, ref_path))
+        if os.path.realpath(target.parent) != os.path.realpath(refs_audio_dir):
+            raise ValueError("reference audio target must be inside characters/refs_audio")
+        stale_audio: Path | None = None
+
+        def _mutate(project: dict) -> None:
+            nonlocal stale_audio
             key = resolve_asset_key(project.get("characters"), char_name)
             if key is None:
                 raise KeyError(f"角色 '{char_name}' 不存在")
-            project["characters"][key]["reference_audio"] = ref_path
-            project["characters"][key]["voice_updated_at"] = datetime.now(UTC).isoformat()
+            old_audio = project["characters"][key].get("reference_audio")
+            stale_audio = resolve_stale_reference_audio(project_dir, refs_audio_dir, old_audio, target)
+            self._set_character_reference_audio(project, char_name, ref_path)
+
+        project = self._update_project_with_files(
+            project_name,
+            _mutate,
+            writes=[(content, target)],
+        )
+        self._discard_stale_reference_audio_if_unreferenced(project_name, stale_audio)
+        return project
+
+    def _discard_stale_reference_audio_if_unreferenced(
+        self,
+        project_name: str,
+        stale_audio: Path | None,
+    ) -> None:
+        """Best-effort cleanup that cannot delete a newer concurrent selection of the same path."""
+
+        if stale_audio is None:
+            return
+        project_dir = self.get_project_path(project_name)
+        refs_audio_dir = project_dir / "characters" / "refs_audio"
+        stale_identity = os.path.realpath(stale_audio)
+        with self._project_lock(project_name):
+            project = self._read_project_raw_unlocked(project_name)
+            characters = project.get("characters")
+            if isinstance(characters, dict):
+                for character in characters.values():
+                    if not isinstance(character, dict):
+                        continue
+                    reference_audio = character.get("reference_audio")
+                    current = resolve_audio_ref_path(
+                        project_dir,
+                        refs_audio_dir,
+                        reference_audio if isinstance(reference_audio, str) else None,
+                    )
+                    if current is not None and os.path.realpath(current) == stale_identity:
+                        return
+            discard_stale_reference_audio(stale_audio)
+
+    def clear_character_reference_audio(self, project_name: str, char_name: str) -> dict:
+        """Remove the referenced audio file and clear its pointer under the shared project lock."""
+
+        project_dir = self.get_project_path(project_name)
+        refs_audio_dir = project_dir / "characters" / "refs_audio"
+
+        def _mutate(project: dict) -> None:
+            key = resolve_asset_key(project.get("characters"), char_name)
+            if key is None:
+                raise KeyError(f"角色 '{char_name}' 不存在")
+            old_audio = project["characters"][key].get("reference_audio")
+            stale = resolve_audio_ref_path(
+                project_dir,
+                refs_audio_dir,
+                old_audio if isinstance(old_audio, str) else None,
+            )
+            if stale is not None:
+                stale.unlink(missing_ok=True)
+            self._set_character_reference_audio(project, char_name, "")
 
         return self.update_project(project_name, _mutate)
 

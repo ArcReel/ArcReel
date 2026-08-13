@@ -1,13 +1,17 @@
 """角色 TTS 参考音频试听样本端点测试：音色列表 / 生成入队 / confirm 落资产。"""
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import lib.project_manager as project_manager_module
 from lib.audio_backends.base import VoiceOption
 from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.project_manager import ProjectManager
 from lib.resource_paths import resource_relative_path
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -49,6 +53,16 @@ class _FakePM:
         self.project["characters"][char_name]["reference_audio"] = ref_path
         self.updated_audio_refs.append((char_name, ref_path))
         return self.project
+
+    def install_character_reference_audio(self, project_name, char_name, ref_path, content):
+        old_ref = self.project["characters"].get(char_name, {}).get("reference_audio")
+        project = self.update_character_reference_audio(project_name, char_name, ref_path)
+        target = self.project_path / ref_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        if old_ref and old_ref != ref_path:
+            (self.project_path / old_ref).unlink(missing_ok=True)
+        return project
 
 
 def _app(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True):
@@ -283,6 +297,75 @@ class TestConfirmCharacterVoiceSample:
         assert body["path"] == "characters/refs_audio/艾莉.wav"
         assert fake_pm.updated_audio_refs == [("艾莉", "characters/refs_audio/艾莉.wav")]
         assert (project_path / "characters" / "refs_audio" / "艾莉.wav").read_bytes() == b"fake-wav"
+
+    def test_confirm_waits_for_video_selection_before_replacing_reference_audio(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.add_character("demo", "艾莉", "desc")
+        project_path = pm.get_project_path("demo")
+        script_file = project_path / "scripts" / "episode_1.json"
+        script_file.write_text(
+            '{"episode": 1, "content_mode": "narration", "segments": []}',
+            encoding="utf-8",
+        )
+        target = project_path / "characters" / "refs_audio" / "艾莉.wav"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"old-reference-audio")
+        pm.update_character_reference_audio("demo", "艾莉", "characters/refs_audio/艾莉.wav")
+        sample_rel = self._write_sample(project_path, "艾莉", b"new-reference-audio")
+        fake_queue = _FakeQueue(
+            {
+                "task-1": {
+                    "project_name": "demo",
+                    "task_type": "voice_sample",
+                    "resource_id": "艾莉",
+                    "status": "succeeded",
+                    "result": {"file_path": sample_rel},
+                }
+            }
+        )
+        client = _client(monkeypatch, pm, fake_queue)
+
+        sample = project_path / sample_rel
+        sample_read = Event()
+        continue_confirm = Event()
+        target_install_started = Event()
+        original_read_bytes = Path.read_bytes
+        original_replace = project_manager_module.os.replace
+
+        def _paused_sample_read(path: Path) -> bytes:
+            content = original_read_bytes(path)
+            if path == sample:
+                sample_read.set()
+                assert continue_confirm.wait(timeout=2)
+            return content
+
+        def _observe_target_install(source, destination) -> None:
+            if Path(destination) == target:
+                target_install_started.set()
+            original_replace(source, destination)
+
+        monkeypatch.setattr(Path, "read_bytes", _paused_sample_read)
+        monkeypatch.setattr(project_manager_module.os, "replace", _observe_target_install)
+
+        with client, ThreadPoolExecutor(max_workers=1) as executor:
+            request = executor.submit(
+                client.post,
+                "/api/v1/projects/demo/characters/艾莉/voice-sample/confirm",
+                json={"task_id": "task-1"},
+            )
+            assert sample_read.wait(timeout=2)
+            with pm.locked_project_script_snapshot("demo", "episode_1.json"):
+                continue_confirm.set()
+                assert not target_install_started.wait(timeout=0.5)
+                assert original_read_bytes(target) == b"old-reference-audio"
+
+            response = request.result(timeout=2)
+
+        assert response.status_code == 200
+        assert target_install_started.is_set()
+        assert original_read_bytes(target) == b"new-reference-audio"
 
     def test_confirm_invalid_character_name_400_not_500(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
