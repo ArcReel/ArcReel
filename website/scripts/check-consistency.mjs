@@ -35,7 +35,7 @@ function checkOrphanTranslations() {
 const JSX_HEADING_EXEMPT_FILES = new Set(["docs/index.mdx"]);
 
 const FENCE = /^\s*(```|~~~)/;
-const HEADING = /^(#{1,6})\s+(.*?)\s*$/;
+const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*$/;
 const ANCHOR_SUFFIX = /\{#([a-z0-9-]+)\}$/;
 const JSX_HEADING = /<h[1-6][\s/>]/i;
 
