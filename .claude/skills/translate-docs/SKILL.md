@@ -36,7 +36,7 @@ Before translating prose, search these truth sources for established English pro
 
 Reuse their exact terminology. Do not create a separate glossary.
 
-When those sources conflict, use the official product name a reader outside China would recognize. Documentation translates `剪映` as `CapCut`, which is the term `README.en.md` already uses; the frontend locale's `Jianying` does not govern documentation.
+When those sources conflict, use the official product name a reader outside China would recognize. Documentation translates `剪映` as `CapCut`, which is the term `README.en.md` already uses; the frontend locale's `Jianying` does not govern documentation. Likewise, documentation translates `阿里百炼` as `DashScope`, matching `README.en.md`'s established usage; the frontend locale's per-endpoint `Alibaba Model Studio` labels do not govern documentation.
 
 ## 3. Translate every dirty source
 
@@ -68,6 +68,8 @@ cd ..
 ```
 
 Maintain every generated English JSON file, including `code.json`, navbar/footer JSON, and `docusaurus-plugin-content-docs/current.json`. Preserve JSON keys, `description` values, and placeholders such as `{count}` exactly. Finish when the English inventory has every generated key and no user-facing Chinese message remains.
+
+Delete `footer.json`'s generated `copyright` key. It snapshots `themeConfig.footer.copyright`'s `new Date().getFullYear()` as a static string at generation time, which would permanently override the dynamic year for the English locale; removing the key lets the English footer fall back to the same dynamic config the default locale uses.
 
 ## 5. Record and verify
 
