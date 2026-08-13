@@ -50,6 +50,13 @@ pnpm typecheck
 
 # Site search only works against build output, not in the dev server
 pnpm build && pnpm serve
+
+# Sync the repo-root CONTRIBUTING.md into the docs-site page (start / build already run this automatically, so a manual run is rarely needed)
+pnpm sync-contributing
+
+# CI consistency gate: orphan translations / docs-site headings missing an explicit anchor / UI JSON key completeness — a non-zero exit on any hit;
+# it reads output already synced by sync-contributing, so run sync-contributing first
+pnpm check-consistency
 ```
 
 ## Running Tests {#running-tests}
@@ -163,6 +170,7 @@ This file is the source of truth for the contributing guide. During builds, it i
 - **Treat runtime capabilities as authoritative for provider information**: documentation describes the media types covered, how ArcReel unifies configuration, how to choose between different capabilities, and where to confirm specifics; the models actually selectable on the Settings page and the provider's official documentation are definitive.
 - **Give headings explicit anchor IDs**: write every heading on a published page as `## 标题 {#english-id}`. The Chinese and English locales share the same anchor to prevent changes to copy from invalidating automatically generated Chinese slugs. Use relative file paths for cross-references within the site (such as `../ops/deployment.md`), and use absolute GitHub links when pointing to repository files not published on the site.
 - **Commit documentation changes with feature changes**: when adding a content mode or video-making workflow, adding a provider or media capability, or changing deployment directories, ports, environment variables, data directories, backup methods, migration behavior, public APIs, licenses, or commercial-use terms, update the corresponding documentation at the same time.
+- **No JSX or import in docs-site `.md` files**: `website/docusaurus.config.ts` sets `markdown.format: "detect"`, so `.md` files are parsed as CommonMark rather than MDX — any JSX tag or import statement you write there won't raise a compile error, it will just silently fail to render. Use `.mdx` for pages that need JSX.
 
 ## Workflow {#workflow}
 
