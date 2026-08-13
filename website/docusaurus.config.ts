@@ -16,6 +16,9 @@ const config: Config = {
   onBrokenAnchors: "throw",
 
   markdown: {
+    // .md 按 CommonMark 解析，只有 .mdx 走 MDX：文档正文里的 `<1.0.0`、`<域名>` 等
+    // 尖括号片段在 MDX 下会被当成 JSX 而编译失败，且 CONTRIBUTING.md 还要在 GitHub 上原样可读
+    format: "detect",
     hooks: {
       onBrokenMarkdownLinks: "throw",
     },

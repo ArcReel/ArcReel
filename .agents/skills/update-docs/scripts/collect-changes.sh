@@ -6,7 +6,7 @@ set -eu
 # 引擎 A 覆盖文档：高频、主题宽，参与 baseline 计算。
 ENGINE_A_DOCS=(
   "README.md"
-  "docs/getting-started.md"
+  "website/docs/guide/getting-started.md"
 )
 
 # README 翻译对：英文版是中文版的镜像，不独立进引擎，改完后由主 agent 全文核对一致性。
@@ -15,9 +15,8 @@ README_MIRROR="README.en.md"
 
 # 仅引擎 B 覆盖文档：低频、主题窄，不参与 baseline。
 ENGINE_B_ONLY_DOCS=(
-  "docs/deployment.md"
-  "docs/known-issues.md"
-  "docs/jianying-export-guide.md"
+  "website/docs/ops/deployment.md"
+  "website/docs/guide/jianying-export.md"
   "CONTRIBUTING.md"
 )
 

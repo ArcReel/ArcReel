@@ -250,7 +250,7 @@ jobs:
 
       - name: Smoke test container health
         run: |
-          # 沙箱运行参数与官方 Compose 一致（docs/deployment.md）：容器内 bwrap
+          # 沙箱运行参数与官方 Compose 一致（website/docs/ops/deployment.md）：容器内 bwrap
           # 需要这些权限，缺失时 server 按沙箱红线启动硬失败
           docker run -d --name arcreel-ci \
             --security-opt seccomp=unconfined \

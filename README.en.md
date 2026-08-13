@@ -33,9 +33,9 @@
 <p align="center">
   <a href="#quick-start"><strong>Quick Start</strong></a>
   ·
-  <a href="docs/getting-started.md">Getting Started</a>
+  <a href="https://docs.arc-reel.com/guide/getting-started">Getting Started</a>
   ·
-  <a href="docs/README.md">Documentation</a>
+  <a href="https://docs.arc-reel.com/">Documentation</a>
   ·
   <a href="#community">Community</a>
 </p>
@@ -96,7 +96,7 @@ flowchart LR
     F --> H["CapCut Draft Export"]
 ```
 
-Every stage can be orchestrated by the AI assistant while remaining reviewable and replaceable in the workspace. See [Workflows and Modes](docs/workflows.md) for guidance.
+Every stage can be orchestrated by the AI assistant while remaining reviewable and replaceable in the workspace. See [Workflows and Modes](https://docs.arc-reel.com/guide/workflows) for guidance.
 
 ## Quick Start
 
@@ -138,7 +138,7 @@ After signing in:
 3. Configure the text, image, and video capabilities required by the full workflow.
 4. Start with a small project to validate the workflow.
 
-> The SQLite deployment is suitable for evaluation and light personal use. For long-running or concurrent environments, use the [PostgreSQL production deployment](docs/deployment.md#2-生产部署postgresql). PostgreSQL does not add user isolation; ArcReel does not currently support sharing one instance between mutually untrusted users.
+> The SQLite deployment is suitable for evaluation and light personal use. For long-running or concurrent environments, use the [PostgreSQL production deployment](https://docs.arc-reel.com/ops/deployment#postgresql-deployment). PostgreSQL does not add user isolation; ArcReel does not currently support sharing one instance between mutually untrusted users.
 
 ### Production deployment: PostgreSQL
 
@@ -150,7 +150,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-See [Deployment and Operations](docs/deployment.md) for upgrades, backups, and reverse proxies. See the [Security Policy](SECURITY.md) for supported deployments and vulnerability reporting.
+See [Deployment and Operations](https://docs.arc-reel.com/ops/deployment) for upgrades, backups, and reverse proxies. See the [Security Policy](SECURITY.md) for supported deployments and vulnerability reporting.
 
 ## Core capabilities
 
@@ -205,7 +205,7 @@ ArcReel hides provider differences behind `TextBackend`, `ImageBackend`, and `Vi
 | Agnes | ✅ | ✅ | ✅ | — |
 | Custom providers | Interface-dependent | Interface-dependent | Interface-dependent | Interface-dependent |
 
-Global defaults, project-level overrides, and multiple API keys per provider are supported. See [Provider Configuration](docs/providers.md).
+Global defaults, project-level overrides, and multiple API keys per provider are supported. See [Provider Configuration](https://docs.arc-reel.com/guide/providers).
 
 ## Architecture
 
@@ -221,7 +221,7 @@ flowchart TB
     CORE --> DB["SQLAlchemy 2.0<br/>SQLite / PostgreSQL"]
 ```
 
-The stack includes React 19, TypeScript, FastAPI, Python 3.12+, the Claude Agent SDK, SQLAlchemy 2.0, FFmpeg, Docker, and Docker Compose. See [Architecture](docs/architecture.md) for boundaries and extension points.
+The stack includes React 19, TypeScript, FastAPI, Python 3.12+, the Claude Agent SDK, SQLAlchemy 2.0, FFmpeg, Docker, and Docker Compose. See [Architecture](https://docs.arc-reel.com/dev/architecture) for boundaries and extension points.
 
 ## Important limitations
 
@@ -231,7 +231,7 @@ The stack includes React 19, TypeScript, FastAPI, Python 3.12+, the Claude Agent
 - Native Windows can run parts of the basic workflow, but POSIX-dependent Agent sandbox features degrade; prefer Linux, macOS, WSL2, or Docker.
 - Production deployments should use PostgreSQL, HTTPS, strong credentials, and regular backups. Do not expose an unprotected port `1241` to the public Internet.
 
-See [FAQ](docs/FAQ.md) for more.
+See [FAQ](https://docs.arc-reel.com/guide/faq) for more.
 
 ## Documentation
 
@@ -239,16 +239,16 @@ Detailed documentation is currently maintained in Chinese; English documentation
 
 | Document | Purpose |
 |---|---|
-| [Documentation Index](docs/README.md) | Entry points for creators, operators, and contributors |
-| [Getting Started](docs/getting-started.md) | From first deployment to the first generated video |
-| [Workflows and Modes](docs/workflows.md) | Novel, screenplay, narration, drama, ad, and video-making workflows |
-| [Provider Configuration](docs/providers.md) | Agent, text, image, video, and TTS provider choices |
-| [Deployment and Operations](docs/deployment.md) | SQLite, PostgreSQL, upgrades, backups, and reverse proxies |
+| [Documentation Index](https://docs.arc-reel.com/) | Entry points for creators, operators, and contributors |
+| [Getting Started](https://docs.arc-reel.com/guide/getting-started) | From first deployment to the first generated video |
+| [Workflows and Modes](https://docs.arc-reel.com/guide/workflows) | Novel, screenplay, narration, drama, ad, and video-making workflows |
+| [Provider Configuration](https://docs.arc-reel.com/guide/providers) | Agent, text, image, video, and TTS provider choices |
+| [Deployment and Operations](https://docs.arc-reel.com/ops/deployment) | SQLite, PostgreSQL, upgrades, backups, and reverse proxies |
 | [Security Policy](SECURITY.md) | Supported versions, deployment boundaries, private reporting, and coordinated disclosure |
 | [Security Threat Model](docs/security/threat-model.md) | Security assets, trust boundaries, attack surfaces, and reassessment triggers |
-| [CapCut Draft Export](docs/jianying-export-guide.md) | Continue editing ArcReel output in CapCut |
-| [Architecture](docs/architecture.md) | Agent runtime, queue, provider abstraction, and data layer |
-| [FAQ](docs/FAQ.md) | Deployment, cost, data, model, and licensing questions |
+| [CapCut Draft Export](https://docs.arc-reel.com/guide/jianying-export) | Continue editing ArcReel output in CapCut |
+| [Architecture](https://docs.arc-reel.com/dev/architecture) | Agent runtime, queue, provider abstraction, and data layer |
+| [FAQ](https://docs.arc-reel.com/guide/faq) | Deployment, cost, data, model, and licensing questions |
 | [Contributing](CONTRIBUTING.md) | Local development, tests, conventions, and pull requests |
 | [Changelog](CHANGELOG.md) | Release history |
 
