@@ -472,6 +472,98 @@ def test_selected_video_cancellation_compensation_restores_media_manifest_and_on
         }
 
 
+def test_selected_video_compensation_preserves_the_original_and_rollback_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_path = tmp_path / "demo"
+    current = project_path / "videos" / "scene_E1S01.mp4"
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"old-current")
+    thumbnail = project_path / "thumbnails" / "scene_E1S01.jpg"
+    thumbnail.parent.mkdir(parents=True)
+    thumbnail.write_bytes(b"old-thumbnail")
+    staged = current.with_name(".new-paid.mp4")
+    staged.write_bytes(b"new-paid")
+    versions = VersionManager(project_path)
+    old_version = versions.add_version("videos", "E1S01", "old", source_file=current)
+    old_basis = ArtifactBasisDescriptor.from_basis(
+        compose_video_artifact_basis(
+            visual=build_video_duration_basis(1),
+            speech=build_video_duration_basis(2),
+            duration=build_video_duration_basis(4),
+        )
+    )
+    new_currency = _currency("new", parent_version=old_version)
+    new_basis = new_currency.video_descriptor
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register_descriptor(
+        ArtifactKey.episode_video(1, "E1S01"),
+        artifact_path="videos/scene_E1S01.mp4",
+        basis=old_basis,
+    )
+    script = {
+        "episode": 1,
+        "content_mode": "narration",
+        "segments": [
+            {
+                "segment_id": "E1S01",
+                "novel_text": "n",
+                "generated_assets": {"video_clip": "videos/old.mp4"},
+            }
+        ],
+    }
+    project = {"episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}]}
+
+    class _PM:
+        @contextmanager
+        def locked_project_script_snapshot(self, *_args):
+            yield project, script
+
+        @contextmanager
+        def locked_episode_script(self, _name, resolve_script_file, **kwargs):
+            resolve_script_file(project)
+            yield script
+            if callback := kwargs.get("on_commit"):
+                callback(project_path / "scripts" / "episode_1.json")
+
+        @staticmethod
+        def update_scene_status(item):
+            item["generated_assets"]["status"] = "completed"
+
+    monkeypatch.setattr(video_artifact_currency, "build_current_video_artifact_basis", lambda **_kwargs: new_basis)
+    committer = VideoArtifactCommitter(
+        project_manager=_PM(),  # type: ignore[arg-type]
+        project_name="demo",
+        project_path=project_path,
+        versions=versions,
+        resource_type="videos",
+        resource_id="E1S01",
+        prompt="new",
+    )
+    metadata = {
+        "artifact_video_currency": new_currency.to_dict(),
+        "execution_script_file": "episode_1.json",
+        "execution_narration": {"delivery": "post_production"},
+    }
+    assert committer(staged, current, 8, metadata).selected is True
+    thumbnail.write_bytes(b"new-thumbnail")
+
+    original_failure = OSError("restore prior thumbnail failed")
+    rollback_failure = OSError("restore selected thumbnail failed")
+    failures = iter((original_failure, rollback_failure))
+
+    def _fail_thumbnail_write(*_args, **_kwargs):
+        raise next(failures)
+
+    monkeypatch.setattr(video_artifact_currency, "atomic_write_bytes", _fail_thumbnail_write)
+
+    with pytest.raises(RuntimeError, match="rollback was incomplete") as caught:
+        committer.compensate_selection()
+
+    assert caught.value.__cause__ is rollback_failure
+    assert rollback_failure.__cause__ is original_failure
+
+
 @pytest.mark.asyncio
 async def test_selected_video_finalize_failure_is_compensated_before_reraising() -> None:
     failure = RuntimeError("finalize failed")

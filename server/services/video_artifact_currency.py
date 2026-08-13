@@ -333,7 +333,7 @@ class VideoArtifactCommitter:
                     adapter.delete_entry(key)
                 else:
                     adapter.put_entry(key, self._prior_manifest_entry)
-            except BaseException:
+            except BaseException as original_error:
                 rollback_failures: list[BaseException] = []
                 try:
                     _restore_file(thumbnail_path, selected_thumbnail_present, selected_thumbnail_bytes)
@@ -345,6 +345,7 @@ class VideoArtifactCommitter:
                 except BaseException as exc:
                     rollback_failures.append(exc)
                 if rollback_failures:
+                    rollback_failures[0].__cause__ = original_error
                     raise RuntimeError(
                         "video compensation failed and thumbnail/Manifest rollback was incomplete"
                     ) from rollback_failures[0]

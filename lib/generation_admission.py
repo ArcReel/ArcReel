@@ -60,9 +60,11 @@ async def generation_admission_lock(
                 await asyncio.sleep(_POLL_SECONDS)
         yield
     finally:
-        if acquired:
-            portalocker.unlock(handle)
-        handle.close()
+        try:
+            if acquired:
+                portalocker.unlock(handle)
+        finally:
+            handle.close()
 
 
 __all__ = ["generation_admission_lock"]
