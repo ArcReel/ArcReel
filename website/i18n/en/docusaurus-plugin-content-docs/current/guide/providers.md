@@ -55,7 +55,7 @@ Providers' specific models, parameters, regional availability, and pricing chang
 | Grok | ✅ | ✅ | ✅ | — | Text, image, and video generation |
 | OpenAI | ✅ | ✅ | ✅ | — | Text, image, and video generation |
 | Vidu | — | ✅ | ✅ | — | Image, image-to-video, and reference-to-video generation |
-| Alibaba Model Studio | ✅ | ✅ | ✅ | ✅ | Text, image, video, and voice-over TTS |
+| DashScope | ✅ | ✅ | ✅ | ✅ | Text, image, video, and voice-over TTS |
 | MiniMax | ✅ | ✅ | ✅ | — | Text, image, and video generation |
 | Kling | — | ✅ | ✅ | — | Image, image-to-video, and reference-to-video generation |
 | Agnes | ✅ | ✅ | ✅ | — | Text, image, and video generation |
@@ -291,7 +291,7 @@ High-reasoning models are not necessarily suitable for every task. Complex conte
 
 ## 9. TTS Configuration {#tts-providers}
 
-ArcReel's voice-over capability can use Alibaba Model Studio Qwen TTS or a compatible TTS interface.
+ArcReel's voice-over capability can use DashScope Qwen TTS or a compatible TTS interface.
 
 After configuration, first validate:
 
