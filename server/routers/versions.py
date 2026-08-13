@@ -14,6 +14,8 @@ from fastapi import APIRouter
 logger = logging.getLogger(__name__)
 
 from lib.api_errors import BadRequestError, ConflictError
+from lib.async_thread import run_noninterruptible_sync
+from lib.generation_admission import generation_admission_lock
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager
@@ -21,6 +23,7 @@ from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
 from server.services.artifact_version_restore import (
+    TypedMediaRestoreTarget,
     get_typed_media_restore_target,
     is_typed_media_restore_resource,
     is_typed_media_version_restorable,
@@ -216,6 +219,7 @@ async def restore_version(
         version: 要还原的版本号
     """
     try:
+        target: TypedMediaRestoreTarget | None = None
         if resource_type == "audio":
             target = await asyncio.to_thread(
                 get_typed_media_restore_target,
@@ -224,20 +228,6 @@ async def restore_version(
                 resource_id=resource_id,
                 version=version,
             )
-            active_tts, active_video = await asyncio.gather(
-                active_tts_resource_ids(
-                    project_name=project_name,
-                    resource_ids=(resource_id,),
-                    script_file=target.script_file,
-                ),
-                active_narrated_video_resource_ids(
-                    project_name=project_name,
-                    resource_ids=(resource_id,),
-                    script_file=target.script_file,
-                ),
-            )
-            if resource_id in active_tts or resource_id in active_video:
-                raise ConflictError("audio_restore_conflicts_with_active_task", resource_id=resource_id)
 
         def _sync():
             # 还原同样是一条联合图写入路径（换回历史联合图 + 复位宫格记录），
@@ -302,6 +292,28 @@ async def restore_version(
                 "asset_fingerprints": asset_fingerprints,
             }
 
+        if resource_type == "audio":
+            assert target is not None
+            async with generation_admission_lock(
+                project_name=project_name,
+                script_file=target.script_file,
+                resource_id=resource_id,
+            ):
+                active_tts, active_video = await asyncio.gather(
+                    active_tts_resource_ids(
+                        project_name=project_name,
+                        resource_ids=(resource_id,),
+                        script_file=target.script_file,
+                    ),
+                    active_narrated_video_resource_ids(
+                        project_name=project_name,
+                        resource_ids=(resource_id,),
+                        script_file=target.script_file,
+                    ),
+                )
+                if resource_id in active_tts or resource_id in active_video:
+                    raise ConflictError("audio_restore_conflicts_with_active_task", resource_id=resource_id)
+                return await run_noninterruptible_sync(_sync)
         return await asyncio.to_thread(_sync)
 
     except ValueError as e:

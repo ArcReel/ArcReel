@@ -79,6 +79,7 @@ class _FakePM:
         }
         self.updated_assets = []
         self.rebind_on_next_lock: str | None = None
+        self.episode_lock_active = False
 
     def load_project(self, project_name):
         return self.project
@@ -101,12 +102,15 @@ class _FakePM:
         resolve_script_file(self.project)
         before = copy.deepcopy(self.script)
         try:
+            self.episode_lock_active = True
             yield self.script
             if on_commit is not None:
                 on_commit(self.project_path / "scripts" / "episode_1.json")
         except BaseException:
             self.script = before
             raise
+        finally:
+            self.episode_lock_active = False
 
     @staticmethod
     def update_scene_status(item):
@@ -133,7 +137,7 @@ class _FakeAudioGenerator:
         if before_commit := kwargs.get("before_commit"):
             await before_commit(staged)
         if commit_staged := kwargs.get("commit_staged"):
-            committed = commit_staged(staged, output)
+            committed = await asyncio.to_thread(commit_staged, staged, output)
             version = committed.version if isinstance(committed, PaidVersionCommit) else committed
         else:
             staged.replace(output)
@@ -467,6 +471,8 @@ class TestExecuteTtsTask:
         async def _settings_change(*args, **kwargs):
             nonlocal calls
             calls += 1
+            if calls == 2:
+                assert pm.episode_lock_active
             resolver = initial_resolver if calls == 1 else changed_resolver
             return await resolver(*args, **kwargs)
 

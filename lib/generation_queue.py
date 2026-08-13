@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskRepository
+from lib.generation_admission import generation_admission_lock
 from lib.task_terminal_events import emit_task_terminal_events
 
 if TYPE_CHECKING:
@@ -363,22 +364,36 @@ class GenerationQueue:
                 # Video provider/model is only an advisory claim projection until the worker materializes the
                 # current request and persists its pre-submit checkpoint. Enqueue payload never freezes identity.
 
-        async with self._task_repo() as repo:
-            result = await repo.enqueue(
+        async def _enqueue() -> dict[str, Any]:
+            async with self._task_repo() as repo:
+                return await repo.enqueue(
+                    project_name=project_name,
+                    task_type=task_type,
+                    media_type=media_type,
+                    resource_id=resource_id,
+                    payload=payload,
+                    script_file=script_file,
+                    resource_type=resource_type,
+                    source=source,
+                    dependency_task_id=dependency_task_id,
+                    dependency_group=dependency_group,
+                    dependency_index=dependency_index,
+                    user_id=user_id,
+                    provider_id=provider_id,
+                )
+
+        # Audio restoration observes active TTS/video consumers while holding the
+        # same per-unit admission guard.  Keeping the guard here makes every Web,
+        # Agent, and batch enqueue entry participate without duplicating checks.
+        if task_type in {"tts", "video", "reference_video"} and script_file:
+            async with generation_admission_lock(
                 project_name=project_name,
-                task_type=task_type,
-                media_type=media_type,
-                resource_id=resource_id,
-                payload=payload,
                 script_file=script_file,
-                resource_type=resource_type,
-                source=source,
-                dependency_task_id=dependency_task_id,
-                dependency_group=dependency_group,
-                dependency_index=dependency_index,
-                user_id=user_id,
-                provider_id=provider_id,
-            )
+                resource_id=resource_id,
+            ):
+                result = await _enqueue()
+        else:
+            result = await _enqueue()
         # The unique index intentionally protects one active task per resource. A matching
         # video task is reusable only when its durable narration request facts also match;
         # current TTS evidence and other mutable generation intent are re-read by the worker.

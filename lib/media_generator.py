@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from lib.image_backends.base import ImageBackend
     from lib.reference_compression import CompressedRef, PayloadLimits, ReferenceSpec
 
+from lib.async_thread import run_noninterruptible_sync
 from lib.audio_utils import probe_reference_audio_total_seconds
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import RateLimiter
@@ -282,25 +283,17 @@ class MediaGenerator:
         compensates a selected result when cancellation already won.
         """
 
-        commit_task = asyncio.create_task(
-            asyncio.to_thread(
-                self._commit_video_output_version_sync,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                prompt=prompt,
-                output_path=output_path,
-                staged_output_path=staged_output_path,
-                duration_seconds=duration_seconds,
-                version_metadata=version_metadata,
-                commit_formal_output=commit_formal_output,
-            )
+        return await run_noninterruptible_sync(
+            self._commit_video_output_version_sync,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            prompt=prompt,
+            output_path=output_path,
+            staged_output_path=staged_output_path,
+            duration_seconds=duration_seconds,
+            version_metadata=version_metadata,
+            commit_formal_output=commit_formal_output,
         )
-        while True:
-            try:
-                return await asyncio.shield(commit_task)
-            except asyncio.CancelledError:
-                if commit_task.done():
-                    return commit_task.result()
 
     async def _prepare_formal_video_commit(
         self,
@@ -700,7 +693,7 @@ class MediaGenerator:
                     **version_metadata,
                 )
             else:
-                committed = commit(staged_path, output_path)
+                committed = await run_noninterruptible_sync(commit, staged_path, output_path)
                 if isinstance(committed, PaidVersionCommit):
                     version = committed.version
                     selected_current = committed.selected

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import filecmp
 import math
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -24,6 +24,7 @@ from lib.artifact_manifest import (
 from lib.audio_utils import probe_existing_media_duration_seconds
 from lib.config.resolver import ConfigResolver, VideoCapability
 from lib.db import async_session_factory
+from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import GenerationQueue, get_generation_queue
 from lib.narration_delivery import (
     NarratedVideoDurationBlockedError,
@@ -94,14 +95,23 @@ class ResolvedTtsSettingsResolver:
 class CurrentTtsSettingsResolver:
     """Resolve freshness inputs through the same assembled audio lane as synthesis."""
 
-    def __init__(self, project_name: str) -> None:
+    def __init__(
+        self,
+        project_name: str,
+        *,
+        user_id: str = DEFAULT_USER_ID,
+        context_resolver: Callable[..., Awaitable[Any]] | None = None,
+    ) -> None:
         self._project_name = project_name
+        self._user_id = user_id
+        self._context_resolver = context_resolver or resolve_generation_context
 
     async def resolve_tts_synthesis_settings(self, project: dict) -> TtsSynthesisSettings:
-        ctx = await resolve_generation_context(
+        ctx = await self._context_resolver(
             self._project_name,
             None,
             project=project,
+            user_id=self._user_id,
             audio=AudioLaneRequest(),
         )
         return ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio).settings

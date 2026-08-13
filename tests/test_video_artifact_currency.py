@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -215,6 +216,7 @@ async def test_formal_selection_reloads_current_tts_settings_for_currency_check(
     old_version = versions.add_version("videos", "E1S01", "old", source_file=current)
     currency = _currency("frozen", parent_version=old_version)
     current_settings = TtsSynthesisSettings("new-provider", "new-model", "new-voice", 1.2)
+    selection_guard_active = False
 
     class _PM:
         @staticmethod
@@ -223,14 +225,24 @@ async def test_formal_selection_reloads_current_tts_settings_for_currency_check(
 
         @contextmanager
         def locked_project_script_snapshot(self, *_args):
-            yield {}, {}
+            nonlocal selection_guard_active
+            selection_guard_active = True
+            try:
+                yield {}, {}
+            finally:
+                selection_guard_active = False
 
     monkeypatch.setattr(
         video_artifact_currency,
         "validate_generated_video_covers_tts_duration",
         AsyncMock(),
     )
-    resolve_settings = AsyncMock(return_value=current_settings)
+
+    async def _resolve_settings(_project):
+        assert selection_guard_active
+        return current_settings
+
+    resolve_settings = AsyncMock(side_effect=_resolve_settings)
     monkeypatch.setattr(
         video_artifact_currency.CurrentTtsSettingsResolver,
         "resolve_tts_synthesis_settings",
@@ -264,7 +276,8 @@ async def test_formal_selection_reloads_current_tts_settings_for_currency_check(
     }
 
     await committer.prepare_selection(staged, 8, metadata)
-    outcome = committer(staged, current, 8, metadata)
+    resolve_settings.assert_not_awaited()
+    outcome = await asyncio.to_thread(committer, staged, current, 8, metadata)
 
     assert outcome.selected is False
     resolve_settings.assert_awaited_once_with({})

@@ -19,6 +19,7 @@ from lib.artifact_manifest import (
     compose_video_artifact_basis,
 )
 from lib.asset_types import asset_name_comparison_key
+from lib.async_thread import EventLoopBridge
 from lib.generation_queue import CompensableGenerationResult
 from lib.json_io import atomic_write_bytes
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
@@ -134,6 +135,7 @@ class VideoArtifactCommitter:
         self._prior_thumbnail: tuple[Path, bool, bytes | None] | None = None
         self._current_tts_settings: TtsSynthesisSettings | None = None
         self._current_tts_basis_resolved = False
+        self._tts_settings_bridge: EventLoopBridge | None = None
         self._restore_blocker: str | None = None
 
     async def prepare_selection(
@@ -153,6 +155,7 @@ class VideoArtifactCommitter:
         raw_narration = version_metadata.get("execution_narration")
         if not isinstance(raw_narration, Mapping) or raw_narration.get("delivery") != "use_tts":
             return
+        self._tts_settings_bridge = EventLoopBridge.capture()
         try:
             narration = NarrationExecutionFacts.from_dict(dict(raw_narration))
             if narration.actual_duration_seconds is None:
@@ -173,19 +176,6 @@ class VideoArtifactCommitter:
             VideoArtifactCurrencyFacts.from_dict(version_metadata.get("artifact_video_currency"))
         except (TypeError, ValueError):
             return
-        try:
-            current_project = await asyncio.to_thread(self._project_manager.load_project, self._project_name)
-            self._current_tts_settings = await CurrentTtsSettingsResolver(
-                self._project_name
-            ).resolve_tts_synthesis_settings(current_project)
-        except ValueError:
-            # No configured current TTS means there is no fresh duration that can
-            # invalidate the execution-frozen video tier.
-            self._current_tts_settings = None
-        except (Exception, asyncio.CancelledError) as exc:
-            self.selection_error = exc
-            return
-        self._current_tts_basis_resolved = True
 
     def __call__(
         self,
@@ -218,16 +208,31 @@ class VideoArtifactCommitter:
             if self.selection_error is not None:
                 return None
             narration = metadata.get("execution_narration")
+            project = snapshot["project"]
+            script = snapshot["script"]
+            if project is None or script is None:
+                return None
             if (
                 isinstance(narration, Mapping)
                 and narration.get("delivery") == "use_tts"
                 and not self._current_tts_basis_resolved
             ):
-                return None
-            project = snapshot["project"]
-            script = snapshot["script"]
-            if project is None or script is None:
-                return None
+                bridge = self._tts_settings_bridge
+                if bridge is None:
+                    self.selection_error = RuntimeError("current TTS selection was not prepared on an event loop")
+                    return None
+                try:
+                    self._current_tts_settings = bridge.run(
+                        CurrentTtsSettingsResolver(self._project_name).resolve_tts_synthesis_settings(project)
+                    )
+                except ValueError:
+                    # No configured current TTS means there is no fresh duration
+                    # that can invalidate the execution-frozen video tier.
+                    self._current_tts_settings = None
+                except (Exception, asyncio.CancelledError) as exc:
+                    self.selection_error = exc
+                    return None
+                self._current_tts_basis_resolved = True
             return build_current_video_artifact_basis(
                 project_path=self._project_path,
                 project=project,

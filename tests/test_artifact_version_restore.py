@@ -126,6 +126,31 @@ def test_typed_audio_restore_selects_media_script_pointer_and_manifest_together(
     )
 
 
+def test_typed_audio_restore_accepts_legacy_project_without_episode_index(tmp_path):
+    pm, project_path = _project(tmp_path)
+    vm = VersionManager(project_path)
+    current = project_path / "audio" / "segment_E1S01.wav"
+    old_basis = _descriptor("old")
+    old_version = _add_audio_version(vm, current, content=b"old", basis=old_basis)
+    _add_audio_version(vm, current, content=b"current", basis=_descriptor("current"))
+    pm.update_project("demo", lambda project: project.pop("episodes", None))
+
+    result = restore_typed_media_version(
+        project_manager=pm,
+        project_name="demo",
+        project_path=project_path,
+        versions=vm,
+        resource_type="audio",
+        resource_id="E1S01",
+        version=old_version,
+        current_file=current,
+        artifact_path="audio/segment_E1S01.wav",
+    )
+
+    assert result["restored_version"] == old_version
+    assert current.read_bytes() == b"old"
+
+
 def test_restore_registration_failure_rolls_back_media_pointer_and_script(tmp_path, monkeypatch):
     pm, project_path = _project(tmp_path)
     vm = VersionManager(project_path)

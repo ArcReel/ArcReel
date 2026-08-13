@@ -127,6 +127,8 @@ def restore_typed_media_version(
     def _same_script(project: dict[str, Any]) -> str:
         episode_entry = find_episode(project, target.episode)
         current_binding = episode_entry.get("script_file") if isinstance(episode_entry, dict) else None
+        if current_binding is None and not (project.get("episodes") or []):
+            return target.script_file
         if not isinstance(current_binding, str) or (
             ProjectManager.normalize_script_filename(current_binding)
             != ProjectManager.normalize_script_filename(target.script_file)

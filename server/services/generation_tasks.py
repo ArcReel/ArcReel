@@ -27,6 +27,7 @@ from lib.asset_types import (
     resolve_asset_key,
     validate_asset_name,
 )
+from lib.async_thread import EventLoopBridge
 from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
     AUDIO_REFERENCE_MAX_SECONDS,
@@ -115,6 +116,7 @@ from server.services.generation_context import (
     resolve_generation_context,
 )
 from server.services.narration_delivery_tasks import (
+    CurrentTtsSettingsResolver,
     ResolvedTtsSettingsResolver,
     active_narrated_video_resource_ids,
     current_selected_video_tier,
@@ -808,16 +810,19 @@ async def execute_tts_task(
 
     audio_rel = resource_relative_path("audio", resource_id)
     duration_seconds: float | None = None
-    current_commit_settings = settings
     tts_selection_error: BaseException | None = None
+    tts_settings_bridge = EventLoopBridge.capture()
     selected_current = True
     missing_narration_audio = object()
     prior_narration_audio: object = missing_narration_audio
     prior_manifest_entry: ArtifactManifestEntry | None = None
     prior_manifest_captured = False
 
+    class _TtsSelectionResolutionFailed(RuntimeError):
+        pass
+
     async def _measure_staged(staged_path: Path) -> None:
-        nonlocal current_commit_settings, duration_seconds, tts_selection_error
+        nonlocal duration_seconds, tts_selection_error
         try:
             measured_duration = await probe_existing_audio_duration_seconds(staged_path)
         except (Exception, asyncio.CancelledError) as exc:
@@ -827,28 +832,9 @@ async def execute_tts_task(
             tts_selection_error = RuntimeError("generated narration audio duration is unavailable")
             return
         duration_seconds = float(measured_duration)
-        if preparation is None:
-            return
-        try:
-            current_project = await asyncio.to_thread(get_project_manager().load_project, project_name)
-            current_ctx = await resolve_generation_context(
-                project_name,
-                None,
-                project=current_project,
-                user_id=user_id,
-                audio=AudioLaneRequest(),
-            )
-            current_commit_settings = TtsSynthesisSettings(
-                provider_id=current_ctx.audio.provider_model.provider_id,
-                model_id=current_ctx.audio.backend_model,
-                voice=current_ctx.audio.narration_voice,
-                speed=current_ctx.audio.narration_speed,
-            )
-        except (Exception, asyncio.CancelledError) as exc:
-            tts_selection_error = exc
 
     def _commit_staged(staged_path: Path, output_path: Path) -> int | PaidVersionCommit:
-        nonlocal prior_narration_audio, selected_current
+        nonlocal prior_narration_audio, selected_current, tts_selection_error
         if script_file is None or preparation is None or episode is None or basis is None:
             selected_current = False
             return generator.versions.commit_staged_paid_version(
@@ -872,6 +858,7 @@ async def execute_tts_task(
         pm = get_project_manager()
         committed_outcome: PaidVersionCommit | None = None
         should_select = False
+        guarded_project: dict[str, Any] | None = None
 
         version_metadata = {
             "tts_provider_id": settings.provider_id,
@@ -929,6 +916,8 @@ async def execute_tts_task(
             )
 
         def _same_script(_project: dict) -> str:
+            nonlocal guarded_project
+            guarded_project = _project
             entry = find_episode(_project, committed_episode)
             current_binding = entry.get("script_file") if isinstance(entry, dict) else None
             if current_binding is None and not (_project.get("episodes") or []):
@@ -947,6 +936,19 @@ async def execute_tts_task(
                 validate=False,
                 on_commit=_activate,
             ) as current_script:
+                if guarded_project is None:
+                    raise RuntimeError("TTS commit guard did not expose the current project")
+                try:
+                    current_commit_settings = tts_settings_bridge.run(
+                        CurrentTtsSettingsResolver(
+                            project_name,
+                            user_id=user_id,
+                            context_resolver=resolve_generation_context,
+                        ).resolve_tts_synthesis_settings(guarded_project)
+                    )
+                except (Exception, asyncio.CancelledError) as exc:
+                    tts_selection_error = exc
+                    raise _TtsSelectionResolutionFailed from exc
                 items, id_field, current_kind = _resolve_tts_task_items(
                     current_script,
                     reference_video_route=reference_video_route,
@@ -960,7 +962,7 @@ async def execute_tts_task(
                     None,
                 )
                 current_basis = None
-                if item is not None:
+                if tts_selection_error is None and item is not None:
                     current_admission = admit_script_unit(current_kind, item)
                     try:
                         current_basis = build_narration_audio_basis(
@@ -985,7 +987,7 @@ async def execute_tts_task(
                         item["generated_assets"] = assets
                     assets["narration_audio"] = audio_rel
                     pm.update_scene_status(item)
-        except EpisodeScriptReboundError:
+        except (EpisodeScriptReboundError, _TtsSelectionResolutionFailed):
             committed_outcome = _archive_paid_history()
         except BaseException as failure:
             if staged_path.is_file():
