@@ -674,33 +674,6 @@ class TestPinExecutionModelOnEnqueue:
         assert "video_provider_i2v" not in task["payload"]
         assert task["provider_id"] == "custom-7"
 
-    async def test_persist_execution_identity_rewrites_pinned_bucket_key(self, queue, stub_enqueue_resolution):
-        """reference_video 开始处理后把实际执行身份写入当前桶键，供已提交任务 resume。"""
-        from lib.config.resolver import ProviderModel
-
-        enqueued = await queue.enqueue_task(
-            project_name="demo",
-            task_type="reference_video",
-            media_type="video",
-            resource_id="r1",
-            payload={"prompt": "p"},
-            script_file="ep1.json",
-        )
-        task = await queue.get_task(enqueued["task_id"])
-        assert "video_provider_r2v" not in task["payload"]
-
-        await queue.persist_execution_identity(
-            enqueued["task_id"],
-            execution_model=ProviderModel("ark", "doubao-seedance-1-5-pro-251215"),
-            capability="i2v",
-        )
-        task = await queue.get_task(enqueued["task_id"])
-        assert task["payload"]["video_provider_i2v"] == "ark/doubao-seedance-1-5-pro-251215"
-        assert "video_provider_r2v" not in task["payload"]
-        assert "prompt" not in task["payload"]
-        assert task["payload"]["script_file"] == "ep1.json"
-        assert task["provider_id"] == "ark"
-
     async def test_non_video_task_pins_nothing(self, queue, stub_enqueue_resolution):
         """图片任务的 capability 执行时才定，入队不锁——只落 provider_id。"""
         enqueued = await queue.enqueue_task(

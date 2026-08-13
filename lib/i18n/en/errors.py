@@ -45,6 +45,8 @@ MESSAGES = {
     "task_fail_restart_lost_audio": "The audio task was interrupted by a service restart and cannot be resumed; please retry manually to avoid duplicate billing",
     "task_fail_restart_lost_no_job_id": "The video task did not persist a resume handle before the service restart and cannot recover automatically; please retry manually",
     "task_fail_restart_lost_resume_no_job_id": "The task is missing a resume handle and cannot be recovered; please retry manually",
+    "task_fail_restart_lost_checkpoint_no_job_id": "The task crossed the submission boundary without saving a provider job ID and cannot retry automatically without risking duplicate billing",
+    "task_fail_execution_identity_unrecoverable": "The task submission identity cannot be recovered: {detail}",
     "task_fail_resume_unsupported_provider": "Provider {provider_id} does not support task resumption; please retry manually to avoid duplicate billing",
     "task_fail_resume_unsupported_capacity_zero": "Provider {provider_id} has zero video capacity and cannot resume the task; please retry manually",
     "task_fail_resume_unsupported_detail": "Task cannot be resumed: {detail}",

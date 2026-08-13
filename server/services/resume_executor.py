@@ -11,7 +11,15 @@ import asyncio
 import logging
 from typing import Any
 
+from lib.narration_delivery import USE_TTS
 from lib.project_change_hints import project_change_source
+from lib.reference_video.execution_checkpoint import (
+    ReferenceExecutionIdentityError,
+    ReferenceSubmissionCheckpoint,
+    checkpoint_version_metadata,
+    cleanup_staged_provider_media,
+    load_task_reference_checkpoint,
+)
 from lib.video_backends.base import ResumeEndpointChangedError
 from server.services.generation_context import VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
@@ -21,6 +29,7 @@ from server.services.generation_tasks import (
     get_aspect_ratio,
     get_project_manager,
 )
+from server.services.narration_delivery_tasks import require_generated_video_covers_current_tts
 from server.services.reference_video_tasks import _finalize_reference_video_unit
 
 logger = logging.getLogger(__name__)
@@ -47,6 +56,41 @@ def _ensure_endpoint_unchanged(task: dict[str, Any], current_endpoint: str | Non
         submitted_endpoint=str(submitted_endpoint),
         current_endpoint=current_endpoint,
     )
+
+
+def _ensure_checkpoint_endpoint_unchanged(
+    checkpoint: ReferenceSubmissionCheckpoint,
+    current_endpoint: str | None,
+    *,
+    job_id: str,
+) -> None:
+    """Reference submissions use an exact endpoint guard, including builtin/custom transitions."""
+
+    if checkpoint.endpoint_guard == current_endpoint:
+        return
+    raise ResumeEndpointChangedError(
+        job_id=job_id,
+        provider=checkpoint.provider_id,
+        submitted_endpoint=checkpoint.endpoint_guard or "<builtin>",
+        current_endpoint=current_endpoint or "<builtin>",
+    )
+
+
+def _validate_resolved_checkpoint_identity(checkpoint: ReferenceSubmissionCheckpoint, video: Any) -> None:
+    actual = (
+        video.provider_model.provider_id,
+        video.provider_model.model_id,
+        video.backend_model,
+    )
+    frozen = (
+        checkpoint.provider_id,
+        checkpoint.provider_model_id,
+        checkpoint.backend_model_id,
+    )
+    if actual != frozen:
+        raise ReferenceExecutionIdentityError(
+            "resolved provider/model/backend identity does not match the submitted reference checkpoint"
+        )
 
 
 def _is_request_domain(value: Any) -> bool:
@@ -97,6 +141,17 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
     if task_type not in ("video", "reference_video"):
         raise NotImplementedError(f"resume not supported for task_type={task_type}")
 
+    checkpoint: ReferenceSubmissionCheckpoint | None = None
+    if task_type == "reference_video":
+        checkpoint = load_task_reference_checkpoint(task)
+        resolver_payload = {
+            f"video_provider_{checkpoint.capability}": f"{checkpoint.provider_id}/{checkpoint.provider_model_id}"
+        }
+        video_request = VideoLaneRequest(capability=checkpoint.capability)
+    else:
+        resolver_payload = payload
+        video_request = VideoLaneRequest()
+
     project, project_path = await asyncio.to_thread(
         lambda: (
             get_project_manager().load_project(project_name),
@@ -104,102 +159,123 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
         )
     )
 
-    # 仅声明 video lane：resume 路径用不到 image backend，不声明 image lane 即不构造它——
-    # 若 image 配置在 submit→重启之间被破坏，整段 resume 不该被无关检查弄失败（provider
-    # job 仍在跑）。provider/backend 身份解析收口于 GenerationContext（docs/adr/0049）。
-    ctx = await resolve_generation_context(
-        project_name,
-        payload,
-        project=project,
-        user_id=user_id,
-        video=VideoLaneRequest(),
-    )
-    generator = ctx.generator
-    _ensure_endpoint_unchanged(task, ctx.video.endpoint, job_id=job_id)
-
-    aspect_ratio = get_aspect_ratio(project, "videos") if task_type == "video" else project.get("aspect_ratio", "9:16")
-    # 浮点数字符串（如 "8.0"）直接 int() 会抛 ValueError；先 float 再 int 兜底脏数据
     try:
-        duration_seconds = int(float(payload.get("duration_seconds") or project.get("default_duration") or 8))
-    except (ValueError, TypeError):
-        duration_seconds = 8
-    seed = payload.get("seed")
-    # 旧任务 / 脏数据可能把 video_provider_settings 存成 None / str / list，全部归一化成 dict
-    raw_vp_settings = payload.get("video_provider_settings")
-    vp_settings = raw_vp_settings if isinstance(raw_vp_settings, dict) else {}
-    service_tier = vp_settings.get("service_tier", "default")
-    raw_prompt = payload.get("prompt")
-    prompt_text = raw_prompt if isinstance(raw_prompt, str) else ""
-    raw_resolution = payload.get("resolution")
-    resolution = raw_resolution if isinstance(raw_resolution, str) else None
-    raw_generate_audio = payload.get("generate_audio")
-    # generate_audio 仅在 payload 显式提供 bool 时透传；缺省让 resume_video_async 走 config 默认，
-    # 不传 None 是因为 version_metadata.get("generate_audio", default) 会把显式 None 当作"用户选择 None"
-    optional_kwargs: dict[str, Any] = {}
-    if isinstance(raw_generate_audio, bool):
-        optional_kwargs["generate_audio"] = raw_generate_audio
-
-    if task_type == "reference_video":
-        resource_type = "reference_videos"
-        script_file = payload["script_file"]
-    else:
-        resource_type = "videos"
-        script_file = payload["script_file"]
-
-    api_call_id = payload.get("api_call_id")
-    if api_call_id is not None and not isinstance(api_call_id, int):
-        try:
-            api_call_id = int(api_call_id)
-        except (ValueError, TypeError):
-            api_call_id = None
-
-    # 与 execute_generation_task 对齐：包 project_change_source('worker') 让下游
-    # asset 写入挂在 worker 来源；finalize 完成后同步触发 emit_generation_success_batch
-    # 推 SSE batch（带 asset_fingerprints），前端能即时刷缩略图缓存。
-    with project_change_source("worker"):
-        output_path, version, _, video_uri = await generator.resume_video_async(
-            job_id=job_id,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            prompt=prompt_text,
-            aspect_ratio=aspect_ratio,
-            duration_seconds=duration_seconds,
-            resolution=resolution,
-            task_id=task_id,
-            api_call_id=api_call_id,
-            submitted_base_url=_submitted_base_url(task, ctx.video.endpoint),
-            seed=seed,
-            service_tier=service_tier,
-            **optional_kwargs,
+        # Only the project snapshot remains live here, and solely to resolve credentials/backend construction.
+        # A submitted reference job's prompt, duration, script locator, endpoint and model all come from checkpoint.
+        ctx = await resolve_generation_context(
+            project_name,
+            resolver_payload,
+            project=project,
+            user_id=user_id,
+            video=video_request,
         )
+        generator = ctx.generator
 
-        if task_type == "reference_video":
-            result = await _finalize_reference_video_unit(
-                project_name=project_name,
-                script_file=script_file,
-                project_path=project_path,
-                resource_id=resource_id,
-                output_path=output_path,
-                version=version,
-                video_uri=video_uri,
-                versions=generator.versions,
-            )
+        if checkpoint is not None:
+            _validate_resolved_checkpoint_identity(checkpoint, ctx.video)
+            _ensure_checkpoint_endpoint_unchanged(checkpoint, ctx.video.endpoint, job_id=job_id)
+            aspect_ratio = checkpoint.aspect_ratio
+            duration_seconds = checkpoint.duration_seconds
+            seed = checkpoint.seed
+            service_tier = checkpoint.service_tier
+            prompt_text = checkpoint.prompt
+            resolution = checkpoint.resolution
+            optional_kwargs: dict[str, Any] = {
+                "generate_audio": checkpoint.generate_audio,
+                "formal_output": True,
+                "visual_basis_digest": checkpoint.visual_basis_digest,
+                **checkpoint_version_metadata(checkpoint),
+            }
+            resource_type = "reference_videos"
+            script_file = checkpoint.script_file
+            api_call_id: int | None = checkpoint.api_call_id
+            event_payload: dict[str, Any] = {"script_file": checkpoint.script_file}
         else:
-            result = await _finalize_video_task(
-                project_name=project_name,
-                script_file=script_file,
-                project_path=project_path,
+            _ensure_endpoint_unchanged(task, ctx.video.endpoint, job_id=job_id)
+            aspect_ratio = get_aspect_ratio(project, "videos")
+            try:
+                duration_seconds = int(float(payload.get("duration_seconds") or project.get("default_duration") or 8))
+            except (ValueError, TypeError):
+                duration_seconds = 8
+            seed = payload.get("seed")
+            raw_vp_settings = payload.get("video_provider_settings")
+            vp_settings = raw_vp_settings if isinstance(raw_vp_settings, dict) else {}
+            service_tier = vp_settings.get("service_tier", "default")
+            raw_prompt = payload.get("prompt")
+            prompt_text = raw_prompt if isinstance(raw_prompt, str) else ""
+            raw_resolution = payload.get("resolution")
+            resolution = raw_resolution if isinstance(raw_resolution, str) else None
+            raw_generate_audio = payload.get("generate_audio")
+            optional_kwargs = {}
+            if isinstance(raw_generate_audio, bool):
+                optional_kwargs["generate_audio"] = raw_generate_audio
+            resource_type = "videos"
+            script_file = payload["script_file"]
+            api_call_id = payload.get("api_call_id")
+            if api_call_id is not None and not isinstance(api_call_id, int):
+                try:
+                    api_call_id = int(api_call_id)
+                except (ValueError, TypeError):
+                    api_call_id = None
+            event_payload = payload
+
+        with project_change_source("worker"):
+            output_path, version, _, video_uri = await generator.resume_video_async(
+                job_id=job_id,
+                resource_type=resource_type,
                 resource_id=resource_id,
-                version=version,
-                video_uri=video_uri,
-                generator=generator,
+                prompt=prompt_text,
+                aspect_ratio=aspect_ratio,
+                duration_seconds=duration_seconds,
+                resolution=resolution,
+                task_id=task_id,
+                api_call_id=api_call_id,
+                submitted_base_url=_submitted_base_url(task, ctx.video.endpoint),
+                seed=seed,
+                service_tier=service_tier,
+                **optional_kwargs,
             )
 
-        # emit_generation_success_batch 是同步函数，async caller 同步调用（不 await）
-        emit_generation_success_batch(
-            task_type=task_type,
-            project_name=project_name,
-            resource_id=resource_id,
-            payload=payload,
-        )
-        return result
+            if checkpoint is not None:
+                if checkpoint.narration.delivery == USE_TTS:
+                    await require_generated_video_covers_current_tts(
+                        project_name=project_name,
+                        script_file=script_file,
+                        request_duration_seconds=duration_seconds,
+                        output_path=output_path,
+                        versions=generator.versions,
+                        resource_type=resource_type,
+                        resource_id=resource_id,
+                        version=version,
+                    )
+                result = await _finalize_reference_video_unit(
+                    project_name=project_name,
+                    script_file=script_file,
+                    project_path=project_path,
+                    resource_id=resource_id,
+                    output_path=output_path,
+                    version=version,
+                    video_uri=video_uri,
+                    versions=generator.versions,
+                )
+            else:
+                result = await _finalize_video_task(
+                    project_name=project_name,
+                    script_file=script_file,
+                    project_path=project_path,
+                    resource_id=resource_id,
+                    version=version,
+                    video_uri=video_uri,
+                    generator=generator,
+                )
+
+            emit_generation_success_batch(
+                task_type=task_type,
+                project_name=project_name,
+                resource_id=resource_id,
+                payload=event_payload,
+            )
+            return result
+    finally:
+        if checkpoint is not None:
+            await asyncio.to_thread(cleanup_staged_provider_media, project_path, checkpoint.task_id)

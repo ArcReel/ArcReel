@@ -811,9 +811,9 @@ async def _generate_reference_units(
     用户同意后调用方带对应档位重新调用完成入队（与 Web 端
     ``duration-precheck`` 预检共用同一取档规则）。
 
-    ``checkpoint_path`` 为 None 表示生成不落 checkpoint：点名重新生成一律强制覆盖，
+    ``checkpoint_path`` 为 None 表示生成不落批次进度 checkpoint：点名重新生成一律强制覆盖，
     没有可续传的语义，写一份没有读者的进度文件只会在中断时留下垃圾，也会覆盖掉整集
-    生成留下的进度。
+    生成留下的进度。每个入队任务在 provider 提交边界使用的 execution checkpoint 是独立机制。
     """
     project_dir = ctx.project_path
     ckpt_path = checkpoint_path
@@ -1360,7 +1360,8 @@ def generate_video_selected_tool(ctx: ToolContext):
     @tool(
         "generate_video_selected",
         "生成指定多个场景的视频。storyboard 项目用按 scene_ids 哈希的独立 checkpoint，支持 resume 续传。"
-        "reference_video 项目传 unit_id 列表即对这些 unit 重新生成（覆盖已有成片），不落 checkpoint、不支持 resume。",
+        "reference_video 项目传 unit_id 列表即对这些 unit 重新生成（覆盖已有成片），"
+        "不落批次进度 checkpoint、忽略此处 resume 参数；已入队任务的 provider 提交恢复由队列独立处理。",
         {
             "type": "object",
             "properties": {

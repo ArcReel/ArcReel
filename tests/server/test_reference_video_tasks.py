@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
+import threading
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import replace
 from functools import partial
@@ -1131,8 +1133,7 @@ async def test_execute_reference_video_task_rechecks_audio_switch_for_latest_mod
         generate_audio=True,
     )
     fake_queue = MagicMock()
-    fake_queue.persist_effective_duration = AsyncMock()
-    fake_queue.persist_execution_identity = AsyncMock()
+    fake_queue.persist_execution_checkpoint = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     with pytest.raises(ValueError, match="video_audio_switch_not_supported"):
@@ -1144,8 +1145,7 @@ async def test_execute_reference_video_task_rechecks_audio_switch_for_latest_mod
             task_id="task-1",
         )
     fake_generator.generate_video_async.assert_not_awaited()
-    fake_queue.persist_effective_duration.assert_not_awaited()
-    fake_queue.persist_execution_identity.assert_not_awaited()
+    fake_queue.persist_execution_checkpoint.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -2127,6 +2127,7 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
     script["video_units"][0]["duration_seconds"] = 5
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
+    from lib.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
     from server.services import reference_video_tasks as rvt
 
     fake_pm = MagicMock()
@@ -2140,6 +2141,7 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
 
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
+        await kwargs["before_submit"](44)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"\x00")
@@ -2204,6 +2206,9 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
     )
     output_guard = AsyncMock()
     monkeypatch.setattr(rvt, "require_generated_video_covers_current_tts", output_guard)
+    fake_queue = MagicMock()
+    fake_queue.persist_execution_checkpoint = AsyncMock()
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     result = await rvt.execute_reference_video_task(
         "demo",
@@ -2216,8 +2221,17 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
             },
         },
         user_id="u1",
+        task_id="task-current-tts",
     )
     assert captured["duration_seconds"] == 8
+    checkpoint = ReferenceSubmissionCheckpoint.from_json(fake_queue.persist_execution_checkpoint.await_args.args[1])
+    assert checkpoint.duration_seconds == 8
+    assert checkpoint.narration.delivery == "use_tts"
+    assert checkpoint.narration.tts_status == "current"
+    assert checkpoint.narration.artifact_path == "audio/segment_E1U1.wav"
+    assert checkpoint.narration.basis_digest
+    assert checkpoint.narration.actual_duration_seconds == 6.2
+    assert all(media.source_locator != "audio/segment_E1U1.wav" for media in checkpoint.media)
     output_guard.assert_awaited_once()
     assert len(seen_lane_requests) == 1
     assert seen_lane_requests[0]["video"] is not None
@@ -2369,8 +2383,6 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     output_guard = AsyncMock()
     monkeypatch.setattr(rvt, "require_generated_video_covers_current_tts", output_guard)
     fake_queue = MagicMock()
-    fake_queue.persist_effective_duration = AsyncMock()
-    fake_queue.persist_execution_identity = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     result = await rvt.execute_reference_video_task(
@@ -2392,8 +2404,6 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     assert result["request_duration_seconds"] == 8
     fake_generator.generate_video_async.assert_not_awaited()
     output_guard.assert_not_awaited()
-    fake_queue.persist_effective_duration.assert_not_awaited()
-    fake_queue.persist_execution_identity.assert_not_awaited()
     assert script_path.read_bytes() == script_before
     assert (proj_dir / "versions" / "versions.json").read_bytes() == versions_before
     assert current.read_bytes() == b"existing-paid-video"
@@ -2404,9 +2414,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """取档偏移剧本编排（adjustment != exact）时，effective_duration 写回 task payload，
-    供 resume 路径（``server.services.resume_executor``）读到与实际申请一致的秒数。
-    """
+    """取档偏移时 checkpoint 冻结实际申请秒数，enqueue payload 保持无内容快照。"""
     proj_dir = _write_project(tmp_path)
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
@@ -2414,6 +2422,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     script["video_units"][0]["duration_seconds"] = 5
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
+    from lib.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
     from server.services import reference_video_tasks as rvt
 
     fake_pm = MagicMock()
@@ -2424,6 +2433,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     async def _fake_generate_video_async(**kwargs):
+        await kwargs["before_submit"](31)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"\x00")
@@ -2443,19 +2453,22 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     )
 
     fake_queue = MagicMock()
-    fake_queue.persist_effective_duration = AsyncMock()
-    fake_queue.persist_execution_identity = AsyncMock()
+    fake_queue.persist_execution_checkpoint = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
+    payload = {"script_file": "scripts/episode_1.json"}
     await rvt.execute_reference_video_task(
         "demo",
         "E1U1",
-        {"script_file": "scripts/episode_1.json"},
+        payload,
         user_id="u1",
         task_id="task-1",
     )
 
-    fake_queue.persist_effective_duration.assert_awaited_once_with("task-1", 8)
+    fake_queue.persist_execution_checkpoint.assert_awaited_once()
+    checkpoint = ReferenceSubmissionCheckpoint.from_json(fake_queue.persist_execution_checkpoint.await_args.args[1])
+    assert checkpoint.duration_seconds == 8
+    assert payload == {"script_file": "scripts/episode_1.json"}
 
 
 @pytest.mark.unit
@@ -2463,10 +2476,10 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """未偏移（adjustment == exact）时同样要写回：入队 payload 从不携带 duration_seconds，
-    不写回会让 resume 回退到 project.default_duration 而非该 unit 自己的时长。"""
+    """未偏移时 checkpoint 也冻结 unit 实际时长，resume 不读当前 project 默认值。"""
     proj_dir = _write_project(tmp_path)
 
+    from lib.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
     from server.services import reference_video_tasks as rvt
 
     fake_pm = MagicMock()
@@ -2479,6 +2492,7 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
     async def _fake_generate_video_async(**kwargs):
+        await kwargs["before_submit"](32)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"\x00")
@@ -2498,8 +2512,7 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
     )
 
     fake_queue = MagicMock()
-    fake_queue.persist_effective_duration = AsyncMock()
-    fake_queue.persist_execution_identity = AsyncMock()
+    fake_queue.persist_execution_checkpoint = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     await rvt.execute_reference_video_task(
@@ -2510,7 +2523,8 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
         task_id="task-1",
     )
 
-    fake_queue.persist_effective_duration.assert_awaited_once_with("task-1", 3)
+    checkpoint = ReferenceSubmissionCheckpoint.from_json(fake_queue.persist_execution_checkpoint.await_args.args[1])
+    assert checkpoint.duration_seconds == 3
 
 
 @pytest.mark.unit
@@ -2518,11 +2532,10 @@ async def test_execute_reference_video_task_persists_execution_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """当前投影解析出的身份（registry provider + model + 实际桶）须在提交前
-    写回投影列与 payload 桶键，供已提交任务的 resume 解析定位同一 backend。"""
+    """当前投影解析出的 registry/provider/backend 身份在 provider submit 前原子冻结。"""
     proj_dir = _write_project(tmp_path)
 
-    from lib.config.resolver import ProviderModel
+    from lib.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
     from server.services import reference_video_tasks as rvt
 
     fake_pm = MagicMock()
@@ -2537,6 +2550,7 @@ async def test_execute_reference_video_task_persists_execution_identity(
     events: list[str] = []
 
     async def _fake_generate_video_async(**kwargs):
+        await kwargs["before_submit"](33)
         events.append("provider_submit")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -2559,14 +2573,10 @@ async def test_execute_reference_video_task_persists_execution_identity(
 
     fake_queue = MagicMock()
 
-    async def _persist_duration(*_args, **_kwargs):
-        events.append("duration_identity")
+    async def _persist_checkpoint(*_args, **_kwargs):
+        events.append("checkpoint")
 
-    async def _persist_identity(*_args, **_kwargs):
-        events.append("provider_identity")
-
-    fake_queue.persist_effective_duration = AsyncMock(side_effect=_persist_duration)
-    fake_queue.persist_execution_identity = AsyncMock(side_effect=_persist_identity)
+    fake_queue.persist_execution_checkpoint = AsyncMock(side_effect=_persist_checkpoint)
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     await rvt.execute_reference_video_task(
@@ -2577,12 +2587,233 @@ async def test_execute_reference_video_task_persists_execution_identity(
         task_id="task-1",
     )
 
-    fake_queue.persist_execution_identity.assert_awaited_once_with(
-        "task-1",
-        execution_model=ProviderModel("ark-agent-plan", "doubao-seedance-1-5-pro-251215"),
-        capability="r2v",
+    fake_queue.persist_execution_checkpoint.assert_awaited_once()
+    task_id, raw, provider_id = fake_queue.persist_execution_checkpoint.await_args.args
+    checkpoint = ReferenceSubmissionCheckpoint.from_json(raw)
+    assert task_id == "task-1"
+    assert provider_id == "ark-agent-plan"
+    assert checkpoint.provider_id == "ark-agent-plan"
+    assert checkpoint.provider_model_id == "doubao-seedance-1-5-pro-251215"
+    assert checkpoint.backend_model_id == "doubao-seedance-1-5-pro-251215"
+    assert checkpoint.capability == "r2v"
+    assert events == ["checkpoint", "provider_submit"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_stages_actual_request_and_checkpoints_at_submit_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from lib.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
+    from server.services import reference_video_tasks as rvt
+
+    proj_dir = _write_project(tmp_path)
+    tts_audio = proj_dir / "audio" / "segment_E1U1.wav"
+    tts_audio.parent.mkdir()
+    tts_audio.write_bytes(b"narration-is-not-a-provider-input")
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+
+    def _load_script(_project_name: str, filename: str):
+        assert filename == "scripts/episode_1.json"
+        return json.loads((proj_dir / filename).read_text(encoding="utf-8"))
+
+    fake_pm.load_script.side_effect = _load_script
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    events: list[str] = []
+    submitted: dict[str, Any] = {}
+
+    async def _fake_generate_video_async(**kwargs):
+        submitted.update(kwargs)
+        assert kwargs["formal_output"] is True
+        assert all(".arcreel/tasks/task-submit/provider_media/" in str(path) for path in kwargs["reference_images"])
+        submitted["checkpoint_metadata"] = await kwargs["before_submit"](73)
+        events.append("provider_submit")
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"paid-video")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-08-13T00:00:00Z"}]}
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="ark",
+        backend_model="doubao-seedance-2-0-260128",
+        supported_durations=(3, 8, 12),
     )
-    assert events == ["duration_identity", "provider_identity", "provider_submit"]
+
+    persisted: dict[str, Any] = {}
+
+    async def _persist_checkpoint(task_id: str, raw: str, provider_id: str) -> None:
+        events.append("checkpoint")
+        persisted.update(task_id=task_id, raw=raw, provider_id=provider_id)
+
+    fake_queue = MagicMock()
+    fake_queue.persist_execution_checkpoint = AsyncMock(side_effect=_persist_checkpoint)
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", AsyncMock(return_value=False))
+
+    result = await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {
+            "script_file": "scripts/wrong.json",
+            "prompt": "stale enqueue prompt",
+            "duration_seconds": 999,
+            "video_provider_r2v": "stale/model",
+        },
+        script_file="scripts/episode_1.json",
+        user_id="u1",
+        task_id="task-submit",
+    )
+
+    assert events == ["checkpoint", "provider_submit"]
+    assert result["resource_id"] == "E1U1"
+    checkpoint = ReferenceSubmissionCheckpoint.from_json(persisted["raw"])
+    assert persisted["task_id"] == "task-submit"
+    assert persisted["provider_id"] == "ark"
+    assert checkpoint.api_call_id == 73
+    assert checkpoint.script_file == "scripts/episode_1.json"
+    assert checkpoint.provider_id == "ark"
+    assert checkpoint.provider_model_id == "doubao-seedance-2-0-260128"
+    assert checkpoint.backend_model_id == "doubao-seedance-2-0-260128"
+    assert checkpoint.duration_seconds == 3
+    assert checkpoint.prompt == submitted["prompt"]
+    assert [media.role for media in checkpoint.media] == ["reference_image", "reference_image"]
+    assert all(media.source_locator != "audio/segment_E1U1.wav" for media in checkpoint.media)
+    metadata = submitted["checkpoint_metadata"]
+    assert metadata["execution_api_call_id"] == checkpoint.api_call_id
+    assert metadata["execution_request_digest"] == checkpoint.request_digest
+    assert metadata["execution_prompt_sha256"] == checkpoint.prompt_sha256
+    assert metadata["execution_visual_basis_digest"] == checkpoint.visual_basis_digest
+    assert not (proj_dir / ".arcreel" / "tasks" / "task-submit" / "provider_media").exists()
+
+    async def _cancel_after_staging(**_kwargs):
+        assert (proj_dir / ".arcreel" / "tasks" / "task-cancel" / "provider_media").is_dir()
+        raise asyncio.CancelledError
+
+    fake_generator.generate_video_async = AsyncMock(side_effect=_cancel_after_staging)
+    with pytest.raises(asyncio.CancelledError):
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {},
+            script_file="scripts/episode_1.json",
+            user_id="u1",
+            task_id="task-cancel",
+        )
+    assert not (proj_dir / ".arcreel" / "tasks" / "task-cancel" / "provider_media").exists()
+
+    real_stage_provider_media = rvt.stage_provider_media
+    staging_started = threading.Event()
+    release_staging = threading.Event()
+    staging_finished = threading.Event()
+
+    def _delayed_stage(*args, **kwargs):
+        try:
+            staged = real_stage_provider_media(*args, **kwargs)
+            staging_started.set()
+            release_staging.wait(timeout=5)
+            return staged
+        finally:
+            staging_finished.set()
+
+    monkeypatch.setattr(rvt, "stage_provider_media", _delayed_stage)
+    staging_task = asyncio.create_task(
+        rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {},
+            script_file="scripts/episode_1.json",
+            user_id="u1",
+            task_id="task-cancel-during-staging",
+        )
+    )
+    assert await asyncio.to_thread(staging_started.wait, 5)
+    staging_task.cancel()
+    release_staging.set()
+    with pytest.raises(asyncio.CancelledError):
+        await staging_task
+    assert await asyncio.to_thread(staging_finished.wait, 5)
+    assert not (proj_dir / ".arcreel" / "tasks" / "task-cancel-during-staging" / "provider_media").exists()
+    monkeypatch.setattr(rvt, "stage_provider_media", real_stage_provider_media)
+
+    def _reject_checkpoint(**_kwargs):
+        raise RuntimeError("checkpoint construction failed")
+
+    async def _invoke_rejected_checkpoint(**kwargs):
+        assert (proj_dir / ".arcreel" / "tasks" / "task-checkpoint-failure" / "provider_media").is_dir()
+        await kwargs["before_submit"](74)
+        raise AssertionError("provider submit must not run after checkpoint construction fails")
+
+    fake_generator.generate_video_async = AsyncMock(side_effect=_invoke_rejected_checkpoint)
+    monkeypatch.setattr(rvt.ReferenceSubmissionCheckpoint, "create", _reject_checkpoint)
+    with pytest.raises(RuntimeError, match="checkpoint construction failed"):
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {},
+            script_file="scripts/episode_1.json",
+            user_id="u1",
+            task_id="task-checkpoint-failure",
+        )
+    assert not (proj_dir / ".arcreel" / "tasks" / "task-checkpoint-failure" / "provider_media").exists()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_provider_media_staging_cleanup_survives_repeated_cancellation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from lib.reference_video.execution_checkpoint import ProviderMediaInput
+    from server.services import reference_video_tasks as rvt
+
+    project_path = tmp_path / "demo"
+    image = project_path / "characters" / "Alice.png"
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b"image")
+    staging_started = threading.Event()
+    release_staging = threading.Event()
+    staging_finished = threading.Event()
+    real_stage_provider_media = rvt.stage_provider_media
+
+    def _delayed_stage(*args, **kwargs):
+        try:
+            staged = real_stage_provider_media(*args, **kwargs)
+            staging_started.set()
+            release_staging.wait(timeout=5)
+            return staged
+        finally:
+            staging_finished.set()
+
+    monkeypatch.setattr(rvt, "stage_provider_media", _delayed_stage)
+    task = asyncio.create_task(
+        rvt._stage_provider_media_for_task(
+            project_path,
+            "task-double-cancel",
+            (ProviderMediaInput(image, "reference_image", "character", "Alice", "sheet"),),
+        )
+    )
+    assert await asyncio.to_thread(staging_started.wait, 5)
+    task.cancel()
+    await asyncio.sleep(0)
+    task.cancel()
+    release_staging.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert await asyncio.to_thread(staging_finished.wait, 5)
+    assert not (project_path / ".arcreel" / "tasks" / "task-double-cancel" / "provider_media").exists()
 
 
 @pytest.mark.unit

@@ -50,6 +50,7 @@ async def test_execute_generation_task_passes_claimed_provider_to_reference_prox
         resource_id,
         payload,
         *,
+        script_file=None,
         user_id,
         task_id=None,
         claimed_provider_id=None,
@@ -58,6 +59,7 @@ async def test_execute_generation_task_passes_claimed_provider_to_reference_prox
             project_name=project_name,
             resource_id=resource_id,
             payload=payload,
+            script_file=script_file,
             user_id=user_id,
             task_id=task_id,
             claimed_provider_id=claimed_provider_id,
@@ -73,6 +75,7 @@ async def test_execute_generation_task_passes_claimed_provider_to_reference_prox
             "project_name": "demo",
             "resource_id": "E1U1",
             "payload": {"script_file": "episode_1.json"},
+            "script_file": "scripts/frozen.json",
             "user_id": "u1",
         },
         claimed_provider_id="ark",
@@ -80,6 +83,7 @@ async def test_execute_generation_task_passes_claimed_provider_to_reference_prox
 
     assert result == {"ok": True}
     assert captured["claimed_provider_id"] == "ark"
+    assert captured["script_file"] == "scripts/frozen.json"
 
 
 @pytest.mark.unit

@@ -72,8 +72,8 @@ def reference_video_enqueue_payload(
     """把新入队的参考视频载荷收窄为定位与请求选项。
 
     prompt、references、style、duration 等可变请求事实不是任务快照；worker 开始时
-    从当前 project/script/unit 重新投影。执行开始后为已提交任务写入的有效时长与
-    provider/model 身份不经过该入队边界。
+    从当前 project/script/unit 重新投影。提交后的执行身份保存在专用 checkpoint，
+    不经过该入队边界。
     """
 
     normalized = {key: value for key, value in (payload or {}).items() if key in _REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS}
@@ -484,33 +484,13 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             await repo.persist_api_call_id(task_id, call_id)
 
-    async def persist_effective_duration(self, task_id: str, duration_seconds: int) -> None:
+    async def persist_execution_checkpoint(self, task_id: str, checkpoint_json: str, provider_id: str) -> None:
         async with self._task_repo() as repo:
-            await repo.persist_effective_duration(task_id, duration_seconds)
+            await repo.persist_execution_checkpoint(task_id, checkpoint_json, provider_id)
 
     async def persist_execution_provider_id(self, task_id: str, provider_id: str) -> None:
         async with self._task_repo() as repo:
             await repo.persist_execution_provider_id(task_id, provider_id)
-
-    async def persist_execution_identity(
-        self, task_id: str, *, execution_model: ProviderModel, capability: VideoCapability
-    ) -> None:
-        """提交前把 reference_video 当次物化的实际身份写回。
-
-        参考视频入队不锁定 provider/model；worker 开始时从最新状态解析实际桶与身份。
-        在向 provider 提交前，列与 payload 桶键以同一次写入记录这个已物化身份，供已提交任务的
-        既有 resume 路径续跑；清掉其它桶的键避免解析时命中陈旧身份。等值改写幂等。
-        """
-        from typing import get_args
-
-        from lib.config.resolver import VideoCapability as _VideoCapabilityAlias
-
-        payload_patch: dict[str, Any] = {
-            f"video_provider_{cap}": None for cap in get_args(_VideoCapabilityAlias) if cap != capability
-        }
-        payload_patch[f"video_provider_{capability}"] = execution_model.pair_key
-        async with self._task_repo() as repo:
-            await repo.persist_execution_identity(task_id, execution_model.provider_id, payload_patch)
 
     async def mark_task_succeeded(self, task_id: str, result: dict[str, Any] | None) -> int:
         """Returns rows_affected (0 = 已被外部翻成非 running 终/中间态，worker 走 0-rows-cancelled 协议)."""

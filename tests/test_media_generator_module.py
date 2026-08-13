@@ -260,6 +260,179 @@ class TestMediaGenerator:
         assert version2 == 2
         assert gen.ledger.started[-1]["call_type"] == "video"
 
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_video_before_submit_runs_once_immediately_before_first_backend_call(self, tmp_path):
+        from lib.version_manager import VersionManager
+
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        events: list[object] = []
+
+        class _Backend(_FakeVideoBackend):
+            async def generate(self, request):
+                events.append("provider")
+                return await super().generate(request)
+
+        gen._video_backend = _Backend()
+
+        async def _checkpoint(call_id: int) -> dict[str, object]:
+            events.append(("checkpoint", call_id))
+            return {"execution_api_call_id": call_id}
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            before_submit=_checkpoint,
+        )
+
+        assert events == [("checkpoint", 1), "provider"]
+        history = gen.versions.get_versions("reference_videos", "E1U1")
+        assert history["versions"][0]["execution_api_call_id"] == 1
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_video_before_submit_failure_prevents_provider_call(self, tmp_path):
+        gen = _build_generator(tmp_path)
+
+        async def _checkpoint(_call_id: int) -> None:
+            raise RuntimeError("checkpoint unavailable")
+
+        with pytest.raises(RuntimeError, match="checkpoint unavailable"):
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                before_submit=_checkpoint,
+            )
+
+        assert gen._video_backend.calls == []
+        assert [outcome["status"] for outcome in gen.ledger.outcomes] == ["failed"]
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_video_before_submit_is_not_repeated_for_413_compression_retry(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        ref = _solid_png(tmp_path, "ref-checkpoint.png", 16, 16)
+
+        class _RetryBackend(_FakeVideoBackend):
+            from lib.video_backends.base import VideoCapabilities
+
+            video_capabilities = VideoCapabilities(max_reference_images=9)
+
+            def __init__(self):
+                super().__init__(video_capabilities=type(self).video_capabilities)
+                self.attempts = 0
+
+            async def generate(self, request):
+                self.attempts += 1
+                self.calls.append(request)
+                if self.attempts == 1:
+                    raise _http_413_error()
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"paid-video")
+                return _FakeVideoResult()
+
+        backend = _RetryBackend()
+        gen._video_backend = backend
+        checkpoint_calls: list[int] = []
+
+        async def _checkpoint(call_id: int) -> None:
+            checkpoint_calls.append(call_id)
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            reference_images=[ref],
+            before_submit=_checkpoint,
+        )
+
+        assert backend.attempts == 2
+        assert checkpoint_calls == [1]
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_formal_video_output_uses_staged_transaction_and_preserves_old_current_on_failure(self, tmp_path):
+        from lib.version_manager import VersionManager
+
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        current = gen._get_output_path("reference_videos", "E1U1")
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"old-current")
+
+        class _FailAfterWrite(_FakeVideoBackend):
+            async def generate(self, request):
+                request.output_path.write_bytes(b"partial-new")
+                raise RuntimeError("provider download failed")
+
+        gen._video_backend = _FailAfterWrite()
+        with pytest.raises(RuntimeError, match="provider download failed"):
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                formal_output=True,
+            )
+
+        assert current.read_bytes() == b"old-current"
+        assert list(current.parent.glob(".E1U1.*.mp4")) == []
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_formal_video_output_cleans_staging_when_ledger_settlement_fails(self, tmp_path):
+        from lib.version_manager import VersionManager
+
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        current = gen._get_output_path("reference_videos", "E1U1")
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"old-current")
+
+        class _FailingSettlementLedger(_FakeLedger):
+            @asynccontextmanager
+            async def record(self, **kwargs):
+                async with super().record(**kwargs) as call:
+                    yield call
+                raise RuntimeError("ledger settlement failed")
+
+        gen.ledger = _FailingSettlementLedger()
+
+        with pytest.raises(RuntimeError, match="ledger settlement failed"):
+            await gen.generate_video_async(
+                prompt="paid request",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                formal_output=True,
+            )
+
+        assert current.read_bytes() == b"old-current"
+        assert list(current.parent.glob(".E1U1.*.mp4")) == []
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_formal_video_output_commits_file_and_history_together(self, tmp_path):
+        from lib.version_manager import VersionManager
+
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+
+        output, version, _, _ = await gen.generate_video_async(
+            prompt="paid request",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            formal_output=True,
+            execution_request_digest="d" * 64,
+        )
+
+        assert output.read_bytes() == b"fake-video-data"
+        assert version == 1
+        history = gen.versions.get_versions("reference_videos", "E1U1")
+        assert history["versions"][0]["execution_request_digest"] == "d" * 64
+        assert Path(gen.project_path / history["versions"][0]["file"]).read_bytes() == b"fake-video-data"
+
     @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_rejected_short_video_does_not_make_legacy_predecessor_reusable(

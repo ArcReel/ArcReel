@@ -80,7 +80,11 @@ worker 内承载 slot 的两个独立数据结构（`lib/generation_worker.py`�
 ArcReel 中始终与 server 主进程**捆绑在同一个 uvicorn 进程内**的 background asyncio task，**不是**独立进程，**不是**集群成员。代码里的 `lease` / `heartbeat` / `requeue_running` 是早期遗留的"多 worker 协调"脚手架，从未被多进程使用。涉及 worker 的设计按"单进程 in-process 协调"思路。
 
 **孤儿任务（orphan task）**：
-DB 中状态为 `running` 但 worker 内存里没有对应 asyncio.Task 的任务。唯一现实成因是**服务重启**（部署 / 崩溃恢复）。处理原则：**不重新触发生成**（避免重复扣费），有 `provider_job_id` 的提交-轮询型任务理论上可恢复轮询，否则标 failed。
+DB 中状态为 `running` 但 worker 内存里没有对应 asyncio.Task 的任务。唯一现实成因是**服务重启**（部署 / 崩溃恢复）；处理原则是不重新触发生成，只有具备完整恢复身份的提交-轮询型任务才可继续轮询。
+
+**execution checkpoint（执行检查点）**：
+参考视频任务首次向 provider 提交前冻结的单次付费请求身份与实际输入事实。它只证明「这次提交如何发生」，不是入队快照、provider job、任务状态或产物 current 标记。
+_Avoid_: request snapshot、resume payload、current marker。
 
 **cancel（取消）**：
 用户主动停止一个 task 的**日常路径**，要求秒级响应——不是只改 DB 状态等下次检查点，而是真正中断 worker 内对应的 asyncio task 并立即释放 slot。对 `queued` 和 `running` 都开放。

@@ -1,5 +1,6 @@
 import asyncio
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -32,6 +33,40 @@ def _phase_ids(slots: SlotTable, provider: str, media: str) -> tuple[set[str], s
     inflight = {tid for tid, occ in bucket.items() if not occ.pending}
     pending = {tid for tid, occ in bucket.items() if occ.pending}
     return inflight, pending
+
+
+def _worker_reference_checkpoint(task_id: str, *, provider_id: str = "ark") -> str:
+    from lib.reference_video.execution_checkpoint import NarrationExecutionFacts, ReferenceSubmissionCheckpoint
+
+    return ReferenceSubmissionCheckpoint.create(
+        task_id=task_id,
+        project_name="demo",
+        script_file="scripts/episode_1.json",
+        unit_id="E1U1",
+        capability="r2v",
+        provider_id=provider_id,
+        provider_model_id="model-v1",
+        backend_model_id="model-v1",
+        endpoint_guard=None,
+        api_call_id=7,
+        prompt="frozen",
+        duration_seconds=8,
+        aspect_ratio="9:16",
+        resolution="1080p",
+        generate_audio=True,
+        service_tier="default",
+        seed=None,
+        visual_basis_digest="a" * 64,
+        narration=NarrationExecutionFacts(
+            delivery="post_production",
+            tts_status="not_applicable",
+            artifact_path="",
+            basis_digest=None,
+            actual_duration_seconds=None,
+        ),
+        media=(),
+        reference_audio_targets=None,
+    ).to_json()
 
 
 class _FakeQueue:
@@ -230,6 +265,48 @@ class TestExtractProvider:
             "resource_id": "E1U1",
         }
         assert await _extract_provider(task) == expected_provider
+
+    @pytest.mark.unit
+    async def test_reference_video_claim_uses_frozen_task_script_locator(self, tmp_path, monkeypatch):
+        project = {
+            "video_provider_i2v": "ark/doubao-seedance-1-5-pro-251215",
+            "video_provider_r2v": "minimax/S2V-01",
+            "video_generate_audio": True,
+            "characters": {"A": {"character_sheet": "characters/A.png"}},
+        }
+        (tmp_path / "characters").mkdir()
+        (tmp_path / "characters" / "A.png").write_bytes(b"image")
+        scripts = {
+            "stale.json": {"video_units": [{"unit_id": "E1U1", "references": [], "shots": [{"text": "t"}]}]},
+            "frozen.json": {
+                "video_units": [
+                    {
+                        "unit_id": "E1U1",
+                        "references": [{"type": "character", "name": "A"}],
+                        "shots": [{"text": "t"}],
+                    }
+                ]
+            },
+        }
+        pm_cls = type(
+            "PM",
+            (),
+            {
+                "load_project": lambda self, name: project,
+                "load_script": lambda self, name, filename: scripts[filename],
+                "get_project_path": lambda self, name: tmp_path,
+            },
+        )
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", pm_cls)
+        task = {
+            "payload": {"script_file": "stale.json"},
+            "script_file": "frozen.json",
+            "project_name": "demo",
+            "task_type": "reference_video",
+            "resource_id": "E1U1",
+        }
+
+        assert await _extract_provider(task) == "minimax"
 
     @pytest.mark.unit
     async def test_reference_video_script_read_failure_falls_back_to_r2v(self, monkeypatch):
@@ -1277,6 +1354,112 @@ class TestGenerationWorker:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
+    async def test_reference_orphans_apply_strict_four_state_checkpoint_job_matrix(self, monkeypatch):
+        queue = _FakeQueue()
+        queue._orphans = [
+            {
+                "task_id": "ref-neither",
+                "status": "running",
+                "task_type": "reference_video",
+                "media_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1U1",
+                "script_file": "scripts/episode_1.json",
+                "provider_job_id": None,
+                "payload": {},
+            },
+            {
+                "task_id": "ref-checkpoint-only",
+                "status": "running",
+                "task_type": "reference_video",
+                "media_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1U1",
+                "script_file": "scripts/episode_1.json",
+                "provider_job_id": None,
+                "execution_checkpoint_json": _worker_reference_checkpoint("ref-checkpoint-only"),
+                "payload": {},
+            },
+            {
+                "task_id": "ref-job-only",
+                "status": "running",
+                "task_type": "reference_video",
+                "media_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1U1",
+                "script_file": "scripts/episode_1.json",
+                "provider_job_id": "job-1",
+                "payload": {},
+            },
+            {
+                "task_id": "ref-bad-checkpoint",
+                "status": "running",
+                "task_type": "reference_video",
+                "media_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1U1",
+                "script_file": "scripts/episode_1.json",
+                "provider_job_id": "job-2",
+                "execution_checkpoint_json": "{broken",
+                "payload": {},
+            },
+        ]
+        worker = GenerationWorker(queue=queue)
+        cleaned: list[str] = []
+
+        async def _clean(_self, task):
+            cleaned.append(task["task_id"])
+
+        monkeypatch.setattr(GenerationWorker, "_cleanup_reference_staging", _clean)
+
+        await worker._handle_orphan_tasks_on_start()
+
+        failures = {task_id: reason for task_id, reason in queue.failed}
+        assert "[restart_lost_no_job_id]" in failures["ref-neither"]
+        assert "[restart_lost_checkpoint_no_job_id]" in failures["ref-checkpoint-only"]
+        assert "[execution_identity_unrecoverable]" in failures["ref-job-only"]
+        assert "[execution_identity_unrecoverable]" in failures["ref-bad-checkpoint"]
+        assert set(cleaned) == {task["task_id"] for task in queue._orphans}
+        assert worker._orphan_dispatcher_task is None
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_reference_orphan_with_checkpoint_and_job_routes_by_checkpoint_provider(self, monkeypatch):
+        from lib.providers import PROVIDER_GROK
+
+        queue = _FakeQueue()
+        task = {
+            "task_id": "ref-ready",
+            "status": "running",
+            "task_type": "reference_video",
+            "media_type": "video",
+            "project_name": "demo",
+            "resource_id": "E1U1",
+            "script_file": "scripts/episode_1.json",
+            "provider_id": PROVIDER_GROK,
+            "provider_job_id": "job-ready",
+            "execution_checkpoint_json": _worker_reference_checkpoint("ref-ready", provider_id="ark"),
+            "payload": {"video_provider_r2v": "current/wrong"},
+        }
+        queue._orphans = [task]
+        worker = GenerationWorker(queue=queue)
+        captured: dict[str, list[dict[str, Any]]] = {}
+
+        async def _capture(_self, buckets):
+            captured.update(buckets)
+
+        monkeypatch.setattr(GenerationWorker, "_dispatch_resume_orphans_background", _capture)
+
+        await worker._handle_orphan_tasks_on_start()
+        assert worker._orphan_dispatcher_task is not None
+        await worker._orphan_dispatcher_task
+
+        assert list(captured) == ["ark"]
+        assert captured["ark"][0]["provider_id"] == "ark"
+        assert queue.failed == []
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
     async def test_start_stop_run_loop_releases_lease(self):
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
@@ -1974,20 +2157,26 @@ class TestGenerationWorker:
             raise ScriptEditError("generated_assets 必须是 dict", key="script_edit_generated_assets_invalid")
 
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _raise_script_edit_error)
+        cleanup = AsyncMock()
+        monkeypatch.setattr(GenerationWorker, "_cleanup_reference_staging", cleanup)
         task = {
             "task_id": "resume_script_edit",
             "task_type": "reference_video",
             "media_type": "video",
             "provider_id": "ark",
             "provider_job_id": "x",
+            "execution_checkpoint_json": _worker_reference_checkpoint("resume_script_edit"),
             "payload": {},
             "project_name": "demo",
+            "resource_id": "E1U1",
+            "script_file": "scripts/episode_1.json",
         }
         await worker._process_resume_task(task)
         assert queue.failed and queue.failed[0] == (
             "resume_script_edit",
             "[script_edit_generated_assets_invalid]",
         )
+        cleanup.assert_awaited_once_with(task)
 
     @pytest.mark.unit
     @pytest.mark.asyncio
