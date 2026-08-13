@@ -108,16 +108,17 @@ class ProviderJobIdPersistenceMixin:
         持久化失败抛出（DB 瞬态错误已在 ``persist_provider_job_id`` 内重试 3 次），由 worker finally
         兜底 mark_failed —— 保持现有 fail-fast 语义（ADR 0007）。
         """
-        if request.task_id is None:
-            return
-        execution_endpoint = request.execution_endpoint
-        await persist_provider_job_id(
-            request.task_id,
-            job_id,
-            provider=provider,
-            endpoint=execution_endpoint or endpoint,
-            base_url=endpoint if execution_endpoint else None,
-        )
+        if request.task_id is not None:
+            execution_endpoint = request.execution_endpoint
+            await persist_provider_job_id(
+                request.task_id,
+                job_id,
+                provider=provider,
+                endpoint=execution_endpoint or endpoint,
+                base_url=endpoint if execution_endpoint else None,
+            )
+        if request.on_provider_resubmit_unsafe is not None:
+            request.on_provider_resubmit_unsafe()
 
 
 @with_retry_async(
@@ -556,6 +557,11 @@ class VideoGenerationRequest:
     # `ProviderJobIdPersistenceMixin._persist_provider_job_id` 持久化 job_id。
     # 非 worker 路径（grid / 直生 / 测试）保持 None，统一点据此跳过持久化。
     task_id: str | None = None
+
+    # MediaGenerator uses this one-way signal to close its compression-retry window. Resumable backends signal
+    # after the provider job handle is durable; an opaque submit-and-wait backend must signal before entering a
+    # call whose failure cannot prove that the provider rejected the request before accepting a paid job.
+    on_provider_resubmit_unsafe: Callable[[], None] | None = None
 
     # 自定义供应商包装层（`CustomVideoBackend`）在转发给协议 backend 前注入的 endpoint，
     # 与 job_id 一并持久化供续跑比对。内置供应商无 endpoint 维度，保持 None。

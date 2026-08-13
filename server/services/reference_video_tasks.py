@@ -37,6 +37,7 @@ from lib.reference_video.execution_checkpoint import (
     checkpoint_version_metadata,
     cleanup_staged_provider_media,
     stage_provider_media,
+    stage_provider_media_for_task,
 )
 from lib.reference_video.prompt_render import (
     RenderedUnitPrompt,
@@ -69,6 +70,7 @@ from server.services.generation_context import AudioLaneRequest, VideoLaneReques
 from server.services.generation_tasks import get_project_manager
 from server.services.narration_delivery_tasks import (
     ResolvedTtsSettingsResolver,
+    materialized_reference_video_visual_basis_digest,
     prepare_current_reference_video_request_options,
     reference_video_visual_basis_digest,
     require_generated_video_covers_current_tts,
@@ -92,6 +94,16 @@ def _dedupe_typed_references(references: list[dict]) -> list[dict]:
 
 
 ResolvedReferenceImage = ResolvedReferenceAsset
+
+
+async def _stage_provider_media_for_task(
+    project_path: Path,
+    task_id: str,
+    inputs: tuple[ProviderMediaInput, ...],
+) -> tuple[StagedProviderMedia, ...]:
+    """Bind the shared cancellation-safe staging operation to this module's patchable sync seam."""
+
+    return await stage_provider_media_for_task(project_path, task_id, inputs, stage=stage_provider_media)
 
 
 def _resolve_unit_reference_entries(
@@ -422,40 +434,6 @@ def _build_reference_audio_wiring(
     return [audio_paths[name] for name in rendered.audio_speakers], None
 
 
-async def _stage_provider_media_for_task(
-    project_path: Path,
-    task_id: str,
-    inputs: tuple[ProviderMediaInput, ...],
-) -> tuple[StagedProviderMedia, ...]:
-    """Finish an in-flight local copy before propagating cancellation, then remove its published staging."""
-
-    async def _await_uninterruptibly(task: asyncio.Task[Any]) -> Any:
-        while True:
-            try:
-                return await asyncio.shield(task)
-            except asyncio.CancelledError:
-                if task.done():
-                    return task.result()
-
-    staging_task = asyncio.create_task(asyncio.to_thread(stage_provider_media, project_path, task_id, inputs))
-    try:
-        return await asyncio.shield(staging_task)
-    except BaseException:
-        published = False
-        try:
-            await _await_uninterruptibly(staging_task)
-            published = True
-        except BaseException:
-            pass
-        if published:
-            cleanup_task = asyncio.create_task(asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id))
-            try:
-                await _await_uninterruptibly(cleanup_task)
-            except Exception:
-                logger.warning("provider media cancellation cleanup failed task_id=%s", task_id, exc_info=True)
-        raise
-
-
 async def execute_reference_video_task(
     project_name: str,
     resource_id: str,
@@ -760,6 +738,17 @@ async def execute_reference_video_task(
                 if media.role == "reference_audio"
             ]
             provider_audio = staged_audio_paths or None
+            visual_basis_digest = await asyncio.to_thread(
+                materialized_reference_video_visual_basis_digest,
+                rendered_prompt=rendered_prompt,
+                aspect_ratio=aspect_ratio,
+                reference_images=provider_refs,
+                request_assets=constrained_entries,
+                reference_audio_files=staged_audio_paths,
+                reference_audio_speakers=audio_names,
+                reference_audio_targets=reference_audio_targets,
+                candidate=candidate,
+            )
 
             def _build_checkpoint(api_call_id: int) -> ReferenceSubmissionCheckpoint:
                 return ReferenceSubmissionCheckpoint.create(

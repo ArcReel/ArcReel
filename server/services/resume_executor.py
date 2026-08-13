@@ -15,10 +15,10 @@ from lib.narration_delivery import USE_TTS
 from lib.project_change_hints import project_change_source
 from lib.reference_video.execution_checkpoint import (
     ReferenceExecutionIdentityError,
-    ReferenceSubmissionCheckpoint,
+    VideoSubmissionCheckpoint,
     checkpoint_version_metadata,
     cleanup_staged_provider_media,
-    load_task_reference_checkpoint,
+    load_task_video_checkpoint,
 )
 from lib.video_backends.base import ResumeEndpointChangedError
 from server.services.generation_context import VideoLaneRequest, resolve_generation_context
@@ -26,7 +26,6 @@ from server.services.generation_tasks import (
     DEFAULT_USER_ID,
     _finalize_video_task,
     emit_generation_success_batch,
-    get_aspect_ratio,
     get_project_manager,
 )
 from server.services.narration_delivery_tasks import require_generated_video_covers_current_tts
@@ -35,36 +34,13 @@ from server.services.reference_video_tasks import _finalize_reference_video_unit
 logger = logging.getLogger(__name__)
 
 
-def _ensure_endpoint_unchanged(task: dict[str, Any], current_endpoint: str | None, *, job_id: str) -> None:
-    """提交本 job 的 endpoint 与模型行当下的 endpoint 不同即显式失败，不接续轮询。
-
-    身份闸（``lib.config.resolver._ensure_video_identity_resolvable``）只校验媒体类型仍是
-    video，同媒体类型内的 endpoint 切换（如 openai-video → minimax-video）会直接放行，于是
-    新协议 backend 拿到旧协议下创建的 job id：轻则报错指向新协议、用户无法归因，重则轮询
-    响应被误读、任务被标失败而远端 job 仍在跑仍在计费。
-
-    两侧任一为空即跳过：内置供应商无 endpoint 维度（其持久化值是请求域名，走
-    ``_submitted_base_url`` 那条消费分支），本列未持久化的存量任务同样无从比对，
-    行为与现状一致。
-    """
-    submitted_endpoint = task.get("provider_endpoint")
-    if not submitted_endpoint or not current_endpoint or submitted_endpoint == current_endpoint:
-        return
-    raise ResumeEndpointChangedError(
-        job_id=job_id,
-        provider=str(task.get("provider_id") or "unknown"),
-        submitted_endpoint=str(submitted_endpoint),
-        current_endpoint=current_endpoint,
-    )
-
-
 def _ensure_checkpoint_endpoint_unchanged(
-    checkpoint: ReferenceSubmissionCheckpoint,
+    checkpoint: VideoSubmissionCheckpoint,
     current_endpoint: str | None,
     *,
     job_id: str,
 ) -> None:
-    """Reference submissions use an exact endpoint guard, including builtin/custom transitions."""
+    """Submitted video jobs use an exact endpoint guard, including builtin/custom transitions."""
 
     if checkpoint.endpoint_guard == current_endpoint:
         return
@@ -76,7 +52,7 @@ def _ensure_checkpoint_endpoint_unchanged(
     )
 
 
-def _validate_resolved_checkpoint_identity(checkpoint: ReferenceSubmissionCheckpoint, video: Any) -> None:
+def _validate_resolved_checkpoint_identity(checkpoint: VideoSubmissionCheckpoint, video: Any) -> None:
     actual = (
         video.provider_model.provider_id,
         video.provider_model.model_id,
@@ -89,7 +65,7 @@ def _validate_resolved_checkpoint_identity(checkpoint: ReferenceSubmissionCheckp
     )
     if actual != frozen:
         raise ReferenceExecutionIdentityError(
-            "resolved provider/model/backend identity does not match the submitted reference checkpoint"
+            "resolved provider/model/backend identity does not match the submitted video checkpoint"
         )
 
 
@@ -104,7 +80,7 @@ def _submitted_base_url(task: dict[str, Any], current_endpoint: str | None) -> s
     域名按供应商类型分落两列，读取时按当下的供应商类型选列——``current_endpoint`` 非空即当下
     是自定义供应商，取专列 ``submitted_base_url``（该类供应商的 ``provider_endpoint`` 位被协议
     标识占用，归比对闸消费）；为空即当下是内置供应商，无协议维度，域名就在 ``provider_endpoint``。
-    空值口径与 ``_ensure_endpoint_unchanged`` 一致取 falsy，否则空串会让两条分支都不生效。
+    空值统一取 falsy，否则空串会让两条分支都不生效。
 
     按当下类型选列而非先读专列，是为了拦住跨类切换：任务由自定义供应商提交、模型行在途被改成
     内置供应商时，专列里躺着的是另一个供应商的域名，拿它配内置凭据轮询只会把 404（可归因为任务
@@ -135,22 +111,16 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
     project_name = task["project_name"]
     resource_id = str(task["resource_id"])
     task_id = task["task_id"]
-    payload = task.get("payload") or {}
     user_id = task.get("user_id", DEFAULT_USER_ID)
 
     if task_type not in ("video", "reference_video"):
         raise NotImplementedError(f"resume not supported for task_type={task_type}")
 
-    checkpoint: ReferenceSubmissionCheckpoint | None = None
-    if task_type == "reference_video":
-        checkpoint = load_task_reference_checkpoint(task)
-        resolver_payload = {
-            f"video_provider_{checkpoint.capability}": f"{checkpoint.provider_id}/{checkpoint.provider_model_id}"
-        }
-        video_request = VideoLaneRequest(capability=checkpoint.capability)
-    else:
-        resolver_payload = payload
-        video_request = VideoLaneRequest()
+    checkpoint = load_task_video_checkpoint(task)
+    resolver_payload = {
+        f"video_provider_{checkpoint.capability}": f"{checkpoint.provider_id}/{checkpoint.provider_model_id}"
+    }
+    video_request = VideoLaneRequest(capability=checkpoint.capability)
 
     project, project_path = await asyncio.to_thread(
         lambda: (
@@ -171,53 +141,24 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
         )
         generator = ctx.generator
 
-        if checkpoint is not None:
-            _validate_resolved_checkpoint_identity(checkpoint, ctx.video)
-            _ensure_checkpoint_endpoint_unchanged(checkpoint, ctx.video.endpoint, job_id=job_id)
-            aspect_ratio = checkpoint.aspect_ratio
-            duration_seconds = checkpoint.duration_seconds
-            seed = checkpoint.seed
-            service_tier = checkpoint.service_tier
-            prompt_text = checkpoint.prompt
-            resolution = checkpoint.resolution
-            optional_kwargs: dict[str, Any] = {
-                "generate_audio": checkpoint.generate_audio,
-                "formal_output": True,
-                "visual_basis_digest": checkpoint.visual_basis_digest,
-                **checkpoint_version_metadata(checkpoint),
-            }
-            resource_type = "reference_videos"
-            script_file = checkpoint.script_file
-            api_call_id: int | None = checkpoint.api_call_id
-            event_payload: dict[str, Any] = {"script_file": checkpoint.script_file}
-        else:
-            _ensure_endpoint_unchanged(task, ctx.video.endpoint, job_id=job_id)
-            aspect_ratio = get_aspect_ratio(project, "videos")
-            try:
-                duration_seconds = int(float(payload.get("duration_seconds") or project.get("default_duration") or 8))
-            except (ValueError, TypeError):
-                duration_seconds = 8
-            seed = payload.get("seed")
-            raw_vp_settings = payload.get("video_provider_settings")
-            vp_settings = raw_vp_settings if isinstance(raw_vp_settings, dict) else {}
-            service_tier = vp_settings.get("service_tier", "default")
-            raw_prompt = payload.get("prompt")
-            prompt_text = raw_prompt if isinstance(raw_prompt, str) else ""
-            raw_resolution = payload.get("resolution")
-            resolution = raw_resolution if isinstance(raw_resolution, str) else None
-            raw_generate_audio = payload.get("generate_audio")
-            optional_kwargs = {}
-            if isinstance(raw_generate_audio, bool):
-                optional_kwargs["generate_audio"] = raw_generate_audio
-            resource_type = "videos"
-            script_file = payload["script_file"]
-            api_call_id = payload.get("api_call_id")
-            if api_call_id is not None and not isinstance(api_call_id, int):
-                try:
-                    api_call_id = int(api_call_id)
-                except (ValueError, TypeError):
-                    api_call_id = None
-            event_payload = payload
+        _validate_resolved_checkpoint_identity(checkpoint, ctx.video)
+        _ensure_checkpoint_endpoint_unchanged(checkpoint, ctx.video.endpoint, job_id=job_id)
+        aspect_ratio = checkpoint.aspect_ratio
+        duration_seconds = checkpoint.duration_seconds
+        seed = checkpoint.seed
+        service_tier = checkpoint.service_tier
+        prompt_text = checkpoint.prompt
+        resolution = checkpoint.resolution
+        optional_kwargs: dict[str, Any] = {
+            "generate_audio": checkpoint.generate_audio,
+            "formal_output": True,
+            "visual_basis_digest": checkpoint.visual_basis_digest,
+            **checkpoint_version_metadata(checkpoint),
+        }
+        resource_type = "reference_videos" if task_type == "reference_video" else "videos"
+        script_file = checkpoint.script_file
+        api_call_id: int | None = checkpoint.api_call_id
+        event_payload: dict[str, Any] = {"script_file": checkpoint.script_file}
 
         with project_change_source("worker"):
             output_path, version, _, video_uri = await generator.resume_video_async(
@@ -236,18 +177,18 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
                 **optional_kwargs,
             )
 
-            if checkpoint is not None:
-                if checkpoint.narration.delivery == USE_TTS:
-                    await require_generated_video_covers_current_tts(
-                        project_name=project_name,
-                        script_file=script_file,
-                        request_duration_seconds=duration_seconds,
-                        output_path=output_path,
-                        versions=generator.versions,
-                        resource_type=resource_type,
-                        resource_id=resource_id,
-                        version=version,
-                    )
+            if checkpoint.narration.delivery == USE_TTS:
+                await require_generated_video_covers_current_tts(
+                    project_name=project_name,
+                    script_file=script_file,
+                    request_duration_seconds=duration_seconds,
+                    output_path=output_path,
+                    versions=generator.versions,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    version=version,
+                )
+            if task_type == "reference_video":
                 result = await _finalize_reference_video_unit(
                     project_name=project_name,
                     script_file=script_file,
@@ -277,5 +218,4 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
             )
             return result
     finally:
-        if checkpoint is not None:
-            await asyncio.to_thread(cleanup_staged_provider_media, project_path, checkpoint.task_id)
+        await asyncio.to_thread(cleanup_staged_provider_media, project_path, checkpoint.task_id)

@@ -16,13 +16,16 @@ from lib.reference_video.execution_checkpoint import (
     ReferenceExecutionIdentityError,
     ReferenceResumeState,
     ReferenceSubmissionCheckpoint,
+    StoryboardSubmissionCheckpoint,
+    VideoResumeState,
     classify_reference_resume_state,
+    classify_video_resume_state,
     cleanup_staged_provider_media,
     load_task_reference_checkpoint,
     stage_provider_media,
 )
 
-pytestmark = pytest.mark.unit
+pytestmark = pytest.mark.integration
 
 
 def _stage_inputs(project_path: Path) -> tuple[ProviderMediaInput, ...]:
@@ -175,6 +178,62 @@ def test_cleanup_removes_only_task_provider_media(tmp_path: Path) -> None:
     assert not (sibling.parent / "provider_media").exists()
 
 
+def test_cleanup_unlinks_provider_media_symlink_without_deleting_its_target(tmp_path: Path) -> None:
+    project_path = tmp_path / "demo"
+    paid_history = project_path / "versions" / "videos" / "scene_E1S01"
+    paid_history.mkdir(parents=True)
+    paid_version = paid_history / "v1.mp4"
+    paid_version.write_bytes(b"paid-history")
+    task_dir = project_path / ".arcreel" / "tasks" / "task-1"
+    task_dir.mkdir(parents=True)
+    staging_link = task_dir / "provider_media"
+    staging_link.symlink_to(paid_history, target_is_directory=True)
+
+    cleanup_staged_provider_media(project_path, "task-1")
+
+    assert paid_version.read_bytes() == b"paid-history"
+    assert not staging_link.exists()
+
+
+def test_cleanup_removes_provider_media_junction_without_using_file_unlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lib.reference_video import execution_checkpoint
+
+    project_path = tmp_path / "demo"
+    staging_dir = project_path / ".arcreel" / "tasks" / "task-1" / "provider_media"
+    staging_dir.mkdir(parents=True)
+    monkeypatch.setattr(
+        execution_checkpoint.os.path,
+        "isjunction",
+        lambda path: Path(path) == staging_dir,
+        raising=False,
+    )
+
+    cleanup_staged_provider_media(project_path, "task-1")
+
+    assert not staging_dir.exists()
+
+
+def test_cleanup_does_not_traverse_a_symlinked_task_ancestor(tmp_path: Path) -> None:
+    project_path = tmp_path / "demo"
+    paid_history = project_path / "versions" / "videos" / "scene_E1S01"
+    provider_media = paid_history / "provider_media"
+    provider_media.mkdir(parents=True)
+    paid_version = provider_media / "v1.mp4"
+    paid_version.write_bytes(b"paid-history")
+    tasks_dir = project_path / ".arcreel" / "tasks"
+    tasks_dir.mkdir(parents=True)
+    task_link = tasks_dir / "task-1"
+    task_link.symlink_to(paid_history, target_is_directory=True)
+
+    cleanup_staged_provider_media(project_path, "task-1")
+
+    assert task_link.is_symlink()
+    assert paid_version.read_bytes() == b"paid-history"
+
+
 def test_checkpoint_round_trip_is_versioned_strict_and_self_authenticating(tmp_path: Path) -> None:
     checkpoint = _checkpoint(tmp_path / "demo")
 
@@ -309,4 +368,79 @@ def test_reference_resume_state_classifies_all_checkpoint_job_combinations(tmp_p
     assert (
         classify_reference_resume_state({**base, "provider_job_id": "job-1", "execution_checkpoint_json": "{broken"})[0]
         is ReferenceResumeState.IDENTITY_UNRECOVERABLE
+    )
+
+
+def test_storyboard_checkpoint_round_trip_and_four_resume_states(tmp_path: Path) -> None:
+    project_path = tmp_path / "demo"
+    frame = project_path / "storyboards" / "scene_E1S01.png"
+    frame.parent.mkdir(parents=True)
+    frame.write_bytes(b"immutable-storyboard")
+    staged = stage_provider_media(
+        project_path,
+        "task-storyboard",
+        (
+            ProviderMediaInput(
+                path=frame,
+                role="start_image",
+                logical_type="storyboard",
+                logical_name="E1S01",
+                kind="first_frame",
+            ),
+        ),
+    )
+    checkpoint = StoryboardSubmissionCheckpoint.create(
+        task_id="task-storyboard",
+        project_name="demo",
+        script_file="episode_1.json",
+        unit_id="E1S01",
+        capability="i2v",
+        provider_id="openai",
+        provider_model_id="sora-2",
+        backend_model_id="sora-2",
+        endpoint_guard=None,
+        api_call_id=7,
+        prompt="current script prompt",
+        duration_seconds=8,
+        aspect_ratio="9:16",
+        resolution="720p",
+        generate_audio=True,
+        service_tier="default",
+        seed=123,
+        visual_basis_digest="c" * 64,
+        narration=NarrationExecutionFacts(
+            delivery="post_production",
+            tts_status="not_applicable",
+            artifact_path="",
+            basis_digest=None,
+            actual_duration_seconds=None,
+        ),
+        media=staged,
+        reference_audio_targets=None,
+    )
+    restored = StoryboardSubmissionCheckpoint.from_json(checkpoint.to_json())
+    assert restored == checkpoint
+    assert restored.media[0].role == "start_image"
+
+    base = {
+        "task_id": checkpoint.task_id,
+        "task_type": "video",
+        "project_name": checkpoint.project_name,
+        "resource_id": checkpoint.unit_id,
+        "script_file": checkpoint.script_file,
+    }
+    assert classify_video_resume_state({**base, "provider_job_id": None})[0] is VideoResumeState.NO_CHECKPOINT_NO_JOB
+    assert (
+        classify_video_resume_state(
+            {**base, "provider_job_id": None, "execution_checkpoint_json": checkpoint.to_json()}
+        )[0]
+        is VideoResumeState.CHECKPOINT_WITHOUT_JOB
+    )
+    state, parsed = classify_video_resume_state(
+        {**base, "provider_job_id": "job-7", "execution_checkpoint_json": checkpoint.to_json()}
+    )
+    assert state is VideoResumeState.READY
+    assert parsed == checkpoint
+    assert (
+        classify_video_resume_state({**base, "provider_job_id": "job-7"})[0] is VideoResumeState.IDENTITY_UNRECOVERABLE
     )

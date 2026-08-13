@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-_REFERENCE_VIDEO_EXECUTION_IDENTITY_KEYS = frozenset({"video_provider_i2v", "video_provider_r2v"})
+_VIDEO_EXECUTION_IDENTITY_KEYS = frozenset({"video_provider_i2v", "video_provider_r2v"})
 _REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS = frozenset({"script_file", "reference_request_options"})
 _NARRATION_REQUEST_KEY_BY_TASK_TYPE = {
     "video": "narration_delivery_options",
@@ -88,10 +88,13 @@ def reference_video_enqueue_payload(
     return normalized
 
 
-def without_reference_video_execution_identity(payload: dict[str, Any] | None) -> dict[str, Any]:
+def without_video_execution_identity(payload: dict[str, Any] | None) -> dict[str, Any]:
     """移除 payload 中的 enqueue-time 视频身份，使未提交任务按当前配置投影。"""
 
-    return {key: value for key, value in (payload or {}).items() if key not in _REFERENCE_VIDEO_EXECUTION_IDENTITY_KEYS}
+    return {key: value for key, value in (payload or {}).items() if key not in _VIDEO_EXECUTION_IDENTITY_KEYS}
+
+
+without_reference_video_execution_identity = without_video_execution_identity
 
 
 async def video_bucket_for_queued_task(
@@ -198,7 +201,7 @@ async def resolve_video_execution_for_queued_task(
         resource_id=resource_id,
     )
     execution_payload = (
-        without_reference_video_execution_identity(payload) if task_type == "reference_video" else payload
+        without_video_execution_identity(payload) if task_type in ("video", "reference_video") else payload
     )
     resolved = await resolver.resolve_video_backend(project, execution_payload or {}, capability=capability)
     return resolved, capability
@@ -212,11 +215,10 @@ async def _derive_execution_model_for_enqueue(
     media_type: str,
     resource_id: str | None,
 ) -> tuple[ProviderModel, VideoCapability | None] | None:
-    """入队时按 project + payload 派生该任务的执行身份，视频任务连同定桶结果一并返回。
+    """入队时按 project + payload 派生任务的 advisory provider 与视频桶。
 
-    ``provider_id`` 落 task 行供 claim SQL 池过滤使用；分镜视频的完整身份另锁进 payload
-    （见 ``_pin_video_execution_model``）。reference_video 只保存 advisory provider，worker
-    开始处理时重新投影当前状态。与 worker ``_extract_provider`` 同套解析逻辑，
+    ``provider_id`` 落 task 行供 claim SQL 池过滤使用；两条视频路线都只保存 advisory provider，
+    worker 开始处理时重新投影当前状态。与 worker ``_extract_provider`` 同套解析逻辑，
     但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
     兜底分支，由 worker claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
     """
@@ -256,26 +258,6 @@ async def _derive_execution_model_for_enqueue(
     if not resolved.provider_id:
         return None
     return resolved, video_capability
-
-
-def _pin_video_execution_model(
-    payload: dict[str, Any] | None,
-    *,
-    capability: VideoCapability | None,
-    execution_model: ProviderModel,
-) -> dict[str, Any] | None:
-    """把入队解析出的执行身份锁进分镜视频任务 payload 的能力桶键。
-
-    锁定的是「任务真正会执行的 model」，执行与中断续跑据此走同一身份：task 行只存
-    provider_id，锁不住 model（``docs/adr/0054``「不静默换模型」）。桶键与复合值形态和解析侧
-    payload 层同源（``lib.config.resolver``）。reference_video 不调用本函数：它在 worker 开始时重新
-    投影当前 project/script/unit 与资产，排队期间的编辑必须生效。
-
-    非视频任务与不定桶的任务（``capability`` 为 None）、以及解析不出 model 时原样返回。
-    """
-    if capability is None or not execution_model.model_id:
-        return payload
-    return {**(payload or {}), f"video_provider_{capability}": execution_model.pair_key}
 
 
 ACTIVE_TASK_STATUSES = ("queued", "running", "cancelling")
@@ -366,10 +348,7 @@ class GenerationQueue:
 
         # caller 没传 provider_id → 入队时主动派生一次，让 claim 走 SQL 池过滤快路径；
         # 派生失败留 NULL，走 IS NULL 兜底，由 worker claim 后 _extract_provider 二次校验。
-        # 派生成功时分镜视频任务同时把执行 model 锁进 payload；reference_video 只保留
-        # provider_id 作为 claim/rate-limit advisory，model 不在入队时冻结。
-        # 锁定只发生在这条派生分支上：显式传 provider_id 的调用没有配套的 model 可锁，
-        # 需要锁定视频执行 model 的入队点走派生路径。
+        # 派生成功只把 provider_id 作为 claim/rate-limit advisory；视频 model 不在入队时冻结。
         if provider_id is None:
             derived = await _derive_execution_model_for_enqueue(
                 project_name=project_name,
@@ -379,12 +358,10 @@ class GenerationQueue:
                 resource_id=resource_id,
             )
             if derived is not None:
-                execution_model, video_capability = derived
+                execution_model, _video_capability = derived
                 provider_id = execution_model.provider_id
-                if task_type != "reference_video":
-                    payload = _pin_video_execution_model(
-                        payload, capability=video_capability, execution_model=execution_model
-                    )
+                # Video provider/model is only an advisory claim projection until the worker materializes the
+                # current request and persists its pre-submit checkpoint. Enqueue payload never freezes identity.
 
         async with self._task_repo() as repo:
             result = await repo.enqueue(

@@ -285,7 +285,7 @@ class TestVideoLane:
 
     @pytest.mark.unit
     async def test_payload_overrides_project(self, session_factory, project_env, fake_assemble):
-        """payload > project：入队锁定的桶键决定实际解析身份。"""
+        """payload > project：显式的请求身份（如 checkpoint 回放）决定实际解析身份。"""
         ark_model = _registry_video_model("ark")
         grok_model = _registry_video_model("grok")
         ctx = await resolve_generation_context(

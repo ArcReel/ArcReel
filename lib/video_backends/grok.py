@@ -9,10 +9,9 @@ from pathlib import Path
 
 from lib.data_uri import image_to_data_uri
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
-from lib.grok_shared import create_grok_client, grok_should_retry
+from lib.grok_shared import create_grok_client
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_GROK
-from lib.retry import with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
     VideoCapabilities,
@@ -66,6 +65,11 @@ class GrokVideoBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。生成与下载分离重试，避免下载失败导致重新生成浪费额度。"""
+        # The SDK combines submit and provider-side waiting in one opaque call. Once it starts, an exception
+        # cannot prove the provider rejected the request before accepting a paid job, so close MediaGenerator's
+        # reference-payload compression retry window before entering it.
+        if request.on_provider_resubmit_unsafe is not None:
+            request.on_provider_resubmit_unsafe()
         response = await self._create_video(request)
 
         video_url = response.url
@@ -100,9 +104,8 @@ class GrokVideoBackend:
             generate_audio=True,
         )
 
-    @with_retry_async(retry_if=grok_should_retry)
     async def _create_video(self, request: VideoGenerationRequest):
-        """创建视频生成任务（带独立重试）。"""
+        """通过不可判定收单边界的 SDK 调用生成视频。"""
         generate_kwargs = {
             "prompt": request.prompt,
             "model": self._model,

@@ -289,11 +289,12 @@ class TestRepoStateMachineGuards:
         refreshed = await repo.get(t["task_id"])
         assert refreshed["submitted_base_url"] == "https://custom-a.example.com/api/v1"
 
-    async def test_persist_reference_checkpoint_atomically_locks_actual_provider(self, db_session):
+    @pytest.mark.parametrize("task_type", ["video", "reference_video"])
+    async def test_persist_video_checkpoint_atomically_locks_actual_provider(self, db_session, task_type):
         repo = TaskRepository(db_session)
         task = await repo.enqueue(
             project_name="demo",
-            task_type="reference_video",
+            task_type=task_type,
             media_type="video",
             resource_id="E1U1",
             payload={"script_file": "scripts/episode_1.json"},
@@ -310,11 +311,12 @@ class TestRepoStateMachineGuards:
         assert refreshed["provider_job_id"] is None
         assert refreshed["payload"] == {"script_file": "scripts/episode_1.json"}
 
-    async def test_persist_reference_checkpoint_is_once_only_and_requires_running_before_job(self, db_session):
+    @pytest.mark.parametrize("task_type", ["video", "reference_video"])
+    async def test_persist_video_checkpoint_is_once_only_and_requires_running_before_job(self, db_session, task_type):
         repo = TaskRepository(db_session)
         task = await repo.enqueue(
             project_name="demo",
-            task_type="reference_video",
+            task_type=task_type,
             media_type="video",
             resource_id="E1U1",
             payload={},

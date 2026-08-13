@@ -10,7 +10,7 @@ from alembic.config import Config
 
 from alembic import command
 
-pytestmark = pytest.mark.unit
+pytestmark = pytest.mark.integration
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 REVISION = "f6a41746c0de"

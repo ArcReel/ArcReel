@@ -8,7 +8,7 @@ import asyncio
 import copy
 import logging
 import math
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +31,12 @@ from lib.audio_utils import (
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import constrain_durations, video_bucket_for_generation_mode
 from lib.db.base import DEFAULT_USER_ID
-from lib.generation_queue import CompensableGenerationResult
+from lib.generation_queue import (
+    CompensableGenerationResult,
+    DispatchProviderChanged,
+    get_generation_queue,
+    without_video_execution_identity,
+)
 from lib.narration_delivery import (
     USE_TTS,
     NarratedVideoDurationBlockedError,
@@ -43,7 +48,7 @@ from lib.narration_delivery import (
     prepare_narrated_video_duration,
     register_narration_audio_transactionally,
 )
-from lib.path_safety import safe_exists, try_safe_join
+from lib.path_safety import safe_exists, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import (
     EpisodeScriptReboundError,
@@ -68,6 +73,15 @@ from lib.prompt_utils import (
 )
 from lib.prompt_utils import (
     normalize_video_prompt as _normalize_video_prompt,
+)
+from lib.reference_video.execution_checkpoint import (
+    NarrationExecutionFacts,
+    ProviderMediaInput,
+    StagedProviderMedia,
+    StoryboardSubmissionCheckpoint,
+    checkpoint_version_metadata,
+    cleanup_staged_provider_media,
+    stage_provider_media_for_task,
 )
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
@@ -1124,17 +1138,16 @@ async def execute_video_task(
     resource_id: str,
     payload: dict[str, Any],
     *,
+    script_file: str | None = None,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
-    script_file = payload.get("script_file")
-    if not script_file:
+    payload_script_file = payload.get("script_file")
+    if script_file is None and isinstance(payload_script_file, str):
+        script_file = payload_script_file
+    if not isinstance(script_file, str) or not script_file:
         raise ValueError("script_file is required for video task")
-
-    prompt = payload.get("prompt")
-    if prompt is None:
-        raise ValueError("prompt is required for video task")
-    requested_visual_prompt = copy.deepcopy(prompt)
 
     def _load():
         _pm = get_project_manager()
@@ -1154,12 +1167,20 @@ async def execute_video_task(
         )
 
     project, project_path, item, content_mode, script_kind, script = await asyncio.to_thread(_load)
+    # Queue execution re-materializes mutable visual intent from the current script unit. Direct/internal callers
+    # without a task row retain the request-prompt fallback for compatibility with synchronous service tests.
+    current_prompt = item.get("video_prompt") if isinstance(item, dict) else None
+    prompt = current_prompt if task_id is not None else payload.get("prompt", current_prompt)
+    if prompt is None:
+        raise ValueError("current script unit is missing video_prompt")
+    requested_visual_prompt = copy.deepcopy(prompt)
     delivery_options = NarrationDeliveryRequestOptions.from_payload(payload)
     # lane 归桶按项目路线求值，与提交入口（``generate_video``）同源：入口挡掉参考路线后
     # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免路线口径分叉。
+    execution_payload = without_video_execution_identity(payload) if task_id is not None else payload
     ctx = await resolve_generation_context(
         project_name,
-        payload,
+        execution_payload,
         project=project,
         user_id=user_id,
         video=VideoLaneRequest(capability=video_bucket_for_generation_mode(project.get("generation_mode"))),
@@ -1167,6 +1188,11 @@ async def execute_video_task(
     )
     generator = ctx.generator
     registry_provider_id = ctx.video.provider_model.provider_id
+    if claimed_provider_id is not None and registry_provider_id != claimed_provider_id:
+        raise DispatchProviderChanged(
+            claimed_provider_id=claimed_provider_id,
+            actual_provider_id=registry_provider_id,
+        )
     model_name = ctx.video.backend_model
     supported_durations: list[int] = list(ctx.video.supported_durations)
     resolution = ctx.video.resolution
@@ -1232,7 +1258,11 @@ async def execute_video_task(
     # 内原样上抛整次任务失败，不再有硬编码 provider/model 静默兜底。
     # duration 解析收口于执行层：payload > project.default_duration > caps 默认。
     # 用 ``is not None`` 而非 ``or`` 取 payload 值，避免显式 falsy 值被当作未设置。
-    duration_seconds = payload.get("duration_seconds")
+    duration_seconds = (
+        item.get("duration_seconds")
+        if task_id is not None and isinstance(item, dict)
+        else payload.get("duration_seconds")
+    )
     if duration_seconds is None:
         duration_seconds = project.get("default_duration")
     if not duration_seconds:
@@ -1322,6 +1352,7 @@ async def execute_video_task(
     # 能力守卫：provider 解析之后的唯一权威家（见 ADR-0001）。安全解析交给守卫，
     # 此处不预先 int() 截断，避免把非整数秒静默修正成「碰巧合法」的值。
     assert_duration_supported(duration_seconds, supported_durations)
+    duration_seconds = int(float(duration_seconds))
 
     if delivery_projection is not None:
         if not isinstance(duration_seconds, int) or isinstance(duration_seconds, bool):
@@ -1343,45 +1374,152 @@ async def execute_video_task(
         if reused is not None:
             return reused
 
-    output_path, version, _, video_uri = await generator.generate_video_async(
-        prompt=prompt_text,
-        resource_type="videos",
-        resource_id=resource_id,
-        start_image=storyboard_file,
-        end_image=end_image,
-        aspect_ratio=aspect_ratio,
-        duration_seconds=duration_seconds,
-        resolution=resolution,
-        task_id=task_id,
-        seed=seed,
-        service_tier=service_tier,
-        visual_basis_digest=visual_basis_digest,
-        generate_audio=ctx.video.requested_generate_audio,
-    )
+    provider_start_image = storyboard_file
+    provider_end_image = end_image
+    checkpoint_hook: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = None
+    staged_media: tuple[StagedProviderMedia, ...] = ()
+    if task_id is not None:
+        media_inputs = [
+            ProviderMediaInput(
+                path=storyboard_file,
+                role="start_image",
+                logical_type="storyboard",
+                logical_name=resource_id,
+                kind="first_frame",
+            )
+        ]
+        if end_image is not None:
+            media_inputs.append(
+                ProviderMediaInput(
+                    path=end_image,
+                    role="end_image",
+                    logical_type="storyboard",
+                    logical_name=resource_id,
+                    kind="last_frame",
+                )
+            )
+        staged_media = await stage_provider_media_for_task(project_path, task_id, tuple(media_inputs))
+        try:
+            provider_start_image = safe_join(
+                project_path,
+                next(media.staged_locator for media in staged_media if media.role == "start_image"),
+                require_file=True,
+            )
+            staged_end = next((media for media in staged_media if media.role == "end_image"), None)
+            provider_end_image = (
+                safe_join(project_path, staged_end.staged_locator, require_file=True)
+                if staged_end is not None
+                else None
+            )
+            visual_basis_digest = await asyncio.to_thread(
+                lambda: (
+                    build_storyboard_video_visual_basis(
+                        prompt=requested_visual_prompt,
+                        storyboard_image=provider_start_image,
+                        end_frame_image=provider_end_image,
+                        aspect_ratio=aspect_ratio,
+                        provider_id=registry_provider_id,
+                        model_id=model_name,
+                        resolution=resolution,
+                        seed=seed,
+                        requested_generate_audio=ctx.video.requested_generate_audio,
+                        content_mode=content_mode,
+                        utterances=item.get("utterances") if content_mode == "drama" else None,
+                        has_utterances=content_mode == "drama" and "utterances" in item,
+                        voice_characters=(None if ctx.video.is_silent else project.get("characters"))
+                        if content_mode == "drama"
+                        else None,
+                    ).digest
+                )
+            )
+            narration = delivery_projection.narration if delivery_projection is not None else None
+            narration_facts = NarrationExecutionFacts(
+                delivery=delivery_options.narration_delivery,
+                tts_status=narration.tts_status.value if narration is not None else "not_applicable",
+                artifact_path=narration.artifact_path if narration is not None else "",
+                basis_digest=narration.basis_digest if narration is not None else None,
+                actual_duration_seconds=narration.actual_duration_seconds if narration is not None else None,
+            )
 
-    if delivery_projection is not None:
-        if not isinstance(duration_seconds, int) or isinstance(duration_seconds, bool):
-            raise RuntimeError("allowed TTS video projection produced a non-integer request duration")
-        await require_generated_video_covers_current_tts(
-            project_name=project_name,
-            script_file=str(script_file),
-            request_duration_seconds=duration_seconds,
-            output_path=output_path,
-            versions=generator.versions,
+            async def _checkpoint_before_submit(api_call_id: int) -> Mapping[str, object]:
+                checkpoint = StoryboardSubmissionCheckpoint.create(
+                    task_id=task_id,
+                    project_name=project_name,
+                    script_file=script_file,
+                    unit_id=resource_id,
+                    capability="i2v",
+                    provider_id=ctx.video.provider_model.provider_id,
+                    provider_model_id=ctx.video.provider_model.model_id,
+                    backend_model_id=ctx.video.backend_model,
+                    endpoint_guard=ctx.video.endpoint,
+                    api_call_id=api_call_id,
+                    prompt=prompt_text,
+                    duration_seconds=duration_seconds,
+                    aspect_ratio=aspect_ratio,
+                    resolution=resolution,
+                    generate_audio=ctx.video.requested_generate_audio,
+                    service_tier=service_tier,
+                    seed=seed,
+                    visual_basis_digest=visual_basis_digest,
+                    narration=narration_facts,
+                    media=staged_media,
+                    reference_audio_targets=None,
+                )
+                await get_generation_queue().persist_execution_checkpoint(
+                    task_id,
+                    checkpoint.to_json(),
+                    checkpoint.provider_id,
+                )
+                return checkpoint_version_metadata(checkpoint)
+
+            checkpoint_hook = _checkpoint_before_submit
+        except BaseException:
+            await asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id)
+            raise
+
+    try:
+        output_path, version, _, video_uri = await generator.generate_video_async(
+            prompt=prompt_text,
             resource_type="videos",
             resource_id=resource_id,
-            version=version,
+            start_image=provider_start_image,
+            end_image=provider_end_image,
+            aspect_ratio=aspect_ratio,
+            duration_seconds=duration_seconds,
+            resolution=resolution,
+            task_id=task_id,
+            before_submit=checkpoint_hook,
+            formal_output=task_id is not None,
+            seed=seed,
+            service_tier=service_tier,
+            visual_basis_digest=visual_basis_digest,
+            generate_audio=ctx.video.requested_generate_audio,
         )
 
-    return await _finalize_video_task(
-        project_name=project_name,
-        script_file=script_file,
-        project_path=project_path,
-        resource_id=resource_id,
-        version=version,
-        video_uri=video_uri,
-        generator=generator,
-    )
+        if delivery_projection is not None:
+            await require_generated_video_covers_current_tts(
+                project_name=project_name,
+                script_file=str(script_file),
+                request_duration_seconds=duration_seconds,
+                output_path=output_path,
+                versions=generator.versions,
+                resource_type="videos",
+                resource_id=resource_id,
+                version=version,
+            )
+
+        return await _finalize_video_task(
+            project_name=project_name,
+            script_file=script_file,
+            project_path=project_path,
+            resource_id=resource_id,
+            version=version,
+            video_uri=video_uri,
+            generator=generator,
+        )
+    finally:
+        if task_id is not None:
+            await asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id)
 
 
 async def _finalize_video_task(
@@ -1927,6 +2065,16 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
         # Translator，同一失败任务按 Accept-Language 显示 zh/en/vi。
         if task_type == "reference_video":
             result = await _execute_reference_video_task_proxy(
+                project_name,
+                resource_id,
+                payload,
+                script_file=task.get("script_file"),
+                user_id=user_id,
+                task_id=queue_task_id,
+                claimed_provider_id=claimed_provider_id,
+            )
+        elif task_type == "video":
+            result = await executor(
                 project_name,
                 resource_id,
                 payload,

@@ -753,14 +753,14 @@ class TaskRepository(BaseRepository):
         """Persist the once-only pre-submit checkpoint and actual provider atomically.
 
         The guarded transition is deliberately narrower than ordinary task metadata updates: only a running
-        reference-video task with neither a checkpoint nor a provider job may cross the submit boundary. A
+        video task with neither a checkpoint nor a provider job may cross the submit boundary. A
         zero-row update is an execution conflict and must abort before the provider call.
         """
         result = await self.session.execute(
             update(Task)
             .where(
                 Task.task_id == task_id,
-                Task.task_type == "reference_video",
+                Task.task_type.in_(("video", "reference_video")),
                 Task.status == "running",
                 Task.execution_checkpoint_json.is_(None),
                 Task.provider_job_id.is_(None),

@@ -1,28 +1,34 @@
-"""Immutable execution facts for a submitted reference-video task."""
+"""Immutable execution facts and task-local provider media for submitted video jobs."""
 
 from __future__ import annotations
 
+import asyncio
 import errno
 import hashlib
 import json
+import logging
 import math
 import os
 import re
 import shutil
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal, cast
+from typing import Any, ClassVar, Literal, Self, cast
 
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
 
-ProviderMediaRole = Literal["reference_image", "reference_audio"]
+logger = logging.getLogger(__name__)
+
+ProviderMediaRole = Literal["reference_image", "reference_audio", "start_image", "end_image"]
 ReferenceCapability = Literal["i2v", "r2v"]
 
 _SCHEMA_VERSION = 1
 _CHECKPOINT_KIND = "reference_video_submit"
+_STORYBOARD_CHECKPOINT_KIND = "storyboard_video_submit"
 _STAGING_MANIFEST_VERSION = 1
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _HEX_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -30,7 +36,7 @@ _BASIS_DIGEST_RE = re.compile(r"^(?:sha256-v1:)?[0-9a-f]{64}$")
 
 
 class ReferenceExecutionIdentityError(ValueError):
-    """A submitted reference task cannot be matched to its immutable execution identity."""
+    """A submitted video task cannot be matched to its immutable execution identity."""
 
     code = "execution_identity_unrecoverable"
 
@@ -39,13 +45,17 @@ class ReferenceExecutionIdentityError(ValueError):
         super().__init__(detail)
 
 
-class ReferenceResumeState(StrEnum):
-    """Exhaustive checkpoint/job states for a claimed reference-video task."""
+class VideoResumeState(StrEnum):
+    """Exhaustive checkpoint/job states for a claimed video task."""
 
     NO_CHECKPOINT_NO_JOB = "no_checkpoint_no_job"
     CHECKPOINT_WITHOUT_JOB = "checkpoint_without_job"
     READY = "ready"
     IDENTITY_UNRECOVERABLE = "identity_unrecoverable"
+
+
+# Compatibility name for callers that predate storyboard checkpoints.
+ReferenceResumeState = VideoResumeState
 
 
 def _canonical_json(value: Any) -> str:
@@ -135,7 +145,7 @@ class ProviderMediaInput:
     target_index: int | None = None
 
     def __post_init__(self) -> None:
-        if self.role not in ("reference_image", "reference_audio"):
+        if self.role not in ("reference_image", "reference_audio", "start_image", "end_image"):
             raise ValueError(f"unsupported provider media role: {self.role!r}")
         _require_nonempty_string(self.logical_type, "logical_type")
         _require_nonempty_string(self.logical_name, "logical_name")
@@ -144,8 +154,8 @@ class ProviderMediaInput:
             not isinstance(self.target_index, int) or isinstance(self.target_index, bool) or self.target_index < 0
         ):
             raise ValueError("target_index must be a non-negative integer or null")
-        if self.role == "reference_image" and self.target_index is not None:
-            raise ValueError("reference_image cannot have target_index")
+        if self.role != "reference_audio" and self.target_index is not None:
+            raise ValueError(f"{self.role} cannot have target_index")
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,7 +191,7 @@ class StagedProviderMedia:
     def __post_init__(self) -> None:
         if not isinstance(self.index, int) or isinstance(self.index, bool) or self.index < 0:
             raise ValueError("media index must be a non-negative integer")
-        if self.role not in ("reference_image", "reference_audio"):
+        if self.role not in ("reference_image", "reference_audio", "start_image", "end_image"):
             raise ValueError(f"unsupported provider media role: {self.role!r}")
         _require_nonempty_string(self.logical_type, "logical_type")
         _require_nonempty_string(self.logical_name, "logical_name")
@@ -195,8 +205,8 @@ class StagedProviderMedia:
             not isinstance(self.target_index, int) or isinstance(self.target_index, bool) or self.target_index < 0
         ):
             raise ValueError("target_index must be a non-negative integer or null")
-        if self.role == "reference_image" and self.target_index is not None:
-            raise ValueError("reference_image cannot have target_index")
+        if self.role != "reference_audio" and self.target_index is not None:
+            raise ValueError(f"{self.role} cannot have target_index")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -232,9 +242,28 @@ class StagedProviderMedia:
         )
 
 
-def _staging_root(project_path: Path, task_id: str) -> Path:
+def _is_junction(path: Path) -> bool:
+    isjunction = getattr(os.path, "isjunction", None)
+    return bool(isjunction is not None and isjunction(path))
+
+
+def _is_link_or_junction(path: Path) -> bool:
+    return path.is_symlink() or _is_junction(path)
+
+
+def _lexical_staging_root(project_path: Path, task_id: str) -> Path:
     _require_task_id(task_id)
-    return safe_join(project_path, ".arcreel", "tasks", task_id, "provider_media")
+    return project_path.resolve() / ".arcreel" / "tasks" / task_id / "provider_media"
+
+
+def _staging_root(project_path: Path, task_id: str) -> Path:
+    final_dir = _lexical_staging_root(project_path, task_id)
+    cursor = project_path.resolve()
+    for part in (".arcreel", "tasks", task_id, "provider_media"):
+        cursor = cursor / part
+        if _is_link_or_junction(cursor):
+            raise ValueError("provider media staging cannot traverse a symlink or junction")
+    return final_dir
 
 
 def _media_plan(
@@ -300,7 +329,9 @@ def stage_provider_media(
         return ()
 
     final_dir = _staging_root(project_path, task_id)
-    if final_dir.exists():
+    if os.path.lexists(final_dir):
+        if not final_dir.is_dir():
+            raise ValueError("immutable provider media staging is not a directory")
         existing = _load_staging_manifest(final_dir)
         if existing != planned:
             raise ValueError("immutable provider media staging conflicts with current execution inputs")
@@ -344,12 +375,67 @@ def stage_provider_media(
             pass
 
 
+async def stage_provider_media_for_task(
+    project_path: Path,
+    task_id: str,
+    inputs: tuple[ProviderMediaInput, ...],
+    *,
+    stage: Callable[[Path, str, tuple[ProviderMediaInput, ...]], tuple[StagedProviderMedia, ...]] | None = None,
+) -> tuple[StagedProviderMedia, ...]:
+    """Finish an in-flight local copy before propagating cancellation, then clean any published bytes."""
+
+    async def _await_uninterruptibly(task: asyncio.Task[Any]) -> Any:
+        while True:
+            try:
+                return await asyncio.shield(task)
+            except asyncio.CancelledError:
+                if task.done():
+                    return task.result()
+
+    staging_task = asyncio.create_task(asyncio.to_thread(stage or stage_provider_media, project_path, task_id, inputs))
+    try:
+        return await asyncio.shield(staging_task)
+    except BaseException:
+        published = False
+        try:
+            await _await_uninterruptibly(staging_task)
+            published = True
+        except BaseException:
+            pass
+        if published:
+            cleanup_task = asyncio.create_task(asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id))
+            try:
+                await _await_uninterruptibly(cleanup_task)
+            except Exception:
+                logger.warning("provider media cancellation cleanup failed task_id=%s", task_id, exc_info=True)
+        raise
+
+
 def cleanup_staged_provider_media(project_path: Path, task_id: str) -> None:
     """Delete only one task's provider-media staging directory."""
 
-    final_dir = _staging_root(project_path, task_id)
-    if final_dir.exists():
-        shutil.rmtree(final_dir)
+    final_dir = _lexical_staging_root(project_path, task_id)
+    # Never follow a reparse point during cleanup. An exact staging link is safe to unlink; a linked ancestor is
+    # outside the ownership proof, so leave it untouched rather than deleting through it.
+    cursor = project_path.resolve()
+    for part in (".arcreel", "tasks", task_id):
+        cursor = cursor / part
+        if _is_link_or_junction(cursor):
+            return
+    if final_dir.is_symlink():
+        final_dir.unlink(missing_ok=True)
+    elif _is_junction(final_dir):
+        # Windows directory junctions are directory reparse points: remove the entry with rmdir so neither
+        # pathlib.unlink nor recursive deletion can follow or reject the linked directory.
+        try:
+            final_dir.rmdir()
+        except FileNotFoundError:
+            pass
+    elif os.path.lexists(final_dir):
+        if final_dir.is_dir():
+            shutil.rmtree(final_dir)
+        else:
+            final_dir.unlink(missing_ok=True)
     try:
         final_dir.parent.rmdir()
     except OSError:
@@ -432,8 +518,10 @@ class NarrationExecutionFacts:
 
 
 @dataclass(frozen=True, slots=True)
-class ReferenceSubmissionCheckpoint:
-    """Strict, versioned identity of the request that crossed the submit boundary."""
+class _VideoSubmissionCheckpoint:
+    """Strict, versioned identity shared by both video execution routes."""
+
+    CHECKPOINT_KIND: ClassVar[str]
 
     schema_version: int
     kind: str
@@ -496,15 +584,15 @@ class ReferenceSubmissionCheckpoint:
             not isinstance(self.schema_version, int)
             or isinstance(self.schema_version, bool)
             or self.schema_version != _SCHEMA_VERSION
-            or self.kind != _CHECKPOINT_KIND
+            or self.kind != self.CHECKPOINT_KIND
         ):
-            raise ValueError("unsupported reference submission checkpoint version or kind")
+            raise ValueError("unsupported video submission checkpoint version or kind")
         _require_task_id(self.task_id)
         _require_nonempty_string(self.project_name, "project_name")
         _require_relative_locator(self.script_file, "script_file")
         _require_nonempty_string(self.unit_id, "unit_id")
         if self.capability not in ("i2v", "r2v"):
-            raise ValueError(f"unsupported reference capability: {self.capability!r}")
+            raise ValueError(f"unsupported video capability: {self.capability!r}")
         _require_nonempty_string(self.provider_id, "provider_id")
         _require_nonempty_string(self.provider_model_id, "provider_model_id")
         _require_nonempty_string(self.backend_model_id, "backend_model_id")
@@ -534,21 +622,32 @@ class ReferenceSubmissionCheckpoint:
         expected_prefix = f".arcreel/tasks/{self.task_id}/provider_media/"
         if any(not item.staged_locator.startswith(expected_prefix) for item in self.media):
             raise ValueError("staged_locator does not belong to this task")
-        audio = tuple(item for item in self.media if item.role == "reference_audio")
-        image_count = sum(item.role == "reference_image" for item in self.media)
-        if self.reference_audio_targets is None:
-            if any(item.target_index is not None for item in audio):
-                raise ValueError("media target_index requires reference_audio_targets")
+        if self.kind == _CHECKPOINT_KIND:
+            if any(item.role not in ("reference_image", "reference_audio") for item in self.media):
+                raise ValueError("reference checkpoint contains storyboard media")
+            audio = tuple(item for item in self.media if item.role == "reference_audio")
+            image_count = sum(item.role == "reference_image" for item in self.media)
+            if self.reference_audio_targets is None:
+                if any(item.target_index is not None for item in audio):
+                    raise ValueError("media target_index requires reference_audio_targets")
+            else:
+                if any(
+                    not isinstance(target, int) or isinstance(target, bool) or target < 0
+                    for target in self.reference_audio_targets
+                ):
+                    raise ValueError("reference_audio_targets must contain non-negative integers")
+                if tuple(item.target_index for item in audio) != self.reference_audio_targets:
+                    raise ValueError("reference_audio_targets do not match staged audio identities")
+                if any(target >= image_count for target in self.reference_audio_targets):
+                    raise ValueError("reference audio target_index must address a staged reference image")
         else:
-            if any(
-                not isinstance(target, int) or isinstance(target, bool) or target < 0
-                for target in self.reference_audio_targets
-            ):
-                raise ValueError("reference_audio_targets must contain non-negative integers")
-            if tuple(item.target_index for item in audio) != self.reference_audio_targets:
-                raise ValueError("reference_audio_targets do not match staged audio identities")
-            if any(target >= image_count for target in self.reference_audio_targets):
-                raise ValueError("reference audio target_index must address a staged reference image")
+            roles = tuple(item.role for item in self.media)
+            if roles.count("start_image") != 1 or roles.count("end_image") > 1:
+                raise ValueError("storyboard checkpoint requires one start image and at most one end image")
+            if any(role not in ("start_image", "end_image") for role in roles):
+                raise ValueError("storyboard checkpoint contains reference media")
+            if self.reference_audio_targets is not None:
+                raise ValueError("storyboard checkpoint cannot have reference_audio_targets")
         _require_digest(self.request_digest, "request_digest")
         if self.request_digest != _sha256_bytes(_canonical_json(self._request_digest_payload()).encode("utf-8")):
             raise ValueError("request_digest does not match checkpoint request")
@@ -621,11 +720,11 @@ class ReferenceSubmissionCheckpoint:
         narration: NarrationExecutionFacts,
         media: tuple[StagedProviderMedia, ...],
         reference_audio_targets: tuple[int, ...] | None,
-    ) -> ReferenceSubmissionCheckpoint:
+    ) -> Self:
         prompt_sha256 = _sha256_bytes(prompt.encode("utf-8"))
         values: dict[str, object] = {
             "schema_version": _SCHEMA_VERSION,
-            "kind": _CHECKPOINT_KIND,
+            "kind": cls.CHECKPOINT_KIND,
             "task_id": task_id,
             "project_name": project_name,
             "script_file": script_file,
@@ -653,7 +752,7 @@ class ReferenceSubmissionCheckpoint:
         request_digest = _sha256_bytes(_canonical_json(digest_values).encode("utf-8"))
         return cls(
             schema_version=_SCHEMA_VERSION,
-            kind=_CHECKPOINT_KIND,
+            kind=cls.CHECKPOINT_KIND,
             task_id=task_id,
             project_name=project_name,
             script_file=script_file,
@@ -680,7 +779,7 @@ class ReferenceSubmissionCheckpoint:
         )
 
     @classmethod
-    def from_json(cls, value: object) -> ReferenceSubmissionCheckpoint:
+    def from_json(cls, value: object) -> Self:
         if not isinstance(value, str) or not value:
             raise ValueError("execution checkpoint must be a non-empty JSON string")
         try:
@@ -726,7 +825,24 @@ class ReferenceSubmissionCheckpoint:
         )
 
 
-def checkpoint_version_metadata(checkpoint: ReferenceSubmissionCheckpoint) -> dict[str, object]:
+class ReferenceSubmissionCheckpoint(_VideoSubmissionCheckpoint):
+    """Immutable submit identity for a reference-video unit."""
+
+    __slots__ = ()
+    CHECKPOINT_KIND = _CHECKPOINT_KIND
+
+
+class StoryboardSubmissionCheckpoint(_VideoSubmissionCheckpoint):
+    """Immutable submit identity for a storyboard-video unit."""
+
+    __slots__ = ()
+    CHECKPOINT_KIND = _STORYBOARD_CHECKPOINT_KIND
+
+
+VideoSubmissionCheckpoint = ReferenceSubmissionCheckpoint | StoryboardSubmissionCheckpoint
+
+
+def checkpoint_version_metadata(checkpoint: VideoSubmissionCheckpoint) -> dict[str, object]:
     """Source facts shared by normal and resumed paid-version registration."""
 
     return {
@@ -756,10 +872,30 @@ def checkpoint_version_metadata(checkpoint: ReferenceSubmissionCheckpoint) -> di
     }
 
 
-def load_task_reference_checkpoint(task: dict[str, Any]) -> ReferenceSubmissionCheckpoint:
-    """Strictly parse a checkpoint and bind it to its owning task-row coordinates."""
+def load_task_video_checkpoint(task: dict[str, Any]) -> VideoSubmissionCheckpoint:
+    """Strictly parse a video checkpoint and bind it to its owning task-row coordinates."""
 
-    checkpoint = ReferenceSubmissionCheckpoint.from_json(task.get("execution_checkpoint_json"))
+    raw = task.get("execution_checkpoint_json")
+    try:
+        decoded = json.loads(raw) if isinstance(raw, str) else None
+    except json.JSONDecodeError as exc:
+        raise ValueError("execution checkpoint is not valid JSON") from exc
+    kind = decoded.get("kind") if isinstance(decoded, dict) else None
+    checkpoint_type: type[ReferenceSubmissionCheckpoint] | type[StoryboardSubmissionCheckpoint]
+    if kind == _CHECKPOINT_KIND:
+        checkpoint_type = ReferenceSubmissionCheckpoint
+        expected_task_type = "reference_video"
+    elif kind == _STORYBOARD_CHECKPOINT_KIND:
+        checkpoint_type = StoryboardSubmissionCheckpoint
+        expected_task_type = "video"
+    else:
+        raise ValueError("unsupported video submission checkpoint kind")
+    checkpoint = checkpoint_type.from_json(raw)
+    row_task_type = task.get("task_type")
+    if row_task_type is not None and row_task_type != expected_task_type:
+        raise ReferenceExecutionIdentityError(
+            f"checkpoint kind={checkpoint.kind!r} does not match task type {row_task_type!r}"
+        )
     expected = (
         ("task_id", checkpoint.task_id, task.get("task_id")),
         ("project_name", checkpoint.project_name, task.get("project_name")),
@@ -774,9 +910,16 @@ def load_task_reference_checkpoint(task: dict[str, Any]) -> ReferenceSubmissionC
     return checkpoint
 
 
-def classify_reference_resume_state(
+def load_task_reference_checkpoint(task: dict[str, Any]) -> ReferenceSubmissionCheckpoint:
+    checkpoint = load_task_video_checkpoint(task)
+    if not isinstance(checkpoint, ReferenceSubmissionCheckpoint):
+        raise ReferenceExecutionIdentityError("task does not contain a reference-video checkpoint")
+    return checkpoint
+
+
+def classify_video_resume_state(
     task: dict[str, Any],
-) -> tuple[ReferenceResumeState, ReferenceSubmissionCheckpoint | None]:
+) -> tuple[VideoResumeState, VideoSubmissionCheckpoint | None]:
     """Classify all checkpoint/job combinations without consulting mutable project intent."""
 
     raw_checkpoint = task.get("execution_checkpoint_json")
@@ -784,18 +927,25 @@ def classify_reference_resume_state(
     has_job = bool(task.get("provider_job_id"))
     if not has_job:
         state = (
-            ReferenceResumeState.CHECKPOINT_WITHOUT_JOB
-            if has_checkpoint_attempt
-            else ReferenceResumeState.NO_CHECKPOINT_NO_JOB
+            VideoResumeState.CHECKPOINT_WITHOUT_JOB if has_checkpoint_attempt else VideoResumeState.NO_CHECKPOINT_NO_JOB
         )
         return state, None
     if not has_checkpoint_attempt:
-        return ReferenceResumeState.IDENTITY_UNRECOVERABLE, None
+        return VideoResumeState.IDENTITY_UNRECOVERABLE, None
     try:
-        checkpoint = load_task_reference_checkpoint(task)
+        checkpoint = load_task_video_checkpoint(task)
     except (TypeError, ValueError):
+        return VideoResumeState.IDENTITY_UNRECOVERABLE, None
+    return VideoResumeState.READY, checkpoint
+
+
+def classify_reference_resume_state(
+    task: dict[str, Any],
+) -> tuple[ReferenceResumeState, ReferenceSubmissionCheckpoint | None]:
+    state, checkpoint = classify_video_resume_state(task)
+    if checkpoint is not None and not isinstance(checkpoint, ReferenceSubmissionCheckpoint):
         return ReferenceResumeState.IDENTITY_UNRECOVERABLE, None
-    return ReferenceResumeState.READY, checkpoint
+    return state, checkpoint
 
 
 __all__ = [
@@ -804,10 +954,16 @@ __all__ = [
     "ReferenceExecutionIdentityError",
     "ReferenceResumeState",
     "ReferenceSubmissionCheckpoint",
+    "StoryboardSubmissionCheckpoint",
+    "VideoResumeState",
+    "VideoSubmissionCheckpoint",
     "StagedProviderMedia",
     "cleanup_staged_provider_media",
     "checkpoint_version_metadata",
     "classify_reference_resume_state",
+    "classify_video_resume_state",
+    "load_task_video_checkpoint",
     "load_task_reference_checkpoint",
     "stage_provider_media",
+    "stage_provider_media_for_task",
 ]

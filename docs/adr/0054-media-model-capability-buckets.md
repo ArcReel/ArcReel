@@ -12,13 +12,13 @@ status: accepted
 - **按生成路线逐路配置模型**：路线是视频来源路径不是能力，表达不了「模型只有部分能力」的原始约束，且路线增减会直接冲击配置面。
 - **强制逐桶配置（无默认层）**：全能力模型是主流场景，逐桶强配对多数用户是纯负担，平铺的同构下拉也无主次可言；默认 + 按需细化在配置面上从紧。
 - **能力不满足时静默换模型**：用户会在不知情下用未选过的模型付费。解析时能力校验失败直接结构化报错（对齐文本 vision 先例），错误信息指引配置对应桶。
-- **桶引用的写入侧拦截与级联清理**：桶引用悬空的成因（自定义模型能力覆盖被修改、模型 / 供应商被删、endpoint 变更、注册表升级改系统判定）统一由解析闸报错兜底。写入侧拦截需反向扫描散落各 project.json 的项目桶，昂贵且有并发窗口；级联清理是另一种静默改配置。已物化的分镜任务按 payload 的执行身份照常执行；已提交的 reference_video 任务按专用 execution checkpoint 恢复，两者都不回头静默换模型。未开始的 reference_video 任务没有该执行身份，处理时按当前配置重新投影。
+- **桶引用的写入侧拦截与级联清理**：桶引用悬空的成因（自定义模型能力覆盖被修改、模型 / 供应商被删、endpoint 变更、注册表升级改系统判定）统一由解析闸报错兜底。写入侧拦截需反向扫描散落各 project.json 的项目桶，昂贵且有并发窗口；级联清理是另一种静默改配置。两条视频路线在 submit 前按当前配置重新投影；已提交任务只按专用 execution checkpoint 恢复，不回头静默换模型。
 
 ## Consequences
 
 - 能力真相源维持既有声明、不新增副本：两桶都取 backend `VideoCapabilities`——i2v 看 `first_frame`（分镜路线由首帧驱动，宫格装配不改变这一点），r2v 看 `max_reference_images > 0`；自定义供应商 = endpoint 系统判定 ⊕ 模型级 `capability_overrides` 合成。内置视频模型的这两维只在 backend 声明，registry `ModelInfo` 不带视频能力位与参考图上限——单一 token 无从区分图生与参考生两条路径（如 `happyhorse-1.0-r2v` 只接受参考图、不接受首帧）。桶下拉据此预过滤候选；默认层下拉不过滤——默认层不承诺任何能力。
 - 全部读侧（`video_capabilities` 查询与 agent 工具、费用估算、时长 / 分辨率约束收窄）与执行侧同口径：按上述口径定桶后走同一解析函数。项目级读侧（`video_capabilities` 查询、分镜文稿预览）按项目路线一次定轴、不需要剧集与剧本上下文，三种 content_mode 不分支——它们求值时 unit 尚不存在或与 unit 无关，没有可分流的镜头。参考路线的镜头级读侧（费用估算、限流路由投影、Web/Agent 预检）与执行侧共用 request projection：读当前 project/script/unit，展开且验证实际资产，再定桶、解析 provider/model 与时长档位。投影是 advisory 而非可执行快照；它不签发 token/fingerprint，worker 开始时必须重投影最新状态。WebUI 的逐条分镜视频生成端点仍按项目路线定桶，参考路线项目在该入口直接被拒并指引改走参考生视频流程（见 `docs/adr/0055`）。
-- 分镜视频任务保持入队时身份锁定（入队派生失败时留给 worker 按当前配置求解）：解析出的 `provider/model` 以 `video_provider_<cap>` 写入 task payload。reference_video 任务不锁定入队时 provider/model，task 行的 `provider_id` 只是 claim/rate-limit advisory；payload 只保存任务定位与用户请求选项，不冻结 prompt、引用、style、duration 或完整请求。排队期间的项目、剧本或资产编辑因此会在 worker 开始时生效。只有未命中视频复用、真正即将进入 provider submit 的路径才跨过执行 checkpoint 边界：实际 provider 与版本化的完整执行事实在 submit 紧前原子落到专用任务列，不改写 payload。provider 创建 job 后的轮询与重启恢复只读该 checkpoint，不重算当前剧本/引用/provider/model；当前项目只提供凭证与 backend 构造，解析身份或自定义 endpoint 与 checkpoint 不同时显式失败。agent 工具层的 `resume=true`（未完成镜头重新入队提交）是另一机制，按当次配置求新的执行身份。
+- 两条视频路线都不在入队时锁定 provider/model：task 行的 `provider_id` 只是 claim/rate-limit advisory，执行时忽略 payload 中的旧视频身份键；payload 只保存任务定位与用户请求选项，不冻结完整请求。排队期间的项目、剧本或资产编辑因此会在 worker 开始时生效。只有未命中视频复用、真正即将进入 provider submit 的路径才跨过 execution checkpoint 边界：实际 provider 与版本化的完整执行事实在 submit 紧前原子落到专用任务列，不改写 payload。provider 创建 job 后的轮询与重启恢复只读该 checkpoint，不重算当前剧本/引用/provider/model；当前项目只提供凭证与 backend 构造，解析身份或自定义 endpoint 与 checkpoint 不同时显式失败。agent 工具层的 `resume=true`（未完成镜头重新入队提交）是另一机制，按当次配置求新的执行身份。
 - 图片侧空桶语义是「回退默认层」，不存在「空 = 跟随自动推断」的读法；存量配置的键组合在迁移中穷举处置。
 - 前端呈现与 per-model 存储按**执行模型**取键：凡按模型查能力或按模型存配置的界面元素（能力面板、`model_settings` 下的分辨率等），一律取当前配置真正会执行的模型——细分桶生效时是桶内模型，否则是默认层穿透演算的结果；视频侧先按项目路线定桶再求值，与后端按路线定桶的口径同源，项目内全集一致。图片侧一类例外：`executingImageModel` 只取 T2I 层的执行模型，图片分辨率据此存取键，I2I 走独立的执行模型——两者配置不同模型时，I2I 执行期按自己的模型查 `model_settings` 查不到该键，回落供应商默认分辨率档位。默认层模型不作查询或存储的键，除非它就是执行模型。
 - 设置 UI 三媒体（文本档位 / 图片桶 / 视频桶）共用同一交互形态：默认主下拉常驻 + 折叠的能力细分区，未配置桶的占位穿透演算到最终生效模型并标注各桶覆盖的调用点（zh / en / vi 同步）；创建向导只暴露默认层。

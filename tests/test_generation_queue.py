@@ -601,7 +601,7 @@ def stub_enqueue_resolution(monkeypatch):
     """把入队解析链（视频 / 图片 / 音频三条）换成固定身份，返回一个可改写解析结果的 holder。"""
     from lib.config.resolver import ProviderModel
 
-    holder = {"resolved": ProviderModel("custom-7", "pinned-video-model")}
+    holder = {"resolved": ProviderModel("custom-7", "advisory-video-model")}
 
     class _FakeResolver:
         def __init__(self, factory):
@@ -625,10 +625,10 @@ def stub_enqueue_resolution(monkeypatch):
     return holder
 
 
-class TestPinExecutionModelOnEnqueue:
-    """分镜视频锁定执行 model，reference_video 只保留 advisory provider。"""
+class TestProjectExecutionProviderOnEnqueue:
+    """两条视频路线入队都只保存 advisory provider，不冻结执行 model。"""
 
-    async def test_video_task_pins_bucket_key(self, queue, stub_enqueue_resolution):
+    async def test_video_task_keeps_only_advisory_provider(self, queue, stub_enqueue_resolution):
         enqueued = await queue.enqueue_task(
             project_name="demo",
             task_type="video",
@@ -638,7 +638,8 @@ class TestPinExecutionModelOnEnqueue:
             script_file="ep1.json",
         )
         task = await queue.get_task(enqueued["task_id"])
-        assert task["payload"]["video_provider_i2v"] == "custom-7/pinned-video-model"
+        assert task["payload"] == {"prompt": "p"}
+        assert "video_provider_i2v" not in task["payload"]
         assert task["provider_id"] == "custom-7"
 
     async def test_reference_video_task_keeps_only_advisory_provider(self, queue, stub_enqueue_resolution):
@@ -689,7 +690,7 @@ class TestPinExecutionModelOnEnqueue:
         assert task["provider_id"] == "custom-7"
 
     async def test_unresolvable_model_leaves_payload_untouched(self, queue, stub_enqueue_resolution):
-        """解析补不出 model → 不锁半截身份，payload 与 provider_id 均按原有兜底。"""
+        """解析补不出 provider → payload 不变，provider_id 保持 NULL 兜底。"""
         from lib.config.resolver import ProviderModel
 
         stub_enqueue_resolution["resolved"] = ProviderModel("", "")

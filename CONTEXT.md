@@ -83,7 +83,7 @@ ArcReel 中始终与 server 主进程**捆绑在同一个 uvicorn 进程内**的
 DB 中状态为 `running` 但 worker 内存里没有对应 asyncio.Task 的任务。唯一现实成因是**服务重启**（部署 / 崩溃恢复）；处理原则是不重新触发生成，只有具备完整恢复身份的提交-轮询型任务才可继续轮询。
 
 **execution checkpoint（执行检查点）**：
-参考视频任务首次向 provider 提交前冻结的单次付费请求身份与实际输入事实。它只证明「这次提交如何发生」，不是入队快照、provider job、任务状态或产物 current 标记。
+视频任务（分镜路线与参考路线）首次向 provider 提交前冻结的单次付费请求身份与实际输入事实。它只证明「这次提交如何发生」，不是入队快照、provider job、任务状态、Artifact Manifest 写入或产物 current 标记；命中同档复用时不创建 checkpoint。
 _Avoid_: request snapshot、resume payload、current marker。
 
 **cancel（取消）**：
@@ -128,8 +128,8 @@ _Avoid_: 把桶当强制配置（默认模型才是唯一兜底层）；按生�
 _Avoid_: 用默认层模型作能力查询或 per-model 存储的键（细分覆盖生效时两者不同）；把执行模型当作可配置项——它是解析结果，不是配置槽位；把执行模型等同于生成期 lane 结果的 backend 实际身份——后者是构造后的查询键（见「lane 结果的两组身份」），两者仅在自定义供应商 loader 未回退时保证一致。
 
 **执行身份（execution identity）**：
-某次视频任务入队时冻结的「provider + model」快照，执行与孤儿任务续跑（`resume_executor.py`，worker 层：任务已提交、进程中断后按原身份续轮询）都按它进行，不随此后的配置变化漂移。冻结动作称**锁定（pin）**。与「执行模型」相对：执行模型是按当前配置解析求值的结果、随配置变，执行身份是把彼时的执行模型冻结后的快照，从最终提交给 provider 那一刻起不再变（参考路线降级镜头有一次入队到提交之间的改写，见下）。锁定只发生在视频任务：音频/TTS 任务入队只派生 provider_id 供 claim 过滤、不锁定 model；图片任务不锁定（任务周期短，配置漂移窗口小）；视频任务的锁定本身是 best-effort——入队时派生执行模型失败会静默留空，此时没有身份可锁，任务退回按当前配置逐次求执行模型（`lib/generation_queue.py::_derive_execution_model_for_enqueue`）。身份的 endpoint 维度不随 provider+model 在入队时一并冻结，而是任务提交拿到 `provider_job_id` 时才经统一收口点（`lib/video_backends/base.py::_persist_provider_job_id`）持久化，按维度分落两列（与「endpoint（协议端口）」词条同名但非同一概念，那是 `ENDPOINT_REGISTRY` 里的协议槽位本身，这里是持久化的执行期取值）：**协议维度**只有自定义供应商有，落 `provider_endpoint` 列记协议标识——它决定协议，provider/model 不变也可能换 backend——续跑据此比对，不一致即显式失败；**连接维度**记当次实际使用的请求域名，续跑经 `submitted_base_url` 回放该域名轮询、不比对当前域名，自定义供应商记在同名的 `submitted_base_url` 列（其 `provider_endpoint` 位已被协议标识占用），内置供应商无协议维度、直接记在 `provider_endpoint` 列。域名只由走 dashscope 协议的 backend 记与消费（自定义供应商委托该协议时同样适用），内置侧即 DashScope（含 wan3.0），其余内置供应商（如 Gemini、Ark）不落此值，续跑按当前配置的 backend 直接轮询。排队中未提交的任务则照常按新配置提交。参考路线入队按 unit 声明近似锁定、提交前按实际参考图把身份改写为实际执行的那一个，孤儿续跑因此始终跟随实际执行过的 backend；锁定的身份续跑前只校验 provider/model 存在性，endpoint 维度仅自定义供应商额外比对，不重跑能力闸（见 `docs/adr/0054`）。
-_Avoid_: 用「执行模型」指代已冻结的身份（一个随配置变、一个不变）；把锁定当能力闸（闸在那个身份被锁定之前已过，锁定只锁身份；入队锁的身份闸在入队时过，参考路线降级为 i2v 的改写身份闸在执行期改写前才过）；换身份续跑（等于拿另一个 backend 轮原身份的 `provider_job_id`）；把「视频任务会锁定」当无条件保证——派生失败时不锁；把这里的「续跑」与 agent 工具层的 `resume=true`（未完成镜头重新入队提交，按当次配置求新的执行身份，不是同一机制）混为一谈；把 endpoint 维度当入队时随 provider+model 一并冻结——它冻结在提交那一刻；把落请求域名当所有供应商的通用行为——只有 dashscope 协议这条线记与回放域名，其余内置供应商续跑不经域名回放；把两个维度当同一格取值——协议标识与请求域名各占一列，拿标识当域名拼 URL 只会把可归因的 404 换成更难归因的连接错误；把「音频/图片任务不锁定」误读为它们没有执行模型——「执行模型」词条对全部任务类型都适用，只是「锁定」这个冻结动作只对视频任务发生。
+某次视频任务真正跨过 provider submit 边界时冻结的请求身份。两条视频路线在入队时都只派生 advisory `provider_id` 供 claim / 限流；payload 不锁 provider/model，worker 开始处理时按当前项目、剧本与 unit 重新物化请求。未命中同档复用后，worker 先把实际 provider 媒体复制到 task-local 不可变 staging，再在首次 submit 紧前把 task/project/script/unit 坐标、能力桶、provider/model/backend、自定义 endpoint 协议、ApiCall、最终 prompt/时长/请求设置、旁白事实、视觉 basis 与 staged 媒体摘要写成严格 checkpoint。checkpoint 写成后 provider 才可收单；拿到 `provider_job_id` 后再经统一收口点（`lib/video_backends/base.py::_persist_provider_job_id`）持久化 job 与连接信息。孤儿任务只有 checkpoint + job 齐备且严格绑定任务行才可由 `resume_executor.py` 接续；只有其一、checkpoint 损坏或身份/endpoint 漂移都显式失败，不按当前配置换身份续跑。连接维度仍按供应商类型分列：自定义供应商的协议标识在 `provider_endpoint`、请求域名在 `submitted_base_url`；内置供应商无协议维度，需回放域名的 DashScope 将域名记在 `provider_endpoint`。checkpoint 的版本来源事实只说明该付费产物如何产生，不宣称产物仍与当前剧本或资产一致（见 `docs/adr/0007`、`docs/adr/0054`）。
+_Avoid_: 把 advisory `provider_id` 或 enqueue payload 当冻结身份；从当前配置重算已提交 job 的 provider/model/backend；有 job 无 checkpoint 仍尝试 resume；把 checkpoint 当 Artifact Manifest/current 指针；把 agent 工具层的 `resume=true`（未完成镜头重新入队、会形成一次新提交）与 worker 的 provider job 续轮询混为一谈；把协议标识当请求域名。
 
 **图片编辑（image edit）**：
 对一张已有设计图或分镜图的指令式修改：以当前图为唯一参考图、以用户的增量修改指令为唯一 prompt，产出保持原图大体不变的新版本。编辑是对**图**的分叉而非对 prompt 的分叉——原 image_prompt 不回写；编辑后再触发重新生成仍按原 prompt 重画，编辑效果只能从版本历史找回。必然 i2i。

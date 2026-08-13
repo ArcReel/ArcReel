@@ -1,5 +1,6 @@
 import copy
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -723,6 +724,76 @@ class TestGenerationTasks:
         assert thumbnail_path.exists()
 
     @pytest.mark.integration
+    async def test_storyboard_worker_materializes_current_request_and_checkpoints_staged_frames(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        from lib.reference_video.execution_checkpoint import StoryboardSubmissionCheckpoint
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        item = fake_pm.script["segments"][0]
+        current_prompt = {"action": "current action", "camera_motion": "Static", "dialogue": []}
+        item["video_prompt"] = current_prompt
+        item["duration_seconds"] = 8
+        manifest = project_path / ".artifact_manifest.json"
+        manifest.write_bytes(b'{"unchanged":true}')
+        submitted: dict[str, Mapping[str, object]] = {}
+
+        class _CheckpointingGenerator(_FakeGenerator):
+            async def generate_video_async(self, **kwargs):
+                self.video_calls.append(kwargs)
+                start_image = kwargs["start_image"]
+                assert isinstance(start_image, Path)
+                assert ".arcreel/tasks/task-storyboard/provider_media/" in start_image.as_posix()
+                assert start_image.read_bytes() == b"png"
+                metadata = await kwargs["before_submit"](41)
+                assert metadata is not None
+                submitted["metadata"] = metadata
+                return project_path / "videos" / "scene_E1S01.mp4", 2, "ref", "uri"
+
+        fake_generator = _CheckpointingGenerator()
+        fake_queue = type("Queue", (), {})()
+        fake_queue.persist_execution_checkpoint = AsyncMock()
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_generation_queue", lambda: fake_queue)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, supported_durations=(4, 8, 12)),
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "stale.json",
+                "prompt": {"action": "stale enqueue prompt"},
+                "duration_seconds": 4,
+                "video_provider_i2v": "stale/model",
+            },
+            script_file="episode_1.json",
+            task_id="task-storyboard",
+        )
+
+        raw = fake_queue.persist_execution_checkpoint.await_args.args[1]
+        checkpoint = StoryboardSubmissionCheckpoint.from_json(raw)
+        call = fake_generator.video_calls[0]
+        assert checkpoint.script_file == "episode_1.json"
+        assert checkpoint.prompt == call["prompt"]
+        assert "current action" in checkpoint.prompt
+        assert "stale enqueue prompt" not in checkpoint.prompt
+        assert checkpoint.duration_seconds == 8
+        assert checkpoint.provider_id == "ark"
+        assert [media.role for media in checkpoint.media] == ["start_image"]
+        assert call["formal_output"] is True
+        assert submitted["metadata"]["execution_request_digest"] == checkpoint.request_digest
+        assert manifest.read_bytes() == b'{"unchanged":true}'
+        assert not (project_path / ".arcreel" / "tasks" / "task-storyboard" / "provider_media").exists()
+
+    @pytest.mark.integration
     async def test_execute_video_task_lane_bucket_follows_project_route(self, monkeypatch, tmp_path):
         """lane 归桶按项目路线求值，不再无条件 i2v——与提交入口口径同源。"""
         project_path = _prepare_files(tmp_path)
@@ -920,6 +991,7 @@ class TestGenerationTasks:
         current.parent.mkdir(parents=True, exist_ok=True)
         current.write_bytes(b"existing-paid-video")
         visual_prompt = {"action": "跑", "camera_motion": "Static", "dialogue": []}
+        item["video_prompt"] = visual_prompt
         visual_basis = build_storyboard_video_visual_basis(
             prompt=visual_prompt,
             storyboard_image=project_path / "storyboards" / "scene_E1S01.png",
@@ -982,7 +1054,10 @@ class TestGenerationTasks:
             AsyncMock(return_value=8.0),
         )
         output_guard = AsyncMock()
+        fake_queue = type("Queue", (), {})()
+        fake_queue.persist_execution_checkpoint = AsyncMock()
         monkeypatch.setattr(generation_tasks, "require_generated_video_covers_current_tts", output_guard)
+        monkeypatch.setattr(generation_tasks, "get_generation_queue", lambda: fake_queue)
 
         result = await generation_tasks.execute_video_task(
             "demo",
@@ -1002,6 +1077,8 @@ class TestGenerationTasks:
         assert result["version"] == selected_version
         assert result["request_duration_seconds"] == 8
         assert fake_generator.video_calls == []
+        fake_queue.persist_execution_checkpoint.assert_not_awaited()
+        assert not (project_path / ".arcreel" / "tasks" / "task-reuse" / "provider_media").exists()
         output_guard.assert_not_awaited()
         assert fake_pm.script == script_before
         assert fake_generator.versions.get_versions("videos", "E1S01") == history_before

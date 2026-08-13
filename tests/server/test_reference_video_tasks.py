@@ -2627,11 +2627,32 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
 
     events: list[str] = []
     submitted: dict[str, Any] = {}
+    real_visual_basis = rvt.reference_video_visual_basis_digest
+    captured_basis_kwargs: dict[str, Any] = {}
+
+    def _capture_live_visual_basis(**kwargs):
+        captured_basis_kwargs.update(kwargs)
+        digest = real_visual_basis(**kwargs)
+        submitted["initial_live_visual_basis"] = digest
+        return digest
+
+    monkeypatch.setattr(rvt, "reference_video_visual_basis_digest", _capture_live_visual_basis)
+    real_stage = rvt._stage_provider_media_for_task
+
+    async def _edit_source_before_staging(project_path, task_id, inputs):
+        if inputs:
+            inputs[0].path.write_bytes(b"edited-between-live-basis-and-staging")
+        return await real_stage(project_path, task_id, inputs)
+
+    monkeypatch.setattr(rvt, "_stage_provider_media_for_task", _edit_source_before_staging)
 
     async def _fake_generate_video_async(**kwargs):
         submitted.update(kwargs)
         assert kwargs["formal_output"] is True
         assert all(".arcreel/tasks/task-submit/provider_media/" in str(path) for path in kwargs["reference_images"])
+        expected_staged_basis = real_visual_basis(**captured_basis_kwargs)
+        assert kwargs["visual_basis_digest"] == expected_staged_basis
+        assert kwargs["visual_basis_digest"] != submitted["initial_live_visual_basis"]
         submitted["checkpoint_metadata"] = await kwargs["before_submit"](73)
         events.append("provider_submit")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
@@ -2769,7 +2790,7 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
     assert not (proj_dir / ".arcreel" / "tasks" / "task-checkpoint-failure" / "provider_media").exists()
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_provider_media_staging_cleanup_survives_repeated_cancellation(
     tmp_path: Path,

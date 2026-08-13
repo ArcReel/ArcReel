@@ -260,7 +260,7 @@ class TestMediaGenerator:
         assert version2 == 2
         assert gen.ledger.started[-1]["call_type"] == "video"
 
-    @pytest.mark.unit
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_video_before_submit_runs_once_immediately_before_first_backend_call(self, tmp_path):
         from lib.version_manager import VersionManager
@@ -291,7 +291,7 @@ class TestMediaGenerator:
         history = gen.versions.get_versions("reference_videos", "E1U1")
         assert history["versions"][0]["execution_api_call_id"] == 1
 
-    @pytest.mark.unit
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_video_before_submit_failure_prevents_provider_call(self, tmp_path):
         gen = _build_generator(tmp_path)
@@ -310,7 +310,7 @@ class TestMediaGenerator:
         assert gen._video_backend.calls == []
         assert [outcome["status"] for outcome in gen.ledger.outcomes] == ["failed"]
 
-    @pytest.mark.unit
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_video_before_submit_is_not_repeated_for_413_compression_retry(self, tmp_path):
         gen = _build_generator(tmp_path)
@@ -351,6 +351,40 @@ class TestMediaGenerator:
 
         assert backend.attempts == 2
         assert checkpoint_calls == [1]
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_video_413_after_provider_acceptance_never_resubmits(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        ref = _solid_png(tmp_path, "ref-after-submit.png", 16, 16)
+
+        class _Poll413Backend(_FakeVideoBackend):
+            from lib.video_backends.base import VideoCapabilities
+
+            video_capabilities = VideoCapabilities(max_reference_images=9)
+
+            def __init__(self):
+                super().__init__(video_capabilities=type(self).video_capabilities)
+                self.attempts = 0
+
+            async def generate(self, request):
+                self.attempts += 1
+                if request.on_provider_resubmit_unsafe is not None:
+                    request.on_provider_resubmit_unsafe()
+                raise _http_413_error()
+
+        backend = _Poll413Backend()
+        gen._video_backend = backend
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                reference_images=[ref],
+            )
+
+        assert backend.attempts == 1
 
     @pytest.mark.integration
     @pytest.mark.asyncio

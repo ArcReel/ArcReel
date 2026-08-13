@@ -156,6 +156,57 @@ class MediaGenerator:
         self.ledger = Ledger()
 
     @staticmethod
+    def _prepare_video_output(output_path: Path, *, formal_output: bool) -> tuple[Path | None, Path]:
+        """Return an optional same-directory staging path and the path the backend must write."""
+
+        if not formal_output:
+            return None, output_path
+        fd, staged_name = tempfile.mkstemp(
+            prefix=f".{output_path.stem}.",
+            suffix=output_path.suffix,
+            dir=output_path.parent,
+        )
+        os.close(fd)
+        staged_output_path = Path(staged_name)
+        staged_output_path.unlink()
+        return staged_output_path, staged_output_path
+
+    def _commit_video_output_version(
+        self,
+        *,
+        resource_type: str,
+        resource_id: str,
+        prompt: str,
+        output_path: Path,
+        staged_output_path: Path | None,
+        duration_seconds: int,
+        version_metadata: Mapping[str, Any],
+    ) -> int:
+        """Register a normal or resumed video through one identical formal-output commit path."""
+
+        if staged_output_path is None:
+            return self.versions.add_version(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                prompt=prompt,
+                source_file=output_path,
+                duration_seconds=duration_seconds,
+                **version_metadata,
+            )
+        try:
+            return self.versions.commit_staged_version(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                prompt=prompt,
+                staged_file=staged_output_path,
+                current_file=output_path,
+                duration_seconds=duration_seconds,
+                **version_metadata,
+            )
+        finally:
+            staged_output_path.unlink(missing_ok=True)
+
+    @staticmethod
     def _sync(coro):
         """Run an async coroutine from synchronous code (e.g. inside to_thread)."""
         try:
@@ -212,6 +263,7 @@ class MediaGenerator:
         provider_id: str | None,
         build_and_call: "Callable[[list[CompressedRef]], Awaitable[Any]]",
         before_submit: Callable[[], Awaitable[None]] | None = None,
+        provider_resubmit_is_unsafe: Callable[[], bool] | None = None,
     ) -> Any:
         """对参考上传副本做主动压缩 + 预检降档 + 被动 413 兜底，再调用 backend。
 
@@ -252,7 +304,7 @@ class MediaGenerator:
             try:
                 return await _call_once(compressed)
             except Exception as e:
-                if not _is_413(e):
+                if not _is_413(e) or (provider_resubmit_is_unsafe is not None and provider_resubmit_is_unsafe()):
                     raise
                 # 从「实际落定档位 landed」续档，而非请求值 step——主动预检可能已因字节超限
                 # 降到 landed>step，必须 landed+1 才严格更小、保证降档单调。
@@ -714,18 +766,10 @@ class MediaGenerator:
             configured_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
         effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
 
-        staged_output_path: Path | None = None
-        backend_output_path = output_path
-        if formal_output:
-            fd, staged_name = tempfile.mkstemp(
-                prefix=f".{output_path.stem}.",
-                suffix=output_path.suffix,
-                dir=output_path.parent,
-            )
-            os.close(fd)
-            staged_output_path = Path(staged_name)
-            staged_output_path.unlink()
-            backend_output_path = staged_output_path
+        staged_output_path, backend_output_path = self._prepare_video_output(
+            output_path,
+            formal_output=formal_output,
+        )
 
         # video 实际计费时长（result.duration_seconds）覆盖请求时长的语义转写已收进 ledger union
         # 分发（_settlement_from_result），此处仅递交 backend 结果对象。
@@ -768,6 +812,11 @@ class MediaGenerator:
             start_spec_idx = slot_plan.start_index
             end_spec_idx = slot_plan.end_index
             ref_start_idx = slot_plan.reference_start_index
+            provider_resubmit_unsafe = False
+
+            def _mark_provider_resubmit_unsafe() -> None:
+                nonlocal provider_resubmit_unsafe
+                provider_resubmit_unsafe = True
 
             def _call_video(compressed: "list[CompressedRef]"):
                 start_arg = compressed[start_spec_idx].path if start_spec_idx is not None else None
@@ -796,6 +845,7 @@ class MediaGenerator:
                         generate_audio=effective_generate_audio,
                         project_name=self.project_name,
                         task_id=task_id,
+                        on_provider_resubmit_unsafe=_mark_provider_resubmit_unsafe,
                         service_tier=version_metadata.get("service_tier", "default"),
                         seed=version_metadata.get("seed"),
                     )
@@ -813,6 +863,7 @@ class MediaGenerator:
                     provider_id=self._video_provider_id,
                     build_and_call=_call_video,
                     before_submit=_before_first_submit if before_submit is not None else None,
+                    provider_resubmit_is_unsafe=lambda: provider_resubmit_unsafe,
                 )
             except BaseException:
                 if staged_output_path is not None:
@@ -822,28 +873,15 @@ class MediaGenerator:
             call.success(result)
 
         # 5. 记录新版本
-        if staged_output_path is not None:
-            try:
-                new_version = self.versions.commit_staged_version(
-                    resource_type=resource_type,
-                    resource_id=resource_id,
-                    prompt=prompt,
-                    staged_file=staged_output_path,
-                    current_file=output_path,
-                    duration_seconds=duration_int,
-                    **version_metadata,
-                )
-            finally:
-                staged_output_path.unlink(missing_ok=True)
-        else:
-            new_version = self.versions.add_version(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                prompt=prompt,
-                source_file=output_path,
-                duration_seconds=duration_int,
-                **version_metadata,
-            )
+        new_version = self._commit_video_output_version(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            prompt=prompt,
+            output_path=output_path,
+            staged_output_path=staged_output_path,
+            duration_seconds=duration_int,
+            version_metadata=version_metadata,
+        )
 
         return output_path, new_version, video_ref, video_uri
 
@@ -900,18 +938,10 @@ class MediaGenerator:
             configured_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
         effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
 
-        staged_output_path: Path | None = None
-        backend_output_path = output_path
-        if formal_output:
-            fd, staged_name = tempfile.mkstemp(
-                prefix=f".{output_path.stem}.",
-                suffix=output_path.suffix,
-                dir=output_path.parent,
-            )
-            os.close(fd)
-            staged_output_path = Path(staged_name)
-            staged_output_path.unlink()
-            backend_output_path = staged_output_path
+        staged_output_path, backend_output_path = self._prepare_video_output(
+            output_path,
+            formal_output=formal_output,
+        )
 
         from lib.video_backends.base import ResumeExpiredError, VideoGenerationRequest
 
@@ -976,27 +1006,14 @@ class MediaGenerator:
         # - versions.json 空时（submit→poll 中崩）add_version 直接登记 v1，避免下游 versions[-1] IndexError；
         # - versions.json 已有 v_n（覆盖式重新生成）时 add_version 登记 v_(n+1)，避免 output_path
         #   被新内容覆盖却仍报旧版本号导致 versions.json 与磁盘文件错位。
-        if staged_output_path is not None:
-            try:
-                new_version = self.versions.commit_staged_version(
-                    resource_type=resource_type,
-                    resource_id=resource_id,
-                    prompt=prompt,
-                    staged_file=staged_output_path,
-                    current_file=output_path,
-                    duration_seconds=duration_int,
-                    **version_metadata,
-                )
-            finally:
-                staged_output_path.unlink(missing_ok=True)
-        else:
-            new_version = self.versions.add_version(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                prompt=prompt,
-                source_file=output_path,
-                duration_seconds=duration_int,
-                **version_metadata,
-            )
+        new_version = self._commit_video_output_version(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            prompt=prompt,
+            output_path=output_path,
+            staged_output_path=staged_output_path,
+            duration_seconds=duration_int,
+            version_metadata=version_metadata,
+        )
 
         return output_path, new_version, video_ref, video_uri
