@@ -389,6 +389,7 @@ MESSAGES = {
     "overview_source_empty": "Source directory is empty; cannot generate overview",
     "text_provider_not_configured": "Please configure a text provider first: add at least one provider in Settings → Providers",
     "jianying_no_completed_segments": "Episode {episode} has no completed video clips; generate videos first",
+    "presentation_unavailable": "The selected video presentation is unavailable or no longer fits its media boundary",
     "project_config_invalid": "Invalid project configuration; check the parameters and retry",
     "invalid_discovery_format": "Unsupported model discovery format: {discovery_format}",
     "request_invalid": "Invalid request, please check and retry",

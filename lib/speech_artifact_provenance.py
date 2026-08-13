@@ -23,6 +23,16 @@ from lib.speech_composition import SpeechMode, SpeechOwner, SpeechPreparation
 
 RenditionVariant = Literal["post_production", "use_tts"]
 _DIGEST_RE = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
+_DEFAULT_SUBTITLE_TIMING_POLICY: Mapping[str, object] = {
+    "kind": "mechanical-text-length",
+    "version": 1,
+}
+_DEFAULT_PRESENTATION_MIX_POLICY: Mapping[str, object] = {
+    "kind": "provider-original-plus-optional-tts",
+    "version": 1,
+    "provider_video_gain": 1.0,
+    "narration_audio_gain": 1.0,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +102,38 @@ class SelectedMediaEvidence:
             "basis": self.basis.to_dict(),
             "content_digest": self.content_digest,
             "actual_duration_seconds": self.actual_duration_seconds,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SubtitleUtteranceEvidence:
+    """Canonical spoken text shared by subtitle artifacts and timing adapters."""
+
+    owner: SpeechOwner
+    text: str
+    speaker: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.owner, SpeechOwner):
+            raise TypeError("owner must be a SpeechOwner")
+        normalized_text = _canonical_text(self.text)
+        if not normalized_text:
+            raise ValueError("subtitle utterance text must be non-empty")
+        normalized_speaker = (
+            asset_name_comparison_key(self.speaker or "") if self.owner is SpeechOwner.CHARACTER else None
+        )
+        if self.owner is SpeechOwner.CHARACTER and not normalized_speaker:
+            raise ValueError("character subtitle utterance requires a speaker")
+        if self.owner is SpeechOwner.NARRATOR and self.speaker is not None:
+            raise ValueError("narrator subtitle utterance cannot have a speaker")
+        object.__setattr__(self, "text", normalized_text)
+        object.__setattr__(self, "speaker", normalized_speaker)
+
+    def basis_input(self) -> dict[str, object]:
+        return {
+            "owner": self.owner.value,
+            "speaker": self.speaker,
+            "text": self.text,
         }
 
 
@@ -223,6 +265,7 @@ def build_mechanical_subtitle_basis(
     variant: RenditionVariant,
     video: SelectedMediaEvidence,
     narration_audio: SelectedMediaEvidence | None = None,
+    timing_policy: Mapping[str, object] = _DEFAULT_SUBTITLE_TIMING_POLICY,
 ) -> ArtifactBasis:
     """Describe a mechanical subtitle draft without materializing its timeline."""
 
@@ -232,6 +275,8 @@ def build_mechanical_subtitle_basis(
         raise TypeError("video must be SelectedMediaEvidence")
     if narration_audio is not None and not isinstance(narration_audio, SelectedMediaEvidence):
         raise TypeError("narration_audio must be SelectedMediaEvidence or null")
+    if not isinstance(timing_policy, Mapping):
+        raise TypeError("timing_policy must be a mapping")
 
     narrator_uses_tts = mode is SpeechMode.NARRATOR_VOICEOVER and normalized_variant == USE_TTS
     if narrator_uses_tts and narration_audio is None:
@@ -245,8 +290,9 @@ def build_mechanical_subtitle_basis(
         inputs={
             "variant": normalized_variant,
             "mode": mode.value,
-            "utterances": _subtitle_utterances(preparation),
+            "utterances": [utterance.basis_input() for utterance in project_subtitle_utterances(preparation)],
             "boundary_media": boundary.basis_input(),
+            "timing_policy": dict(timing_policy),
         },
     )
 
@@ -257,6 +303,8 @@ def build_presentation_basis(
     video: SelectedMediaEvidence,
     subtitle: ArtifactBasis | ArtifactBasisDescriptor,
     narration_audio: SelectedMediaEvidence | None = None,
+    provider_audio_enabled: bool = True,
+    mix_policy: Mapping[str, object] = _DEFAULT_PRESENTATION_MIX_POLICY,
 ) -> ArtifactBasis:
     """Describe a final-presentation variant without performing media mixing."""
 
@@ -266,6 +314,10 @@ def build_presentation_basis(
     subtitle_descriptor = _basis_descriptor("subtitle", subtitle)
     if narration_audio is not None and not isinstance(narration_audio, SelectedMediaEvidence):
         raise TypeError("narration_audio must be SelectedMediaEvidence or null")
+    if not isinstance(provider_audio_enabled, bool):
+        raise TypeError("provider_audio_enabled must be a boolean")
+    if not isinstance(mix_policy, Mapping):
+        raise TypeError("mix_policy must be a mapping")
     if normalized_variant == USE_TTS and narration_audio is None:
         raise ValueError("use_tts presentation basis requires narration audio")
     if normalized_variant == POST_PRODUCTION and narration_audio is not None:
@@ -279,23 +331,31 @@ def build_presentation_basis(
             "video": video.basis_input(),
             "subtitle": subtitle_descriptor.to_dict(),
             "narration_audio": narration_audio.basis_input() if narration_audio is not None else None,
+            "mix_policy": {
+                **dict(mix_policy),
+                "provider_audio_enabled": provider_audio_enabled,
+            },
         },
     )
 
 
-def _subtitle_utterances(preparation: SpeechPreparation) -> list[dict[str, object]]:
-    values: list[dict[str, object]] = []
+def project_subtitle_utterances(preparation: SpeechPreparation) -> tuple[SubtitleUtteranceEvidence, ...]:
+    """Return the one canonical utterance projection used by basis and timing."""
+
+    _require_prepared_speech(preparation)
+    values: list[SubtitleUtteranceEvidence] = []
     for utterance in preparation.utterances:
         text = _canonical_text(utterance.text)
         if not text:
             continue
-        speaker = (
-            asset_name_comparison_key(utterance.speaker or "") if utterance.owner is SpeechOwner.CHARACTER else None
+        values.append(
+            SubtitleUtteranceEvidence(
+                owner=utterance.owner,
+                speaker=utterance.speaker,
+                text=text,
+            )
         )
-        if utterance.owner is SpeechOwner.CHARACTER and not speaker:
-            raise ValueError("character subtitle utterance requires a speaker")
-        values.append({"owner": utterance.owner.value, "speaker": speaker, "text": text})
-    return values
+    return tuple(values)
 
 
 def _require_prepared_speech(preparation: SpeechPreparation) -> SpeechMode:
@@ -340,9 +400,11 @@ __all__ = [
     "CharacterVoiceEvidence",
     "RenditionVariant",
     "SelectedMediaEvidence",
+    "SubtitleUtteranceEvidence",
     "build_mechanical_subtitle_basis",
     "build_presentation_basis",
     "build_video_duration_basis",
     "build_video_speech_basis",
+    "project_subtitle_utterances",
     "project_character_voice_evidence",
 ]

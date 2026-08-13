@@ -20,6 +20,12 @@ vi.mock("@/components/canvas/timeline/VersionTimeMachine", () => ({
   ),
 }));
 
+vi.mock("@/components/shared/PresentationPlayer", () => ({
+  PresentationPlayer: ({ resourceId }: { resourceId: string }) => (
+    <div data-testid="presentation-player" data-resource-id={resourceId} />
+  ),
+}));
+
 function versionMachineBusy(): boolean {
   return screen.getByTestId("version-time-machine").dataset.busy === "true";
 }
@@ -57,7 +63,7 @@ describe("UnitPreviewPanel", () => {
     expect(screen.getByText(/Not yet generated|尚未生成/)).toBeInTheDocument();
   });
 
-  it("renders <video> when video_clip is present", () => {
+  it("renders the shared presentation when video_clip is present", () => {
     const unit = mkUnit({
       generated_assets: {
         ...mkUnit().generated_assets,
@@ -65,10 +71,8 @@ describe("UnitPreviewPanel", () => {
         video_clip: "reference_videos/E1U1.mp4",
       },
     });
-    const { container } = render(
-      <UnitPreviewPanel unit={unit} projectName="proj" />,
-    );
-    expect(container.querySelector("video")).toBeInTheDocument();
+    render(<UnitPreviewPanel unit={unit} projectName="proj" />);
+    expect(screen.getByTestId("presentation-player")).toHaveAttribute("data-resource-id", "E1U1");
   });
 
   it("invokes onUploadVideo with unit id and selected file", () => {

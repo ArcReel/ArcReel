@@ -393,13 +393,17 @@ def _validate_draft_path(draft_path: str, _t: Callable[..., str]) -> str:
 
 
 @self_auth_router.get("/projects/{name}/export/jianying-draft")
-def export_jianying_draft(
+async def export_jianying_draft(
     name: str,
     _t: Translator,
     episode: int = Query(..., description="集数编号"),
     draft_path: str = Query(..., description="用户本地剪映草稿目录"),
     download_token: str = Query(..., description="下载 token"),
     jianying_version: str = Query("6", description="剪映版本：6 或 5"),
+    narration_delivery: Literal["post_production", "use_tts"] = Query(
+        "post_production",
+        description="旁白交付版本",
+    ),
 ):
     """导出指定集的剪映草稿 ZIP"""
     import jwt as pyjwt
@@ -419,13 +423,15 @@ def export_jianying_draft(
 
     # 3. 调用服务
     from server.services.jianying_draft_service import NoCompletedSegmentsError
+    from server.services.presentation_read_model import PresentationUnavailableError
 
     svc = get_jianying_draft_service()
     try:
-        zip_path = svc.export_episode_draft(
+        zip_path = await svc.export_episode_draft(
             project_name=name,
             episode=episode,
             draft_path=draft_path,
+            variant=narration_delivery,
             use_draft_info_name=(jianying_version != "5"),
         )
     except FileNotFoundError:
@@ -435,6 +441,9 @@ def export_jianying_draft(
     except NoCompletedSegmentsError as e:
         logger.warning("剪映草稿导出参数错误: project=%s episode=%d (%s)", name, episode, e)
         raise ApiError("jianying_no_completed_segments", status_code=422, episode=episode) from e
+    except PresentationUnavailableError as exc:
+        logger.warning("剪映草稿 presentation 不可用: project=%s episode=%d (%s)", name, episode, exc)
+        raise ApiError("presentation_unavailable", status_code=422) from exc
     except Exception:
         # 含暂存/写入阶段的路径越界守卫（ValueError，str(e) 带真实路径）：属安全告警而非
         # 常规空态，不应误报为「本集无已完成片段」，一律降级为通用 500，细节只进日志

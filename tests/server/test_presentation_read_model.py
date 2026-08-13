@@ -1,0 +1,328 @@
+"""Project adapter contracts for the shared presentation read model."""
+
+from __future__ import annotations
+
+import json
+import zipfile
+from pathlib import Path
+
+import pytest
+
+from lib.artifact_manifest import (
+    ArtifactBasisDescriptor,
+    ArtifactKey,
+    ArtifactManifest,
+    ProjectArtifactManifestAdapter,
+    compose_video_artifact_basis,
+)
+from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis, canonical_narration_text
+from lib.project_manager import ProjectManager
+from lib.speech_artifact_provenance import build_video_duration_basis, build_video_speech_basis
+from lib.speech_composition import admit_script_unit
+from lib.version_manager import VersionManager
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
+from server.services.presentation_bundle import PresentationBundleService
+from server.services.presentation_read_model import PresentationReadModelService, PresentationUnavailableError
+
+pytestmark = pytest.mark.integration
+
+
+class _SettingsResolver:
+    def __init__(self, settings: TtsSynthesisSettings) -> None:
+        self.settings = settings
+
+    async def resolve_tts_synthesis_settings(self, _project: dict) -> TtsSynthesisSettings:
+        return self.settings
+
+
+def _write_json(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+
+
+def _setup_narrator_project(tmp_path: Path) -> tuple[ProjectManager, Path, TtsSynthesisSettings]:
+    projects_root = tmp_path / "projects"
+    project_path = projects_root / "demo"
+    for subdir in ("scripts", "storyboards", "videos", "audio"):
+        (project_path / subdir).mkdir(parents=True, exist_ok=True)
+    project = {
+        "title": "Demo",
+        "content_mode": "narration",
+        "generation_mode": "storyboard",
+        "grid_storyboard": False,
+        "aspect_ratio": "9:16",
+        "default_duration": 8,
+        "characters": {},
+        "episodes": [{"episode": 1, "title": "One", "script_file": "scripts/episode_1.json"}],
+    }
+    item = {
+        "segment_id": "E1S01",
+        "duration_seconds": 8,
+        "novel_text": "一\n二二",
+        "video_prompt": {"action": "Clouds move", "camera_motion": "Static"},
+        "generated_assets": {
+            "storyboard_image": "storyboards/scene_E1S01.png",
+            "video_clip": "videos/scene_E1S01.mp4",
+            "narration_audio": "audio/segment_E1S01.wav",
+        },
+    }
+    script = {"episode": 1, "content_mode": "narration", "segments": [item]}
+    _write_json(project_path / "project.json", project)
+    _write_json(project_path / "scripts" / "episode_1.json", script)
+    storyboard = project_path / "storyboards" / "scene_E1S01.png"
+    storyboard.write_bytes(b"storyboard")
+    video = project_path / "videos" / "scene_E1S01.mp4"
+    video.write_bytes(b"provider-video-v1")
+    audio = project_path / "audio" / "segment_E1S01.wav"
+    audio.write_bytes(b"tts-audio-v1")
+
+    preparation = admit_script_unit("segments", item).preparation
+    visual = build_storyboard_video_artifact_visual_basis(
+        resource_id="E1S01",
+        visual_prompt=item["video_prompt"],
+        storyboard_image=storyboard,
+        end_frame_image=None,
+        aspect_ratio="9:16",
+    )
+    speech = build_video_speech_basis(preparation)
+    duration = build_video_duration_basis(8)
+    currency = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=8,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(4, 8, 12),
+        reference_image_limit=None,
+        parent_version=0,
+    )
+    versions = VersionManager(project_path)
+    versions.add_version(
+        "videos",
+        "E1S01",
+        "video",
+        source_file=video,
+        execution_checkpoint_schema_version=3,
+        execution_script_file="episode_1.json",
+        execution_duration_seconds=8,
+        execution_request_digest="d" * 64,
+        execution_provider_media=[],
+        execution_generate_audio=True,
+        artifact_video_currency=currency.to_dict(),
+    )
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+        ArtifactKey.episode_video(1, "E1S01"),
+        artifact_path="videos/scene_E1S01.mp4",
+        basis=currency.video_basis,
+    )
+
+    settings = TtsSynthesisSettings("openai", "tts-1", "alloy", 1.0)
+    audio_basis = build_narration_audio_basis(preparation, settings)
+    versions.add_version(
+        "audio",
+        "E1S01",
+        canonical_narration_text(preparation),
+        source_file=audio,
+        execution_script_file="episode_1.json",
+        artifact_episode=1,
+        artifact_audio_basis=ArtifactBasisDescriptor.from_basis(audio_basis).to_dict(),
+        tts_basis_digest=audio_basis.digest,
+        tts_actual_duration_seconds=4.5,
+        tts_provider_id=settings.provider_id,
+        tts_model_id=settings.model_id,
+        tts_voice=settings.voice,
+        tts_speed=settings.speed,
+    )
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+        ArtifactKey.episode_audio(1, "E1S01"),
+        artifact_path="audio/segment_E1S01.wav",
+        basis=audio_basis,
+    )
+    return ProjectManager(projects_root), project_path, settings
+
+
+async def test_current_tts_presentation_materializes_manifest_and_actual_media_boundaries(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+
+    # Version filenames contain timestamps, so probe by media suffix instead of a fixed basename.
+    async def probe(path: Path) -> float | None:
+        return 4.5 if path.suffix == ".wav" else 6.25
+
+    service = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+
+    result = await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="use_tts",
+    )
+
+    assert result.presentation.video.duration_microseconds == 6_250_000
+    assert result.presentation.narration_audio is not None
+    assert result.presentation.narration_audio.duration_microseconds == 4_500_000
+    assert [cue.end_microseconds for cue in result.presentation.subtitles] == [4_500_000]
+    assert result.presentation.selection == "current"
+    assert result.presentation.currency == "current"
+    assert (project_path / result.subtitle_artifact_path).is_file()
+    assert (project_path / result.presentation_artifact_path).is_file()
+    adapter = ProjectArtifactManifestAdapter(project_path)
+    assert adapter.get_entry(ArtifactKey.episode_subtitle(1, "E1S01", "use_tts")) is not None
+    assert adapter.get_entry(ArtifactKey.episode_presentation(1, "E1S01", "use_tts")) is not None
+
+
+async def test_stale_current_tts_remains_materializable_without_touching_paid_media(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+
+    async def probe(path: Path) -> float | None:
+        return 4.5 if path.suffix == ".wav" else 6.25
+
+    service = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["segments"][0]["novel_text"] = "新的旁白"
+    _write_json(script_path, script)
+    video_before = (project_path / "videos" / "scene_E1S01.mp4").read_bytes()
+    audio_before = (project_path / "audio" / "segment_E1S01.wav").read_bytes()
+
+    result = await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="use_tts",
+    )
+
+    assert result.presentation.selection == "current"
+    assert result.presentation.currency == "stale"
+    assert (project_path / "videos" / "scene_E1S01.mp4").read_bytes() == video_before
+    assert (project_path / "audio" / "segment_E1S01.wav").read_bytes() == audio_before
+
+
+async def test_history_read_does_not_replace_current_presentation_or_manifest(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+
+    async def probe(path: Path) -> float | None:
+        return 4.5 if path.suffix == ".wav" else 6.25
+
+    service = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+    current = await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="post_production",
+    )
+    presentation_path = project_path / current.presentation_artifact_path
+    before_bytes = presentation_path.read_bytes()
+    before_entry = ProjectArtifactManifestAdapter(project_path).get_entry(
+        ArtifactKey.episode_presentation(1, "E1S01", "post_production")
+    )
+
+    versions = VersionManager(project_path)
+    record = versions.get_versions("videos", "E1S01")["versions"][0]
+    source = project_path / record["file"]
+    versions.add_version(
+        "videos",
+        "E1S01",
+        "second",
+        source_file=source,
+        **{
+            key: value
+            for key, value in record.items()
+            if key
+            not in {"version", "file", "filename", "prompt", "created_at", "is_current", "file_url", "restored_from"}
+        },
+    )
+    history = await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="post_production",
+        video_version=1,
+    )
+
+    assert history.presentation.selection == "history"
+    assert history.presentation.video.media.version == 1
+    assert presentation_path.read_bytes() == before_bytes
+    assert (
+        ProjectArtifactManifestAdapter(project_path).get_entry(
+            ArtifactKey.episode_presentation(1, "E1S01", "post_production")
+        )
+        == before_entry
+    )
+
+
+async def test_editable_bundle_contains_exact_selected_media_model_and_subtitles(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+
+    async def probe(path: Path) -> float | None:
+        return 4.5 if path.suffix == ".wav" else 6.25
+
+    read_model = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+    service = PresentationBundleService(pm, presentation_reader=read_model)
+    video_before = (project_path / "videos" / "scene_E1S01.mp4").read_bytes()
+    audio_before = (project_path / "audio" / "segment_E1S01.wav").read_bytes()
+
+    bundle = await service.export_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="use_tts",
+    )
+
+    with zipfile.ZipFile(bundle) as archive:
+        assert set(archive.namelist()) == {
+            "media/video.mp4",
+            "media/narration.wav",
+            "presentation.json",
+            "subtitles.json",
+            "subtitles.vtt",
+        }
+        model = json.loads(archive.read("presentation.json"))
+        assert model["selection"] == "current"
+        assert model["currency"] == "current"
+        assert model["video"]["duration_microseconds"] == 6_250_000
+        assert model["narration_audio"]["duration_microseconds"] == 4_500_000
+        assert archive.read("media/video.mp4") == video_before
+        assert archive.read("media/narration.wav") == audio_before
+        assert "00:00:00.000 --> 00:00:04.500" in archive.read("subtitles.vtt").decode("utf-8")
+    assert (project_path / "videos" / "scene_E1S01.mp4").read_bytes() == video_before
+    assert (project_path / "audio" / "segment_E1S01.wav").read_bytes() == audio_before
+
+
+async def test_overlong_selected_tts_is_unavailable_instead_of_clipped(tmp_path: Path) -> None:
+    pm, _project_path, settings = _setup_narrator_project(tmp_path)
+
+    async def probe(path: Path) -> float | None:
+        return 7.0 if path.suffix == ".wav" else 6.25
+
+    service = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+
+    with pytest.raises(PresentationUnavailableError, match="cannot form"):
+        await service.materialize_unit(
+            project_name="demo",
+            resource_type="videos",
+            resource_id="E1S01",
+            variant="use_tts",
+        )

@@ -391,6 +391,7 @@ MESSAGES = {
     "overview_source_empty": "Thư mục nguồn trống; không thể tạo tổng quan",
     "text_provider_not_configured": "Vui lòng cấu hình nhà cung cấp văn bản trước: thêm ít nhất một nhà cung cấp trong Cài đặt → Nhà cung cấp",
     "jianying_no_completed_segments": "Tập {episode} chưa có đoạn video hoàn thành; hãy tạo video trước",
+    "presentation_unavailable": "Bản trình bày video đã chọn không khả dụng hoặc lời thuyết minh vượt quá giới hạn phương tiện",
     "project_config_invalid": "Cấu hình dự án không hợp lệ; hãy kiểm tra tham số và thử lại",
     "invalid_discovery_format": "Định dạng khám phá mô hình không được hỗ trợ: {discovery_format}",
     "request_invalid": "Yêu cầu không hợp lệ, vui lòng kiểm tra và thử lại",

@@ -132,6 +132,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
     episode: number,
     draftPath: string,
     jianyingVersion: string,
+    narrationDelivery: "post_production" | "use_tts",
   ) => {
     if (!currentProjectName || jianyingExporting) return;
 
@@ -144,6 +145,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
         draftPath,
         download_token,
         jianyingVersion,
+        narrationDelivery,
       );
       triggerBrowserDownload(url);
       setExportDialogOpen(false);

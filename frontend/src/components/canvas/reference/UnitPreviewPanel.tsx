@@ -3,6 +3,7 @@ import { Film, Loader2, Sparkles, RotateCcw, AlertTriangle } from "lucide-react"
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
+import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
 import { NarrationAudioCard } from "@/components/canvas/timeline/NarrationAudioCard";
 import { UPLOAD_VIDEO_ACCEPT, UploadIconButton } from "@/components/ui/UploadIconButton";
 import { formatCost } from "@/utils/cost-format";
@@ -163,16 +164,13 @@ export function UnitPreviewPanel({
             : "bg-[oklch(0.18_0.010_265_/_0.5)]"
         }`}
       >
-        {ready && videoUrl && (
+        {ready && videoUrl && projectName && (
           <>
-            {/* eslint-disable-next-line jsx-a11y/media-has-caption -- AI-generated video clips have no caption track */}
-            <video
-              src={videoUrl}
-              aria-label={t("reference_preview_video_aria", { id: unit.unit_id })}
-              controls
-              preload="metadata"
-              playsInline
-              className="h-full w-full object-contain"
+            <PresentationPlayer
+              key={`${unit.unit_id}:${clipFp ?? "current"}`}
+              projectName={projectName}
+              resourceType="reference_videos"
+              resourceId={unit.unit_id}
             />
             <div
               className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded border border-white/10 bg-black/55 px-2 py-0.5 font-mono text-[10px] text-white/85 backdrop-blur"
