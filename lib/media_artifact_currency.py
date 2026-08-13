@@ -83,6 +83,7 @@ def build_current_video_artifact_basis(
     version_metadata: Mapping[str, Any],
     current_tts_settings: TtsSynthesisSettings | None = None,
     resolve_audio_manifest_entry: AudioManifestEntryResolver | None = None,
+    allow_legacy_storyboard_same_name: bool | None = None,
 ) -> ArtifactBasisDescriptor | None:
     """Rebuild current video inputs using only frozen execution dependency shape."""
 
@@ -138,8 +139,10 @@ def build_current_video_artifact_basis(
         prompt = item.get("video_prompt")
         storyboard, end_frame = resolve_storyboard_video_inputs(
             project_path=project_path,
+            project=project,
             resource_id=resource_id,
             item=item,
+            allow_legacy_same_name=allow_legacy_storyboard_same_name,
         )
         visual = build_storyboard_video_artifact_visual_basis(
             resource_id=resource_id,

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -34,7 +33,7 @@ from lib.artifact_version_provenance import parse_typed_audio_settings, parse_ty
 from lib.asset_types import ASSET_SPECS, asset_name_comparison_key
 from lib.grid.layout import grid_aspect_ratio_for
 from lib.grid.models import GridGeneration
-from lib.json_io import atomic_write_json
+from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.media_artifact_currency import build_current_audio_artifact_basis, build_current_video_artifact_basis
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
@@ -62,6 +61,26 @@ class ArtifactTargetStatePlan:
     project_bytes: bytes
     dependency_bytes: Mapping[Path, bytes]
     script_paths: tuple[Path, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactRegistrationReceipt:
+    """A task-local current claim that can be rolled back if cancellation wins."""
+
+    adapter: ProjectArtifactManifestAdapter | None
+    key: ArtifactKey | None
+    registered: ArtifactManifestEntry | None
+    previous: ArtifactManifestEntry | None
+    changed: bool = False
+
+    def compensate_cancelled(self) -> None:
+        if not self.changed or self.adapter is None or self.key is None or self.registered is None:
+            return
+        self.adapter.replace_entry_if_matches(
+            self.key,
+            expected=self.registered,
+            replacement=self.previous,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -783,6 +802,7 @@ class _Planner:
                     version_metadata=record,
                     current_tts_settings=self._selected_audio_settings(versions, episode, resource_id),
                     resolve_audio_manifest_entry=self.entries.get if self._activation_mode else None,
+                    allow_legacy_storyboard_same_name=False,
                 )
         except (KeyError, OSError, TypeError, ValueError):
             return
@@ -1089,6 +1109,39 @@ def register_current_resource_artifact(
     return register_current_artifact_if_provable(project_dir, key)
 
 
+def register_task_current_resource_artifact(
+    project_dir: Path,
+    *,
+    resource_type: str,
+    resource_id: str,
+    script_file: str | None = None,
+) -> ArtifactRegistrationReceipt:
+    """Register a provable task result and return its terminal-cancel receipt."""
+
+    if not _artifact_manifest_is_active(project_dir):
+        return ArtifactRegistrationReceipt(None, None, None, None)
+
+    key = artifact_key_for_resource(
+        project_dir,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        script_file=script_file,
+    )
+    entry = resolve_current_artifact_target(project_dir, key)
+    if entry is None:
+        raise ValueError(f"formal task artifact target is not provable: {key.encode()}")
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    previous = adapter.get_entry(key)
+    changed = ArtifactManifest(adapter).register_entry_transactionally(key, entry)
+    return ArtifactRegistrationReceipt(
+        adapter=adapter,
+        key=key,
+        registered=entry,
+        previous=previous,
+        changed=changed,
+    )
+
+
 def forget_current_resource_artifact(
     project_dir: Path,
     *,
@@ -1151,11 +1204,22 @@ def _backup_activation_inputs(project_dir: Path, plan: ArtifactTargetStatePlan) 
         candidates.append(manifest)
     stamp = time.time_ns()
     for source in candidates:
-        pattern = f"{source.name}.bak.v7-*"
-        if any(source.parent.glob(pattern)):
+        _ensure_activation_backup(source, stamp=stamp)
+
+
+def _ensure_activation_backup(source: Path, *, stamp: int) -> None:
+    content = source.read_bytes()
+    pattern = f"{source.name}.bak.v7-*"
+    for candidate in source.parent.glob(pattern):
+        if candidate.is_symlink() or not candidate.is_file():
             continue
-        backup = source.with_name(f"{source.name}.bak.v7-{stamp}")
-        shutil.copy2(source, backup)
+        try:
+            if candidate.read_bytes() == content:
+                return
+        except OSError:
+            continue
+    backup = source.with_name(f"{source.name}.bak.v7-{stamp}")
+    atomic_write_bytes(backup, content)
 
 
 def _commit_schema_version(project_dir: Path, project: Mapping[str, Any]) -> None:
@@ -1175,6 +1239,7 @@ def _normalize_script_binding(value: str) -> str:
 
 __all__ = [
     "ArtifactCurrencyResolver",
+    "ArtifactRegistrationReceipt",
     "ArtifactTargetStatePlan",
     "TARGET_SCHEMA_VERSION",
     "activate_artifact_target_state",
@@ -1187,5 +1252,6 @@ __all__ = [
     "register_current_artifact",
     "register_current_artifact_if_provable",
     "register_current_resource_artifact",
+    "register_task_current_resource_artifact",
     "resolve_current_artifact_target",
 ]

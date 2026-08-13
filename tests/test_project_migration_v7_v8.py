@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.artifact_activation import ArtifactCurrencyResolver
+from lib.artifact_activation import ArtifactCurrencyResolver, register_task_current_resource_artifact
 from lib.artifact_manifest import (
     MANIFEST_FILENAME,
     ArtifactBasis,
@@ -25,7 +25,8 @@ from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_b
 from lib.project_manager import ProjectManager
 from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
-from lib.speech_artifact_provenance import build_video_duration_basis
+from lib.speech_artifact_provenance import build_video_duration_basis, build_video_speech_basis
+from lib.speech_composition import admit_script_unit
 from lib.version_manager import VersionManager
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.visual_artifact_provenance import (
@@ -35,6 +36,7 @@ from lib.visual_artifact_provenance import (
     build_grid_composite_visual_basis,
     build_grid_member_storyboard_visual_basis,
     build_storyboard_image_visual_basis,
+    build_storyboard_video_artifact_visual_basis,
 )
 from lib.workflow_state import WorkflowStateService
 
@@ -277,6 +279,50 @@ def test_v7_preflight_failure_writes_no_manifest_schema_or_backups(tmp_path: Pat
     assert (project_dir / "project.json").read_bytes() == project_before
     assert not (project_dir / MANIFEST_FILENAME).exists()
     assert not list(project_dir.rglob("*.bak.v7-*"))
+
+
+def test_v7_activation_replaces_an_interrupted_backup_on_retry(tmp_path: Path) -> None:
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_path = project_dir / "project.json"
+    project_before = project_path.read_bytes()
+    (project_dir / "project.json.bak.v7-interrupted").write_bytes(b"partial")
+
+    migrate_v7_to_v8(project_dir)
+
+    assert any(backup.read_bytes() == project_before for backup in project_dir.glob("project.json.bak.v7-*"))
+
+
+def test_task_registration_receipt_restores_only_its_own_current_claim(tmp_path: Path) -> None:
+    project_dir, _project_data, _step1, script = _project(tmp_path)
+    migrate_v7_to_v8(project_dir)
+    key = ArtifactKey.episode_storyboard(1, "E1S01")
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    previous = adapter.get_entry(key)
+    assert previous is not None
+
+    script["segments"][0]["image_prompt"] = "阿离撑伞站在雨中"
+    _write_json(project_dir / "scripts" / "episode_1.json", script)
+    receipt = register_task_current_resource_artifact(
+        project_dir,
+        resource_type="storyboards",
+        resource_id="E1S01",
+        script_file="episode_1.json",
+    )
+    registered = adapter.get_entry(key)
+    assert registered is not None and registered != previous
+
+    receipt.compensate_cancelled()
+    receipt.compensate_cancelled()
+    assert adapter.get_entry(key) == previous
+
+    adapter.put_entry(key, registered)
+    later = ArtifactManifestEntry(
+        artifact_path=registered.artifact_path,
+        basis_digest="sha256-v1:" + "f" * 64,
+    )
+    adapter.put_entry(key, later)
+    receipt.compensate_cancelled()
+    assert adapter.get_entry(key) == later
 
 
 def test_v7_activation_does_not_backfill_sheet_with_dangling_declared_reference(tmp_path: Path) -> None:
@@ -541,6 +587,87 @@ def test_v7_activation_uses_only_selected_complete_typed_media_facts(tmp_path: P
         ).status
         is ArtifactStatus.STALE
     )
+
+
+def test_v7_activation_does_not_use_same_name_storyboard_residue_for_video_basis(tmp_path: Path) -> None:
+    project_dir = tmp_path / "ad"
+    project_dir.mkdir()
+    project = {
+        "schema_version": 7,
+        "content_mode": "ad",
+        "generation_mode": "storyboard",
+        "style": "写实",
+        "aspect_ratio": "9:16",
+        "target_duration": 30,
+        "characters": {},
+        "scenes": {},
+        "props": {},
+        "products": {},
+        "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+    }
+    shot = {
+        "shot_id": "E1S01",
+        "duration_seconds": 4,
+        "voiceover_text": "",
+        "image_prompt": "产品特写",
+        "video_prompt": "产品缓慢旋转",
+        "characters_in_shot": [],
+        "scenes": [],
+        "props": [],
+        "products_in_shot": [],
+        "generated_assets": {"video_clip": "videos/scene_E1S01.mp4"},
+    }
+    _write_json(project_dir / "project.json", project)
+    _write_json(
+        project_dir / "scripts" / "episode_1.json",
+        {"episode": 1, "content_mode": "ad", "shots": [shot]},
+    )
+    storyboard = project_dir / "storyboards" / "scene_E1S01.png"
+    storyboard.parent.mkdir(parents=True)
+    storyboard.write_bytes(b"unowned-residue")
+    video = project_dir / "videos" / "scene_E1S01.mp4"
+    video.parent.mkdir()
+    video.write_bytes(b"paid-video")
+
+    visual = build_storyboard_video_artifact_visual_basis(
+        resource_id="E1S01",
+        visual_prompt=shot["video_prompt"],
+        storyboard_image=storyboard,
+        end_frame_image=None,
+        aspect_ratio="9:16",
+    )
+    speech = build_video_speech_basis(admit_script_unit("shots", shot).preparation, voices=())
+    duration = build_video_duration_basis(4)
+    facts = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=4,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(4,),
+        reference_image_limit=None,
+        parent_version=0,
+    )
+    VersionManager(project_dir).add_version(
+        "videos",
+        "E1S01",
+        "paid",
+        source_file=video,
+        execution_checkpoint_schema_version=3,
+        execution_duration_seconds=4,
+        execution_request_digest="a" * 64,
+        execution_script_file="episode_1.json",
+        execution_provider_media=[],
+        artifact_video_currency=facts.to_dict(),
+    )
+
+    migrate_v7_to_v8(project_dir)
+
+    entries = _stored_entries(project_dir)
+    assert ArtifactKey.episode_storyboard(1, "E1S01").encode() not in entries
+    assert ArtifactKey.episode_video(1, "E1S01").encode() not in entries
 
 
 def test_schema8_workflow_keeps_a_stale_typed_video_usable(tmp_path: Path) -> None:

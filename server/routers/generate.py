@@ -44,9 +44,10 @@ from lib.script_models import get_generated_assets
 from lib.script_skeleton import resolve_script_kind
 from lib.speech_composition import SpeechMode, admit_script_unit
 from lib.storyboard_sequence import (
+    StoryboardImageUnavailable,
     find_storyboard_item,
     get_storyboard_items,
-    resolve_storyboard_image_ref,
+    resolve_storyboard_video_inputs,
 )
 from server.auth import CurrentUser
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
@@ -237,8 +238,9 @@ async def generate_video(
         if is_reference_video_project(project):
             raise ConflictError("video_route_is_reference_video")
 
-        # 与 worker 一致：优先读取 generated_assets.storyboard_image，回退默认路径。
-        # 旧宫格项目 storyboard_image 指向 scene_{id}_first.png，仍可正常解析。
+        # 与 worker 一致：优先读取 generated_assets.storyboard_image；Manifest 激活前
+        # 保留默认路径兼容，激活后要求显式绑定。旧宫格项目指向 scene_{id}_first.png
+        # 时仍可正常解析。
         # 脚本缺失（FileNotFoundError）/ 脏脚本（分镜数组键损坏，ScriptEditError）均
         # fail-fast：不能 silently 降级走 default 路径——default 文件恰好存在时会让请求
         # 「先返回提交成功、worker 解析脚本时再确定失败」，撕裂用户预期。两者均由 app 级
@@ -256,19 +258,19 @@ async def generate_video(
             admission = admit_script_unit(script_kind, {**resolved[0], "video_prompt": req.prompt})
         if not admission.allowed:
             raise HTTPException(status_code=409, detail=admission.to_dict())
-        storyboard_rel = get_generated_assets(resolved[0]).get("storyboard_image")
-
-        # 字段值来自磁盘剧本 JSON，不可信任：非字符串脏数据会让下面的路径拼接抛未处理
-        # TypeError 变成通用 500；越界 / 绝对路径引用会把项目外任意文件当分镜图使用。
-        # 校验口径与 execute_video_task / SDK 工具入队预检共用同一份（resolve_storyboard_image_ref）。
+        # 字段值来自磁盘剧本 JSON，不可信任；路径校验和 schema 激活后的显式绑定要求
+        # 与 worker / 当前基线重建共用同一解析器。
         try:
-            storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
+            resolve_storyboard_video_inputs(
+                project_path=project_path,
+                project=project,
+                resource_id=segment_id,
+                item=resolved[0],
+            )
+        except StoryboardImageUnavailable:
+            raise BadRequestError("generate_storyboard_first", segment_id=segment_id) from None
         except ValueError:
             raise BadRequestError("invalid_storyboard_image_path", segment_id=segment_id) from None
-        if storyboard_file is None:
-            storyboard_file = project_path / "storyboards" / f"scene_{segment_id}.png"
-        if not storyboard_file.is_file():
-            raise BadRequestError("generate_storyboard_first", segment_id=segment_id)
         return project, project_path, script, resolved[0]
 
     project, project_path, script, item = await asyncio.to_thread(_sync)

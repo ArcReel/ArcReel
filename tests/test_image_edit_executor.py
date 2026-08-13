@@ -158,6 +158,7 @@ class TestResolveCurrentImageRel:
         }
         assert resolve_current_image_rel({}, "storyboard", "E1S01", script) == "storyboards/scene_E1S01_first.png"
         assert resolve_current_image_rel({}, "storyboard", "E1S02", script) == "storyboards/scene_E1S02.png"
+        assert resolve_current_image_rel({"schema_version": 8}, "storyboard", "E1S02", script) is None
         with pytest.raises(KeyError):
             resolve_current_image_rel({}, "storyboard", "E9S99", script)
 

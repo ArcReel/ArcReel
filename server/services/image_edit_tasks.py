@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from lib.artifact_activation import register_current_resource_artifact
 from lib.asset_types import ASSET_SPECS, resolve_asset_key
 from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists
@@ -24,8 +23,11 @@ from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.services.generation_context import ImageLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
+    compensable_formal_task_result,
     get_aspect_ratio,
     get_project_manager,
+    register_formal_task_artifact,
+    run_formal_task_finalizer,
 )
 
 # 版本记录里标记「指令式编辑」的 source 值；前端据此展示编辑标记（与 manual_upload 同机制）
@@ -53,8 +55,8 @@ def resolve_current_image_rel(
     - 资产（character / scene / prop / product）：读 project.json 对应 bucket 的 sheet
       字段；资产不存在抛 ``KeyError``，sheet 未设置返回 ``None``。
     - storyboard：读剧本条目的 ``generated_assets.storyboard_image``（旧宫格项目可能
-      指向 ``scene_{id}_first.png``），缺失时回退 canonical 路径
-      ``storyboards/scene_{id}.png``；条目不存在抛 ``KeyError``。
+      指向 ``scene_{id}_first.png``）；Manifest 激活前缺失时回退 canonical 路径，
+      激活后不再按同名文件推断 current；条目不存在抛 ``KeyError``。
     """
     if resource_type == "storyboard":
         items, id_field, _, _, _ = get_storyboard_items(script or {})
@@ -64,6 +66,8 @@ def resolve_current_image_rel(
         pointer = get_generated_assets(resolved[0]).get("storyboard_image")
         if isinstance(pointer, str) and pointer:
             return pointer
+        if project.get("schema_version") == 8:
+            return None
         return resource_relative_path("storyboards", resource_id)
 
     spec = ASSET_SPECS[resource_type]
@@ -177,20 +181,24 @@ async def execute_image_edit_task(
         else:
             pm._update_asset_sheet(resource_type, project_name, resource_key, canonical_rel)
         created_at = generator.versions.get_versions(version_resource_type, resource_key)["versions"][-1]["created_at"]
-        register_current_resource_artifact(
+        receipt = register_formal_task_artifact(
             pm.get_project_path(project_name),
             resource_type=version_resource_type,
             resource_id=resource_key,
             script_file=str(script_file) if resource_type == "storyboard" else None,
+            task_id=task_id,
         )
-        return created_at
+        return created_at, receipt
 
-    created_at = await asyncio.to_thread(_finalize)
+    created_at, receipt = await run_formal_task_finalizer(_finalize, task_id=task_id)
 
-    return {
-        "version": version,
-        "file_path": canonical_rel,
-        "created_at": created_at,
-        "resource_type": version_resource_type,
-        "resource_id": resource_key,
-    }
+    return compensable_formal_task_result(
+        {
+            "version": version,
+            "file_path": canonical_rel,
+            "created_at": created_at,
+            "resource_type": version_resource_type,
+            "resource_id": resource_key,
+        },
+        receipt,
+    )

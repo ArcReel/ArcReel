@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import re
 import threading
@@ -642,6 +643,47 @@ class TestGenerationTasks:
                 },
             )
         ]
+
+    @pytest.mark.unit
+    async def test_storyboard_cancellation_waits_for_registration_and_returns_compensation(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        registration_started = threading.Event()
+        finish_registration = threading.Event()
+        compensated: list[str] = []
+
+        class _Receipt:
+            def compensate_cancelled(self) -> None:
+                compensated.append("manifest")
+
+        def _register(*_args, **_kwargs):
+            registration_started.set()
+            assert finish_registration.wait(timeout=5)
+            return _Receipt()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", _register)
+        monkeypatch.setattr(generation_tasks, "register_task_current_resource_artifact", _register, raising=False)
+
+        task = asyncio.create_task(
+            generation_tasks.execute_storyboard_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json", "prompt": "direct prompt"},
+                task_id="storyboard-task",
+            )
+        )
+        assert await asyncio.to_thread(registration_started.wait, 5)
+        task.cancel()
+        finish_registration.set()
+
+        result = await task
+
+        assert isinstance(result, CompensableGenerationResult)
+        result.compensate_cancelled()
+        assert compensated == ["manifest"]
 
     @pytest.mark.unit
     async def test_reused_video_result_emits_the_normal_generation_success_event(self, monkeypatch):

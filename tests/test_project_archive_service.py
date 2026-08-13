@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from lib.artifact_manifest import MANIFEST_FILENAME, ArtifactKey
+from lib.artifact_manifest import MANIFEST_FILENAME
 from lib.i18n import _
 from lib.project_manager import ProjectManager
+from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from server.services import project_archive as project_archive_module
 from server.services.project_archive import (
     ARCHIVE_MANIFEST_NAME,
@@ -340,7 +341,13 @@ class TestProjectArchiveService:
     @pytest.mark.unit
     def test_import_official_export_round_trip(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
-        _create_project(pm)
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        (project_dir / MANIFEST_FILENAME).unlink(missing_ok=True)
+        migrate_v7_to_v8(project_dir)
+        startup_manifest = json.loads((project_dir / MANIFEST_FILENAME).read_text(encoding="utf-8"))
         service = ProjectArchiveService(pm)
 
         archive_path, _ = service.export_project("demo")
@@ -358,8 +365,7 @@ class TestProjectArchiveService:
         assert (pm.get_project_path("demo") / "videos" / "scene_E1S01.mp4").exists()
         assert (pm.get_project_path("demo") / "drafts" / "episode_2").is_dir()
         imported_manifest = json.loads((pm.get_project_path("demo") / MANIFEST_FILENAME).read_text(encoding="utf-8"))
-        assert ArtifactKey.asset_sheet("character", "Hero").encode() in imported_manifest["entries"]
-        assert ArtifactKey.episode_storyboard(1, "E1S01").encode() in imported_manifest["entries"]
+        assert imported_manifest == startup_manifest
 
     @pytest.mark.unit
     def test_import_manual_zip_without_manifest(self, tmp_path):

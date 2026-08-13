@@ -13,7 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from lib.api_errors import ConflictError
-from lib.artifact_activation import register_current_resource_artifact
+from lib.artifact_activation import (
+    ArtifactRegistrationReceipt,
+    register_current_resource_artifact,
+    register_task_current_resource_artifact,
+)
 from lib.artifact_manifest import (
     ArtifactBasisDescriptor,
     ArtifactKey,
@@ -132,6 +136,49 @@ from server.services.video_artifact_currency import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def register_formal_task_artifact(
+    project_path: Path,
+    *,
+    resource_type: str,
+    resource_id: str,
+    script_file: str | None,
+    task_id: str | None,
+) -> ArtifactRegistrationReceipt | None:
+    """Use the task-aware registration seam only when a terminal gate exists."""
+
+    if task_id is None:
+        register_current_resource_artifact(
+            project_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            script_file=script_file,
+        )
+        return None
+    return register_task_current_resource_artifact(
+        project_path,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        script_file=script_file,
+    )
+
+
+async def run_formal_task_finalizer[T](finalize: Callable[[], T], *, task_id: str | None) -> T:
+    """Finish a task's formal-write transaction so cancellation can compensate it."""
+
+    if task_id is None:
+        return await asyncio.to_thread(finalize)
+    return await run_noninterruptible_sync(finalize)
+
+
+def compensable_formal_task_result(
+    result: dict[str, Any],
+    receipt: ArtifactRegistrationReceipt | None,
+) -> dict[str, Any]:
+    if receipt is None:
+        return result
+    return CompensableGenerationResult(result, cancel_compensation=receipt.compensate_cancelled)
 
 
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
@@ -658,7 +705,7 @@ async def execute_storyboard_task(
             raise ValueError(f"scene/segment not found: {resource_id}")
         _target_item, _ = _resolved
 
-        _prev_path = resolve_previous_storyboard_path(_project_path, _items, _id_field, resource_id)
+        _prev_path = resolve_previous_storyboard_path(_project_path, _project, _items, _id_field, resource_id)
         _prompt_text = _normalize_storyboard_prompt(prompt, _project.get("style", ""))
         _ref_images = _collect_reference_images(
             _project,
@@ -701,7 +748,7 @@ async def execute_storyboard_task(
         image_size=image_size,
     )
 
-    def _finalize():
+    def _finalize() -> tuple[str, ArtifactRegistrationReceipt | None]:
         get_project_manager().update_scene_asset(
             project_name=project_name,
             script_filename=script_file,
@@ -710,23 +757,27 @@ async def execute_storyboard_task(
             asset_path=f"storyboards/scene_{resource_id}.png",
         )
         created_at = generator.versions.get_versions("storyboards", resource_id)["versions"][-1]["created_at"]
-        register_current_resource_artifact(
+        receipt = register_formal_task_artifact(
             project_path,
             resource_type="storyboards",
             resource_id=resource_id,
             script_file=str(script_file),
+            task_id=task_id,
         )
-        return created_at
+        return created_at, receipt
 
-    created_at = await asyncio.to_thread(_finalize)
+    created_at, receipt = await run_formal_task_finalizer(_finalize, task_id=task_id)
 
-    return {
-        "version": version,
-        "file_path": f"storyboards/scene_{resource_id}.png",
-        "created_at": created_at,
-        "resource_type": "storyboards",
-        "resource_id": resource_id,
-    }
+    return compensable_formal_task_result(
+        {
+            "version": version,
+            "file_path": f"storyboards/scene_{resource_id}.png",
+            "created_at": created_at,
+            "resource_type": "storyboards",
+            "resource_id": resource_id,
+        },
+        receipt,
+    )
 
 
 def _resolve_tts_task_items(
@@ -1309,6 +1360,7 @@ async def execute_video_task(
 
     storyboard_file, end_image = resolve_storyboard_video_inputs(
         project_path=project_path,
+        project=project,
         resource_id=resource_id,
         item=item,
     )
@@ -1810,7 +1862,7 @@ async def execute_character_task(
 
     sheet_path = f"characters/{resource_id}.png"
 
-    def _finalize_char():
+    def _finalize_char() -> tuple[str, ArtifactRegistrationReceipt | None]:
         def _set_character_sheet(p: dict) -> None:
             key = resolve_asset_key(p.get("characters"), resource_id)
             if key is None:
@@ -1819,22 +1871,27 @@ async def execute_character_task(
 
         get_project_manager().update_project(project_name, _set_character_sheet)
         created_at = generator.versions.get_versions("characters", resource_id)["versions"][-1]["created_at"]
-        register_current_resource_artifact(
+        receipt = register_formal_task_artifact(
             get_project_manager().get_project_path(project_name),
             resource_type="characters",
             resource_id=resource_id,
+            script_file=None,
+            task_id=task_id,
         )
-        return created_at
+        return created_at, receipt
 
-    created_at = await asyncio.to_thread(_finalize_char)
+    created_at, receipt = await run_formal_task_finalizer(_finalize_char, task_id=task_id)
 
-    return {
-        "version": version,
-        "file_path": f"characters/{resource_id}.png",
-        "created_at": created_at,
-        "resource_type": "characters",
-        "resource_id": resource_id,
-    }
+    return compensable_formal_task_result(
+        {
+            "version": version,
+            "file_path": f"characters/{resource_id}.png",
+            "created_at": created_at,
+            "resource_type": "characters",
+            "resource_id": resource_id,
+        },
+        receipt,
+    )
 
 
 # 仅保留 design 任务的「prompt 构造器」差异；bucket_key 与 sheet 写入由 ASSET_SPECS 与
@@ -1876,6 +1933,7 @@ async def execute_design_task(
     payload: dict[str, Any],
     *,
     user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     """合并 execute_scene_task / execute_prop_task / execute_product_task：按 kind 查表派发。"""
     spec = ASSET_SPECS[kind]
@@ -1923,25 +1981,30 @@ async def execute_design_task(
 
     sheet_path = f"{bucket_key}/{resource_id}.png"
 
-    def _finalize():
+    def _finalize() -> tuple[str, ArtifactRegistrationReceipt | None]:
         get_project_manager()._update_asset_sheet(kind, project_name, resource_id, sheet_path)
         created_at = generator.versions.get_versions(bucket_key, resource_id)["versions"][-1]["created_at"]
-        register_current_resource_artifact(
+        receipt = register_formal_task_artifact(
             get_project_manager().get_project_path(project_name),
             resource_type=bucket_key,
             resource_id=resource_id,
+            script_file=None,
+            task_id=task_id,
         )
-        return created_at
+        return created_at, receipt
 
-    created_at = await asyncio.to_thread(_finalize)
+    created_at, receipt = await run_formal_task_finalizer(_finalize, task_id=task_id)
 
-    return {
-        "version": version,
-        "file_path": sheet_path,
-        "created_at": created_at,
-        "resource_type": bucket_key,
-        "resource_id": resource_id,
-    }
+    return compensable_formal_task_result(
+        {
+            "version": version,
+            "file_path": sheet_path,
+            "created_at": created_at,
+            "resource_type": bucket_key,
+            "resource_id": resource_id,
+        },
+        receipt,
+    )
 
 
 async def execute_scene_task(
@@ -1952,7 +2015,7 @@ async def execute_scene_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    return await execute_design_task("scene", project_name, resource_id, payload, user_id=user_id)
+    return await execute_design_task("scene", project_name, resource_id, payload, user_id=user_id, task_id=task_id)
 
 
 async def execute_prop_task(
@@ -1963,7 +2026,7 @@ async def execute_prop_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    return await execute_design_task("prop", project_name, resource_id, payload, user_id=user_id)
+    return await execute_design_task("prop", project_name, resource_id, payload, user_id=user_id, task_id=task_id)
 
 
 async def execute_product_task(
@@ -1974,7 +2037,7 @@ async def execute_product_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    return await execute_design_task("product", project_name, resource_id, payload, user_id=user_id)
+    return await execute_design_task("product", project_name, resource_id, payload, user_id=user_id, task_id=task_id)
 
 
 def _group_scenes_by_segment_break(items: list[dict], id_field: str) -> list[list[dict]]:
@@ -2155,11 +2218,15 @@ async def execute_grid_task(
         grid.status = "completed"
         grid.split_at = None
         grid_manager.save(grid)
-        await asyncio.to_thread(
-            register_current_resource_artifact,
-            project_path,
-            resource_type="grids",
-            resource_id=resource_id,
+        receipt = await run_formal_task_finalizer(
+            lambda: register_formal_task_artifact(
+                project_path,
+                resource_type="grids",
+                resource_id=resource_id,
+                script_file=None,
+                task_id=task_id,
+            ),
+            task_id=task_id,
         )
 
     except Exception:
@@ -2172,13 +2239,16 @@ async def execute_grid_task(
 
     created_at = grid.created_at
 
-    return {
-        "version": version,
-        "file_path": f"grids/{resource_id}.png",
-        "created_at": created_at,
-        "resource_type": "grids",
-        "resource_id": resource_id,
-    }
+    return compensable_formal_task_result(
+        {
+            "version": version,
+            "file_path": f"grids/{resource_id}.png",
+            "created_at": created_at,
+            "resource_type": "grids",
+            "resource_id": resource_id,
+        },
+        receipt,
+    )
 
 
 async def _execute_reference_video_task_proxy(

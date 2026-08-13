@@ -777,6 +777,25 @@ class TestGenerateRouter:
             assert video.json()["success"] is True
 
     @pytest.mark.integration
+    def test_schema8_video_does_not_infer_storyboard_from_same_name_file(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["schema_version"] = 8
+        fake_pm.script["segments"][0]["generated_assets"] = {}
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            video = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+
+        assert video.status_code == 400, video.text
+        assert video.json()["detail"] == i18n_message("generate_storyboard_first", segment_id="E1S01")
+        assert fake_queue.calls == []
+
+    @pytest.mark.integration
     def test_video_storyboard_image_non_string_returns_400(self, tmp_path, monkeypatch):
         """storyboard_image 是剧本 JSON 里的脏数据（非字符串）时应 400 可读失败，
         而不是让 `project_path / storyboard_rel` 抛未处理 TypeError 变成 500。"""

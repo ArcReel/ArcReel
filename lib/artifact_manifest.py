@@ -712,6 +712,41 @@ class ProjectArtifactManifestAdapter:
             self._atomic_replace(new_bytes, root_fd)
             return True
 
+    def replace_entry_if_matches(
+        self,
+        key: ArtifactKey,
+        *,
+        expected: ArtifactManifestEntry,
+        replacement: ArtifactManifestEntry | None,
+    ) -> bool:
+        """Restore one entry only while the caller's registered claim still wins."""
+
+        encoded = key.encode()
+        with self._locked() as root_fd:
+            entries, original_bytes = self._load_unlocked(root_fd)
+            if entries.get(encoded) != expected:
+                return False
+            if replacement is None:
+                entries.pop(encoded)
+            else:
+                entries[encoded] = replacement
+            if not entries:
+                try:
+                    if root_fd is None:
+                        (self._project_dir / MANIFEST_FILENAME).unlink()
+                    else:
+                        os.unlink(MANIFEST_FILENAME, dir_fd=root_fd)
+                except FileNotFoundError:
+                    pass
+                except OSError as exc:
+                    raise ArtifactManifestError(f"cannot remove empty artifact manifest: {exc}") from exc
+                return True
+            new_bytes = _serialize_manifest(entries)
+            if original_bytes == new_bytes:
+                return False
+            self._atomic_replace(new_bytes, root_fd)
+            return True
+
     def replace_entries_atomically(
         self,
         entries: Mapping[ArtifactKey, ArtifactManifestEntry],
