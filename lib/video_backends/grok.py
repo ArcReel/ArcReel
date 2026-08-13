@@ -64,7 +64,7 @@ class GrokVideoBackend:
         raise NotImplementedError("GrokVideoBackend 不支持 resume_video（同步型 API）")
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """生成视频。生成与下载分离重试，避免下载失败导致重新生成浪费额度。"""
+        """生成视频；黑盒生成不重试，只有已取得 URL 后的下载可以独立重试。"""
         # The SDK combines submit and provider-side waiting in one opaque call. Once it starts, an exception
         # cannot prove the provider rejected the request before accepting a paid job, so close MediaGenerator's
         # reference-payload compression retry window before entering it.

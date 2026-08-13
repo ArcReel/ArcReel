@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lib.image_backends.base import ImageCapability, ImageGenerationResult
-from lib.media_generator import MediaGenerator, segment_id_for
+from lib.media_generator import MediaGenerator, cleanup_staged_video_output, segment_id_for, task_video_staging_path
 
 
 class _FakeImageBackend:
@@ -388,9 +388,14 @@ class TestMediaGenerator:
 
     @pytest.mark.integration
     @pytest.mark.asyncio
-    async def test_formal_video_output_uses_staged_transaction_and_preserves_old_current_on_failure(self, tmp_path):
+    async def test_formal_video_output_uses_staged_transaction_and_preserves_old_current_on_failure(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
         from lib.version_manager import VersionManager
 
+        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
         gen = _build_generator(tmp_path)
         gen.versions = VersionManager(gen.project_path)
         current = gen._get_output_path("reference_videos", "E1U1")
@@ -409,6 +414,7 @@ class TestMediaGenerator:
                 resource_type="reference_videos",
                 resource_id="E1U1",
                 formal_output=True,
+                task_id="task-output-failure",
             )
 
         assert current.read_bytes() == b"old-current"
@@ -416,9 +422,10 @@ class TestMediaGenerator:
 
     @pytest.mark.integration
     @pytest.mark.asyncio
-    async def test_formal_video_output_cleans_staging_when_ledger_settlement_fails(self, tmp_path):
+    async def test_formal_video_output_cleans_staging_when_ledger_settlement_fails(self, tmp_path, monkeypatch):
         from lib.version_manager import VersionManager
 
+        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
         gen = _build_generator(tmp_path)
         gen.versions = VersionManager(gen.project_path)
         current = gen._get_output_path("reference_videos", "E1U1")
@@ -440,6 +447,7 @@ class TestMediaGenerator:
                 resource_type="reference_videos",
                 resource_id="E1U1",
                 formal_output=True,
+                task_id="task-ledger-failure",
             )
 
         assert current.read_bytes() == b"old-current"
@@ -447,9 +455,10 @@ class TestMediaGenerator:
 
     @pytest.mark.integration
     @pytest.mark.asyncio
-    async def test_formal_video_output_commits_file_and_history_together(self, tmp_path):
+    async def test_formal_video_output_commits_file_and_history_together(self, tmp_path, monkeypatch):
         from lib.version_manager import VersionManager
 
+        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
         gen = _build_generator(tmp_path)
         gen.versions = VersionManager(gen.project_path)
 
@@ -458,6 +467,7 @@ class TestMediaGenerator:
             resource_type="reference_videos",
             resource_id="E1U1",
             formal_output=True,
+            task_id="task-output-success",
             execution_request_digest="d" * 64,
         )
 
@@ -466,6 +476,82 @@ class TestMediaGenerator:
         history = gen.versions.get_versions("reference_videos", "E1U1")
         assert history["versions"][0]["execution_request_digest"] == "d" * 64
         assert Path(gen.project_path / history["versions"][0]["file"]).read_bytes() == b"fake-video-data"
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_formal_video_output_reclaims_the_same_task_path_after_interruption(self, tmp_path, monkeypatch):
+        from lib.version_manager import VersionManager
+
+        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        current = gen._get_output_path("reference_videos", "E1U1")
+        current.parent.mkdir(parents=True)
+        staged = task_video_staging_path(current, "task-restarted")
+        staged.write_bytes(b"interrupted-download")
+
+        class _CapturePathBackend(_FakeVideoBackend):
+            async def generate(self, request):
+                assert request.output_path == staged
+                assert not request.output_path.exists()
+                return await super().generate(request)
+
+        gen._video_backend = _CapturePathBackend()
+        await gen.generate_video_async(
+            prompt="paid request",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            formal_output=True,
+            task_id="task-restarted",
+        )
+
+        assert current.read_bytes() == b"fake-video-data"
+        assert not staged.exists()
+
+    @pytest.mark.integration
+    def test_formal_video_cleanup_unlinks_a_symlink_without_touching_its_target(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        current = gen._get_output_path("reference_videos", "E1U1")
+        current.parent.mkdir(parents=True)
+        paid_history = tmp_path / "paid-history.mp4"
+        paid_history.write_bytes(b"paid-history")
+        staged = task_video_staging_path(current, "task-symlink")
+        staged.symlink_to(paid_history)
+
+        cleanup_staged_video_output(
+            gen.project_path,
+            "reference_videos",
+            "E1U1",
+            "task-symlink",
+        )
+
+        assert not staged.exists()
+        assert paid_history.read_bytes() == b"paid-history"
+
+    @pytest.mark.integration
+    def test_formal_video_cleanup_removes_a_junction_without_file_unlink(self, tmp_path, monkeypatch):
+        from lib import media_generator
+
+        gen = _build_generator(tmp_path)
+        current = gen._get_output_path("reference_videos", "E1U1")
+        current.parent.mkdir(parents=True)
+        staged = task_video_staging_path(current, "task-junction")
+        staged.mkdir()
+        monkeypatch.setattr(
+            media_generator.os.path,
+            "isjunction",
+            lambda path: Path(path) == staged,
+            raising=False,
+        )
+
+        cleanup_staged_video_output(
+            gen.project_path,
+            "reference_videos",
+            "E1U1",
+            "task-junction",
+        )
+
+        assert not staged.exists()
 
     @pytest.mark.integration
     @pytest.mark.asyncio

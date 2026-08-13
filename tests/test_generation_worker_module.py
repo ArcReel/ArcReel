@@ -1400,6 +1400,38 @@ class TestGenerationWorker:
         await worker._handle_orphan_tasks_on_start()
         assert queue.cancelled and queue.cancelled[0][0] == "orphan-cancelling"
 
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_video_orphan_cleanup_removes_provider_media_and_task_output(self, tmp_path, monkeypatch):
+        from lib.media_generator import task_video_staging_path
+
+        project_path = tmp_path / "demo"
+        output_path = project_path / "videos" / "scene_E1S01.mp4"
+        output_path.parent.mkdir(parents=True)
+        staged_output = task_video_staging_path(output_path, "orphan-cleanup")
+        staged_output.write_bytes(b"interrupted-download")
+        provider_media = project_path / ".arcreel" / "tasks" / "orphan-cleanup" / "provider_media"
+        provider_media.mkdir(parents=True)
+        (provider_media / "000-start_image.png").write_bytes(b"staged-input")
+
+        class _ProjectManager:
+            def get_project_path(self, _project_name):
+                return project_path
+
+        monkeypatch.setattr("lib.project_manager.get_project_manager", lambda: _ProjectManager())
+        worker = GenerationWorker(queue=_FakeQueue())
+        await worker._cleanup_video_staging(
+            {
+                "task_id": "orphan-cleanup",
+                "task_type": "video",
+                "project_name": "demo",
+                "resource_id": "E1S01",
+            }
+        )
+
+        assert not staged_output.exists()
+        assert not provider_media.exists()
+
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_running_no_job_id_marks_restart_lost(self, monkeypatch):
@@ -1568,8 +1600,9 @@ class TestGenerationWorker:
         monkeypatch.setattr(GenerationWorker, "_dispatch_resume_orphans_background", _capture)
 
         await worker._handle_orphan_tasks_on_start()
-        assert worker._orphan_dispatcher_task is not None
-        await worker._orphan_dispatcher_task
+        dispatcher_task = worker._orphan_dispatcher_task
+        assert dispatcher_task is not None
+        await dispatcher_task
 
         assert list(captured) == ["ark"]
         assert captured["ark"][0]["provider_id"] == "ark"
@@ -2210,7 +2243,7 @@ class TestGenerationWorker:
         }
         await worker._process_resume_task(task)
         assert queue.failed and queue.failed[0][0] == "no-job"
-        assert "[restart_lost_resume_no_job_id]" in queue.failed[0][1]
+        assert "[restart_lost_no_job_id]" in queue.failed[0][1]
 
 
 class TestDispatcherFailFastAndPendingTracking:

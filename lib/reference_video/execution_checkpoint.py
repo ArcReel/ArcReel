@@ -372,6 +372,7 @@ def stage_provider_media(
         try:
             task_dir.rmdir()
         except OSError:
+            # Concurrent staging or another task-owned entry can keep the shared task directory non-empty.
             pass
 
 
@@ -401,6 +402,7 @@ async def stage_provider_media_for_task(
             await _await_uninterruptibly(staging_task)
             published = True
         except BaseException:
+            # The original exception owns this path; a failed staging task has not published bytes to clean up.
             pass
         if published:
             cleanup_task = asyncio.create_task(asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id))
@@ -430,6 +432,7 @@ def cleanup_staged_provider_media(project_path: Path, task_id: str) -> None:
         try:
             final_dir.rmdir()
         except FileNotFoundError:
+            # Idempotent cleanup can race with another remover of the same junction entry.
             pass
     elif os.path.lexists(final_dir):
         if final_dir.is_dir():
@@ -439,6 +442,7 @@ def cleanup_staged_provider_media(project_path: Path, task_id: str) -> None:
     try:
         final_dir.parent.rmdir()
     except OSError:
+        # Parent pruning is best effort because sibling task data or a concurrent creator may keep it in use.
         pass
 
 

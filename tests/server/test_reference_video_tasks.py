@@ -2763,7 +2763,7 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
     staging_task.cancel()
     release_staging.set()
     with pytest.raises(asyncio.CancelledError):
-        await staging_task
+        await asyncio.wait_for(staging_task, timeout=5)
     assert await asyncio.to_thread(staging_finished.wait, 5)
     assert not (proj_dir / ".arcreel" / "tasks" / "task-cancel-during-staging" / "provider_media").exists()
     monkeypatch.setattr(rvt, "stage_provider_media", real_stage_provider_media)
@@ -2832,7 +2832,7 @@ async def test_provider_media_staging_cleanup_survives_repeated_cancellation(
     release_staging.set()
 
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=5)
     assert await asyncio.to_thread(staging_finished.wait, 5)
     assert not (project_path / ".arcreel" / "tasks" / "task-double-cancel" / "provider_media").exists()
 

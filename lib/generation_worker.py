@@ -876,7 +876,7 @@ class GenerationWorker:
                 code = (
                     "restart_lost_checkpoint_no_job_id"
                     if state is VideoResumeState.CHECKPOINT_WITHOUT_JOB
-                    else "restart_lost_resume_no_job_id"
+                    else "restart_lost_no_job_id"
                     if state is VideoResumeState.NO_CHECKPOINT_NO_JOB
                     else "execution_identity_unrecoverable"
                 )
@@ -1007,6 +1007,27 @@ class GenerationWorker:
             from lib.project_manager import get_project_manager
 
             project_path = await asyncio.to_thread(get_project_manager().get_project_path, task["project_name"])
+        except Exception:
+            logger.warning("video staging project lookup failed task_id=%s", task.get("task_id"), exc_info=True)
+            return
+
+        resource_id = task.get("resource_id")
+        if resource_id is not None:
+            try:
+                from lib.media_generator import cleanup_staged_video_output
+
+                resource_type = "reference_videos" if task["task_type"] == "reference_video" else "videos"
+                await asyncio.to_thread(
+                    cleanup_staged_video_output,
+                    project_path,
+                    resource_type,
+                    str(resource_id),
+                    task["task_id"],
+                )
+            except Exception:
+                logger.warning("video formal output cleanup failed task_id=%s", task.get("task_id"), exc_info=True)
+
+        try:
             await asyncio.to_thread(cleanup_staged_provider_media, project_path, task["task_id"])
         except Exception:
             logger.warning("video provider media cleanup failed task_id=%s", task.get("task_id"), exc_info=True)

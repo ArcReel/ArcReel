@@ -14,6 +14,7 @@ MediaGenerator 中间层
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import tempfile
@@ -40,6 +41,45 @@ from lib.resource_paths import resource_relative_path
 from lib.version_manager import VersionManager
 
 logger = logging.getLogger(__name__)
+
+
+def task_video_staging_path(output_path: Path, task_id: str) -> Path:
+    """Return the bounded, deterministic formal-output path owned by one task."""
+
+    if not isinstance(task_id, str) or not task_id:
+        raise ValueError("formal video output requires a task_id")
+    token = hashlib.sha256(task_id.encode("utf-8")).hexdigest()
+    return output_path.with_name(f".{token}.task-output{output_path.suffix}")
+
+
+def _is_junction(path: Path) -> bool:
+    isjunction = getattr(os.path, "isjunction", None)
+    return bool(isjunction is not None and isjunction(path))
+
+
+def _remove_task_video_staging_path(path: Path) -> None:
+    """Remove a task-owned staging entry without traversing links or arbitrary directories."""
+
+    if path.is_symlink():
+        path.unlink(missing_ok=True)
+    elif _is_junction(path):
+        path.rmdir()
+    elif os.path.lexists(path):
+        if not path.is_file():
+            raise ValueError("formal video staging path is not a regular file")
+        path.unlink()
+
+
+def cleanup_staged_video_output(
+    project_path: Path,
+    resource_type: str,
+    resource_id: str,
+    task_id: str,
+) -> None:
+    """Remove the deterministic interrupted output owned by one video task."""
+
+    output_path = safe_join(project_path, resource_relative_path(resource_type, resource_id))
+    _remove_task_video_staging_path(task_video_staging_path(output_path, task_id))
 
 
 @asynccontextmanager
@@ -156,19 +196,22 @@ class MediaGenerator:
         self.ledger = Ledger()
 
     @staticmethod
-    def _prepare_video_output(output_path: Path, *, formal_output: bool) -> tuple[Path | None, Path]:
+    def _prepare_video_output(
+        output_path: Path,
+        *,
+        formal_output: bool,
+        task_id: str | None,
+    ) -> tuple[Path | None, Path]:
         """Return an optional same-directory staging path and the path the backend must write."""
 
         if not formal_output:
             return None, output_path
-        fd, staged_name = tempfile.mkstemp(
-            prefix=f".{output_path.stem}.",
-            suffix=output_path.suffix,
-            dir=output_path.parent,
-        )
-        os.close(fd)
-        staged_output_path = Path(staged_name)
-        staged_output_path.unlink()
+        if task_id is None:
+            raise ValueError("formal video output requires a task_id")
+        staged_output_path = task_video_staging_path(output_path, task_id)
+        # A process can die after the backend starts writing. Reusing one task-addressable path bounds crash residue
+        # and removes the prior attempt before normal generation or resume writes the same provider result again.
+        _remove_task_video_staging_path(staged_output_path)
         return staged_output_path, staged_output_path
 
     def _commit_video_output_version(
@@ -769,6 +812,7 @@ class MediaGenerator:
         staged_output_path, backend_output_path = self._prepare_video_output(
             output_path,
             formal_output=formal_output,
+            task_id=task_id,
         )
 
         # video 实际计费时长（result.duration_seconds）覆盖请求时长的语义转写已收进 ledger union
@@ -941,6 +985,7 @@ class MediaGenerator:
         staged_output_path, backend_output_path = self._prepare_video_output(
             output_path,
             formal_output=formal_output,
+            task_id=task_id,
         )
 
         from lib.video_backends.base import ResumeExpiredError, VideoGenerationRequest
