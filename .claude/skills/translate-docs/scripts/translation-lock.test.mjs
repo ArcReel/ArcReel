@@ -90,6 +90,23 @@ test("status reports a translated source whose recorded content changed", () => 
   ]);
 });
 
+test("status reports CONTRIBUTING.md stale when only its synced copy changed", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  write(root, "CONTRIBUTING.md", "# 贡献\n");
+  write(root, "website/docs/dev/contributing.md", "---\nid: contributing\n---\n\n# 贡献 {#contributing}\n");
+  write(root, "website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md", "# Contributing\n");
+  record(root);
+  write(root, "website/docs/dev/contributing.md", "---\nid: contributing\n---\n\n# 贡献 {#contribute}\n");
+
+  assert.deepEqual(status(root), [
+    {
+      source: "CONTRIBUTING.md",
+      target: "website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md",
+      state: "stale",
+    },
+  ]);
+});
+
 test("record refuses to hide a missing translation", () => {
   const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
   write(root, "README.md", "# ArcReel\n");

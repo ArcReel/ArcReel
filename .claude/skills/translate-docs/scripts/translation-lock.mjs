@@ -32,6 +32,14 @@ function targetForSource(source) {
   return null;
 }
 
+// CONTRIBUTING.md is translated from its synced copy, not its own bytes, so its fingerprint
+// must track that copy: a sync-contributing.mjs change alone (frontmatter, anchors) makes the
+// translated target stale even when CONTRIBUTING.md itself hasn't changed.
+function fingerprintSource(source) {
+  if (source === "CONTRIBUTING.md") return "website/docs/dev/contributing.md";
+  return source;
+}
+
 function sourceTargets(root) {
   const mappings = [
     ["CONTRIBUTING.md", targetForSource("CONTRIBUTING.md")],
@@ -62,7 +70,7 @@ function translationStatus(root) {
   const currentSources = new Set(mappings.map(([source]) => source));
   const dirty = mappings.flatMap(([source, target]) => {
     if (!existsSync(resolve(root, target))) return [{ source, target, state: "missing" }];
-    if (lock[source] !== digest(resolve(root, source))) return [{ source, target, state: "stale" }];
+    if (lock[source] !== digest(resolve(root, fingerprintSource(source)))) return [{ source, target, state: "stale" }];
     return [];
   });
   const orphans = Object.keys(lock)
@@ -86,7 +94,9 @@ function recordTranslations(root) {
     throw new Error(`Refusing to record orphan translations:\n${orphanTargets.join("\n")}`);
   }
 
-  const lock = Object.fromEntries(mappings.map(([source]) => [source, digest(resolve(root, source))]));
+  const lock = Object.fromEntries(
+    mappings.map(([source]) => [source, digest(resolve(root, fingerprintSource(source)))]),
+  );
   const lockPath = resolve(root, LOCK_PATH);
   const temporaryPath = `${lockPath}.${process.pid}.tmp`;
   mkdirSync(dirname(lockPath), { recursive: true });
