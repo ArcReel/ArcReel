@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 
 import pytest
 
@@ -90,6 +91,11 @@ def test_video_artifact_currency_rejects_incoherent_components_and_request_tier(
             reference_image_limit=None,
             parent_version=0,
         )
+
+
+def test_video_artifact_currency_rejects_non_integer_duration_tier_as_value_error() -> None:
+    with pytest.raises(ValueError, match="duration_tiers"):
+        replace(_facts(), duration_tiers=(4, "8"))
 
 
 def test_video_artifact_currency_accepts_unlimited_reference_projection_but_rejects_invalid_limits() -> None:

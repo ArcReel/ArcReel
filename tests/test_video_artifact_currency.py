@@ -25,9 +25,10 @@ from lib.speech_artifact_provenance import (
 )
 from lib.speech_composition import admit_script_unit
 from lib.version_manager import PaidVersionCommit, VersionManager
-from lib.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
 from lib.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
 from server.services import video_artifact_currency
+from server.services.artifact_version_restore import is_typed_media_version_restorable
 from server.services.video_artifact_currency import (
     VideoArtifactCommitter,
     build_current_video_artifact_basis,
@@ -315,6 +316,9 @@ async def test_failed_formal_selection_validation_archives_paid_video_without_cu
     )
     metadata = {
         "artifact_video_currency": currency.to_dict(),
+        "execution_checkpoint_schema_version": 3,
+        "execution_duration_seconds": 8,
+        "execution_request_digest": "d" * 64,
         "execution_script_file": "episode_1.json",
         "execution_narration": NarrationExecutionFacts(
             delivery="use_tts",
@@ -333,7 +337,10 @@ async def test_failed_formal_selection_validation_archives_paid_video_without_cu
     assert current.read_bytes() == b"old-current"
     history = versions.get_versions("videos", "E1S01")
     assert history["current_version"] == old_version
-    assert (project_path / history["versions"][-1]["file"]).read_bytes() == b"short-paid-video"
+    rejected = history["versions"][-1]
+    assert (project_path / rejected["file"]).read_bytes() == b"short-paid-video"
+    assert rejected[VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD] == "output_duration_unverified"
+    assert is_typed_media_version_restorable("videos", rejected) is False
 
 
 @pytest.mark.parametrize("script_rebound", [False, True])

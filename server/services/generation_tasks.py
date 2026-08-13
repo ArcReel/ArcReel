@@ -820,7 +820,7 @@ async def execute_tts_task(
         nonlocal current_commit_settings, duration_seconds, tts_selection_error
         try:
             measured_duration = await probe_existing_audio_duration_seconds(staged_path)
-        except BaseException as exc:
+        except (Exception, asyncio.CancelledError) as exc:
             tts_selection_error = exc
             return
         if measured_duration is None or not math.isfinite(measured_duration) or measured_duration <= 0:
@@ -844,7 +844,7 @@ async def execute_tts_task(
                 voice=current_ctx.audio.narration_voice,
                 speed=current_ctx.audio.narration_speed,
             )
-        except BaseException as exc:
+        except (Exception, asyncio.CancelledError) as exc:
             tts_selection_error = exc
 
     def _commit_staged(staged_path: Path, output_path: Path) -> int | PaidVersionCommit:

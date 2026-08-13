@@ -352,6 +352,38 @@ async def test_resume_formal_output_uses_same_staged_version_transaction(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_resume_formal_prepare_failure_archives_paid_history_without_selecting_it(tmp_path):
+    from lib.version_manager import VersionManager
+
+    gen = _build_generator(tmp_path)
+    gen.versions = VersionManager(gen.project_path)
+    current = gen._get_output_path("reference_videos", "E1U1")
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"old-current")
+
+    async def _fail_prepare(*_args):
+        raise RuntimeError("resume paid output validation failed")
+
+    with pytest.raises(RuntimeError, match="resume paid output validation failed"):
+        await gen.resume_video_async(
+            job_id="provider-job-1",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            task_id="T-1",
+            api_call_id=42,
+            formal_output=True,
+            before_formal_commit=_fail_prepare,
+        )
+
+    assert current.read_bytes() == b"old-current"
+    history = gen.versions.get_versions("reference_videos", "E1U1")
+    assert history["current_version"] == 1
+    assert len(history["versions"]) == 2
+    assert history["versions"][-1]["is_current"] is False
+    assert (gen.project_path / history["versions"][-1]["file"]).read_bytes() == b"fake-resume-video"
+
+
+@pytest.mark.asyncio
 async def test_resume_handles_float_string_duration(tmp_path):
     """duration_seconds 传浮点字符串（如 "10.0"）时应解析为 int(10)，
     不能被 try/except 静默吞成兜底值 8（int("10.0") 会 ValueError）。

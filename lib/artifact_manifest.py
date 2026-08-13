@@ -181,7 +181,7 @@ class ArtifactManifest:
         )
         try:
             return self.register_descriptor(key, artifact_path=artifact_path, basis=basis)
-        except BaseException:
+        except BaseException as original_error:
             try:
                 current = self._adapter.get_entry(key)
                 if current == expected:
@@ -190,6 +190,7 @@ class ArtifactManifest:
                     else:
                         self._adapter.put_entry(key, previous)
             except BaseException as rollback_error:
+                rollback_error.__cause__ = original_error
                 raise RuntimeError("artifact basis registration failed and rollback was incomplete") from rollback_error
             raise
 

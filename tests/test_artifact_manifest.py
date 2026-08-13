@@ -142,6 +142,49 @@ def test_transactional_descriptor_registration_restores_previous_entry_after_par
     assert manifest.compare(key, artifact_path=path, basis=old).status is ArtifactStatus.CURRENT
 
 
+def test_transactional_descriptor_registration_preserves_original_and_rollback_failures(monkeypatch) -> None:
+    path = "videos/scene_E1S01.mp4"
+    adapter = InMemoryArtifactManifestAdapter(artifacts={path})
+    manifest = ArtifactManifest(adapter)
+    key = ArtifactKey.episode_video(1, "E1S01")
+    old = ArtifactBasis.build("test/video", kind_version=1, inputs={"source": "old"})
+    new = ArtifactBasis.build("test/video", kind_version=1, inputs={"source": "new"})
+    manifest.register(key, artifact_path=path, basis=old)
+    original_put = adapter.put_entry
+    original_error = RuntimeError("manifest write failed")
+    rollback_error = OSError("manifest rollback failed")
+    calls = 0
+
+    def _fail_write_and_rollback(write_key, entry):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            original_put(write_key, entry)
+            raise original_error
+        raise rollback_error
+
+    monkeypatch.setattr(adapter, "put_entry", _fail_write_and_rollback)
+
+    with pytest.raises(RuntimeError, match="rollback was incomplete") as exc_info:
+        manifest.register_descriptor_transactionally(
+            key,
+            artifact_path=path,
+            basis=ArtifactBasisDescriptor.from_basis(new),
+        )
+
+    assert exc_info.value.__cause__ is rollback_error
+    assert rollback_error.__cause__ is original_error
+
+
+@pytest.mark.parametrize("kind_version", ["1", True, 1.0])
+def test_artifact_basis_evidence_rejects_non_integer_kind_version(kind_version: object) -> None:
+    evidence = ArtifactBasis.build("test/video", kind_version=1, inputs={}).to_evidence_dict()
+    evidence["kind_version"] = kind_version
+
+    with pytest.raises(ValueError, match="kind_version"):
+        ArtifactBasis.from_evidence_dict(evidence)
+
+
 def test_manifest_blocks_windows_drive_like_artifact_path() -> None:
     manifest = ArtifactManifest(InMemoryArtifactManifestAdapter())
     comparison = manifest.compare(

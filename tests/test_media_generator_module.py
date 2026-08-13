@@ -527,6 +527,44 @@ class TestMediaGenerator:
 
     @pytest.mark.integration
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure", [RuntimeError("paid output validation failed"), asyncio.CancelledError()])
+    async def test_formal_video_prepare_failure_or_cancellation_archives_paid_history_without_selecting_it(
+        self,
+        tmp_path,
+        monkeypatch,
+        failure: BaseException,
+    ):
+        from lib.version_manager import VersionManager
+
+        monkeypatch.setattr("lib.video_backends.base.persist_api_call_id", AsyncMock())
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        current = gen._get_output_path("reference_videos", "E1U1")
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"old-current")
+
+        async def _fail_prepare(*_args):
+            raise failure
+
+        with pytest.raises(type(failure)):
+            await gen.generate_video_async(
+                prompt="paid request",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                formal_output=True,
+                task_id="task-prepare-failure",
+                before_formal_commit=_fail_prepare,
+            )
+
+        assert current.read_bytes() == b"old-current"
+        history = gen.versions.get_versions("reference_videos", "E1U1")
+        assert history["current_version"] == 1
+        assert len(history["versions"]) == 2
+        assert history["versions"][-1]["is_current"] is False
+        assert (gen.project_path / history["versions"][-1]["file"]).read_bytes() == b"fake-video-data"
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
     async def test_formal_video_output_reclaims_the_same_task_path_after_interruption(self, tmp_path, monkeypatch):
         from lib.version_manager import VersionManager
 

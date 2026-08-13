@@ -227,6 +227,32 @@ class TestVersionManagerMore:
         assert history["versions"][-1]["is_current"] is False
         assert (project / history["versions"][-1]["file"]).read_bytes() == b"late-paid-video"
 
+    def test_paid_version_expected_zero_ignores_internal_legacy_current_bootstrap(self, tmp_path):
+        project = tmp_path / "demo"
+        vm = VersionManager(project)
+        current = project / "videos" / "scene_E1S01.mp4"
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"legacy-current")
+        staged = current.with_name(".scene_E1S01.new.mp4")
+        staged.write_bytes(b"new-paid-video")
+
+        outcome = vm.commit_staged_paid_version(
+            resource_type="videos",
+            resource_id="E1S01",
+            prompt="new",
+            staged_file=staged,
+            current_file=current,
+            select_current=True,
+            expected_current_version=0,
+        )
+
+        assert outcome.selected is True
+        assert current.read_bytes() == b"new-paid-video"
+        history = vm.get_versions("videos", "E1S01")
+        assert history["current_version"] == outcome.version
+        assert [record["prompt"] for record in history["versions"]] == ["", "new"]
+        assert (project / history["versions"][0]["file"]).read_bytes() == b"legacy-current"
+
     def test_paid_version_selection_failure_keeps_history_and_old_current(self, tmp_path):
         project = tmp_path / "demo"
         vm = VersionManager(project)

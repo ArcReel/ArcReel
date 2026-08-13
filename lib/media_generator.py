@@ -262,6 +262,42 @@ class MediaGenerator:
         finally:
             staged_output_path.unlink(missing_ok=True)
 
+    async def _prepare_formal_video_commit(
+        self,
+        *,
+        resource_type: str,
+        resource_id: str,
+        prompt: str,
+        output_path: Path,
+        staged_output_path: Path | None,
+        duration_seconds: int,
+        version_metadata: Mapping[str, Any],
+        before_formal_commit: Callable[[Path, int, Mapping[str, Any]], Awaitable[None]] | None,
+    ) -> None:
+        """Run paid-output validation without losing history when validation aborts."""
+
+        if before_formal_commit is None:
+            return
+        if staged_output_path is None:
+            raise ValueError("before_formal_commit requires formal video output")
+        try:
+            await before_formal_commit(staged_output_path, duration_seconds, version_metadata)
+        except (Exception, asyncio.CancelledError) as failure:
+            try:
+                self.versions.commit_staged_paid_version(
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    prompt=prompt,
+                    staged_file=staged_output_path,
+                    current_file=output_path,
+                    select_current=False,
+                    duration_seconds=duration_seconds,
+                    **version_metadata,
+                )
+            except (Exception, asyncio.CancelledError) as archive_failure:
+                failure.add_note(f"paid video history archival also failed: {archive_failure}")
+            raise
+
     @staticmethod
     def _sync(coro):
         """Run an async coroutine from synchronous code (e.g. inside to_thread)."""
@@ -939,9 +975,16 @@ class MediaGenerator:
             video_uri = result.video_uri
             call.success(result)
 
-        if before_formal_commit is not None:
-            assert staged_output_path is not None
-            await before_formal_commit(staged_output_path, duration_int, version_metadata)
+        await self._prepare_formal_video_commit(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            prompt=prompt,
+            output_path=output_path,
+            staged_output_path=staged_output_path,
+            duration_seconds=duration_int,
+            version_metadata=version_metadata,
+            before_formal_commit=before_formal_commit,
+        )
 
         # 5. 记录新版本
         committed = self._commit_video_output_version(
@@ -1081,9 +1124,16 @@ class MediaGenerator:
 
         # backend.resume_video 已将付费结果下载到请求路径。正式媒体请求写入 staging，随后由
         # commit callback 在一个受控事务内保存历史并决定是否选中；非正式请求直接追加版本。
-        if before_formal_commit is not None:
-            assert staged_output_path is not None
-            await before_formal_commit(staged_output_path, duration_int, version_metadata)
+        await self._prepare_formal_video_commit(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            prompt=prompt,
+            output_path=output_path,
+            staged_output_path=staged_output_path,
+            duration_seconds=duration_int,
+            version_metadata=version_metadata,
+            before_formal_commit=before_formal_commit,
+        )
 
         committed = self._commit_video_output_version(
             resource_type=resource_type,

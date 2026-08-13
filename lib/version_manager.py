@@ -393,6 +393,13 @@ class VersionManager:
                 return version
 
             try:
+                submitted_current = resource_data.get("current_version", 0)
+                if (
+                    not isinstance(submitted_current, int)
+                    or isinstance(submitted_current, bool)
+                    or submitted_current < 0
+                ):
+                    submitted_current = 0
                 if current_file.is_file() and not resource_data.get("current_version"):
                     tracked = _append_snapshot(current_file, "", {})
                     resource_data["current_version"] = tracked
@@ -427,7 +434,7 @@ class VersionManager:
             try:
                 should_select = (
                     False
-                    if expected_current_version is not None and prior_current != expected_current_version
+                    if expected_current_version is not None and submitted_current != expected_current_version
                     else select_current()
                     if callable(select_current)
                     else select_current

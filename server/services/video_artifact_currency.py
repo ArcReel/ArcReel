@@ -43,7 +43,7 @@ from lib.speech_artifact_provenance import (
 from lib.speech_composition import SpeechMode, SpeechPreparation, admit_script_unit
 from lib.version_manager import PaidVersionCommit, VersionManager
 from lib.video_artifact_commit import commit_paid_video_artifact
-from lib.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
 from lib.video_visual_provenance import resolve_video_aspect_ratio
 from lib.visual_artifact_provenance import (
     build_reference_video_artifact_visual_basis,
@@ -134,6 +134,7 @@ class VideoArtifactCommitter:
         self._prior_thumbnail: tuple[Path, bool, bytes | None] | None = None
         self._current_tts_settings: TtsSynthesisSettings | None = None
         self._current_tts_basis_resolved = False
+        self._restore_blocker: str | None = None
 
     async def prepare_selection(
         self,
@@ -162,8 +163,10 @@ class VideoArtifactCommitter:
                 output_path=staged_file,
                 tts_actual_duration_seconds=narration.actual_duration_seconds,
             )
-        except BaseException as exc:
+        except (Exception, asyncio.CancelledError) as exc:
             self.selection_error = exc
+            code = getattr(exc, "code", None)
+            self._restore_blocker = code if isinstance(code, str) and code else "output_duration_unverified"
             return
 
         try:
@@ -179,7 +182,7 @@ class VideoArtifactCommitter:
             # No configured current TTS means there is no fresh duration that can
             # invalidate the execution-frozen video tier.
             self._current_tts_settings = None
-        except BaseException as exc:
+        except (Exception, asyncio.CancelledError) as exc:
             self.selection_error = exc
             return
         self._current_tts_basis_resolved = True
@@ -192,7 +195,10 @@ class VideoArtifactCommitter:
         version_metadata: Mapping[str, Any],
     ) -> PaidVersionCommit:
         snapshot: dict[str, dict[str, Any] | None] = {"project": None, "script": None}
-        script_file = version_metadata.get("execution_script_file")
+        metadata = dict(version_metadata)
+        if self._restore_blocker is not None:
+            metadata[VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD] = self._restore_blocker
+        script_file = metadata.get("execution_script_file")
 
         @contextmanager
         def _selection_guard():
@@ -235,7 +241,7 @@ class VideoArtifactCommitter:
 
         self._current_file = current_file
         try:
-            artifact_currency = VideoArtifactCurrencyFacts.from_dict(version_metadata.get("artifact_video_currency"))
+            artifact_currency = VideoArtifactCurrencyFacts.from_dict(metadata.get("artifact_video_currency"))
         except (TypeError, ValueError):
             artifact_currency = None
         self._selected_episode = artifact_currency.episode if artifact_currency is not None else None
@@ -257,7 +263,7 @@ class VideoArtifactCommitter:
             staged_file=staged_file,
             current_file=current_file,
             duration_seconds=duration_seconds,
-            version_metadata=version_metadata,
+            version_metadata=metadata,
             resolve_current_basis=_current_basis,
             selection_guard=_selection_guard,
             capture_prior_manifest=self._capture_prior_manifest,

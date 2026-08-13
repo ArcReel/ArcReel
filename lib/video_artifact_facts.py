@@ -17,10 +17,10 @@ _SCHEMA_VERSION = 1
 _STORYBOARD_VISUAL_KIND = "artifact-visual/video-storyboard"
 _REFERENCE_VISUAL_KIND = "artifact-visual/video-reference"
 _SPEECH_KIND = "artifact-speech/video"
-_DURATION_KIND = "artifact-speech/video-duration"
 _VIDEO_KIND = "artifact-components/video"
 _HEX_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _BASIS_DIGEST = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
+VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD = "artifact_video_restore_blocker"
 
 
 def _canonical_json(value: object) -> str:
@@ -105,8 +105,8 @@ class VideoArtifactCurrencyFacts:
             raise ValueError("voice_style_speakers must be unique")
         if (
             not self.duration_tiers
-            or tuple(sorted(set(self.duration_tiers))) != self.duration_tiers
             or any(type(tier) is not int or tier <= 0 for tier in self.duration_tiers)
+            or tuple(sorted(set(self.duration_tiers))) != self.duration_tiers
             or self.request_duration_seconds not in self.duration_tiers
         ):
             raise ValueError("duration_tiers must be sorted positive tiers containing the paid request tier")
@@ -189,7 +189,7 @@ class VideoArtifactCurrencyFacts:
         return facts
 
 
-__all__ = ["VideoArtifactCurrencyFacts"]
+__all__ = ["VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD", "VideoArtifactCurrencyFacts"]
 
 
 def _basis_inputs(basis: ArtifactBasis) -> Mapping[str, Any]:

@@ -19,7 +19,7 @@ from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_b
 from lib.project_manager import ProjectManager, find_episode
 from lib.script_editor import resolve_items
 from lib.version_manager import VersionManager
-from lib.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
 from server.services.reference_video_tasks import apply_unit_video_assets
 
 
@@ -248,6 +248,8 @@ def _validate_video_basis(
     record: Mapping[str, Any],
     spec: _TypedMediaRestoreSpec,
 ) -> VideoArtifactCurrencyFacts:
+    if record.get(VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD) is not None:
+        raise ValueError("version failed paid video output validation")
     schema_version = record.get("execution_checkpoint_schema_version")
     duration_seconds = record.get("execution_duration_seconds")
     request_digest = record.get("execution_request_digest")
