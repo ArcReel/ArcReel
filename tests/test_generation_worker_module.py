@@ -1602,7 +1602,7 @@ class TestGenerationWorker:
         await worker._handle_orphan_tasks_on_start()
         dispatcher_task = worker._orphan_dispatcher_task
         assert dispatcher_task is not None
-        await dispatcher_task
+        await asyncio.wait_for(dispatcher_task, timeout=5)
 
         assert list(captured) == ["ark"]
         assert captured["ark"][0]["provider_id"] == "ark"
