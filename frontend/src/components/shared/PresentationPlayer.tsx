@@ -342,7 +342,7 @@ export function PresentationPlayer({
 
       <div className="absolute inset-x-2 top-2 flex flex-wrap items-center gap-1.5">
         <span className="rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold text-white/85">
-          {t(`presentation_${presentation.selection}`)}
+          {t(`presentation_selection_${presentation.selection}`)}
         </span>
         {presentation.provenance === "unavailable" && (
           <span className="rounded bg-amber-950/85 px-1.5 py-0.5 text-[9px] font-semibold text-amber-200">
@@ -357,7 +357,7 @@ export function PresentationPlayer({
                 : "bg-amber-950/85 text-amber-200"
             }`}
           >
-            {t(`presentation_${presentation.currency}`)}
+            {t(`presentation_currency_${presentation.currency}`)}
           </span>
         )}
         {presentation.timing === "mechanical" && (

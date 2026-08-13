@@ -481,11 +481,15 @@ def subtitles_webvtt(cues: tuple[SubtitleCue, ...]) -> str:
             (
                 str(index),
                 f"{_vtt_timestamp(cue.start_microseconds)} --> {_vtt_timestamp(cue.end_microseconds)}",
-                cue.text,
+                _webvtt_cue_text(cue.text),
                 "",
             )
         )
     return "\n".join(lines)
+
+
+def _webvtt_cue_text(text: str) -> str:
+    return "\n".join(line for line in text.split("\n") if line.strip())
 
 
 def _vtt_timestamp(microseconds: int) -> str:

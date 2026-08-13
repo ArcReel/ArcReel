@@ -145,6 +145,19 @@ def test_narrator_post_needs_no_tts_and_uses_actual_video_not_planned_duration()
     assert [(cue.start_microseconds, cue.duration_microseconds) for cue in presentation.subtitles] == [(0, 5_250_000)]
 
 
+def test_webvtt_projection_collapses_blank_paragraphs_without_changing_canonical_text() -> None:
+    presentation = materialize_speech_presentation(
+        _speech(SpeechMode.NARRATOR_VOICEOVER, (None, "第一段\n\n第二段")),
+        variant=POST_PRODUCTION,
+        video=_media("versions/videos/E1U01_v1.mp4", kind="v", duration=5.0),
+        provider_audio_enabled=True,
+    )
+
+    assert presentation.subtitles[0].text == "第一段\n\n第二段"
+    assert presentation.subtitle_artifact_dict()["cues"][0]["text"] == "第一段\n\n第二段"
+    assert presentation.subtitles_webvtt() == ("WEBVTT\n\n1\n00:00:00.000 --> 00:00:05.000\n第一段\n第二段\n")
+
+
 def test_use_tts_rejects_non_narrator_and_audio_longer_than_video_without_clipping() -> None:
     video = _media("versions/videos/E1U01_v1.mp4", kind="v", duration=5.0)
     audio = _media("versions/audio/E1U01_v1.wav", kind="a", duration=5.1)
