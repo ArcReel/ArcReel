@@ -42,6 +42,14 @@ class _FakePM:
         mutate_fn(project)
         self.save_project(project_name, project)
 
+    def delete_asset(self, project_name, table, name):
+        project = self.load_project(project_name)
+        bucket = project.get(table) or {}
+        if name not in bucket:
+            raise KeyError(name)
+        del bucket[name]
+        return project
+
 
 def _client(monkeypatch, fake_pm):
     monkeypatch.setattr(props, "get_project_manager", lambda: fake_pm)

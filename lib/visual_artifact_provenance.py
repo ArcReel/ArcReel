@@ -218,6 +218,49 @@ def build_grid_member_storyboard_visual_basis(
     )
 
 
+def build_stale_grid_member_storyboard_visual_basis(
+    *,
+    group_id: str,
+    resource_id: str,
+    cell_index: int,
+    composite_image: Path,
+    rows: int,
+    columns: int,
+    member_aspect_ratio: str,
+    source_grid_basis_digest: str,
+) -> ArtifactBasis:
+    """Describe a cell derived from a claimed but stale grid composite.
+
+    The old grid inputs cannot be reconstructed from current project state, but
+    its frozen claim remains strict source evidence. Committing that claim, the
+    selected cell identity, and the actual composite bytes preserves usable
+    stale lineage without manufacturing a current storyboard claim.
+    """
+
+    if type(rows) is not int or rows < 1 or type(columns) is not int or columns < 1:
+        raise ValueError("grid dimensions must be positive integers")
+    if type(cell_index) is not int or not 0 <= cell_index < rows * columns:
+        raise ValueError("cell_index must identify a grid cell")
+    return ArtifactBasis.build(
+        "artifact-visual/stale-grid-member",
+        kind_version=1,
+        inputs={
+            "group_id": _require_non_empty("group_id", group_id),
+            "resource_id": _require_non_empty("resource_id", resource_id),
+            "cell_index": cell_index,
+            "layout": {
+                "rows": rows,
+                "columns": columns,
+                "member_aspect_ratio": _require_non_empty("member_aspect_ratio", member_aspect_ratio),
+            },
+            "source_grid_claim": {
+                "basis_digest": _require_non_empty("source_grid_basis_digest", source_grid_basis_digest),
+            },
+            "source_composite": {"sha256": _file_digest(composite_image)},
+        },
+    )
+
+
 def build_storyboard_video_artifact_visual_basis(
     *,
     resource_id: str,
@@ -469,6 +512,7 @@ __all__ = [
     "build_asset_sheet_visual_basis",
     "build_grid_composite_visual_basis",
     "build_grid_member_storyboard_visual_basis",
+    "build_stale_grid_member_storyboard_visual_basis",
     "build_reference_video_artifact_visual_basis",
     "build_storyboard_image_visual_basis",
     "build_storyboard_video_artifact_visual_basis",

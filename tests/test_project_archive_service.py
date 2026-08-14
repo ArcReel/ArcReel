@@ -413,6 +413,58 @@ class TestProjectArchiveService:
         )
 
     @pytest.mark.unit
+    def test_deleted_asset_forgets_its_claim_before_an_official_round_trip(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        migrate_v7_to_v8(project_dir)
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) is not None
+
+        pm.delete_asset("demo", "characters", "Hero")
+
+        assert "Hero" not in pm.load_project("demo")["characters"]
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) is None
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+        shutil.rmtree(project_dir)
+
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) is None
+
+    @pytest.mark.unit
+    def test_asset_delete_manifest_failure_restores_exact_project_and_claim(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        migrate_v7_to_v8(project_dir)
+        project_file = project_dir / "project.json"
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        before_project = project_file.read_bytes()
+        before_entry = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert before_entry is not None
+        original_delete = ProjectArtifactManifestAdapter.delete_entry
+
+        def _delete_then_fail(self, candidate):
+            changed = original_delete(self, candidate)
+            if candidate == key:
+                raise RuntimeError("manifest delete failed")
+            return changed
+
+        monkeypatch.setattr(ProjectArtifactManifestAdapter, "delete_entry", _delete_then_fail)
+
+        with pytest.raises(RuntimeError, match="manifest delete failed"):
+            pm.delete_asset("demo", "characters", "Hero")
+
+        assert project_file.read_bytes() == before_project
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) == before_entry
+
+    @pytest.mark.unit
     def test_official_round_trip_preserves_an_empty_manifest_snapshot(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)

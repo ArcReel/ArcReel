@@ -2439,6 +2439,41 @@ class ProjectManager:
             "dropped_legacy": dropped_legacy,
         }
 
+    def delete_asset(self, project_name: str, table: str, name: str) -> dict:
+        """Delete one project asset and its formal sheet claim in one commit.
+
+        The project entry owns the identity of an asset-sheet claim. Leaving
+        that claim behind would make a complete Manifest snapshot refer to an
+        asset that no longer exists, so every caller shares this write seam.
+        """
+
+        from lib.artifact_activation import forget_current_resource_artifact
+
+        asset_type = self._resolve_asset_type(table)
+        spec = ASSET_SPECS[asset_type]
+        project_dir = self.get_project_path(project_name)
+        deleted_name: str | None = None
+
+        def _mutate(project: dict) -> None:
+            nonlocal deleted_name
+            bucket = project.get(spec.bucket_key)
+            key = resolve_asset_key(bucket, name)
+            if not isinstance(bucket, dict) or key is None:
+                raise KeyError(f"{spec.label_zh} '{name}' 不存在")
+            deleted_name = key
+            del bucket[key]
+
+        def _forget_claim(_project_file: Path) -> None:
+            if deleted_name is None:  # pragma: no cover - mutate contract
+                raise RuntimeError("asset deletion did not resolve a canonical identity")
+            forget_current_resource_artifact(
+                project_dir,
+                resource_type=spec.bucket_key,
+                resource_id=deleted_name,
+            )
+
+        return self.update_project(project_name, _mutate, on_commit=_forget_claim)
+
     # bucket_key（characters/scenes/props/products）→ 资产类型，从静态 ASSET_SPECS 派生一次。
     _BUCKET_TO_ASSET_TYPE = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
 

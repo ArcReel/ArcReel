@@ -78,6 +78,17 @@ class _FakePM:
         mutate_fn(project)
         self.save_project(project_name, project)
 
+    def delete_asset(self, project_name, table, name):
+        from lib.asset_types import resolve_asset_key
+
+        project = self.load_project(project_name)
+        bucket = project.get(table) or {}
+        key = resolve_asset_key(bucket, name)
+        if key is None:
+            raise KeyError(name)
+        del bucket[key]
+        return project
+
 
 def _client(monkeypatch):
     fake_pm = _FakePM()

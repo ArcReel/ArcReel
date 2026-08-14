@@ -16,8 +16,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lib.artifact_activation import register_artifact_entries_atomically
-from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry
+from lib.artifact_activation import (
+    TARGET_SCHEMA_VERSION,
+    ArtifactCurrencyResolver,
+    register_artifact_entries_atomically,
+)
+from lib.artifact_manifest import (
+    ArtifactKey,
+    ArtifactManifestEntry,
+    ArtifactStatus,
+    ProjectArtifactManifestAdapter,
+)
 from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
 from lib.path_safety import safe_join
@@ -27,6 +36,7 @@ from lib.visual_artifact_provenance import (
     GridStoryboardVisual,
     VisualReference,
     build_grid_member_storyboard_visual_basis,
+    build_stale_grid_member_storyboard_visual_basis,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,10 +46,11 @@ def _register_split_entries_atomically(
     project_path: Path,
     *,
     entries: Mapping[ArtifactKey, ArtifactManifestEntry | None],
+    expected_entries: Mapping[ArtifactKey, ArtifactManifestEntry | None],
 ) -> None:
     """Registration boundary for all cells selected by one split."""
 
-    register_artifact_entries_atomically(project_path, entries)
+    register_artifact_entries_atomically(project_path, entries, expected_entries=expected_entries)
 
 
 class GridImageNotReadyError(Exception):
@@ -71,7 +82,8 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
 
     grid_manager = GridManager(project_path)
     grid_image_file = grid_manager.image_path(grid.id)
-    if not grid.grid_image_path or not grid_image_file.exists():
+    grid_image_path = grid.grid_image_path
+    if not grid_image_path or not grid_image_file.exists():
         raise GridImageNotReadyError(f"grid {grid.id} has no grid image to split")
 
     versions = VersionManager(project_path)
@@ -80,15 +92,50 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
     def _split_and_assign() -> tuple[list[str], list[str]]:
         from lib.script_editor import resolve_items
 
+        source_status: ArtifactStatus | None = None
+        source_key: ArtifactKey | None = None
+        source_entry: ArtifactManifestEntry | None = None
+        if project.get("schema_version") == TARGET_SCHEMA_VERSION:
+            with pm.locked_project_script_snapshot(project_name, script_file) as (frozen_project, script):
+                source_key = ArtifactKey.episode_grid(grid.episode, grid.id)
+                adapter = ProjectArtifactManifestAdapter(project_path)
+                source_entry = adapter.get_entry(source_key)
+                comparison = ArtifactCurrencyResolver(project_path).compare(
+                    source_key,
+                    artifact_path=grid_image_path,
+                )
+                if source_entry is None or not comparison.usable or adapter.get_entry(source_key) != source_entry:
+                    raise GridImageNotReadyError(f"grid {grid.id} has no registered grid image to split")
+                source_status = comparison.status
+                project_snapshot = frozen_project
+        else:
+            project_snapshot = project
+            script = pm.load_script(project_name, script_file)
+
         # 比例取记录冻结值：项目 aspect_ratio 改过之后再切历史联合图，按新比例中心裁切
         # 会把每格削掉大半（横版图按竖版切）。存量记录无该字段，回退到项目当前设置。
-        video_aspect_ratio = grid.video_aspect_ratio or get_aspect_ratio(project, "videos")
-        # Image.open 惰性读取并持有文件句柄，而逐格 save 期间上传/还原可能要覆写同一个 PNG，
-        # Windows 上未释放的句柄会让覆写失败。切格在 with 内完成，切出的 cell 已是各自独立的
-        # 内存图像，句柄随 with 退出即释放；不再额外 copy 整张联合图，省下一份满尺寸副本。
-        with Image.open(grid_image_file) as src:
-            src.load()
-            cells = split_grid_image(src, grid.rows, grid.cols, video_aspect_ratio)
+        video_aspect_ratio = grid.video_aspect_ratio or get_aspect_ratio(project_snapshot, "videos")
+
+        def _snapshot_and_split() -> tuple[Path, list[Any]]:
+            fd, snapshot_name = tempfile.mkstemp(
+                prefix=f".{grid.id}.",
+                suffix=".split-source.png",
+                dir=grid_image_file.parent,
+            )
+            snapshot = Path(snapshot_name)
+            try:
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(grid_image_file.read_bytes())
+                # Image.open 惰性读取并持有文件句柄。先复制联合图的完整字节，再从同一快照
+                # 切格与建 basis；上传/还原可在随后替换 canonical PNG，不会混入半新半旧证据。
+                with Image.open(snapshot) as src:
+                    src.load()
+                    return snapshot, split_grid_image(src, grid.rows, grid.cols, video_aspect_ratio)
+            except BaseException:
+                snapshot.unlink(missing_ok=True)
+                raise
+
+        composite_snapshot, cells = _snapshot_and_split()
 
         storyboards_dir = project_path / "storyboards"
         storyboards_dir.mkdir(parents=True, exist_ok=True)
@@ -97,7 +144,6 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
         # cell.save() 已写 PNG 落盘后又因 KeyError 整批回滚留下 orphan PNG,这里先 load
         # 当前剧本拿 valid id 集合,frame_chain 中已不存在的分镜(grid plan 生成后 agent
         # split/remove 改动了剧本)跳过 cell PNG 保存 + 收集到 missing 列表 + warning。
-        script = pm.load_script(project_name, script_file)
         items, id_field, _kind = resolve_items(script)
         valid_ids = {str(item.get(id_field)) for item in items if isinstance(item, dict)}
 
@@ -196,18 +242,37 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
                     break
             if references is not None:
                 references = tuple(reference_list)
-            member_ratio = grid.video_aspect_ratio or get_aspect_ratio(project, "videos")
-            if members is not None and references is not None:
+            member_ratio = grid.video_aspect_ratio or get_aspect_ratio(project_snapshot, "videos")
+            if source_status is ArtifactStatus.STALE and source_entry is not None:
+                for cell_index, resource_id, cell_rel in cell_assignments:
+                    try:
+                        basis = build_stale_grid_member_storyboard_visual_basis(
+                            group_id=grid.id,
+                            resource_id=resource_id,
+                            cell_index=cell_index,
+                            composite_image=composite_snapshot,
+                            rows=grid.rows,
+                            columns=grid.cols,
+                            member_aspect_ratio=member_ratio,
+                            source_grid_basis_digest=source_entry.basis_digest,
+                        )
+                    except (OSError, TypeError, ValueError):
+                        continue
+                    manifest_entries[ArtifactKey.episode_storyboard(grid.episode, resource_id)] = ArtifactManifestEntry(
+                        artifact_path=cell_rel,
+                        basis_digest=basis.digest,
+                    )
+            elif members is not None and references is not None:
                 for cell_index, resource_id, cell_rel in cell_assignments:
                     try:
                         basis = build_grid_member_storyboard_visual_basis(
                             group_id=grid.id,
                             members=members,
                             cell_index=cell_index,
-                            composite_image=grid_image_file,
+                            composite_image=composite_snapshot,
                             rows=grid.rows,
                             columns=grid.cols,
-                            style=str(project.get("style") or ""),
+                            style=str(project_snapshot.get("style") or ""),
                             member_aspect_ratio=member_ratio,
                             references=references,
                         )
@@ -222,7 +287,14 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
             committed_grid_box: list[GridGeneration] = []
 
             def _register() -> None:
-                _register_split_entries_atomically(project_path, entries=manifest_entries)
+                expected_entries = (
+                    {source_key: source_entry} if source_key is not None and source_entry is not None else {}
+                )
+                _register_split_entries_atomically(
+                    project_path,
+                    entries=manifest_entries,
+                    expected_entries=expected_entries,
+                )
 
             def _commit_grid() -> None:
                 assignment_by_index = {index: path for index, _resource_id, path in cell_assignments}
@@ -263,6 +335,7 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
         finally:
             for commit in staged_commits:
                 Path(commit.staged_file).unlink(missing_ok=True)
+            composite_snapshot.unlink(missing_ok=True)
 
     updated_ids, missing_ids = await asyncio.to_thread(_split_and_assign)
 

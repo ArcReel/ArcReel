@@ -325,15 +325,8 @@ def build_asset_router(
             def _sync():
                 manager = pm_getter()
 
-                def _mutate(project):
-                    bucket = project.get(spec.bucket_key) or {}
-                    key = resolve_asset_key(bucket, entry_name)
-                    if key is None:
-                        raise KeyError(entry_name)
-                    del bucket[key]
-
                 with project_change_source("webui"):
-                    manager.update_project(project_name, _mutate)
+                    manager.delete_asset(project_name, spec.bucket_key, entry_name)
                 return {"success": True, "message": _t(keys["deleted"], name=entry_name)}
 
             return await asyncio.to_thread(_sync)

@@ -1654,14 +1654,23 @@ def register_task_current_resource_artifact(
 def register_artifact_entries_atomically(
     project_dir: Path,
     entries: Mapping[ArtifactKey, ArtifactManifestEntry | None],
+    *,
+    expected_entries: Mapping[ArtifactKey, ArtifactManifestEntry | None] | None = None,
 ) -> bool:
-    """Replace a frozen batch of formal claims in one Manifest CAS commit."""
+    """Replace a frozen batch of formal claims in one guarded Manifest commit.
+
+    ``expected_entries`` protects source claims that the replacements were
+    derived from without rewriting those sources. This lets a multi-file
+    formal commit fail and roll back when an input claim changes after preflight.
+    """
 
     if not entries or not _artifact_manifest_is_active(project_dir):
         return False
     adapter = ProjectArtifactManifestAdapter(project_dir)
-    expected: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
     replacements = dict(entries)
+    guarded = dict(expected_entries or {})
+    observed = {key: adapter.get_entry(key) for key in {*guarded, *replacements}}
+    expected = dict(guarded)
     for key, entry in replacements.items():
         if entry is not None:
             observation = adapter.inspect_artifact(entry.artifact_path)
@@ -1671,8 +1680,10 @@ def register_artifact_entries_atomically(
                 )
             if not observation.present:
                 raise ArtifactManifestError(f"cannot register missing formal artifact: {entry.artifact_path}")
-        expected[key] = adapter.get_entry(key)
-    if expected == replacements:
+        expected.setdefault(key, observed[key])
+    if all(observed[key] == value for key, value in expected.items()) and all(
+        observed[key] == value for key, value in replacements.items()
+    ):
         return False
     if not adapter.replace_entries_if_matches_atomically(expected=expected, replacements=replacements):
         raise ArtifactManifestError("artifact manifest changed during batch registration")
