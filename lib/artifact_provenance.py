@@ -10,7 +10,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from lib.artifact_manifest import ArtifactBasis
-from lib.speech_rate import project_speech_rate_override
+from lib.episode_ledger import episode_outline_context
+from lib.speech_rate import project_speech_rate_override, speech_rate_units_per_second
+from lib.text_metrics import reading_unit_noun
 
 _STRUCTURED_CONTENT_MODES = frozenset({"narration", "drama"})
 _GENERATION_MODES = frozenset({"storyboard", "reference_video"})
@@ -19,29 +21,144 @@ _DEFAULT_SOURCE_LANGUAGE = "中文"
 _AD_OVERVIEW_FIELDS = ("synopsis", "genre", "theme")
 
 
-def build_step1_basis(source_content: object, *, project: Mapping[str, object]) -> ArtifactBasis:
-    """Describe the formal source inputs consumed by one episode's step1 artifact."""
+def build_step1_basis(
+    source_content: object,
+    *,
+    episode: int,
+    project: Mapping[str, object],
+) -> ArtifactBasis:
+    """Describe every durable prompt input consumed by one step1 artifact."""
 
     content_mode, generation_mode = _content_axes(project)
-    raw_source_kind = project.get("source_kind")
-    source_kind = "novel" if raw_source_kind is None else raw_source_kind
-    if not isinstance(source_kind, str) or source_kind not in _SOURCE_KINDS:
-        raise ValueError(f"unsupported source_kind: {source_kind!r}")
-    raw_source_language = project.get("source_language")
-    source_language = raw_source_language or _DEFAULT_SOURCE_LANGUAGE
-    if not isinstance(source_language, str):
-        raise ValueError(f"source_language must be a non-empty string or null, got {source_language!r}")
+    prompt_inputs = project_step1_prompt_inputs(episode, project=project)
     return ArtifactBasis.build(
         "structured-content/step1",
-        kind_version=1,
+        kind_version=2,
         inputs={
             "content_mode": content_mode,
             "generation_mode": generation_mode,
             "source_content": source_content,
-            "source_kind": source_kind,
-            "source_language": source_language,
+            "prompt_context": _freeze_step1_prompt_inputs(prompt_inputs, generation_mode=generation_mode),
         },
     )
+
+
+def project_step1_prompt_inputs(
+    episode: int,
+    *,
+    project: Mapping[str, object],
+) -> dict[str, object]:
+    """Project persisted fields passed to the selected step1 prompt builder.
+
+    Capability tiers and one-shot instructions are execution inputs and stay out
+    of this projection. Asset mappings preserve insertion order because all
+    three prompt builders render that order verbatim.
+    """
+
+    if type(episode) is not int or episode < 1:
+        raise ValueError("episode must be a positive integer")
+    content_mode, generation_mode = _content_axes(project)
+    overview = _mapping_or_empty(project.get("overview"))
+    source_language = project.get("source_language") or _DEFAULT_SOURCE_LANGUAGE
+    if not isinstance(source_language, str):
+        raise ValueError(f"source_language must be a non-empty string or null, got {source_language!r}")
+
+    inputs: dict[str, object] = {
+        "episode": episode,
+        "project_overview": {field: overview.get(field, "") for field in (*_AD_OVERVIEW_FIELDS, "world_setting")},
+        "characters": _project_step1_asset_mapping(project.get("characters")),
+        "scenes": _project_step1_asset_mapping(project.get("scenes")),
+        "props": _project_step1_asset_mapping(project.get("props")),
+        "target_language": source_language,
+    }
+
+    if generation_mode == "reference_video" or content_mode == "drama":
+        episode_outline, next_episode_outline = episode_outline_context(project, episode)
+        inputs.update(
+            {
+                "episode_outline": episode_outline,
+                "next_episode_outline": next_episode_outline,
+            }
+        )
+
+    if generation_mode == "reference_video" or (content_mode == "drama" and generation_mode == "storyboard"):
+        raw_source_language = project.get("source_language")
+        inputs.update(
+            {
+                "source_language": raw_source_language if isinstance(raw_source_language, str) else None,
+                "speech_rate_override": project_speech_rate_override(project),
+            }
+        )
+
+    if content_mode == "drama" and generation_mode == "storyboard":
+        raw_source_kind = project.get("source_kind")
+        source_kind = "novel" if raw_source_kind is None else raw_source_kind
+        if not isinstance(source_kind, str) or source_kind not in _SOURCE_KINDS:
+            raise ValueError(f"unsupported source_kind: {source_kind!r}")
+        inputs.update(
+            {
+                "source_kind": source_kind,
+                "style": _optional_string(project.get("style"), "style"),
+            }
+        )
+
+    return inputs
+
+
+def _freeze_step1_prompt_inputs(
+    prompt_inputs: Mapping[str, object],
+    *,
+    generation_mode: str,
+) -> dict[str, object]:
+    """Convert runtime prompt mappings into an order-sensitive JSON basis."""
+
+    frozen = dict(prompt_inputs)
+    for field in ("characters", "scenes", "props"):
+        raw_assets = _mapping_or_empty(prompt_inputs.get(field))
+        if generation_mode == "reference_video":
+            frozen[field] = [
+                {
+                    "name": name,
+                    "description": (raw.get("description", "") if isinstance(raw, Mapping) else ""),
+                }
+                for name, raw in raw_assets.items()
+            ]
+        else:
+            frozen[field] = list(raw_assets)
+
+    if "source_language" in frozen:
+        source_language = frozen.pop("source_language")
+        source_language = source_language if isinstance(source_language, str) else None
+        speech_rate_override = frozen.pop("speech_rate_override", None)
+        speech_rate_override = speech_rate_override if isinstance(speech_rate_override, (int, float)) else None
+        frozen["speech_rate_units_per_second"] = speech_rate_units_per_second(
+            source_language,
+            speech_rate_override,
+        )
+        frozen["reading_unit_noun"] = reading_unit_noun(source_language)
+
+    if generation_mode == "reference_video":
+        for field in ("episode_outline", "next_episode_outline"):
+            frozen[field] = _freeze_reference_outline(prompt_inputs.get(field))
+    return frozen
+
+
+def _freeze_reference_outline(value: object) -> dict[str, object] | None:
+    """Match the reference-video outline renderer's whitespace semantics."""
+
+    if not isinstance(value, Mapping):
+        return None
+    result: dict[str, object] = {}
+    for field in ("title", "hook", "next_episode_teaser"):
+        raw = value.get(field)
+        if isinstance(raw, str) and raw.strip():
+            result[field] = raw.strip()
+    raw_beats = value.get("story_beats")
+    if isinstance(raw_beats, list):
+        beats = [beat.strip() for beat in raw_beats if isinstance(beat, str) and beat.strip()]
+        if beats:
+            result["story_beats"] = beats
+    return result or None
 
 
 def build_episode_script_basis(step1_content: object, *, project: Mapping[str, object]) -> ArtifactBasis:
@@ -166,6 +283,17 @@ def _project_named_assets(value: object) -> dict[str, object]:
         if not isinstance(name, str):
             raise ValueError("ad asset names must be strings")
         result[name] = {}
+    return result
+
+
+def _project_step1_asset_mapping(value: object) -> dict[str, object]:
+    """Copy the ordered asset table rendered by step1 prompt builders."""
+
+    result: dict[str, object] = {}
+    for name, raw in _mapping_or_empty(value).items():
+        if not isinstance(name, str):
+            raise ValueError("step1 asset names must be strings")
+        result[name] = dict(raw) if isinstance(raw, Mapping) else {}
     return result
 
 

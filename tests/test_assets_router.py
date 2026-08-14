@@ -697,7 +697,7 @@ class TestApplyToProject:
 
         assert (project_dir / "scenes" / "A.png").read_bytes() == b"old-sheet"
         assert pm.load_project("target")["scenes"]["A"]["description"] == "old description"
-        assert adapter.get_entry(key) == frozen
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) == frozen
 
     @pytest.mark.unit
     def test_duplicate_overwrite_asset_id_is_idempotent(self, _assets_env):

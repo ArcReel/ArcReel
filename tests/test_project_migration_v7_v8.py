@@ -351,7 +351,7 @@ def test_v7_activation_replaces_partial_manifest_from_canonical_target_state(tmp
         ),
         ArtifactKey.episode_step1(1): ArtifactManifestEntry(
             artifact_path="drafts/episode_1/step1_segments.json",
-            basis_digest=build_step1_basis("雨夜", project=project).digest,
+            basis_digest=build_step1_basis("雨夜", episode=1, project=project).digest,
         ),
         ArtifactKey.episode_script(1): ArtifactManifestEntry(
             artifact_path="scripts/episode_1.json",
@@ -802,6 +802,7 @@ def test_v7_activation_backfills_formal_step1_before_final_script_exists(tmp_pat
         entries[ArtifactKey.episode_step1(1).encode()]["basis_digest"]
         == build_step1_basis(
             "雨夜",
+            episode=1,
             project=_read_json(project_dir / "project.json"),
         ).digest
     )

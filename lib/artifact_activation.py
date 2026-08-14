@@ -475,7 +475,11 @@ class _Planner:
             except UnicodeDecodeError as exc:
                 raise ValueError(f"episode source {source_rel} is not UTF-8") from exc
             try:
-                step1_basis = build_step1_basis(source_content, project=self.project)
+                step1_basis = build_step1_basis(
+                    source_content,
+                    episode=binding.episode,
+                    project=self.project,
+                )
             except (TypeError, ValueError):
                 pass
             else:

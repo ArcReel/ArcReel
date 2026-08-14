@@ -14,19 +14,18 @@ import re
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 from claude_agent_sdk import tool
 from pydantic import BaseModel, ValidationError
 
 from lib import script_review
 from lib.artifact_manifest import ArtifactBasis
-from lib.artifact_provenance import build_step1_basis
+from lib.artifact_provenance import build_step1_basis, project_step1_prompt_inputs
 from lib.asset_types import BUCKET_KEY
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
 from lib.db import async_session_factory
-from lib.episode_ledger import episode_outline_context
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
     REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
@@ -37,8 +36,7 @@ from lib.episode_paths import (
 from lib.i18n import _ as translate
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
-from lib.project_manager import DEFAULT_SOURCE_KIND, is_reference_video_project
-from lib.project_migrations import CURRENT_SCHEMA_VERSION
+from lib.project_manager import is_reference_video_project
 from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import append_user_instructions, build_narration_split_prompt, build_normalize_prompt
 from lib.reference_video.draft_validation import (
@@ -177,13 +175,12 @@ def _load_step1_source_with_basis(
     project_path: Path,
     source: str | None,
     project: dict[str, Any],
-) -> tuple[str, ArtifactBasis | None]:
+    episode: int,
+) -> tuple[str, ArtifactBasis]:
     """Freeze the exact source text and project semantics consumed by a step1 request."""
 
     novel_text = _load_novel_source(project_path, source)
-    if project.get("schema_version") != CURRENT_SCHEMA_VERSION:
-        return novel_text, None
-    return novel_text, build_step1_basis(novel_text, project=project)
+    return novel_text, build_step1_basis(novel_text, episode=episode, project=project)
 
 
 # ---------------------------------------------------------------------------
@@ -511,34 +508,33 @@ def normalize_drama_script_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
 
             try:
-                novel_text, step1_basis = _load_step1_source_with_basis(project_path, source, project)
+                novel_text, step1_basis = _load_step1_source_with_basis(project_path, source, project, episode)
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
             default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
-            # 分集大纲（故事节点 / 钩子）随内容抽取前移到 step1，驱动内容覆盖与末场落地（见 ADR 0041）。
-            episode_outline, next_episode_outline = episode_outline_context(project, episode)
+            prompt_inputs = project_step1_prompt_inputs(episode, project=project)
             prompt = build_normalize_prompt(
                 novel_text=novel_text,
-                project_overview=project.get("overview", {}),
-                style=project.get("style", ""),
-                characters=project.get("characters", {}),
-                scenes=project.get("scenes", {}),
-                props=project.get("props", {}),
+                project_overview=cast(dict[str, Any], prompt_inputs["project_overview"]),
+                style=cast(str, prompt_inputs["style"]),
+                characters=cast(dict[str, Any], prompt_inputs["characters"]),
+                scenes=cast(dict[str, Any], prompt_inputs["scenes"]),
+                props=cast(dict[str, Any], prompt_inputs["props"]),
                 default_duration=default_duration,
                 supported_durations=supported_durations,
                 episode=episode,
-                source_kind=project.get("source_kind") or DEFAULT_SOURCE_KIND,
-                episode_outline=episode_outline,
-                next_episode_outline=next_episode_outline,
+                source_kind=cast(str, prompt_inputs["source_kind"]),
+                episode_outline=cast(dict[str, Any] | None, prompt_inputs["episode_outline"]),
+                next_episode_outline=cast(dict[str, Any] | None, prompt_inputs["next_episode_outline"]),
                 # 输出语言取项目 source_language（生成内容语言的唯一真相源）；缺省回退默认中文，
                 # 非中文项目的 step1 内容据此用目标语言产出，而非默认中文。
-                target_language=project.get("source_language") or "中文",
+                target_language=cast(str, prompt_inputs["target_language"]),
                 # source_language（zh / en / vi 或 None）另供时长下界软指引取语速：drama step1 引导模型为
                 # 每场选不低于该场 utterances 口播时长的档位，语速按此从 lib.speech_rate 单一真相源注入
                 # （项目级覆盖优先于语言默认）。
-                source_language=project.get("source_language"),
-                speech_rate_override=project_speech_rate_override(project),
+                source_language=cast(str | None, prompt_inputs["source_language"]),
+                speech_rate_override=cast(float | None, prompt_inputs["speech_rate_override"]),
             )
             prompt = append_user_instructions(prompt, instructions)
 
@@ -905,6 +901,7 @@ async def revalidate_reference_step1_draft(
         project_path,
         draft.meta["source"],
         project,
+        episode,
     )
     split_caps = await _fetch_reference_caps_with_fallback(project, episode)
 
@@ -1252,22 +1249,19 @@ def split_reference_video_units_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
 
             try:
-                novel_text, step1_basis = _load_step1_source_with_basis(project_path, source, project)
+                novel_text, step1_basis = _load_step1_source_with_basis(project_path, source, project, episode)
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
-            characters = project.get("characters")
-            characters = characters if isinstance(characters, dict) else {}
-            scenes = project.get("scenes")
-            scenes = scenes if isinstance(scenes, dict) else {}
-            props = project.get("props")
-            props = props if isinstance(props, dict) else {}
+            prompt_inputs = project_step1_prompt_inputs(episode, project=project)
+            characters = cast(dict[str, Any], prompt_inputs["characters"])
+            scenes = cast(dict[str, Any], prompt_inputs["scenes"])
+            props = cast(dict[str, Any], prompt_inputs["props"])
 
             split_caps = await _fetch_reference_caps_with_fallback(project, episode)
-            episode_outline, next_episode_outline = episode_outline_context(project, episode)
             prompt = build_reference_units_split_prompt(
                 novel_text=novel_text,
-                project_overview=project.get("overview", {}),
+                project_overview=cast(dict[str, Any], prompt_inputs["project_overview"]),
                 characters=characters,
                 scenes=scenes,
                 props=props,
@@ -1279,14 +1273,14 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 default_duration=split_caps.default_duration,
                 episode=episode,
                 # 输出语言取项目 source_language（生成内容语言的唯一真相源），与 normalize 同口径。
-                target_language=project.get("source_language") or "中文",
+                target_language=cast(str, prompt_inputs["target_language"]),
                 # source_language（zh / en / vi 或 None）另供台词口播时长下界取语速（项目级覆盖优先），
                 # 与后校验同一把尺。
-                source_language=project.get("source_language"),
-                speech_rate_override=project_speech_rate_override(project),
+                source_language=cast(str | None, prompt_inputs["source_language"]),
+                speech_rate_override=cast(float | None, prompt_inputs["speech_rate_override"]),
                 # 分集大纲约束本集内容边界，同 drama step1。
-                episode_outline=episode_outline,
-                next_episode_outline=next_episode_outline,
+                episode_outline=cast(dict[str, Any] | None, prompt_inputs["episode_outline"]),
+                next_episode_outline=cast(dict[str, Any] | None, prompt_inputs["next_episode_outline"]),
             )
             prompt = append_user_instructions(prompt, instructions)
 
@@ -1573,23 +1567,21 @@ def split_narration_segments_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
 
             try:
-                novel_text, step1_basis = _load_step1_source_with_basis(project_path, source, project)
+                novel_text, step1_basis = _load_step1_source_with_basis(project_path, source, project, episode)
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
-            characters = project.get("characters")
-            characters = characters if isinstance(characters, dict) else {}
-            scenes = project.get("scenes")
-            scenes = scenes if isinstance(scenes, dict) else {}
-            props = project.get("props")
-            props = props if isinstance(props, dict) else {}
+            prompt_inputs = project_step1_prompt_inputs(episode, project=project)
+            characters = cast(dict[str, Any], prompt_inputs["characters"])
+            scenes = cast(dict[str, Any], prompt_inputs["scenes"])
+            props = cast(dict[str, Any], prompt_inputs["props"])
 
             # narration 仅需 (default_duration, supported_durations)：无 unit 总时长 / references 概念，
             # 复用与 drama normalize 同口径的 best-effort 能力查询（resolver 故障软回退 [4,6,8]）。
             default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
             prompt = build_narration_split_prompt(
                 novel_text=novel_text,
-                project_overview=project.get("overview", {}),
+                project_overview=cast(dict[str, Any], prompt_inputs["project_overview"]),
                 characters=characters,
                 scenes=scenes,
                 props=props,
@@ -1597,7 +1589,7 @@ def split_narration_segments_tool(ctx: ToolContext):
                 supported_durations=supported_durations,
                 episode=episode,
                 # 输出语言取项目 source_language（生成内容语言的唯一真相源），与 normalize / reference 同口径。
-                target_language=project.get("source_language") or "中文",
+                target_language=cast(str, prompt_inputs["target_language"]),
             )
             prompt = append_user_instructions(prompt, instructions)
 
