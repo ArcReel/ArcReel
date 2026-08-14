@@ -38,6 +38,23 @@ done <<< "${inventory}"
 
 # baseline：引擎 A 文档中最近一次提交时间的最早者。
 # 用 git 提交时间而非文件系统 mtime，后者在 fresh clone 后会失真。
+
+# 文档的新鲜度点：最近一次改动过正文的提交。只改 update_docs 归属声明的提交要跳过——
+# 归属迁移与日后的归属重划都是纯元数据编辑，算作新鲜会把 baseline 推到该次编辑，
+# 使编辑之前那段区间的能力变更永远不再进入引擎 A 扫描。
+content_freshness() {
+  local target="$1" ts cs sha
+  while read -r ts cs sha; do
+    [ -n "${sha}" ] || continue
+    if git show --format= -U0 "${sha}" -- "${target}" |
+      grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -qvE '^[+-]update_docs:'; then
+      echo "${ts} ${cs} ${sha}"
+      return 0
+    fi
+  done < <(git log --format='%ct %cs %H' -- "${target}")
+  return 0
+}
+
 baseline_ts=""
 baseline_sha=""
 baseline_cs=""
@@ -49,10 +66,10 @@ for doc in "${ENGINE_A_DOCS[@]}"; do
     echo "- (缺失) ${doc}"
     continue
   fi
-  # 一次取全该文档最近一次提交的时间戳、短日期、完整 sha，避免对同一文档多次 git log。
-  read -r ts cs sha < <(git log -1 --format='%ct %cs %H' -- "${doc}" 2>/dev/null) || true
+  # 一次取全该文档新鲜度点的时间戳、短日期、完整 sha，避免对同一文档多次 git log。
+  read -r ts cs sha < <(content_freshness "${doc}") || true
   if [ -z "${ts}" ]; then
-    echo "- (无 git 历史) ${doc}"
+    echo "- (无正文改动历史) ${doc}"
     continue
   fi
   echo "- ${doc} 最近改动 ${cs}"
