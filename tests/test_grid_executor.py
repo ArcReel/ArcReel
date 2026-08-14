@@ -393,6 +393,10 @@ class TestExecuteGridTask:
         script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         project = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
         script["segments"][0]["image_prompt"]["scene"] = "live scene prompt"
+        (project_with_script / "scripts" / "episode_1.json").write_text(
+            json.dumps(script, ensure_ascii=False),
+            encoding="utf-8",
+        )
         captured_prompt: list[str] = []
         captured_basis = []
 

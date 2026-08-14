@@ -1636,6 +1636,37 @@ def _artifact_content_digest(adapter: ProjectArtifactManifestAdapter, artifact_p
     return observation.content_digest
 
 
+def _artifact_content_snapshot(
+    adapter: ProjectArtifactManifestAdapter,
+    artifact_path: str,
+) -> tuple[bytes, str]:
+    """Read one safely admitted artifact and its digest from one descriptor."""
+
+    observation = adapter.inspect_artifact_snapshot(artifact_path)
+    if observation.blocker is not None:
+        raise ArtifactManifestError(observation.blocker.detail)
+    if not observation.present:
+        raise ValueError(f"formal artifact input is no longer registered: {observation.artifact_path}")
+    if observation.content_bytes is None or observation.content_digest is None:
+        raise ArtifactManifestError(f"formal artifact input has no content snapshot: {observation.artifact_path}")
+    return observation.content_bytes, observation.content_digest
+
+
+def _decode_script_content_snapshot(content: bytes, artifact_path: str) -> dict[str, Any]:
+    """Decode the exact script bytes used to establish a formal input claim."""
+
+    from lib.reference_video.duration_migration import migrate_script_unit_durations
+
+    try:
+        script = json.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ValueError(f"episode script is not valid UTF-8 JSON: {artifact_path}") from exc
+    if not isinstance(script, dict):
+        raise ValueError(f"episode script must contain an object: {artifact_path}")
+    migrate_script_unit_durations(script)
+    return script
+
+
 class ArtifactCurrencyResolver:
     """Side-effect-free runtime comparison against canonical target state."""
 
@@ -1800,11 +1831,18 @@ def resolve_usable_episode_script_input(
             else legacy_episode_fallback
         )
     artifact_path = _normalize_script_binding(ProjectManager.normalize_script_filename(script_filename))
+    content_bytes, content_digest = _artifact_content_snapshot(
+        ProjectArtifactManifestAdapter(project_path),
+        artifact_path,
+    )
+    if _decode_script_content_snapshot(content_bytes, artifact_path) != script:
+        raise ValueError(f"formal artifact input changed while it was selected: {artifact_path}")
     claim = snapshot_usable_artifact_input_claim(
         project_path=project_path,
         resolver=active_artifact_currency_resolver(project_path, project),
         key=ArtifactKey.episode_script(episode),
         artifact_path=artifact_path,
+        content_digest=content_digest,
     )
     if claim is None:
         raise ValueError(f"episode script is not registered: {artifact_path}")
@@ -1898,20 +1936,65 @@ def snapshot_usable_artifact_input_claim(
     resolver: ArtifactCurrencyResolver | None,
     key: ArtifactKey,
     artifact_path: str,
+    content_digest: str | None = None,
 ) -> ArtifactInputClaim | None:
     """Select one formal input and freeze its byte identity in every schema."""
 
-    content_digest = (
-        resolver.artifact_content_digest(artifact_path)
-        if resolver is not None
-        else _artifact_content_digest(ProjectArtifactManifestAdapter(project_path), artifact_path)
-    )
+    if content_digest is None:
+        content_digest = (
+            resolver.artifact_content_digest(artifact_path)
+            if resolver is not None
+            else _artifact_content_digest(ProjectArtifactManifestAdapter(project_path), artifact_path)
+        )
     return resolve_usable_artifact_input_claim(
         resolver=resolver,
         key=key,
         artifact_path=artifact_path,
         content_digest=content_digest,
     )
+
+
+def bind_artifact_input_claims_to_frozen_visuals(
+    *,
+    project_path: Path,
+    resolver: ArtifactCurrencyResolver | None,
+    claims: Sequence[ArtifactInputClaim],
+    source_references: Sequence[VisualReference],
+    frozen_references: Sequence[VisualReference],
+) -> tuple[ArtifactInputClaim, ...]:
+    """Bind matching formal claims to the exact visual bytes sent to a provider."""
+
+    if len(source_references) != len(frozen_references):
+        raise ValueError("source and frozen visual references must remain aligned")
+    content_digests: dict[str, str] = {}
+    for source, frozen in zip(source_references, frozen_references, strict=True):
+        if frozen.content_digest is None:
+            raise ValueError("frozen visual reference has no content digest")
+        try:
+            artifact_path = source.path.relative_to(project_path).as_posix()
+        except ValueError:
+            continue
+        existing = content_digests.get(artifact_path)
+        if existing is not None and existing != frozen.content_digest:
+            raise ValueError(f"formal visual input was frozen with conflicting bytes: {artifact_path}")
+        content_digests[artifact_path] = frozen.content_digest
+
+    bound: list[ArtifactInputClaim] = []
+    for claim in claims:
+        content_digest = content_digests.get(claim.artifact_path)
+        if content_digest is None:
+            bound.append(claim)
+            continue
+        selected = resolve_usable_artifact_input_claim(
+            resolver=resolver,
+            key=claim.key,
+            artifact_path=claim.artifact_path,
+            content_digest=content_digest,
+        )
+        if selected is None:
+            raise ValueError(f"formal artifact input is no longer registered: {claim.artifact_path}")
+        bound.append(selected)
+    return tuple(bound)
 
 
 def assert_artifact_input_claims_usable(
@@ -2495,6 +2578,7 @@ __all__ = [
     "active_artifact_currency_resolver",
     "artifact_input_is_usable",
     "artifact_is_usable",
+    "bind_artifact_input_claims_to_frozen_visuals",
     "assert_artifact_input_claims_usable",
     "assert_current_artifact_input_claims_usable",
     "artifact_key_for_resource",

@@ -91,6 +91,10 @@ class _FakePM:
         return self.project_path
 
     def load_script(self, project_name, script_file):
+        normalized = str(script_file).replace("\\", "/").removeprefix("scripts/")
+        target = self.project_path / "scripts" / normalized
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(self.script, ensure_ascii=False), encoding="utf-8")
         return self.script
 
     def update_scene_asset(self, **kwargs):
@@ -350,6 +354,31 @@ class TestExecuteTtsTask:
             )
 
         assert provider_submissions == []
+        assert gen.audio_calls == []
+
+    async def test_script_replaced_after_parse_before_claim_is_rejected(self, tts_env):
+        pm, gen = tts_env
+        original_load = pm.load_script
+
+        def _load_then_replace(project_name, script_file):
+            selected = copy.deepcopy(original_load(project_name, script_file))
+            replacement = copy.deepcopy(selected)
+            replacement["segments"][0]["novel_text"] = "正式剧本已被另一位写入者替换。"
+            (pm.project_path / "scripts" / "episode_1.json").write_text(
+                json.dumps(replacement, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            return selected
+
+        pm.load_script = _load_then_replace
+
+        with pytest.raises(ValueError, match="changed while it was selected"):
+            await generation_tasks.execute_tts_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json"},
+            )
+
         assert gen.audio_calls == []
 
     async def test_active_use_tts_video_blocks_regeneration_before_provider_call(self, tts_env, monkeypatch):

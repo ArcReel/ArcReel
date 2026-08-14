@@ -376,6 +376,10 @@ class _FakePM:
         return self.project_path
 
     def load_script(self, project_name: str, script_file: str):
+        normalized = str(script_file).replace("\\", "/").removeprefix("scripts/")
+        target = self.project_path / "scripts" / normalized
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(self.script, ensure_ascii=False), encoding="utf-8")
         return self.script
 
     def update_scene_asset(self, **kwargs):
@@ -987,6 +991,39 @@ class TestGenerationTasks:
                 {"script_file": "episode_1.json", "prompt": "direct prompt"},
             )
 
+        assert fake_generator.image_calls == []
+
+    @pytest.mark.integration
+    async def test_legacy_storyboard_rejects_sheet_replaced_after_reference_freeze(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        provider_submissions: list[str] = []
+
+        class _SubmittingGenerator(_FakeGenerator):
+            async def generate_image_async(self, **kwargs):
+                await kwargs["before_submit"]()
+                provider_submissions.append("submitted")
+                return await super().generate_image_async(**kwargs)
+
+        fake_generator = _SubmittingGenerator()
+        resolve_context = _fake_resolve_ctx(fake_generator)
+        character_path = project_path / "characters" / "Alice.png"
+
+        async def _replace_sheet_then_resolve(*args, **kwargs):
+            character_path.write_bytes(b"replacement")
+            return await resolve_context(*args, **kwargs)
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _replace_sheet_then_resolve)
+
+        with pytest.raises(ValueError, match="changed since it was selected"):
+            await generation_tasks.execute_storyboard_task(
+                "demo",
+                "E1S02",
+                {"script_file": "episode_1.json", "prompt": "direct prompt"},
+            )
+
+        assert provider_submissions == []
         assert fake_generator.image_calls == []
 
     @pytest.mark.integration

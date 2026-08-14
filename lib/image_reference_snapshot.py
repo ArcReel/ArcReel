@@ -13,7 +13,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from lib.visual_artifact_provenance import VisualReference
+from lib.visual_artifact_provenance import VisualReference, visual_file_digest
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +55,7 @@ def freeze_image_references(
             target = directory / f"{index:04d}-{source.name}"
             shutil.copyfile(source, target)
             frozen_provider.append(_replace_reference_path(reference, target))
+            content_digest = visual_file_digest(target)
             frozen_visuals.append(
                 VisualReference(
                     path=target,
@@ -62,6 +63,7 @@ def freeze_image_references(
                     logical_type=visual.logical_type,
                     logical_id=visual.logical_id,
                     kind=visual.kind,
+                    content_digest=content_digest,
                 )
             )
     except BaseException:

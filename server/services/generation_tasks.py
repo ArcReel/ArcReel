@@ -22,6 +22,7 @@ from lib.artifact_activation import (
     active_artifact_currency_resolver,
     artifact_input_is_usable,
     assert_current_artifact_input_claims_usable,
+    bind_artifact_input_claims_to_frozen_visuals,
     register_current_resource_artifact,
     register_task_current_resource_artifact,
     resolve_current_resource_artifact_basis,
@@ -1450,6 +1451,15 @@ async def execute_storyboard_task(
             _prompt_text = append_product_fidelity_tail(_prompt_text, _product_names_in_references(_product_refs))
         _frozen = freeze_image_references(_ref_images, _visual_references)
         try:
+            _formal_claims = list(
+                bind_artifact_input_claims_to_frozen_visuals(
+                    project_path=_project_path,
+                    resolver=_currency_resolver,
+                    claims=_formal_claims,
+                    source_references=_visual_references,
+                    frozen_references=_frozen.visual_references,
+                )
+            )
             _basis = build_storyboard_image_visual_basis(
                 resource_id=resource_id,
                 image_prompt=prompt,
@@ -3162,6 +3172,16 @@ async def execute_grid_task(
             freeze_image_references,
             reference_images,
             visual_references,
+        )
+        formal_claims = list(
+            await asyncio.to_thread(
+                bind_artifact_input_claims_to_frozen_visuals,
+                project_path=project_path,
+                resolver=currency_resolver,
+                claims=formal_claims,
+                source_references=visual_references,
+                frozen_references=frozen_references.visual_references,
+            )
         )
         reference_images = frozen_references.reference_images
         grid.reference_images = [ReferenceImage.from_dict(m) for m in ref_metadata] if ref_metadata else []
