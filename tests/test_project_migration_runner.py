@@ -228,6 +228,31 @@ def test_cleanup_sweeps_script_backups_in_subdirectories(tmp_projects: Path):
     assert kept.exists(), "非备份文件即使更老也不能被清理"
 
 
+def test_cleanup_does_not_follow_symlinked_directories(tmp_path: Path, tmp_projects: Path):
+    # 清理是删除操作：项目目录或其子目录是符号链接时，链接目标里的过期备份不属于本项目，不得删
+    import os
+
+    outside = tmp_path / "outside"
+    (outside / "scripts").mkdir(parents=True)
+    linked_project_backup = outside / "project.json.bak.v7-100000000"
+    linked_child_backup = outside / "scripts" / "episode_1.json.bak.v7-100000000"
+    linked_project_backup.write_text("old", encoding="utf-8")
+    linked_child_backup.write_text("old", encoding="utf-8")
+
+    eight_days_ago = time.time() - 8 * 86400
+    for path in (linked_project_backup, linked_child_backup):
+        os.utime(path, (eight_days_ago, eight_days_ago))
+
+    (tmp_projects / "linked-project").symlink_to(outside, target_is_directory=True)
+    real_project = _write_project(tmp_projects, "p1", {"schema_version": 8})
+    (real_project / "scripts").symlink_to(outside / "scripts", target_is_directory=True)
+
+    cleanup_stale_backups(tmp_projects, max_age_days=7)
+
+    assert linked_project_backup.exists()
+    assert linked_child_backup.exists()
+
+
 def test_hardlink_backup_clues_creates_mirror(tmp_projects: Path, monkeypatch):
     """v0→v1 迁移前应硬链接备份 clues/ 到 clues.bak.v0-<ts>/。"""
     p = _write_project(tmp_projects, "p1", {"name": "p1"})  # v0

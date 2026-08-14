@@ -21,6 +21,7 @@ def _project_payload(creation_type: str = "narration") -> dict:
     return {
         "title": "Demo",
         "creation_type": creation_type,
+        "source_file_type": "novel",
         "generation_mode": "storyboard",
         "style": "Anime",
         "characters": {
@@ -701,6 +702,7 @@ class TestDataValidator:
             {
                 "title": "Test",
                 "creation_type": "narration",
+                "source_file_type": "novel",
                 "generation_mode": "storyboard",
                 "style": "Anime",
                 "characters": {},
@@ -1118,6 +1120,7 @@ def _ad_project_payload(**overrides) -> dict:
     payload = {
         "title": "速干杯带货",
         "creation_type": "ad",
+        "source_file_type": "novel",
         "generation_mode": "storyboard",
         "style": "Realistic",
         "target_duration": 60,
@@ -1615,7 +1618,7 @@ class TestAdReferenceVideoUnitsValidation:
 
 
 class TestSourceKindValidation:
-    """source_file_type 顶层枚举校验：缺省 novel（缺失放行），仅拦非法值；并锁泛指 speaker 回归。"""
+    """source_file_type 顶层枚举校验：缺失与非法值都报错；并锁泛指 speaker 回归。"""
 
     def _validate(self, tmp_path, project):
         project_dir = tmp_path / "projects" / "demo"
@@ -1623,11 +1626,13 @@ class TestSourceKindValidation:
         return DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
 
     @pytest.mark.unit
-    def test_missing_source_kind_is_valid(self, tmp_path):
-        # 存量项目无 source_file_type 字段：缺省 novel，不报错
-        result = self._validate(tmp_path, _project_payload("drama"))
-        assert result.valid, result.errors
-        assert not any("source_file_type" in e for e in result.errors)
+    def test_missing_source_kind_reported_as_missing_field(self, tmp_path):
+        # 消费方一律 fail-loud，放行等于让归档导入装进来一个开局就报错的项目
+        payload = _project_payload("drama")
+        del payload["source_file_type"]
+        result = self._validate(tmp_path, payload)
+        assert not result.valid
+        assert any("source_file_type" in e for e in result.errors)
 
     @pytest.mark.unit
     @pytest.mark.parametrize("kind", ["novel", "screenplay"])

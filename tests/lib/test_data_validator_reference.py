@@ -55,6 +55,7 @@ def _reference_project(*, with_assets: bool = True) -> dict:
     project = {
         "title": "T",
         "creation_type": "narration",
+        "source_file_type": "novel",
         "generation_mode": "reference_video",
         "style": "s",
         "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],

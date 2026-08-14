@@ -179,10 +179,16 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
         return
     cutoff = time.time() - max_age_days * 86400
     for project_dir in projects_root.iterdir():
-        if not project_dir.is_dir():
+        # 目录本身是符号链接就整个跳过：清理是删除操作，顺着链接扫下去会删到项目树以外的文件。
+        # 只判备份条目自身是不是链接不够——父目录是链接时，链接目标里的备份看起来就在项目内。
+        if project_dir.is_symlink() or not project_dir.is_dir():
             continue
-        candidates = chain(project_dir.glob(_BACKUP_NAME_GLOB), project_dir.glob(f"*/{_BACKUP_NAME_GLOB}"))
-        for bak in candidates:
+        search_dirs = [project_dir]
+        try:
+            search_dirs.extend(child for child in project_dir.iterdir() if child.is_dir() and not child.is_symlink())
+        except OSError:
+            logger.warning("无法列出项目子目录，仅清理项目根的备份：%s", project_dir)
+        for bak in chain.from_iterable(directory.glob(_BACKUP_NAME_GLOB) for directory in search_dirs):
             if not is_migration_backup_name(bak.name):
                 continue
             try:

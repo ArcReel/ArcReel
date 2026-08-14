@@ -378,11 +378,13 @@ class DataValidator:
                 _m("val_content_mode_invalid", value=creation_type, allowed=_allowed(self.VALID_CREATION_TYPES))
             )
 
-        # source_file_type 缺省 novel：缺失字段（存量项目）放行，仅拦截非法值（如 screen_play）。
+        # source_file_type 必填：创建时写入、v7→v8 迁移为存量项目补齐，消费方（分集规划、概览
+        # 生成、剧本归一）一律 require_source_file_type fail-loud。缺失只可能来自手改或外部构造的
+        # 归档，放行等于装进来一个开局就报错的项目，故与 creation_type 同口径报缺字段。
         source_file_type = project.get("source_file_type")
-        if source_file_type is not None and (
-            not isinstance(source_file_type, str) or source_file_type not in self.VALID_SOURCE_FILE_TYPES
-        ):
+        if source_file_type is None:
+            errors.append(_m("val_missing_field", field="source_file_type"))
+        elif not isinstance(source_file_type, str) or source_file_type not in self.VALID_SOURCE_FILE_TYPES:
             errors.append(
                 _m("val_source_kind_invalid", value=source_file_type, allowed=_allowed(self.VALID_SOURCE_FILE_TYPES))
             )
