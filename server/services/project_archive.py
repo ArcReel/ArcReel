@@ -562,10 +562,18 @@ class ProjectArchiveService:
                 shutil.copy2(source_path, destination_path)
 
     @staticmethod
-    def _raise_blocking(code: str, message: ValidationMessage, *, cause: BaseException | None = None) -> NoReturn:
+    def _raise_blocking(
+        code: str,
+        message: ValidationMessage,
+        *,
+        detail: ValidationMessage | None = None,
+        cause: BaseException | None = None,
+    ) -> NoReturn:
         """把单条阻断性结论抛成结构化校验失败（导入路由只对这一类异常给出可行动响应）。"""
         diagnostics = ArchiveDiagnostics()
         diagnostics.add("blocking", code, message)
+        if detail is not None:
+            diagnostics.add("blocking", code, detail)
         raise ProjectArchiveValidationError(
             ValidationMessage("arch_import_validation_failed"),
             errors=diagnostics.blocking_messages(),
@@ -574,17 +582,37 @@ class ProjectArchiveService:
         ) from cause
 
     def _migrate_staging_dir(self, project_dir: Path) -> None:
-        """在 staging 副本上跑迁移链，失败转成结构化校验失败。
+        """在 staging 副本上跑迁移链，数据类失败转成结构化校验失败。
 
-        迁移抛错的是归档自身的问题（绑定越界、episodes 形状非法等），而导入路由只对
-        ``ProjectArchiveValidationError`` 给出结构化响应，直接放行异常会让用户拿到 500 而不是
-        「这个包坏在哪」。原始异常进日志，不进用户可见文案。
+        迁移的预检异常都是 ``ValueError``，且带具体位置（哪个 episode、哪个字段、哪个剧本），
+        而导入路由只对 ``ProjectArchiveValidationError`` 给出结构化响应，直接放行会让用户拿到
+        500 而不是「这个包坏在哪」。原文附成一条诊断明细：它指向包内的相对位置，够用户自己定位。
+
+        只接 ``ValueError``：IO 故障与代码缺陷不是包的问题，报成「导入包损坏」会把服务端故障
+        栽给用户的文件，照常向上抛成内部错误。路径越界只报结论——它的异常文本带的是 staging
+        临时目录的绝对路径，对用户无意义。
         """
         try:
             migrate_project_dir(project_dir)
-        except Exception as exc:
-            logger.exception("导入包迁移失败: %s", project_dir)
+        except PathTraversalError as exc:
+            logger.warning("导入包存在越界引用: %s: %s", project_dir, exc)
             self._raise_blocking("project_migration_failed", ValidationMessage("arch_migration_failed"), cause=exc)
+        except ValueError as exc:
+            logger.warning("导入包数据不合法: %s: %s", project_dir, exc)
+            self._raise_blocking(
+                "project_migration_failed",
+                ValidationMessage("arch_migration_failed"),
+                detail=ValidationMessage.literal(self._scrub_local_paths(str(exc), project_dir)),
+                cause=exc,
+            )
+
+    @staticmethod
+    def _scrub_local_paths(text: str, project_dir: Path) -> str:
+        """把 staging 目录的绝对路径从对外文本里抹掉，只留包内相对位置。"""
+        scrubbed = text
+        for base in {str(project_dir), str(project_dir.resolve())}:
+            scrubbed = scrubbed.replace(base + "/", "").replace(base, "")
+        return scrubbed
 
     def _reject_incompatible_schema(self, project_dir: Path) -> None:
         """迁移后的 staging 副本不是当前 schema 版本就直接拒绝导入。"""

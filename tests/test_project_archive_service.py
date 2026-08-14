@@ -514,7 +514,41 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="broken-migration.zip")
 
-        assert any("升级失败" in error for error in exc_info.value.render_errors())
+        errors = exc_info.value.render_errors()
+        assert any("升级失败" in error for error in errors)
+        if script_file == 123:
+            # 数据形状错误附出错位置，用户才知道改哪儿；越界只报结论（原文里是 staging 临时路径）
+            assert any("episodes[0].script_file" in error for error in errors)
+        assert not any(str(tmp_path) in error for error in errors), "对外文案不得带服务端本地路径"
+
+    @pytest.mark.unit
+    def test_import_does_not_blame_archive_for_internal_migration_failure(self, tmp_path, monkeypatch):
+        """IO 故障与代码缺陷不是包的问题：报成「导入包损坏」等于把服务端故障栽给用户的文件。"""
+        import json as _json
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        pj = project_dir / "project.json"
+        original = pj.read_text(encoding="utf-8")
+        data = _json.loads(original)
+        data["schema_version"] = 7
+        data["content_mode"] = data.pop("creation_type")
+        data["source_kind"] = data.pop("source_file_type", "novel")
+        pj.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "internal-failure.zip"
+        _make_manual_zip(project_dir, archive_path)
+        pj.write_text(original, encoding="utf-8")
+
+        def _boom(_project_dir):
+            raise OSError("磁盘写入失败")
+
+        monkeypatch.setattr("server.services.project_archive.migrate_project_dir", _boom)
+
+        with pytest.raises(OSError):
+            service.import_project_archive(archive_path, uploaded_filename="internal-failure.zip")
 
     @pytest.mark.unit
     @pytest.mark.parametrize("binding", ["episode_1.json", "scripts\\episode_1.json"])
