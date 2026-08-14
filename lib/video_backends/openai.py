@@ -61,7 +61,7 @@ def _video_error_message(video: object) -> str:
     这句话原样落进 ``task.error_message``，是用户在任务面板读到的全部原因，故显式取字段而不是
     插值整个对象：``Video.error`` 是带 ``code`` / ``message`` 的模型，直接插值会把类名与字段名
     一并写给用户；``None``（网关只给 status 不给 error 的常见形态）会写出一句没有原因的失败。
-    代理网关透传的裸 dict / 裸字符串同样认。
+    代理网关透传的裸 dict / 裸字符串同样认，认不出的形态一律 unknown。
     """
     err = getattr(video, "error", None)
     if err is None:
@@ -75,8 +75,11 @@ def _video_error_message(video: object) -> str:
     for value in candidates:
         if isinstance(value, str) and value.strip():
             return value.strip()
-    # 认不出的形态：宁可带上 repr 也不丢原因——空信息的失败最难排查
-    return str(err).strip() or "unknown"
+        # 数字错误码（网关常见的裸 HTTP 码）也是原因，别因为不是字符串就丢掉
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+    # 认不出的形态说不出原因就说 unknown：把对象自身的 repr 写进任务面板等于没说
+    return "unknown"
 
 
 def _resolve_size(model: str, resolution: str | None, aspect_ratio: str) -> str:

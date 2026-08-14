@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -672,9 +673,14 @@ class TestFailureMessage:
             # 代理网关透传的裸 dict / 裸字符串
             ({"code": 500, "message": "upstream down"}, "upstream down"),
             ({"code": "billing_hard_limit_reached"}, "billing_hard_limit_reached"),
+            # 数字错误码同样是原因，别因为不是字符串就丢掉
+            ({"code": 500}, "500"),
             ("boom", "boom"),
             # 只给 status 不给 error 的网关：说不出原因，也不能写出一句 "None"
             (None, "unknown"),
+            # 认不出的形态：宁可说不知道，也不把对象自身的 repr 写给用户
+            ({"detail": "internal"}, "unknown"),
+            (SimpleNamespace(), "unknown"),
         ],
     )
     async def test_provider_reason_reaches_error_message(self, tmp_path: Path, error, expected: str):
