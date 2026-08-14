@@ -1619,6 +1619,19 @@ def _episode_scope_for_key(key: ArtifactKey) -> int | None:
     return episode
 
 
+def _artifact_content_digest(adapter: ProjectArtifactManifestAdapter, artifact_path: str) -> str:
+    """Hash one safely admitted formal path without requiring an active Manifest."""
+
+    observation = adapter.inspect_artifact_content(artifact_path)
+    if observation.blocker is not None:
+        raise ArtifactManifestError(observation.blocker.detail)
+    if not observation.present:
+        raise ValueError(f"formal artifact input is no longer registered: {observation.artifact_path}")
+    if observation.content_digest is None:
+        raise ArtifactManifestError(f"formal artifact input has no content digest: {observation.artifact_path}")
+    return observation.content_digest
+
+
 class ArtifactCurrencyResolver:
     """Side-effect-free runtime comparison against canonical target state."""
 
@@ -1674,14 +1687,7 @@ class ArtifactCurrencyResolver:
     def artifact_content_digest(self, artifact_path: str) -> str:
         """Hash one safely admitted formal path for provider-input identity."""
 
-        observation = self._adapter.inspect_artifact_content(artifact_path)
-        if observation.blocker is not None:
-            raise ArtifactManifestError(observation.blocker.detail)
-        if not observation.present:
-            raise ValueError(f"formal artifact input is no longer registered: {observation.artifact_path}")
-        if observation.content_digest is None:
-            raise ArtifactManifestError(f"formal artifact input has no content digest: {observation.artifact_path}")
-        return observation.content_digest
+        return _artifact_content_digest(self._adapter, artifact_path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1692,6 +1698,16 @@ class ArtifactInputClaim:
     artifact_path: str
     basis_digest: str | None = None
     content_digest: str | None = None
+
+
+def _assert_input_claim_content_unchanged(
+    claim: ArtifactInputClaim,
+    current_digest: str,
+) -> None:
+    if claim.content_digest is None:
+        return
+    if current_digest != claim.content_digest:
+        raise ValueError(f"formal artifact input changed since it was selected: {claim.artifact_path}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1903,9 +1919,10 @@ def assert_artifact_input_claims_usable(
             if comparison.status is not ArtifactStatus.CURRENT:
                 raise ValueError(f"formal artifact input is no longer registered: {claim.artifact_path}")
         if claim.content_digest is not None:
-            current_digest = resolver.artifact_content_digest(claim.artifact_path)
-            if current_digest != claim.content_digest:
-                raise ValueError(f"formal artifact input changed since it was selected: {claim.artifact_path}")
+            _assert_input_claim_content_unchanged(
+                claim,
+                resolver.artifact_content_digest(claim.artifact_path),
+            )
 
 
 def assert_current_artifact_input_claims_usable(
@@ -1931,6 +1948,13 @@ def assert_current_artifact_input_claims_usable(
         if not isinstance(project, Mapping):
             raise ValueError("project.json must contain an object")
         if project.get("schema_version") != TARGET_SCHEMA_VERSION:
+            adapter = ProjectArtifactManifestAdapter(project_path)
+            for claim in claims:
+                if claim.content_digest is not None:
+                    _assert_input_claim_content_unchanged(
+                        claim,
+                        _artifact_content_digest(adapter, claim.artifact_path),
+                    )
             return
         assert_artifact_input_claims_usable(project_path, project, claims)
 

@@ -693,6 +693,43 @@ class TestScriptGenerator:
         assert fake.backend.last_request is None
 
     @pytest.mark.unit
+    async def test_generate_rechecks_legacy_step1_content_while_awaiting_capabilities(self, tmp_path):
+        project_path = tmp_path / "demo"
+        project = {
+            "schema_version": 7,
+            "title": "项目",
+            "content_mode": "drama",
+            "generation_mode": "storyboard",
+            "source_kind": "novel",
+            "source_language": "中文",
+            "overview": {},
+            "characters": {},
+            "scenes": {},
+            "props": {},
+            "style": "古风",
+            "style_description": "cinematic",
+            "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        }
+        _write_json(project_path / "project.json", project)
+        step1_path = project_path / "drafts" / "episode_1" / "step1_normalized_script.json"
+        _write_json(step1_path, _drama_step1_content())
+        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        async def _replace_formal_step1():
+            changed = _drama_step1_content()
+            changed["title"] = "并发保存的新版本"
+            _write_json(step1_path, changed)
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _replace_formal_step1
+
+        with pytest.raises(ValueError, match="formal artifact input changed since it was selected"):
+            await generator.generate(1)
+
+        assert fake.backend.last_request is None
+
+    @pytest.mark.unit
     async def test_generate_injects_hook_and_teaser_from_ledger(self, tmp_path):
         """剧本 JSON 的集级 hook / next_episode_teaser 元数据来自分集账本（经写盘严格校验）。"""
         project_path = tmp_path / "demo"
