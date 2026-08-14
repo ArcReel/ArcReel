@@ -13,10 +13,16 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from lib.artifact_activation import resolve_artifact_episode
-from lib.artifact_manifest import ArtifactBasis
+from lib.artifact_activation import (
+    ArtifactCurrencyResolver,
+    active_artifact_currency_resolver,
+    resolve_artifact_episode,
+)
+from lib.artifact_manifest import ArtifactBasis, ArtifactKey
 from lib.asset_types import ASSET_SPECS, resolve_asset_key
 from lib.async_thread import run_noninterruptible_sync
 from lib.db.base import DEFAULT_USER_ID
@@ -32,10 +38,13 @@ from lib.visual_artifact_provenance import (
 )
 from server.services.generation_context import ImageLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
+    _assert_formal_image_reference_claims_usable,
     _asset_sheet_formal_image_callback,
     _finalize_asset_sheet_task,
     _finalize_storyboard_image_task,
+    _formal_image_reference_is_usable,
     _formal_image_task_token,
+    _FormalImageReferenceClaim,
     _storyboard_formal_image_callback,
     compensable_formal_task_result,
     get_aspect_ratio,
@@ -47,6 +56,15 @@ IMAGE_EDIT_VERSION_SOURCE = "image_edit"
 
 # 可编辑的资源类型白名单（API 契约用的单数形态；storyboard 之外与 ASSET_SPECS 同源）
 EDITABLE_RESOURCE_TYPES: tuple[str, ...] = (*ASSET_SPECS.keys(), "storyboard")
+
+
+@dataclass(frozen=True, slots=True)
+class _ImageEditSource:
+    """One exact current image admitted for editing and its recheck evidence."""
+
+    resource_id: str
+    artifact_path: str
+    formal_claims: tuple[_FormalImageReferenceClaim, ...]
 
 
 def _build_image_edit_basis(
@@ -101,17 +119,30 @@ def resolve_current_image_rel(
       指向 ``scene_{id}_first.png``）；Manifest 激活前缺失时回退 canonical 路径，
       激活后不再按同名文件推断 current；条目不存在抛 ``KeyError``。
     """
+    return _resolve_current_image_pointer(project, resource_type, resource_id, script)[1]
+
+
+def _resolve_current_image_pointer(
+    project: dict[str, Any],
+    resource_type: str,
+    resource_id: str,
+    script: dict[str, Any] | None,
+) -> tuple[str, str | None]:
+    """Resolve the canonical resource identity and its metadata-owned image pointer."""
+
     if resource_type == "storyboard":
         items, id_field, _, _, _ = get_storyboard_items(script or {})
         resolved = find_storyboard_item(items, id_field, resource_id)
         if resolved is None:
             raise KeyError(f"segment not found: {resource_id}")
-        pointer = get_generated_assets(resolved[0]).get("storyboard_image")
+        item = resolved[0]
+        resolved_id = str(item.get(id_field) or resource_id)
+        pointer = get_generated_assets(item).get("storyboard_image")
         if isinstance(pointer, str) and pointer:
-            return pointer
+            return resolved_id, pointer
         if project.get("schema_version") == 8:
-            return None
-        return resource_relative_path("storyboards", resource_id)
+            return resolved_id, None
+        return resolved_id, resource_relative_path("storyboards", resolved_id)
 
     spec = ASSET_SPECS[resource_type]
     bucket = project.get(spec.bucket_key)
@@ -121,7 +152,51 @@ def resolve_current_image_rel(
     if not isinstance(entry, dict):
         raise KeyError(f"{resource_type} not found: {resource_id}")
     sheet = entry.get(spec.sheet_field)
-    return sheet if isinstance(sheet, str) and sheet else None
+    return str(key), sheet if isinstance(sheet, str) and sheet else None
+
+
+def resolve_usable_image_edit_source(
+    *,
+    project: dict[str, Any],
+    project_path: Path,
+    resource_type: str,
+    resource_id: str,
+    script: dict[str, Any] | None,
+    artifact_episode: int | None,
+    resolver: ArtifactCurrencyResolver | None,
+) -> _ImageEditSource | None:
+    """Select one metadata-owned current image through the active Manifest boundary.
+
+    Before activation, file existence preserves the legacy admission rule. Once
+    active, the exact asset-sheet or episode-storyboard claim is authoritative;
+    missing claims are not selectable and blocked comparisons fail loud. The
+    returned claim is retained so the executor can recheck it after async provider
+    resolution and immediately before provider submission.
+    """
+
+    resolved_id, artifact_path = _resolve_current_image_pointer(project, resource_type, resource_id, script)
+    if not artifact_path:
+        return None
+    if resolver is None:
+        if not safe_exists(project_path, artifact_path):
+            return None
+        return _ImageEditSource(resource_id=resolved_id, artifact_path=artifact_path, formal_claims=())
+
+    if resource_type == "storyboard":
+        if type(artifact_episode) is not int or artifact_episode < 1:
+            raise ValueError("artifact_episode is required for an active storyboard edit source")
+        key = ArtifactKey.episode_storyboard(artifact_episode, resolved_id)
+    else:
+        key = ArtifactKey.asset_sheet(resource_type, resolved_id)
+    claims: list[_FormalImageReferenceClaim] = []
+    if not _formal_image_reference_is_usable(
+        resolver=resolver,
+        key=key,
+        artifact_path=artifact_path,
+        claims=claims,
+    ):
+        return None
+    return _ImageEditSource(resource_id=resolved_id, artifact_path=artifact_path, formal_claims=tuple(claims))
 
 
 async def execute_image_edit_task(
@@ -161,20 +236,28 @@ async def execute_image_edit_task(
         _project = pm.load_project(project_name)
         _project_path = pm.get_project_path(project_name)
         _script = pm.load_script(project_name, str(script_file)) if resource_type == "storyboard" else None
+        _artifact_episode = None
         if _script is not None:
-            resolve_artifact_episode(
+            _artifact_episode = resolve_artifact_episode(
                 project=_project,
                 script=_script,
                 script_filename=str(script_file),
             )
-        # 资产名可能以 NFC/NFD 任一形态传入：先解析出真实落盘 key，之后的版本登记与
-        # canonical 图路径统一按它写，避免同一资产落出两种编码形式的文件与版本记录。
-        _key = resource_id
-        if resource_type != "storyboard":
-            _key = resolve_asset_key(_project.get(ASSET_SPECS[resource_type].bucket_key), resource_id) or resource_id
-        _current_rel = resolve_current_image_rel(_project, resource_type, _key, _script)
-        if not (_current_rel and safe_exists(_project_path, _current_rel)):
+        _source = resolve_usable_image_edit_source(
+            project=_project,
+            project_path=_project_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            script=_script,
+            artifact_episode=_artifact_episode,
+            resolver=active_artifact_currency_resolver(_project_path, _project),
+        )
+        if _source is None:
             raise ValueError(f"no current image to edit: {resource_type}/{resource_id}")
+        # 资产名可能以 NFC/NFD 任一形态传入：选择缝返回真实落盘 key，之后的版本登记与
+        # canonical 图路径统一按它写，避免同一资产落出两种编码形式的文件与版本记录。
+        _key = _source.resource_id
+        _current_rel = _source.artifact_path
         _current_image = _project_path / _current_rel
         _aspect_ratio = get_aspect_ratio(_project, version_resource_type)
         _frozen = freeze_image_references(
@@ -200,11 +283,18 @@ async def execute_image_edit_task(
         except BaseException:
             _frozen.cleanup()
             raise
-        return _project, _current_image, _key, _aspect_ratio, _frozen, _basis
+        return _project, _project_path, _current_image, _key, _aspect_ratio, _frozen, _basis, _source.formal_claims
 
-    project, current_image, resource_key, aspect_ratio, frozen_references, edit_basis = await asyncio.to_thread(
-        _prepare
-    )
+    (
+        project,
+        project_path,
+        current_image,
+        resource_key,
+        aspect_ratio,
+        frozen_references,
+        edit_basis,
+        formal_claims,
+    ) = await asyncio.to_thread(_prepare)
 
     canonical_rel = resource_relative_path(version_resource_type, resource_key)
     formal_outcomes: list[Any] = []
@@ -219,6 +309,13 @@ async def execute_image_edit_task(
         )
         generator = ctx.generator
 
+        await asyncio.to_thread(
+            _assert_formal_image_reference_claims_usable,
+            project_path,
+            project,
+            formal_claims,
+        )
+
         # 旧图若尚无版本记录（如旧宫格项目 current 指向非 canonical 路径），先以中性元数据补登，
         # 保证编辑前的旧图可回滚；也避免 generate_image_async 内部的 ensure_current_tracked
         # 把编辑指令 / 编辑标记误写到旧版本上。已有版本记录时此调用是 no-op。
@@ -228,6 +325,12 @@ async def execute_image_edit_task(
             resource_key,
             current_image,
             "",
+        )
+        await asyncio.to_thread(
+            _assert_formal_image_reference_claims_usable,
+            project_path,
+            project,
+            formal_claims,
         )
 
         if resource_type == "storyboard":

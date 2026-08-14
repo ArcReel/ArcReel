@@ -59,7 +59,7 @@ from server.auth import CurrentUser
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
 from server.services.cost_estimation import quote_video_request
 from server.services.generation_context import AudioLaneRequest, resolve_generation_context
-from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
+from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
 from server.services.narration_delivery_tasks import (
     active_narrated_video_resource_ids,
     prepare_current_storyboard_narrated_video_duration,
@@ -940,15 +940,24 @@ async def edit_image(
         project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
         script = pm_local.load_script(project_name, str(script_file)) if is_storyboard else None
+        artifact_episode = None
         if script is not None:
-            _resolve_request_artifact_episode(project, script, str(script_file))
+            artifact_episode = _resolve_request_artifact_episode(project, script, str(script_file))
         try:
-            current_rel = resolve_current_image_rel(project, req.resource_type, req.resource_id, script)
+            source = resolve_usable_image_edit_source(
+                project=project,
+                project_path=project_path,
+                resource_type=req.resource_type,
+                resource_id=req.resource_id,
+                script=script,
+                artifact_episode=artifact_episode,
+                resolver=active_artifact_currency_resolver(project_path, project),
+            )
         except KeyError:
             if is_storyboard:
                 raise NotFoundError("segment_not_found", id=req.resource_id)
             raise NotFoundError(_ASSET_GENERATE_I18N[req.resource_type]["not_found"], name=req.resource_id)
-        if not (current_rel and safe_exists(project_path, current_rel)):
+        if source is None:
             raise BadRequestError("image_edit_no_current_image", id=req.resource_id)
         return project
 

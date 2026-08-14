@@ -8,11 +8,18 @@ from pathlib import Path
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from lib.artifact_manifest import (
+    ArtifactBlocker,
+    ArtifactComparison,
+    ArtifactKey,
+    ArtifactManifestError,
+    ArtifactStatus,
+)
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.db.base import Base
 from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
-from server.services import generation_context, image_edit_tasks
+from server.services import generation_context, generation_tasks, image_edit_tasks
 from server.services.generation_context import (
     GenerationContext,
     ImageLaneRequest,
@@ -173,6 +180,7 @@ class TestResolveCurrentImageRel:
 
 class TestExecuteImageEditTask:
     async def test_registration_failure_never_exposes_an_edited_image(self, tmp_path, monkeypatch):
+        from lib.artifact_activation import register_current_artifact
         from lib.media_generator import task_image_staging_path
         from server.services import generation_tasks
 
@@ -185,6 +193,7 @@ class TestExecuteImageEditTask:
         current.parent.mkdir(parents=True, exist_ok=True)
         current.write_bytes(b"old-image")
         pm.update_project_character_sheet("demo", "Alice", "characters/Alice.png")
+        register_current_artifact(project_path, ArtifactKey.asset_sheet("character", "Alice"))
         versions = VersionManager(project_path)
 
         class _Generator:
@@ -228,7 +237,7 @@ class TestExecuteImageEditTask:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from lib.artifact_activation import ArtifactCurrencyResolver
+        from lib.artifact_activation import ArtifactCurrencyResolver, register_current_artifact
         from lib.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
         from lib.artifact_version_provenance import parse_image_version_basis
         from lib.media_generator import task_image_staging_path
@@ -287,6 +296,12 @@ class TestExecuteImageEditTask:
         current = project_path / current_rel
         current.parent.mkdir(parents=True, exist_ok=True)
         current.write_bytes(b"source-before-await")
+        source_key = (
+            ArtifactKey.episode_storyboard(1, resource_id)
+            if resource_type == "storyboard"
+            else ArtifactKey.asset_sheet(resource_type, resource_id)
+        )
+        register_current_artifact(project_path, source_key)
         instruction = "turn the coat red"
         reference = VisualReference(
             path=current,
@@ -361,21 +376,16 @@ class TestExecuteImageEditTask:
         records = manager.get_versions(version_resource_type, resource_id)["versions"]
         edited_record = next(record for record in records if record["version"] == result["version"])
         assert parse_image_version_basis(version_resource_type, resource_id, edited_record) == expected_basis
-        key = (
-            ArtifactKey.episode_storyboard(1, resource_id)
-            if resource_type == "storyboard"
-            else ArtifactKey.asset_sheet(resource_type, resource_id)
-        )
         adapter = ProjectArtifactManifestAdapter(project_path)
-        assert adapter.get_entry(key).basis_digest == expected_basis.digest
+        assert adapter.get_entry(source_key).basis_digest == expected_basis.digest
         assert (
-            ArtifactCurrencyResolver(project_path).compare(key, artifact_path=current_rel).status
+            ArtifactCurrencyResolver(project_path).compare(source_key, artifact_path=current_rel).status
             is ArtifactStatus.STALE
         )
         assert current.read_bytes() == b"edited-image"
         assert provider_reference is not None and not provider_reference.exists()
 
-        adapter.delete_entry(key)
+        adapter.delete_entry(source_key)
         monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
         manager.restore_version(
             version_resource_type,
@@ -391,7 +401,7 @@ class TestExecuteImageEditTask:
                 record=record,
             ),
         )
-        assert adapter.get_entry(key).basis_digest == expected_basis.digest
+        assert adapter.get_entry(source_key).basis_digest == expected_basis.digest
 
     async def test_active_storyboard_rejects_an_unbound_script_before_provider(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
@@ -413,6 +423,167 @@ class TestExecuteImageEditTask:
             )
 
         assert fake_generator.tracked == []
+        assert fake_generator.image_calls == []
+
+    @pytest.mark.parametrize("resource_type", ["character", "storyboard"])
+    @pytest.mark.parametrize(
+        ("claim_status", "error_type", "error_match"),
+        [
+            (ArtifactStatus.MISSING, ValueError, "no current image"),
+            (ArtifactStatus.BLOCKED, ArtifactManifestError, "source claim is blocked"),
+        ],
+    )
+    async def test_active_edit_rejects_an_unusable_source_claim_before_provider(
+        self,
+        resource_type,
+        claim_status,
+        error_type,
+        error_match,
+        tmp_path,
+        monkeypatch,
+    ):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project.update(
+            {
+                "schema_version": 8,
+                "generation_mode": "storyboard",
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        )
+        fake_pm.script["episode"] = 1
+        fake_generator = _FakeGenerator()
+        _patch_common(monkeypatch, fake_pm, fake_generator)
+        resource_id = "Alice" if resource_type == "character" else "E1S01"
+        artifact_path = "characters/Alice.png" if resource_type == "character" else "storyboards/scene_E1S01_first.png"
+        expected_key = (
+            ArtifactKey.asset_sheet("character", resource_id)
+            if resource_type == "character"
+            else ArtifactKey.episode_storyboard(1, resource_id)
+        )
+        comparisons: list[tuple[ArtifactKey, str]] = []
+
+        class _Currency:
+            def compare(self, key, *, artifact_path):
+                comparisons.append((key, artifact_path))
+                blocker = (
+                    ArtifactBlocker(
+                        code="manifest_unreadable",
+                        path=artifact_path,
+                        detail="source claim is blocked",
+                    )
+                    if claim_status is ArtifactStatus.BLOCKED
+                    else None
+                )
+                return ArtifactComparison(status=claim_status, artifact_path=artifact_path, blocker=blocker)
+
+        monkeypatch.setattr(
+            image_edit_tasks,
+            "active_artifact_currency_resolver",
+            lambda *_args: _Currency(),
+            raising=False,
+        )
+        monkeypatch.setattr(
+            generation_tasks,
+            "active_artifact_currency_resolver",
+            lambda *_args: _Currency(),
+        )
+        payload = {
+            "resource_type": resource_type,
+            "prompt": "局部调整",
+            **({"script_file": "episode_1.json"} if resource_type == "storyboard" else {}),
+        }
+
+        with pytest.raises(error_type, match=error_match):
+            await execute_image_edit_task("demo", resource_id, payload)
+
+        assert comparisons == [(expected_key, artifact_path)]
+        assert fake_generator.tracked == []
+        assert fake_generator.image_calls == []
+
+    @pytest.mark.parametrize("resource_type", ["character", "storyboard"])
+    @pytest.mark.parametrize("successful_rechecks", [0, 1])
+    @pytest.mark.parametrize(
+        ("claim_status", "error_type", "error_match"),
+        [
+            (ArtifactStatus.MISSING, ValueError, "no longer registered"),
+            (ArtifactStatus.BLOCKED, ArtifactManifestError, "source claim changed to blocked"),
+        ],
+    )
+    async def test_active_edit_rechecks_the_selected_source_before_provider_submission(
+        self,
+        resource_type,
+        successful_rechecks,
+        claim_status,
+        error_type,
+        error_match,
+        tmp_path,
+        monkeypatch,
+    ):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project.update(
+            {
+                "schema_version": 8,
+                "generation_mode": "storyboard",
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        )
+        fake_pm.script["episode"] = 1
+        fake_generator = _FakeGenerator()
+        _patch_common(monkeypatch, fake_pm, fake_generator)
+        resource_id = "Alice" if resource_type == "character" else "E1S01"
+        expected_key = (
+            ArtifactKey.asset_sheet("character", resource_id)
+            if resource_type == "character"
+            else ArtifactKey.episode_storyboard(1, resource_id)
+        )
+        statuses = [ArtifactStatus.CURRENT, *([ArtifactStatus.CURRENT] * successful_rechecks), claim_status]
+        comparisons: list[tuple[ArtifactKey, str, ArtifactStatus]] = []
+
+        class _Currency:
+            def __init__(self, status):
+                self.status = status
+
+            def compare(self, key, *, artifact_path):
+                comparisons.append((key, artifact_path, self.status))
+                blocker = (
+                    ArtifactBlocker(
+                        code="manifest_unreadable",
+                        path=artifact_path,
+                        detail="source claim changed to blocked",
+                    )
+                    if self.status is ArtifactStatus.BLOCKED
+                    else None
+                )
+                return ArtifactComparison(status=self.status, artifact_path=artifact_path, blocker=blocker)
+
+        def _resolver(*_args):
+            return _Currency(statuses.pop(0))
+
+        monkeypatch.setattr(image_edit_tasks, "active_artifact_currency_resolver", _resolver, raising=False)
+        monkeypatch.setattr(generation_tasks, "active_artifact_currency_resolver", _resolver)
+        payload = {
+            "resource_type": resource_type,
+            "prompt": "局部调整",
+            **({"script_file": "episode_1.json"} if resource_type == "storyboard" else {}),
+        }
+
+        with pytest.raises(error_type, match=error_match):
+            await execute_image_edit_task("demo", resource_id, payload)
+
+        assert [key for key, _path, _status in comparisons] == [expected_key] * (2 + successful_rechecks)
+        assert statuses == []
+        if successful_rechecks:
+            assert fake_generator.tracked == [
+                {
+                    "resource_type": "characters" if resource_type == "character" else "storyboards",
+                    "resource_id": resource_id,
+                    "prompt": "",
+                }
+            ]
+        else:
+            assert fake_generator.tracked == []
         assert fake_generator.image_calls == []
 
     async def test_character_edit_uses_current_image_as_sole_reference(self, tmp_path, monkeypatch):

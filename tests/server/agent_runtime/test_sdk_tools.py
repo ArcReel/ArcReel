@@ -1061,6 +1061,44 @@ async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext, monkeypatch) -
 
 
 @pytest.mark.unit
+async def test_edit_images_active_asset_without_a_manifest_claim_is_not_enqueued(
+    fake_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    project_path = fake_ctx.project_path
+    (project_path / "characters").mkdir()
+    (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
+    fake_ctx.pm.project_payload["schema_version"] = 8  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
+    comparisons = []
+
+    class _Currency:
+        def compare(self, key, *, artifact_path):
+            comparisons.append((key, artifact_path))
+            return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
+
+    async def fake_i2i(_project):
+        return True
+
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _Currency())
+    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await _call(
+        edit_images_tool(fake_ctx),
+        {"resource_type": "character", "edits": [{"id": "张三", "instruction": "换发色"}]},
+    )
+
+    assert out.get("is_error") is True
+    assert comparisons == [(ArtifactKey.asset_sheet("character", "张三"), "characters/zhangsan.png")]
+    enqueue.assert_not_awaited()
+
+
+@pytest.mark.unit
 async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
 
