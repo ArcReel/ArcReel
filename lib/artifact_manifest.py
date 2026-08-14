@@ -1018,6 +1018,7 @@ class ProjectArtifactManifestAdapter:
                     else:
                         os.unlink(MANIFEST_FILENAME, dir_fd=root_fd)
                 except FileNotFoundError:
+                    # Deletion is idempotent; another writer may already have removed the empty sidecar.
                     pass
                 except OSError as exc:
                     raise ArtifactManifestError(f"cannot remove empty artifact manifest: {exc}") from exc
