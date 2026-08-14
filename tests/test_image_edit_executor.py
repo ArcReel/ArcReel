@@ -435,19 +435,15 @@ class TestExecuteImageEditTask:
 
         adapter.delete_entry(source_key)
         monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
-        manager.restore_version(
-            version_resource_type,
-            resource_id,
-            result["version"],
-            current,
-            on_restore=lambda record: versions_router._restore_non_typed_sidecars(
-                resource_type=version_resource_type,
-                project_name="demo",
-                resource_id=resource_id,
-                file_path=current_rel,
-                project_path=project_path,
-                record=record,
-            ),
+        versions_router._restore_non_typed_version(
+            versions=manager,
+            resource_type=version_resource_type,
+            project_name="demo",
+            resource_id=resource_id,
+            version=result["version"],
+            current_file=current,
+            file_path=current_rel,
+            project_path=project_path,
         )
         assert adapter.get_entry(source_key).basis_digest == expected_basis.digest
 

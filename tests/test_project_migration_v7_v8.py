@@ -574,13 +574,13 @@ def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Pat
     def _activate() -> None:
         try:
             artifact_activation.activate_artifact_target_state(project_dir, bump_schema=True)
-        except BaseException as exc:  # noqa: BLE001 - thread failure is asserted in the parent
+        except Exception as exc:
             failures.append(exc)
 
     def _write() -> None:
         try:
             write_step1_json(project_dir, 1, formal_path, replacement)
-        except BaseException as exc:  # noqa: BLE001 - thread failure is asserted in the parent
+        except Exception as exc:
             failures.append(exc)
         finally:
             writer_done.set()
@@ -624,14 +624,14 @@ def test_formal_step1_transaction_holds_the_project_lock_through_the_write(tmp_p
                 with formal_step1_write_transaction(project_dir, 1, formal_path):
                     transaction_entered.set()
                     assert release_transaction.wait(timeout=5)
-        except BaseException as exc:  # noqa: BLE001 - thread failure is asserted in the parent
+        except Exception as exc:
             failures.append(exc)
 
     def _compete() -> None:
         try:
             with project_metadata_lock(project_dir):
                 competing_lock_acquired.set()
-        except BaseException as exc:  # noqa: BLE001 - thread failure is asserted in the parent
+        except Exception as exc:
             failures.append(exc)
 
     writer = Thread(target=_write)

@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.artifact_activation import assert_current_artifact_input_claims_usable, resolve_artifact_episode
+from lib.artifact_activation import assert_current_artifact_input_claims_usable, resolve_usable_episode_script_input
 from lib.artifact_manifest import compose_video_artifact_basis
 from lib.config.resolver import (
     ConfigResolver,
@@ -471,15 +471,22 @@ async def execute_reference_video_task(
         project = pm.load_project(project_name)
         project_path = pm.get_project_path(project_name)
         script = pm.load_script(project_name, script_file)
+        script_input = resolve_usable_episode_script_input(
+            project_path=project_path,
+            project=project,
+            script=script,
+            script_filename=script_file,
+            legacy_episode_fallback=1,
+        )
         units = script.get("video_units") or []
         unit = next((u for u in units if isinstance(u, dict) and u.get("unit_id") == resource_id), None)
         if unit is None:
             raise ValueError(f"unit not found: {resource_id}")
         if video_unit_replan_problems(unit):
             raise ValueError(f"unit needs replanning: {resource_id}")
-        return project, project_path, script, unit
+        return project, project_path, script, unit, script_input
 
-    project, project_path, script, unit = await asyncio.to_thread(_load)
+    project, project_path, script, unit, script_input = await asyncio.to_thread(_load)
 
     declared_references = canonicalize_references(unit.get("references"))
     resolved_assets = resolve_reference_assets(project, project_path, unit)
@@ -593,7 +600,7 @@ async def execute_reference_video_task(
         raise ValueError("reference request projection has no duration tier")
 
     constrained_entries = list(projection.request_assets)
-    formal_input_claims = asset_availability.snapshot_selected_claims(constrained_entries)
+    formal_input_claims = (script_input.claim, *asset_availability.snapshot_selected_claims(constrained_entries))
     constrained_refs = [entry.path for entry in constrained_entries]
     aspect_ratio = resolve_video_aspect_ratio(project)
     candidate = projection.provider_candidate
@@ -689,13 +696,7 @@ async def execute_reference_video_task(
     staged_media: tuple[StagedProviderMedia, ...] = ()
     checkpoint_hook: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = None
     if task_id is not None:
-        artifact_episode = resolve_artifact_episode(
-            project=project,
-            script=script,
-            script_filename=str(script_file),
-        )
-        if artifact_episode is None:
-            artifact_episode = 1
+        artifact_episode = script_input.episode
         artifact_speech_preparation = admit_script_unit("video_units", unit).preparation
         artifact_duration_basis = build_video_duration_basis(effective_duration)
         image_inputs = tuple(

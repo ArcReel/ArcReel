@@ -96,16 +96,28 @@ def _write_project(tmp_path: Path) -> Path:
     return proj_dir
 
 
-def _activate_project_manifest(proj_dir: Path) -> None:
+def _activate_project_manifest(proj_dir: Path, *, register_script: bool = True) -> None:
     """Activate the fixture through the production v7 -> v8 boundary."""
 
     from lib.artifact_activation import activate_artifact_target_state
+    from lib.artifact_manifest import (
+        ArtifactBasis,
+        ArtifactKey,
+        ArtifactManifest,
+        ProjectArtifactManifestAdapter,
+    )
 
     project_path = proj_dir / "project.json"
     project = json.loads(project_path.read_text(encoding="utf-8"))
     project["schema_version"] = 7
     project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     assert activate_artifact_target_state(proj_dir, bump_schema=True) is True
+    if register_script:
+        ArtifactManifest(ProjectArtifactManifestAdapter(proj_dir)).register(
+            ArtifactKey.episode_script(1),
+            artifact_path="scripts/episode_1.json",
+            basis=ArtifactBasis.build("test/episode-script", kind_version=1, inputs={}),
+        )
 
 
 def _wire_context(
@@ -1694,6 +1706,48 @@ async def test_execute_reference_video_task_rejects_unclaimed_formal_sheet_befor
 
     assert exc_info.value.code == "reference_asset_missing"
     assert exc_info.value.params["missing"] == (("character", "张三"),)
+    fake_generator.generate_video_async.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_rejects_unclaimed_bound_script_before_submission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from server.services import reference_video_tasks as rvt
+
+    proj_dir = _write_project(tmp_path)
+    _activate_project_manifest(proj_dir, register_script=False)
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock()
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="ark",
+        backend_model="doubao-seedance-2-0-260128",
+        supported_durations=(3,),
+    )
+
+    with pytest.raises(ValueError, match="episode script is not registered"):
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "scripts/episode_1.json"},
+            user_id="u1",
+        )
+
     fake_generator.generate_video_async.assert_not_awaited()
 
 

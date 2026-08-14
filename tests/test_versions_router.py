@@ -96,7 +96,7 @@ class _FakeVM:
         }
 
 
-def test_non_typed_storyboard_restore_enters_version_commit_from_metadata_transaction(monkeypatch) -> None:
+def test_non_typed_storyboard_restore_enters_version_commit_from_metadata_transaction(monkeypatch, tmp_path) -> None:
     order: list[str] = []
 
     class _OrderedPM(_FakePM):
@@ -130,6 +130,8 @@ def test_non_typed_storyboard_restore_enters_version_commit_from_metadata_transa
     pm = _OrderedPM()
     monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
     monkeypatch.setattr(versions, "register_current_resource_artifact", lambda *_args, **_kwargs: False)
+    project_path = tmp_path / "demo"
+    current_file = project_path / "storyboards" / "scene_E1S01.png"
 
     result = versions._restore_non_typed_version(
         versions=_OrderedVM(),
@@ -137,9 +139,9 @@ def test_non_typed_storyboard_restore_enters_version_commit_from_metadata_transa
         project_name="demo",
         resource_id="E1S01",
         version=1,
-        current_file=Path("/tmp/demo/storyboards/scene_E1S01.png"),
+        current_file=current_file,
         file_path="storyboards/scene_E1S01.png",
-        project_path=Path("/tmp/demo"),
+        project_path=project_path,
     )
 
     assert result["restored_version"] == 1
@@ -347,19 +349,15 @@ class TestVersionsRouter:
         pm.save_script("demo", script, "episode_1.json", validate=False)
         monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
 
-        manager.restore_version(
-            "storyboards",
-            "E1S01",
-            old_version,
-            current,
-            on_restore=lambda record: versions._restore_non_typed_sidecars(
-                resource_type="storyboards",
-                project_name="demo",
-                resource_id="E1S01",
-                file_path="storyboards/scene_E1S01.png",
-                project_path=project_path,
-                record=record,
-            ),
+        versions._restore_non_typed_version(
+            versions=manager,
+            resource_type="storyboards",
+            project_name="demo",
+            resource_id="E1S01",
+            version=old_version,
+            current_file=current,
+            file_path="storyboards/scene_E1S01.png",
+            project_path=project_path,
         )
 
         key = ArtifactKey.episode_storyboard(1, "E1S01")
@@ -404,19 +402,15 @@ class TestVersionsRouter:
         pm = ProjectManager(tmp_path)
         monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
 
-        manager.restore_version(
-            "characters",
-            "Alice",
-            old_version,
-            current,
-            on_restore=lambda record: versions._restore_non_typed_sidecars(
-                resource_type="characters",
-                project_name="demo",
-                resource_id="Alice",
-                file_path="characters/Alice.png",
-                project_path=project_path,
-                record=record,
-            ),
+        versions._restore_non_typed_version(
+            versions=manager,
+            resource_type="characters",
+            project_name="demo",
+            resource_id="Alice",
+            version=old_version,
+            current_file=current,
+            file_path="characters/Alice.png",
+            project_path=project_path,
         )
 
         assert ProjectArtifactManifestAdapter(project_path).get_entry(key) is None
@@ -456,19 +450,15 @@ class TestVersionsRouter:
         pm = ProjectManager(tmp_path)
         monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
 
-        manager.restore_version(
-            "characters",
-            "Alice",
-            old_version,
-            current,
-            on_restore=lambda record: versions._restore_non_typed_sidecars(
-                resource_type="characters",
-                project_name="demo",
-                resource_id="Alice",
-                file_path="characters/Alice.png",
-                project_path=project_path,
-                record=record,
-            ),
+        versions._restore_non_typed_version(
+            versions=manager,
+            resource_type="characters",
+            project_name="demo",
+            resource_id="Alice",
+            version=old_version,
+            current_file=current,
+            file_path="characters/Alice.png",
+            project_path=project_path,
         )
 
         key = ArtifactKey.asset_sheet("character", "Alice")
@@ -508,18 +498,15 @@ class TestVersionsRouter:
         )
 
         with pytest.raises(RuntimeError, match="manifest commit failed"):
-            manager.restore_version(
-                "characters",
-                "Alice",
-                1,
-                current,
-                on_restore=lambda _record: versions._restore_non_typed_sidecars(
-                    resource_type="characters",
-                    project_name="demo",
-                    resource_id="Alice",
-                    file_path="characters/Alice.png",
-                    project_path=project_path,
-                ),
+            versions._restore_non_typed_version(
+                versions=manager,
+                resource_type="characters",
+                project_name="demo",
+                resource_id="Alice",
+                version=1,
+                current_file=current,
+                file_path="characters/Alice.png",
+                project_path=project_path,
             )
 
         assert current.read_bytes() == b"new"
@@ -580,24 +567,21 @@ class TestVersionsRouter:
         monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
 
         with pytest.raises(ValueError, match="exactly one episode binding"):
-            manager.restore_version(
-                "storyboards",
-                "DUP",
-                1,
-                current,
-                on_restore=lambda _record: versions._restore_non_typed_sidecars(
-                    resource_type="storyboards",
-                    project_name="demo",
-                    resource_id="DUP",
-                    file_path="storyboards/scene_DUP.png",
-                    project_path=project_path,
-                ),
+            versions._restore_non_typed_version(
+                versions=manager,
+                resource_type="storyboards",
+                project_name="demo",
+                resource_id="DUP",
+                version=1,
+                current_file=current,
+                file_path="storyboards/scene_DUP.png",
+                project_path=project_path,
             )
 
         assert current.read_bytes() == b"new"
         assert manager.get_current_version("storyboards", "DUP") == 2
         assert all(path.read_bytes() == content for path, content in snapshots.items())
-        assert not (project_path / ".arcreel_artifacts.json").exists()
+        assert not (project_path / MANIFEST_FILENAME).exists()
 
     def test_storyboard_restore_rollback_holds_script_lock_against_concurrent_edit(self, tmp_path, monkeypatch):
         from lib.project_manager import ProjectManager
@@ -626,6 +610,13 @@ class TestVersionsRouter:
             validate=False,
         )
         project_path = pm.get_project_path("demo")
+        current = project_path / "storyboards" / "scene_E1S01.png"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"old")
+        manager = VersionManager(project_path)
+        old_version = manager.add_version("storyboards", "E1S01", "old", source_file=current)
+        current.write_bytes(b"new")
+        manager.add_version("storyboards", "E1S01", "new", source_file=current)
         registration_started = threading.Event()
         release_registration = threading.Event()
         edit_started = threading.Event()
@@ -640,10 +631,13 @@ class TestVersionsRouter:
         monkeypatch.setattr(versions, "forget_current_resource_artifact", _fail_registration)
 
         def _restore() -> None:
-            versions._restore_non_typed_sidecars(
+            versions._restore_non_typed_version(
+                versions=manager,
                 resource_type="storyboards",
                 project_name="demo",
                 resource_id="E1S01",
+                version=old_version,
+                current_file=current,
                 file_path="storyboards/scene_E1S01.png",
                 project_path=project_path,
             )
@@ -1428,10 +1422,13 @@ class TestVersionsRouter:
         monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
 
         with pytest.raises(OSError, match="disk full"):
-            versions._restore_non_typed_sidecars(
+            versions._restore_non_typed_version(
+                versions=VersionManager(project_path),
                 resource_type="storyboards",
                 project_name="demo",
                 resource_id="E1S01",
+                version=1,
+                current_file=project_path / "storyboards" / "scene_E1S01.png",
                 file_path="storyboards/scene_E1S01.png",
                 project_path=project_path,
             )

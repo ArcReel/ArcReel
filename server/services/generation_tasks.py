@@ -24,7 +24,6 @@ from lib.artifact_activation import (
     assert_current_artifact_input_claims_usable,
     register_current_resource_artifact,
     register_task_current_resource_artifact,
-    resolve_artifact_episode,
     resolve_current_resource_artifact_basis,
     resolve_usable_episode_script_input,
     resolve_usable_storyboard_video_inputs,
@@ -2108,6 +2107,13 @@ async def execute_video_task(
         _project = _pm.load_project(project_name)
         _project_path = _pm.get_project_path(project_name)
         _script = _pm.load_script(project_name, script_file)
+        _script_input = resolve_usable_episode_script_input(
+            project_path=_project_path,
+            project=_project,
+            script=_script,
+            script_filename=script_file,
+            legacy_episode_fallback=1,
+        )
         _items, _id_field, _, _, _ = get_storyboard_items(_script)
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
         _item = _resolved[0] if _resolved else {}
@@ -2118,9 +2124,10 @@ async def execute_video_task(
             resolve_content_mode(_script, _project),
             resolve_script_kind(_script),
             _script,
+            _script_input,
         )
 
-    project, project_path, item, content_mode, script_kind, script = await asyncio.to_thread(_load)
+    project, project_path, item, content_mode, script_kind, script, script_input = await asyncio.to_thread(_load)
     # Queue execution re-materializes mutable visual intent from the current script unit. Direct/internal callers
     # without a task row retain the request-prompt fallback for compatibility with synchronous service tests.
     current_prompt = item.get("video_prompt") if isinstance(item, dict) else None
@@ -2151,12 +2158,8 @@ async def execute_video_task(
     supported_durations: list[int] = list(ctx.video.supported_durations)
     resolution = ctx.video.resolution
 
-    artifact_episode = resolve_artifact_episode(
-        project=project,
-        script=script,
-        script_filename=script_file,
-    )
-    formal_input_claims: list[ArtifactInputClaim] = []
+    artifact_episode = script_input.episode
+    formal_input_claims: list[ArtifactInputClaim] = [script_input.claim]
     storyboard_file, end_image = resolve_usable_storyboard_video_inputs(
         project_path=project_path,
         project=project,
@@ -2349,8 +2352,6 @@ async def execute_video_task(
     checkpoint_hook: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = _admit_before_submit
     staged_media: tuple[StagedProviderMedia, ...] = ()
     if task_id is not None:
-        if artifact_episode is None:
-            artifact_episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
         artifact_speech_preparation = admit_script_unit(script_kind, item).preparation
         artifact_speech = freeze_video_speech_facts(
             artifact_speech_preparation,
@@ -3118,12 +3119,16 @@ async def execute_grid_task(
         raise ValueError(f"grid not found: {resource_id}")
     project = await asyncio.to_thread(get_project_manager().load_project, project_name)
     script = await asyncio.to_thread(get_project_manager().load_script, project_name, grid.script_file)
-    artifact_episode = resolve_artifact_episode(
+    script_input = await asyncio.to_thread(
+        resolve_usable_episode_script_input,
+        project_path=project_path,
         project=project,
         script=script,
         script_filename=grid.script_file,
+        legacy_episode_fallback=grid.episode,
     )
-    if artifact_episode is not None and artifact_episode != grid.episode:
+    artifact_episode = script_input.episode
+    if artifact_episode != grid.episode:
         raise ValueError(f"grid episode {grid.episode} does not match bound script episode {artifact_episode}")
     initial_grid = copy.deepcopy(grid.to_dict())
 
@@ -3140,7 +3145,7 @@ async def execute_grid_task(
         from lib.grid.models import ReferenceImage
 
         currency_resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)
-        formal_claims: list[ArtifactInputClaim] = []
+        formal_claims: list[ArtifactInputClaim] = [script_input.claim]
         visual_references: list[VisualReference] = []
         reference_images, ref_metadata = await asyncio.to_thread(
             _collect_grid_reference_images,

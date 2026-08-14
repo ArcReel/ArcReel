@@ -791,6 +791,34 @@ class TestGenerationTasks:
         assert fake_generator.image_calls == []
 
     @pytest.mark.integration
+    async def test_schema8_video_rejects_an_unclaimed_bound_script_before_provider(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
+        _persist_active_fake_project(fake_pm, register_script=False)
+        _register_stale_visual_claim(
+            project_path,
+            ArtifactKey.episode_storyboard(1, "E1S01"),
+            "storyboards/scene_E1S01.png",
+        )
+        fake_generator = _FakeGenerator()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="episode script is not registered"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
     def test_grid_completion_serializes_manifest_registration_with_schema_activation(self, tmp_path, monkeypatch):
         from lib import artifact_activation
         from lib.artifact_activation import activate_artifact_target_state
@@ -866,13 +894,13 @@ class TestGenerationTasks:
         def _activate() -> None:
             try:
                 activate_artifact_target_state(project_path, bump_schema=True)
-            except BaseException as exc:  # noqa: BLE001 - thread failure is asserted in the parent
+            except Exception as exc:
                 failures.append(exc)
 
         def _complete_grid() -> None:
             try:
                 commit(staged, current, {})
-            except BaseException as exc:  # noqa: BLE001 - thread failure is asserted in the parent
+            except Exception as exc:
                 failures.append(exc)
             finally:
                 writer_done.set()
@@ -882,7 +910,7 @@ class TestGenerationTasks:
         activation_thread.start()
         assert activation_ready.wait(timeout=5)
         writer_thread.start()
-        writer_done.wait(timeout=0.2)
+        assert not writer_done.wait(timeout=0.2)
         release_activation.set()
         activation_thread.join(timeout=5)
         writer_thread.join(timeout=5)
@@ -890,6 +918,7 @@ class TestGenerationTasks:
         assert not activation_thread.is_alive()
         assert not writer_thread.is_alive()
         assert failures == []
+        assert json.loads((project_path / "project.json").read_text(encoding="utf-8"))["schema_version"] == 8
         entry = ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_grid(1, grid.id))
         assert entry is not None
         assert entry.basis_digest == basis.digest

@@ -1708,12 +1708,15 @@ def resolve_usable_episode_script_input(
     project: Mapping[str, object],
     script: dict[str, Any],
     script_filename: str,
+    legacy_episode_fallback: int | None = None,
 ) -> EpisodeScriptInput:
     """Resolve one bound episode script through the shared formal-input seam.
 
     Legacy projects still admit the script that the caller already loaded, while
     retaining its typed identity in case schema activation wins before provider
-    submission. Active projects require the exact bound script claim immediately.
+    submission. Callers with a historical noncanonical filename can supply their
+    established legacy episode identity. Active projects require the exact bound
+    script claim immediately and never use that fallback.
     """
 
     from lib.project_manager import ProjectManager
@@ -1724,7 +1727,11 @@ def resolve_usable_episode_script_input(
         script_filename=script_filename,
     )
     if episode is None:
-        episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+        episode = (
+            ProjectManager.resolve_episode_from_script(script, script_filename)
+            if legacy_episode_fallback is None
+            else legacy_episode_fallback
+        )
     artifact_path = _normalize_script_binding(ProjectManager.normalize_script_filename(script_filename))
     claim = resolve_usable_artifact_input_claim(
         resolver=active_artifact_currency_resolver(project_path, project),

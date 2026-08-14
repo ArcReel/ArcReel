@@ -265,6 +265,49 @@ class TestExecuteGridTask:
         # 联合图内容更新后落格状态复位，等待显式切分
         assert updated_grid_data["split_at"] is None
 
+    async def test_schema8_grid_rejects_an_unclaimed_bound_script_before_provider(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from server.services.generation_tasks import execute_grid_task
+
+        project_file = project_with_script / "project.json"
+        project = json.loads(project_file.read_text(encoding="utf-8"))
+        project["schema_version"] = 8
+        project["episodes"] = [{"episode": 1, "script_file": "scripts/episode_1.json"}]
+        project_file.write_text(json.dumps(project), encoding="utf-8")
+        script_file = project_with_script / "scripts" / "episode_1.json"
+        script = json.loads(script_file.read_text(encoding="utf-8"))
+        script["episode"] = 1
+        script_file.write_text(json.dumps(script), encoding="utf-8")
+
+        mock_generator = MagicMock()
+        mock_generator.generate_image_async = AsyncMock(side_effect=AssertionError("provider must remain unreachable"))
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = project
+            mock_pm.load_script.return_value = script
+            mock_pm_fn.return_value = mock_pm
+
+            with pytest.raises(ValueError, match="episode script is not registered"):
+                await execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                )
+
+        mock_generator.generate_image_async.assert_not_awaited()
+
     async def test_grid_registers_generation_frozen_basis_when_script_changes_in_flight(
         self,
         project_with_script,
