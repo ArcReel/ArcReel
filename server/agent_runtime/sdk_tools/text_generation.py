@@ -33,7 +33,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
 )
 from lib.i18n import _ as translate
-from lib.json_io import atomic_write_json, load_json_or_none
+from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import DEFAULT_SOURCE_KIND, is_reference_video_project
 from lib.prompt_builders_reference import build_reference_units_split_prompt
@@ -566,9 +566,8 @@ def normalize_drama_script_tool(ctx: ToolContext):
             drafts_dir = episode_drafts_dir(project_path, episode)
             drafts_dir.mkdir(parents=True, exist_ok=True)
             step1_path = drafts_dir / STEP1_FILENAMES["drama"]
-            # step1 真相源须原子写入：复用 atomic_write_json（同目录 tempfile + os.replace），
-            # 避免 normalize 中断 / 并发重跑留下半写 JSON 被下游当成损坏草稿。
-            atomic_write_json(step1_path, content)
+            # 结构化 step1 的所有 Python 正式写共用锁、原子替换与 Manifest 登记边界。
+            script_review.write_step1_json(project_path, episode, step1_path, content)
 
             scenes = raw_scenes
             return {
@@ -1609,8 +1608,7 @@ def split_narration_segments_tool(ctx: ToolContext):
             drafts_dir = episode_drafts_dir(project_path, episode)
             drafts_dir.mkdir(parents=True, exist_ok=True)
             step1_path = drafts_dir / STEP1_FILENAMES["narration"]
-            # step1 真相源须原子写入（同 normalize_drama_script）：避免中断 / 并发重跑留下半写 JSON。
-            atomic_write_json(step1_path, content)
+            script_review.write_step1_json(project_path, episode, step1_path, content)
 
             total_chars = sum(len(str(s.get("novel_text") or "")) for s in raw_segments)
             total_seconds = sum(int(s.get("duration_seconds") or 0) for s in raw_segments)

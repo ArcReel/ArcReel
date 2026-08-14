@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import lib.project_manager as project_manager_module
+from lib.artifact_activation import ArtifactCurrencyResolver
+from lib.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.i18n.en import assets as en_assets
 from lib.i18n.vi import assets as vi_assets
 from lib.i18n.zh import assets as zh_assets
@@ -1015,6 +1017,95 @@ class TestFilesRouter:
 
             unknown_draft = client.delete("/api/v1/projects/demo/drafts/9/step1")
             assert unknown_draft.status_code == 404
+
+    @pytest.mark.integration
+    def test_plain_step1_save_registers_active_manifest_and_rolls_back_on_registration_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+
+        def _activate(project: dict) -> None:
+            project["schema_version"] = 8
+            project["content_mode"] = "narration"
+            project["generation_mode"] = "storyboard"
+            project["episodes"] = [
+                {
+                    "episode": 1,
+                    "title": "第一集",
+                    "script_file": "scripts/episode_1.json",
+                    "ledger_status": "planned",
+                }
+            ]
+
+        pm.update_project("demo", _activate)
+        source = project_dir / "source" / "episode_1.txt"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("第一集原文", encoding="utf-8")
+        content = json.dumps(
+            {
+                "episode": 1,
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "novel_text": "第一集原文",
+                        "duration_seconds": 6,
+                        "segment_break": False,
+                        "characters_in_segment": [],
+                        "scenes": [],
+                        "props": [],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+        with client:
+            response = client.put(
+                "/api/v1/projects/demo/drafts/1/step1",
+                content=content,
+                headers={"content-type": "text/plain"},
+            )
+        assert response.status_code == 200, response.text
+        draft_path = project_dir / response.json()["path"]
+        key = ArtifactKey.episode_step1(1)
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        entry = adapter.get_entry(key)
+        assert entry is not None
+        assert entry.artifact_path == draft_path.relative_to(project_dir).as_posix()
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path=entry.artifact_path).status
+            is ArtifactStatus.CURRENT
+        )
+
+        draft_before = draft_path.read_bytes()
+        manifest_before = (project_dir / MANIFEST_FILENAME).read_bytes()
+
+        def _fail_registration(*_args, **_kwargs):
+            raise RuntimeError("manifest unavailable")
+
+        with monkeypatch.context() as registration_patch:
+            registration_patch.setattr(
+                "lib.artifact_activation.register_current_artifact_if_provable",
+                _fail_registration,
+            )
+            with pytest.raises(RuntimeError, match="manifest unavailable"):
+                files._write_plain_draft(
+                    project_dir,
+                    1,
+                    draft_path,
+                    content.replace("第一集原文", "修改后原文"),
+                    lambda key, **_kwargs: key,
+                )
+
+        assert draft_path.read_bytes() == draft_before
+        assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
+
+        with client:
+            deleted = client.delete("/api/v1/projects/demo/drafts/1/step1")
+        assert deleted.status_code == 200, deleted.text
+        assert not draft_path.exists()
+        assert adapter.get_entry(key) is None
 
     @pytest.mark.unit
     def test_cache_control_immutable_with_version_param(self, tmp_path, monkeypatch):

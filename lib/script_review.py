@@ -267,6 +267,58 @@ def step1_write_lock(project_path: Path, episode: int) -> Iterator[Path]:
         yield path
 
 
+@contextmanager
+def formal_step1_write_transaction(
+    project_path: Path,
+    episode: int,
+    *paths: Path,
+) -> Iterator[None]:
+    """Commit formal step1 files and their active Manifest claim as one unit.
+
+    Callers own the canonical per-path lock.  Every Python write path for a
+    drama, narration, or reference-video step1 enters this context so a
+    successful write refreshes the same typed claim, while registration
+    failure restores every supplied formal file byte-for-byte.
+    """
+
+    with formal_write_transaction(*paths):
+        yield
+        from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_artifact_if_provable
+        from lib.artifact_manifest import ArtifactKey
+
+        project_file = project_path / "project.json"
+        try:
+            project = json.loads(project_file.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            logger.warning("cannot inspect project schema after formal step1 write: %s", exc)
+            project = None
+        if isinstance(project, dict) and project.get("schema_version") == TARGET_SCHEMA_VERSION:
+            # A successful no-op write can still repair a missing claim after a
+            # temporarily unavailable source made activation skip this target.
+            register_current_artifact_if_provable(project_path, ArtifactKey.episode_step1(episode))
+
+
+def write_step1_json(project_path: Path, episode: int, path: Path, content: object) -> None:
+    """Atomically write a structured step1 through its canonical lock and claim seam."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pm = ProjectManager(str(project_path.parent))
+    with pm.file_lock(path), formal_step1_write_transaction(project_path, episode, path):
+        atomic_write_json(path, content)
+
+
+def delete_step1_file(project_path: Path, episode: int, path: Path) -> bool:
+    """Delete a formal step1 and forget its active claim through the same transaction."""
+
+    pm = ProjectManager(str(project_path.parent))
+    with pm.file_lock(path):
+        if not path.exists():
+            return False
+        with formal_step1_write_transaction(project_path, episode, path):
+            path.unlink()
+    return True
+
+
 def write_step1_locked(
     project_path: Path,
     episode: int,
@@ -295,23 +347,10 @@ def write_step1_locked(
     previous = load_json_or_none(path)
     changed = previous != content
     quarantine = quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2)
-    with formal_write_transaction(path, quarantine):
+    with formal_step1_write_transaction(project_path, episode, path, quarantine):
         atomic_write_json(path, content)
         if changed and clear_step2_quarantine:
             clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
-        from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_artifact_if_provable
-        from lib.artifact_manifest import ArtifactKey
-
-        project_file = project_path / "project.json"
-        try:
-            project = json.loads(project_file.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, ValueError) as exc:
-            logger.warning("cannot inspect project schema after formal step1 write: %s", exc)
-            project = None
-        if isinstance(project, dict) and project.get("schema_version") == TARGET_SCHEMA_VERSION:
-            # A successful no-op write can still repair a missing claim after a
-            # temporarily unavailable source made activation skip this target.
-            register_current_artifact_if_provable(project_path, ArtifactKey.episode_step1(episode))
     return changed
 
 

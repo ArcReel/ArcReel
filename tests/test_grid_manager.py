@@ -1,10 +1,12 @@
 """Tests for GridManager file-based CRUD."""
 
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 import pytest
 
+from lib.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
 
@@ -176,6 +178,60 @@ class TestCleanupSuperseded:
         deleted = gm.cleanup_superseded("ep1.json", 1, {"S1", "S2", "S3", "S4"})
         assert deleted == 1
         assert gm.get(old.id) is None
+
+    def test_deletes_superseded_manifest_claim_with_record_and_image(self, tmp_path):
+        (tmp_path / "project.json").write_text(json.dumps({"schema_version": 8}), encoding="utf-8")
+        gm = GridManager(tmp_path)
+        old = self._save(gm, scene_ids=["S1", "S2"])
+        image = gm.image_path(old.id)
+        image.write_bytes(b"grid-image")
+        key = ArtifactKey.episode_grid(old.episode, old.id)
+        adapter = ProjectArtifactManifestAdapter(tmp_path)
+        adapter.put_entry(
+            key,
+            ArtifactManifestEntry(
+                artifact_path=image.relative_to(tmp_path).as_posix(),
+                basis_digest=f"sha256-v1:{'a' * 64}",
+            ),
+        )
+
+        assert gm.cleanup_superseded("ep1.json", 1, {"S1", "S2"}) == 1
+
+        assert gm.get(old.id) is None
+        assert not image.exists()
+        assert adapter.get_entry(key) is None
+
+    def test_manifest_failure_restores_superseded_record_and_image(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "project.json").write_text(json.dumps({"schema_version": 8}), encoding="utf-8")
+        gm = GridManager(tmp_path)
+        old = self._save(gm, scene_ids=["S1", "S2"])
+        record = tmp_path / "grids" / f"{old.id}.json"
+        image = gm.image_path(old.id)
+        image.write_bytes(b"grid-image")
+        before_record = record.read_bytes()
+        key = ArtifactKey.episode_grid(old.episode, old.id)
+        adapter = ProjectArtifactManifestAdapter(tmp_path)
+        entry = ArtifactManifestEntry(
+            artifact_path=image.relative_to(tmp_path).as_posix(),
+            basis_digest=f"sha256-v1:{'b' * 64}",
+        )
+        adapter.put_entry(key, entry)
+        before_manifest = (tmp_path / MANIFEST_FILENAME).read_bytes()
+
+        def _fail_registration(*_args, **_kwargs):
+            raise RuntimeError("manifest unavailable")
+
+        monkeypatch.setattr("lib.artifact_activation.register_artifact_entries_atomically", _fail_registration)
+
+        with pytest.raises(RuntimeError, match="manifest unavailable"):
+            gm.cleanup_superseded("ep1.json", 1, {"S1", "S2"})
+
+        assert record.read_bytes() == before_record
+        assert image.read_bytes() == b"grid-image"
+        assert (tmp_path / MANIFEST_FILENAME).read_bytes() == before_manifest
+        assert adapter.get_entry(key) == entry
 
     def test_returns_zero_when_nothing_to_delete(self, tmp_path):
         assert GridManager(tmp_path).cleanup_superseded("ep1.json", 1, {"S1"}) == 0

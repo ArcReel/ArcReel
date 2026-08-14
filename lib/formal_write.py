@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -14,6 +15,8 @@ from lib.json_io import atomic_write_bytes
 class _FileSnapshot:
     path: Path
     content: bytes | None
+    symlink_target: str | None = None
+    symlink_is_directory: bool = False
 
 
 @contextmanager
@@ -30,10 +33,23 @@ def formal_write_transaction(*paths: Path) -> Iterator[None]:
     seen: set[Path] = set()
     for raw_path in paths:
         path = Path(raw_path)
-        identity = path.resolve(strict=False)
+        # Resolve only the parent: resolving the final component would collapse
+        # two distinct symlink entries onto one external target and leave one of
+        # them outside rollback coverage.
+        identity = path.parent.resolve(strict=False) / path.name
         if identity in seen:
             continue
         seen.add(identity)
+        if path.is_symlink():
+            snapshots.append(
+                _FileSnapshot(
+                    path=path,
+                    content=None,
+                    symlink_target=os.readlink(path),
+                    symlink_is_directory=path.is_dir(),
+                )
+            )
+            continue
         try:
             content = path.read_bytes()
         except FileNotFoundError:
@@ -46,8 +62,18 @@ def formal_write_transaction(*paths: Path) -> Iterator[None]:
         rollback_errors: list[OSError] = []
         for snapshot in reversed(snapshots):
             try:
-                if snapshot.content is None:
-                    snapshot.path.unlink(missing_ok=True)
+                if snapshot.symlink_target is not None:
+                    unchanged = snapshot.path.is_symlink() and os.readlink(snapshot.path) == snapshot.symlink_target
+                    if not unchanged:
+                        if snapshot.path.exists() or snapshot.path.is_symlink():
+                            snapshot.path.unlink()
+                        snapshot.path.symlink_to(
+                            snapshot.symlink_target,
+                            target_is_directory=snapshot.symlink_is_directory,
+                        )
+                elif snapshot.content is None:
+                    if snapshot.path.exists() or snapshot.path.is_symlink():
+                        snapshot.path.unlink()
                 else:
                     atomic_write_bytes(snapshot.path, snapshot.content)
             except OSError as exc:

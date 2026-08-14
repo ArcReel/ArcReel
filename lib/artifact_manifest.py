@@ -1461,6 +1461,15 @@ class ArtifactKey:
             cls.episode_presentation(episode, resource_id, "use_tts"),
         )
 
+    @property
+    def episode_number(self) -> int | None:
+        """Return the owning episode for any episode-scoped artifact key."""
+
+        if self.kind is ArtifactKind.ASSET_SHEET:
+            return None
+        episode = self.components[0]
+        return episode if type(episode) is int else None
+
     def encode(self) -> str:
         payload = json.dumps(
             [self.kind.value, *self.components],

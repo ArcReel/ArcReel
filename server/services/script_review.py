@@ -430,7 +430,8 @@ class ScriptReviewService:
                 with self.pm.file_lock(path):
                     script_review.assert_base_fingerprint(path, expected)
                     _require_changed_speech_admitted(kind, _read_json(path), validated)
-                    atomic_write_json(path, validated)
+                    with script_review.formal_step1_write_transaction(project_path, episode, path):
+                        atomic_write_json(path, validated)
         except script_review.Step1WriteConflict as exc:
             raise ScriptReviewError("conflict", str(exc)) from exc
 

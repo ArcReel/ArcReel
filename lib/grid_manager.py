@@ -24,7 +24,8 @@ class GridManager:
     """File-based CRUD for GridGeneration records, stored in {project}/grids/."""
 
     def __init__(self, project_path: Path):
-        self._dir = project_path / "grids"
+        self._project_dir = Path(project_path)
+        self._dir = self._project_dir / "grids"
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, grid_id: str, suffix: str = ".json") -> Path:
@@ -96,16 +97,30 @@ class GridManager:
             yield
 
     def delete(self, grid_id: str) -> bool:
-        """Delete a grid record and its image file. Returns True if found and deleted."""
+        """Delete one grid record, image, and active typed claim atomically."""
         path = self._path(grid_id)
         with self._record_lock(path):
             if not path.exists():
                 return False
-            # Also remove the grid image if it exists
             image_file = self.image_path(grid_id)
-            if image_file.exists():
-                image_file.unlink()
-            path.unlink()
+            try:
+                grid = self._get_unlocked(path)
+            except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
+                # Invalid legacy records were deletable before Manifest activation.
+                # They cannot carry a provable typed claim, so preserve that cleanup
+                # behavior while valid records take the guarded claim path below.
+                grid = None
+            with formal_write_transaction(path, image_file):
+                image_file.unlink(missing_ok=True)
+                path.unlink()
+                if grid is not None:
+                    from lib.artifact_activation import register_artifact_entries_atomically
+                    from lib.artifact_manifest import ArtifactKey
+
+                    register_artifact_entries_atomically(
+                        self._project_dir,
+                        {ArtifactKey.episode_grid(grid.episode, grid.id): None},
+                    )
             return True
 
     def list_all(self) -> list[GridGeneration]:
