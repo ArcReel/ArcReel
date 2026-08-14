@@ -200,10 +200,18 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
     for project_dir in projects_root.iterdir():
         if not project_dir.is_dir():
             continue
+        retain_v7_recovery = _load_schema_version(project_dir) < CURRENT_SCHEMA_VERSION
+        project_backup_versions = tuple(
+            version
+            for version in range(CURRENT_SCHEMA_VERSION)
+            if not (retain_v7_recovery and version == CURRENT_SCHEMA_VERSION - 1)
+        )
+        activation_backup_versions = () if retain_v7_recovery else (CURRENT_SCHEMA_VERSION - 1,)
+        script_backup_versions = (6,) if retain_v7_recovery else (6, CURRENT_SCHEMA_VERSION - 1)
         sources = (
-            (project_dir / "project.json", tuple(range(CURRENT_SCHEMA_VERSION))),
-            (project_dir / ".arcreel_artifacts.json", (7,)),
-            *((source, (6, 7)) for source in _bound_script_sources(project_dir)),
+            (project_dir / "project.json", project_backup_versions),
+            (project_dir / ".arcreel_artifacts.json", activation_backup_versions),
+            *((source, script_backup_versions) for source in _bound_script_sources(project_dir)),
         )
         for source, versions in sources:
             for bak in _numeric_backup_candidates(source, versions):

@@ -708,6 +708,62 @@ class TestProjectArchiveService:
         assert imported_manifest["entries"][key] == startup_manifest["entries"][key]
 
     @pytest.mark.unit
+    def test_official_round_trip_preserves_a_stale_typed_audio_claim(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        script_path = project_dir / "scripts" / "episode_1.json"
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        script["segments"][0]["generated_assets"]["narration_audio"] = "audio/segment_E1S01.wav"
+        _write_json(script_path, script)
+        audio = project_dir / "audio" / "segment_E1S01.wav"
+        _write_bytes(audio, b"typed-audio")
+        settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
+        descriptor = ArtifactBasisDescriptor.from_basis(
+            build_narration_audio_basis_from_canonical_text("原文", settings)
+        )
+        VersionManager(project_dir).add_version(
+            "audio",
+            "E1S01",
+            "原文",
+            source_file=audio,
+            artifact_episode=1,
+            artifact_audio_basis=descriptor.to_dict(),
+            execution_script_file="episode_1.json",
+            tts_actual_duration_seconds=4.0,
+            tts_provider_id=settings.provider_id,
+            tts_model_id=settings.model_id,
+            tts_voice=settings.voice,
+            tts_speed=settings.speed,
+            tts_basis_digest=descriptor.digest,
+        )
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        migrate_v7_to_v8(project_dir)
+        key = ArtifactKey.episode_audio(1, "E1S01")
+        frozen = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert frozen is not None
+
+        script["segments"][0]["novel_text"] = "changed after synthesis"
+        _write_json(script_path, script)
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path=frozen.artifact_path).status
+            is ArtifactStatus.STALE
+        )
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo", scope="current")
+        shutil.rmtree(project_dir)
+        service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) == frozen
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path=frozen.artifact_path).status
+            is ArtifactStatus.STALE
+        )
+
+    @pytest.mark.unit
     def test_import_reports_artifact_activation_failure_as_archive_validation(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)

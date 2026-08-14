@@ -230,17 +230,27 @@ def test_complete_snapshot_cas_does_not_overwrite_an_unexpected_claim() -> None:
     assert adapter.snapshot_entries() == expected
 
 
-def test_manifest_rejects_formal_paths_that_alias_on_case_insensitive_filesystems() -> None:
+@pytest.mark.parametrize(
+    ("first_path", "second_path"),
+    [
+        ("reference_videos/E1U01.mp4", "reference_videos/e1u01.mp4"),
+        ("reference_videos/é.mp4", "reference_videos/e\u0301.mp4"),
+    ],
+)
+def test_manifest_rejects_formal_paths_that_alias_on_portable_filesystems(
+    first_path: str,
+    second_path: str,
+) -> None:
     adapter = InMemoryArtifactManifestAdapter()
     adapter.put_entry(
         ArtifactKey.episode_video(1, "E1U01"),
-        ArtifactManifestEntry("reference_videos/E1U01.mp4", "sha256-v1:" + "a" * 64),
+        ArtifactManifestEntry(first_path, "sha256-v1:" + "a" * 64),
     )
 
     with pytest.raises(ArtifactManifestError, match="claimed by multiple keys"):
         adapter.put_entry(
             ArtifactKey.episode_video(1, "e1u01"),
-            ArtifactManifestEntry("reference_videos/e1u01.mp4", "sha256-v1:" + "b" * 64),
+            ArtifactManifestEntry(second_path, "sha256-v1:" + "b" * 64),
         )
 
     assert set(adapter.snapshot_entries()) == {ArtifactKey.episode_video(1, "E1U01")}

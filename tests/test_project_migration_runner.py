@@ -223,6 +223,33 @@ def test_cleanup_old_backups(tmp_projects: Path):
     assert new_clues_dir.exists()
 
 
+def test_cleanup_retains_v7_recovery_backups_until_schema_promotion_succeeds(tmp_projects: Path) -> None:
+    import os
+
+    project_dir = _write_project(
+        tmp_projects,
+        "p1",
+        {
+            "schema_version": 7,
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        },
+    )
+    backups = [
+        project_dir / "project.json.bak.v7-100000000",
+        project_dir / "scripts" / "episode_1.json.bak.v7-100000000",
+        project_dir / ".arcreel_artifacts.json.bak.v7-100000000",
+    ]
+    expired = time.time() - 8 * 86400
+    for backup in backups:
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        backup.write_text("recovery", encoding="utf-8")
+        os.utime(backup, (expired, expired))
+
+    cleanup_stale_backups(tmp_projects, max_age_days=7)
+
+    assert all(backup.exists() for backup in backups)
+
+
 def test_hardlink_backup_clues_creates_mirror(tmp_projects: Path, monkeypatch):
     """v0→v1 迁移前应硬链接备份 clues/ 到 clues.bak.v0-<ts>/。"""
     p = _write_project(tmp_projects, "p1", {"name": "p1"})  # v0

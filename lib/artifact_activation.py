@@ -159,6 +159,7 @@ class _Planner:
         *,
         episode_scope: int | None = None,
         project_bytes: bytes | None = None,
+        allow_stale_typed_media_paths: bool = False,
     ) -> None:
         self.project_dir = project_dir.resolve(strict=True)
         self.adapter = ProjectArtifactManifestAdapter(self.project_dir)
@@ -166,6 +167,7 @@ class _Planner:
         if episode_scope is not None and (type(episode_scope) is not int or episode_scope < 1):
             raise ValueError("episode scope must be a positive integer or null")
         self.episode_scope = episode_scope
+        self.allow_stale_typed_media_paths = allow_stale_typed_media_paths
         self.project_bytes = (
             self._read_required_control_file("project.json", "project.json")
             if project_bytes is None
@@ -919,7 +921,9 @@ class _Planner:
                 )
         except (KeyError, OSError, TypeError, ValueError):
             return
-        if current_basis is None or (self._activation_mode and current_basis != target.basis):
+        if current_basis is None or (
+            self._activation_mode and not self.allow_stale_typed_media_paths and current_basis != target.basis
+        ):
             return
         self.entries[key] = ArtifactManifestEntry(
             artifact_path=artifact_path,
@@ -1448,7 +1452,7 @@ def ensure_imported_artifact_target_state(
     if not isinstance(project, Mapping) or project.get("schema_version") != TARGET_SCHEMA_VERSION:
         raise ValueError("archive activation requires a schema-v8 project")
     if preserved_entries is not None:
-        plan = plan_artifact_target_state(project_dir)
+        plan = _plan_preserved_artifact_target_state(project_dir)
         rebased = _rebase_preserved_artifact_entries(plan, preserved_entries)
         invalid = [key.encode() for key, archived in preserved_entries.items() if rebased[key] != archived]
         if invalid:
@@ -1471,10 +1475,16 @@ def rebase_preserved_artifact_entries(
     strict import boundary would reject.
     """
 
-    plan = plan_artifact_target_state(project_dir)
+    plan = _plan_preserved_artifact_target_state(project_dir)
     rebased = _rebase_preserved_artifact_entries(plan, preserved_entries)
     _assert_preflight_unchanged(project_dir, plan)
     return rebased
+
+
+def _plan_preserved_artifact_target_state(project_dir: Path) -> ArtifactTargetStatePlan:
+    """Prove canonical paths while leaving preserved generation digests immutable."""
+
+    return _Planner(project_dir, allow_stale_typed_media_paths=True).plan()
 
 
 def _rebase_preserved_artifact_entries(

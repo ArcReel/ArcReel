@@ -18,6 +18,7 @@ import stat
 import tempfile
 import threading
 import time
+import unicodedata
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -1733,7 +1734,7 @@ def _assert_unique_artifact_paths(entries: Mapping[str, ArtifactManifestEntry]) 
 
     owners: dict[str, str] = {}
     for key, entry in entries.items():
-        filesystem_identity = entry.artifact_path.casefold()
+        filesystem_identity = unicodedata.normalize("NFC", entry.artifact_path).casefold()
         owner = owners.get(filesystem_identity)
         if owner is not None and owner != key:
             raise ArtifactManifestError(

@@ -2082,13 +2082,16 @@ class ProjectManager:
         project_name: str,
         mutate_fn: Callable[[dict], None],
         copies: list[tuple[Path, Path]],
+        *,
+        on_commit: Callable[[Path], None] | None = None,
     ) -> dict:
-        """在项目锁内把文件复制与 project.json 写回作为一个可回滚事务提交。"""
+        """在项目锁内把文件复制、project.json 与可选 sidecar hook 作为一个事务提交。"""
 
         return self._update_project_with_files(
             project_name,
             mutate_fn,
             copies=copies,
+            on_commit=on_commit,
         )
 
     def _update_project_with_files(
@@ -2098,6 +2101,7 @@ class ProjectManager:
         *,
         copies: list[tuple[Path, Path]] | None = None,
         writes: list[tuple[bytes, Path]] | None = None,
+        on_commit: Callable[[Path], None] | None = None,
     ) -> dict:
         """在项目锁内把文件变更与 project.json 写回作为一个可回滚事务提交。
 
@@ -2114,7 +2118,9 @@ class ProjectManager:
         staged: list[tuple[Path, Path]] = []
         installed: list[tuple[Path, Path | None]] = []
         committed = False
-        with self._project_lock(project_name):
+        with self._project_lock(project_name), ExitStack() as transaction:
+            if on_commit is not None:
+                transaction.enter_context(formal_write_transaction(project_file))
             try:
                 with open(project_file, encoding="utf-8") as f:
                     project = json.load(f)
@@ -2154,6 +2160,8 @@ class ProjectManager:
                     os.replace(temporary, destination)
 
                 atomic_write_json(project_file, project)
+                if on_commit is not None:
+                    on_commit(project_file)
                 committed = True
             except BaseException:
                 for destination, backup in reversed(installed):

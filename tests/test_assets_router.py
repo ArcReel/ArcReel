@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.db.base import Base
 from lib.i18n import _ as translate_message
 from lib.project_manager import ProjectManager
@@ -590,6 +591,77 @@ class TestApplyToProject:
         data = pm.load_project("target")
         assert data["characters"]["王"]["description"] == "library desc"
 
+    @pytest.mark.integration
+    def test_overwrite_policy_forgets_the_replaced_formal_sheet_claim(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_scene("target", "A", "same description")
+        pm.install_asset_sheet_bytes("scene", "target", "A", "scenes/A.png", b"old-sheet")
+        project_dir = pm.get_project_path("target")
+        key = ArtifactKey.asset_sheet("scene", "A")
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        adapter.put_entry(
+            key,
+            ArtifactManifestEntry("scenes/A.png", "sha256-v1:" + "a" * 64),
+        )
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "A", "description": "same description"},
+            files={"image": ("A.png", b"library-sheet", "image/png")},
+        )
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "overwrite",
+            },
+        )
+
+        assert response.status_code == 200
+        assert (project_dir / "scenes" / "A.png").read_bytes() == b"library-sheet"
+        assert adapter.get_entry(key) is None
+
+    @pytest.mark.integration
+    def test_overwrite_policy_rolls_back_when_the_sheet_claim_commit_fails(self, _assets_env, monkeypatch):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_scene("target", "A", "old description")
+        pm.install_asset_sheet_bytes("scene", "target", "A", "scenes/A.png", b"old-sheet")
+        project_dir = pm.get_project_path("target")
+        key = ArtifactKey.asset_sheet("scene", "A")
+        frozen = ArtifactManifestEntry("scenes/A.png", "sha256-v1:" + "a" * 64)
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        adapter.put_entry(key, frozen)
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "A", "description": "library description"},
+            files={"image": ("A.png", b"library-sheet", "image/png")},
+        )
+
+        def _fail_claim_commit(*_args, **_kwargs):
+            raise RuntimeError("injected claim failure")
+
+        monkeypatch.setattr(assets, "register_artifact_entries_atomically", _fail_claim_commit)
+        with pytest.raises(RuntimeError, match="injected claim failure"):
+            client.post(
+                "/api/v1/assets/apply-to-project",
+                json={
+                    "asset_ids": [created.json()["asset"]["id"]],
+                    "target_project": "target",
+                    "conflict_policy": "overwrite",
+                },
+            )
+
+        assert (project_dir / "scenes" / "A.png").read_bytes() == b"old-sheet"
+        assert pm.load_project("target")["scenes"]["A"]["description"] == "old description"
+        assert adapter.get_entry(key) == frozen
+
     @pytest.mark.unit
     def test_duplicate_overwrite_asset_id_is_idempotent(self, _assets_env):
         client = _assets_env["client"]
@@ -678,7 +750,7 @@ class TestApplyToProject:
         original_transaction = pm.update_project_with_file_copies
         injected = False
 
-        def racing_transaction(project_name, mutate, copies):
+        def racing_transaction(project_name, mutate, copies, *, on_commit=None):
             nonlocal injected
             if not injected:
                 injected = True
@@ -686,7 +758,7 @@ class TestApplyToProject:
                     project_name,
                     lambda project: project["characters"].update({"Shared": {"description": "character"}}),
                 )
-            return original_transaction(project_name, mutate, copies)
+            return original_transaction(project_name, mutate, copies, on_commit=on_commit)
 
         monkeypatch.setattr(pm, "update_project_with_file_copies", racing_transaction)
 
@@ -715,12 +787,12 @@ class TestApplyToProject:
         original_update = pm.update_project
         original_transaction = pm.update_project_with_file_copies
 
-        def racing_transaction(project_name, mutate, copies):
+        def racing_transaction(project_name, mutate, copies, *, on_commit=None):
             original_update(
                 project_name,
                 lambda project: project["scenes"].update({"Shared": {"description": "concurrent"}}),
             )
-            return original_transaction(project_name, mutate, copies)
+            return original_transaction(project_name, mutate, copies, on_commit=on_commit)
 
         monkeypatch.setattr(pm, "update_project_with_file_copies", racing_transaction)
 
@@ -752,12 +824,12 @@ class TestApplyToProject:
         original_update = pm.update_project
         original_transaction = pm.update_project_with_file_copies
 
-        def racing_transaction(project_name, mutate, copies):
+        def racing_transaction(project_name, mutate, copies, *, on_commit=None):
             original_update(
                 project_name,
                 lambda project: project["scenes"].update({"Shared": {"description": "concurrent"}}),
             )
-            return original_transaction(project_name, mutate, copies)
+            return original_transaction(project_name, mutate, copies, on_commit=on_commit)
 
         monkeypatch.setattr(pm, "update_project_with_file_copies", racing_transaction)
 
