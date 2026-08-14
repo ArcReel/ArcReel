@@ -331,12 +331,12 @@ docker compose exec -T postgres sh -c \
   > "backups/arcreel-db-${backup_stamp}.sql"
 
 tar -czf "backups/arcreel-files-${backup_stamp}.tar.gz" \
-  .env projects vertex_keys claude_data
+  .env docker-compose.yml projects vertex_keys claude_data
 
 docker compose start arcreel
 ```
 
-The database and file backups use the same timestamp and must be stored and restored together. `umask 077` and backup directory mode `0700` ensure that the host-created SQL file and file archive are readable and writable only by the current user.
+The database and file backups use the same timestamp and must be stored and restored together. The file backup includes the active `docker-compose.yml`, so any `DATABASE_URL` customization required by a special-character password is restored together with `.env`. `umask 077` and backup directory mode `0700` ensure that the host-created SQL file and file archive are readable and writable only by the current user.
 
 `pg_dump` reads `PGPASSWORD` through libpq. The command above sets it only for that `pg_dump` process inside the PostgreSQL container, allowing `docker compose exec -T` to run non-interactively without expanding the password into the host command line. For long-running host-side backup automation, use a PostgreSQL password file with `0600` permissions instead. Never put the password in a script or backup filename.
 
@@ -349,9 +349,12 @@ Before restoring, stop ArcReel but leave PostgreSQL running:
 ```bash
 cd "$(git rev-parse --show-toplevel)/deploy/production"
 docker compose stop arcreel
+
+backup_stamp=YYYYMMDD-HHMMSS
+tar -xzf "backups/arcreel-files-${backup_stamp}.tar.gz"
 ```
 
-The following procedure deletes the existing data in the target `arcreel` database. First verify that both the database backup and its paired file backup are complete, and rehearse the restoration procedure in an isolated environment.
+The file archive restores `.env`, `docker-compose.yml`, `projects/`, and the runtime directories. The following procedure also deletes the existing data in the target `arcreel` database. First verify that the database and file backups with the same `backup_stamp` are complete, and rehearse the restoration procedure in an isolated environment.
 
 Recreate an empty database before importing to avoid conflicts with existing schemas or data:
 
@@ -362,11 +365,11 @@ docker compose exec -T postgres \
 docker compose exec -T postgres \
   createdb -U arcreel --maintenance-db=postgres -O arcreel arcreel
 
-cat backups/arcreel-db-YYYYMMDD-HHMMSS.sql | \
+cat "backups/arcreel-db-${backup_stamp}.sql" | \
   docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U arcreel -d arcreel
 ```
 
-Then restore the matching `projects/` and other file directories and restart the application:
+After the database import succeeds, restart the application:
 
 ```bash
 docker compose start arcreel

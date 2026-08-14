@@ -331,12 +331,12 @@ docker compose exec -T postgres sh -c \
   > "backups/arcreel-db-${backup_stamp}.sql"
 
 tar -czf "backups/arcreel-files-${backup_stamp}.tar.gz" \
-  .env projects vertex_keys claude_data
+  .env docker-compose.yml projects vertex_keys claude_data
 
 docker compose start arcreel
 ```
 
-数据库备份和文件备份使用同一时间标签，必须配套保存和恢复。`umask 077` 与备份目录模式 `0700` 会让宿主机重定向生成的 SQL 文件和文件归档仅对当前用户可读写。
+数据库备份和文件备份使用同一时间标签，必须配套保存和恢复。文件备份包含当前 `docker-compose.yml`，因此特殊字符密码所需的 `DATABASE_URL` 定制也会随 `.env` 一起恢复。`umask 077` 与备份目录模式 `0700` 会让宿主机重定向生成的 SQL 文件和文件归档仅对当前用户可读写。
 
 `pg_dump` 会使用 libpq 的 `PGPASSWORD`。上述命令只在 PostgreSQL 容器内的该次 `pg_dump` 进程中设置它，因此 `docker compose exec -T` 可以非交互执行，也不会把密码展开到宿主机命令行。长期的宿主机备份自动化应改用权限为 `0600` 的 PostgreSQL password file，不要把密码写进脚本或备份文件名。
 
@@ -349,9 +349,12 @@ docker compose start arcreel
 ```bash
 cd "$(git rev-parse --show-toplevel)/deploy/production"
 docker compose stop arcreel
+
+backup_stamp=YYYYMMDD-HHMMSS
+tar -xzf "backups/arcreel-files-${backup_stamp}.tar.gz"
 ```
 
-以下流程会删除目标 `arcreel` 数据库中的现有数据。先确认数据库备份和配套文件备份完整，并在隔离环境演练恢复流程。
+文件归档会恢复 `.env`、`docker-compose.yml`、`projects/` 和运行时目录。以下流程还会删除目标 `arcreel` 数据库中的现有数据；先确认同一 `backup_stamp` 的数据库与文件备份完整，并在隔离环境演练恢复流程。
 
 重建空数据库后再导入，避免与已有表结构或数据冲突：
 
@@ -362,11 +365,11 @@ docker compose exec -T postgres \
 docker compose exec -T postgres \
   createdb -U arcreel --maintenance-db=postgres -O arcreel arcreel
 
-cat backups/arcreel-db-YYYYMMDD-HHMMSS.sql | \
+cat "backups/arcreel-db-${backup_stamp}.sql" | \
   docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U arcreel -d arcreel
 ```
 
-然后恢复对应的 `projects/` 等文件目录，重新启动：
+数据库导入成功后，重新启动：
 
 ```bash
 docker compose start arcreel

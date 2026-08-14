@@ -48,6 +48,8 @@ Do not restart the default deployment until migration verification is complete. 
 ### 2. Create a Consistent Backup {#backup-sqlite}
 
 ```bash
+set -euo pipefail
+
 backup_stamp="$(date +%Y%m%d-%H%M%S)"
 umask 077
 mkdir -p deploy/backups
@@ -56,8 +58,13 @@ chmod 700 deploy/backups
 sqlite3 "${source_projects}/.arcreel.db" \
   ".backup 'deploy/backups/arcreel-sqlite-${backup_stamp}.db'"
 
-sqlite3 "deploy/backups/arcreel-sqlite-${backup_stamp}.db" \
-  "PRAGMA quick_check;"
+check_result="$(sqlite3 "deploy/backups/arcreel-sqlite-${backup_stamp}.db" \
+  "PRAGMA quick_check;")"
+
+if [ "${check_result}" != "ok" ]; then
+  echo "Error: SQLite backup quick_check failed" >&2
+  exit 1
+fi
 
 tar -czf "deploy/backups/arcreel-source-${backup_stamp}.tar.gz" \
   -C "${source_projects}" .
@@ -65,7 +72,7 @@ tar -czf "deploy/backups/arcreel-source-${backup_stamp}.tar.gz" \
 cp deploy/.env "deploy/backups/arcreel-source-${backup_stamp}.env"
 ```
 
-`PRAGMA quick_check;` must print `ok`. `sqlite3 .backup` uses the SQLite backup API to create a consistent snapshot that includes committed WAL content. Do not copy only `.arcreel.db` with `cp` while the service is running. `.arcreel.db-wal` may contain committed transactions that have not yet been checkpointed, so separating it from the main file can lose data or corrupt the backup. The paired tar archive stores the complete contents of `source_projects`, while the adjacent `.env` copy stores the default deployment configuration. Restore only artifacts with the same timestamp. `umask 077` and directory mode `0700` restrict access to the credentials and project assets they contain.
+The guard accepts only an exact `ok` response from `PRAGMA quick_check;`. Any backup, check, archive, or configuration-copy failure stops the migration immediately. `sqlite3 .backup` uses the SQLite backup API to create a consistent snapshot that includes committed WAL content. Do not copy only `.arcreel.db` with `cp` while the service is running. `.arcreel.db-wal` may contain committed transactions that have not yet been checkpointed, so separating it from the main file can lose data or corrupt the backup. The paired tar archive stores the complete contents of `source_projects`, while the adjacent `.env` copy stores the default deployment configuration. Restore only artifacts with the same timestamp. `umask 077` and directory mode `0700` restrict access to the credentials and project assets they contain.
 
 ### 3. Prepare the PostgreSQL Deployment {#configure-env}
 
@@ -115,10 +122,14 @@ done
 Copy project and media assets to the production directory without copying the SQLite database:
 
 ```bash
+set -euo pipefail
+
 mkdir -p deploy/production/projects
 tar -C "${source_projects}" --exclude='.arcreel.db*' -cf - . | \
   tar -C deploy/production/projects -xf -
 ```
+
+Strict mode stops immediately if directory creation or either side of the pipeline fails, preventing the migration from using an incomplete asset copy.
 
 ### 4. Start PostgreSQL {#start-postgresql}
 
@@ -209,7 +220,22 @@ The migration procedure above does not modify the source data directory referenc
    docker compose -f deploy/production/docker-compose.yml down
    ```
 
-2. Confirm that `${source_projects}/.arcreel.db` and `deploy/.env` still exist. If the source directory was changed or damaged, preserve the current directory first, extract the complete `arcreel-source-YYYYMMDD-HHMMSS.tar.gz` from step 2 into an empty `${source_projects}`, and restore the `.env` copy with the same timestamp as `deploy/.env`. Do not overwrite only the main SQLite file while leaving mismatched `-wal` or `-shm` files behind.
+2. Confirm that `${source_projects}/.arcreel.db` and `deploy/.env` still exist. If the source directory was changed or damaged, first select the two backup files from step 2 that have the same timestamp, then run:
+
+   ```bash
+   set -euo pipefail
+
+   archive="deploy/backups/arcreel-source-YYYYMMDD-HHMMSS.tar.gz"
+   env_backup="deploy/backups/arcreel-source-YYYYMMDD-HHMMSS.env"
+   preserved="${source_projects}.before-rollback-$(date +%Y%m%d-%H%M%S)"
+
+   mv -- "${source_projects}" "${preserved}"
+   mkdir -p "${source_projects}"
+   tar -xzf "${archive}" -C "${source_projects}"
+   cp "${env_backup}" deploy/.env
+   ```
+
+   This moves the old source directory out of the way before creating an empty directory and extracting the archive, so files absent from the archive cannot remain. It restores `.env` only after extraction succeeds. Do not overwrite only the main SQLite file while leaving mismatched `-wal` or `-shm` files behind. Keep `${preserved}` until rollback verification is complete.
 
 3. Restart the default SQLite deployment:
 

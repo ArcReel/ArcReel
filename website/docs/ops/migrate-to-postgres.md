@@ -48,6 +48,8 @@ docker compose -f deploy/docker-compose.yml down
 ### 2. 生成一致备份 {#backup-sqlite}
 
 ```bash
+set -euo pipefail
+
 backup_stamp="$(date +%Y%m%d-%H%M%S)"
 umask 077
 mkdir -p deploy/backups
@@ -56,8 +58,13 @@ chmod 700 deploy/backups
 sqlite3 "${source_projects}/.arcreel.db" \
   ".backup 'deploy/backups/arcreel-sqlite-${backup_stamp}.db'"
 
-sqlite3 "deploy/backups/arcreel-sqlite-${backup_stamp}.db" \
-  "PRAGMA quick_check;"
+check_result="$(sqlite3 "deploy/backups/arcreel-sqlite-${backup_stamp}.db" \
+  "PRAGMA quick_check;")"
+
+if [ "${check_result}" != "ok" ]; then
+  echo "错误：SQLite 备份 quick_check 未通过" >&2
+  exit 1
+fi
 
 tar -czf "deploy/backups/arcreel-source-${backup_stamp}.tar.gz" \
   -C "${source_projects}" .
@@ -65,7 +72,7 @@ tar -czf "deploy/backups/arcreel-source-${backup_stamp}.tar.gz" \
 cp deploy/.env "deploy/backups/arcreel-source-${backup_stamp}.env"
 ```
 
-`PRAGMA quick_check;` 必须输出 `ok`。`sqlite3 .backup` 通过 SQLite 备份 API 生成包含已提交 WAL 内容的一致快照；不要在服务运行时只用 `cp` 复制 `.arcreel.db`。SQLite 的 `.arcreel.db-wal` 可能保存已提交但尚未 checkpoint 的交易，与主文件分离可能丢数据或损坏备份。配套的 tar 归档保存 `source_projects` 的完整内容，旁边的 `.env` 副本保存默认部署配置；回滚时两者必须使用相同时间标签。`umask 077` 与目录模式 `0700` 会限制其中凭据和项目资产的读取权限。
+守卫只接受 `PRAGMA quick_check;` 精确返回 `ok`；任一备份、校验、归档或配置复制命令失败都会立即停止迁移。`sqlite3 .backup` 通过 SQLite 备份 API 生成包含已提交 WAL 内容的一致快照；不要在服务运行时只用 `cp` 复制 `.arcreel.db`。SQLite 的 `.arcreel.db-wal` 可能保存已提交但尚未 checkpoint 的交易，与主文件分离可能丢数据或损坏备份。配套的 tar 归档保存 `source_projects` 的完整内容，旁边的 `.env` 副本保存默认部署配置；回滚时两者必须使用相同时间标签。`umask 077` 与目录模式 `0700` 会限制其中凭据和项目资产的读取权限。
 
 ### 3. 准备 PostgreSQL 部署 {#configure-env}
 
@@ -115,10 +122,14 @@ done
 将项目和媒体资产复制到生产目录，但不把 SQLite 数据库复制进去：
 
 ```bash
+set -euo pipefail
+
 mkdir -p deploy/production/projects
 tar -C "${source_projects}" --exclude='.arcreel.db*' -cf - . | \
   tar -C deploy/production/projects -xf -
 ```
+
+严格模式会在目录创建或管道任一端失败时立即停止，禁止继续使用不完整的资产副本。
 
 ### 4. 启动 PostgreSQL {#start-postgresql}
 
@@ -209,7 +220,22 @@ curl -f http://localhost:1241/health
    docker compose -f deploy/production/docker-compose.yml down
    ```
 
-2. 确认 `${source_projects}/.arcreel.db` 和 `deploy/.env` 仍在。如果源目录被修改或损坏，先保留当前目录，再把第 2 步的 `arcreel-source-YYYYMMDD-HHMMSS.tar.gz` 完整解压到空的 `${source_projects}`，并将同一时间标签的 `.env` 副本恢复为 `deploy/.env`；不要只覆盖主 SQLite 文件而留下不匹配的 `-wal` 或 `-shm` 文件。
+2. 确认 `${source_projects}/.arcreel.db` 和 `deploy/.env` 仍在。如果源目录被修改或损坏，先选定第 2 步中同一时间标签的两个备份文件，再执行：
+
+   ```bash
+   set -euo pipefail
+
+   archive="deploy/backups/arcreel-source-YYYYMMDD-HHMMSS.tar.gz"
+   env_backup="deploy/backups/arcreel-source-YYYYMMDD-HHMMSS.env"
+   preserved="${source_projects}.before-rollback-$(date +%Y%m%d-%H%M%S)"
+
+   mv -- "${source_projects}" "${preserved}"
+   mkdir -p "${source_projects}"
+   tar -xzf "${archive}" -C "${source_projects}"
+   cp "${env_backup}" deploy/.env
+   ```
+
+   这会先完整移走旧源目录，再创建空目录并解压，避免保留归档中不存在的旧文件。只有解压成功后才恢复 `.env`；不要只覆盖主 SQLite 文件而留下不匹配的 `-wal` 或 `-shm` 文件。保留 `${preserved}` 直到回滚验证完成。
 
 3. 重新启动 SQLite 默认部署：
 
