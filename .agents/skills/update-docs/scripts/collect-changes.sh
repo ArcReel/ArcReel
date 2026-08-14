@@ -28,6 +28,11 @@ while IFS=$'\t' read -r ownership doc; do
     engine-a) ENGINE_A_DOCS+=("${doc}") ;;
     engine-b) ENGINE_B_ONLY_DOCS+=("${doc}") ;;
     none) ;;
+    # 归属取值的真相源在 update-docs-inventory.mjs；新增取值而漏改这里时报错，不静默漏覆盖。
+    *)
+      echo "collect-changes: ${doc} 的归属「${ownership}」本脚本不认识，需同步 case 分支" >&2
+      exit 1
+      ;;
   esac
 done <<< "${inventory}"
 

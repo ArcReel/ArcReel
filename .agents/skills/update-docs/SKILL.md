@@ -23,7 +23,7 @@ README.en.md 是 README.md 的镜像，中文为源：不独立进引擎，改�
 
 ### 1. 收集
 
-运行 `bash .agents/skills/update-docs/scripts/collect-changes.sh`，得到 baseline、全量候选 commit 标题、引擎 B 文档清单。
+运行 `bash .agents/skills/update-docs/scripts/collect-changes.sh`，得到 baseline、全量候选 commit 标题、引擎 A 覆盖文档清单与引擎 B 文档清单。任一上站页面未声明归属时脚本非零退出，按提示补 frontmatter 与 CONTRIBUTING「各页职责」后重跑。
 
 ### 2. 引擎 A：git 历史 → 文档
 
