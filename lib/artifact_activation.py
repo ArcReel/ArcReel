@@ -1979,6 +1979,21 @@ def bind_artifact_input_claims_to_frozen_visuals(
             raise ValueError(f"formal visual input was frozen with conflicting bytes: {artifact_path}")
         content_digests[artifact_path] = frozen.content_digest
 
+    return bind_artifact_input_claims_to_content_digests(
+        resolver=resolver,
+        claims=claims,
+        content_digests=content_digests,
+    )
+
+
+def bind_artifact_input_claims_to_content_digests(
+    *,
+    resolver: ArtifactCurrencyResolver | None,
+    claims: Sequence[ArtifactInputClaim],
+    content_digests: Mapping[str, str],
+) -> tuple[ArtifactInputClaim, ...]:
+    """Bind matching formal claims to exact task-owned input bytes."""
+
     bound: list[ArtifactInputClaim] = []
     for claim in claims:
         content_digest = content_digests.get(claim.artifact_path)
@@ -2578,6 +2593,7 @@ __all__ = [
     "active_artifact_currency_resolver",
     "artifact_input_is_usable",
     "artifact_is_usable",
+    "bind_artifact_input_claims_to_content_digests",
     "bind_artifact_input_claims_to_frozen_visuals",
     "assert_artifact_input_claims_usable",
     "assert_current_artifact_input_claims_usable",

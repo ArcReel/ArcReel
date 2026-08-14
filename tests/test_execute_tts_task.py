@@ -30,6 +30,7 @@ from lib.speech_composition import admit_script_unit
 from lib.version_manager import PaidVersionCommit
 from server.services import generation_context, generation_tasks
 from server.services.generation_context import AudioLaneResult, GenerationContext
+from tests.fakes import persist_fake_script
 
 pytestmark = pytest.mark.unit
 
@@ -91,10 +92,7 @@ class _FakePM:
         return self.project_path
 
     def load_script(self, project_name, script_file):
-        normalized = str(script_file).replace("\\", "/").removeprefix("scripts/")
-        target = self.project_path / "scripts" / normalized
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(self.script, ensure_ascii=False), encoding="utf-8")
+        persist_fake_script(self.project_path, script_file, self.script)
         return self.script
 
     def update_scene_asset(self, **kwargs):

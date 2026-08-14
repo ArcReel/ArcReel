@@ -7,6 +7,7 @@ Single-file fakes stay in their respective test modules.
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -66,6 +67,15 @@ class FakeProjectAssetMutationMixin:
             raise KeyError(name)
         del bucket[key]
         return project
+
+
+def persist_fake_script(project_path: Path, script_file: object, script: object) -> None:
+    """Mirror an in-memory fake script through the production scripts directory."""
+
+    normalized = str(script_file).replace("\\", "/").removeprefix("scripts/")
+    target = project_path / "scripts" / normalized
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
 
 def select_formal_video(

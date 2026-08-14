@@ -22,6 +22,7 @@ from lib.artifact_activation import (
     active_artifact_currency_resolver,
     artifact_input_is_usable,
     assert_current_artifact_input_claims_usable,
+    bind_artifact_input_claims_to_content_digests,
     bind_artifact_input_claims_to_frozen_visuals,
     register_current_resource_artifact,
     register_task_current_resource_artifact,
@@ -2170,12 +2171,14 @@ async def execute_video_task(
 
     artifact_episode = script_input.episode
     formal_input_claims: list[ArtifactInputClaim] = [script_input.claim]
+    currency_resolver = active_artifact_currency_resolver(project_path, project)
     storyboard_file, end_image = resolve_usable_storyboard_video_inputs(
         project_path=project_path,
         project=project,
         episode=artifact_episode,
         resource_id=resource_id,
         item=item,
+        resolver=currency_resolver,
         claims=formal_input_claims,
     )
     aspect_ratio = get_aspect_ratio(project, "videos")
@@ -2403,6 +2406,13 @@ async def execute_video_task(
             )
         staged_media = await stage_provider_media_for_task(project_path, task_id, tuple(media_inputs))
         try:
+            formal_input_claims = list(
+                bind_artifact_input_claims_to_content_digests(
+                    resolver=currency_resolver,
+                    claims=formal_input_claims,
+                    content_digests={media.source_locator: media.sha256 for media in staged_media},
+                )
+            )
             provider_start_image = safe_join(
                 project_path,
                 next(media.staged_locator for media in staged_media if media.role == "start_image"),

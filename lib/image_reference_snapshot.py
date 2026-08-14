@@ -44,18 +44,25 @@ def freeze_image_references(
     if not references:
         return FrozenImageReferences(None, (), None)
 
+    sources: list[tuple[object, VisualReference, Path, Path, str]] = []
+    for reference, visual in zip(references, visuals, strict=True):
+        source = _reference_path(reference)
+        resolved = source.resolve(strict=True)
+        if resolved != visual.path.resolve(strict=True):
+            raise ValueError("provider image reference and visual evidence identify different files")
+        sources.append((reference, visual, source, resolved, visual_file_digest(source)))
+
     directory = Path(tempfile.mkdtemp(prefix="arcreel-image-references-"))
     frozen_provider: list[object] = []
     frozen_visuals: list[VisualReference] = []
     try:
-        for index, (reference, visual) in enumerate(zip(references, visuals, strict=True)):
-            source = _reference_path(reference)
-            if source.resolve(strict=True) != visual.path.resolve(strict=True):
-                raise ValueError("provider image reference and visual evidence identify different files")
+        for index, (reference, visual, source, _resolved, source_digest) in enumerate(sources):
             target = directory / f"{index:04d}-{source.name}"
             shutil.copyfile(source, target)
             frozen_provider.append(_replace_reference_path(reference, target))
             content_digest = visual_file_digest(target)
+            if content_digest != source_digest:
+                raise OSError("reference images changed while they were frozen")
             frozen_visuals.append(
                 VisualReference(
                     path=target,
@@ -66,6 +73,9 @@ def freeze_image_references(
                     content_digest=content_digest,
                 )
             )
+        for _reference, _visual, source, resolved, source_digest in sources:
+            if source.resolve(strict=True) != resolved or visual_file_digest(source) != source_digest:
+                raise OSError("reference images changed while they were frozen")
     except BaseException:
         shutil.rmtree(directory, ignore_errors=True)
         raise

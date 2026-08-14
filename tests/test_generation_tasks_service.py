@@ -34,6 +34,7 @@ from lib.video_visual_provenance import build_storyboard_video_visual_basis
 from server.services import generation_tasks
 from server.services.generation_context import AudioLaneResult, GenerationContext, ImageLaneResult, VideoLaneResult
 from server.services.generation_tasks import assert_duration_supported
+from tests.fakes import persist_fake_script
 
 
 class TestAssertDurationSupported:
@@ -376,10 +377,7 @@ class _FakePM:
         return self.project_path
 
     def load_script(self, project_name: str, script_file: str):
-        normalized = str(script_file).replace("\\", "/").removeprefix("scripts/")
-        target = self.project_path / "scripts" / normalized
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(self.script, ensure_ascii=False), encoding="utf-8")
+        persist_fake_script(self.project_path, script_file, self.script)
         return self.script
 
     def update_scene_asset(self, **kwargs):
@@ -2255,6 +2253,74 @@ class TestGenerationTasks:
                 "E1S01",
                 {"script_file": "episode_1.json"},
                 task_id="task-storyboard-claim-race",
+            )
+
+        assert provider_submissions == []
+        fake_queue.persist_execution_checkpoint.assert_not_awaited()
+
+    @pytest.mark.integration
+    async def test_legacy_video_rejects_storyboard_replaced_after_staging_before_activation(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        from lib.artifact_activation import activate_artifact_target_state
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _ad_pm(project_path, with_sheet=False)
+        item = fake_pm.script["shots"][0]
+        item["video_prompt"] = {"action": "跑", "camera_motion": "Static", "dialogue": []}
+        item["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
+        fake_pm.project.update(
+            {
+                "schema_version": 7,
+                "generation_mode": "storyboard",
+                "aspect_ratio": "9:16",
+                "target_duration": 30,
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        )
+        fake_pm.script["episode"] = 1
+        (project_path / "project.json").write_text(
+            json.dumps(fake_pm.project, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        fake_pm.load_script("demo", "episode_1.json")
+        provider_submissions: list[str] = []
+
+        class _SubmittingGenerator(_FakeGenerator):
+            async def generate_video_async(self, **kwargs):
+                await kwargs["before_submit"](73)
+                provider_submissions.append("submitted")
+                raise AssertionError("provider submission must remain unreachable")
+
+        fake_generator = _SubmittingGenerator()
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        original_stage = generation_tasks.stage_provider_media_for_task
+
+        async def _stage_then_replace_and_activate(project_dir, task_id, inputs):
+            staged = await original_stage(project_dir, task_id, inputs)
+            (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"replacement")
+            assert activate_artifact_target_state(project_path, bump_schema=True) is True
+            assert ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_script(1)) is not None
+            assert (
+                ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_storyboard(1, "E1S01"))
+                is not None
+            )
+            return staged
+
+        monkeypatch.setattr(generation_tasks, "stage_provider_media_for_task", _stage_then_replace_and_activate)
+        fake_queue = type("Queue", (), {})()
+        fake_queue.persist_execution_checkpoint = AsyncMock()
+        monkeypatch.setattr(generation_tasks, "get_generation_queue", lambda: fake_queue)
+
+        with pytest.raises(ValueError, match="changed since it was selected"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json"},
+                task_id="task-legacy-storyboard-race",
             )
 
         assert provider_submissions == []
