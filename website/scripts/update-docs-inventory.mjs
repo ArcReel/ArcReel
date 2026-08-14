@@ -17,14 +17,12 @@ function toPosix(path) {
 
 function walkMarkdownFiles(directory) {
   if (!existsSync(directory)) return [];
-  return readdirSync(directory, { withFileTypes: true })
-    .flatMap((entry) => {
-      const path = resolve(directory, entry.name);
-      if (entry.isDirectory()) return walkMarkdownFiles(path);
-      if (!entry.isFile() || !/\.mdx?$/.test(entry.name)) return [];
-      return [path];
-    })
-    .sort();
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) return walkMarkdownFiles(path);
+    if (!entry.isFile() || !/\.mdx?$/.test(entry.name)) return [];
+    return [path];
+  });
 }
 
 function responsibilityDocPaths(content) {
@@ -65,7 +63,9 @@ export function checkUpdateDocsInventory(repoRoot) {
       path: toPosix(relative(repoRoot, path)),
       updateDocs: readFrontMatterScalar(readFileSync(path, "utf8"), "update_docs"),
     }))
-    .filter((entry) => !GENERATED_DOCS.has(entry.path));
+    .filter((entry) => !GENERATED_DOCS.has(entry.path))
+    // 按 POSIX 相对路径排序：目录分隔符已归一，清单顺序在各平台一致。
+    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
   const problems = [];
 
   for (const entry of entries) {
