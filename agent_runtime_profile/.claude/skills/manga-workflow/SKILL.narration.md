@@ -300,5 +300,5 @@ dispatch `generate-assets` subagent：
 ## 数据分层
 
 - 角色 / 场景 / 道具完整定义**只存 project.json**，剧本中仅引用名称
-- 统计字段（storyboard_count / video_unit_count、status、progress）**读时计算**，不存储
+- 统计字段（storyboard_count（分镜路线）/ video_unit_count 与 shot_count（参考路线）、status、progress）**读时计算**，不存储
 - 剧集元数据在剧本保存时**写时同步**
