@@ -329,6 +329,15 @@ class TestExtractProviderErrorMessage:
     def test_dict_error_name_fallback(self):
         assert extract_provider_error_message({"error": {"name": "moderation"}}) == "moderation"
 
+    def test_blank_message_falls_back_to_name(self):
+        assert extract_provider_error_message({"error": {"message": "   ", "name": "moderation"}}) == "moderation"
+
+    def test_non_string_message_falls_back_to_name(self):
+        assert (
+            extract_provider_error_message({"error": {"message": {"detail": "x"}, "name": "moderation"}})
+            == "moderation"
+        )
+
     def test_string_error(self):
         assert extract_provider_error_message({"error": " boom "}) == "boom"
 

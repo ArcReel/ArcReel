@@ -446,9 +446,10 @@ def extract_provider_error_message(state: object) -> str:
     for path in _ERROR_PATHS:
         err = _dig(state, path)
         if isinstance(err, dict):
-            msg = err.get("message") or err.get("name")
-            if isinstance(msg, str) and msg.strip():
-                return msg.strip()
+            # 两个字段各自判定：message 为空白或非字符串时仍要落到 name，别把回退一并跳过。
+            for value in (err.get("message"), err.get("name")):
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
         elif isinstance(err, str) and err.strip():
             return err.strip()
     return "unknown"
