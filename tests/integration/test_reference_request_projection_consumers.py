@@ -252,6 +252,7 @@ async def test_malformed_references_block_all_public_consumers_without_queue_or_
     }
     project: dict[str, Any] = {
         "schema_version": CURRENT_SCHEMA_VERSION,
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "characters": {"甲": {"character_sheet": "characters/a.png"}},
         "episodes": [{"episode": 1, "script_file": "ep1.json"}],
