@@ -520,6 +520,31 @@ class TestProjectArchiveService:
         assert pm.load_project("demo")["schema_version"] == CURRENT_SCHEMA_VERSION
 
     @pytest.mark.unit
+    def test_import_reports_incompatible_schema_before_v8_repairs_run(self, tmp_path):
+        """版本闸门排在结构修复前：未来版本归档缺 v8 字段时报「版本不兼容」，不是修复抛错变 500。"""
+        import json as _json
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        pj = project_dir / "project.json"
+        original = pj.read_text(encoding="utf-8")
+        data = _json.loads(original)
+        data["schema_version"] = 99
+        data.pop("creation_type", None)  # 未来版本已不带 v8 字段，结构修复读它会抛错
+        pj.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "future-schema.zip"
+        _make_manual_zip(project_dir, archive_path)
+        pj.write_text(original, encoding="utf-8")
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="future-schema.zip")
+
+        assert any("版本不兼容" in error for error in exc_info.value.render_errors())
+
+    @pytest.mark.unit
     def test_export_excludes_migration_backups(self, tmp_path):
         """迁移备份是回滚材料而非项目内容：子目录里的剧本备份也不能跟着归档走。"""
         pm = ProjectManager(tmp_path / "projects")

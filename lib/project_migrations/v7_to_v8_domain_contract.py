@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 import shutil
 import time
 from collections.abc import Mapping
@@ -159,6 +160,9 @@ def _ensure_backup(path: Path) -> Path:
         return existing[0]
     backup = path.with_name(f"{path.name}.bak.v7-{time.time_ns()}")
     shutil.copy2(path, backup)
+    # copy2 会把源文件的旧 mtime 一并复制过来。启动时迁移紧接着跑 7 天过期清理，长期没改过的
+    # 项目刚做出来的备份会在同一次启动里被当成陈旧备份删掉——恰恰是最需要保留回滚材料的那批。
+    os.utime(backup, None)
     return backup
 
 

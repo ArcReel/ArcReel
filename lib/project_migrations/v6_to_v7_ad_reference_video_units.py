@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import shutil
 import time
 from collections.abc import Iterable, Mapping
@@ -335,6 +336,9 @@ def _ensure_script_backup(path: Path) -> None:
         return
     backup = path.with_name(f"{path.name}.bak.v6-{time.time_ns()}")
     shutil.copy2(path, backup)
+    # 备份时间戳按「做出来的时刻」算：copy2 复制的是源文件旧 mtime，会让长期没改过的项目刚
+    # 生成的备份被启动时的 7 天过期清理立刻删掉。
+    os.utime(backup, None)
 
 
 def migrate_v6_to_v7(project_dir: Path) -> None:

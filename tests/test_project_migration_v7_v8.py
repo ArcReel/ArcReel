@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -324,6 +325,25 @@ def test_explicit_null_script_stamp_falls_back_to_project(tmp_path: Path, stamp_
     migrate_v7_to_v8(project_dir)
 
     assert _read_json(project_dir / "scripts/episode_1.json")["creation_type"] == "drama"
+
+
+def test_backup_mtime_is_creation_time_not_source_mtime(tmp_path: Path) -> None:
+    """备份的 mtime 按做出来的时刻算：沿用源文件旧 mtime 会被启动时的 7 天过期清理立刻删掉。"""
+    import os
+
+    project_dir = _v7_project(tmp_path)
+    script_path = project_dir / "scripts/episode_1.json"
+    _write_json(script_path, _storyboard_script())
+    long_ago = time.time() - 60 * 86400
+    for path in (project_dir / "project.json", script_path):
+        os.utime(path, (long_ago, long_ago))
+
+    migrate_v7_to_v8(project_dir)
+
+    backups = [*project_dir.glob("project.json.bak.v7-*"), *(project_dir / "scripts").glob("*.bak.v7-*")]
+    assert len(backups) == 2
+    for backup in backups:
+        assert backup.stat().st_mtime > long_ago + 86400
 
 
 def test_idempotent_when_already_v8(tmp_path: Path) -> None:

@@ -321,11 +321,12 @@ class ProjectArchiveService:
                     # schema 迁移先于结构修复：修复逻辑按最新契约读字段（如 creation_type），旧归档
                     # 未迁移就进修复会直接抛错，整个归档不可导入。
                     migrate_project_dir(staging_dir)
-                    diagnostics = self._repair_project_tree(staging_dir)
-                    # 迁移链对未来版本号与不可解析值（true / "7" / null）一律跳过而非报错，跳过后
+                    # 迁移链对未来版本号与不可解析值（true / 空串 / 非数字串）一律跳过而非报错，跳过后
                     # 装进来的项目打不开（项目详情按 schema_version 判不兼容），overwrite 策略下
-                    # 还会顶掉一个本来能用的项目。装机前确认 staging 副本确实是当前版本。
-                    self._check_staging_schema_version(staging_dir, diagnostics)
+                    # 还会顶掉一个本来能用的项目。版本闸门排在结构修复**之前**：修复按 v8 契约读字段，
+                    # 未来版本的归档会让它直接抛错，用户看到 500 而不是「版本不兼容」这个可行动的结论。
+                    self._reject_incompatible_schema(staging_dir)
+                    diagnostics = self._repair_project_tree(staging_dir)
                     for failed_name in encoding_summary.failed:
                         diagnostics.add(
                             "warnings",
@@ -560,14 +561,15 @@ class ProjectArchiveService:
                 destination_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_path, destination_path)
 
-    def _check_staging_schema_version(self, project_dir: Path, diagnostics: ArchiveDiagnostics) -> None:
-        """确认迁移后的 staging 副本是当前 schema 版本，否则记 blocking 诊断。"""
+    def _reject_incompatible_schema(self, project_dir: Path) -> None:
+        """迁移后的 staging 副本不是当前 schema 版本就直接拒绝导入。"""
         project = self._load_json_file(project_dir / self.project_manager.PROJECT_FILE)
         if not isinstance(project, dict):
-            return  # project.json 本身不可读已由 _repair_project_tree 记成 blocking
+            return  # project.json 本身不可读由 _repair_project_tree 记成 blocking
         version = project.get("schema_version")
         if isinstance(version, int) and not isinstance(version, bool) and version == CURRENT_SCHEMA_VERSION:
             return
+        diagnostics = ArchiveDiagnostics()
         diagnostics.add(
             "blocking",
             "project_schema_incompatible",
@@ -575,6 +577,12 @@ class ProjectArchiveService:
                 "arch_project_schema_incompatible",
                 {"found": version, "expected": CURRENT_SCHEMA_VERSION},
             ),
+        )
+        raise ProjectArchiveValidationError(
+            ValidationMessage("arch_import_validation_failed"),
+            errors=diagnostics.blocking_messages(),
+            warnings=diagnostics.warning_messages(),
+            diagnostics=diagnostics,
         )
 
     def _repair_project_tree(self, project_dir: Path) -> ArchiveDiagnostics:
