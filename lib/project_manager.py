@@ -1921,6 +1921,113 @@ class ProjectManager:
 
         return project
 
+    def update_asset_entry(
+        self,
+        asset_type: str,
+        project_name: str,
+        name: str,
+        mutate_fn: Callable[[dict], None],
+    ) -> dict:
+        """Update one asset and reconcile a moved formal sheet claim.
+
+        Every asset router shares this project-lock/formal-write boundary.  A
+        metadata-only input change keeps the current sheet claim so currency
+        comparison can report it stale; clearing or replacing the canonical
+        sheet path removes the old claim in the same durable commit.
+        """
+
+        from lib.artifact_activation import reconcile_artifact_target_claims
+        from lib.artifact_manifest import ArtifactKey
+
+        spec = ASSET_SPECS[asset_type]
+        project_dir = self.get_project_path(project_name)
+        canonical_name: str | None = None
+        sheet_path_changed = False
+        result: dict[str, Any] = {}
+
+        def _mutate(project: dict) -> None:
+            nonlocal canonical_name, sheet_path_changed
+            bucket = project.get(spec.bucket_key)
+            key = resolve_asset_key(bucket, name)
+            if not isinstance(bucket, dict) or key is None:
+                raise KeyError(name)
+            entry = bucket[key]
+            if not isinstance(entry, dict):
+                raise ValueError(f"project asset {spec.bucket_key}/{key} must be an object")
+            previous_sheet_path = entry.get(spec.sheet_field)
+            mutate_fn(entry)
+            canonical_name = key
+            sheet_path_changed = entry.get(spec.sheet_field) != previous_sheet_path
+            result.update(entry)
+
+        def _reconcile_claim(_project_file: Path) -> None:
+            if not sheet_path_changed:
+                return
+            if canonical_name is None:  # pragma: no cover - mutation contract
+                raise RuntimeError("asset update did not resolve a canonical identity")
+            reconcile_artifact_target_claims(
+                project_dir,
+                (ArtifactKey.asset_sheet(asset_type, canonical_name),),
+            )
+
+        self.update_project(project_name, _mutate, on_commit=_reconcile_claim)
+        return result
+
+    def update_project_reconciling_episode_bindings(
+        self,
+        project_name: str,
+        mutate_fn: Callable[[dict], None],
+    ) -> dict:
+        """Update project metadata and forget claims unowned after rebinding.
+
+        The selected script is the ownership boundary for every episode-scoped
+        formal artifact.  When a mutation changes that binding, reconcile all
+        existing claims for the affected episode through the canonical target
+        resolver and one Manifest compare-and-swap.
+        """
+
+        from lib.artifact_activation import reconcile_artifact_target_claims
+        from lib.artifact_manifest import ProjectArtifactManifestAdapter
+
+        project_dir = self.get_project_path(project_name)
+        changed_episodes: set[int] = set()
+
+        def _bindings(project: Mapping[str, Any]) -> dict[int, str | None]:
+            raw_episodes = project.get("episodes")
+            if not isinstance(raw_episodes, list):
+                return {}
+            bindings: dict[int, str | None] = {}
+            for raw_episode in raw_episodes:
+                if not isinstance(raw_episode, Mapping):
+                    continue
+                episode = raw_episode.get("episode")
+                if type(episode) is not int or episode < 1:
+                    continue
+                script_file = raw_episode.get("script_file")
+                bindings[episode] = (
+                    self.normalize_script_filename(script_file)
+                    if isinstance(script_file, str) and script_file
+                    else None
+                )
+            return bindings
+
+        def _mutate(project: dict) -> None:
+            before = _bindings(project)
+            mutate_fn(project)
+            after = _bindings(project)
+            changed_episodes.update(
+                episode for episode in before.keys() | after.keys() if before.get(episode) != after.get(episode)
+            )
+
+        def _reconcile_claims(_project_file: Path) -> None:
+            if not changed_episodes:
+                return
+            adapter = ProjectArtifactManifestAdapter(project_dir)
+            claimed_keys = tuple(key for key in adapter.snapshot_entries() if key.episode_number in changed_episodes)
+            reconcile_artifact_target_claims(project_dir, claimed_keys, adapter=adapter)
+
+        return self.update_project(project_name, _mutate, on_commit=_reconcile_claims)
+
     def _apply_project_mutation_unlocked(self, project: dict, mutate_fn: Callable[[dict], None]) -> None:
         """Apply one mutation plus the canonical save-time normalizations.
 

@@ -959,8 +959,10 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                     project["episodes"] = new_episodes
 
             with project_change_source("webui"):
-                # update_project 已在持锁窗口内统一应用迁移，返回升级后字段，无需二次 load_project
-                return {"success": True, "project": manager.update_project(name, _mutate)}
+                # 单一 project 锁内完成字段更新与 episode 绑定所影响的 Manifest claim 清理；
+                # 返回升级后字段，无需二次 load_project。
+                project = manager.update_project_reconciling_episode_bindings(name, _mutate)
+                return {"success": True, "project": project}
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:

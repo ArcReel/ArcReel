@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.i18n.zh import errors as zh_errors
 from lib.project_change_hints import get_project_change_source
 from lib.project_manager import EmptySourceError, ProjectManager
@@ -215,6 +216,9 @@ class _FakePM:
         mutate_fn(project)
         self.save_project(name, project)
         return project
+
+    def update_project_reconciling_episode_bindings(self, name, mutate_fn):
+        return self.update_project(name, mutate_fn)
 
     @contextmanager
     def locked_script(self, name, script_file):
@@ -2240,6 +2244,78 @@ class TestProjectsRouter:
     # ---------------------------------------------------------------------------
     # Episodes PATCH tests
     # ---------------------------------------------------------------------------
+
+    @pytest.mark.unit
+    def test_patch_project_episode_rebinding_forgets_unbound_resource_claims(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        project_dir = pm.get_project_path("demo")
+
+        def _script(resource_id: str) -> dict:
+            return {
+                "episode": 1,
+                "title": "Episode 1",
+                "content_mode": "narration",
+                "duration_seconds": 4,
+                "summary": "",
+                "novel": {"title": "Demo", "chapter": "Chapter 1"},
+                "segments": [
+                    {
+                        "segment_id": resource_id,
+                        "duration_seconds": 4,
+                        "segment_break": False,
+                        "novel_text": "text",
+                        "characters_in_segment": [],
+                        "scenes": [],
+                        "props": [],
+                        "image_prompt": "image",
+                        "video_prompt": "video",
+                        "transition_to_next": "cut",
+                        "generated_assets": {},
+                    }
+                ],
+            }
+
+        scripts_dir = project_dir / "scripts"
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        (scripts_dir / "old.json").write_text(json.dumps(_script("E1S01")), encoding="utf-8")
+        (scripts_dir / "new.json").write_text(json.dumps(_script("E1S02")), encoding="utf-8")
+        pm.update_project(
+            "demo",
+            lambda project: project.__setitem__(
+                "episodes",
+                [{"episode": 1, "title": "Episode 1", "script_file": "scripts/old.json"}],
+            ),
+        )
+
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        old_keys = ArtifactKey.episode_resource_artifacts(1, "E1S01")
+        for index, key in enumerate(old_keys):
+            adapter.put_entry(
+                key,
+                ArtifactManifestEntry(
+                    artifact_path=f"formal/old-{index}.bin",
+                    basis_digest=f"sha256-v1:{index:064x}",
+                ),
+            )
+        unrelated = ArtifactKey.asset_sheet("character", "Unrelated")
+        unrelated_entry = ArtifactManifestEntry(
+            artifact_path="characters/Unrelated.png",
+            basis_digest=f"sha256-v1:{99:064x}",
+        )
+        adapter.put_entry(unrelated, unrelated_entry)
+
+        with _client(monkeypatch, pm, _FakeCalc()) as client:
+            response = client.patch(
+                "/api/v1/projects/demo",
+                json={"episodes": [{"episode": 1, "script_file": "scripts/new.json"}]},
+            )
+
+        assert response.status_code == 200, response.text
+        assert pm.load_project("demo")["episodes"][0]["script_file"] == "scripts/new.json"
+        assert all(adapter.get_entry(key) is None for key in old_keys)
+        assert adapter.get_entry(unrelated) == unrelated_entry
 
     @pytest.mark.unit
     def test_patch_project_episodes_updates_script_file(self, tmp_path, monkeypatch):

@@ -1499,6 +1499,82 @@ def resolve_current_artifact_target(project_dir: Path, key: ArtifactKey) -> Arti
     return _Planner(project_dir, episode_scope=_episode_scope_for_key(key)).resolve_key(key)
 
 
+def reconcile_artifact_target_claims(
+    project_dir: Path,
+    keys: Sequence[ArtifactKey],
+    *,
+    adapter: ArtifactManifestAdapter | None = None,
+) -> bool:
+    """Forget claims whose canonical target disappeared or moved.
+
+    Metadata edits may remove a formal target without touching its artifact
+    bytes.  Resolve the selected claims against one frozen project snapshot,
+    verify every dependency remains unchanged, then remove the invalid claims
+    in one Manifest compare-and-swap.  Claims whose path is still canonical are
+    deliberately retained: changed inputs make them stale, not unowned.
+    """
+
+    requested = tuple(dict.fromkeys(keys))
+    if not requested or not _artifact_manifest_is_active(project_dir):
+        return False
+
+    storage = adapter or ProjectArtifactManifestAdapter(project_dir)
+    manifest_snapshot = storage.snapshot_entries()
+    claimed = {key: manifest_snapshot[key] for key in requested if key in manifest_snapshot}
+    if not claimed:
+        return False
+
+    root_planner = _Planner(project_dir)
+    planners: dict[int | None, _Planner] = {None: root_planner}
+    dependency_bytes: dict[Path, bytes] = {}
+    dependency_digests: dict[Path, str] = {}
+    replacements: dict[ArtifactKey, None] = {}
+
+    def _merge_dependency_snapshot[T](destination: dict[Path, T], source: Mapping[Path, T]) -> None:
+        for path, value in source.items():
+            previous = destination.setdefault(path, value)
+            if previous != value:
+                raise RuntimeError(f"artifact target dependency changed during reconciliation: {path}")
+
+    for key, frozen_entry in claimed.items():
+        scope = _episode_scope_for_key(key)
+        planner = planners.get(scope)
+        if planner is None:
+            planner = _Planner(
+                project_dir,
+                episode_scope=scope,
+                project_bytes=root_planner.project_bytes,
+            )
+            planners[scope] = planner
+        target = planner.resolve_key(key)
+        if target is None or target.artifact_path != frozen_entry.artifact_path:
+            replacements[key] = None
+
+    if not replacements:
+        return False
+
+    for planner in planners.values():
+        _merge_dependency_snapshot(dependency_bytes, planner.dependencies)
+        _merge_dependency_snapshot(dependency_digests, planner.dependency_digests)
+    _assert_preflight_unchanged(
+        project_dir,
+        ArtifactTargetStatePlan(
+            entries={},
+            project=root_planner.project,
+            project_bytes=root_planner.project_bytes,
+            dependency_bytes=dependency_bytes,
+            dependency_digests=dependency_digests,
+            script_paths=(),
+        ),
+    )
+    return register_artifact_entries_atomically(
+        project_dir,
+        replacements,
+        expected_entries={key: claimed[key] for key in replacements},
+        adapter=storage,
+    )
+
+
 def resolve_current_artifact_basis(project_dir: Path, key: ArtifactKey) -> ArtifactBasis | None:
     """Resolve canonical evidence for a formal write before its bytes are selected."""
 
@@ -2166,6 +2242,7 @@ __all__ = [
     "register_current_artifact_if_provable",
     "register_current_resource_artifact",
     "register_task_current_resource_artifact",
+    "reconcile_artifact_target_claims",
     "resolve_artifact_episode",
     "resolve_current_artifact_basis",
     "resolve_current_artifact_target",

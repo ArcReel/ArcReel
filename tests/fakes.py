@@ -20,12 +20,39 @@ if TYPE_CHECKING:
 
 
 class FakeProjectAssetDeleteMixin:
-    """Share the production-shaped asset deletion contract across router fakes."""
+    """Share production-shaped asset mutation contracts across router fakes."""
 
     expected_delete_asset_table: str | None = None
 
     def load_project(self, project_name: str) -> dict[str, Any]:
         raise NotImplementedError
+
+    def update_project(self, project_name: str, mutate_fn: Callable[[dict], None]) -> Any:
+        raise NotImplementedError
+
+    def update_asset_entry(
+        self,
+        asset_type: str,
+        project_name: str,
+        name: str,
+        mutate_fn: Callable[[dict], None],
+    ) -> dict[str, Any]:
+        from lib.asset_types import ASSET_SPECS, resolve_asset_key
+
+        spec = ASSET_SPECS[asset_type]
+        result: dict[str, Any] = {}
+
+        def _mutate(project: dict) -> None:
+            bucket = project.get(spec.bucket_key) or {}
+            key = resolve_asset_key(bucket, name)
+            if key is None:
+                raise KeyError(name)
+            entry = bucket[key]
+            mutate_fn(entry)
+            result.update(entry)
+
+        self.update_project(project_name, _mutate)
+        return result
 
     def delete_asset(self, project_name: str, table: str, name: str) -> dict[str, Any]:
         from lib.asset_types import resolve_asset_key
