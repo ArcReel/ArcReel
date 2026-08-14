@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Any
 
 from lib.json_io import atomic_write_bytes, atomic_write_json, load_json
-from lib.path_safety import safe_join
 from lib.profile_manifest import MANIFEST_FILENAME
+from lib.project_migrations.script_binding import resolve_bound_script_path
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,7 @@ def _script_paths(project_dir: Path, project: Mapping[str, Any]) -> list[Path]:
         script_file = entry.get("script_file")
         if not isinstance(script_file, str) or not script_file:
             raise ValueError(f"project.episodes[{index}].script_file 必须是非空字符串")
-        path = safe_join(project_dir, script_file)
+        path = resolve_bound_script_path(project_dir, script_file)
         if path in seen:
             raise ValueError(f"多个 episode 指向同一剧本文件: {script_file}")
         seen.add(path)

@@ -318,6 +318,23 @@ def test_removes_every_legacy_metadata_count_key(tmp_path: Path, content_mode: s
     assert metadata["estimated_duration_seconds"] == 16
 
 
+@pytest.mark.parametrize("binding", ["episode_1.json", "scripts\\episode_1.json"])
+def test_migrates_script_bound_by_alias_path(tmp_path: Path, binding: str) -> None:
+    """裸文件名与 Windows 分隔符是同一剧本的合法别名：按字面找不到就跳过，会留下版本号已升、
+    剧本仍是旧契约的项目，而且往后再也不进迁移链。"""
+    project_dir = _v7_project(tmp_path)
+    project = _read_json(project_dir / "project.json")
+    project["episodes"][0]["script_file"] = binding
+    _write_json(project_dir / "project.json", project)
+    _write_json(project_dir / "scripts/episode_1.json", _storyboard_script())
+
+    migrate_v7_to_v8(project_dir)
+
+    script = _read_json(project_dir / "scripts/episode_1.json")
+    assert script["creation_type"] == "drama"
+    assert "content_mode" not in script
+
+
 @pytest.mark.parametrize("stamp_key", ["content_mode", "creation_type"])
 def test_explicit_null_script_stamp_falls_back_to_project(tmp_path: Path, stamp_key: str) -> None:
     """剧本显式 null 戳等同未打戳（与运行时解析同口径），回退项目声明而不是兜底 narration。"""

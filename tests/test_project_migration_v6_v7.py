@@ -132,6 +132,19 @@ def test_existing_index_preserves_identity_boundaries_assets_and_content(tmp_pat
     assert _read_json(project_dir / "project.json")["schema_version"] == 7
 
 
+def test_migrates_script_bound_by_bare_filename(tmp_path: Path) -> None:
+    """裸文件名与 ``scripts/`` 前缀指向同一剧本：按字面解析会跳过它，只把版本号推上去。"""
+    project_dir = _project(tmp_path)
+    project = _read_json(project_dir / "project.json")
+    project["episodes"][0]["script_file"] = "episode_1.json"
+    _write_json(project_dir / "project.json", project)
+    _write_json(project_dir / "scripts/episode_1.json", _script())
+
+    migrate_v6_to_v7(project_dir)
+
+    assert _read_json(project_dir / "scripts/episode_1.json")["video_units"]
+
+
 def test_unscripted_episode_advances_schema_without_creating_script(tmp_path: Path) -> None:
     project_dir = _project(tmp_path)
 

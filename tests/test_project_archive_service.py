@@ -489,6 +489,41 @@ class TestProjectArchiveService:
         assert "total_scenes" not in migrated_script["metadata"]
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("binding", ["episode_1.json", "scripts\\episode_1.json"])
+    def test_import_v7_archive_migrates_script_bound_by_alias_path(self, tmp_path, binding):
+        """外部归档的绑定可能写成裸文件名或带 Windows 分隔符：迁移排在结构修复前，必须自己
+        按读取方口径找到剧本，否则剧本留着旧字段进校验，整份归档被判违约而拒收。"""
+        import json as _json
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        pj = project_dir / "project.json"
+        data = _json.loads(pj.read_text(encoding="utf-8"))
+        data["schema_version"] = 7
+        data["content_mode"] = data.pop("creation_type")
+        data["source_kind"] = data.pop("source_file_type", "novel")
+        data["episodes"][0]["script_file"] = binding
+        pj.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        script_file = project_dir / "scripts" / "episode_1.json"
+        script = _json.loads(script_file.read_text(encoding="utf-8"))
+        script["content_mode"] = script.pop("creation_type", "narration")
+        script_file.write_text(_json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "v7-alias-binding.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="v7-alias-binding.zip")
+
+        installed_dir = pm.get_project_path(result.project_name)
+        migrated_script = _json.loads((installed_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        assert migrated_script["creation_type"] == "narration"
+        assert "content_mode" not in migrated_script
+
+    @pytest.mark.unit
     @pytest.mark.parametrize("version", [99, True, "", "not-a-version"])
     def test_import_rejects_archive_that_migration_cannot_bring_to_current(self, tmp_path, version):
         """迁移链对未来版本号与不可解析值一律跳过：跳过后装进来的项目打不开，须阻断导入。"""

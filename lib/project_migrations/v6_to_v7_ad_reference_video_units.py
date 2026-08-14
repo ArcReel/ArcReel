@@ -11,7 +11,7 @@ from typing import Any
 
 from lib.asset_types import asset_name_comparison_key
 from lib.json_io import atomic_write_bytes, atomic_write_json, load_json
-from lib.path_safety import safe_join
+from lib.project_migrations.script_binding import resolve_bound_script_path
 from lib.reference_video.writing_syntax import MAX_SHOTS_PER_UNIT
 from lib.script_models import REFERENCE_UNIT_DURATION_RANGE, ReferenceVideoScript
 from lib.speech_composition import SpeechComposition, SpeechProblemCode, adapt_video_unit
@@ -315,7 +315,7 @@ def _script_paths(project_dir: Path, project: dict[str, Any]) -> list[tuple[Path
             raise ValueError(f"project.episodes[{index}].episode 必须是正整数")
         if not isinstance(script_file, str) or not script_file:
             raise ValueError(f"project.episodes[{index}].script_file 必须是非空字符串")
-        path = safe_join(project_dir, script_file)
+        path = resolve_bound_script_path(project_dir, script_file)
         if path in seen:
             raise ValueError(f"多个 episode 指向同一剧本文件: {script_file}")
         seen.add(path)
