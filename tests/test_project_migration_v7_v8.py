@@ -790,16 +790,14 @@ def test_v7_activation_restores_manifest_when_a_formal_image_changes_after_prefl
         basis=ArtifactBasis.build("old/subtitle", kind_version=1, inputs={}),
     )
     manifest_before = (project_dir / MANIFEST_FILENAME).read_bytes()
-    import lib.artifact_activation as artifact_activation
-
-    original_replace = artifact_activation.ProjectArtifactManifestAdapter.replace_entries_atomically
+    original_replace = ProjectArtifactManifestAdapter.replace_entries_atomically
 
     def _replace_after_formal_image_change(self, entries):
         sheet_path.write_bytes(b"concurrent-sheet")
         return original_replace(self, entries)
 
     monkeypatch.setattr(
-        artifact_activation.ProjectArtifactManifestAdapter,
+        ProjectArtifactManifestAdapter,
         "replace_entries_atomically",
         _replace_after_formal_image_change,
     )
@@ -817,9 +815,7 @@ def test_v7_activation_retry_refreshes_matching_backups_before_startup_cleanup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_dir, _project_data, _step1, _script = _project(tmp_path)
-    import lib.artifact_activation as artifact_activation
-
-    original_replace = artifact_activation.ProjectArtifactManifestAdapter.replace_entries_atomically
+    original_replace = ProjectArtifactManifestAdapter.replace_entries_atomically
     attempts = 0
 
     def _fail_first_manifest_commit(self, entries):
@@ -830,7 +826,7 @@ def test_v7_activation_retry_refreshes_matching_backups_before_startup_cleanup(
         return original_replace(self, entries)
 
     monkeypatch.setattr(
-        artifact_activation.ProjectArtifactManifestAdapter,
+        ProjectArtifactManifestAdapter,
         "replace_entries_atomically",
         _fail_first_manifest_commit,
     )
