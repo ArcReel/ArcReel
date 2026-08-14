@@ -1,3 +1,6 @@
+// 与 frontend/eslint.config.js 规则集同构但刻意不共用：website 是独立包根，
+// 其 typescript 钉在 5.x（见 .github/dependabot.yml 的说明），两边无法共享同一份
+// 依赖与 tsconfig。改动规则时两份配置需要各自维护。
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import react from "eslint-plugin-react";
@@ -39,8 +42,9 @@ export default tseslint.config(
     },
   },
 
-  // 构建脚本不在 tsconfig 覆盖范围内，关闭 typed linting。disableTypeChecked 自带
-  // languageOptions，必须与 globals 分成两个配置块，否则后者会被整体替换掉。
+  // 构建脚本走 .mjs，不在上面那个 projectService 配置块的 files 范围内，拿不到类型
+  // 信息，typed 规则只会整片报错，故关闭。disableTypeChecked 自带 languageOptions，
+  // 必须与 globals 分成两个配置块，否则后者会被整体替换掉。
   {
     files: ["scripts/**/*.mjs", "*.config.mjs"],
     ...tseslint.configs.disableTypeChecked,

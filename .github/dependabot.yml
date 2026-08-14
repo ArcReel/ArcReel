@@ -255,7 +255,8 @@ updates:
       # 设置 baseUrl，而 TypeScript 7 已移除该选项，加载即报 TS5102 —— website-checks
       # 的 typecheck 闸会让这类 PR 显性失败，不是 flake，不要以重跑或跳过闸门处置。
       # 解锁条件：@docusaurus/tsconfig 移除 baseUrl，或发布 TS7 兼容版本；在那之前
-      # TypeScript major PR 一律关闭。前端 frontend/ 不受此限，自身已在 TS 6.x。
+      # TypeScript major PR 一律关闭。该约束只覆盖 website/，frontend/ 的 TypeScript
+      # 升级独立判断，不适用本条。
       dev-dependencies:
         dependency-type: "development"
         patterns:

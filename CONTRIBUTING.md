@@ -40,6 +40,9 @@ cd website && pnpm install
 pnpm start        # 开发预览
 pnpm build        # 双 locale 构建，broken link / anchor 直接 fail
 pnpm typecheck
+pnpm lint         # ESLint
+pnpm format       # prettier 写回；format:check 只校验不改写
+pnpm check        # typecheck + lint + format:check，等价于 CI 的三道静态闸
 
 # 站内搜索只在构建产物上生效，dev server 里不工作
 pnpm build && pnpm serve
@@ -85,6 +88,19 @@ cd frontend && pnpm lint:fix      # 自动修可修的部分
 - 规则集：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
 - typed linting 启用 `projectService: true`，能检查 `no-floating-promises`、`no-misused-promises` 等 async 相关问题
 - CI 中强制检查：`frontend-tests` job 的 `Lint` step
+
+**Lint & Format（文档站 ESLint + prettier）：**
+
+```bash
+cd website && pnpm check          # typecheck + lint + format:check
+cd website && pnpm lint:fix       # ESLint 自动修可修的部分
+cd website && pnpm format         # prettier 写回
+```
+
+- 配置：`website/eslint.config.mjs` + `website/.prettierrc.json`（`website/` 是独立包根，工具链与 `frontend/` 各自独立，因为两者的 TypeScript 大版本不同）
+- ESLint 规则集与 frontend 同构：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
+- prettier printWidth 120（与后端 ruff 的 line-length 对齐）；`docs/` 与 `i18n/` 不参与格式化，排除依据见 `website/.prettierignore` 顶部注释
+- CI 中强制检查：`website-checks` job 的 `Typecheck` / `Lint` / `Format check` 三个 step，均排在 `Build` 之前
 
 ### ESLint disable 使用规范
 
