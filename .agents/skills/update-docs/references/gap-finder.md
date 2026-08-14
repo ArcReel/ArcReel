@@ -2,12 +2,9 @@
 
 读最近的 commit 标题，找出代码已落地、但面向用户文档尚未反映的新能力。只读，不修改任何文件。
 
-仓库根、baseline..HEAD 全量 commit 标题清单（每条 sha + 标题）由调用方传入。
+仓库根、引擎 A 覆盖文档清单、baseline..HEAD 全量 commit 标题清单（每条 sha + 标题）由调用方传入。
 
-目标文档（两篇都要覆盖）：
-
-- README.md
-- website/docs/guide/getting-started.md
+目标文档以调用方传入的引擎 A 覆盖文档清单为准，每篇都要覆盖。
 
 ## 方法
 

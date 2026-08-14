@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// CI 一致性闸门：孤儿译文 / 上站文档标题缺显式锚点 / UI JSON key 齐全性。
-// 三项任一命中即非零退出；缺译/滞后清单不在本脚本范围（translation-lock.mjs status 已覆盖，
+// CI 一致性闸门：update-docs 页面库存 / 孤儿译文 / 上站文档标题显式锚点 / UI JSON key 齐全性。
+// 任一命中即非零退出；缺译/滞后清单不在本脚本范围（translation-lock.mjs status 已覆盖，
 // 由 workflow 单独一步写入 step summary，不阻断构建）。
 
 import { execFileSync } from "node:child_process";
@@ -9,6 +9,7 @@ import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { scanMarkdownLines } from "./markdown-scan.mjs";
+import { checkUpdateDocsInventory } from "./update-docs-inventory.mjs";
 
 const websiteDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(websiteDir, "..");
@@ -17,7 +18,13 @@ function toPosix(path) {
   return path.split(sep).join("/");
 }
 
-// ---- 1. 孤儿译文：委托给翻译 skill 的唯一真相源（.claude/skills/translate-docs/），不重复实现。 ----
+// ---- 1. update-docs 页面库存与 CONTRIBUTING 各页职责清单 ----
+
+function checkDocInventory() {
+  return checkUpdateDocsInventory(repoRoot).problems;
+}
+
+// ---- 2. 孤儿译文：委托给翻译 skill 的唯一真相源（.claude/skills/translate-docs/），不重复实现。 ----
 
 function checkOrphanTranslations() {
   const lockScript = resolve(repoRoot, ".claude/skills/translate-docs/scripts/translation-lock.mjs");
@@ -30,7 +37,7 @@ function checkOrphanTranslations() {
   return orphans.map((item) => `孤儿译文：${item.target}（源 ${item.source} 未登记或已不存在）`);
 }
 
-// ---- 2. 上站文档标题缺显式锚点 ----
+// ---- 3. 上站文档标题缺显式锚点 ----
 //
 // 全部标题须带 `{#id}`（各 locale 共用锚点作为链接目标）。译文与源同结构、受同一套规则约束：
 // 只扫源的话，译文漏写 `{#id}` 只有在恰好有链接指向该锚点时才会被 build 期 onBrokenAnchors 拦下。
@@ -128,7 +135,7 @@ function checkAnchors() {
   return problems;
 }
 
-// ---- 3. UI JSON key 齐全性（比照 write-translations 输出比对） ----
+// ---- 4. UI JSON key 齐全性（比照 write-translations 输出比对） ----
 //
 // footer.json 的 `copyright` 键会把 write-translations 运行那一刻的年份写死进英文译文，
 // 而站点配置按当前年份动态求值版权文案——两者逐年错开。故意不提交该键，让其在渲染期
@@ -184,12 +191,12 @@ function checkUiJsonKeys() {
   return problems;
 }
 
-const problems = [...checkOrphanTranslations(), ...checkAnchors(), ...checkUiJsonKeys()];
+const problems = [...checkDocInventory(), ...checkOrphanTranslations(), ...checkAnchors(), ...checkUiJsonKeys()];
 
 if (problems.length > 0) {
   console.error("一致性检查未通过：");
   for (const problem of problems) console.error(`  - ${problem}`);
   process.exitCode = 1;
 } else {
-  console.log("一致性检查通过：无孤儿译文、标题锚点齐全且唯一、UI JSON key 齐全。");
+  console.log("一致性检查通过：文档库存一致、无孤儿译文、标题锚点齐全且唯一、UI JSON key 齐全。");
 }

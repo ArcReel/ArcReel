@@ -3,24 +3,33 @@
 # 输出供 SKILL.md 的 LLM 步骤消费（agent-facing，无需 i18n）。
 set -eu
 
-# 引擎 A 覆盖文档：高频、主题宽，参与 baseline 计算。
-ENGINE_A_DOCS=(
+# 非 Docusaurus 根目录文档保留少量枚举；website/docs 的归属由各页 frontmatter 派生。
+ENGINE_A_ROOT_DOCS=(
   "README.md"
-  "website/docs/guide/getting-started.md"
 )
 
 # README 翻译对：英文版是中文版的镜像，不独立进引擎，改完后由主 agent 全文核对一致性。
 README_SOURCE="README.md"
 README_MIRROR="README.en.md"
 
-# 仅引擎 B 覆盖文档：低频、主题窄，不参与 baseline。
-ENGINE_B_ONLY_DOCS=(
-  "website/docs/ops/deployment.md"
-  "website/docs/guide/jianying-export.md"
+# 非 Docusaurus 根目录中仅引擎 B 覆盖的文档。
+ENGINE_B_ONLY_ROOT_DOCS=(
   "CONTRIBUTING.md"
 )
 
 cd "$(git rev-parse --show-toplevel)"
+
+ENGINE_A_DOCS=("${ENGINE_A_ROOT_DOCS[@]}")
+ENGINE_B_ONLY_DOCS=("${ENGINE_B_ONLY_ROOT_DOCS[@]}")
+inventory="$(node website/scripts/update-docs-inventory.mjs --root "$PWD" --format tsv)"
+while IFS=$'\t' read -r ownership doc; do
+  [ -n "${doc}" ] || continue
+  case "${ownership}" in
+    engine-a) ENGINE_A_DOCS+=("${doc}") ;;
+    engine-b) ENGINE_B_ONLY_DOCS+=("${doc}") ;;
+    none) ;;
+  esac
+done <<< "${inventory}"
 
 # baseline：引擎 A 文档中最近一次提交时间的最早者。
 # 用 git 提交时间而非文件系统 mtime，后者在 fresh clone 后会失真。

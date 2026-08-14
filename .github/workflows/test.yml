@@ -220,7 +220,7 @@ jobs:
   website-checks:
     # 单一 job 串起文档站的各道闸：静态检查（typecheck / eslint / prettier）前置，
     # 秒级失败不必等构建 → CONTRIBUTING 复制（否则 gitignore 的中文副本缺席，其已提交
-    # 的英文译文会被误判为孤儿）→ 一致性脚本（孤儿译文 / 缺锚点 / UI JSON key 齐全性，
+    # 的英文译文会被误判为孤儿）→ 一致性脚本（页面库存 / 孤儿译文 / 缺锚点 / UI JSON key 齐全性，
     # 见 website/scripts/check-consistency.mjs）fail →
     # 双 locale build（onBrokenLinks/onBrokenAnchors/onBrokenMarkdownLinks 均 throw）
     # fail → 缺译/滞后清单写 step summary，不阻断。
@@ -248,6 +248,9 @@ jobs:
       - name: Translation lock unit tests
         run: node --test .claude/skills/translate-docs/scripts/translation-lock.test.mjs
 
+      - name: Website script unit tests
+        run: node --test website/scripts/*.test.mjs
+
       - name: Install dependencies
         working-directory: website
         run: pnpm install --frozen-lockfile
@@ -268,7 +271,7 @@ jobs:
         working-directory: website
         run: pnpm run sync-contributing
 
-      - name: Consistency check (orphan translations / anchors / UI JSON keys)
+      - name: Consistency check (doc inventory / orphan translations / anchors / UI JSON keys)
         working-directory: website
         run: pnpm run check-consistency
 

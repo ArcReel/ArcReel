@@ -2,6 +2,7 @@
 id: getting-started
 title: 完整入门教程
 sidebar_position: 1
+update_docs: engine-a
 ---
 
 # 完整入门教程 {#getting-started}
