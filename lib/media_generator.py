@@ -549,13 +549,13 @@ class MediaGenerator:
 
         output_path = self._get_output_path(resource_type, resource_id)
         self._ensure_parent_dir(output_path)
+        if formal_output and commit_formal_output is None:
+            raise ValueError("formal image output requires an artifact commit callback")
         staged_output_path, backend_output_path = self._prepare_image_output(
             output_path,
             formal_output=formal_output,
             task_id=task_id,
         )
-        if formal_output and commit_formal_output is None:
-            raise ValueError("formal image output requires an artifact commit callback")
 
         # 1. 若已存在，确保旧文件被记录
         if staged_output_path is None and output_path.exists():
