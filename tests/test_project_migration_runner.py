@@ -8,6 +8,7 @@ import pytest
 
 from lib.project_migrations.runner import (
     CURRENT_SCHEMA_VERSION,
+    MIGRATORS,
     cleanup_stale_backups,
     migrate_project_dir,
     run_project_migrations,
@@ -239,6 +240,46 @@ def test_cleanup_sweeps_script_backups_in_subdirectories(tmp_projects: Path):
     assert not old.exists()
     assert new.exists()
     assert kept.exists(), "非备份文件即使更老也不能被清理"
+
+
+def test_failed_migration_reclaims_backup_it_did_not_use(tmp_projects: Path, monkeypatch):
+    """迁移器在改动任何文件之前失败（如全量文件预检不通过）时，runner 刚落的备份要回收。
+
+    否则故障不自愈的项目每次启动重跑都攒一个新 .bak，而这些副本与现场逐字节相同、毫无价值。
+    """
+    project_dir = _write_project(tmp_projects, "p1", {"schema_version": 7, "name": "p1"})
+    original = (project_dir / "project.json").read_bytes()
+
+    def _preflight_fails(_path: Path) -> None:
+        raise RuntimeError("preflight failed")
+
+    monkeypatch.setitem(MIGRATORS, 7, _preflight_fails)
+
+    for _ in range(2):
+        with pytest.raises(RuntimeError):
+            migrate_project_dir(project_dir)
+
+    assert not list(project_dir.glob("project.json.bak.v7-*"))
+    assert (project_dir / "project.json").read_bytes() == original
+
+
+def test_failed_migration_keeps_backup_that_holds_the_original(tmp_projects: Path, monkeypatch):
+    """迁移器改过 project.json 之后才失败：备份是唯一的原版，必须留着。"""
+    project_dir = _write_project(tmp_projects, "p1", {"schema_version": 7, "name": "p1"})
+    original = (project_dir / "project.json").read_bytes()
+
+    def _fails_after_write(path: Path) -> None:
+        (path / "project.json").write_text('{"schema_version": 8, "name": "p1"}', encoding="utf-8")
+        raise RuntimeError("failed halfway")
+
+    monkeypatch.setitem(MIGRATORS, 7, _fails_after_write)
+
+    with pytest.raises(RuntimeError):
+        migrate_project_dir(project_dir)
+
+    backups = list(project_dir.glob("project.json.bak.v7-*"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == original
 
 
 def test_runner_backup_failure_leaves_no_partial_backup(tmp_projects: Path, monkeypatch):

@@ -2111,6 +2111,31 @@ class TestProjectsRouter:
         assert called == []
 
     @pytest.mark.unit
+    def test_source_upload_with_overview_rejected_when_project_pending_data_upgrade(self, tmp_path, monkeypatch):
+        """带概述的源文件上传在落盘前就被闸门拦下。
+
+        概述失败在这条路由上只降级成 overview_error 回 200：放行会让旧形态项目先被写入，
+        用户看到的却是「上传成功、只是概述没生成」。不带概述的上传不受影响——纯源文件写入
+        既不读本次改名的契约字段，也不产生付费调用。
+        """
+        fake_pm = _FakePM(tmp_path)
+        legacy = dict(fake_pm.project_data["ready"])
+        legacy["schema_version"] = CURRENT_SCHEMA_VERSION - 1
+        fake_pm.project_data["ready"] = legacy
+        source_file = tmp_path / "ready" / "source" / "novel.txt"
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.post("/api/v1/projects/ready/source", data={"content": "正文", "generate_overview": "true"})
+            assert resp.status_code == 409, resp.text
+            assert "未完成数据升级" in resp.json()["detail"]
+            assert not source_file.exists()
+
+            plain = client.post("/api/v1/projects/ready/source", data={"content": "正文", "generate_overview": "false"})
+            assert plain.status_code == 200, plain.text
+            assert source_file.read_text(encoding="utf-8") == "正文"
+
+    @pytest.mark.unit
     def test_update_project_with_unknown_template_id_returns_400(self, tmp_path, monkeypatch):
         client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
         with client:

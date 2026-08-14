@@ -80,16 +80,34 @@ def _load_schema_version(project_dir: Path) -> int:
         return -1
 
 
-def _backup_project_json(project_dir: Path, from_version: int) -> None:
+def _backup_project_json(project_dir: Path, from_version: int) -> Path | None:
     pj = project_dir / "project.json"
     if not pj.exists():
-        return
+        return None
     ts = int(time.time())
     bak = project_dir / _versioned_backup_name("project.json", from_version, ts)
     # 同目录 tmp + rename：备份要么完整要么不存在。直接 write_bytes 中途失败（磁盘满 / IO 错误）
     # 会留下截断的 .bak，而迁移器自己的备份逻辑按同一命名规则复用既有备份当原版，回滚时反倒用
     # 半截内容盖掉现场。
     atomic_write_bytes(bak, pj.read_bytes())
+    return bak
+
+
+def _discard_unchanged_backup(project_dir: Path, backup: Path | None) -> None:
+    """迁移这一级失败后，若 project.json 与刚落的备份逐字节相同就回收该备份。
+
+    迁移器可能在动任何文件之前就因预检失败（如 v7→v8 的全量文件预检）。此时备份没有承载
+    任何现场，留着只会让每次启动重跑都多堆一个 ``.bak``：故障不自愈的项目会无限攒备份。
+    内容一旦不同就保留——那是真被改过的原版，回滚要靠它。
+    """
+    if backup is None or not backup.exists():
+        return
+    pj = project_dir / "project.json"
+    try:
+        if pj.exists() and pj.read_bytes() == backup.read_bytes():
+            backup.unlink()
+    except OSError as exc:
+        logger.warning("回收未生效的迁移备份失败（非阻塞）：%s: %s", backup, exc)
 
 
 def _hardlink_backup_clues(project_dir: Path, from_version: int) -> None:
@@ -129,13 +147,17 @@ def migrate_project_dir(project_dir: Path) -> bool:
     if version < 0 or version >= CURRENT_SCHEMA_VERSION:
         return False
     while version < CURRENT_SCHEMA_VERSION:
-        _backup_project_json(project_dir, version)
+        backup = _backup_project_json(project_dir, version)
         if version == 0:
             _hardlink_backup_clues(project_dir, version)
         migrator = MIGRATORS.get(version)
         if not migrator:
             raise RuntimeError(f"no migrator from v{version}")
-        migrator(project_dir)
+        try:
+            migrator(project_dir)
+        except Exception:
+            _discard_unchanged_backup(project_dir, backup)
+            raise
         version += 1
     return True
 

@@ -1503,6 +1503,12 @@ async def set_project_source(
         def _sync_write():
             if not manager.project_exists(name):
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+            if generate_overview:
+                # 概述按 source_file_type 切「改编 / 提取」口径并发起付费调用。未完成升级的项目
+                # 放行会先把源文件写下去，概述再静默降级成 overview_error 回 200——调用方以为
+                # 只是概述没生成，实际是整条链路都还读不了新契约。闸门必须在落盘之前。
+                # 锁不可重入，load_project 自带项目锁，只能在 locked_source_mutation 之外调用。
+                require_current_schema(manager.load_project(name), name=name)
             with manager.locked_source_mutation(name) as source_dir:
                 if raw is not None:
                     safe_filename = Path(original_name).name
@@ -1541,7 +1547,7 @@ async def set_project_source(
                 )
 
         return result
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
