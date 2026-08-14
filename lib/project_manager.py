@@ -1540,6 +1540,8 @@ class ProjectManager:
         project_name: str,
         script_filename: str,
         updates: list[tuple[str, str, Any]],
+        *,
+        on_commit: Callable[[Path], None] | None = None,
     ) -> dict:
         """批量更新多个场景的生成资源路径（单次读写）。
 
@@ -1547,6 +1549,7 @@ class ProjectManager:
             project_name: 项目名称
             script_filename: 剧本文件名
             updates: 列表，每项为 (scene_id, asset_type, asset_path)
+            on_commit: 剧本与 project.json 写入后、正式事务退出前执行的同步 hook
 
         Returns:
             更新后的剧本
@@ -1560,7 +1563,12 @@ class ProjectManager:
         # 永远 pending。id 未命中收集一轮再统一抛，让 worker 看到完整失败集合而不是只看到首个；
         # locked_script 在 with 体内抛异常时整体不写回（与 update_scene_asset 单个版本对齐）。
         # resolve_items 让 reference 模式 worker 也能正确按 unit_id 索引 video_units。
-        with self.locked_script(project_name, script_filename, validate=False) as script:
+        with self.locked_script(
+            project_name,
+            script_filename,
+            validate=False,
+            on_commit=on_commit,
+        ) as script:
             content_mode = script.get("content_mode", "narration")
             items, id_field, _kind = resolve_items(script)
 
