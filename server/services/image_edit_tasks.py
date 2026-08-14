@@ -199,6 +199,59 @@ def resolve_usable_image_edit_source(
     return _ImageEditSource(resource_id=resolved_id, artifact_path=artifact_path, formal_claims=tuple(claims))
 
 
+def _assert_selected_image_edit_source_usable(
+    *,
+    project_name: str,
+    project_path: Path,
+    resource_type: str,
+    requested_resource_id: str,
+    script_file: str | None,
+    selected: _ImageEditSource,
+) -> None:
+    """Re-select the edit input from one current, canonically locked snapshot."""
+
+    pm = get_project_manager()
+
+    def _refresh(current_project: dict[str, Any], current_script: dict[str, Any] | None) -> _ImageEditSource | None:
+        artifact_episode = (
+            resolve_artifact_episode(
+                project=current_project,
+                script=current_script,
+                script_filename=script_file,
+            )
+            if current_script is not None and script_file is not None
+            else None
+        )
+        return resolve_usable_image_edit_source(
+            project=current_project,
+            project_path=project_path,
+            resource_type=resource_type,
+            resource_id=requested_resource_id,
+            script=current_script,
+            artifact_episode=artifact_episode,
+            resolver=active_artifact_currency_resolver(project_path, current_project),
+        )
+
+    try:
+        if resource_type == "storyboard":
+            if script_file is None:
+                raise ValueError("script_file is required for storyboard image edit admission")
+            with pm.locked_project_script_snapshot(project_name, script_file) as (current_project, current_script):
+                refreshed = _refresh(current_project, current_script)
+        else:
+            with pm.locked_project_snapshot(project_name) as current_project:
+                refreshed = _refresh(current_project, None)
+    except KeyError as exc:
+        raise ValueError(f"selected image edit source is no longer available: {selected.artifact_path}") from exc
+
+    if (
+        refreshed is None
+        or refreshed.resource_id != selected.resource_id
+        or refreshed.artifact_path != selected.artifact_path
+    ):
+        raise ValueError(f"selected image edit source is no longer available: {selected.artifact_path}")
+
+
 async def execute_image_edit_task(
     project_name: str,
     resource_id: str,
@@ -283,7 +336,7 @@ async def execute_image_edit_task(
         except BaseException:
             _frozen.cleanup()
             raise
-        return _project, _project_path, _current_image, _key, _aspect_ratio, _frozen, _basis, _source.formal_claims
+        return _project, _project_path, _current_image, _key, _aspect_ratio, _frozen, _basis, _source
 
     (
         project,
@@ -293,8 +346,9 @@ async def execute_image_edit_task(
         aspect_ratio,
         frozen_references,
         edit_basis,
-        formal_claims,
+        selected_source,
     ) = await asyncio.to_thread(_prepare)
+    formal_claims = selected_source.formal_claims
 
     canonical_rel = resource_relative_path(version_resource_type, resource_key)
     formal_outcomes: list[Any] = []
@@ -360,6 +414,17 @@ async def execute_image_edit_task(
                 project_manager=get_project_manager(),
             )
 
+        async def _before_submit() -> None:
+            await asyncio.to_thread(
+                _assert_selected_image_edit_source_usable,
+                project_name=project_name,
+                project_path=project_path,
+                resource_type=resource_type,
+                requested_resource_id=resource_id,
+                script_file=str(script_file) if script_file is not None else None,
+                selected=selected_source,
+            )
+
         # 参考图仅当前图一张、prompt 仅编辑指令（不拼原 image_prompt / 不追加生成路径的
         # 自动参考图收集）；provider 与 frozen basis 共享 task-owned 源图字节。
         _, version = await generator.generate_image_async(
@@ -372,6 +437,7 @@ async def execute_image_edit_task(
             formal_output=True,
             task_id=_formal_image_task_token(task_id),
             commit_formal_output=commit_formal_output,
+            before_submit=_before_submit,
             source=IMAGE_EDIT_VERSION_SOURCE,
         )
     finally:

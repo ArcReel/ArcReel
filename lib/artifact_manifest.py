@@ -510,7 +510,9 @@ class InMemoryArtifactManifestAdapter:
             encoded = key.encode()
             if self._entries.get(encoded) == entry:
                 return False
-            self._entries[encoded] = entry
+            updated = {**self._entries, encoded: entry}
+            _assert_unique_artifact_paths(updated)
+            self._entries = updated
             return True
 
     def delete_entry(self, key: ArtifactKey) -> bool:
@@ -536,6 +538,7 @@ class InMemoryArtifactManifestAdapter:
                     updated[key] = entry
             if updated == self._entries:
                 return False
+            _assert_unique_artifact_paths(updated)
             self._entries = updated
             return True
 
@@ -547,6 +550,7 @@ class InMemoryArtifactManifestAdapter:
     ) -> bool:
         encoded_expected = _encode_target_entries(expected)
         encoded_replacement = _encode_target_entries(replacement)
+        _assert_unique_artifact_paths(encoded_replacement)
         with self._lock:
             if self._entries != encoded_expected:
                 return False
@@ -558,6 +562,7 @@ class InMemoryArtifactManifestAdapter:
         entries: Mapping[ArtifactKey, ArtifactManifestEntry],
     ) -> bool:
         encoded = _encode_target_entries(entries)
+        _assert_unique_artifact_paths(encoded)
         with self._lock:
             if self._entries == encoded:
                 return False
@@ -1708,6 +1713,7 @@ def _entries_match(
 
 
 def _serialize_manifest(entries: Mapping[str, ArtifactManifestEntry]) -> bytes:
+    _assert_unique_artifact_paths(entries)
     payload = {
         "entries": {
             key: {
@@ -1720,6 +1726,19 @@ def _serialize_manifest(entries: Mapping[str, ArtifactManifestEntry]) -> bytes:
         "schema_version": MANIFEST_SCHEMA_VERSION,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8") + b"\n"
+
+
+def _assert_unique_artifact_paths(entries: Mapping[str, ArtifactManifestEntry]) -> None:
+    """Reject a target state in which two identities own one formal file."""
+
+    owners: dict[str, str] = {}
+    for key, entry in entries.items():
+        owner = owners.get(entry.artifact_path)
+        if owner is not None and owner != key:
+            raise ArtifactManifestError(
+                f"formal artifact path is claimed by multiple keys: {entry.artifact_path} ({owner}, {key})"
+            )
+        owners[entry.artifact_path] = key
 
 
 def encode_artifact_manifest_payload(

@@ -10,7 +10,7 @@ import asyncio
 import logging
 import os
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -213,22 +213,7 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
                     sorted(set(missing_ids)),
                 )
 
-            manifest_entries: dict[ArtifactKey, ArtifactManifestEntry | None] = {
-                ArtifactKey.episode_storyboard(grid.episode, resource_id): None for resource_id in updated_ids
-            }
-            item_by_id = {str(item.get(id_field)): item for item in items if isinstance(item, Mapping)}
-            members: tuple[GridStoryboardVisual, ...] | None = None
-            if len(set(grid.scene_ids)) == len(grid.scene_ids) and all(
-                resource_id in item_by_id for resource_id in grid.scene_ids
-            ):
-                members = tuple(
-                    GridStoryboardVisual(
-                        resource_id=resource_id,
-                        image_prompt=item_by_id[resource_id].get("image_prompt"),
-                        video_prompt=item_by_id[resource_id].get("video_prompt"),
-                    )
-                    for resource_id in grid.scene_ids
-                )
+            manifest_entries: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
             references: tuple[VisualReference, ...] | None = ()
             reference_list: list[VisualReference] = []
             for reference in grid.reference_images or []:
@@ -255,48 +240,97 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
                 except OSError:
                     references = None
             member_ratio = video_aspect_ratio
-            if source_status is ArtifactStatus.STALE and source_entry is not None:
-                for cell_index, resource_id, cell_rel in cell_assignments:
-                    try:
-                        basis = build_stale_grid_member_storyboard_visual_basis(
-                            group_id=grid.id,
+
+            def _prepare_manifest_state(current_project: dict[str, Any], current_script: dict[str, Any]) -> None:
+                """Refresh schema admission and derived bases inside the final project transaction."""
+
+                nonlocal source_entry, source_key, source_status
+                source_entry = None
+                source_key = None
+                source_status = None
+                if current_project.get("schema_version") == TARGET_SCHEMA_VERSION:
+                    source_key = ArtifactKey.episode_grid(grid.episode, grid.id)
+                    adapter = ProjectArtifactManifestAdapter(project_path)
+                    source_entry = adapter.get_entry(source_key)
+                    comparison = ArtifactCurrencyResolver(project_path).compare(
+                        source_key,
+                        artifact_path=grid_image_path,
+                    )
+                    if source_entry is None or not comparison.usable or adapter.get_entry(source_key) != source_entry:
+                        raise GridImageNotReadyError(f"grid {grid.id} has no registered grid image to split")
+                    source_status = comparison.status
+
+                current_items, current_id_field, _kind = resolve_items(current_script)
+                item_by_id = {
+                    str(item.get(current_id_field)): item for item in current_items if isinstance(item, Mapping)
+                }
+                members: tuple[GridStoryboardVisual, ...] | None = None
+                if len(set(grid.scene_ids)) == len(grid.scene_ids) and all(
+                    resource_id in item_by_id for resource_id in grid.scene_ids
+                ):
+                    members = tuple(
+                        GridStoryboardVisual(
                             resource_id=resource_id,
-                            cell_index=cell_index,
-                            composite_image=composite_snapshot,
-                            rows=grid.rows,
-                            columns=grid.cols,
-                            member_aspect_ratio=member_ratio,
-                            source_grid_basis_digest=source_entry.basis_digest,
-                            source_composite_digest=composite_digest,
+                            image_prompt=item_by_id[resource_id].get("image_prompt"),
+                            video_prompt=item_by_id[resource_id].get("video_prompt"),
                         )
-                    except (OSError, TypeError, ValueError):
-                        continue
-                    manifest_entries[ArtifactKey.episode_storyboard(grid.episode, resource_id)] = ArtifactManifestEntry(
-                        artifact_path=cell_rel,
-                        basis_digest=basis.digest,
+                        for resource_id in grid.scene_ids
                     )
-                    version_metadata_by_resource[resource_id][IMAGE_ARTIFACT_BASIS_FIELD] = basis.to_evidence_dict()
-            elif members is not None and references is not None:
-                for cell_index, resource_id, cell_rel in cell_assignments:
-                    try:
-                        basis = build_grid_member_storyboard_visual_basis(
-                            group_id=grid.id,
-                            members=members,
-                            cell_index=cell_index,
-                            composite_image=composite_snapshot,
-                            rows=grid.rows,
-                            columns=grid.cols,
-                            style=str(project_snapshot.get("style") or ""),
-                            member_aspect_ratio=member_ratio,
-                            references=references,
-                            source_composite_digest=composite_digest,
+
+                manifest_entries.clear()
+                manifest_entries.update(
+                    {ArtifactKey.episode_storyboard(grid.episode, resource_id): None for resource_id in updated_ids}
+                )
+                for metadata in version_metadata_by_resource.values():
+                    metadata.pop(IMAGE_ARTIFACT_BASIS_FIELD, None)
+
+                if source_status is ArtifactStatus.STALE and source_entry is not None:
+                    for cell_index, resource_id, cell_rel in cell_assignments:
+                        try:
+                            basis = build_stale_grid_member_storyboard_visual_basis(
+                                group_id=grid.id,
+                                resource_id=resource_id,
+                                cell_index=cell_index,
+                                composite_image=composite_snapshot,
+                                rows=grid.rows,
+                                columns=grid.cols,
+                                member_aspect_ratio=member_ratio,
+                                source_grid_basis_digest=source_entry.basis_digest,
+                                source_composite_digest=composite_digest,
+                            )
+                        except (OSError, TypeError, ValueError):
+                            continue
+                        manifest_entries[ArtifactKey.episode_storyboard(grid.episode, resource_id)] = (
+                            ArtifactManifestEntry(
+                                artifact_path=cell_rel,
+                                basis_digest=basis.digest,
+                            )
                         )
-                    except (OSError, TypeError, ValueError):
-                        continue
-                    manifest_entries[ArtifactKey.episode_storyboard(grid.episode, resource_id)] = ArtifactManifestEntry(
-                        artifact_path=cell_rel, basis_digest=basis.digest
-                    )
-                    version_metadata_by_resource[resource_id][IMAGE_ARTIFACT_BASIS_FIELD] = basis.to_evidence_dict()
+                        version_metadata_by_resource[resource_id][IMAGE_ARTIFACT_BASIS_FIELD] = basis.to_evidence_dict()
+                elif members is not None and references is not None:
+                    for cell_index, resource_id, cell_rel in cell_assignments:
+                        try:
+                            basis = build_grid_member_storyboard_visual_basis(
+                                group_id=grid.id,
+                                members=members,
+                                cell_index=cell_index,
+                                composite_image=composite_snapshot,
+                                rows=grid.rows,
+                                columns=grid.cols,
+                                style=str(current_project.get("style") or ""),
+                                member_aspect_ratio=member_ratio,
+                                references=references,
+                                source_composite_digest=composite_digest,
+                            )
+                        except (OSError, TypeError, ValueError):
+                            continue
+                        manifest_entries[ArtifactKey.episode_storyboard(grid.episode, resource_id)] = (
+                            ArtifactManifestEntry(
+                                artifact_path=cell_rel,
+                                basis_digest=basis.digest,
+                            )
+                        )
+                        version_metadata_by_resource[resource_id][IMAGE_ARTIFACT_BASIS_FIELD] = basis.to_evidence_dict()
 
             split_at = datetime.now(UTC).isoformat()
             initial_grid = grid.to_dict()
@@ -354,11 +388,18 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
                 def _activate_versions(_script_path: Path) -> None:
                     versions.commit_staged_versions(staged_commits, on_commit=_commit_grid)
 
+                def _prepare_versions(current_script: dict[str, Any]) -> Callable[[Path], None]:
+                    _prepare_manifest_state(
+                        pm.load_project_readonly(project_name),
+                        current_script,
+                    )
+                    return _activate_versions
+
                 pm.batch_update_scene_assets(
                     project_name=project_name,
                     script_filename=script_file,
                     updates=asset_updates,
-                    on_commit=_activate_versions,
+                    prepare_on_commit=_prepare_versions,
                 )
             else:
                 _commit_grid()

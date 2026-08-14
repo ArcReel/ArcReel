@@ -111,6 +111,32 @@ def test_project_adapter_replaces_the_complete_target_state_atomically(tmp_path:
     assert (manifest_path.read_bytes(), manifest_path.stat().st_mtime_ns) == before
 
 
+def test_project_adapter_rejects_a_second_key_claiming_an_existing_formal_path(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    artifact = project / "videos" / "scene_E1S01.mp4"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"episode-one")
+    adapter = ProjectArtifactManifestAdapter(project)
+    first_key = ArtifactKey.episode_video(1, "E1S01")
+    second_key = ArtifactKey.episode_video(2, "E1S01")
+    first_entry = ArtifactManifestEntry(
+        artifact_path="videos/scene_E1S01.mp4",
+        basis_digest=ArtifactBasis.build("video", kind_version=1, inputs={"episode": 1}).digest,
+    )
+    second_entry = ArtifactManifestEntry(
+        artifact_path="videos/scene_E1S01.mp4",
+        basis_digest=ArtifactBasis.build("video", kind_version=1, inputs={"episode": 2}).digest,
+    )
+    assert adapter.put_entry(first_key, first_entry)
+    manifest_before = (project / MANIFEST_FILENAME).read_bytes()
+
+    with pytest.raises(ArtifactManifestError, match="formal artifact path.*multiple keys"):
+        adapter.put_entry(second_key, second_entry)
+
+    assert (project / MANIFEST_FILENAME).read_bytes() == manifest_before
+    assert adapter.snapshot_entries() == {first_key: first_entry}
+
+
 def test_stale_comparison_preserves_paid_artifact_and_manifest(tmp_path: Path) -> None:
     project = tmp_path / "project"
     artifact = project / "videos" / "E1S01.mp4"

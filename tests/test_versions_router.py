@@ -13,11 +13,13 @@ from fastapi.testclient import TestClient
 
 from lib.api_errors import BadRequestError
 from lib.artifact_manifest import (
+    HASH_ALGORITHM,
+    MANIFEST_FILENAME,
+    MANIFEST_SCHEMA_VERSION,
     ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifest,
-    ArtifactManifestEntry,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
@@ -902,15 +904,25 @@ class TestVersionsRouter:
         image_path.write_bytes(b"historical-grid")
         if record_bytes is not None:
             (grids_dir / f"{grid_id}.json").write_bytes(record_bytes)
-        adapter = ProjectArtifactManifestAdapter(tmp_path)
+        # Seed a historical invalid sidecar directly. Normal Manifest writers now reject
+        # two keys owning one formal path, while restore must still repair old data.
+        entries = {}
         for episode in (1, 2):
-            adapter.put_entry(
-                ArtifactKey.episode_grid(episode, grid_id),
-                ArtifactManifestEntry(
-                    artifact_path=f"grids/{grid_id}.png",
-                    basis_digest=f"sha256-v1:{episode:064x}",
-                ),
-            )
+            entries[ArtifactKey.episode_grid(episode, grid_id).encode()] = {
+                "artifact_path": f"grids/{grid_id}.png",
+                "basis_digest": f"sha256-v1:{episode:064x}",
+            }
+        (tmp_path / MANIFEST_FILENAME).write_text(
+            json.dumps(
+                {
+                    "entries": entries,
+                    "hash_algorithm": HASH_ALGORITHM,
+                    "schema_version": MANIFEST_SCHEMA_VERSION,
+                }
+            ),
+            encoding="utf-8",
+        )
+        adapter = ProjectArtifactManifestAdapter(tmp_path)
         fake_pm = _GridPM(tmp_path)
         monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())

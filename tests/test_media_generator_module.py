@@ -263,6 +263,32 @@ class TestMediaGenerator:
         assert not any(canonical.parent.glob(".*.task-output.png"))
 
     @pytest.mark.unit
+    async def test_image_before_submit_runs_at_the_backend_boundary(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        backend = _FakeImageBackend()
+        gen._image_backend = backend
+        events: list[str] = []
+        original_generate = backend.generate
+
+        async def _generate(request):
+            events.append("provider")
+            return await original_generate(request)
+
+        async def _before_submit() -> None:
+            events.append("admission")
+
+        backend.generate = _generate
+
+        await gen.generate_image_async(
+            prompt="p",
+            resource_type="storyboards",
+            resource_id="E1S01",
+            before_submit=_before_submit,
+        )
+
+        assert events == ["admission", "provider"]
+
+    @pytest.mark.unit
     async def test_invalid_formal_image_call_preserves_a_previous_staged_output(self, tmp_path):
         gen = _build_generator(tmp_path)
         backend = _FakeImageBackend()

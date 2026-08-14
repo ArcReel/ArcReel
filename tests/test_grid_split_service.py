@@ -89,9 +89,10 @@ def _mock_pm(project_with_script, script_data=None):
         else json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
     )
 
-    def _batch_update(*_args, on_commit=None, **_kwargs):
-        if on_commit is not None:
-            on_commit(project_with_script / "scripts" / "episode_1.json")
+    def _batch_update(*_args, on_commit=None, prepare_on_commit=None, **_kwargs):
+        commit = prepare_on_commit(pm.load_script.return_value) if prepare_on_commit is not None else on_commit
+        if commit is not None:
+            commit(project_with_script / "scripts" / "episode_1.json")
         return pm.load_script.return_value
 
     pm.batch_update_scene_assets.side_effect = _batch_update
@@ -330,6 +331,36 @@ class TestApplyGridSplit:
         assert script_file.read_bytes() == before["script"]
         assert grid_file.read_bytes() == before["grid"]
         assert tuple(sorted((project_with_script / "storyboards").iterdir())) == before["storyboards"]
+
+    async def test_split_rechecks_grid_claim_when_schema_activates_before_the_final_commit(
+        self,
+        project_with_script,
+        grid_with_image,
+        monkeypatch,
+    ):
+        pm = ProjectManager(project_with_script.parent)
+        original_batch_update = pm.batch_update_scene_assets
+        script_file = project_with_script / "scripts" / "episode_1.json"
+        grid_file = project_with_script / "grids" / f"{grid_with_image.id}.json"
+        script_before = script_file.read_bytes()
+        grid_before = grid_file.read_bytes()
+
+        def _activate_then_commit(*args, **kwargs):
+            project_file = project_with_script / "project.json"
+            project = json.loads(project_file.read_text(encoding="utf-8"))
+            project["schema_version"] = 8
+            project_file.write_text(json.dumps(project), encoding="utf-8")
+            return original_batch_update(*args, **kwargs)
+
+        monkeypatch.setattr(pm, "batch_update_scene_assets", _activate_then_commit)
+        with patch("server.services.grid_split.get_project_manager", return_value=pm):
+            with pytest.raises(GridImageNotReadyError, match="registered"):
+                await apply_grid_split("test-project", grid_with_image)
+
+        assert script_file.read_bytes() == script_before
+        assert grid_file.read_bytes() == grid_before
+        assert not (project_with_script / "versions" / "versions.json").exists()
+        assert not tuple((project_with_script / "storyboards").glob("scene_*.png"))
 
     async def test_split_cells_from_a_stale_claim_remain_stale(self, project_with_script, grid_with_image):
         from lib.artifact_activation import ArtifactCurrencyResolver

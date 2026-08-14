@@ -764,10 +764,10 @@ class ProjectManager:
     ) -> Path:
         """Commit a script, its project index, and an optional sidecar hook together.
 
-        The caller holds the canonical script lock.  When an episode index is
-        present, this method also holds the project lock through the formal
-        write and hook so rollback cannot overwrite a concurrent project edit.
-        ``prepare_on_commit`` is evaluated only after that lock is held, so a
+        The caller holds the canonical script lock.  An episode index, or a
+        ``prepare_on_commit`` callback, also keeps the project lock through the
+        formal write and hook so rollback cannot overwrite a concurrent project
+        edit. The prepare callback runs only after that lock is held, so a
         schema-dependent sidecar plan cannot race with project activation.
         """
 
@@ -778,11 +778,13 @@ class ProjectManager:
         output_path = Path(self._safe_subpath(scripts_dir, filename))
         project_file = self._get_project_file_path(project_name)
         sync_project = project_file.is_file() and isinstance(script.get("episode"), int)
+        lock_project = project_file.is_file() and (sync_project or prepare_on_commit is not None)
 
-        if sync_project:
+        if lock_project:
             with self._project_lock(project_name):
                 prepared_on_commit = prepare_on_commit() if prepare_on_commit is not None else on_commit
-                with formal_write_transaction(output_path, project_file):
+                transaction_paths = (output_path, project_file) if sync_project else (output_path,)
+                with formal_write_transaction(*transaction_paths):
                     output = self._write_script_unlocked(
                         project_name,
                         script,
@@ -792,20 +794,22 @@ class ProjectManager:
                         before=before,
                         emit_change=False,
                     )
-                    project = self._read_project_raw_unlocked(project_name)
-                    if self._requires_unique_asset_namespace(project):
-                        ensure_project_asset_namespace(project)
-                    self._apply_episode_sync(project, script, filename)
-                    self._migrate_legacy_resolution_on_save(project)
-                    self._migrate_legacy_style(project)
-                    self._touch_metadata(project)
-                    if self._requires_unique_asset_namespace(project):
-                        ensure_project_asset_namespace(project)
-                    atomic_write_json(project_file, project)
+                    if sync_project:
+                        project = self._read_project_raw_unlocked(project_name)
+                        if self._requires_unique_asset_namespace(project):
+                            ensure_project_asset_namespace(project)
+                        self._apply_episode_sync(project, script, filename)
+                        self._migrate_legacy_resolution_on_save(project)
+                        self._migrate_legacy_style(project)
+                        self._touch_metadata(project)
+                        if self._requires_unique_asset_namespace(project):
+                            ensure_project_asset_namespace(project)
+                        atomic_write_json(project_file, project)
                     if prepared_on_commit is not None:
                         prepared_on_commit(output)
-            changed_paths = [f"scripts/{output_path.name}", self.PROJECT_FILE]
+            changed_paths = [f"scripts/{output_path.name}", *([self.PROJECT_FILE] if sync_project else [])]
         else:
+            prepared_on_commit = prepare_on_commit() if prepare_on_commit is not None else on_commit
             with formal_write_transaction(output_path):
                 output = self._write_script_unlocked(
                     project_name,
@@ -816,8 +820,8 @@ class ProjectManager:
                     before=before,
                     emit_change=False,
                 )
-                if on_commit is not None:
-                    on_commit(output)
+                if prepared_on_commit is not None:
+                    prepared_on_commit(output)
             changed_paths = [f"scripts/{output_path.name}"]
 
         emit_project_change_hint(project_name, changed_paths=changed_paths)
@@ -941,6 +945,7 @@ class ProjectManager:
         *,
         validate: bool = True,
         on_commit: Callable[[Path], None] | None = None,
+        prepare_on_commit: Callable[[dict], Callable[[Path], None] | None] | None = None,
     ):
         """在单一 `_script_lock` 内完成剧本的 load → mutate → save 读-改-写。
 
@@ -950,6 +955,7 @@ class ProjectManager:
 
         `validate=True`（默认）时在 yield 前快照「改前」剧本，写回走「不更坏」结构校验（零额外
         读盘）。只动 `generated_assets` 的资产回写热路径传 `validate=False` 整体豁免。
+        ``prepare_on_commit`` 在项目锁内接收修改后的剧本，并返回正式写入后的同步 hook。
         """
         norm = self.normalize_script_filename(script_filename)
         with self._script_lock(project_name, norm):
@@ -964,6 +970,7 @@ class ProjectManager:
                 validate=validate,
                 before=before,
                 on_commit=on_commit,
+                prepare_on_commit=(lambda: prepare_on_commit(script)) if prepare_on_commit is not None else None,
             )
 
     @contextmanager
@@ -985,6 +992,15 @@ class ProjectManager:
                 self._migrate_legacy_style(project)
                 script, _migrated = self._read_script_unlocked(project_name, norm)
                 yield project, script
+
+    @contextmanager
+    def locked_project_snapshot(self, project_name: str):
+        """Yield current project metadata under its canonical write lock."""
+
+        with self._project_lock(project_name):
+            project = self._read_project_raw_unlocked(project_name)
+            self._migrate_legacy_style(project)
+            yield project
 
     def _read_project_raw_unlocked(self, project_name: str) -> dict:
         """裸读 project.json（不取锁、不迁移）。仅供已持 `_project_lock` 的复核调用。"""
@@ -1602,6 +1618,7 @@ class ProjectManager:
         updates: list[tuple[str, str, Any]],
         *,
         on_commit: Callable[[Path], None] | None = None,
+        prepare_on_commit: Callable[[dict], Callable[[Path], None] | None] | None = None,
     ) -> dict:
         """批量更新多个场景的生成资源路径（单次读写）。
 
@@ -1610,6 +1627,8 @@ class ProjectManager:
             script_filename: 剧本文件名
             updates: 列表，每项为 (scene_id, asset_type, asset_path)
             on_commit: 剧本与 project.json 写入后、正式事务退出前执行的同步 hook
+            prepare_on_commit: 项目锁内基于修改后剧本准备 ``on_commit`` 的回调；与
+                ``on_commit`` 互斥
 
         Returns:
             更新后的剧本
@@ -1628,6 +1647,7 @@ class ProjectManager:
             script_filename,
             validate=False,
             on_commit=on_commit,
+            prepare_on_commit=prepare_on_commit,
         ) as script:
             content_mode = script.get("content_mode", "narration")
             items, id_field, _kind = resolve_items(script)

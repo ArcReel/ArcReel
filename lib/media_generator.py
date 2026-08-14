@@ -485,6 +485,7 @@ class MediaGenerator:
         formal_output: bool = False,
         task_id: str | None = None,
         commit_formal_output: Callable[[Path, Path, Mapping[str, Any]], int] | None = None,
+        before_submit: Callable[[], Awaitable[None]] | None = None,
         **version_metadata,
     ) -> tuple[Path, int]:
         """
@@ -513,6 +514,7 @@ class MediaGenerator:
                 formal_output=formal_output,
                 task_id=task_id,
                 commit_formal_output=commit_formal_output,
+                before_submit=before_submit,
                 **version_metadata,
             )
         )
@@ -528,6 +530,7 @@ class MediaGenerator:
         formal_output: bool = False,
         task_id: str | None = None,
         commit_formal_output: Callable[[Path, Path, Mapping[str, Any]], int] | None = None,
+        before_submit: Callable[[], Awaitable[None]] | None = None,
         **version_metadata,
     ) -> tuple[Path, int]:
         """
@@ -641,6 +644,7 @@ class MediaGenerator:
                     specs=specs,
                     provider_id=self._image_provider_id,
                     build_and_call=_call_image,
+                    before_submit=before_submit,
                 )
                 call.success(result)
 

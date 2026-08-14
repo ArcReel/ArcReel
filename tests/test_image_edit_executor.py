@@ -179,6 +179,55 @@ class TestResolveCurrentImageRel:
 
 
 class TestExecuteImageEditTask:
+    async def test_legacy_asset_rechecks_manifest_admission_after_schema_activation(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.add_character("demo", "Alice", "")
+        project_path = pm.get_project_path("demo")
+        current = project_path / "characters" / "Alice.png"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"legacy-sheet")
+        pm.update_project_character_sheet("demo", "Alice", "characters/Alice.png")
+        pm.update_project("demo", lambda project: project.__setitem__("schema_version", 7))
+        submitted = False
+
+        class _Generator(_FakeGenerator):
+            async def generate_image_async(self, **kwargs):
+                nonlocal submitted
+                await kwargs["before_submit"]()
+                submitted = True
+                return await super().generate_image_async(**kwargs)
+
+        generator = _Generator()
+        monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: pm)
+
+        async def _activate_before_provider(*_args, **_kwargs):
+            pm.update_project("demo", lambda project: project.__setitem__("schema_version", 8))
+            lane = ImageLaneResult(
+                provider_model=ProviderModel("gemini-aistudio", "gemini-image"),
+                backend_name="gemini-aistudio",
+                backend_model="gemini-image",
+                resolution=None,
+            )
+            return GenerationContext(generator=generator, image_lane=lane)
+
+        monkeypatch.setattr(image_edit_tasks, "resolve_generation_context", _activate_before_provider)
+
+        with pytest.raises(ValueError, match="no longer available"):
+            await execute_image_edit_task(
+                "demo",
+                "Alice",
+                {"resource_type": "character", "prompt": "red hair"},
+            )
+
+        assert submitted is False
+        assert generator.image_calls == []
+
     async def test_registration_failure_never_exposes_an_edited_image(self, tmp_path, monkeypatch):
         from lib.artifact_activation import register_current_artifact
         from lib.media_generator import task_image_staging_path
