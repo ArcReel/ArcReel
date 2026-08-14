@@ -22,7 +22,7 @@ from lib.speech_presentation import (
     materialize_speech_presentation,
 )
 from server.services.jianying_draft_service import JianyingDraftService, NoCompletedSegmentsError
-from server.services.presentation_read_model import MaterializedPresentation
+from server.services.presentation_read_model import MaterializedEpisode, MaterializedPresentation
 from tests.conftest import make_test_audio, make_test_video, make_test_video_with_audio_tail
 
 pytestmark = pytest.mark.integration
@@ -98,13 +98,17 @@ def _result(
 
 
 class _Reader:
-    def __init__(self, values: tuple[MaterializedPresentation, ...]) -> None:
+    def __init__(self, project_manager: ProjectManager, values: tuple[MaterializedPresentation, ...]) -> None:
+        self.project_manager = project_manager
         self.values = values
         self.calls: list[tuple[str, int, str]] = []
 
     async def materialize_episode(self, *, project_name: str, episode: int, variant: str):
         self.calls.append((project_name, episode, variant))
-        return self.values
+        return MaterializedEpisode(
+            project_snapshot=self.project_manager.load_project(project_name),
+            presentations=self.values,
+        )
 
 
 def _project(tmp_path: Path, title: str = "测试项目", aspect_ratio: object = "9:16") -> tuple[ProjectManager, Path]:
@@ -151,7 +155,7 @@ async def test_export_serializes_only_shared_track_gains_actual_boundaries_and_c
         audio_duration=0.9,
         provider_audio_enabled=False,
     )
-    archive = await JianyingDraftService(pm, presentation_reader=_Reader((value,))).export_episode_draft(
+    archive = await JianyingDraftService(pm, presentation_reader=_Reader(pm, (value,))).export_episode_draft(
         "demo", 1, "/mock/JianyingDrafts", variant=USE_TTS
     )
 
@@ -181,7 +185,7 @@ async def test_export_accepts_video_track_boundary_when_container_has_a_longer_a
     assert duration is not None
     value = _result(project_path, unit_id="E1S01", video_path=video, duration=duration)
 
-    archive = await JianyingDraftService(pm, presentation_reader=_Reader((value,))).export_episode_draft(
+    archive = await JianyingDraftService(pm, presentation_reader=_Reader(pm, (value,))).export_episode_draft(
         "demo", 1, "/mock/JianyingDrafts"
     )
 
@@ -199,7 +203,7 @@ async def test_export_uses_shared_transition_and_unity_provider_track(tmp_path: 
     make_test_video(second, duration_sec=1.0)
     one = _result(project_path, unit_id="one", video_path=first, duration=1.0, transition="fade")
     two = _result(project_path, unit_id="two", video_path=second, duration=1.0, transition="fade")
-    archive = await JianyingDraftService(pm, presentation_reader=_Reader((one, two))).export_episode_draft(
+    archive = await JianyingDraftService(pm, presentation_reader=_Reader(pm, (one, two))).export_episode_draft(
         "demo", 1, "/mock/JianyingDrafts"
     )
 
@@ -230,7 +234,7 @@ async def test_export_uses_reader_variant_and_packages_its_selected_media(
         audio_path=audio,
         audio_duration=0.75,
     )
-    reader = _Reader((value,))
+    reader = _Reader(pm, (value,))
     service = JianyingDraftService(pm, presentation_reader=reader)
     original_iterdir = Path.iterdir
 
@@ -271,7 +275,7 @@ async def test_export_uses_reader_variant_and_packages_its_selected_media(
 
 async def test_export_empty_shared_model_raises_completed_segments_error(tmp_path: Path) -> None:
     pm, _ = _project(tmp_path)
-    service = JianyingDraftService(pm, presentation_reader=_Reader(()))
+    service = JianyingDraftService(pm, presentation_reader=_Reader(pm, ()))
 
     with pytest.raises(NoCompletedSegmentsError):
         await service.export_episode_draft("demo", 1, "/mock/JianyingDrafts")
@@ -287,7 +291,7 @@ async def test_export_revalidates_shared_media_path_inside_project(tmp_path: Pat
     make_test_video(outside, duration_sec=1.0)
     selected.unlink()
     selected.symlink_to(outside)
-    service = JianyingDraftService(pm, presentation_reader=_Reader((value,)))
+    service = JianyingDraftService(pm, presentation_reader=_Reader(pm, (value,)))
 
     with pytest.raises(ValueError, match="outside the project"):
         await service.export_episode_draft("demo", 1, "/mock/JianyingDrafts")
@@ -312,12 +316,34 @@ async def test_export_canvas_uses_project_aspect_ratio(
     make_test_video(video, duration_sec=1.0)
     value = _result(project_path, unit_id="unit", video_path=video, duration=1.0)
 
-    archive = await JianyingDraftService(pm, presentation_reader=_Reader((value,))).export_episode_draft(
+    archive = await JianyingDraftService(pm, presentation_reader=_Reader(pm, (value,))).export_episode_draft(
         "demo", 1, "/mock/JianyingDrafts"
     )
 
     content = _read_draft_archive(archive)
     assert (content["canvas_config"]["width"], content["canvas_config"]["height"]) == expected
+
+
+async def test_export_canvas_uses_project_snapshot_selected_during_materialization(tmp_path: Path) -> None:
+    pm, project_path = _project(tmp_path, aspect_ratio="16:9")
+    video = project_path / "versions" / "videos" / "unit.mp4"
+    video.parent.mkdir(parents=True)
+    make_test_video(video, duration_sec=1.0)
+    value = _result(project_path, unit_id="unit", video_path=video, duration=1.0)
+
+    class _ProjectEditingReader(_Reader):
+        async def materialize_episode(self, *, project_name: str, episode: int, variant: str):
+            project = pm.load_project(project_name)
+            project["aspect_ratio"] = "9:16"
+            pm.save_project(project_name, project)
+            return await super().materialize_episode(project_name=project_name, episode=episode, variant=variant)
+
+    archive = await JianyingDraftService(
+        pm, presentation_reader=_ProjectEditingReader(pm, (value,))
+    ).export_episode_draft("demo", 1, "/mock/JianyingDrafts")
+
+    content = _read_draft_archive(archive)
+    assert (content["canvas_config"]["width"], content["canvas_config"]["height"]) == (1080, 1920)
 
 
 async def test_export_keeps_unverified_manual_upload_raw_without_speech_tracks(tmp_path: Path) -> None:
@@ -345,7 +371,7 @@ async def test_export_keeps_unverified_manual_upload_raw_without_speech_tracks(t
         presentation_artifact_path=None,
     )
 
-    archive = await JianyingDraftService(pm, presentation_reader=_Reader((value,))).export_episode_draft(
+    archive = await JianyingDraftService(pm, presentation_reader=_Reader(pm, (value,))).export_episode_draft(
         "demo", 1, "/mock/JianyingDrafts", variant=USE_TTS
     )
 

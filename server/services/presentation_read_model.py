@@ -93,6 +93,14 @@ class MaterializedPresentation:
 
 
 @dataclass(frozen=True, slots=True)
+class MaterializedEpisode:
+    """Presentations plus the canonical project snapshot that shaped them."""
+
+    project_snapshot: Mapping[str, Any]
+    presentations: tuple[MaterializedPresentation, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _SelectedVersion:
     record: Mapping[str, Any]
     target: TypedMediaRestoreTarget | None
@@ -317,7 +325,7 @@ class PresentationReadModelService:
         project_name: str,
         episode: int,
         variant: RenditionVariant,
-    ) -> tuple[MaterializedPresentation, ...]:
+    ) -> MaterializedEpisode:
         """Materialize every selected video in canonical script order.
 
         The requested rendition applies to narrator units. Character and silent
@@ -347,7 +355,7 @@ class PresentationReadModelService:
         project_name: str,
         variant: RenditionVariant,
         snapshot: _EpisodeSnapshot,
-    ) -> tuple[MaterializedPresentation, ...]:
+    ) -> MaterializedEpisode:
         items, id_field, kind = resolve_items(snapshot.script)
         resource_type = "reference_videos" if kind == "video_units" else "videos"
         project_path = await asyncio.to_thread(self._project_manager.get_project_path, project_name)
@@ -384,7 +392,10 @@ class PresentationReadModelService:
                 )
             results.append(result)
         await asyncio.to_thread(self._require_episode_snapshot_unchanged, project_name, snapshot)
-        return tuple(results)
+        return MaterializedEpisode(
+            project_snapshot=snapshot.project,
+            presentations=tuple(results),
+        )
 
     def _load_episode_snapshot(self, project_name: str, episode: int) -> _EpisodeSnapshot:
         candidate = self._project_manager.load_project(project_name)
@@ -944,6 +955,7 @@ def _restore_entry(
 
 
 __all__ = [
+    "MaterializedEpisode",
     "MaterializedPresentation",
     "PresentationReadModelService",
     "PresentationUnavailableError",

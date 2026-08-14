@@ -8,6 +8,7 @@ import os
 import shutil
 import tempfile
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -32,7 +33,11 @@ from lib.narration_delivery import POST_PRODUCTION
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager
 from lib.speech_artifact_provenance import RenditionVariant
-from server.services.presentation_read_model import MaterializedPresentation, PresentationReadModelService
+from server.services.presentation_read_model import (
+    MaterializedEpisode,
+    MaterializedPresentation,
+    PresentationReadModelService,
+)
 
 _TRANSITION_MAP: dict[str, TransitionType] = {
     "fade": TransitionType.闪黑,
@@ -51,7 +56,7 @@ class EpisodePresentationReader(Protocol):
         project_name: str,
         episode: int,
         variant: RenditionVariant,
-    ) -> tuple[MaterializedPresentation, ...]:
+    ) -> MaterializedEpisode:
         raise NotImplementedError
 
 
@@ -77,7 +82,7 @@ class JianyingDraftService:
         self._presentation_reader = presentation_reader or PresentationReadModelService(project_manager)
 
     @staticmethod
-    def _resolve_canvas_size(project: dict[str, Any], first_video_path: Path | None = None) -> tuple[int, int]:
+    def _resolve_canvas_size(project: Mapping[str, Any], first_video_path: Path | None = None) -> tuple[int, int]:
         aspect_ratio = project.get("aspect_ratio")
         aspect = (
             aspect_ratio
@@ -234,19 +239,19 @@ class JianyingDraftService:
     ) -> Path:
         """Materialize one episode once, then serialize that exact selection."""
 
-        project = await asyncio.to_thread(self.pm.load_project, project_name)
         project_dir = await asyncio.to_thread(self.pm.get_project_path, project_name)
-        values = await self._presentation_reader.materialize_episode(
+        materialized = await self._presentation_reader.materialize_episode(
             project_name=project_name,
             episode=episode,
             variant=variant,
         )
+        values = materialized.presentations
         if not values:
             raise NoCompletedSegmentsError(f"episode {episode} has no completed video presentations")
         return await asyncio.to_thread(
             self._export_materialized,
             project_name=project_name,
-            project=project,
+            project=materialized.project_snapshot,
             project_dir=project_dir,
             episode=episode,
             draft_path=draft_path,
@@ -258,7 +263,7 @@ class JianyingDraftService:
         self,
         *,
         project_name: str,
-        project: dict[str, Any],
+        project: Mapping[str, Any],
         project_dir: Path,
         episode: int,
         draft_path: str,
@@ -348,7 +353,7 @@ class JianyingDraftService:
             raise ValueError("shared presentation media is unavailable") from exc
 
     @staticmethod
-    def _draft_name(project_name: str, project: dict[str, Any], episode: int) -> str:
+    def _draft_name(project_name: str, project: Mapping[str, Any], episode: int) -> str:
         raw_title = project.get("title")
         title = raw_title if isinstance(raw_title, str) and raw_title.strip() else project_name
         safe_title = title.replace("/", "_").replace("\\", "_").replace("..", "_")

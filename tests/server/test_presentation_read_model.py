@@ -464,13 +464,13 @@ async def test_episode_materialization_skips_units_with_only_paid_history(tmp_pa
         duration_probe=probe,
     )
 
-    results = await service.materialize_episode(
+    materialized = await service.materialize_episode(
         project_name="demo",
         episode=1,
         variant="post_production",
     )
 
-    assert [result.presentation.unit_id for result in results] == ["E1S01"]
+    assert [result.presentation.unit_id for result in materialized.presentations] == ["E1S01"]
 
 
 async def test_episode_tts_materialization_keeps_video_without_selected_narration(tmp_path: Path) -> None:
@@ -486,13 +486,13 @@ async def test_episode_tts_materialization_keeps_video_without_selected_narratio
         duration_probe=probe,
     )
 
-    results = await service.materialize_episode(
+    materialized = await service.materialize_episode(
         project_name="demo",
         episode=1,
         variant="use_tts",
     )
 
-    assert [(result.presentation.unit_id, result.presentation.variant) for result in results] == [
+    assert [(result.presentation.unit_id, result.presentation.variant) for result in materialized.presentations] == [
         ("E1S01", "use_tts"),
         ("E1S02", "post_production"),
     ]
@@ -514,6 +514,9 @@ async def test_episode_materialization_restarts_as_one_snapshot_after_script_edi
             for item in edited["segments"]:
                 item["novel_text"] = "新旁白"
             pm.save_script("demo", edited, "episode_1.json")
+            project = pm.load_project("demo")
+            project["aspect_ratio"] = "16:9"
+            pm.save_project("demo", project)
         return 6.25
 
     service = PresentationReadModelService(
@@ -522,13 +525,14 @@ async def test_episode_materialization_restarts_as_one_snapshot_after_script_edi
         duration_probe=probe,
     )
 
-    results = await service.materialize_episode(
+    materialized = await service.materialize_episode(
         project_name="demo",
         episode=1,
         variant="post_production",
     )
 
-    assert [[cue.text for cue in result.presentation.subtitles] for result in results] == [
+    assert materialized.project_snapshot["aspect_ratio"] == "16:9"
+    assert [[cue.text for cue in result.presentation.subtitles] for result in materialized.presentations] == [
         ["新旁白"],
         ["新旁白"],
     ]
