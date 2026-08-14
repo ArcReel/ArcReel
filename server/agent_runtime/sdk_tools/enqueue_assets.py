@@ -12,7 +12,7 @@ from lib.generation_queue_client import (
     batch_enqueue_and_wait,
 )
 from lib.project_manager import ProjectManager
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
+from server.agent_runtime.sdk_tools._context import ToolContext, pending_schema_upgrade_error, tool_error
 
 # Asset-type emoji shown in tool output. Other display fields (bucket_key,
 # label_zh, subdir) come from lib.asset_types.ASSET_SPECS — the cross-app
@@ -157,6 +157,8 @@ def generate_assets_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
+            if (schema_error := pending_schema_upgrade_error(ctx)) is not None:
+                return schema_error
             asset_type = args.get("type")
             # ``dict.fromkeys`` 保序去重，避免同名重复入队但仍尊重调用方意图的顺序。
             raw_names = args.get("names")

@@ -23,7 +23,12 @@ from lib.storyboard_sequence import (
     build_storyboard_dependency_plan,
     get_storyboard_items,
 )
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
+from server.agent_runtime.sdk_tools._context import (
+    ToolContext,
+    pending_schema_upgrade_error,
+    tool_error,
+    validate_script_filename,
+)
 
 
 class _FailureRecorder:
@@ -148,6 +153,8 @@ def generate_storyboards_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
+            if (schema_error := pending_schema_upgrade_error(ctx)) is not None:
+                return schema_error
             script_filename = validate_script_filename(args["script"])
             segment_ids = args.get("segment_ids")
 

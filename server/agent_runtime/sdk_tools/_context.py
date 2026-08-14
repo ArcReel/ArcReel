@@ -8,9 +8,11 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from lib.api_errors import ConflictError
 from lib.config.resolver import ConfigResolver, VideoCapability, constrain_durations_for_project
 from lib.db import async_session_factory
 from lib.project_manager import ProjectManager
+from server.services.project_schema import require_current_schema
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,32 @@ def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> d
     msg = f"{name} 失败: {exc}"
     text = "\n".join([msg, *log]) if log else msg
     return {"content": [{"type": "text", "text": text}], "is_error": True}
+
+
+def pending_schema_upgrade_error(ctx: ToolContext, project: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """未完成数据升级的项目拒绝付费入队；已升级返回 ``None``，否则返回现成的错误响应。
+
+    判定与 REST 侧共用 ``require_current_schema``。旧形态项目按新契约取创作类型会取到兜底值，
+    广告项目被当成剧集，付费请求照发照计费。只作用于提交类工具，查询类工具照常可用。
+    """
+    data = project if project is not None else ctx.pm.load_project(ctx.project_name)
+    try:
+        require_current_schema(data, name=ctx.project_name)
+    except ConflictError:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        f"❌ 项目「{ctx.project_name}」未完成数据升级"
+                        f"（当前 {data.get('schema_version')!r}），无法提交生成任务；"
+                        "请提示用户重启服务让升级重跑，仍失败则需要人工介入"
+                    ),
+                }
+            ],
+            "is_error": True,
+        }
+    return None
 
 
 # instructions 超长会失控 token 用量并稀释模型对原文的处理，超限按参数错误提前拒绝。

@@ -9,6 +9,7 @@ behavior without hitting the real queue or providers.
 from __future__ import annotations
 
 import copy
+import importlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -18,6 +19,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lib import script_review
+from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from lib.reference_video.draft_validation import DraftViolation
 from lib.reference_video.quarantine import (
     QUARANTINE_KIND_STEP1,
@@ -34,6 +36,7 @@ from server.agent_runtime.sdk_tools.enqueue_assets import (
 )
 from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool
 from server.agent_runtime.sdk_tools.enqueue_image_edits import edit_images_tool
+from server.agent_runtime.sdk_tools.enqueue_narration_audio import generate_narration_audio_tool
 from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
 from server.agent_runtime.sdk_tools.enqueue_videos import (
     generate_video_all_tool,
@@ -64,6 +67,7 @@ class _FakePM:
         self._project_name = project_name
         self._project_dir = project_dir
         self.project_payload: dict[str, Any] = {
+            "schema_version": CURRENT_SCHEMA_VERSION,
             "source_file_type": "novel",
             "characters": {"张三": {"description": "主角"}, "李四": {"description": ""}},
             "scenes": {"村口": {"description": "黄昏的村口"}},
@@ -307,6 +311,60 @@ async def test_list_pending_assets_error(fake_ctx: ToolContext, monkeypatch) -> 
     tool_obj = list_pending_assets_tool(fake_ctx)
     out = await _call(tool_obj, {"type": "character"})
     assert out.get("is_error") is True
+
+
+_PAID_TOOL_CASES = [
+    (generate_assets_tool, {"type": "character"}),
+    (generate_storyboards_tool, {"script": "episode_1.json"}),
+    (generate_narration_audio_tool, {"script": "episode_1.json"}),
+    (generate_video_episode_tool, {"script": "episode_1.json"}),
+    (generate_video_scene_tool, {"script": "episode_1.json", "scene_id": "E1S01"}),
+    (generate_video_all_tool, {"script": "episode_1.json"}),
+    (generate_video_selected_tool, {"script": "episode_1.json", "scene_ids": ["E1S01"]}),
+    (generate_grid_tool, {"script": "episode_1.json"}),
+    (edit_images_tool, {"resource_type": "character", "edits": [{"name": "小明", "instruction": "换蓝色外套"}]}),
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("tool_factory,args", _PAID_TOOL_CASES, ids=lambda v: getattr(v, "__name__", ""))
+async def test_paid_agent_tools_reject_project_pending_data_upgrade(
+    fake_ctx: ToolContext,
+    monkeypatch,
+    tool_factory,
+    args: dict[str, Any],
+) -> None:
+    """未完成数据升级的项目不接受智能体侧的入队提交，与 REST 侧同一道闸门。
+
+    旧形态项目按新契约取创作类型会取到兜底值，广告项目被当成剧集，请求照发照计费。
+    """
+    from lib import generation_queue_client
+
+    fake_ctx.pm.project_payload["schema_version"] = CURRENT_SCHEMA_VERSION - 1  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["content_mode"] = "ad"  # type: ignore[attr-defined]
+
+    async def _fail_if_called(*_args, **_kwargs):
+        raise AssertionError("闸门未生效：不应走到入队")
+
+    for module_name in (
+        "enqueue_assets",
+        "enqueue_grid",
+        "enqueue_image_edits",
+        "enqueue_narration_audio",
+        "enqueue_storyboards",
+        "enqueue_videos",
+    ):
+        module = importlib.import_module(f"server.agent_runtime.sdk_tools.{module_name}")
+        for symbol in ("batch_enqueue_and_wait", "enqueue_and_wait", "enqueue_task_only"):
+            if hasattr(module, symbol):
+                monkeypatch.setattr(module, symbol, _fail_if_called)
+    for symbol in ("batch_enqueue_and_wait", "enqueue_and_wait", "enqueue_task_only"):
+        monkeypatch.setattr(generation_queue_client, symbol, _fail_if_called)
+
+    out = await _call(tool_factory(fake_ctx), args)
+
+    assert out["is_error"] is True
+    assert "未完成数据升级" in out["content"][0]["text"]
 
 
 @pytest.mark.unit

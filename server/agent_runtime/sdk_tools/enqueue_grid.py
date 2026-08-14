@@ -17,7 +17,12 @@ from lib.project_manager import ProjectManager, grid_storyboard_enabled
 from lib.script_models import resolve_creation_type
 from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
+from server.agent_runtime.sdk_tools._context import (
+    ToolContext,
+    pending_schema_upgrade_error,
+    tool_error,
+    validate_script_filename,
+)
 from server.services.grid_resolution import resolve_large_grid_allowed
 from server.services.grid_split import apply_grid_split
 
@@ -95,6 +100,10 @@ def generate_grid_tool(ctx: ToolContext):
             list_only = bool(args.get("list_only"))
 
             project = ctx.pm.load_project(ctx.project_name)
+            # 预览分支同样拦在闸门后：分组预览也按新契约解析创作类型，旧形态项目
+            # 会拿到与实际生成不一致的分组，不该当成可用信息交给调用方。
+            if (schema_error := pending_schema_upgrade_error(ctx, project)) is not None:
+                return schema_error
             script = ctx.pm.load_script(ctx.project_name, script_filename)
             # 失配剧本在此被拒：按分镜路线该读的数组不在剧本里，继续走下去只会
             # 报"没有匹配的场景组"，把成因埋掉。

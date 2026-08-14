@@ -17,7 +17,12 @@ from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation_queue_client import TaskSpec, batch_enqueue_and_wait
 from lib.path_safety import safe_exists
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
+from server.agent_runtime.sdk_tools._context import (
+    ToolContext,
+    pending_schema_upgrade_error,
+    tool_error,
+    validate_script_filename,
+)
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
 
 # Display label for tool output only; storyboard isn't an ASSET_SPECS member so this
@@ -137,6 +142,8 @@ def edit_images_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
+            if (schema_error := pending_schema_upgrade_error(ctx)) is not None:
+                return schema_error
             resource_type = args.get("resource_type")
             if resource_type not in EDITABLE_RESOURCE_TYPES:
                 return {

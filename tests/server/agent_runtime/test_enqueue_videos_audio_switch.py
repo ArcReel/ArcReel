@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.config.service import ConfigService
 from lib.db.base import Base
 from lib.generation_queue_client import TaskSpec
+from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from server.agent_runtime.sdk_tools import enqueue_videos as mod
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.services.video_caps import assert_audio_switch_supported
@@ -107,7 +108,11 @@ class TestStoryboardRouteGate:
             return False
 
         monkeypatch.setattr(mod, "resolve_project_is_silent", _not_silent)
-        project = {"generation_mode": "storyboard", "characters": {"张三": {"description": "主角"}}}
+        project = {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "generation_mode": "storyboard",
+            "characters": {"张三": {"description": "主角"}},
+        }
         assert await mod._resolve_voice_context(_ctx(tmp_path, project), "drama") == project["characters"]
 
 
@@ -184,7 +189,7 @@ class _EpisodePM:
         return self._project_dir
 
     def load_project(self, _name: str) -> dict[str, Any]:
-        return {"generation_mode": "storyboard"}
+        return {"schema_version": CURRENT_SCHEMA_VERSION, "generation_mode": "storyboard"}
 
     def load_script(self, _name: str, _filename: str) -> dict[str, Any]:
         return self.script_payload
