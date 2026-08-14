@@ -7,7 +7,9 @@ update_docs: engine-b
 
 # 剪映草稿导出 {#jianying-export}
 
-将 ArcReel 已生成的视频片段按集导出为剪映（JianYing）草稿文件，在剪映桌面版中直接打开并进行二次编辑——调整节奏、添加字幕、转场、配音等。
+将 ArcReel 已生成的视频片段按集导出为剪映（Jianying）草稿文件，在剪映桌面版中直接打开并进行二次编辑——调整节奏、添加字幕、转场、配音等。
+
+ArcReel 当前导出的是面向中国大陆版剪映桌面端的草稿格式。CapCut 是剪映的国际版，但属于不同产品；ArcReel 尚未验证导出草稿与 CapCut 的兼容性。
 
 ## 前置条件 {#prerequisites}
 

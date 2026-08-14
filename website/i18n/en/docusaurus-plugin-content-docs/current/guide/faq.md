@@ -243,7 +243,7 @@ When generating a storyboard, ArcReel uses the character, scene, and prop design
 
 On the Storyboard route, when a shot is not the first shot, is not marked as a new segment, and the previous storyboard has already been generated, ArcReel uses that previous storyboard as a continuity reference. This helps carry over composition, color, and setting, but it cannot guarantee a seamless join between two independently generated videos.
 
-Lock down assets and storyboards before generating video, and keep location, time, clothing, and character descriptions consistent across adjacent shots. For important transitions, use a model that supports end frames or handle them in a post-production tool such as CapCut.
+Lock down assets and storyboards before generating video, and keep location, time, clothing, and character descriptions consistent across adjacent shots. For important transitions, use a model that supports end frames or handle them in a post-production tool such as Jianying.
 
 ### How do start and end frames work? {#first-and-last-frame}
 
@@ -259,7 +259,7 @@ A scene design is different from a story-specific storyboard image: the scene de
 
 ### Does ArcReel support voice-over? {#voice-over-support}
 
-The Web UI currently offers standalone voice-over TTS only for Narration Mode. You can preview or generate voice-over segment by segment or for a full episode, then include it in a CapCut draft export. Configure the speech provider, voice, and speed globally or per project; some models do not support speed control.
+The Web UI currently offers standalone voice-over TTS only for Narration Mode. You can preview or generate voice-over segment by segment or for a full episode, then include it in a Jianying draft export. Configure the speech provider, voice, and speed globally or per project; some models do not support speed control.
 
 Built-in speech from a video model, character reference audio, and standalone voice-over TTS are separate capabilities. Character reference audio is currently used on the Reference-to-video route, and the selected video model must explicitly support reference audio. On the Storyboard route, or when only a voice description is available, voice is a soft constraint and cannot guarantee identical timbre across segments.
 
@@ -281,11 +281,11 @@ A project ZIP imports or migrates a single project and can include only the curr
 
 For disaster recovery, use the full-instance backup approach described above and save the project directory, database, and required credentials together.
 
-### Why is my CapCut draft missing or missing clips? {#jianying-draft-issues}
+### Why is my Jianying draft missing or missing clips? {#jianying-draft-issues}
 
-When exporting, select the 5.x or 6+ format that matches your local CapCut version, extract the ZIP directly into the CapCut drafts directory, and restart CapCut. A draft contains only successfully generated video clips. Generate any missing clips in ArcReel before exporting again.
+When exporting, select the 5.x or 6+ format that matches your local Jianying version, extract the ZIP directly into the Jianying drafts directory, and restart Jianying. A draft contains only successfully generated video clips. Generate any missing clips in ArcReel before exporting again.
 
-Narration Mode currently exports the original novel text as subtitles, Ad / Short Video Mode exports spoken promotional copy as subtitles, and Drama Mode exports dialogue and voice-over subtitles. Narration Mode also includes generated voice-over tracks. See the [CapCut draft export guide](./jianying-export.md) for the complete steps.
+Narration Mode currently exports the original novel text as subtitles, Ad / Short Video Mode exports spoken promotional copy as subtitles, and Drama Mode exports dialogue and voice-over subtitles. Narration Mode also includes generated voice-over tracks. See the [Jianying draft export guide](./jianying-export.md) for the complete steps.
 
 ### Is there a mobile app? Which platforms are supported? {#mobile-app-support}
 

@@ -102,7 +102,7 @@ flowchart LR
     C --> D["Storyboard Images"]
     D --> E["Video Clips"]
     B --> F["TTS Narration"]
-    E --> G["Composition / CapCut Draft"]
+    E --> G["Composition / Jianying Draft"]
     F --> G
 ```
 
@@ -139,7 +139,7 @@ flowchart LR
     D --> E["Character / Scene Assets"]
     E --> F["Storyboards"]
     F --> G["Video"]
-    G --> H["Final Cut / CapCut Draft"]
+    G --> H["Final Cut / Jianying Draft"]
 ```
 
 #### Review Focus {#drama-review}
@@ -164,7 +164,7 @@ flowchart LR
 - A clearly defined target duration;
 - Shots organized around selling points, use cases, and calls to action;
 - Product fidelity and reference consistency take priority;
-- Can generate voice-over copy, subtitles, and a CapCut draft, with dubbing completed after export.
+- Can generate voice-over copy, subtitles, and a Jianying draft, with dubbing completed after export.
 
 #### Recommended Workflow {#ad-flow}
 
@@ -175,7 +175,7 @@ flowchart LR
     C --> D["Product-Anchored Storyboards"]
     D --> E["Video Clips"]
     C --> F["Voice-over Copy / Subtitles"]
-    E --> G["CapCut Draft / Export Without Dubbing"]
+    E --> G["Jianying Draft / Export Without Dubbing"]
     F --> G
     G --> H["Final Cut After Dubbing"]
 ```
@@ -293,7 +293,7 @@ Define:
 - Visual style;
 - Budget limit;
 - Whether narration is needed;
-- Whether further editing in CapCut is needed.
+- Whether further editing in Jianying is needed.
 
 ### Stage 2: Content Structure {#stage-content-structure}
 
@@ -349,7 +349,7 @@ Check:
 - Clip order;
 - Total duration;
 - Final resolution;
-- Whether the CapCut export can be opened.
+- Whether the Jianying export can be opened.
 
 ## 7. Review Gates {#review-gates}
 
@@ -409,5 +409,5 @@ An episode or short video is complete only when it meets at least the following 
 - Video clips transition cleanly;
 - Narration and subtitles have been proofread;
 - Actual costs have been reviewed;
-- The final video or CapCut draft opens correctly;
+- The final video or Jianying draft opens correctly;
 - The project has been archived or backed up.

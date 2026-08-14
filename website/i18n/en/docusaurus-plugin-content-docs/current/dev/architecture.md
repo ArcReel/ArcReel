@@ -155,7 +155,7 @@ Application services coordinate:
 - media tasks;
 - file uploads;
 - project import and export;
-- CapCut drafts;
+- Jianying drafts;
 - usage and spend;
 - diagnostics.
 
@@ -327,7 +327,7 @@ Design principles:
 - whether failed tasks are billed follows the provider's semantics;
 - ArcReel's records do not replace official provider invoices.
 
-## 13. Video Composition and CapCut Export {#video-composition-and-export}
+## 13. Video Composition and Jianying Export {#video-composition-and-export}
 
 After media generation is complete, there are two output paths.
 
@@ -340,7 +340,7 @@ FFmpeg handles:
 - audio;
 - final encoding.
 
-### CapCut Draft {#jianying-draft}
+### Jianying Draft {#jianying-draft}
 
 Export an editable project structure to:
 
@@ -355,7 +355,7 @@ The ability to continue editing is an important difference between ArcReel and g
 
 ### Presentation Read Model {#presentation-read-model}
 
-Browser preview, editable bundle download, and CapCut draft export do not derive audio, subtitles, or timing independently. They consume one presentation read model that fixes the selected video version, optional TTS version, actual media duration, original-audio policy, subtitle timing, and current or historical status. Subtitles and presentation descriptors for a current selection are materialized under `subtitles/` and `presentations/` respectively and registered in the project Artifact Manifest. Historical selections are read-only and never replace the current materialization.
+Browser preview, editable bundle download, and Jianying draft export do not derive audio, subtitles, or timing independently. They consume one presentation read model that fixes the selected video version, optional TTS version, actual media duration, original-audio policy, subtitle timing, and current or historical status. Subtitles and presentation descriptors for a current selection are materialized under `subtitles/` and `presentations/` respectively and registered in the project Artifact Manifest. Historical selections are read-only and never replace the current materialization.
 
 A manually uploaded video without generation provenance uses an explicit raw-only branch: ArcReel preserves the original video, does not infer a provenance basis or currency, generates no TTS or subtitles, and registers no derived presentation. All three output entry points therefore share the same selection while keeping unavailable provenance distinct from verified provenance.
 
