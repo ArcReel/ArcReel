@@ -59,6 +59,16 @@ def _seed_episode_resource_claims(project_dir: Path, resource_id: str):
     return adapter, keys
 
 
+def _claim_asset_sheet(project_dir: Path, asset_type: str, name: str, artifact_path: str) -> None:
+    ProjectArtifactManifestAdapter(project_dir).put_entry(
+        ArtifactKey.asset_sheet(asset_type, name),
+        ArtifactManifestEntry(
+            artifact_path=artifact_path,
+            basis_digest=f"sha256-v1:{'a' * 64}",
+        ),
+    )
+
+
 class _FakeTextBackend:
     def __init__(self, language: str = "zh"):
         self._language = language
@@ -615,6 +625,7 @@ class TestProjectManagerMore:
 
         project_dir = pm.get_project_path("demo")
         (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
+        _claim_asset_sheet(project_dir, "scene", "客厅", "scenes/客厅.png")
         assert pm.get_pending_project_scenes("demo") == []
 
         # prop lifecycle
@@ -623,6 +634,7 @@ class TestProjectManagerMore:
         assert pm.get_prop("demo", "玉佩")["prop_sheet"].endswith("玉佩.png")
 
         (project_dir / "props" / "玉佩.png").write_bytes(b"png")
+        _claim_asset_sheet(project_dir, "prop", "玉佩", "props/玉佩.png")
         assert pm.get_pending_project_props("demo") == []
 
         # direct add_* return bool
@@ -1048,13 +1060,29 @@ class TestScenePropLifecycle:
         pending2 = pm.get_pending_project_scenes("demo")
         assert len(pending2) == 2
 
-        # 文件存在 → 不再 pending
+        # 文件与正式 claim 都存在 → 不再 pending
         project_dir = pm.get_project_path("demo")
         (project_dir / "scenes" / "客厅.png").parent.mkdir(parents=True, exist_ok=True)
         (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
+        _claim_asset_sheet(project_dir, "scene", "客厅", "scenes/客厅.png")
         pending3 = pm.get_pending_project_scenes("demo")
         assert len(pending3) == 1
         assert pending3[0]["name"] == "书房"
+
+    @pytest.mark.unit
+    def test_get_pending_scenes_requires_a_manifest_claim_when_active(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_scene("demo", "客厅", "宽敞的客厅")
+        pm.update_scene_sheet("demo", "客厅", "scenes/客厅.png")
+        (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
+
+        assert [item["name"] for item in pm.get_pending_project_scenes("demo")] == ["客厅"]
+
+        _claim_asset_sheet(project_dir, "scene", "客厅", "scenes/客厅.png")
+
+        assert pm.get_pending_project_scenes("demo") == []
 
     @pytest.mark.unit
     def test_get_pending_props_lists_without_sheet(self, tmp_path):
@@ -1068,11 +1096,12 @@ class TestScenePropLifecycle:
         pending = pm.get_pending_project_props("demo")
         assert len(pending) == 2
 
-        # 文件存在 → 不再 pending
+        # 文件与正式 claim 都存在 → 不再 pending
         pm.update_prop_sheet("demo", "玉佩", "props/玉佩.png")
         project_dir = pm.get_project_path("demo")
         (project_dir / "props" / "玉佩.png").parent.mkdir(parents=True, exist_ok=True)
         (project_dir / "props" / "玉佩.png").write_bytes(b"png")
+        _claim_asset_sheet(project_dir, "prop", "玉佩", "props/玉佩.png")
         pending2 = pm.get_pending_project_props("demo")
         assert len(pending2) == 1
         assert pending2[0]["name"] == "宝剑"

@@ -594,17 +594,16 @@ class ProjectEventService:
                 "script_file": str(ep.get("script_file") or ""),
             }
 
-        candidates: dict[int, tuple[Path, str]] = {}
-        for script_path in sorted(scripts_dir.glob("*.json")):
+        def _load_candidate(script_path: Path) -> tuple[int, str] | None:
             try:
                 script = self.pm.load_script(project_name, script_path.name)
             except Exception:
                 logger.warning("跳过无法读取的剧本文件 project=%s file=%s", project_name, script_path.name)
-                continue
+                return None
 
             episode = script.get("episode")
             if not isinstance(episode, int):
-                continue
+                return None
             title = str(script.get("title") or "")
             try:
                 self.pm.require_filename_episode_consistency(script, script_path.name)
@@ -615,12 +614,26 @@ class ProjectEventService:
                     script_path.name,
                     exc,
                 )
+                return None
+            return episode, title
+
+        candidates: dict[int, Path] = {}
+        for script_path in sorted(scripts_dir.glob("*.json")):
+            candidate = _load_candidate(script_path)
+            if candidate is None:
                 continue
+            episode, _title = candidate
             # sorted() + overwrite preserves the watcher's established final
             # winner while ensuring each episode is reconciled at most once.
-            candidates[episode] = (script_path, title)
+            candidates[episode] = script_path
 
-        for episode, (script_path, title) in sorted(candidates.items()):
+        for episode, script_path in sorted(candidates.items()):
+            boundary_candidate = _load_candidate(script_path)
+            if boundary_candidate is None:
+                continue
+            boundary_episode, title = boundary_candidate
+            if boundary_episode != episode:
+                continue
             expected_script_file = f"scripts/{script_path.name}"
             existing = current_episodes.get(episode)
             if existing and existing["title"] == title and existing["script_file"] == expected_script_file:

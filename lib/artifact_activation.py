@@ -1524,6 +1524,24 @@ def reconcile_artifact_target_claims(
     if not claimed:
         return False
 
+    replacements, plan = _plan_artifact_claim_reconciliation(project_dir, claimed)
+    if not replacements:
+        return False
+    _assert_preflight_unchanged(project_dir, plan)
+    return register_artifact_entries_atomically(
+        project_dir,
+        replacements,
+        expected_entries={key: claimed[key] for key in replacements},
+        adapter=storage,
+    )
+
+
+def _plan_artifact_claim_reconciliation(
+    project_dir: Path,
+    claimed: Mapping[ArtifactKey, ArtifactManifestEntry],
+) -> tuple[dict[ArtifactKey, None], ArtifactTargetStatePlan]:
+    """Resolve claimed paths through one canonical dependency snapshot."""
+
     root_planner = _Planner(project_dir)
     planners: dict[int | None, _Planner] = {None: root_planner}
     dependency_bytes: dict[Path, bytes] = {}
@@ -1550,14 +1568,11 @@ def reconcile_artifact_target_claims(
         if target is None or target.artifact_path != frozen_entry.artifact_path:
             replacements[key] = None
 
-    if not replacements:
-        return False
-
     for planner in planners.values():
         _merge_dependency_snapshot(dependency_bytes, planner.dependencies)
         _merge_dependency_snapshot(dependency_digests, planner.dependency_digests)
-    _assert_preflight_unchanged(
-        project_dir,
+    return (
+        replacements,
         ArtifactTargetStatePlan(
             entries={},
             project=root_planner.project,
@@ -1566,12 +1581,6 @@ def reconcile_artifact_target_claims(
             dependency_digests=dependency_digests,
             script_paths=(),
         ),
-    )
-    return register_artifact_entries_atomically(
-        project_dir,
-        replacements,
-        expected_entries={key: claimed[key] for key in replacements},
-        adapter=storage,
     )
 
 
@@ -1861,7 +1870,13 @@ def prepare_episode_script_manifest_commit(
         for key in ArtifactKey.episode_resource_artifacts(episode, resource_id)
     )
     orphaned_keys = list(dict.fromkeys(orphaned_keys))
+    grid_claims = {
+        key: entry
+        for key, entry in snapshot.items()
+        if key.kind is ArtifactKind.EPISODE_GRID and key.episode_number == episode
+    }
     expected = {key: snapshot.get(key) for key in (script_key, *orphaned_keys)}
+    expected.update(grid_claims)
     frozen_entry: ArtifactManifestEntry | None = None
     if basis is not None:
         descriptor = basis if isinstance(basis, ArtifactBasisDescriptor) else ArtifactBasisDescriptor.from_basis(basis)
@@ -1869,6 +1884,10 @@ def prepare_episode_script_manifest_commit(
 
     def commit() -> None:
         replacements: dict[ArtifactKey, ArtifactManifestEntry | None] = {key: None for key in orphaned_keys}
+        if grid_claims:
+            grid_replacements, grid_plan = _plan_artifact_claim_reconciliation(project_dir, grid_claims)
+            _assert_preflight_unchanged(project_dir, grid_plan)
+            replacements.update(grid_replacements)
         replacements[script_key] = frozen_entry or resolve_current_artifact_target(project_dir, script_key)
         register_artifact_entries_atomically(
             project_dir,

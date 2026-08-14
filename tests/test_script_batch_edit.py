@@ -14,6 +14,8 @@ from lib.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis
+from lib.grid.models import GridGeneration
+from lib.grid_manager import GridManager
 from lib.project_manager import ProjectManager
 from lib.script_batch_edit import (
     ScriptBatchEditCommand,
@@ -142,6 +144,46 @@ def test_permanent_remove_forgets_all_item_claims_in_one_manifest_commit(
     assert not removed_claims.keys() & snapshot.keys()
     assert snapshot[ArtifactKey.episode_video(1, "E1S03")] == unrelated_claim
     assert ArtifactKey.episode_script(1) in snapshot
+
+
+def test_permanent_remove_forgets_grids_that_reference_removed_items(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, service, project_dir = editor
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+
+    def _completed_grid(scene_ids: list[str]) -> tuple[ArtifactKey, ArtifactManifestEntry]:
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=scene_ids,
+            rows=1,
+            cols=2,
+            grid_size="2K",
+            provider="openai",
+            model="gpt-image-2",
+            video_aspect_ratio="9:16",
+        )
+        grid.status = "completed"
+        grid.grid_image_path = f"grids/{grid.id}.png"
+        (project_dir / grid.grid_image_path).write_bytes(b"grid")
+        GridManager(project_dir).save(grid)
+        key = ArtifactKey.episode_grid(1, grid.id)
+        entry = ArtifactManifestEntry(
+            artifact_path=grid.grid_image_path,
+            basis_digest=f"sha256-v1:{'a' * 64}",
+        )
+        adapter.put_entry(key, entry)
+        return key, entry
+
+    orphaned_key, _orphaned_entry = _completed_grid(["E1S01", "E1S02"])
+    retained_key, retained_entry = _completed_grid(["E1S01", "E1S03"])
+
+    result = service.execute("demo", _command(pm, [{"op": "remove", "id": "E1S02"}]))
+
+    assert result.success is True
+    assert adapter.get_entry(orphaned_key) is None
+    assert adapter.get_entry(retained_key) == retained_entry
 
 
 def test_complete_script_replacement_forgets_claims_for_removed_items(

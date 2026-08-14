@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lib import script_review
+from lib.project_manager import ProjectManager
 from lib.reference_video.draft_validation import DraftViolation
 from lib.reference_video.quarantine import (
     QUARANTINE_KIND_STEP1,
@@ -309,6 +310,36 @@ async def test_list_pending_assets_happy(fake_ctx: ToolContext) -> None:
     assert "张三" in text
     assert "村口" in text
     assert "保温杯" in text
+
+
+@pytest.mark.unit
+async def test_pending_asset_tools_include_an_unclaimed_schema8_sheet(tmp_path: Path, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_assets as mod
+
+    projects_root = tmp_path / "projects"
+    pm = ProjectManager(projects_root)
+    project_dir = pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo")
+    pm.add_project_scene("demo", "客厅", "宽敞的客厅")
+    pm.update_scene_sheet("demo", "客厅", "scenes/客厅.png")
+    (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
+    ctx = ToolContext(project_name="demo", projects_root=projects_root, pm=pm)
+
+    listed = await _call(list_pending_assets_tool(ctx), {"type": "scene"})
+
+    assert "客厅" in listed["content"][0]["text"]
+
+    enqueued: list[str] = []
+
+    async def _capture_batch(*, project_name, specs, on_success=None, on_failure=None):
+        enqueued.extend(spec.resource_id for spec in specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _capture_batch)
+
+    await _call(generate_assets_tool(ctx), {"type": "scene"})
+
+    assert enqueued == ["客厅"]
 
 
 @pytest.mark.unit

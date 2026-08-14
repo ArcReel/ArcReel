@@ -38,6 +38,7 @@ from lib.asset_rename import (
 from lib.asset_types import (
     ASSET_SPECS,
     ProjectAssetNameConflictError,
+    asset_name_comparison_key,
     ensure_project_asset_name_available,
     ensure_project_asset_namespace,
     find_project_asset_name,
@@ -2912,14 +2913,27 @@ class ProjectManager:
         return bucket[key]
 
     def _get_pending_assets(self, asset_type: str, project_name: str) -> list[dict]:
-        """无 sheet 字段或 sheet 文件不存在的资产列表。"""
+        """Return assets without a usable formal sheet under the active schema."""
+
+        from lib.artifact_activation import active_artifact_currency_resolver, artifact_is_usable
+        from lib.artifact_manifest import ArtifactKey
+
         spec = ASSET_SPECS[asset_type]
         project = self.load_project(project_name)
         project_dir = self.get_project_path(project_name)
+        resolver = active_artifact_currency_resolver(project_dir, project)
         pending = []
         for name, entry in (project.get(spec.bucket_key) or {}).items():
             sheet = entry.get(spec.sheet_field)
-            if not sheet or not (project_dir / sheet).exists():
+            if resolver is not None:
+                usable = artifact_is_usable(
+                    resolver,
+                    ArtifactKey.asset_sheet(asset_type, asset_name_comparison_key(name)),
+                    sheet,
+                )
+            else:
+                usable = isinstance(sheet, str) and bool(sheet) and (project_dir / sheet).exists()
+            if not usable:
                 pending.append({"name": name, **entry})
         return pending
 
