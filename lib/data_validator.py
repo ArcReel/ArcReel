@@ -1328,7 +1328,13 @@ class DataValidator:
         if not episode.get("title"):
             errors.append(_m("val_missing_field", field="title"))
 
-        creation_type = resolve_creation_type(episode, project)
+        try:
+            creation_type = resolve_creation_type(episode, project)
+        except ValueError:
+            # 两处均未声明：resolve_creation_type 对此 fail-loud，但 validator 的契约是把脏数据
+            # 报成结构化错误。后续检查全部依赖创作类型，没有声明就无从分派，直接返回。
+            errors.append(_m("val_missing_field", field="creation_type"))
+            return
 
         for deprecated_field in ("characters_in_episode", "scenes_in_episode", "props_in_episode"):
             if episode.get(deprecated_field) is not None:

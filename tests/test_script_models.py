@@ -863,7 +863,7 @@ class TestGeneratedAssetsTemplateContract:
         )
 
 
-class TestResolveContentMode:
+class TestResolveCreationType:
     """episode/剧本级 creation_type 缺失时回退到项目级配置，与
     lib.data_validator._validate_episode_payload 已校验通过的既定口径一致。"""
 
@@ -876,5 +876,7 @@ class TestResolveContentMode:
         assert resolve_creation_type({}, {"creation_type": "drama"}) == "drama"
 
     @pytest.mark.unit
-    def test_falls_back_to_narration_when_both_omit_it(self):
-        assert resolve_creation_type({}, {}) == "narration"
+    def test_raises_when_both_omit_it(self):
+        """项目级必填且由迁移物化：两处皆缺即数据损坏，不静默落 narration。"""
+        with pytest.raises(ValueError, match="creation_type"):
+            resolve_creation_type({}, {})

@@ -452,6 +452,24 @@ class TestDataValidator:
         result = validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
         assert result.valid
 
+    @pytest.mark.unit
+    def test_validate_episode_reports_creation_type_missing_everywhere(self, tmp_path):
+        # 项目与剧集都没声明创作类型：解析器对此 fail-loud，校验器须把它降成结构化错误，
+        # 不能让异常穿出去变成 500
+        project_dir = tmp_path / "projects" / "demo"
+        project = _project_payload()
+        del project["creation_type"]
+        _write_json(project_dir / "project.json", project)
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {"episode": 1, "title": "第一集", "scenes": []},
+        )
+
+        result = validate_episode("demo", "episode_1.json", projects_root=str(tmp_path / "projects"))
+
+        assert not result.valid
+        assert any("creation_type" in error for error in result.errors)
+
     def _drama_episode_with_scene(self, tmp_path, scene_extra: dict, project_extra: dict | None = None):
         # 构造一个最小 drama 剧集，scene 合并 scene_extra（用于针对性校验 utterances）
         project_dir = tmp_path / "projects" / "demo"

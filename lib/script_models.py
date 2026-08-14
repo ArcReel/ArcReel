@@ -896,8 +896,16 @@ def resolve_creation_type(script: dict[str, Any], project: dict[str, Any]) -> st
     """剧本级 ``creation_type`` 缺失（存量 episode 未打戳）时回退到项目级配置，与
     ``lib.data_validator._validate_episode_payload`` 已校验通过的既定口径一致——存量
     episode 允许省略该字段、由项目值兜底，读侧（生成任务）不能另起一份更严格的判定。
+
+    链尾无默认值：项目级 ``creation_type`` 必填且由迁移一次性物化，两处皆缺即项目数据
+    损坏，抛 ``ValueError``。静默落 narration 会让 drama 项目跳过台词与音色注入，照常提交
+    付费视频任务。已声明但取值脏（空串 / 非字符串）原样返回，由下游 ``resolve_declared_kind``
+    按「取值非法」报告——两类问题的结论不同，不在此合并。
     """
-    return script.get("creation_type", project.get("creation_type", "narration"))
+    creation_type = script.get("creation_type", project.get("creation_type"))
+    if creation_type is None:
+        raise ValueError("项目与剧本均未声明 creation_type")
+    return creation_type
 
 
 # ============ 参考生视频 step1 结构化中间态 ============
