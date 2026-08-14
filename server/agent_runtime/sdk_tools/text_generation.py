@@ -35,7 +35,7 @@ from lib.episode_paths import (
 from lib.i18n import _ as translate
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
-from lib.project_manager import is_reference_video_project, resolve_source_file_type
+from lib.project_manager import is_reference_video_project, require_creation_type, resolve_source_file_type
 from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import append_user_instructions, build_narration_split_prompt, build_normalize_prompt
 from lib.reference_video.draft_validation import (
@@ -241,14 +241,14 @@ def _uses_reference_video_units(project_data: dict[str, Any]) -> bool:
 
     ad 的 unit 是 shots 的派生索引、无 step1 拆分，即使走参考路线也不在此列。
     """
-    if project_data.get("creation_type", "narration") == "ad":
+    if require_creation_type(project_data) == "ad":
         return False
     return is_reference_video_project(project_data)
 
 
 def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str, Any]) -> tuple[Path, str] | None:
     """Return (step1_md path, hint text for missing-file error)；ad 一键生成不依赖 step1，返回 None。"""
-    creation_type = project_data.get("creation_type", "narration")
+    creation_type = require_creation_type(project_data)
     if creation_type == "ad":
         # ad 创作输入是 project.json 的 brief + 产品信息 + target_duration，
         # ScriptGenerator 的 ad 分支不读 drafts/ 中间文件。

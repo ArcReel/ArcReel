@@ -77,6 +77,10 @@ def step1_kind(project: dict[str, Any]) -> Step1Kind | None:
     生成路线优先判定；否则按 creation_type 落 drama / narration。creation_type 非
     STEP1_FILENAMES 成员（ad）即无 step1，reference_video 亦不适用。变体由项目两轴唯一决定，
     不随集号变化。
+
+    创作类型缺失或非法时同样返回 None：本函数横跨状态派生等读取路径，抛错会把损坏项目的
+    工作流面板整块打成 5xx。该状态下的付费入口由 ``ScriptGenerator`` 与 ``generate_episode_script``
+    的 ``require_creation_type`` 挡住，gate 判为不适用不会放行任何生成。
     """
     creation_type = project.get("creation_type")
     if creation_type not in STEP1_FILENAMES:

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, require_creation_type
 
 pytestmark = pytest.mark.unit
 
@@ -69,6 +69,16 @@ class TestCreateAdProjectMetadata:
         pm.create_project("demo-doc")
         with pytest.raises(ValueError, match="creation_type"):
             pm.create_project_metadata("demo-doc", "纪录片", "Realistic", "documentary")
+
+    @pytest.mark.parametrize("project", [{}, {"creation_type": None}, {"creation_type": ""}, {"creation_type": "doc"}])
+    def test_require_creation_type_rejects_missing_and_invalid(self, project):
+        """写入与付费提交路径读创作类型时不得造默认值：缺失与非法一律 fail-loud。"""
+        with pytest.raises(ValueError, match="creation_type"):
+            require_creation_type(project)
+
+    @pytest.mark.parametrize("value", ["narration", "drama", "ad"])
+    def test_require_creation_type_accepts_declared_values(self, value):
+        assert require_creation_type({"creation_type": value}) == value
 
     def test_rejects_unknown_source_file_type(self, tmp_path):
         pm = _pm(tmp_path)

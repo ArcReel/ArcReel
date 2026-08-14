@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from lib import episode_paths, script_review, status_calculator
+from lib import episode_paths, project_manager, script_review, status_calculator
+from lib.profile_manifest import VALID_CREATION_TYPES
 from server.agent_runtime.sdk_tools import text_generation
 from server.routers import files
 
@@ -49,6 +50,9 @@ def test_episode_drafts_dir():
 def test_new_content_mode_registered_once_covers_gate_web_and_status(monkeypatch, tmp_path):
     """在 STEP1_FILENAMES 登记一处新模式，gate 路径、web 步骤文件、状态草稿探测应自动一致。"""
     monkeypatch.setitem(episode_paths.STEP1_FILENAMES, "docudrama", "step1_docu.json")
+    # 创作类型总表另有一处登记（新增类型须同时提供 CLAUDE.<type>.md 变体），写入路径按它 fail-loud；
+    # 这里一并放行，测的才是 step1 文件名的收敛，而不是总表的准入
+    monkeypatch.setattr(project_manager, "VALID_CREATION_TYPES", frozenset({*VALID_CREATION_TYPES, "docudrama"}))
 
     # 审核 gate：step1_path 指向登记的结构化文件名
     project = {"creation_type": "docudrama", "episodes": [{"episode": 1}]}

@@ -33,7 +33,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
     episode_script_filename,
 )
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, require_creation_type
 from lib.prompt_builders_ad import build_ad_prompt, build_ad_reference_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
@@ -164,7 +164,9 @@ class ScriptGenerator:
 
         # 加载 project.json
         self.project_json = self._load_project_json()
-        self.creation_type = self.project_json.get("creation_type", "narration")
+        # 不为创作类型造默认值：这里的取值决定 step1 文件名、prompt 变体与落盘骨架，
+        # 静默落 narration 会让 drama / ad 项目付费生成出错误形状的剧本。
+        self.creation_type = require_creation_type(self.project_json)
 
     @property
     def generation_mode(self) -> str | None:

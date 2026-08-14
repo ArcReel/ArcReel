@@ -158,6 +158,20 @@ def is_reference_video_project(project: Mapping[str, Any]) -> bool:
     return project.get("generation_mode") == "reference_video"
 
 
+def require_creation_type(project: Mapping[str, Any]) -> CreationType:
+    """项目级创作类型，缺失或非法即抛 ``ValueError``。
+
+    ``creation_type`` 是项目必填字段：创建时校验、迁移一次性物化、``data_validator`` 覆盖。
+    写入与付费提交路径因此不为它造默认值——静默落 narration 会让 drama / ad 项目按说书工作流
+    生成并落盘剧本，付费文本调用已经发生、错误只在成品里显现。读取与展示路径（状态计算、
+    费用预估、事件投影）另有兜底，保持脏数据不阻塞界面。
+    """
+    value = project.get("creation_type")
+    if not isinstance(value, str) or value not in VALID_CREATION_TYPES:
+        raise ValueError(f"项目未声明合法的 creation_type: {value!r}，必须是 {sorted(VALID_CREATION_TYPES)}")
+    return cast(CreationType, value)
+
+
 def resolve_source_file_type(project: Mapping[str, Any]) -> SourceFileType:
     """项目源文件性质（novel / screenplay），缺失或非法值回退默认 novel，兼容脏数据。"""
     value = project.get("source_file_type")

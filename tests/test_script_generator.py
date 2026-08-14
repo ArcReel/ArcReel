@@ -504,9 +504,22 @@ class TestScriptGenerator:
         assert "所有字符串值必须使用 中文" not in prompt
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("creation_type", [None, "", "documentary"])
+    async def test_construction_rejects_missing_or_invalid_creation_type(self, tmp_path, creation_type):
+        """创作类型缺失或非法时构造即失败：默认落 narration 会让 drama / ad 项目付费生成错误形状的剧本。"""
+        project_path = tmp_path / "demo"
+        payload: dict = {"title": "项目"}
+        if creation_type is not None:
+            payload["creation_type"] = creation_type
+        _write_json(project_path / "project.json", payload)
+
+        with pytest.raises(ValueError, match="creation_type"):
+            ScriptGenerator(project_path)
+
+    @pytest.mark.unit
     async def test_parse_response_invalid_json_raises(self, tmp_path):
         project_path = tmp_path / "demo"
-        _write_json(project_path / "project.json", {"title": "项目"})
+        _write_json(project_path / "project.json", {"title": "项目", "creation_type": "narration"})
 
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError):
@@ -515,7 +528,7 @@ class TestScriptGenerator:
     @pytest.mark.unit
     async def test_parse_response_validation_error_returns_raw_data(self, tmp_path):
         project_path = tmp_path / "demo"
-        _write_json(project_path / "project.json", {"title": "项目"})
+        _write_json(project_path / "project.json", {"title": "项目", "creation_type": "narration"})
 
         generator = ScriptGenerator(project_path)
         parsed = generator._parse_response('{"foo": "bar"}', 1)
@@ -760,7 +773,7 @@ class TestScriptGenerator:
     async def test_generate_without_backend_raises(self, tmp_path):
         """未注入 backend 时调用 generate() 应抛 RuntimeError。"""
         project_path = tmp_path / "demo"
-        _write_json(project_path / "project.json", {"title": "项目"})
+        _write_json(project_path / "project.json", {"title": "项目", "creation_type": "narration"})
         _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "content")
 
         generator = ScriptGenerator(project_path)  # 无 backend
@@ -784,7 +797,7 @@ class TestScriptGenerator:
         仍在 scripts/ 内,不挡;故公开 API 这层必须显式拒,让 docstring 不骗人。
         """
         project_path = tmp_path / "demo"
-        _write_json(project_path / "project.json", {"title": "项目"})
+        _write_json(project_path / "project.json", {"title": "项目", "creation_type": "narration"})
 
         fake = _FakeTextGenerator(json.dumps(_valid_narration_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
