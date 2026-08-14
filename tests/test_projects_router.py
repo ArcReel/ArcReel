@@ -68,6 +68,11 @@ class _FakePM:
                 "brief": "",
                 "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
             },
+            # 概述生成的各条失败分支：项目本身可读且已是当前契约，失败来自生成过程
+            **{
+                name: {"schema_version": CURRENT_SCHEMA_VERSION, "title": name, "style": "", "episodes": []}
+                for name in ("bad", "no-provider", "corrupted", "bad-schema", "leaky")
+            },
         }
         self.scripts = {
             ("ready", "episode_1.json"): {
@@ -2085,6 +2090,25 @@ class TestProjectsRouter:
         assert resp.status_code == 409, resp.text
         assert "未完成数据升级" in resp.json()["detail"]
         assert fake_pm.project_data["ready"]["title"] == "Ready"
+
+    @pytest.mark.unit
+    def test_generate_overview_rejected_when_project_pending_data_upgrade(self, tmp_path, monkeypatch):
+        """未完成数据升级的项目不发起概述生成：口径按源文件性质切换，旧形态项目取不到该字段，
+        放行等于用错误口径花掉一次付费调用。"""
+        fake_pm = _FakePM(tmp_path)
+        legacy = dict(fake_pm.project_data["ready"])
+        legacy["schema_version"] = CURRENT_SCHEMA_VERSION - 1
+        fake_pm.project_data["ready"] = legacy
+        called: list[str] = []
+        fake_pm.generate_overview = lambda name: called.append(name)  # type: ignore[assignment]
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.post("/api/v1/projects/ready/generate-overview")
+
+        assert resp.status_code == 409, resp.text
+        assert "未完成数据升级" in resp.json()["detail"]
+        assert called == []
 
     @pytest.mark.unit
     def test_update_project_with_unknown_template_id_returns_400(self, tmp_path, monkeypatch):

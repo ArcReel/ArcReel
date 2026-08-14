@@ -30,6 +30,7 @@ from lib.project_migrations.runner import (
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_project_dict as normalize_legacy_providers
 from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.resource_paths import resource_extension, resource_relative_path
+from lib.script_models import NON_PERSISTED_COUNT_KEYS
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.source_loader.migration import migrate_project_source_encoding
 from lib.validation_messages import MessageRef, ValidationMessage, ValidationResult
@@ -749,6 +750,13 @@ class ProjectArchiveService:
                 if not isinstance(episode_meta, dict):
                     continue
 
+                # 计数是读时注入的字段，落盘即陈旧值。归档走的是原样拷贝，不经
+                # ProjectManager 的写回路径，不在这里清就会随安装留在项目里、再随导出传播。
+                if self._strip_non_persisted_counts(
+                    episode_meta, location=f"episodes[{index}]", diagnostics=diagnostics
+                ):
+                    project_changed = True
+
                 script_location = f"episodes[{index}].script_file"
                 script_file = episode_meta.get("script_file")
                 if isinstance(script_file, str) and script_file.strip():
@@ -839,6 +847,20 @@ class ProjectArchiveService:
 
         return diagnostics
 
+    @staticmethod
+    def _strip_non_persisted_counts(payload: dict[str, Any], *, location: str, diagnostics: ArchiveDiagnostics) -> bool:
+        """清掉包内携带的读时计数字段，返回是否改动过。口径与写回路径同一张表。"""
+        removed = [key for key in NON_PERSISTED_COUNT_KEYS if key in payload]
+        for key in removed:
+            payload.pop(key, None)
+            diagnostics.add(
+                "auto_fixed",
+                "deprecated_field_removed",
+                ValidationMessage("arch_deprecated_field_removed", {"field": key}),
+                location=f"{location}.{key}",
+            )
+        return bool(removed)
+
     def _repair_script_payload(
         self,
         project_dir: Path,
@@ -867,6 +889,12 @@ class ProjectArchiveService:
                 ValidationMessage("arch_deprecated_source_file_removed"),
                 location=f"{script_path_rel}:novel.source_file",
             )
+
+        metadata = script_payload.get("metadata")
+        if isinstance(metadata, dict) and self._strip_non_persisted_counts(
+            metadata, location=f"{script_path_rel}:metadata", diagnostics=diagnostics
+        ):
+            script_changed = True
 
         # 剥离废弃的 episode 级聚合字段
         for deprecated_field in ("characters_in_episode", "clues_in_episode"):

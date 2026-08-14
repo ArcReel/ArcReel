@@ -489,6 +489,39 @@ class TestProjectArchiveService:
         assert "total_scenes" not in migrated_script["metadata"]
 
     @pytest.mark.unit
+    def test_import_strips_read_model_counts_from_current_schema_archive(self, tmp_path):
+        """当前契约的归档里带着读时计数也要清掉：包是原样拷贝，不经写回路径，
+        留着就会随安装落在项目里、再随导出传播一轮。"""
+        import json as _json
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        pj = project_dir / "project.json"
+        data = _json.loads(pj.read_text(encoding="utf-8"))
+        data["episodes"][0]["storyboard_count"] = 3
+        pj.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        script_file = project_dir / "scripts" / "episode_1.json"
+        script = _json.loads(script_file.read_text(encoding="utf-8"))
+        script.setdefault("metadata", {}).update({"video_unit_count": 2, "shot_count": 5})
+        script_file.write_text(_json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "counts.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="counts.zip")
+
+        installed_dir = pm.get_project_path(result.project_name)
+        installed = _json.loads((installed_dir / "project.json").read_text(encoding="utf-8"))
+        installed_script = _json.loads((installed_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        assert "storyboard_count" not in installed["episodes"][0]
+        assert "video_unit_count" not in installed_script["metadata"]
+        assert "shot_count" not in installed_script["metadata"]
+
+    @pytest.mark.unit
     @pytest.mark.parametrize("script_file", ["../../outside.json", 123])
     def test_import_reports_migration_failure_as_validation_error(self, tmp_path, script_file):
         """迁移抛错的是归档自身的问题：路由只对校验失败给结构化响应，放行异常等于给用户一个 500。"""

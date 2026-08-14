@@ -14,6 +14,7 @@ from lib.i18n.en import assets as en_assets
 from lib.i18n.vi import assets as vi_assets
 from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
+from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files
@@ -686,6 +687,24 @@ class TestFilesRouter:
                 files={"file": ("style.gif", b"gif", "image/gif")},
             )
             assert bad_style_ext.status_code == 400
+
+    @pytest.mark.unit
+    def test_style_image_rejected_when_project_pending_data_upgrade(self, tmp_path, monkeypatch):
+        """未完成数据升级的项目不做风格分析：付费调用与随后的 project.json 改写一起拦在闸门后。"""
+        client, pm = _client(monkeypatch, tmp_path)
+        project = pm.load_project("demo")
+        project["schema_version"] = CURRENT_SCHEMA_VERSION - 1
+        pm.save_project("demo", project)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/style-image",
+                files={"file": ("style.jpg", _img_bytes("JPEG"), "image/jpeg")},
+            )
+
+        assert resp.status_code == 409, resp.text
+        assert "未完成数据升级" in resp.json()["detail"]
+        assert "style_image" not in pm.load_project("demo")
 
     @pytest.mark.unit
     def test_security_and_error_paths(self, tmp_path, monkeypatch):

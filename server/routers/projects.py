@@ -1577,6 +1577,9 @@ async def generate_overview(name: str, _t: Translator):
         return BadRequestError("text_provider_not_configured")
 
     try:
+        # 概述生成按 source_file_type 切「改编 / 提取」口径，未完成升级的项目只有旧字段：
+        # 放行会用错误的口径发起一次付费调用，且内部按新契约取字段只会抛成 500。
+        require_current_schema(get_project_manager().load_project(name), name=name)
         with project_change_source("webui"):
             # EmptySourceError / PydanticValidationError 都是 ValueError 子类，须放行给下方各自的
             # 专属 except 分支，不能被这里的通用 ValueError 处理误判为「未配置供应商」

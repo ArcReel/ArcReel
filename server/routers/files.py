@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from lib.api_errors import NotFoundError
+from lib.api_errors import ApiError, NotFoundError
 from lib.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
 from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
@@ -956,6 +956,11 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
         )
 
     try:
+        # 付费的风格分析与随后的 project.json 改写都拦在版本闸门后：未完成升级的项目
+        # 放行会先花掉一次模型调用，再把结果写进旧形态数据。
+        project_data = await asyncio.to_thread(get_project_manager().load_project, project_name)
+        require_current_schema(project_data, name=project_name)
+
         content = await file.read()
 
         def _sync_prepare():
@@ -1011,7 +1016,7 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except VisionCapabilityError as e:
         raise HTTPException(
