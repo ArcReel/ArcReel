@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from lib import script_review
 from lib.artifact_activation import ArtifactCurrencyResolver
 from lib.artifact_manifest import (
     MANIFEST_FILENAME,
@@ -411,6 +412,47 @@ class TestProjectArchiveService:
         assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) == before
         assert (
             ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="characters/Hero.png").status
+            is ArtifactStatus.STALE
+        )
+
+    @pytest.mark.unit
+    def test_official_round_trip_preserves_a_stale_script_after_step1_is_deleted(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        step1_path = project_dir / "drafts" / "episode_1" / "step1_segments.json"
+        _write_json(step1_path, {"segments": [{"segment_id": "E1S01", "text": "原文"}]})
+        migrate_v7_to_v8(project_dir)
+
+        key = ArtifactKey.episode_script(1)
+        before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert before is not None
+        assert script_review.delete_step1_file(project_dir, 1, step1_path)
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(ArtifactKey.episode_step1(1)) is None
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) == before
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="scripts/episode_1.json").status
+            is ArtifactStatus.STALE
+        )
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            entry = archive_manifest["artifact_manifest"]["entries"][key.encode()]
+            assert entry == {
+                "artifact_path": before.artifact_path,
+                "basis_digest": before.basis_digest,
+            }
+        shutil.rmtree(project_dir)
+
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) == before
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="scripts/episode_1.json").status
             is ArtifactStatus.STALE
         )
 

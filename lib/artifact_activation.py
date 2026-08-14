@@ -94,6 +94,7 @@ class ArtifactTargetStatePlan:
     """Immutable preflight result consumed by the activation commit."""
 
     entries: Mapping[ArtifactKey, ArtifactManifestEntry]
+    formal_paths: Mapping[ArtifactKey, str]
     project: Mapping[str, Any]
     project_bytes: bytes
     dependency_bytes: Mapping[Path, bytes]
@@ -186,6 +187,7 @@ class _Planner:
         self._episodes_loaded = False
         self.entries: dict[ArtifactKey, ArtifactManifestEntry] = {}
         self.bases: dict[ArtifactKey, ArtifactBasis] = {}
+        self.formal_paths: dict[ArtifactKey, str] = {}
         self._path_owners: dict[str, ArtifactKey] = {}
         self._versions: dict[str, Any] | None = None
         self._activation_mode = False
@@ -209,6 +211,7 @@ class _Planner:
         self._plan_persisted_presentations()
         return ArtifactTargetStatePlan(
             entries=dict(self.entries),
+            formal_paths=dict(self.formal_paths),
             project=dict(self.project),
             project_bytes=self.project_bytes,
             dependency_bytes=dict(self.dependencies),
@@ -334,6 +337,10 @@ class _Planner:
                     id_field=id_field,
                     kind=kind,
                 )
+            )
+            self._record_formal_path(
+                ArtifactKey.episode_script(binding.episode),
+                observation.artifact_path,
             )
         self._episodes_loaded = True
 
@@ -1294,13 +1301,7 @@ class _Planner:
         observation = self.adapter.inspect_artifact(artifact_path)
         if observation.blocker is not None or not observation.present:
             return
-        owner = self._path_owners.get(observation.artifact_path)
-        if owner is not None and owner != key:
-            raise ValueError(
-                "formal artifact path is claimed by multiple keys: "
-                f"{observation.artifact_path} ({owner.encode()}, {key.encode()})"
-            )
-        self._path_owners[observation.artifact_path] = key
+        self._record_formal_path(key, observation.artifact_path)
         if key.kind in _FORMAL_IMAGE_KINDS:
             self._track_dependency_digest(
                 self.project_dir.joinpath(*Path(observation.artifact_path).parts),
@@ -1313,6 +1314,20 @@ class _Planner:
         if existing is not None and existing != entry:
             raise ValueError(f"multiple canonical targets claim artifact key {key.encode()}")
         self.entries[key] = entry
+
+    def _record_formal_path(self, key: ArtifactKey, artifact_path: str) -> None:
+        """Remember a canonical present target independently from its current basis."""
+
+        existing_path = self.formal_paths.get(key)
+        if existing_path is not None and existing_path != artifact_path:
+            raise ValueError(f"multiple canonical paths claim artifact key {key.encode()}")
+        owner = self._path_owners.get(artifact_path)
+        if owner is not None and owner != key:
+            raise ValueError(
+                f"formal artifact path is claimed by multiple keys: {artifact_path} ({owner.encode()}, {key.encode()})"
+            )
+        self.formal_paths[key] = artifact_path
+        self._path_owners[artifact_path] = key
 
     def _visual_reference(
         self,
@@ -1503,11 +1518,12 @@ def _rebase_preserved_artifact_entries(
     invalid: list[str] = []
     for key, archived in preserved_entries.items():
         current = plan.entries.get(key)
-        if current is None:
+        artifact_path = current.artifact_path if current is not None else plan.formal_paths.get(key)
+        if artifact_path is None:
             invalid.append(key.encode())
             continue
         rebased[key] = ArtifactManifestEntry(
-            artifact_path=current.artifact_path,
+            artifact_path=artifact_path,
             basis_digest=archived.basis_digest,
         )
     if invalid:
@@ -1597,6 +1613,7 @@ def _plan_artifact_claim_reconciliation(
         replacements,
         ArtifactTargetStatePlan(
             entries={},
+            formal_paths={},
             project=root_planner.project,
             project_bytes=root_planner.project_bytes,
             dependency_bytes=dependency_bytes,
