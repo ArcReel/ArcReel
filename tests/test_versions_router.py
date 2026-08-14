@@ -17,12 +17,14 @@ from lib.artifact_manifest import (
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifest,
+    ArtifactStatus,
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
 from lib.speech_artifact_provenance import build_video_duration_basis
 from lib.version_manager import VersionManager
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.visual_artifact_provenance import build_storyboard_image_visual_basis
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import versions
@@ -242,6 +244,130 @@ def _client(monkeypatch):
 
 
 class TestVersionsRouter:
+    def test_storyboard_restore_registers_its_frozen_basis_instead_of_live_inputs(self, tmp_path, monkeypatch):
+        from lib.artifact_activation import ArtifactCurrencyResolver
+        from lib.project_manager import ProjectManager
+
+        pm = ProjectManager(tmp_path)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.add_episode("demo", 1, "E1", "scripts/episode_1.json")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "novel_text": "旁白",
+                        "image_prompt": "old prompt",
+                        "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+                    }
+                ],
+            },
+            "episode_1.json",
+            validate=False,
+        )
+        project_path = pm.get_project_path("demo")
+        current = project_path / "storyboards" / "scene_E1S01.png"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"old-image")
+        old_basis = build_storyboard_image_visual_basis(
+            resource_id="E1S01",
+            image_prompt="old prompt",
+            style="Anime",
+            aspect_ratio="9:16",
+        )
+        manager = VersionManager(project_path)
+        old_version = manager.add_version(
+            "storyboards",
+            "E1S01",
+            "old prompt",
+            source_file=current,
+            artifact_image_basis=old_basis.to_evidence_dict(),
+        )
+        current.write_bytes(b"new-image")
+        manager.add_version("storyboards", "E1S01", "new prompt", source_file=current)
+        script = pm.load_script("demo", "episode_1.json")
+        script["segments"][0]["image_prompt"] = "new prompt"
+        pm.save_script("demo", script, "episode_1.json", validate=False)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+
+        manager.restore_version(
+            "storyboards",
+            "E1S01",
+            old_version,
+            current,
+            on_restore=lambda record: versions._restore_non_typed_sidecars(
+                resource_type="storyboards",
+                project_name="demo",
+                resource_id="E1S01",
+                file_path="storyboards/scene_E1S01.png",
+                project_path=project_path,
+                record=record,
+            ),
+        )
+
+        key = ArtifactKey.episode_storyboard(1, "E1S01")
+        entry = ProjectArtifactManifestAdapter(project_path).get_entry(key)
+        assert entry is not None
+        assert entry.basis_digest == old_basis.digest
+        assert (
+            ArtifactCurrencyResolver(project_path)
+            .compare(
+                key,
+                artifact_path="storyboards/scene_E1S01.png",
+            )
+            .status
+            is ArtifactStatus.STALE
+        )
+
+    def test_unverifiable_image_restore_removes_the_previous_claim(self, tmp_path, monkeypatch):
+        from lib.project_manager import ProjectManager
+
+        project_path = tmp_path / "demo"
+        (project_path / "characters").mkdir(parents=True)
+        project_path.joinpath("project.json").write_text(
+            '{"schema_version":8,"title":"Demo","content_mode":"narration",'
+            '"generation_mode":"storyboard","style":"Anime","style_description":"",'
+            '"aspect_ratio":"9:16","episodes":[],"characters":{"Alice":{'
+            '"description":"hero","character_sheet":"characters/Alice.png"}},'
+            '"scenes":{},"props":{},"products":{}}',
+            encoding="utf-8",
+        )
+        current = project_path / "characters" / "Alice.png"
+        current.write_bytes(b"legacy-old")
+        manager = VersionManager(project_path)
+        old_version = manager.add_version("characters", "Alice", "old", source_file=current)
+        current.write_bytes(b"new")
+        manager.add_version("characters", "Alice", "new", source_file=current)
+        key = ArtifactKey.asset_sheet("character", "Alice")
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            key,
+            artifact_path="characters/Alice.png",
+            basis=ArtifactBasis.build("artifact-visual/asset-sheet", kind_version=1, inputs={"new": True}),
+        )
+        pm = ProjectManager(tmp_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+
+        manager.restore_version(
+            "characters",
+            "Alice",
+            old_version,
+            current,
+            on_restore=lambda record: versions._restore_non_typed_sidecars(
+                resource_type="characters",
+                project_name="demo",
+                resource_id="Alice",
+                file_path="characters/Alice.png",
+                project_path=project_path,
+                record=record,
+            ),
+        )
+
+        assert ProjectArtifactManifestAdapter(project_path).get_entry(key) is None
+
     def test_non_typed_restore_rolls_back_media_pointer_and_metadata_when_manifest_commit_fails(
         self,
         tmp_path,
@@ -271,7 +397,7 @@ class TestVersionsRouter:
         monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
         monkeypatch.setattr(
             versions,
-            "register_current_resource_artifact",
+            "forget_current_resource_artifact",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("manifest commit failed")),
         )
 
@@ -405,7 +531,7 @@ class TestVersionsRouter:
             raise RuntimeError("manifest commit failed")
 
         monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(versions, "register_current_resource_artifact", _fail_registration)
+        monkeypatch.setattr(versions, "forget_current_resource_artifact", _fail_registration)
 
         def _restore() -> None:
             versions._restore_non_typed_sidecars(

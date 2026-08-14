@@ -15,13 +15,12 @@ from typing import BinaryIO, Literal
 
 from lib.artifact_activation import (
     forget_current_resource_artifact,
-    register_current_resource_artifact,
 )
 from lib.async_thread import run_noninterruptible_sync
 from lib.formal_write import formal_write_transaction
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
-from server.services.generation_tasks import get_project_manager
+from server.services.generation_tasks import _storyboard_formal_image_callback, get_project_manager
 
 # 版本记录里标记「用户手动上传」的 source 值；前端按此显示翻译文案
 UPLOAD_VERSION_SOURCE = "manual_upload"
@@ -158,57 +157,46 @@ async def save_uploaded_bytes(content: bytes, target: Path) -> None:
     await asyncio.to_thread(write_bytes_atomic, content, target)
 
 
-def record_upload_version(
+async def commit_manual_storyboard_upload(
     *,
+    project_name: str,
+    script_file: str,
+    shot_id: str,
+    asset_path: str,
+    staged_image: Path,
+    current_image: Path,
     versions: VersionManager,
-    resource_type: str,
-    resource_id: str,
-    current_file: Path,
     original_filename: str | None,
 ) -> int:
-    """把刚写入 canonical 路径的上传文件登记为新版本，返回版本号。
+    """Atomically select an uploaded storyboard with its metadata, version, and claim."""
 
-    调用方须在覆写 canonical 文件**之前**先调 ``ensure_current_tracked``
-    补登旧文件（镜像 MediaGenerator 的版本顺序），否则旧版本字节会丢失。
-    """
     metadata: dict[str, str] = {"source": UPLOAD_VERSION_SOURCE}
     if original_filename:
         metadata["original_filename"] = original_filename
-    return versions.add_version(
-        resource_type=resource_type,
-        resource_id=resource_id,
+    outcomes = []
+    commit = _storyboard_formal_image_callback(
+        project_name=project_name,
+        script_file=script_file,
+        resource_id=shot_id,
+        artifact_path=asset_path,
         prompt="",
-        source_file=current_file,
-        **metadata,
+        versions=versions,
+        task_id=None,
+        basis=None,
+        outcome_box=outcomes,
+        project_manager=get_project_manager(),
     )
 
+    def _commit() -> int:
+        version = commit(staged_image, current_image, metadata)
+        if len(outcomes) != 1 or outcomes[0].version != version:
+            raise RuntimeError("manual storyboard upload skipped formal image activation")
+        return version
 
-async def finalize_shot_storyboard_upload(
-    *, project_name: str, script_file: str, shot_id: str, asset_path: str
-) -> None:
-    """分镜图上传后的剧本元数据回写（status 由 update_scene_status 自动推导）。"""
-
-    def _finalize() -> None:
-        manager = get_project_manager()
-
-        def _register(_script_path: Path) -> None:
-            register_current_resource_artifact(
-                manager.get_project_path(project_name),
-                resource_type="storyboards",
-                resource_id=shot_id,
-                script_file=script_file,
-            )
-
-        manager.update_scene_asset(
-            project_name=project_name,
-            script_filename=script_file,
-            scene_id=shot_id,
-            asset_type="storyboard_image",
-            asset_path=asset_path,
-            on_commit=_register,
-        )
-
-    await asyncio.to_thread(_finalize)
+    try:
+        return await run_noninterruptible_sync(_commit)
+    finally:
+        await asyncio.to_thread(staged_image.unlink, missing_ok=True)
 
 
 ManualVideoMetadataCommit = Callable[[str | None, Callable[[Path], None]], None]

@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from lib.path_safety import try_safe_join
 from lib.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_v1_to_v2
 from lib.project_migrations.v2_to_v3_episode_ledger import migrate_v2_to_v3
@@ -34,9 +35,37 @@ def _versioned_backup_name(base_name: str, from_version: int, ts: int) -> str:
     return f"{base_name}.bak.v{from_version}-{ts}"
 
 
-def _backup_glob_pattern(base_name: str) -> str:
-    """生成 cleanup 用 glob，例如 project.json → project.json.bak.v*-*。"""
-    return f"{base_name}.bak.v*-*"
+def _numeric_backup_candidates(source: Path, versions: tuple[int, ...]) -> list[Path]:
+    """Enumerate only backup names emitted for one migration-owned source."""
+
+    candidates: list[Path] = []
+    for version in versions:
+        prefix = f"{source.name}.bak.v{version}-"
+        for candidate in source.parent.glob(f"{prefix}*"):
+            if candidate.name.removeprefix(prefix).isdigit():
+                candidates.append(candidate)
+    return candidates
+
+
+def _bound_script_sources(project_dir: Path) -> tuple[Path, ...]:
+    """Resolve the exact script paths that v6/v7 migrations were allowed to back up."""
+
+    try:
+        project = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return ()
+    episodes = project.get("episodes") if isinstance(project, dict) else None
+    if not isinstance(episodes, list):
+        return ()
+    sources: list[Path] = []
+    for episode in episodes:
+        script_file = episode.get("script_file") if isinstance(episode, dict) else None
+        if not isinstance(script_file, str) or not script_file:
+            continue
+        source = try_safe_join(project_dir, script_file)
+        if source is not None:
+            sources.append(source)
+    return tuple(sources)
 
 
 @dataclass
@@ -164,26 +193,29 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
 
 
 def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
-    """删除超过 max_age_days 的 .bak.v*- 备份文件与 clues.bak.v*-/ 目录。"""
+    """删除超过 max_age_days、且可归属到迁移输入的版本化备份。"""
     if not projects_root.exists():
         return
     cutoff = time.time() - max_age_days * 86400
     for project_dir in projects_root.iterdir():
         if not project_dir.is_dir():
             continue
-        # Activation owns backups for project.json, every bound script, and the
-        # pre-existing Manifest.  Cleanup follows the versioned-backup naming
-        # contract recursively so all of those inputs share one retention rule.
-        for bak in project_dir.rglob("*.bak.v*-*"):
-            if bak.is_dir():
-                continue
-            try:
-                if bak.stat().st_mtime < cutoff:
-                    bak.unlink()
-            except OSError:
-                logger.warning("无法删除备份：%s", bak)
-        for bak_dir in project_dir.glob(_backup_glob_pattern("clues")):
-            if not bak_dir.is_dir():
+        sources = (
+            (project_dir / "project.json", tuple(range(CURRENT_SCHEMA_VERSION))),
+            (project_dir / ".arcreel_artifacts.json", (7,)),
+            *((source, (6, 7)) for source in _bound_script_sources(project_dir)),
+        )
+        for source, versions in sources:
+            for bak in _numeric_backup_candidates(source, versions):
+                if bak.is_symlink() or not bak.is_file():
+                    continue
+                try:
+                    if bak.stat().st_mtime < cutoff:
+                        bak.unlink()
+                except OSError:
+                    logger.warning("无法删除备份：%s", bak)
+        for bak_dir in _numeric_backup_candidates(project_dir / "clues", (0,)):
+            if bak_dir.is_symlink() or not bak_dir.is_dir():
                 continue
             try:
                 if bak_dir.stat().st_mtime < cutoff:

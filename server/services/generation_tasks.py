@@ -30,6 +30,7 @@ from lib.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
+from lib.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
 from lib.asset_types import (
     ASSET_SPECS,
     normalize_asset_bucket,
@@ -315,6 +316,11 @@ def _commit_staged_formal_image(
         )
 
     def _activate() -> None:
+        committed_metadata = dict(version_metadata)
+        if IMAGE_ARTIFACT_BASIS_FIELD in committed_metadata:
+            raise ValueError(f"{IMAGE_ARTIFACT_BASIS_FIELD} is reserved for formal image activation")
+        if isinstance(basis, ArtifactBasis):
+            committed_metadata[IMAGE_ARTIFACT_BASIS_FIELD] = basis.to_evidence_dict()
         version_box.append(
             versions.commit_staged_version(
                 resource_type=resource_type,
@@ -323,7 +329,7 @@ def _commit_staged_formal_image(
                 staged_file=staged_file,
                 current_file=current_file,
                 on_commit=_register,
-                **dict(version_metadata),
+                **committed_metadata,
             )
         )
 
@@ -2967,6 +2973,7 @@ async def execute_grid_task(
     （server.services.grid_split.apply_grid_split）显式执行。
     """
     from lib.grid.layout import GRID_FALLBACK_RESOLUTION, grid_aspect_ratio_for
+    from lib.grid.prompt_builder import build_grid_prompt
     from lib.grid_manager import GridManager
 
     project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
@@ -3005,10 +3012,6 @@ async def execute_grid_task(
         grid_manager.save(grid)
 
         # d) Generate grid image
-        prompt_text = payload.get("prompt") or grid.prompt
-        if not prompt_text:
-            raise ValueError("prompt is required for grid task")
-
         _needs_i2i = bool(reference_images)
         items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
         item_by_id = {str(item.get(id_field)): item for item in items if isinstance(item, Mapping)}
@@ -3037,6 +3040,15 @@ async def execute_grid_task(
         )
         member_aspect_ratio = grid.video_aspect_ratio or get_aspect_ratio(project, "storyboards")
         grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, member_aspect_ratio)
+        prompt_text = build_grid_prompt(
+            scenes=[item_by_id[scene_id] for scene_id in grid.scene_ids],
+            id_field=id_field,
+            rows=grid.rows,
+            cols=grid.cols,
+            style=str(project.get("style") or ""),
+            aspect_ratio=member_aspect_ratio,
+            grid_aspect_ratio=grid_aspect_ratio,
+        )
         grid_basis = build_grid_composite_visual_basis(
             group_id=grid.id,
             members=members,
@@ -3054,13 +3066,14 @@ async def execute_grid_task(
             image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
         )
         generator = ctx.generator
-        aspect_ratio = payload.get("grid_aspect_ratio") or grid_aspect_ratio
+        aspect_ratio = grid_aspect_ratio
 
         # 回填 grid metadata：route 层创建/重建时无法预知 needs_i2i，由此处补齐。
         # provider 记 registry 身份（供后续重解析定位供应商），model 记 backend 实际身份
         # （自定义供应商目标 model 被禁用回退时，实际调用的 model 与解析出的 model_id 不同）。
         grid.provider = ctx.image.provider_model.provider_id
         grid.model = ctx.image.backend_model
+        grid.prompt = prompt_text
         grid_manager.save(grid)
         # 保底档与档位门控（``large_grid_allowed``）取同一常量，避免门控按 2K 判定、
         # 渲染却按别的档位下发

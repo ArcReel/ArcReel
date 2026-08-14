@@ -19,13 +19,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from lib.artifact_activation import (
     TARGET_SCHEMA_VERSION,
-    register_artifact_entries_atomically,
-    resolve_current_artifact_target,
+    prepare_episode_script_manifest_commit,
 )
 from lib.artifact_manifest import (
-    ArtifactKey,
     ArtifactManifestAdapter,
-    ArtifactManifestEntry,
     ArtifactManifestError,
     ProjectArtifactManifestAdapter,
 )
@@ -406,6 +403,7 @@ class ScriptBatchEditor:
                         project=project,
                         script=candidate,
                         script_file=resolved_script,
+                        resource_ids=frozenset(final_ids),
                         removed_resource_ids=frozenset(affected_ids) - final_ids,
                     )
                 except (ArtifactManifestError, OSError, UnicodeError, ValueError) as exc:
@@ -460,6 +458,7 @@ class ScriptBatchEditor:
         project: dict[str, Any],
         script: dict[str, Any],
         script_file: str,
+        resource_ids: frozenset[str],
         removed_resource_ids: frozenset[str],
     ) -> Callable[[], None] | None:
         if project.get("schema_version") != TARGET_SCHEMA_VERSION:
@@ -467,33 +466,15 @@ class ScriptBatchEditor:
         episode = script.get("episode")
         if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
             return None
-        adapter = self._manifest_adapter_factory(project_dir)
-        key = ArtifactKey.episode_script(episode)
-        snapshot = adapter.snapshot_entries()
-        removed_keys = tuple(
-            candidate
-            for resource_id in sorted(removed_resource_ids)
-            for candidate in ArtifactKey.episode_resource_artifacts(episode, resource_id)
-        )
-        expected_entries = {candidate: snapshot.get(candidate) for candidate in (key, *removed_keys)}
         artifact_path = f"scripts/{self._pm.normalize_script_filename(script_file)}"
-        observation = adapter.inspect_artifact(artifact_path)
-        if observation.blocker is not None:
-            raise ArtifactManifestError(observation.blocker.detail)
-
-        def commit() -> None:
-            replacements: dict[ArtifactKey, ArtifactManifestEntry | None] = {
-                candidate: None for candidate in removed_keys
-            }
-            replacements[key] = resolve_current_artifact_target(project_dir, key)
-            register_artifact_entries_atomically(
-                project_dir,
-                replacements,
-                expected_entries=expected_entries,
-                adapter=adapter,
-            )
-
-        return commit
+        return prepare_episode_script_manifest_commit(
+            project_dir,
+            episode=episode,
+            artifact_path=artifact_path,
+            resource_ids=tuple(sorted(resource_ids)),
+            removed_resource_ids=tuple(sorted(removed_resource_ids)),
+            adapter=self._manifest_adapter_factory(project_dir),
+        )
 
     @staticmethod
     def _failure(

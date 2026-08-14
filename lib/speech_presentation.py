@@ -389,6 +389,7 @@ def materialize_speech_presentation(
     video: PresentationMedia,
     provider_audio_enabled: bool,
     narration_audio: PresentationMedia | None = None,
+    transition_to_next: str = "cut",
     timing: SubtitleTimingPolicy | None = None,
 ) -> SpeechPresentation:
     """Materialize one validated presentation from selected real media."""
@@ -401,6 +402,8 @@ def materialize_speech_presentation(
         raise TypeError("video must be PresentationMedia")
     if not isinstance(provider_audio_enabled, bool):
         raise TypeError("provider_audio_enabled must be a boolean")
+    if not isinstance(transition_to_next, str):
+        raise TypeError("transition_to_next must be a string")
     if narration_audio is not None and not isinstance(narration_audio, PresentationMedia):
         raise TypeError("narration_audio must be PresentationMedia or null")
     if variant == USE_TTS and preparation.mode is not SpeechMode.NARRATOR_VOICEOVER:
@@ -437,6 +440,7 @@ def materialize_speech_presentation(
         subtitle=subtitle_basis,
         narration_audio=narration_audio.evidence if narration_audio is not None else None,
         provider_audio_enabled=provider_audio_enabled,
+        transition_to_next=transition_to_next,
     )
     sources = (video,) if narration_audio is None else (video, narration_audio)
     selection: MediaSelection = "history" if any(source.selection == "history" for source in sources) else "current"

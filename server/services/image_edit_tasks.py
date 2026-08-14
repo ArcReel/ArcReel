@@ -24,8 +24,11 @@ from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.services.generation_context import ImageLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
+    _asset_sheet_formal_image_callback,
     _finalize_asset_sheet_task,
     _finalize_storyboard_image_task,
+    _formal_image_task_token,
+    _storyboard_formal_image_callback,
     compensable_formal_task_result,
     get_aspect_ratio,
     get_project_manager,
@@ -160,6 +163,35 @@ async def execute_image_edit_task(
 
     aspect_ratio = get_aspect_ratio(project, version_resource_type)
     image_size = ctx.image.resolution
+    canonical_rel = resource_relative_path(version_resource_type, resource_key)
+    formal_outcomes: list[Any] = []
+
+    if resource_type == "storyboard":
+        commit_formal_output = _storyboard_formal_image_callback(
+            project_name=project_name,
+            script_file=str(script_file),
+            resource_id=resource_key,
+            artifact_path=canonical_rel,
+            prompt=instruction,
+            versions=generator.versions,
+            task_id=task_id,
+            basis=None,
+            outcome_box=formal_outcomes,
+            project_manager=get_project_manager(),
+        )
+    else:
+        commit_formal_output = _asset_sheet_formal_image_callback(
+            asset_type=resource_type,
+            project_name=project_name,
+            resource_id=resource_key,
+            sheet_path=canonical_rel,
+            prompt=instruction,
+            versions=generator.versions,
+            task_id=task_id,
+            basis=None,
+            outcome_box=formal_outcomes,
+            project_manager=get_project_manager(),
+        )
 
     # 参考图仅当前图一张、prompt 仅编辑指令（不拼原 image_prompt / 不追加生成路径的
     # 自动参考图收集）；新版本 prompt 字段即编辑指令，source 标记编辑版本。
@@ -170,12 +202,16 @@ async def execute_image_edit_task(
         reference_images=[current_image],
         aspect_ratio=aspect_ratio,
         image_size=image_size,
+        formal_output=True,
+        task_id=_formal_image_task_token(task_id),
+        commit_formal_output=commit_formal_output,
         source=IMAGE_EDIT_VERSION_SOURCE,
     )
 
-    canonical_rel = resource_relative_path(version_resource_type, resource_key)
-
-    if resource_type == "storyboard":
+    if formal_outcomes:
+        outcome = formal_outcomes[0]
+        version, created_at, receipt = outcome.version, outcome.created_at, outcome.receipt
+    elif resource_type == "storyboard":
         created_at, receipt = await _finalize_storyboard_image_task(
             project_name=project_name,
             script_file=str(script_file),

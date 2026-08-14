@@ -13,7 +13,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from lib.artifact_manifest import ArtifactBasisDescriptor
+from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
+from lib.asset_types import ASSET_SPECS, normalize_asset_name
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
 from lib.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
 
@@ -31,6 +32,20 @@ class TypedMediaVersionTarget:
 _VIDEO_VISUAL_KINDS = {
     "videos": "artifact-visual/video-storyboard",
     "reference_videos": "artifact-visual/video-reference",
+}
+
+IMAGE_ARTIFACT_BASIS_FIELD = "artifact_image_basis"
+_IMAGE_ASSET_TYPES = {spec.bucket_key: asset_type for asset_type, spec in ASSET_SPECS.items()}
+_IMAGE_VISUAL_KINDS: dict[str, frozenset[str]] = {
+    **{resource_type: frozenset({"artifact-visual/asset-sheet"}) for resource_type in _IMAGE_ASSET_TYPES},
+    "storyboards": frozenset(
+        {
+            "artifact-visual/storyboard-image",
+            "artifact-visual/grid-member",
+            "artifact-visual/stale-grid-member",
+        }
+    ),
+    "grids": frozenset({"artifact-visual/grid-composite"}),
 }
 
 
@@ -74,6 +89,58 @@ def parse_typed_audio_settings(record: Mapping[str, Any]) -> TtsSynthesisSetting
 
     parse_typed_media_version_target("audio", record)
     return _audio_settings(record)
+
+
+def parse_image_version_basis(
+    resource_type: str,
+    resource_id: str,
+    record: Mapping[str, Any],
+) -> ArtifactBasis:
+    """Validate complete generation-frozen evidence carried by an image version."""
+
+    allowed_kinds = _IMAGE_VISUAL_KINDS.get(resource_type)
+    if allowed_kinds is None:
+        raise ValueError(f"resource type does not carry image artifact metadata: {resource_type}")
+    raw = record.get(IMAGE_ARTIFACT_BASIS_FIELD)
+    try:
+        basis = ArtifactBasis.from_evidence_dict(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("version does not contain complete image artifact metadata") from exc
+    if basis.kind not in allowed_kinds or basis.kind_version != 1 or not isinstance(raw, Mapping):
+        raise ValueError("version does not contain complete image artifact metadata")
+    inputs = raw.get("inputs")
+    if not isinstance(inputs, Mapping) or not _image_basis_matches_resource(
+        resource_type,
+        resource_id,
+        basis_kind=basis.kind,
+        inputs=inputs,
+    ):
+        raise ValueError("image artifact metadata does not match the selected resource")
+    return basis
+
+
+def _image_basis_matches_resource(
+    resource_type: str,
+    resource_id: str,
+    *,
+    basis_kind: str,
+    inputs: Mapping[str, object],
+) -> bool:
+    asset_type = _IMAGE_ASSET_TYPES.get(resource_type)
+    if asset_type is not None:
+        asset = inputs.get("asset")
+        if not isinstance(asset, Mapping) or asset.get("type") != asset_type:
+            return False
+        asset_id = asset.get("id")
+        return isinstance(asset_id, str) and normalize_asset_name(asset_id) == normalize_asset_name(resource_id)
+    if resource_type == "grids":
+        return inputs.get("group_id") == resource_id
+    if basis_kind == "artifact-visual/storyboard-image":
+        return inputs.get("resource_id") == resource_id
+    if basis_kind == "artifact-visual/stale-grid-member":
+        return inputs.get("resource_id") == resource_id
+    cell = inputs.get("cell")
+    return isinstance(cell, Mapping) and cell.get("resource_id") == resource_id
 
 
 def _validated_audio_basis(record: Mapping[str, Any]) -> ArtifactBasisDescriptor:
@@ -158,8 +225,10 @@ def _validated_video_facts(
 
 
 __all__ = [
+    "IMAGE_ARTIFACT_BASIS_FIELD",
     "TypedMediaVersionTarget",
     "is_typed_media_resource",
+    "parse_image_version_basis",
     "parse_typed_audio_settings",
     "parse_typed_media_version_target",
 ]

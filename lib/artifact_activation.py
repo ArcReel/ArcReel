@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -68,6 +68,15 @@ from lib.visual_artifact_provenance import (
 
 TARGET_SCHEMA_VERSION = 8
 _GRID_RECORD_RE = re.compile(r"grid_[0-9a-f]{12}\.json\Z")
+_EPISODE_RESOURCE_KINDS = frozenset(
+    {
+        ArtifactKind.EPISODE_STORYBOARD,
+        ArtifactKind.EPISODE_VIDEO,
+        ArtifactKind.EPISODE_AUDIO,
+        ArtifactKind.EPISODE_SUBTITLE,
+        ArtifactKind.EPISODE_PRESENTATION,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -984,6 +993,9 @@ class _Planner:
         )
         if frozen_preparation is None or not isinstance(provider_audio_enabled, bool):
             return None
+        transition = presentation.get("transition_to_next")
+        if not isinstance(transition, str):
+            return None
         try:
             frozen = materialize_speech_presentation(
                 frozen_preparation,
@@ -991,11 +1003,9 @@ class _Planner:
                 video=frozen_video,
                 narration_audio=frozen_audio,
                 provider_audio_enabled=provider_audio_enabled,
+                transition_to_next=transition,
             )
         except (TypeError, ValueError):
-            return None
-        transition = presentation.get("transition_to_next")
-        if not isinstance(transition, str):
             return None
         expected_presentation = {
             "episode": episode.episode,
@@ -1014,6 +1024,8 @@ class _Planner:
         current_presentation: ArtifactBasis | None = None
         admission = admit_script_unit(episode.kind, item)
         if admission.allowed:
+            live_transition = item.get("transition_to_next")
+            current_transition = live_transition if isinstance(live_transition, str) else "cut"
             try:
                 current = materialize_speech_presentation(
                     admission.preparation,
@@ -1021,6 +1033,7 @@ class _Planner:
                     video=current_video,
                     narration_audio=current_audio,
                     provider_audio_enabled=provider_audio_enabled,
+                    transition_to_next=current_transition,
                 )
             except (TypeError, ValueError):
                 pass
@@ -1573,6 +1586,70 @@ def register_current_artifact_if_provable(
     return manifest.register_entry_transactionally(key, entry)
 
 
+def prepare_episode_script_manifest_commit(
+    project_dir: Path,
+    *,
+    episode: int,
+    artifact_path: str,
+    resource_ids: Sequence[str],
+    removed_resource_ids: Sequence[str] = (),
+    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
+    adapter: ArtifactManifestAdapter | None = None,
+) -> Callable[[], None] | None:
+    """Preflight one script replacement and return its atomic claim commit.
+
+    The script claim and every claim orphaned by removal of a script item share
+    one Manifest compare-and-swap.  Callers invoke the returned closure inside
+    the same formal-write transaction that selects the script bytes.
+    """
+
+    if not _artifact_manifest_is_active(project_dir):
+        return None
+    if type(episode) is not int or episode < 1:
+        raise ValueError("episode must be a positive integer")
+    remaining_ids = frozenset(resource_ids)
+    removed_ids = frozenset(removed_resource_ids)
+    if any(not isinstance(resource_id, str) or not resource_id for resource_id in (*remaining_ids, *removed_ids)):
+        raise ValueError("script resource identities must be non-empty strings")
+
+    storage = adapter or ProjectArtifactManifestAdapter(project_dir)
+    snapshot = storage.snapshot_entries()
+    observation = storage.inspect_artifact(artifact_path)
+    if observation.blocker is not None:
+        raise ArtifactManifestError(observation.blocker.detail)
+    script_key = ArtifactKey.episode_script(episode)
+    orphaned_keys = [
+        key
+        for key in snapshot
+        if key.episode_number == episode
+        and key.kind in _EPISODE_RESOURCE_KINDS
+        and cast(str, key.components[1]) not in remaining_ids
+    ]
+    orphaned_keys.extend(
+        key
+        for resource_id in sorted(removed_ids - remaining_ids)
+        for key in ArtifactKey.episode_resource_artifacts(episode, resource_id)
+    )
+    orphaned_keys = list(dict.fromkeys(orphaned_keys))
+    expected = {key: snapshot.get(key) for key in (script_key, *orphaned_keys)}
+    frozen_entry: ArtifactManifestEntry | None = None
+    if basis is not None:
+        descriptor = basis if isinstance(basis, ArtifactBasisDescriptor) else ArtifactBasisDescriptor.from_basis(basis)
+        frozen_entry = ArtifactManifestEntry(artifact_path=artifact_path, basis_digest=descriptor.digest)
+
+    def commit() -> None:
+        replacements: dict[ArtifactKey, ArtifactManifestEntry | None] = {key: None for key in orphaned_keys}
+        replacements[script_key] = frozen_entry or resolve_current_artifact_target(project_dir, script_key)
+        register_artifact_entries_atomically(
+            project_dir,
+            replacements,
+            expected_entries=expected,
+            adapter=storage,
+        )
+
+    return commit
+
+
 def artifact_key_for_resource(
     project_dir: Path,
     *,
@@ -1872,6 +1949,7 @@ __all__ = [
     "forget_current_resource_artifact",
     "forget_unbound_storyboard_artifacts",
     "plan_artifact_target_state",
+    "prepare_episode_script_manifest_commit",
     "rebase_preserved_artifact_entries",
     "register_current_artifact",
     "register_artifact_entries_atomically",

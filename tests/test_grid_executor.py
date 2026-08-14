@@ -332,6 +332,62 @@ class TestExecuteGridTask:
         )
         assert captured == [expected]
 
+    async def test_grid_provider_prompt_is_rebuilt_from_the_same_live_inputs_as_its_basis(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from lib.grid.layout import grid_aspect_ratio_for
+        from lib.grid.prompt_builder import build_grid_prompt
+        from lib.grid_manager import GridManager
+        from server.services.generation_tasks import execute_grid_task
+
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        project = json.loads((project_with_script / "project.json").read_text())
+        script["segments"][0]["image_prompt"]["scene"] = "live scene prompt"
+        captured_prompt: list[str] = []
+
+        class _Generator:
+            versions = MagicMock()
+
+            async def generate_image_async(self, **kwargs):
+                captured_prompt.append(kwargs["prompt"])
+                return project_with_script / "grids" / f"{grid_json.id}.png", 1
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(_Generator()),
+            ),
+            patch("server.services.generation_tasks.register_formal_task_artifact", return_value=None),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = project
+            mock_pm.load_script.return_value = script
+            mock_pm_fn.return_value = mock_pm
+
+            await execute_grid_task(
+                "test-project",
+                grid_json.id,
+                {"prompt": "stale queued prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+        scenes_by_id = {scene["segment_id"]: scene for scene in script["segments"]}
+        expected = build_grid_prompt(
+            scenes=[scenes_by_id[scene_id] for scene_id in grid_json.scene_ids],
+            id_field="segment_id",
+            rows=2,
+            cols=2,
+            style="realistic",
+            aspect_ratio="9:16",
+            grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
+        )
+        assert captured_prompt == [expected]
+        assert GridManager(project_with_script).get(grid_json.id).prompt == expected
+
     async def test_manifest_failure_rejects_selected_grid_before_marking_failed(
         self,
         project_with_script,

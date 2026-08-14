@@ -824,6 +824,61 @@ class TestGenerationTasks:
         assert captured == [expected]
         assert captured[0].digest != latest.digest
 
+    @pytest.mark.integration
+    async def test_formal_image_version_records_complete_frozen_basis_evidence(self, tmp_path, monkeypatch):
+        from lib.media_generator import task_image_staging_path
+        from lib.project_manager import ProjectManager
+        from lib.version_manager import VersionManager
+        from lib.visual_artifact_provenance import build_asset_sheet_visual_basis
+
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.add_character("demo", "Alice", "queued definition")
+        project_path = pm.get_project_path("demo")
+        current = project_path / "characters" / "Alice.png"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        version_manager = VersionManager(project_path)
+
+        class _Generator:
+            versions = version_manager
+
+            async def generate_image_async(self, **kwargs):
+                staged = task_image_staging_path(current, kwargs["task_id"])
+                staged.write_bytes(b"generated-sheet")
+                version = kwargs["commit_formal_output"](
+                    staged,
+                    current,
+                    {"aspect_ratio": "16:9"},
+                )
+                return current, version
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(_Generator()))
+        monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
+
+        result = await generation_tasks.execute_character_task(
+            "demo",
+            "Alice",
+            {"prompt": "queued definition"},
+        )
+
+        record = next(
+            item
+            for item in version_manager.get_versions("characters", "Alice")["versions"]
+            if item["version"] == result["version"]
+        )
+        project = pm.load_project("demo")
+        expected = build_asset_sheet_visual_basis(
+            asset_type="character",
+            asset_id="Alice",
+            description="queued definition",
+            style=str(project.get("style") or ""),
+            style_description=str(project.get("style_description") or ""),
+            aspect_ratio="16:9",
+        )
+        assert ArtifactBasis.from_evidence_dict(record["artifact_image_basis"]) == expected
+
     @pytest.mark.unit
     async def test_storyboard_cancellation_waits_for_registration_and_returns_compensation(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

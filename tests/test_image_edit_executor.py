@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.db.base import Base
 from lib.project_manager import ProjectManager
+from lib.version_manager import VersionManager
 from server.services import generation_context, image_edit_tasks
 from server.services.generation_context import (
     GenerationContext,
@@ -169,6 +170,55 @@ class TestResolveCurrentImageRel:
 
 
 class TestExecuteImageEditTask:
+    async def test_registration_failure_never_exposes_an_edited_image(self, tmp_path, monkeypatch):
+        from lib.media_generator import task_image_staging_path
+        from server.services import generation_tasks
+
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.add_character("demo", "Alice", "hero")
+        project_path = pm.get_project_path("demo")
+        current = project_path / "characters" / "Alice.png"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"old-image")
+        pm.update_project_character_sheet("demo", "Alice", "characters/Alice.png")
+        versions = VersionManager(project_path)
+
+        class _Generator:
+            def __init__(self):
+                self.versions = versions
+
+            async def generate_image_async(self, **kwargs):
+                assert kwargs["formal_output"] is True
+                staged = task_image_staging_path(current, kwargs["task_id"])
+                staged.write_bytes(b"edited-image")
+                version = kwargs["commit_formal_output"](
+                    staged,
+                    current,
+                    {"aspect_ratio": "16:9", "source": kwargs["source"]},
+                )
+                return current, version
+
+        _patch_common(monkeypatch, pm, _Generator())
+        monkeypatch.setattr(
+            generation_tasks,
+            "register_task_current_resource_artifact",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("manifest commit failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="manifest commit failed"):
+            await execute_image_edit_task(
+                "demo",
+                "Alice",
+                {"resource_type": "character", "prompt": "red hair"},
+                task_id="image-edit-task",
+            )
+
+        assert current.read_bytes() == b"old-image"
+        assert versions.get_current_version("characters", "Alice") == 1
+        assert pm.load_project("demo")["characters"]["Alice"]["character_sheet"] == "characters/Alice.png"
+
     async def test_active_storyboard_rejects_an_unbound_script_before_provider(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

@@ -295,10 +295,10 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     grid = _load_grid_or_404(project_path, grid_id)
     _load_admitted_grid_script(project_name, project, grid.script_file, grid.episode)
 
-    # 重生成是把同一次产出重跑一遍：rows/cols、prompt 与比例全部沿用记录上冻结的值，
-    # 三者必须同源——prompt 里写死了画布比例，换用项目当前比例会让画布描述与下发参数矛盾。
-    # 存量记录没有冻结值，回落到项目当前比例并就地补齐。想按新比例重排的用户重跑生成，
-    # 那条路径会重新规划分组、prompt 与档位。
+    # 重生成沿用记录上冻结的 rows/cols 与比例。Worker 在执行时从同一份当前剧本、
+    # 风格和冻结布局重建 provider prompt 与 provenance basis，队列里的 prompt 仅作
+    # 兼容字段，不能成为脱离当前 basis 的第二真相源。存量记录没有冻结比例时回落
+    # 到项目当前比例并就地补齐；想按新比例重排的用户须重跑生成规划。
     aspect_ratio = grid.video_aspect_ratio or video_aspect_ratio_of(project)
     grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, aspect_ratio)
 

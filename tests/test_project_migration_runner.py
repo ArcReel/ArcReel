@@ -177,16 +177,26 @@ def test_error_isolated_not_abort(tmp_projects: Path, monkeypatch):
 
 
 def test_cleanup_old_backups(tmp_projects: Path):
-    p = _write_project(tmp_projects, "p1", {"schema_version": 1})
+    p = _write_project(
+        tmp_projects,
+        "p1",
+        {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        },
+    )
     old = p / "project.json.bak.v0-100000000"
     new = p / "project.json.bak.v0-9999999999"
     old.write_text("old", encoding="utf-8")
     new.write_text("new", encoding="utf-8")
-    old_script = p / "scripts" / "episode_1.json.bak.v7-old"
-    new_manifest = p / ".arcreel_artifacts.json.bak.v7-new"
+    old_script = p / "scripts" / "episode_1.json.bak.v7-100000000"
+    new_manifest = p / ".arcreel_artifacts.json.bak.v7-9999999999"
     old_script.parent.mkdir()
     old_script.write_text("old-script", encoding="utf-8")
     new_manifest.write_text("new-manifest", encoding="utf-8")
+    user_source = p / "source" / "novel.bak.v7-final.txt"
+    user_source.parent.mkdir()
+    user_source.write_text("user-owned", encoding="utf-8")
 
     old_clues_dir = p / "clues.bak.v0-100000000"
     new_clues_dir = p / "clues.bak.v0-9999999999"
@@ -200,6 +210,7 @@ def test_cleanup_old_backups(tmp_projects: Path):
 
     os.utime(old, (eight_days_ago, eight_days_ago))
     os.utime(old_script, (eight_days_ago, eight_days_ago))
+    os.utime(user_source, (eight_days_ago, eight_days_ago))
     os.utime(old_clues_dir, (eight_days_ago, eight_days_ago))
 
     cleanup_stale_backups(tmp_projects, max_age_days=7)
@@ -207,6 +218,7 @@ def test_cleanup_old_backups(tmp_projects: Path):
     assert new.exists()
     assert not old_script.exists()
     assert new_manifest.exists()
+    assert user_source.read_text(encoding="utf-8") == "user-owned"
     assert not old_clues_dir.exists()
     assert new_clues_dir.exists()
 

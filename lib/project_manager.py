@@ -690,38 +690,58 @@ class ProjectManager:
 
         episode = script.get("episode")
 
-        def _register_manifest(_script_path: Path) -> None:
-            if type(episode) is not int or episode < 1:
-                return
-            if not self.project_exists(project_name):
-                return
-            from lib.artifact_activation import (
-                TARGET_SCHEMA_VERSION,
-                register_current_artifact,
-                register_current_artifact_if_provable,
-            )
-            from lib.artifact_manifest import ArtifactKey
+        with self._script_lock(project_name, filename):
+            manifest_commit: Callable[[], None] | None = None
+            before_script: dict | None | _Unset = _UNSET
+            if type(episode) is int and episode > 0 and self.project_exists(project_name):
+                from lib.artifact_activation import TARGET_SCHEMA_VERSION, prepare_episode_script_manifest_commit
 
-            project_path = self.get_project_path(project_name)
-            project = self._read_project_raw_unlocked(project_name)
-            if project.get("schema_version") == TARGET_SCHEMA_VERSION:
-                key = ArtifactKey.episode_script(episode)
-                if artifact_basis is None:
-                    register_current_artifact_if_provable(project_path, key)
-                else:
-                    register_current_artifact(
+                project = self._read_project_raw_unlocked(project_name)
+                if project.get("schema_version") == TARGET_SCHEMA_VERSION:
+                    project_path = self.get_project_path(project_name)
+                    script_path = Path(self._safe_subpath(project_path / "scripts", filename))
+                    before_script = self._load_script_or_none(script_path)
+                    items, id_field, _kind = resolve_items(script)
+                    resource_ids = tuple(
+                        resource_id
+                        for item in items
+                        if isinstance(item, Mapping)
+                        and isinstance((resource_id := item.get(id_field)), str)
+                        and resource_id
+                    )
+                    previous_resource_ids: tuple[str, ...] = ()
+                    if before_script is not None:
+                        try:
+                            previous_items, previous_id_field, _previous_kind = resolve_items(before_script)
+                        except ScriptEditError:
+                            pass
+                        else:
+                            previous_resource_ids = tuple(
+                                resource_id
+                                for item in previous_items
+                                if isinstance(item, Mapping)
+                                and isinstance((resource_id := item.get(previous_id_field)), str)
+                                and resource_id
+                            )
+                    manifest_commit = prepare_episode_script_manifest_commit(
                         project_path,
-                        key,
-                        artifact_path=_script_path.relative_to(project_path).as_posix(),
+                        episode=episode,
+                        artifact_path=f"scripts/{filename}",
+                        resource_ids=resource_ids,
+                        removed_resource_ids=tuple(set(previous_resource_ids) - set(resource_ids)),
                         basis=artifact_basis,
                     )
 
-        with self._script_lock(project_name, filename):
+            def _register_manifest(_script_path: Path) -> None:
+                if manifest_commit is not None:
+                    manifest_commit()
+
             return self._commit_script_unlocked(
                 project_name,
                 script,
                 filename,
                 validate=validate,
+                before=before_script,
                 on_commit=_register_manifest,
             )
 

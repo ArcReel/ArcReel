@@ -6,15 +6,21 @@
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter
 
 logger = logging.getLogger(__name__)
 
 from lib.api_errors import BadRequestError, ConflictError
-from lib.artifact_activation import forget_unbound_storyboard_artifacts, register_current_resource_artifact
+from lib.artifact_activation import (
+    forget_current_resource_artifact,
+    forget_unbound_storyboard_artifacts,
+    register_current_resource_artifact,
+)
+from lib.artifact_version_provenance import parse_image_version_basis
 from lib.async_thread import run_noninterruptible_sync
 from lib.generation_admission import generation_admission_lock
 from lib.path_safety import PathTraversalError, safe_join
@@ -107,19 +113,37 @@ def _restore_non_typed_sidecars(
     resource_id: str,
     file_path: str,
     project_path: Path,
+    record: Mapping[str, Any] | None = None,
 ) -> None:
     """Commit restore metadata and its Manifest claim under one compensation seam."""
+
+    try:
+        basis = parse_image_version_basis(resource_type, resource_id, record or {})
+    except (TypeError, ValueError):
+        basis = None
+
+    def _commit_claim() -> None:
+        if basis is None:
+            forget_current_resource_artifact(
+                project_path,
+                resource_type=resource_type,
+                resource_id=resource_id,
+            )
+            return
+        register_current_resource_artifact(
+            project_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            artifact_path=file_path,
+            basis=basis,
+        )
 
     if resource_type == "storyboards":
         scripts_dir = project_path / "scripts"
         script_names = [path.name for path in sorted(scripts_dir.glob("*.json"))] if scripts_dir.exists() else []
 
         def _register_storyboard() -> None:
-            register_current_resource_artifact(
-                project_path,
-                resource_type=resource_type,
-                resource_id=resource_id,
-            )
+            _commit_claim()
 
         def _forget_orphan_storyboard() -> None:
             forget_unbound_storyboard_artifacts(project_path, resource_id)
@@ -140,11 +164,7 @@ def _restore_non_typed_sidecars(
     if asset_type is not None:
 
         def _register_asset(_project_file: Path) -> None:
-            register_current_resource_artifact(
-                project_path,
-                resource_type=resource_type,
-                resource_id=resource_id,
-            )
+            _commit_claim()
 
         try:
             with project_change_source("webui"):
@@ -162,20 +182,12 @@ def _restore_non_typed_sidecars(
     if resource_type == "grids":
 
         def _register_grid() -> None:
-            register_current_resource_artifact(
-                project_path,
-                resource_type=resource_type,
-                resource_id=resource_id,
-            )
+            _commit_claim()
 
         _sync_grid_record(project_path, resource_id, on_commit=_register_grid)
         return
 
-    register_current_resource_artifact(
-        project_path,
-        resource_type=resource_type,
-        resource_id=resource_id,
-    )
+    _commit_claim()
 
 
 # ==================== 版本查询 ====================
@@ -274,12 +286,13 @@ async def restore_version(
                     resource_id=resource_id,
                     version=version,
                     current_file=current_file,
-                    on_restore=lambda _record: _restore_non_typed_sidecars(
+                    on_restore=lambda record: _restore_non_typed_sidecars(
                         resource_type=resource_type,
                         project_name=project_name,
                         resource_id=resource_id,
                         file_path=file_path,
                         project_path=project_path,
+                        record=record,
                     ),
                 )
 

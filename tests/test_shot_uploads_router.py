@@ -83,33 +83,31 @@ def _upload(client, kind: str, filename: str, content: bytes, shot_id="E1S01", s
 
 
 class TestShotStoryboardUpload:
-    @pytest.mark.asyncio
-    async def test_finalize_registration_failure_restores_storyboard_metadata(self, tmp_path, monkeypatch):
-        pm = _seed_shot_project(tmp_path)
-        script = pm.load_script("demo", "episode_1.json")
-        script["segments"][0]["characters_in_segment"] = ["Missing"]
-        pm.save_script("demo", script, "episode_1.json", validate=False)
-        project = pm.load_project("demo")
-        project["generation_mode"] = "storyboard"
-        project["grid_storyboard"] = False
-        project["style"] = 123
-        pm.save_project("demo", project)
+    def test_registration_failure_restores_storyboard_bytes_version_and_metadata(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
         project_path = pm.get_project_path("demo")
-        storyboard = project_path / "storyboards" / "scene_E1S01.png"
-        storyboard.write_bytes(_img_bytes("PNG"))
+        target = project_path / "storyboards" / "scene_E1S01.png"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"old-canonical-storyboard")
         script_path = project_path / "scripts" / "episode_1.json"
-        before = script_path.read_bytes()
-        monkeypatch.setattr(upload_finalize, "get_project_manager", lambda: pm)
+        versions_path = project_path / "versions.json"
+        manifest_path = project_path / ".arcreel_artifacts.json"
+        before_script = script_path.read_bytes()
+        before_manifest = manifest_path.read_bytes() if manifest_path.exists() else None
 
-        with pytest.raises(ValueError, match="must be strings"):
-            await upload_finalize.finalize_shot_storyboard_upload(
-                project_name="demo",
-                script_file="episode_1.json",
-                shot_id="E1S01",
-                asset_path="storyboards/scene_E1S01.png",
-            )
+        def _fail_registration(*_args, **_kwargs):
+            raise RuntimeError("injected registration failure")
 
-        assert script_path.read_bytes() == before
+        monkeypatch.setattr(generation_tasks, "register_formal_task_artifact", _fail_registration)
+
+        with client:
+            response = _upload(client, "storyboard", "replacement.png", _img_bytes("PNG"))
+
+        assert response.status_code == 500
+        assert target.read_bytes() == b"old-canonical-storyboard"
+        assert script_path.read_bytes() == before_script
+        assert not versions_path.exists()
+        assert (manifest_path.read_bytes() if manifest_path.exists() else None) == before_manifest
 
     def test_upload_updates_metadata_versions_and_fingerprints(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)

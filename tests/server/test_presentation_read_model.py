@@ -10,10 +10,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from lib.artifact_activation import ArtifactCurrencyResolver
 from lib.artifact_manifest import (
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifest,
+    ArtifactStatus,
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
@@ -242,6 +244,40 @@ async def test_current_tts_presentation_materializes_manifest_and_actual_media_b
     adapter = ProjectArtifactManifestAdapter(project_path)
     assert adapter.get_entry(ArtifactKey.episode_subtitle(1, "E1S01", "use_tts")) is not None
     assert adapter.get_entry(ArtifactKey.episode_presentation(1, "E1S01", "use_tts")) is not None
+
+
+async def test_persisted_presentation_becomes_stale_when_the_live_transition_changes(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    project_file = project_path / "project.json"
+    project = json.loads(project_file.read_text(encoding="utf-8"))
+    project["schema_version"] = 8
+    _write_json(project_file, project)
+
+    async def probe(path: Path) -> float | None:
+        return 4.5 if path.suffix == ".wav" else 6.25
+
+    result = await PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    ).materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="post_production",
+    )
+    assert result.presentation_artifact_path is not None
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["segments"][0]["transition_to_next"] = "dissolve"
+    _write_json(script_path, script)
+
+    comparison = ArtifactCurrencyResolver(project_path).compare(
+        ArtifactKey.episode_presentation(1, "E1S01", "post_production"),
+        artifact_path=result.presentation_artifact_path,
+    )
+
+    assert comparison.status is ArtifactStatus.STALE
 
 
 async def test_video_and_audio_use_their_semantic_duration_probes(tmp_path: Path) -> None:

@@ -34,10 +34,9 @@ from server.services.generation_tasks import emit_generation_success_batch
 from server.services.upload_finalize import (
     UploadTooLargeError,
     UploadValidationError,
-    finalize_shot_storyboard_upload,
+    commit_manual_storyboard_upload,
     finalize_shot_video_upload,
-    record_upload_version,
-    save_uploaded_bytes,
+    stage_uploaded_bytes,
     stage_uploaded_video_stream,
     validate_upload,
 )
@@ -90,8 +89,6 @@ async def upload_shot_media(
 
         with project_change_source("webui"):
             if kind == "storyboard":
-                # 旧文件若从未入版本库（如历史迁移），先补登，避免被覆盖后字节丢失
-                await asyncio.to_thread(versions.ensure_current_tracked, resource_type, shot_id, target, "")
                 # 限定读入内存的字节数：Content-Length 缺失/被绕过时不至于 OOM
                 content = await file.read(max_bytes + 1)
                 if len(content) > max_bytes:
@@ -100,18 +97,16 @@ async def upload_shot_media(
                     png_bytes = await asyncio.to_thread(normalize_storyboard_upload, content)
                 except ValueError:
                     raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
-                await save_uploaded_bytes(png_bytes, target)
-            if kind == "storyboard":
-                version = await asyncio.to_thread(
-                    record_upload_version,
+                staged_image = await asyncio.to_thread(stage_uploaded_bytes, png_bytes, target)
+                version = await commit_manual_storyboard_upload(
+                    project_name=project_name,
+                    script_file=script_file,
+                    shot_id=shot_id,
+                    asset_path=relative_path,
+                    staged_image=staged_image,
+                    current_image=target,
                     versions=versions,
-                    resource_type=resource_type,
-                    resource_id=shot_id,
-                    current_file=target,
                     original_filename=file.filename,
-                )
-                await finalize_shot_storyboard_upload(
-                    project_name=project_name, script_file=script_file, shot_id=shot_id, asset_path=relative_path
                 )
             else:
                 staged_video = await stage_uploaded_video_stream(file.file, target, max_bytes=max_bytes)

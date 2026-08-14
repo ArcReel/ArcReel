@@ -284,6 +284,8 @@ class PresentationReadModelService:
                 content_digest=audio_content_digest,
             )
 
+        transition = item.get("transition_to_next")
+        transition_to_next = transition if isinstance(transition, str) else "cut"
         try:
             presentation = materialize_speech_presentation(
                 admission.preparation,
@@ -291,15 +293,15 @@ class PresentationReadModelService:
                 video=video_media,
                 narration_audio=audio_media,
                 provider_audio_enabled=provider_audio_enabled,
+                transition_to_next=transition_to_next,
             )
         except (TypeError, ValueError) as exc:
             raise PresentationUnavailableError("selected media cannot form the requested presentation") from exc
-        transition = item.get("transition_to_next")
         result = MaterializedPresentation(
             episode=selected_video.target.episode,
             resource_type=resource_type,
             script_file=script_file,
-            transition_to_next=transition if isinstance(transition, str) else "cut",
+            transition_to_next=transition_to_next,
             presentation=presentation,
             subtitle_artifact_path=None,
             presentation_artifact_path=None,

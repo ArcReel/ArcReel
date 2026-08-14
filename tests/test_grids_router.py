@@ -760,11 +760,7 @@ def _regenerate_with_frozen_ratio(monkeypatch, tmp_path, frozen: str | None) -> 
 
 
 def test_regenerate_grid_keeps_frozen_aspect_ratio(monkeypatch, tmp_path):
-    """重生成沿用记录冻结的比例，不改用项目当前比例。
-
-    prompt 冻结在记录上、其中写死了画布比例；改用项目当前比例（_FakePMRegenerate 为
-    9:16）会让下发参数与 prompt 描述的画布矛盾。
-    """
+    """重生成沿用记录冻结的比例，不改用项目当前比例。"""
     saved, payload = _regenerate_with_frozen_ratio(monkeypatch, tmp_path, "16:9")
 
     assert saved.video_aspect_ratio == "16:9"

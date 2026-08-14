@@ -144,6 +144,27 @@ def test_permanent_remove_forgets_all_item_claims_in_one_manifest_commit(
     assert ArtifactKey.episode_script(1) in snapshot
 
 
+def test_complete_script_replacement_forgets_claims_for_removed_items(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, _service, project_dir = editor
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    removed_claims = _item_claims("E1S02")
+    retained_claim = _item_claims("E1S03")[ArtifactKey.episode_video(1, "E1S03")]
+    for key, entry in removed_claims.items():
+        adapter.put_entry(key, entry)
+    adapter.put_entry(ArtifactKey.episode_video(1, "E1S03"), retained_claim)
+    replacement = _script()
+    replacement["segments"] = [replacement["segments"][0], replacement["segments"][2]]
+
+    pm.save_script("demo", replacement, "episode_1.json")
+
+    snapshot = adapter.snapshot_entries()
+    assert not removed_claims.keys() & snapshot.keys()
+    assert snapshot[ArtifactKey.episode_video(1, "E1S03")] == retained_claim
+    assert ArtifactKey.episode_script(1) in snapshot
+
+
 def test_ad_batch_edit_registers_shared_canonical_script_basis(tmp_path: Path) -> None:
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo", content_mode="ad")

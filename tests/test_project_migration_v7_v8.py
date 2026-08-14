@@ -521,7 +521,7 @@ def test_formal_script_registration_failure_restores_script_and_project(tmp_path
     def _fail(*_args, **_kwargs):
         raise RuntimeError("injected manifest failure")
 
-    monkeypatch.setattr("lib.artifact_activation.register_current_artifact_if_provable", _fail)
+    monkeypatch.setattr("lib.artifact_activation.register_artifact_entries_atomically", _fail)
 
     with pytest.raises(RuntimeError, match="injected manifest failure"):
         pm.save_script("demo", script, "episode_1.json", validate=False)
