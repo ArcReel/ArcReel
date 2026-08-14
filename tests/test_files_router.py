@@ -254,6 +254,63 @@ class TestFilesRouter:
             assert (target.read_bytes(), (project_dir / "project.json").read_bytes(), manifest.read_bytes()) == before
 
     @pytest.mark.unit
+    def test_formal_sheet_upload_rechecks_a_definition_created_before_install(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        name = "Late Arrival"
+        project_dir = pm.get_project_path("demo")
+        relative_path = f"characters/{name}.png"
+        generated = _img_bytes("PNG", (10, 20, 30))
+        uploaded = _img_bytes("PNG", (40, 50, 60))
+        real_install = pm.install_asset_sheet_bytes
+        delegated = False
+
+        def _create_then_install(asset_type, project_name, asset_name, sheet_path, content, *, on_commit=None):
+            nonlocal delegated
+            assert delegated is False
+            delegated = True
+            pm.add_character("demo", name, "created while upload was waiting")
+            real_install(
+                "character",
+                "demo",
+                name,
+                relative_path,
+                generated,
+                on_commit=lambda _target: files.register_current_resource_artifact(
+                    project_dir,
+                    resource_type="characters",
+                    resource_id=name,
+                ),
+            )
+            return real_install(
+                asset_type,
+                project_name,
+                asset_name,
+                sheet_path,
+                content,
+                on_commit=on_commit,
+            )
+
+        monkeypatch.setattr(pm, "install_asset_sheet_bytes", _create_then_install)
+
+        with client:
+            response = client.post(
+                f"/api/v1/projects/demo/upload/character?name={name}",
+                files={"file": ("late.png", uploaded, "image/png")},
+            )
+
+        assert response.status_code == 200, response.text
+        assert delegated is True
+        assert (project_dir / relative_path).read_bytes() == uploaded
+        assert pm.load_project("demo")["characters"][name]["character_sheet"] == relative_path
+        key = ArtifactKey.asset_sheet("character", name)
+        entry = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert entry is not None
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path=entry.artifact_path).status
+            is ArtifactStatus.CURRENT
+        )
+
+    @pytest.mark.unit
     def test_character_audio_ref_upload_success(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:

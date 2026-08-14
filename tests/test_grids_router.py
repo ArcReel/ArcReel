@@ -999,7 +999,7 @@ def test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim(monkeyp
     app.include_router(versions_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(app)
 
-    with TestClient(app, raise_server_exceptions=False) as client:
+    with TestClient(app) as client:
         first = client.post(
             f"/api/v1/projects/demo/grids/{grid.id}/upload",
             files={"file": ("first.png", BytesIO(_png_bytes(color=(10, 20, 30))), "image/png")},

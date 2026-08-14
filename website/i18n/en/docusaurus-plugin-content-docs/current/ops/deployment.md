@@ -238,7 +238,21 @@ curl -f http://localhost:1241/health
 
 The application runs database migrations when it starts. Do not skip multiple versions and upgrade directly without a backup.
 
-### 5.4 Pin a Version {#pin-version}
+### 5.4 Project Schema Migrations {#project-schema-migrations}
+
+In addition to database migrations, application startup upgrades each project under `projects/`. When upgrading to a version that introduces artifact-state records, ArcReel fully validates the project and its formal scripts, writes the complete artifact records atomically, and updates the schema version in `project.json` only after those steps succeed.
+
+Before committing a migration, ArcReel creates adjacent backups with a `.bak.v7-<timestamp>` suffix for:
+
+- `project.json`;
+- Formal script files registered in `project.json`;
+- An existing `.arcreel_artifacts.json`.
+
+Project migration is safe to retry. If a previous startup was interrupted while creating backups or committing changes, the next startup validates the project again and ensures that at least one backup exactly matches the pre-migration content before continuing. These automatically generated project-level backups exist only for migration recovery; they do not replace deployment-level backups of the database and the entire `projects/` directory.
+
+If a project migration fails, preserve the files and inspect the startup logs. Do not manually change the schema version or delete backup files. Repair the damaged project references or permissions, then restart the service.
+
+### 5.5 Pin a Version {#pin-version}
 
 `latest` is suitable for a quick evaluation, but pinning a release tag is a better choice for production.
 

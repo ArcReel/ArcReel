@@ -1909,14 +1909,7 @@ class ProjectManager:
                 transaction.enter_context(formal_write_transaction(project_file))
             with open(project_file, encoding="utf-8") as f:
                 project = json.load(f)
-            if self._requires_unique_asset_namespace(project):
-                ensure_project_asset_namespace(project)
-            mutate_fn(project)
-            if self._requires_unique_asset_namespace(project):
-                ensure_project_asset_namespace(project)
-            self._migrate_legacy_resolution_on_save(project)
-            self._migrate_legacy_style(project)
-            self._touch_metadata(project)
+            self._apply_project_mutation_unlocked(project, mutate_fn)
             atomic_write_json(project_file, project)
             if on_commit is not None:
                 on_commit(project_file)
@@ -1927,6 +1920,24 @@ class ProjectManager:
         )
 
         return project
+
+    def _apply_project_mutation_unlocked(self, project: dict, mutate_fn: Callable[[dict], None]) -> None:
+        """Apply one mutation plus the canonical save-time normalizations.
+
+        The caller owns the project lock and is responsible for the durable
+        write. Keeping this sequence shared lets compound file transactions
+        make their final existence decision and project mutation under one
+        lock without re-entering :meth:`update_project`.
+        """
+
+        if self._requires_unique_asset_namespace(project):
+            ensure_project_asset_namespace(project)
+        mutate_fn(project)
+        if self._requires_unique_asset_namespace(project):
+            ensure_project_asset_namespace(project)
+        self._migrate_legacy_resolution_on_save(project)
+        self._migrate_legacy_style(project)
+        self._touch_metadata(project)
 
     def update_project_with_file_copies(
         self,
@@ -2739,26 +2750,49 @@ class ProjectManager:
         content: bytes,
         *,
         on_commit: Callable[[Path], None] | None = None,
-    ) -> dict:
-        """Commit a formal sheet file, its metadata pointer, and final sidecars together."""
+    ) -> dict | None:
+        """Install sheet bytes after rechecking their asset under the project lock.
+
+        Stable sheet paths may be uploaded before an asset definition exists.
+        That case writes only unclaimed bytes while still holding the same lock
+        used by asset creation. If the definition exists by the final check,
+        the file, metadata pointer, and sidecar hook commit atomically instead.
+        """
 
         project_dir = self.get_project_path(project_name)
         target = safe_join(project_dir, sheet_path)
+        project_file = self._get_project_file_path(project_name)
+        spec = ASSET_SPECS[asset_type]
 
-        def _install(_project_file: Path) -> None:
-            with formal_write_transaction(target):
+        with self._project_lock(project_name):
+            project = self._read_project_raw_unlocked(project_name)
+            bucket = project.get(spec.bucket_key)
+            if resolve_asset_key(bucket, name) is None:
+                with formal_write_transaction(target):
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    atomic_write_bytes(target, content)
+                return None
+
+            def _mutate(locked_project: dict) -> None:
+                locked_bucket = locked_project.get(spec.bucket_key)
+                key = resolve_asset_key(locked_bucket, name)
+                if not isinstance(locked_bucket, dict) or key is None:
+                    raise KeyError(f"{spec.label_zh} '{name}' 不存在")
+                locked_bucket[key][spec.sheet_field] = sheet_path
+
+            with formal_write_transaction(project_file, target):
+                self._apply_project_mutation_unlocked(project, _mutate)
+                atomic_write_json(project_file, project)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 atomic_write_bytes(target, content)
                 if on_commit is not None:
                     on_commit(target)
 
-        return self._update_asset_sheet(
-            asset_type,
+        emit_project_change_hint(
             project_name,
-            name,
-            sheet_path,
-            on_commit=_install,
+            changed_paths=[self.PROJECT_FILE],
         )
+        return project
 
     def _get_asset(self, asset_type: str, project_name: str, name: str) -> dict:
         """获取资产定义。不存在抛 KeyError。"""

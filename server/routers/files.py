@@ -382,31 +382,23 @@ async def upload_file(
                 if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
                     asset_spec = ASSET_SPECS[upload_type]
                     asset_name = name
-                    bucket = manager.load_project(project_name).get(asset_spec.bucket_key)
-                    if resolve_asset_key(bucket, asset_name) is not None:
 
-                        def _register(_target: Path) -> None:
-                            register_current_resource_artifact(
-                                project_dir,
-                                resource_type=asset_spec.bucket_key,
-                                resource_id=asset_name,
-                            )
+                    def _register(_target: Path) -> None:
+                        register_current_resource_artifact(
+                            project_dir,
+                            resource_type=asset_spec.bucket_key,
+                            resource_id=asset_name,
+                        )
 
-                        with project_change_source("webui"):
-                            manager.install_asset_sheet_bytes(
-                                upload_type,
-                                project_name,
-                                asset_name,
-                                relative_path,
-                                content,
-                                on_commit=_register,
-                            )
-                    else:
-                        # Stable single-image paths may be uploaded before their asset definition exists.
-                        # There is no metadata/Manifest claim to commit in that case.
-                        from lib.json_io import atomic_write_bytes
-
-                        atomic_write_bytes(target_path, content)
+                    with project_change_source("webui"):
+                        manager.install_asset_sheet_bytes(
+                            upload_type,
+                            project_name,
+                            asset_name,
+                            relative_path,
+                            content,
+                            on_commit=_register,
+                        )
                 else:
                     with open(target_path, "wb") as f:
                         f.write(content)
