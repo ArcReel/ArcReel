@@ -231,7 +231,9 @@ def test_cleanup_sweeps_script_backups_in_subdirectories(tmp_projects: Path):
 def test_runner_backup_failure_leaves_no_partial_backup(tmp_projects: Path, monkeypatch):
     """runner 的备份写到一半失败不得留下截断的 .bak：迁移器按同一命名复用既有备份当原版，
     半截内容会在回滚时盖掉现场。"""
-    _write_project(tmp_projects, "p1", {"schema_version": 7, "name": "p1"})
+    project_dir = _write_project(tmp_projects, "p1", {"schema_version": 7, "name": "p1"})
+    project_json = project_dir / "project.json"
+    original = project_json.read_bytes()
 
     def _fail(path: Path, data: bytes) -> None:
         raise OSError(28, "No space left on device")
@@ -239,9 +241,11 @@ def test_runner_backup_failure_leaves_no_partial_backup(tmp_projects: Path, monk
     monkeypatch.setattr("lib.project_migrations.runner.atomic_write_bytes", _fail)
 
     with pytest.raises(OSError):
-        migrate_project_dir(tmp_projects / "p1")
+        migrate_project_dir(project_dir)
 
-    assert not list((tmp_projects / "p1").glob("*.bak.v7-*"))
+    assert not list(project_dir.glob("*.bak.v7-*"))
+    # 备份是迁移的前置条件：备份失败后迁移一步都不能走，否则改动就落在没有恢复副本的项目上
+    assert project_json.read_bytes() == original
 
 
 def test_cleanup_sweeps_backups_beside_deeply_bound_scripts(tmp_projects: Path):

@@ -346,6 +346,23 @@ def test_migrates_script_bound_by_alias_path(tmp_path: Path, binding: str) -> No
     assert "content_mode" not in script
 
 
+def test_migrates_script_bound_by_nested_unprefixed_path(tmp_path: Path) -> None:
+    """省略 scripts/ 前缀的写法不限于裸文件名：读取方对任何绑定都相对 scripts/ 解析，
+    迁移按字面找不到嵌套剧本就会漏迁，只留下版本号已升的混合契约项目。"""
+    project_dir = _v7_project(tmp_path)
+    project = _read_json(project_dir / "project.json")
+    project["episodes"][0]["script_file"] = "season_1/episode_1.json"
+    _write_json(project_dir / "project.json", project)
+    script_path = project_dir / "scripts/season_1/episode_1.json"
+    _write_json(script_path, _storyboard_script())
+
+    migrate_v7_to_v8(project_dir)
+
+    script = _read_json(script_path)
+    assert script["creation_type"] == "drama"
+    assert "content_mode" not in script
+
+
 @pytest.mark.parametrize("stamp_key", ["content_mode", "creation_type"])
 def test_explicit_null_script_stamp_falls_back_to_project(tmp_path: Path, stamp_key: str) -> None:
     """剧本显式 null 戳等同未打戳（与运行时解析同口径），回退项目声明而不是兜底 narration。"""
