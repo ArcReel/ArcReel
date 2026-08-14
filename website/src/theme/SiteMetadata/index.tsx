@@ -1,4 +1,4 @@
-import React, { type ReactNode } from "react";
+import { type ReactNode } from "react";
 import Head from "@docusaurus/Head";
 import OriginalSiteMetadata from "@theme-original/SiteMetadata";
 import { getSiteTagline, getSiteTitle } from "../../i18n/siteMetadata";
@@ -9,17 +9,13 @@ export default function SiteMetadata(): ReactNode {
 
   return (
     <>
-      <OriginalSiteMetadata children={null} />
-      <Head
-        children={
-          <>
-            <title>{title}</title>
-            <meta property="og:title" content={title} />
-            <meta name="description" content={tagline} />
-            <meta property="og:description" content={tagline} />
-          </>
-        }
-      />
+      <OriginalSiteMetadata />
+      <Head>
+        <title>{title}</title>
+        <meta property="og:title" content={title} />
+        <meta name="description" content={tagline} />
+        <meta property="og:description" content={tagline} />
+      </Head>
     </>
   );
 }

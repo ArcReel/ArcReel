@@ -30,6 +30,11 @@ pnpm lint        # ESLint，CI frontend-tests 第一段，含 jsx-a11y 规则
 pnpm check       # typecheck + vitest
 pnpm build       # 生产构建，含 typecheck
 # 前端 CI 等价：pnpm lint && pnpm check，push 前两者均须通过
+
+# 文档站，先 cd website
+pnpm check       # typecheck + eslint + prettier，CI website-checks 的三道静态闸
+pnpm format      # prettier 写回；docs/ 与 i18n/ 不参与格式化（见 .prettierignore）
+pnpm build       # 双 locale 构建，须先 pnpm sync-contributing
 ```
 
 ## 架构要点
