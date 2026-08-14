@@ -95,7 +95,22 @@ POSTGRES_PASSWORD=请设置数据库密码
 # LOG_LEVEL=INFO
 ```
 
-`POSTGRES_PASSWORD` 建议只使用字母和数字，避免 URL 特殊字符影响 `DATABASE_URL` 解析。
+推荐生成只含十六进制字符的密码：
+
+```bash
+openssl rand -hex 16
+```
+
+默认 Compose 会把 `POSTGRES_PASSWORD` 的原始值交给 PostgreSQL，同时把它拼入 `DATABASE_URL` 的密码段。如果密码含有 `@`、`:`、`/`、`?`、`#`、`%` 等 URL 保留字符，连接 URI 中的密码必须做百分号编码。不要把编码后的值直接填入 `POSTGRES_PASSWORD`：PostgreSQL 需要原始密码，只有 URI 需要编码。
+
+当必须使用特殊字符时，在 `.env` 中分开保存原始值与编码值：
+
+```dotenv
+POSTGRES_PASSWORD='p@ss/word'
+POSTGRES_PASSWORD_URLENCODED=p%40ss%2Fword
+```
+
+然后把 `deploy/production/docker-compose.yml` 中 `DATABASE_URL` 的密码部分改为 `${POSTGRES_PASSWORD_URLENCODED}`；PostgreSQL 容器的 `POSTGRES_PASSWORD` 仍保持不变。可用 `urllib.parse.quote(raw_password, safe="")` 生成编码值。如果不想维护这项 Compose 改动，就使用上述十六进制密码。
 
 启动：
 
@@ -122,6 +137,8 @@ curl http://localhost:1241/health
 | `deploy/production/vertex_keys/` | Vertex AI 凭据 |
 | `deploy/production/claude_data/` | Agent 运行时数据 |
 | `deploy/production/.env` | 认证和数据库配置 |
+
+`pgdata/` 只保存 PostgreSQL 集群数据，`projects/` 保存项目元数据和媒体资产，两者都必须持久化且配套备份。生产部署通过 `DATABASE_URL` 使用 PostgreSQL，不会使用 `deploy/production/projects/.arcreel.db`；不要把 SQLite 文件复制进 `pgdata/`，也不要把两个目录当成可相互替代的数据库备份。
 
 ### 2.3 数据库迁移 {#database-migrations}
 
@@ -269,6 +286,8 @@ tar -czf "backups/arcreel-$(date +%Y%m%d-%H%M%S).tar.gz" \
   .env projects vertex_keys claude_data
 ```
 
+服务停止后再归档整个 `projects/`，可以让 `.arcreel.db` 与项目资产保持在同一时点。不要在 ArcReel 写入时只复制 `.arcreel.db`：WAL 模式下，已提交交易可能仍在 `.arcreel.db-wal` 中，丢失或错配 WAL 文件会造成数据丢失甚至损坏。如果无法停服，应使用 SQLite Online Backup API（例如 `sqlite3` 的 `.backup`）或 `VACUUM INTO` 生成一致快照，而不是直接 `cp` 主数据库文件。
+
 恢复服务：
 
 ```bash
@@ -294,8 +313,8 @@ docker compose stop arcreel
 
 backup_stamp="$(date +%Y%m%d-%H%M%S)"
 
-docker compose exec -T postgres \
-  pg_dump -U arcreel -d arcreel \
+docker compose exec -T postgres sh -c \
+  'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_dump -h 127.0.0.1 -U arcreel -d arcreel' \
   > "backups/arcreel-db-${backup_stamp}.sql"
 
 tar -czf "backups/arcreel-files-${backup_stamp}.tar.gz" \
@@ -305,6 +324,8 @@ docker compose start arcreel
 ```
 
 数据库备份和文件备份使用同一时间标签，必须配套保存和恢复。
+
+`pg_dump` 会使用 libpq 的 `PGPASSWORD`。上述命令只在 PostgreSQL 容器内的该次 `pg_dump` 进程中设置它，因此 `docker compose exec -T` 可以非交互执行，也不会把密码展开到宿主机命令行。长期的宿主机备份自动化应改用权限为 `0600` 的 PostgreSQL password file，不要把密码写进脚本或备份文件名。
 
 如果 `tar` 报 `Permission denied`，说明挂载目录中存在由容器内 root 用户创建、宿主机当前用户不可读的文件。可用 `sudo` 重新执行对应的 `tar` 命令，并在完成后限制备份文件的读取权限。
 
