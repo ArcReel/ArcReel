@@ -9,6 +9,7 @@ MESSAGES = {
     "val_literal": "{text}",
     # ---- 通用字段形状 ----
     "val_missing_field": "缺少必填字段: {field}",
+    "val_legacy_field_present": "存在已废弃字段 {field}，请改用 {replacement}",
     "val_missing_field_at": "{prefix}: 缺少必填字段 {field}",
     "val_field_type_string": "字段类型错误: {field} 应为字符串",
     "val_field_type_bool": "字段类型错误: {field} 应为布尔值",

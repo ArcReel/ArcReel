@@ -471,6 +471,21 @@ class TestDataValidator:
         assert not result.valid
         assert any("creation_type" in error for error in result.errors)
 
+    @pytest.mark.unit
+    def test_validate_episode_rejects_legacy_content_mode_field(self, tmp_path):
+        # 剧本同时带新旧两个创作类型字段：迁移不会再碰标着 v8 的数据，校验须把它拦下
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload("drama"))
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {"episode": 1, "title": "第一集", "creation_type": "drama", "content_mode": "drama", "scenes": []},
+        )
+
+        result = validate_episode("demo", "episode_1.json", projects_root=str(tmp_path / "projects"))
+
+        assert not result.valid
+        assert any("content_mode" in error for error in result.errors)
+
     def _drama_episode_with_scene(self, tmp_path, scene_extra: dict, project_extra: dict | None = None):
         # 构造一个最小 drama 剧集，scene 合并 scene_extra（用于针对性校验 utterances）
         project_dir = tmp_path / "projects" / "demo"
@@ -1633,6 +1648,19 @@ class TestSourceKindValidation:
         result = self._validate(tmp_path, payload)
         assert not result.valid
         assert any("source_file_type" in e for e in result.errors)
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("legacy_field", "value"),
+        [("content_mode", "drama"), ("source_kind", "novel")],
+    )
+    def test_legacy_field_alongside_current_one_rejected(self, tmp_path, legacy_field, value):
+        # 标着 v8 的归档不会再被迁移改写，放行等于让一份数据同时挂着新旧两套契约
+        payload = _project_payload("drama")
+        payload[legacy_field] = value
+        result = self._validate(tmp_path, payload)
+        assert not result.valid
+        assert any(legacy_field in error for error in result.errors)
 
     @pytest.mark.unit
     @pytest.mark.parametrize("kind", ["novel", "screenplay"])

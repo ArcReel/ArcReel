@@ -5,6 +5,7 @@ MESSAGES = {
     "val_literal": "{text}",
     # ---- hình dạng trường chung ----
     "val_missing_field": "Thiếu trường bắt buộc: {field}",
+    "val_legacy_field_present": "Trường đã ngừng dùng {field} vẫn tồn tại; hãy dùng {replacement}",
     "val_missing_field_at": "{prefix}: thiếu trường bắt buộc {field}",
     "val_field_type_string": "Sai kiểu trường: {field} phải là chuỗi",
     "val_field_type_bool": "Sai kiểu trường: {field} phải là boolean",

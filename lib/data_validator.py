@@ -370,6 +370,15 @@ class DataValidator:
         elif not isinstance(project["title"], str):
             errors.append(_m("val_field_type_string", field="title"))
 
+        # 旧名与新名并存也算违约：迁移链只看 schema_version，标着 v8 的归档不会再被改写，放行等于
+        # 让一份数据同时挂着两套契约、往后每个读取方都要猜以哪个为准。
+        for legacy_field, replacement in (
+            ("content_mode", "creation_type"),
+            ("source_kind", "source_file_type"),
+        ):
+            if legacy_field in project:
+                errors.append(_m("val_legacy_field_present", field=legacy_field, replacement=replacement))
+
         creation_type = project.get("creation_type")
         if not creation_type:
             errors.append(_m("val_missing_field", field="creation_type"))
@@ -1337,6 +1346,9 @@ class DataValidator:
             # 报成结构化错误。后续检查全部依赖创作类型，没有声明就无从分派，直接返回。
             errors.append(_m("val_missing_field", field="creation_type"))
             return
+
+        if "content_mode" in episode:
+            errors.append(_m("val_legacy_field_present", field="content_mode", replacement="creation_type"))
 
         for deprecated_field in ("characters_in_episode", "scenes_in_episode", "props_in_episode"):
             if episode.get(deprecated_field) is not None:

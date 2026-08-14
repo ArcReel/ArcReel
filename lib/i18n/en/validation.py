@@ -5,6 +5,7 @@ MESSAGES = {
     "val_literal": "{text}",
     # ---- generic field shape ----
     "val_missing_field": "Missing required field: {field}",
+    "val_legacy_field_present": "Deprecated field {field} is present; use {replacement} instead",
     "val_missing_field_at": "{prefix}: missing required field {field}",
     "val_field_type_string": "Field type error: {field} must be a string",
     "val_field_type_bool": "Field type error: {field} must be a boolean",
