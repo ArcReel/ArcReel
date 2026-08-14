@@ -923,17 +923,19 @@ def test_sync_agent_profile_reads_content_mode_from_project_json(
     assert (project_dir / "CLAUDE.md").read_text() == "drama top"
 
 
-def test_sync_agent_profile_missing_mode_fallback_narration(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_sync_agent_profile_missing_mode_raises_and_keeps_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """创作类型缺失只出现在迁移失败的项目上：同步须跳过它，不得按 narration 投影覆盖其 profile。"""
     pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
-    project_dir = pm.create_project("demo", creation_type="narration")
-    # 模拟老项目：project.json 没有 creation_type 字段
+    project_dir = pm.create_project("demo", creation_type="drama")
     pj_path = project_dir / "project.json"
     pj_path.write_text(json.dumps({"title": "demo"}))
-    pm.sync_agent_profile(project_dir)
-    # 回退 narration，内容不变
-    assert (project_dir / "CLAUDE.md").read_text() == "narration top"
+
+    with pytest.raises(ValueError, match="creation_type"):
+        pm.sync_agent_profile(project_dir)
+
+    assert (project_dir / "CLAUDE.md").read_text() == "drama top"
 
 
 def test_sync_agent_profile_invalid_mode_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -969,6 +971,21 @@ def test_sync_all_agent_profiles_isolates_corrupt_project(tmp_path: Path, monkey
     assert (pm.projects_root / "good" / "CLAUDE.md").read_text() == "narration top"
     # 损坏项目的 CLAUDE.md 保持上次 sync 的 drama 内容，未被错切回 narration
     assert (bad_dir / "CLAUDE.md").read_text() == "drama top"
+
+
+def test_sync_all_agent_profiles_isolates_unmigrated_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """迁移失败的项目只剩旧字段名：同步须跳过并计入 failed_projects，其 profile 保持原状。"""
+    pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
+    pm.create_project("good", creation_type="narration")
+    stale_dir = pm.create_project("stale", creation_type="drama")
+    (stale_dir / "project.json").write_text(json.dumps({"title": "stale", "content_mode": "drama"}))
+
+    stats = pm.sync_all_agent_profiles()
+
+    assert stats.get("aborted") is not True
+    assert stats["failed_projects"] == 1
+    assert (pm.projects_root / "good" / "CLAUDE.md").read_text() == "narration top"
+    assert (stale_dir / "CLAUDE.md").read_text() == "drama top"
 
 
 def test_sync_all_agent_profiles_per_project_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

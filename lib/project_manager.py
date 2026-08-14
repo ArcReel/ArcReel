@@ -467,12 +467,16 @@ class ProjectManager:
         return get_profile_status(agent_profile_dir(), project_dir, creation_type)
 
     def _resolve_creation_type(self, project_dir: Path) -> CreationType:
-        """从 project_dir/project.json 读 creation_type；缺失回退 narration。
+        """从 project_dir/project.json 读 creation_type；无 project.json 时回退 narration。
 
-        ``project.json`` 不存在或缺 ``creation_type`` 字段 → 回退 narration（兼容
-        老项目）。文件存在但读取/解析失败 → raise，让上层 sync_all_agent_profiles
-        走 failed_projects 分支；若静默回退到 narration，drama 项目会因 manifest
-        记录的 mode 不匹配触发破坏性 reset，把 profile 错误切回说书变体。
+        ``project.json`` 不存在 → 回退 narration（目录尚未成形，profile 按默认变体铺一份）。
+        文件存在但读取/解析失败、或字段缺失/非法 → raise，让上层 sync_all_agent_profiles
+        走 failed_projects 分支；若静默回退到 narration，drama 项目会因 manifest 记录的
+        mode 不匹配触发破坏性 reset，把 profile 错误切回说书变体。
+
+        字段缺失同样 raise 而非回退：``creation_type`` 是必填字段，缺失只出现在迁移失败的
+        项目上（旧字段名尚未更名）——这类项目正是「保持原状不动」的对象，按 narration 投影
+        会覆盖它内置的 ``.claude`` 与 CLAUDE.md。
         """
         pj_path = project_dir / self.PROJECT_FILE
         try:
@@ -482,8 +486,7 @@ class ProjectManager:
             return "narration"
         mode = data.get("creation_type") if isinstance(data, dict) else None
         if mode is None:
-            logger.info("project.json has no creation_type under %s, defaulting narration", project_dir)
-            return "narration"
+            raise ValueError(f"project {project_dir.name}: project.json 未声明 creation_type")
         if not isinstance(mode, str) or mode not in VALID_CREATION_TYPES:
             raise ValueError(
                 f"project {project_dir.name}: invalid creation_type={mode!r} "
