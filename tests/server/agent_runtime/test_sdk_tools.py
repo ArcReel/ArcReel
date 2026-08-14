@@ -9,6 +9,7 @@ behavior without hitting the real queue or providers.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -1642,6 +1643,97 @@ async def test_generate_video_episode_happy(fake_ctx: ToolContext, monkeypatch) 
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("selection", ["episode", "selected"])
+@pytest.mark.parametrize("claim_state", ["missing", "blocked"])
+async def test_storyboard_resume_requires_usable_manifest_video_claim(
+    fake_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+    selection: str,
+    claim_state: str,
+) -> None:
+    """A checkpoint can reuse only the exact canonical video admitted by active currency."""
+    from lib.artifact_manifest import ArtifactBlocker, ArtifactComparison, ArtifactKey, ArtifactStatus
+    from lib.generation_queue_client import BatchTaskResult
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
+    project.update(
+        {
+            "schema_version": 8,
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        }
+    )
+    fake_ctx.pm.script_payload["episode"] = 1  # type: ignore[attr-defined]
+
+    candidate = fake_ctx.project_path / "videos/scene_E1S01.mp4"
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_bytes(b"unclaimed-checkpoint-output")
+    if selection == "episode":
+        checkpoint = mod._episode_checkpoint_path(fake_ctx.project_path, 1)
+        args = {"script": "episode_1.json", "resume": True}
+        tool_obj = mod.generate_video_episode_tool(fake_ctx)
+    else:
+        scenes_hash = hashlib.md5(b"E1S01").hexdigest()[:8]
+        checkpoint = mod._selected_checkpoint_path(fake_ctx.project_path, scenes_hash)
+        args = {"script": "episode_1.json", "scene_ids": ["E1S01"], "resume": True}
+        tool_obj = mod.generate_video_selected_tool(fake_ctx)
+    mod._save_checkpoint_at(checkpoint, ["E1S01"], "2026-01-01T00:00:00+00:00")
+
+    checked_video_paths: list[str] = []
+
+    class _Currency:
+        def compare(self, key, *, artifact_path):
+            if key == ArtifactKey.episode_video(1, "E1S01"):
+                checked_video_paths.append(artifact_path)
+                if claim_state == "blocked":
+                    return ArtifactComparison(
+                        status=ArtifactStatus.BLOCKED,
+                        artifact_path=artifact_path,
+                        blocker=ArtifactBlocker(
+                            code="manifest_unreadable",
+                            path=artifact_path,
+                            detail="checkpoint video claim is blocked",
+                        ),
+                    )
+                return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
+            return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=artifact_path)
+
+    currency = _Currency()
+
+    enqueued: list[str] = []
+
+    async def _batch(*, project_name, specs, on_success=None, on_failure=None):
+        for spec in specs:
+            enqueued.append(spec.resource_id)
+            if on_success is not None:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"videos/scene_{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: currency)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
+
+    out = await _call(tool_obj, args)
+
+    assert checked_video_paths == ["videos/scene_E1S01.mp4"]
+    if claim_state == "blocked":
+        assert out.get("is_error") is True
+        assert "checkpoint video claim is blocked" in out["content"][0]["text"]
+        assert enqueued == []
+    else:
+        assert out.get("is_error") is not True, out
+        assert enqueued == ["E1S01"]
+
+
+@pytest.mark.integration
 async def test_generate_video_episode_rejects_unbound_active_script_before_enqueue(
     fake_ctx: ToolContext,
     monkeypatch,
@@ -1718,6 +1810,7 @@ async def test_generate_video_episode_resolves_episode_from_canonical_filename(
 
     monkeypatch.setattr(mod, "_build_video_specs", _capture_episode)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
+    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: None)
 
     out = await _call(generate_video_episode_tool(fake_ctx), {"script": "episode_2.json"})
 

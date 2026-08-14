@@ -13,6 +13,7 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.artifact_activation import (
+    ArtifactCurrencyResolver,
     active_artifact_currency_resolver,
     artifact_is_usable,
     resolve_artifact_episode,
@@ -596,6 +597,7 @@ def _build_video_specs(
     log: list[str],
     project: dict[str, Any] | None = None,
     episode: int = 1,
+    resolver: ArtifactCurrencyResolver | None = None,
     voice_characters: dict[str, Any] | None = None,
 ) -> tuple[list[TaskSpec], dict[str, int]]:
     item_type = "片段" if content_mode == "narration" else "场景"
@@ -604,7 +606,8 @@ def _build_video_specs(
     specs: list[TaskSpec] = []
     order_map: dict[str, int] = {}
     project = project or {}
-    resolver = active_artifact_currency_resolver(project_dir, project)
+    if resolver is None:
+        resolver = active_artifact_currency_resolver(project_dir, project)
     for idx, item in enumerate(items):
         item_id = item.get(id_field) or item.get("scene_id") or item.get("segment_id") or f"item_{idx}"
         if item_id in skip_set:
@@ -712,16 +715,23 @@ def _scan_completed_items(
     id_field: str,
     completed_scenes: list[str],
     videos_dir: Path,
+    *,
+    episode: int,
+    resolver: ArtifactCurrencyResolver | None,
 ) -> tuple[list[Path | None], list[str], list[str]]:
-    """Pure scan: reconcile checkpoint claims against on-disk videos.
+    """Reconcile checkpoint claims against canonical videos and active currency.
 
     Returns ``(ordered_paths, already_done, completed_filtered)``:
     - ``ordered_paths[i]`` is the existing mp4 path for items[i] iff the
-      checkpoint claimed it AND the file is on disk; else ``None``.
+      checkpoint claimed it, the file is on disk, and its exact formal path is
+      usable under the active Manifest; else ``None``.
     - ``already_done`` is the subset of items the caller can skip enqueueing.
-    - ``completed_filtered`` drops ids the checkpoint claimed but whose file
-      is missing — caller should write this back instead of mutating its
-      checkpoint list in place.
+    - ``completed_filtered`` drops ids whose checkpoint output is missing or
+      no longer admitted — caller should write this back instead of mutating
+      its checkpoint list in place.
+
+    A blocked Manifest comparison propagates so checkpoint resume fails loud;
+    silently regenerating a paid artifact would discard the corruption signal.
     """
     ordered_paths: list[Path | None] = [None] * len(items)
     already_done: list[str] = []
@@ -731,7 +741,17 @@ def _scan_completed_items(
         if item_id not in completed_scenes:
             continue
         video_output = videos_dir / f"scene_{item_id}.mp4"
-        if video_output.exists():
+        artifact_path = video_output.relative_to(videos_dir.parent).as_posix()
+        reusable = (
+            video_output.exists()
+            if resolver is None
+            else artifact_is_usable(
+                resolver,
+                ArtifactKey.episode_video(episode, str(item_id)),
+                artifact_path,
+            )
+        )
+        if reusable:
             ordered_paths[idx] = video_output
             already_done.append(item_id)
         else:
@@ -1145,7 +1165,15 @@ def generate_video_episode_tool(ctx: ToolContext):
 
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
-            ordered_paths, already_done, completed = _scan_completed_items(items, id_field, completed, videos_dir)
+            currency = active_artifact_currency_resolver(project_dir, project)
+            ordered_paths, already_done, completed = _scan_completed_items(
+                items,
+                id_field,
+                completed,
+                videos_dir,
+                episode=episode,
+                resolver=currency,
+            )
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=items,
@@ -1155,6 +1183,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                 project_dir=project_dir,
                 project=project,
                 episode=episode,
+                resolver=currency,
                 skip_ids=already_done,
                 log=log,
                 voice_characters=voice_characters,
@@ -1390,6 +1419,7 @@ def generate_video_all_tool(ctx: ToolContext):
                 project_dir=project_dir,
                 project=project,
                 episode=episode,
+                resolver=currency,
                 skip_ids=None,
                 log=log,
                 voice_characters=voice_characters,
@@ -1527,7 +1557,15 @@ def generate_video_selected_tool(ctx: ToolContext):
 
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
-            ordered_paths, already_done, completed = _scan_completed_items(selected, id_field, completed, videos_dir)
+            currency = active_artifact_currency_resolver(project_dir, project)
+            ordered_paths, already_done, completed = _scan_completed_items(
+                selected,
+                id_field,
+                completed,
+                videos_dir,
+                episode=episode,
+                resolver=currency,
+            )
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=selected,
@@ -1537,6 +1575,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                 project_dir=project_dir,
                 project=project,
                 episode=episode,
+                resolver=currency,
                 skip_ids=already_done,
                 log=log,
                 voice_characters=voice_characters,
