@@ -2245,7 +2245,7 @@ class TestProjectsRouter:
     # Episodes PATCH tests
     # ---------------------------------------------------------------------------
 
-    @pytest.mark.unit
+    @pytest.mark.integration
     def test_patch_project_episode_rebinding_forgets_unbound_resource_claims(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")

@@ -7,12 +7,12 @@ from fastapi.testclient import TestClient
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import products
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import FakeProjectAssetDeleteMixin
+from tests.fakes import FakeProjectAssetMutationMixin
 
 pytestmark = pytest.mark.unit
 
 
-class _FakePM(FakeProjectAssetDeleteMixin):
+class _FakePM(FakeProjectAssetMutationMixin):
     expected_delete_asset_table = "products"
 
     def __init__(self):

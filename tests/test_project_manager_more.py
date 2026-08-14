@@ -6,6 +6,7 @@ from threading import Event
 
 import pytest
 
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.project_manager import ProjectManager
 
 
@@ -16,6 +17,46 @@ def _write(path: Path, text: str):
 
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _narration_script(resource_id: str) -> dict:
+    return {
+        "episode": 1,
+        "title": "Episode 1",
+        "content_mode": "narration",
+        "duration_seconds": 4,
+        "summary": "",
+        "novel": {"title": "Demo", "chapter": "Chapter 1"},
+        "segments": [
+            {
+                "segment_id": resource_id,
+                "duration_seconds": 4,
+                "segment_break": False,
+                "novel_text": "text",
+                "characters_in_segment": [],
+                "scenes": [],
+                "props": [],
+                "image_prompt": "image",
+                "video_prompt": "video",
+                "transition_to_next": "cut",
+                "generated_assets": {},
+            }
+        ],
+    }
+
+
+def _seed_episode_resource_claims(project_dir: Path, resource_id: str):
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    keys = ArtifactKey.episode_resource_artifacts(1, resource_id)
+    for index, key in enumerate(keys):
+        adapter.put_entry(
+            key,
+            ArtifactManifestEntry(
+                artifact_path=f"formal/{resource_id}-{index}.bin",
+                basis_digest=f"sha256-v1:{index:064x}",
+            ),
+        )
+    return adapter, keys
 
 
 class _FakeTextBackend:
@@ -56,6 +97,36 @@ class _FakeTextBackend:
 
 
 class TestProjectManagerMore:
+    @pytest.mark.unit
+    def test_filesystem_script_rebinding_forgets_unbound_resource_claims(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script("demo", _narration_script("E1S01"), "old.json", validate=False)
+        (project_dir / "scripts" / "new.json").write_text(
+            json.dumps(_narration_script("E1S02")),
+            encoding="utf-8",
+        )
+        adapter, old_keys = _seed_episode_resource_claims(project_dir, "E1S01")
+
+        pm.sync_episode_from_script("demo", "new.json")
+
+        assert pm.load_project("demo")["episodes"][0]["script_file"] == "scripts/new.json"
+        assert all(adapter.get_entry(key) is None for key in old_keys)
+
+    @pytest.mark.unit
+    def test_save_script_rebinding_forgets_unbound_resource_claims(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script("demo", _narration_script("E1S01"), "old.json", validate=False)
+        adapter, old_keys = _seed_episode_resource_claims(project_dir, "E1S01")
+
+        pm.save_script("demo", _narration_script("E1S02"), "new.json", validate=False)
+
+        assert pm.load_project("demo")["episodes"][0]["script_file"] == "scripts/new.json"
+        assert all(adapter.get_entry(key) is None for key in old_keys)
+
     @pytest.mark.unit
     def test_project_and_status_lifecycle(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

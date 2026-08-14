@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from lib.version_manager import PaidVersionCommit
 
 
-class FakeProjectAssetDeleteMixin:
+class FakeProjectAssetMutationMixin:
     """Share production-shaped asset mutation contracts across router fakes."""
 
     expected_delete_asset_table: str | None = None

@@ -1140,7 +1140,7 @@ class ProjectManager:
         # 走 unlocked 变体：本方法被写盘统一入口在持有 `_script_lock` 时调用，
         # `load_script` 的迁移回写会二次取同一把锁而自死锁。
         script, _migrated = self._read_script_unlocked(project_name, script_filename)
-        return self.update_project(
+        return self.update_project_reconciling_episode_bindings(
             project_name, lambda project: self._apply_episode_sync(project, script, script_filename)
         )
 

@@ -15,7 +15,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import characters
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.conftest import make_translator
-from tests.fakes import FakeProjectAssetDeleteMixin
+from tests.fakes import FakeProjectAssetMutationMixin
 
 # 兜底 500 的默认 locale 文案：测试未覆盖 get_translator，端点回落到 DEFAULT_LOCALE("zh")，
 # 与 make_translator() 默认 locale 一致。
@@ -25,7 +25,7 @@ _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
 
-class _FakePM(FakeProjectAssetDeleteMixin):
+class _FakePM(FakeProjectAssetMutationMixin):
     def __init__(self):
         self.projects = {"demo": {"characters": {}, "scenes": {}, "props": {}, "products": {}}}
 
