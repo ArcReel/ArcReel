@@ -217,13 +217,7 @@ def build_grid_member_storyboard_visual_basis(
             },
             "style": style,
             "references": _reference_evidence(references),
-            "source_composite": {
-                "sha256": (
-                    _require_sha256("source_composite_digest", source_composite_digest)
-                    if source_composite_digest is not None
-                    else visual_file_digest(composite_image)
-                )
-            },
+            "source_composite": _composite_evidence(composite_image, source_composite_digest),
         },
     )
 
@@ -267,13 +261,7 @@ def build_stale_grid_member_storyboard_visual_basis(
             "source_grid_claim": {
                 "basis_digest": _require_non_empty("source_grid_basis_digest", source_grid_basis_digest),
             },
-            "source_composite": {
-                "sha256": (
-                    _require_sha256("source_composite_digest", source_composite_digest)
-                    if source_composite_digest is not None
-                    else visual_file_digest(composite_image)
-                )
-            },
+            "source_composite": _composite_evidence(composite_image, source_composite_digest),
         },
     )
 
@@ -499,6 +487,18 @@ def _reference_evidence(references: Sequence[VisualReference]) -> list[dict[str,
     if any(not isinstance(reference, VisualReference) for reference in references):
         raise TypeError("visual references must be VisualReference values")
     return [reference.evidence() for reference in references]
+
+
+def _composite_evidence(composite_image: Path, source_composite_digest: str | None) -> dict[str, object]:
+    """Project one composite source through the same supplied-or-observed digest rule."""
+
+    return {
+        "sha256": (
+            _require_sha256("source_composite_digest", source_composite_digest)
+            if source_composite_digest is not None
+            else visual_file_digest(composite_image)
+        )
+    }
 
 
 def visual_file_digest(path: Path) -> str:

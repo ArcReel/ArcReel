@@ -48,12 +48,14 @@ class _FakeGenerator:
     def __init__(self, *, fail: bool = False):
         self.fail = fail
         self.image_calls = []
+        self.reference_bytes = []
         self.tracked = []
         self.versions = self
 
     async def generate_image_async(self, **kwargs):
         if self.fail:
             raise RuntimeError("backend boom")
+        self.reference_bytes = [Path(reference).read_bytes() for reference in kwargs["reference_images"]]
         self.image_calls.append(kwargs)
         return Path(tempfile.gettempdir()) / "image.png", 2
 
@@ -219,6 +221,178 @@ class TestExecuteImageEditTask:
         assert versions.get_current_version("characters", "Alice") == 1
         assert pm.load_project("demo")["characters"]["Alice"]["character_sheet"] == "characters/Alice.png"
 
+    @pytest.mark.parametrize("resource_type", ["character", "storyboard"])
+    async def test_edit_persists_the_basis_and_source_bytes_used_by_the_provider(
+        self,
+        resource_type: str,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from lib.artifact_activation import ArtifactCurrencyResolver
+        from lib.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
+        from lib.artifact_version_provenance import parse_image_version_basis
+        from lib.media_generator import task_image_staging_path
+        from lib.visual_artifact_provenance import (
+            VisualReference,
+            build_asset_sheet_visual_basis,
+            build_storyboard_image_visual_basis,
+        )
+        from server.routers import versions as versions_router
+
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata(
+            "demo",
+            "Demo",
+            "Anime",
+            "narration",
+            extras={"generation_mode": "storyboard"},
+        )
+        if resource_type == "character":
+            resource_id = "Alice"
+            version_resource_type = "characters"
+            current_rel = "characters/Alice.png"
+            script_file = None
+            pm.add_character("demo", resource_id, "hero")
+            pm.update_project_character_sheet("demo", resource_id, current_rel)
+        else:
+            resource_id = "E1S01"
+            version_resource_type = "storyboards"
+            current_rel = "storyboards/scene_E1S01.png"
+            script_file = "episode_1.json"
+            pm.add_episode("demo", 1, "Episode 1", "scripts/episode_1.json")
+            pm.save_script(
+                "demo",
+                {
+                    "episode": 1,
+                    "content_mode": "narration",
+                    "segments": [
+                        {
+                            "segment_id": resource_id,
+                            "novel_text": "雨夜",
+                            "image_prompt": "old prompt",
+                            "video_prompt": "镜头前推",
+                            "characters_in_segment": [],
+                            "scenes": [],
+                            "props": [],
+                            "generated_assets": {"storyboard_image": current_rel},
+                        }
+                    ],
+                },
+                script_file,
+                validate=False,
+            )
+
+        project_path = pm.get_project_path("demo")
+        current = project_path / current_rel
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"source-before-await")
+        instruction = "turn the coat red"
+        reference = VisualReference(
+            path=current,
+            role="edit_source",
+            logical_type=resource_type,
+            logical_id=resource_id,
+            kind="current",
+        )
+        expected_basis = (
+            build_storyboard_image_visual_basis(
+                resource_id=resource_id,
+                image_prompt=instruction,
+                style="",
+                aspect_ratio="9:16",
+                references=(reference,),
+            )
+            if resource_type == "storyboard"
+            else build_asset_sheet_visual_basis(
+                asset_type=resource_type,
+                asset_id=resource_id,
+                description=instruction,
+                style="",
+                style_description="",
+                aspect_ratio="16:9",
+                references=(reference,),
+            )
+        )
+        manager = VersionManager(project_path)
+        provider_reference: Path | None = None
+
+        class _Generator:
+            def __init__(self) -> None:
+                self.versions = manager
+
+            async def generate_image_async(self, **kwargs):
+                nonlocal provider_reference
+                current.write_bytes(b"source-changed-during-await")
+                provider_reference = Path(kwargs["reference_images"][0])
+                assert provider_reference.read_bytes() == b"source-before-await"
+
+                def _mutate(project):
+                    project["style"] = "style-changed-during-await"
+                    if resource_type == "character":
+                        project["characters"][resource_id]["description"] = "description changed"
+
+                pm.update_project("demo", _mutate)
+                if resource_type == "storyboard":
+                    script = pm.load_script("demo", script_file)
+                    script["segments"][0]["image_prompt"] = "prompt changed"
+                    pm.save_script("demo", script, script_file, validate=False)
+
+                staged = task_image_staging_path(current, kwargs["task_id"])
+                staged.write_bytes(b"edited-image")
+                version = kwargs["commit_formal_output"](
+                    staged,
+                    current,
+                    {"aspect_ratio": kwargs["aspect_ratio"], "source": kwargs["source"]},
+                )
+                return current, version
+
+        _patch_common(monkeypatch, pm, _Generator())
+        result = await execute_image_edit_task(
+            "demo",
+            resource_id,
+            {
+                "resource_type": resource_type,
+                "prompt": instruction,
+                **({"script_file": script_file} if script_file is not None else {}),
+            },
+        )
+
+        records = manager.get_versions(version_resource_type, resource_id)["versions"]
+        edited_record = next(record for record in records if record["version"] == result["version"])
+        assert parse_image_version_basis(version_resource_type, resource_id, edited_record) == expected_basis
+        key = (
+            ArtifactKey.episode_storyboard(1, resource_id)
+            if resource_type == "storyboard"
+            else ArtifactKey.asset_sheet(resource_type, resource_id)
+        )
+        adapter = ProjectArtifactManifestAdapter(project_path)
+        assert adapter.get_entry(key).basis_digest == expected_basis.digest
+        assert (
+            ArtifactCurrencyResolver(project_path).compare(key, artifact_path=current_rel).status
+            is ArtifactStatus.STALE
+        )
+        assert current.read_bytes() == b"edited-image"
+        assert provider_reference is not None and not provider_reference.exists()
+
+        adapter.delete_entry(key)
+        monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
+        manager.restore_version(
+            version_resource_type,
+            resource_id,
+            result["version"],
+            current,
+            on_restore=lambda record: versions_router._restore_non_typed_sidecars(
+                resource_type=version_resource_type,
+                project_name="demo",
+                resource_id=resource_id,
+                file_path=current_rel,
+                project_path=project_path,
+                record=record,
+            ),
+        )
+        assert adapter.get_entry(key).basis_digest == expected_basis.digest
+
     async def test_active_storyboard_rejects_an_unbound_script_before_provider(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -255,7 +429,10 @@ class TestExecuteImageEditTask:
 
         call = fake_generator.image_calls[0]
         # 参考图仅当前图一张；prompt 仅编辑指令（不拼原 image_prompt）
-        assert call["reference_images"] == [project_path / "characters/Alice.png"]
+        assert len(call["reference_images"]) == 1
+        assert Path(call["reference_images"][0]).name.endswith("Alice.png")
+        assert fake_generator.reference_bytes == [b"png"]
+        assert not Path(call["reference_images"][0]).exists()
         assert call["prompt"] == "把头发改成红色"
         assert "原始角色 prompt" not in call["prompt"]
         # 新版本带编辑标记 metadata
@@ -286,7 +463,10 @@ class TestExecuteImageEditTask:
 
         call = fake_generator.image_calls[0]
         # 底图取 generated_assets 指针（旧宫格项目路径），新图写回 canonical
-        assert call["reference_images"] == [project_path / "storyboards/scene_E1S01_first.png"]
+        assert len(call["reference_images"]) == 1
+        assert Path(call["reference_images"][0]).name.endswith("scene_E1S01_first.png")
+        assert fake_generator.reference_bytes == [b"png"]
+        assert not Path(call["reference_images"][0]).exists()
         assert call["resource_type"] == "storyboards"
         assert fake_pm.scene_asset_updates == [
             {

@@ -810,6 +810,35 @@ def test_v7_activation_restores_manifest_when_a_formal_image_changes_after_prefl
     assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
 
 
+def test_v7_activation_restores_manifest_when_typed_media_changes_after_preflight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    _write_verified_presentation_claims(project_dir)
+    video_path = project_dir / "videos" / "scene_E1S01.mp4"
+    manifest_before = (project_dir / MANIFEST_FILENAME).read_bytes()
+    original_replace = ProjectArtifactManifestAdapter.replace_entries_atomically
+
+    def _replace_after_typed_media_change(self, entries):
+        changed = original_replace(self, entries)
+        video_path.write_bytes(b"concurrent-video")
+        return changed
+
+    monkeypatch.setattr(
+        ProjectArtifactManifestAdapter,
+        "replace_entries_atomically",
+        _replace_after_typed_media_change,
+    )
+
+    with pytest.raises(RuntimeError, match="artifact activation dependency changed after preflight"):
+        migrate_v7_to_v8(project_dir)
+
+    assert _read_json(project_dir / "project.json")["schema_version"] == 7
+    assert video_path.read_bytes() == b"concurrent-video"
+    assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
+
+
 def test_v7_activation_retry_refreshes_matching_backups_before_startup_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

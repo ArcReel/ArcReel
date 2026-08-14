@@ -881,8 +881,6 @@ class TestGenerationTasks:
         staged = project_path / "characters" / ".Alice.stage.png"
 
         class _IncompleteVersions:
-            versions = None
-
             def __init__(self):
                 self.versions = self
 
@@ -1948,19 +1946,8 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
-        fake_pm.project.update(
-            {
-                "schema_version": 8,
-                "generation_mode": "storyboard",
-                "aspect_ratio": "9:16",
-                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
-            }
-        )
-        fake_pm.script["episode"] = 1
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
-        (project_path / "scripts").mkdir()
-        (project_path / "project.json").write_text(json.dumps(fake_pm.project), encoding="utf-8")
-        (project_path / "scripts" / "episode_1.json").write_text(json.dumps(fake_pm.script), encoding="utf-8")
+        _persist_active_fake_project(fake_pm)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))

@@ -871,10 +871,16 @@ class _Planner:
         if artifact is None or snapshot is None:
             return
         try:
-            if artifact.samefile(snapshot) or artifact.read_bytes() != snapshot.read_bytes():
+            if artifact.samefile(snapshot):
                 return
+            artifact_digest = visual_file_digest(artifact)
+            snapshot_digest = visual_file_digest(snapshot)
         except OSError:
             return
+        if artifact_digest != snapshot_digest:
+            return
+        self._remember_dependency_digest(artifact, artifact_digest)
+        self._remember_dependency_digest(snapshot, snapshot_digest)
         try:
             if resource_type == "audio":
                 current_basis = build_current_audio_artifact_basis(
@@ -1301,10 +1307,15 @@ class _Planner:
             digest = visual_file_digest(path)
         except OSError as exc:
             raise ValueError(f"cannot read artifact activation dependency: {path}") from exc
+        self._remember_dependency_digest(path, digest)
+        return digest
+
+    def _remember_dependency_digest(self, path: Path, digest: str) -> None:
+        """Record an already-observed file digest for the final stability gate."""
+
         previous = self.dependency_digests.setdefault(path, digest)
         if previous != digest:
             raise RuntimeError(f"artifact activation dependency changed during preflight: {path}")
-        return digest
 
     def _safe_present_path(self, relative_path: str) -> Path | None:
         observation = self.adapter.inspect_artifact(relative_path)

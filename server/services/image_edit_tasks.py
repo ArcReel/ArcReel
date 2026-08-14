@@ -16,12 +16,20 @@ import asyncio
 from typing import Any
 
 from lib.artifact_activation import resolve_artifact_episode
+from lib.artifact_manifest import ArtifactBasis
 from lib.asset_types import ASSET_SPECS, resolve_asset_key
+from lib.async_thread import run_noninterruptible_sync
 from lib.db.base import DEFAULT_USER_ID
+from lib.image_reference_snapshot import freeze_image_references
 from lib.path_safety import safe_exists
 from lib.resource_paths import resource_relative_path
 from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
+from lib.visual_artifact_provenance import (
+    VisualReference,
+    build_asset_sheet_visual_basis,
+    build_storyboard_image_visual_basis,
+)
 from server.services.generation_context import ImageLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
     _asset_sheet_formal_image_callback,
@@ -39,6 +47,37 @@ IMAGE_EDIT_VERSION_SOURCE = "image_edit"
 
 # 可编辑的资源类型白名单（API 契约用的单数形态；storyboard 之外与 ASSET_SPECS 同源）
 EDITABLE_RESOURCE_TYPES: tuple[str, ...] = (*ASSET_SPECS.keys(), "storyboard")
+
+
+def _build_image_edit_basis(
+    *,
+    resource_type: str,
+    resource_id: str,
+    instruction: str,
+    aspect_ratio: str,
+    source: VisualReference,
+) -> ArtifactBasis:
+    """Describe the prompt and sole image input actually used by image editing."""
+
+    if resource_type == "storyboard":
+        return build_storyboard_image_visual_basis(
+            resource_id=resource_id,
+            image_prompt=instruction,
+            # Editing sends only the instruction; project style is not a provider input.
+            style="",
+            aspect_ratio=aspect_ratio,
+            references=(source,),
+        )
+    return build_asset_sheet_visual_basis(
+        asset_type=resource_type,
+        asset_id=resource_id,
+        description=instruction,
+        # Asset editing likewise omits the normal generation style expansion.
+        style="",
+        style_description="",
+        aspect_ratio=aspect_ratio,
+        references=(source,),
+    )
 
 
 def edit_version_resource_type(resource_type: str) -> str:
@@ -136,77 +175,104 @@ async def execute_image_edit_task(
         _current_rel = resolve_current_image_rel(_project, resource_type, _key, _script)
         if not (_current_rel and safe_exists(_project_path, _current_rel)):
             raise ValueError(f"no current image to edit: {resource_type}/{resource_id}")
-        return _project, _project_path / _current_rel, _key
+        _current_image = _project_path / _current_rel
+        _aspect_ratio = get_aspect_ratio(_project, version_resource_type)
+        _frozen = freeze_image_references(
+            [_current_image],
+            [
+                VisualReference(
+                    path=_current_image,
+                    role="edit_source",
+                    logical_type=resource_type,
+                    logical_id=_key,
+                    kind="current",
+                )
+            ],
+        )
+        try:
+            _basis = _build_image_edit_basis(
+                resource_type=resource_type,
+                resource_id=_key,
+                instruction=instruction,
+                aspect_ratio=_aspect_ratio,
+                source=_frozen.visual_references[0],
+            )
+        except BaseException:
+            _frozen.cleanup()
+            raise
+        return _project, _current_image, _key, _aspect_ratio, _frozen, _basis
 
-    project, current_image, resource_key = await asyncio.to_thread(_prepare)
-
-    # 编辑必然 i2i：单次解析拿到 generator 与 image lane 产物（provider / backend / resolution）。
-    ctx = await resolve_generation_context(
-        project_name,
-        payload,
-        project=project,
-        user_id=user_id,
-        image=ImageLaneRequest(capability="i2i"),
+    project, current_image, resource_key, aspect_ratio, frozen_references, edit_basis = await asyncio.to_thread(
+        _prepare
     )
-    generator = ctx.generator
 
-    # 旧图若尚无版本记录（如旧宫格项目 current 指向非 canonical 路径），先以中性元数据补登，
-    # 保证编辑前的旧图可回滚；也避免 generate_image_async 内部的 ensure_current_tracked
-    # 把编辑指令 / 编辑标记误写到旧版本上。已有版本记录时此调用是 no-op。
-    await asyncio.to_thread(
-        generator.versions.ensure_current_tracked,
-        version_resource_type,
-        resource_key,
-        current_image,
-        "",
-    )
-
-    aspect_ratio = get_aspect_ratio(project, version_resource_type)
-    image_size = ctx.image.resolution
     canonical_rel = resource_relative_path(version_resource_type, resource_key)
     formal_outcomes: list[Any] = []
-
-    if resource_type == "storyboard":
-        commit_formal_output = _storyboard_formal_image_callback(
-            project_name=project_name,
-            script_file=str(script_file),
-            resource_id=resource_key,
-            artifact_path=canonical_rel,
-            prompt=instruction,
-            versions=generator.versions,
-            task_id=task_id,
-            basis=None,
-            outcome_box=formal_outcomes,
-            project_manager=get_project_manager(),
+    try:
+        # 编辑必然 i2i：单次解析拿到 generator 与 image lane 产物（provider / backend / resolution）。
+        ctx = await resolve_generation_context(
+            project_name,
+            payload,
+            project=project,
+            user_id=user_id,
+            image=ImageLaneRequest(capability="i2i"),
         )
-    else:
-        commit_formal_output = _asset_sheet_formal_image_callback(
-            asset_type=resource_type,
-            project_name=project_name,
-            resource_id=resource_key,
-            sheet_path=canonical_rel,
-            prompt=instruction,
-            versions=generator.versions,
-            task_id=task_id,
-            basis=None,
-            outcome_box=formal_outcomes,
-            project_manager=get_project_manager(),
+        generator = ctx.generator
+
+        # 旧图若尚无版本记录（如旧宫格项目 current 指向非 canonical 路径），先以中性元数据补登，
+        # 保证编辑前的旧图可回滚；也避免 generate_image_async 内部的 ensure_current_tracked
+        # 把编辑指令 / 编辑标记误写到旧版本上。已有版本记录时此调用是 no-op。
+        await asyncio.to_thread(
+            generator.versions.ensure_current_tracked,
+            version_resource_type,
+            resource_key,
+            current_image,
+            "",
         )
 
-    # 参考图仅当前图一张、prompt 仅编辑指令（不拼原 image_prompt / 不追加生成路径的
-    # 自动参考图收集）；新版本 prompt 字段即编辑指令，source 标记编辑版本。
-    _, version = await generator.generate_image_async(
-        prompt=instruction,
-        resource_type=version_resource_type,
-        resource_id=resource_key,
-        reference_images=[current_image],
-        aspect_ratio=aspect_ratio,
-        image_size=image_size,
-        formal_output=True,
-        task_id=_formal_image_task_token(task_id),
-        commit_formal_output=commit_formal_output,
-        source=IMAGE_EDIT_VERSION_SOURCE,
-    )
+        if resource_type == "storyboard":
+            commit_formal_output = _storyboard_formal_image_callback(
+                project_name=project_name,
+                script_file=str(script_file),
+                resource_id=resource_key,
+                artifact_path=canonical_rel,
+                prompt=instruction,
+                versions=generator.versions,
+                task_id=task_id,
+                basis=edit_basis,
+                outcome_box=formal_outcomes,
+                project_manager=get_project_manager(),
+            )
+        else:
+            commit_formal_output = _asset_sheet_formal_image_callback(
+                asset_type=resource_type,
+                project_name=project_name,
+                resource_id=resource_key,
+                sheet_path=canonical_rel,
+                prompt=instruction,
+                versions=generator.versions,
+                task_id=task_id,
+                basis=edit_basis,
+                outcome_box=formal_outcomes,
+                project_manager=get_project_manager(),
+            )
+
+        # 参考图仅当前图一张、prompt 仅编辑指令（不拼原 image_prompt / 不追加生成路径的
+        # 自动参考图收集）；provider 与 frozen basis 共享 task-owned 源图字节。
+        _, version = await generator.generate_image_async(
+            prompt=instruction,
+            resource_type=version_resource_type,
+            resource_id=resource_key,
+            reference_images=frozen_references.reference_images,
+            aspect_ratio=aspect_ratio,
+            image_size=ctx.image.resolution,
+            formal_output=True,
+            task_id=_formal_image_task_token(task_id),
+            commit_formal_output=commit_formal_output,
+            source=IMAGE_EDIT_VERSION_SOURCE,
+        )
+    finally:
+        await run_noninterruptible_sync(frozen_references.cleanup)
 
     if formal_outcomes:
         outcome = formal_outcomes[0]
@@ -220,6 +286,7 @@ async def execute_image_edit_task(
             generator=generator,
             version=version,
             task_id=task_id,
+            basis=edit_basis,
             project_manager=get_project_manager(),
         )
     else:
@@ -231,6 +298,7 @@ async def execute_image_edit_task(
             generator=generator,
             version=version,
             task_id=task_id,
+            basis=edit_basis,
             project_manager=get_project_manager(),
         )
 
