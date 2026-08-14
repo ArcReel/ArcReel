@@ -3,7 +3,7 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 
 import { readFrontMatterScalar, scanMarkdownLines } from "./markdown-scan.mjs";
 
@@ -100,7 +100,7 @@ export function checkUpdateDocsInventory(repoRoot) {
 }
 
 function parseArgs(args) {
-  let root = resolve(fileURLToPath(import.meta.url), "../../..");
+  let root = resolve(import.meta.dirname, "../..");
   let format = "check";
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--root" && args[index + 1]) root = resolve(args[++index]);
