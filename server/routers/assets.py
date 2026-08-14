@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from lib.api_errors import NotFoundError
-from lib.artifact_activation import register_artifact_entries_atomically
+from lib.artifact_activation import register_artifact_entries_atomically, resolve_current_artifact_target
 from lib.artifact_manifest import ArtifactKey
 from lib.asset_types import (
     BUCKET_KEY,
@@ -649,10 +649,11 @@ async def apply_to_project(
 
     if plans:
 
-        def _forget_imported_sheet_claims(_project_file: Path) -> None:
+        def _register_imported_sheet_claims(_project_file: Path) -> None:
+            keys = {ArtifactKey.asset_sheet(plan["asset"].type, plan["desired_name"]) for plan in plans}
             register_artifact_entries_atomically(
                 project_dir,
-                {ArtifactKey.asset_sheet(plan["asset"].type, plan["desired_name"]): None for plan in plans},
+                {key: resolve_current_artifact_target(project_dir, key) for key in keys},
             )
 
         try:
@@ -661,7 +662,7 @@ async def apply_to_project(
                 req.target_project,
                 _apply_all,
                 file_copies,
-                on_commit=_forget_imported_sheet_claims,
+                on_commit=_register_imported_sheet_claims,
             )
         except ProjectAssetNameConflictError as exc:
             raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc

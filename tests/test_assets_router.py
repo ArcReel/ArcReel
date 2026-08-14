@@ -7,7 +7,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.artifact_activation import ArtifactCurrencyResolver
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.db.base import Base
 from lib.i18n import _ as translate_message
 from lib.project_manager import ProjectManager
@@ -592,7 +593,7 @@ class TestApplyToProject:
         assert data["characters"]["王"]["description"] == "library desc"
 
     @pytest.mark.integration
-    def test_overwrite_policy_forgets_the_replaced_formal_sheet_claim(self, _assets_env):
+    def test_overwrite_policy_registers_the_imported_formal_sheet_claim(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
         pm.create_project("target")
@@ -623,7 +624,43 @@ class TestApplyToProject:
 
         assert response.status_code == 200
         assert (project_dir / "scenes" / "A.png").read_bytes() == b"library-sheet"
-        assert adapter.get_entry(key) is None
+        assert adapter.get_entry(key) is not None
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="scenes/A.png").status
+            is ArtifactStatus.CURRENT
+        )
+
+    @pytest.mark.integration
+    def test_rename_policy_registers_the_imported_formal_sheet_claim(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_scene("target", "A", "existing description")
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "A", "description": "library description"},
+            files={"image": ("A.png", b"library-sheet", "image/png")},
+        )
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "rename",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["succeeded"] == [{"id": created.json()["asset"]["id"], "name": "A (2)"}]
+        project_dir = pm.get_project_path("target")
+        key = ArtifactKey.asset_sheet("scene", "A (2)")
+        assert (project_dir / "scenes" / "A (2).png").read_bytes() == b"library-sheet"
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="scenes/A (2).png").status
+            is ArtifactStatus.CURRENT
+        )
 
     @pytest.mark.integration
     def test_overwrite_policy_rolls_back_when_the_sheet_claim_commit_fails(self, _assets_env, monkeypatch):

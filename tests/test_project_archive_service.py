@@ -16,6 +16,7 @@ from lib.artifact_manifest import (
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
+from lib.grid.models import GridGeneration
 from lib.i18n import _
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
 from lib.project_manager import ProjectManager
@@ -412,6 +413,48 @@ class TestProjectArchiveService:
             ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="characters/Hero.png").status
             is ArtifactStatus.STALE
         )
+
+    @pytest.mark.unit
+    def test_official_export_preserves_a_grid_claim_after_failed_regeneration(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        project["grid_storyboard"] = True
+        _write_json(project_dir / "project.json", project)
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=["E1S01"],
+            rows=2,
+            cols=2,
+            grid_size="grid_4",
+            provider="provider",
+            model="model",
+            video_aspect_ratio="9:16",
+            prompt="grid",
+        )
+        grid.status = "completed"
+        grid.grid_image_path = f"grids/{grid.id}.png"
+        _write_json(project_dir / "grids" / f"{grid.id}.json", grid.to_dict())
+        _write_bytes(project_dir / "grids" / f"{grid.id}.png", b"grid-image")
+        migrate_v7_to_v8(project_dir)
+        key = ArtifactKey.episode_grid(1, grid.id)
+        before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert before is not None
+
+        grid.status = "failed"
+        grid.error_message = "provider failed during regeneration"
+        _write_json(project_dir / "grids" / f"{grid.id}.json", grid.to_dict())
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+        assert archive_manifest["artifact_manifest"]["entries"][key.encode()] == {
+            "artifact_path": before.artifact_path,
+            "basis_digest": before.basis_digest,
+        }
 
     @pytest.mark.unit
     def test_export_retries_when_formal_bytes_and_manifest_change_during_snapshot(self, tmp_path, monkeypatch):

@@ -159,7 +159,7 @@ class _Planner:
         *,
         episode_scope: int | None = None,
         project_bytes: bytes | None = None,
-        allow_stale_typed_media_paths: bool = False,
+        allow_stale_formal_targets: bool = False,
     ) -> None:
         self.project_dir = project_dir.resolve(strict=True)
         self.adapter = ProjectArtifactManifestAdapter(self.project_dir)
@@ -167,7 +167,7 @@ class _Planner:
         if episode_scope is not None and (type(episode_scope) is not int or episode_scope < 1):
             raise ValueError("episode scope must be a positive integer or null")
         self.episode_scope = episode_scope
-        self.allow_stale_typed_media_paths = allow_stale_typed_media_paths
+        self.allow_stale_formal_targets = allow_stale_formal_targets
         self.project_bytes = (
             self._read_required_control_file("project.json", "project.json")
             if project_bytes is None
@@ -644,7 +644,11 @@ class _Planner:
                 ),
                 None,
             )
-            if episode is None or grid.status != "completed" or not grid.grid_image_path:
+            if (
+                episode is None
+                or (grid.status != "completed" and not self.allow_stale_formal_targets)
+                or not grid.grid_image_path
+            ):
                 continue
             if grid.grid_image_path != resource_relative_path("grids", grid.id):
                 continue
@@ -922,7 +926,7 @@ class _Planner:
         except (KeyError, OSError, TypeError, ValueError):
             return
         if current_basis is None or (
-            self._activation_mode and not self.allow_stale_typed_media_paths and current_basis != target.basis
+            self._activation_mode and not self.allow_stale_formal_targets and current_basis != target.basis
         ):
             return
         self.entries[key] = ArtifactManifestEntry(
@@ -1484,7 +1488,7 @@ def rebase_preserved_artifact_entries(
 def _plan_preserved_artifact_target_state(project_dir: Path) -> ArtifactTargetStatePlan:
     """Prove canonical paths while leaving preserved generation digests immutable."""
 
-    return _Planner(project_dir, allow_stale_typed_media_paths=True).plan()
+    return _Planner(project_dir, allow_stale_formal_targets=True).plan()
 
 
 def _rebase_preserved_artifact_entries(
