@@ -253,6 +253,31 @@ class TestVersionsRouter:
             assert restore_resp.json()["current_version"] == 1
             assert any(item[0] == "character" for item in fake_pm.updated)
 
+    def test_manual_video_is_presentable_without_claiming_it_is_restorable(self, monkeypatch):
+        client, _ = _client(monkeypatch)
+
+        class _ManualVideoVM(_FakeVM):
+            def get_versions(self, resource_type, resource_id):
+                return {
+                    "current_version": 1,
+                    "versions": [
+                        {
+                            "version": 1,
+                            "file": f"versions/{resource_type}/{resource_id}.mp4",
+                            "source": "manual_upload",
+                        }
+                    ],
+                }
+
+        monkeypatch.setattr(versions, "get_version_manager", lambda _project_name: _ManualVideoVM())
+        with client:
+            response = client.get("/api/v1/projects/demo/versions/videos/E1S01")
+
+        assert response.status_code == 200
+        record = response.json()["versions"][0]
+        assert record["restorable"] is False
+        assert record["presentation_available"] is True
+
     def test_get_and_restore_scenes(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         with client:

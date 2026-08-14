@@ -62,7 +62,7 @@ def is_typed_media_version_restorable(resource_type: str, record: Mapping[str, A
     if not is_typed_media_restore_resource(resource_type):
         return True
     try:
-        _target_from_record(resource_type, record)
+        parse_typed_media_version_record(resource_type, record)
     except (TypeError, ValueError):
         return False
     return True
@@ -94,7 +94,7 @@ def get_typed_media_restore_target(
     )
     if record is None:
         raise NotFoundError("version_not_found", version=version)
-    return _target_from_record(resource_type, record)
+    return parse_typed_media_version_record(resource_type, record)
 
 
 def restore_typed_media_version(
@@ -134,7 +134,7 @@ def restore_typed_media_version(
         nonlocal restored
 
         def _register(record: dict[str, Any]) -> None:
-            committed_target = _target_from_record(resource_type, record)
+            committed_target = parse_typed_media_version_record(resource_type, record)
             if committed_target != target:
                 raise RuntimeError("typed artifact version metadata changed during restore")
             key = _TYPED_MEDIA_RESTORE_SPECS[resource_type].artifact_key(target.episode, resource_id)
@@ -172,7 +172,18 @@ def restore_typed_media_version(
     return restored
 
 
-def _target_from_record(resource_type: str, record: Mapping[str, Any]) -> TypedMediaRestoreTarget:
+def parse_typed_media_version_record(
+    resource_type: str,
+    record: Mapping[str, Any],
+) -> TypedMediaRestoreTarget:
+    """Validate typed provenance carried by a media version record.
+
+    Restore and presentation adapters share this parser so neither can accept a
+    history record that the other considers unverifiable.
+    """
+
+    if not is_typed_media_restore_resource(resource_type):
+        raise ValueError(f"resource type does not carry typed artifact metadata: {resource_type}")
     spec = _TYPED_MEDIA_RESTORE_SPECS[resource_type]
     script_file = record.get("execution_script_file")
     if not isinstance(script_file, str) or not script_file.strip():
@@ -314,5 +325,6 @@ __all__ = [
     "get_typed_media_restore_target",
     "is_typed_media_restore_resource",
     "is_typed_media_version_restorable",
+    "parse_typed_media_version_record",
     "restore_typed_media_version",
 ]

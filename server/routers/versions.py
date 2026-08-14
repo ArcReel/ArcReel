@@ -31,6 +31,7 @@ from server.services.artifact_version_restore import (
 )
 from server.services.grid_access import ensure_grid_writable
 from server.services.narration_delivery_tasks import active_narrated_video_resource_ids, active_tts_resource_ids
+from server.services.presentation_read_model import is_presentation_version_available
 
 router = APIRouter()
 
@@ -187,6 +188,7 @@ async def get_versions(
             for record in versions_info.get("versions", []):
                 if isinstance(record, dict):
                     record["restorable"] = is_typed_media_version_restorable(resource_type, record)
+                    record["presentation_available"] = is_presentation_version_available(resource_type, record)
             return {"resource_type": resource_type, "resource_id": resource_id, **versions_info}
 
         return await asyncio.to_thread(_sync)

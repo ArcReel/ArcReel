@@ -6,6 +6,7 @@ import { API, type VersionInfo } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
+import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
 
 interface VersionTimeMachineProps {
   projectName: string;
@@ -362,14 +363,27 @@ export function VersionTimeMachine({
                     {/* Media preview */}
                     {selectedInfo.file_url &&
                       (resourceType === "videos" || resourceType === "reference_videos" ? (
-                        // eslint-disable-next-line jsx-a11y/media-has-caption -- 生成式预览视频暂无字幕源，将来如引入字幕生成则移除此 disable
-                        <video
-                          src={selectedInfo.file_url}
-                          className="mb-2 w-full rounded-lg border border-gray-800 bg-black object-contain"
-                          controls
-                          playsInline
-                          preload="none"
-                        />
+                        <div className="mb-2 aspect-video w-full overflow-hidden rounded-lg border border-gray-800 bg-black">
+                          {selectedInfo.presentation_available !== true ? (
+                            // eslint-disable-next-line jsx-a11y/media-has-caption -- 无法进入共享成片读取器的历史视频仅展示原始媒体
+                            <video
+                              src={selectedInfo.file_url}
+                              aria-label={t("version_preview_alt", { version: selectedInfo.version })}
+                              className="h-full w-full object-contain"
+                              controls
+                              playsInline
+                              preload="none"
+                            />
+                          ) : (
+                            <PresentationPlayer
+                              key={`${resourceType}:${resourceId}:${selectedInfo.version}`}
+                              projectName={projectName}
+                              resourceType={resourceType}
+                              resourceId={resourceId}
+                              videoVersion={selectedInfo.version}
+                            />
+                          )}
+                        </div>
                       ) : resourceType === "audio" ? (
                         // eslint-disable-next-line jsx-a11y/media-has-caption -- 历史旁白的文字记录显示在同一预览卡片
                         <audio

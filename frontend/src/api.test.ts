@@ -1097,6 +1097,49 @@ describe("API", () => {
         await expect(API.downloadDiagnostics()).rejects.toThrow();
       });
     });
+
+    describe("presentations", () => {
+      it("requests the selected immutable versions and rendition", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(mockResponse({ jsonData: { unit_id: "E1S01" } }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        await API.getPresentation("demo", "videos", "E1S01", {
+          variant: "use_tts",
+          videoVersion: 3,
+          audioVersion: 2,
+        });
+
+        expect(fetchMock.mock.calls[0][0]).toBe(
+          "/api/v1/projects/demo/presentations/videos/E1S01?variant=use_tts&video_version=3&audio_version=2",
+        );
+      });
+
+      it("downloads the editable bundle through the authenticated API path", async () => {
+        const blob = new Blob(["zip"]);
+        const fetchMock = vi.fn().mockResolvedValue(
+          mockResponse({
+            blobData: blob,
+            headers: { "Content-Disposition": 'attachment; filename="E1S01_presentation.zip"' },
+          }),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+
+        const result = await API.downloadPresentationBundle("demo", "reference_videos", "E1U01", {
+          variant: "post_production",
+          videoVersion: 7,
+        });
+
+        expect(result).toEqual({ blob, filename: "E1S01_presentation.zip" });
+        expect(fetchMock.mock.calls[0][0]).toBe(
+          "/api/v1/projects/demo/presentations/reference_videos/E1U01/bundle?variant=post_production&video_version=7",
+        );
+      });
+
+      it("includes the selected presentation variant in Jianying download URLs", () => {
+        expect(API.getJianyingDraftDownloadUrl("demo", 1, "/drafts", "token", "6", "use_tts"))
+          .toContain("narration_delivery=use_tts");
+      });
+    });
   });
 
   describe("listAssets", () => {

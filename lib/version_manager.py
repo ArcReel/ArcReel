@@ -12,7 +12,8 @@ import shutil
 import sys
 import tempfile
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -186,6 +187,13 @@ class VersionManager:
         """
         info = self.get_versions(resource_type, resource_id)
         return info["current_version"]
+
+    @contextmanager
+    def locked_version_snapshot(self, resource_type: str, resource_id: str) -> Iterator[dict[str, Any]]:
+        """Keep one resource selection stable while a dependent read-model commit runs."""
+
+        with self._lock:
+            yield self.get_versions(resource_type, resource_id)
 
     def add_version(
         self, resource_type: str, resource_id: str, prompt: str, source_file: Path | None = None, **metadata
