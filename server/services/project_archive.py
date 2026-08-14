@@ -14,7 +14,11 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from lib.artifact_activation import TARGET_SCHEMA_VERSION, ensure_imported_artifact_target_state
+from lib.artifact_activation import (
+    TARGET_SCHEMA_VERSION,
+    ensure_imported_artifact_target_state,
+    rebase_preserved_artifact_entries,
+)
 from lib.artifact_manifest import (
     ArtifactManifestError,
     ProjectArtifactManifestAdapter,
@@ -447,7 +451,10 @@ class ProjectArchiveService:
         artifact_manifest = None
         if isinstance(snapshot_project, dict) and snapshot_project.get("schema_version") == TARGET_SCHEMA_VERSION:
             artifact_manifest = encode_artifact_manifest_payload(
-                ProjectArtifactManifestAdapter(source_dir).snapshot_entries()
+                rebase_preserved_artifact_entries(
+                    snapshot_dir,
+                    ProjectArtifactManifestAdapter(source_dir).snapshot_entries(),
+                )
             )
         manifest = self._build_archive_manifest(
             project_name,

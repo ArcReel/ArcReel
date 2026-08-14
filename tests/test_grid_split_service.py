@@ -389,6 +389,24 @@ class TestApplyGridSplit:
         for scene_id in ("E1S01", "E1S02", "E1S03"):
             assert adapter.get_entry(ArtifactKey.episode_storyboard(1, scene_id)) is None
 
+    async def test_script_resolution_failure_removes_the_composite_snapshot(
+        self,
+        project_with_script,
+        grid_with_image,
+    ):
+        _enable_manifest_and_register_grid(project_with_script, grid_with_image)
+        grids_dir = project_with_script / "grids"
+        pm = ProjectManager(project_with_script.parent)
+
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            patch("lib.script_editor.resolve_items", side_effect=RuntimeError("script resolution failed")),
+        ):
+            with pytest.raises(RuntimeError, match="script resolution failed"):
+                await apply_grid_split("test-project", grid_with_image)
+
+        assert not tuple(grids_dir.glob(f".{grid_with_image.id}.*.split-source.png"))
+
 
 class TestSplitAspectRatio:
     """切分按联合图产出时冻结的比例裁切，而非项目当下的 aspect_ratio。"""

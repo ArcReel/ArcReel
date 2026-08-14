@@ -7,11 +7,14 @@ from fastapi.testclient import TestClient
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import products
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import FakeProjectAssetDeleteMixin
 
 pytestmark = pytest.mark.unit
 
 
-class _FakePM:
+class _FakePM(FakeProjectAssetDeleteMixin):
+    expected_delete_asset_table = "products"
+
     def __init__(self):
         self.projects = {
             "demo": {
@@ -50,15 +53,6 @@ class _FakePM:
         project = self.load_project(project_name)
         mutate_fn(project)
         self.save_project(project_name, project)
-
-    def delete_asset(self, project_name, table, name):
-        assert table == "products"
-        project = self.load_project(project_name)
-        bucket = project.get(table) or {}
-        if name not in bucket:
-            raise KeyError(name)
-        del bucket[name]
-        return project
 
 
 def _client(monkeypatch, fake_pm):

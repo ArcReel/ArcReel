@@ -12,6 +12,7 @@ from lib.artifact_manifest import (
     MANIFEST_FILENAME,
     ArtifactBasisDescriptor,
     ArtifactKey,
+    ArtifactManifestEntry,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
@@ -407,6 +408,54 @@ class TestProjectArchiveService:
 
         imported_dir = pm.get_project_path("demo")
         assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) == before
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="characters/Hero.png").status
+            is ArtifactStatus.STALE
+        )
+
+    @pytest.mark.unit
+    def test_official_round_trip_rekeys_claims_to_repaired_formal_paths(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        migrate_v7_to_v8(project_dir)
+
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        before = adapter.get_entry(key)
+        assert before is not None
+        _write_bytes(project_dir / "characters" / "legacy.png", b"legacy")
+        project = pm.load_project("demo")
+        project["characters"]["Hero"]["character_sheet"] = "characters/legacy.png"
+        project["characters"]["Hero"]["description"] = "Changed after generation"
+        _write_json(project_dir / "project.json", project)
+        adapter.put_entry(
+            key,
+            ArtifactManifestEntry(
+                artifact_path="characters/legacy.png",
+                basis_digest=before.basis_digest,
+            ),
+        )
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            archived_entry = archive_manifest["artifact_manifest"]["entries"][key.encode()]
+            assert archived_entry == {
+                "artifact_path": "characters/Hero.png",
+                "basis_digest": before.basis_digest,
+            }
+        shutil.rmtree(project_dir)
+
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) == ArtifactManifestEntry(
+            artifact_path="characters/Hero.png",
+            basis_digest=before.basis_digest,
+        )
         assert (
             ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="characters/Hero.png").status
             is ArtifactStatus.STALE

@@ -136,24 +136,23 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
                 raise
 
         composite_snapshot, cells = _snapshot_and_split()
-
-        storyboards_dir = project_path / "storyboards"
-        storyboards_dir.mkdir(parents=True, exist_ok=True)
-
-        # batch_update_scene_assets 在任一 scene_id 未命中时整批 fail-loud 回滚——避免
-        # cell.save() 已写 PNG 落盘后又因 KeyError 整批回滚留下 orphan PNG,这里先 load
-        # 当前剧本拿 valid id 集合,frame_chain 中已不存在的分镜(grid plan 生成后 agent
-        # split/remove 改动了剧本)跳过 cell PNG 保存 + 收集到 missing 列表 + warning。
-        items, id_field, _kind = resolve_items(script)
-        valid_ids = {str(item.get(id_field)) for item in items if isinstance(item, dict)}
-
-        asset_updates: list[tuple[str, str, Any]] = []
-        updated_ids: list[str] = []
-        missing_ids: list[str] = []
         staged_commits: list[StagedVersionCommit] = []
-        cell_assignments: list[tuple[int, str, str]] = []
-
         try:
+            storyboards_dir = project_path / "storyboards"
+            storyboards_dir.mkdir(parents=True, exist_ok=True)
+
+            # batch_update_scene_assets 在任一 scene_id 未命中时整批 fail-loud 回滚——避免
+            # cell.save() 已写 PNG 落盘后又因 KeyError 整批回滚留下 orphan PNG,这里先 load
+            # 当前剧本拿 valid id 集合,frame_chain 中已不存在的分镜(grid plan 生成后 agent
+            # split/remove 改动了剧本)跳过 cell PNG 保存 + 收集到 missing 列表 + warning。
+            items, id_field, _kind = resolve_items(script)
+            valid_ids = {str(item.get(id_field)) for item in items if isinstance(item, dict)}
+
+            asset_updates: list[tuple[str, str, Any]] = []
+            updated_ids: list[str] = []
+            missing_ids: list[str] = []
+            cell_assignments: list[tuple[int, str, str]] = []
+
             # Cells stay invisible until the script, complete version batch, grid
             # record, and complete Manifest claim set can all commit.
             for cell, frame in zip(cells, grid.frame_chain):
@@ -242,7 +241,7 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
                     break
             if references is not None:
                 references = tuple(reference_list)
-            member_ratio = grid.video_aspect_ratio or get_aspect_ratio(project_snapshot, "videos")
+            member_ratio = video_aspect_ratio
             if source_status is ArtifactStatus.STALE and source_entry is not None:
                 for cell_index, resource_id, cell_rel in cell_assignments:
                     try:

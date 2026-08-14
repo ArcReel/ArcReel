@@ -1447,6 +1447,20 @@ class ArtifactKey:
             ),
         )
 
+    @classmethod
+    def episode_resource_artifacts(cls, episode: int, resource_id: str) -> tuple[Self, ...]:
+        """Enumerate every formal artifact identity owned by one script item."""
+
+        return (
+            cls.episode_storyboard(episode, resource_id),
+            cls.episode_video(episode, resource_id),
+            cls.episode_audio(episode, resource_id),
+            cls.episode_subtitle(episode, resource_id, "post_production"),
+            cls.episode_subtitle(episode, resource_id, "use_tts"),
+            cls.episode_presentation(episode, resource_id, "post_production"),
+            cls.episode_presentation(episode, resource_id, "use_tts"),
+        )
+
     def encode(self) -> str:
         payload = json.dumps(
             [self.kind.value, *self.components],

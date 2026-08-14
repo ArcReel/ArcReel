@@ -19,6 +19,28 @@ if TYPE_CHECKING:
     from lib.version_manager import PaidVersionCommit
 
 
+class FakeProjectAssetDeleteMixin:
+    """Share the production-shaped asset deletion contract across router fakes."""
+
+    expected_delete_asset_table: str | None = None
+
+    def load_project(self, project_name: str) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def delete_asset(self, project_name: str, table: str, name: str) -> dict[str, Any]:
+        from lib.asset_types import resolve_asset_key
+
+        if self.expected_delete_asset_table is not None:
+            assert table == self.expected_delete_asset_table
+        project = self.load_project(project_name)
+        bucket = project.get(table) or {}
+        key = resolve_asset_key(bucket, name)
+        if key is None:
+            raise KeyError(name)
+        del bucket[key]
+        return project
+
+
 def select_formal_video(
     generator: MediaGenerator,
     *,

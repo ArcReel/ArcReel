@@ -21,6 +21,7 @@ from lib.artifact_manifest import (
     ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactComparison,
+    ArtifactEntryRekeyPlan,
     ArtifactKey,
     ArtifactKind,
     ArtifactManifest,
@@ -1327,16 +1328,52 @@ def ensure_imported_artifact_target_state(
         raise ValueError("archive activation requires a schema-v8 project")
     if preserved_entries is not None:
         plan = plan_artifact_target_state(project_dir)
-        invalid = [
-            key.encode()
-            for key, archived in preserved_entries.items()
-            if (current := plan.entries.get(key)) is None or current.artifact_path != archived.artifact_path
-        ]
+        rebased = _rebase_preserved_artifact_entries(plan, preserved_entries)
+        invalid = [key.encode() for key, archived in preserved_entries.items() if rebased[key] != archived]
         if invalid:
             raise ValueError(f"archive Artifact Manifest contains unprovable formal claims: {sorted(invalid)}")
         _assert_preflight_unchanged(project_dir, plan)
         return ProjectArtifactManifestAdapter(project_dir).replace_entries_atomically(dict(preserved_entries))
     return activate_artifact_target_state(project_dir, bump_schema=False)
+
+
+def rebase_preserved_artifact_entries(
+    project_dir: Path,
+    preserved_entries: Mapping[ArtifactKey, ArtifactManifestEntry],
+) -> Mapping[ArtifactKey, ArtifactManifestEntry]:
+    """Move frozen claims onto the formal paths proven by one current target plan.
+
+    Archive repair may normalize a pointer or materialize a selected version in
+    its private snapshot.  The generation digest remains immutable evidence;
+    only the formal path follows that repaired target state.  Missing target
+    keys fail loud so an official export cannot emit an envelope that its own
+    strict import boundary would reject.
+    """
+
+    plan = plan_artifact_target_state(project_dir)
+    rebased = _rebase_preserved_artifact_entries(plan, preserved_entries)
+    _assert_preflight_unchanged(project_dir, plan)
+    return rebased
+
+
+def _rebase_preserved_artifact_entries(
+    plan: ArtifactTargetStatePlan,
+    preserved_entries: Mapping[ArtifactKey, ArtifactManifestEntry],
+) -> dict[ArtifactKey, ArtifactManifestEntry]:
+    rebased: dict[ArtifactKey, ArtifactManifestEntry] = {}
+    invalid: list[str] = []
+    for key, archived in preserved_entries.items():
+        current = plan.entries.get(key)
+        if current is None:
+            invalid.append(key.encode())
+            continue
+        rebased[key] = ArtifactManifestEntry(
+            artifact_path=current.artifact_path,
+            basis_digest=archived.basis_digest,
+        )
+    if invalid:
+        raise ValueError(f"archive Artifact Manifest contains unprovable formal claims: {sorted(invalid)}")
+    return rebased
 
 
 def resolve_current_artifact_target(project_dir: Path, key: ArtifactKey) -> ArtifactManifestEntry | None:
@@ -1656,6 +1693,7 @@ def register_artifact_entries_atomically(
     entries: Mapping[ArtifactKey, ArtifactManifestEntry | None],
     *,
     expected_entries: Mapping[ArtifactKey, ArtifactManifestEntry | None] | None = None,
+    adapter: ArtifactManifestAdapter | None = None,
 ) -> bool:
     """Replace a frozen batch of formal claims in one guarded Manifest commit.
 
@@ -1666,14 +1704,14 @@ def register_artifact_entries_atomically(
 
     if not entries or not _artifact_manifest_is_active(project_dir):
         return False
-    adapter = ProjectArtifactManifestAdapter(project_dir)
+    storage = adapter or ProjectArtifactManifestAdapter(project_dir)
     replacements = dict(entries)
     guarded = dict(expected_entries or {})
-    observed = {key: adapter.get_entry(key) for key in {*guarded, *replacements}}
+    observed = {key: storage.get_entry(key) for key in {*guarded, *replacements}}
     expected = dict(guarded)
     for key, entry in replacements.items():
         if entry is not None:
-            observation = adapter.inspect_artifact(entry.artifact_path)
+            observation = storage.inspect_artifact(entry.artifact_path)
             if observation.blocker is not None:
                 raise ArtifactManifestError(
                     f"cannot register blocked formal artifact {entry.artifact_path}: {observation.blocker.detail}"
@@ -1681,13 +1719,24 @@ def register_artifact_entries_atomically(
             if not observation.present:
                 raise ArtifactManifestError(f"cannot register missing formal artifact: {entry.artifact_path}")
         expected.setdefault(key, observed[key])
-    if all(observed[key] == value for key, value in expected.items()) and all(
-        observed[key] == value for key, value in replacements.items()
-    ):
-        return False
-    if not adapter.replace_entries_if_matches_atomically(expected=expected, replacements=replacements):
+    if any(observed[key] != value for key, value in expected.items()):
         raise ArtifactManifestError("artifact manifest changed during batch registration")
-    return True
+    if all(observed[key] == value for key, value in replacements.items()):
+        return False
+    after = dict(observed)
+    after.update(replacements)
+    try:
+        receipt = ArtifactEntryRekeyPlan(
+            adapter=storage,
+            before=observed,
+            after=after,
+            changed=True,
+        ).commit()
+    except ArtifactManifestError as exc:
+        if str(exc) == "artifact claims changed after the rekey preflight":
+            raise ArtifactManifestError("artifact manifest changed during batch registration") from exc
+        raise
+    return receipt.changed
 
 
 def forget_current_resource_artifact(
@@ -1812,6 +1861,7 @@ __all__ = [
     "forget_current_resource_artifact",
     "forget_unbound_storyboard_artifacts",
     "plan_artifact_target_state",
+    "rebase_preserved_artifact_entries",
     "register_current_artifact",
     "register_artifact_entries_atomically",
     "register_current_artifact_if_provable",

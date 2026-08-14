@@ -15,6 +15,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import characters
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.conftest import make_translator
+from tests.fakes import FakeProjectAssetDeleteMixin
 
 # 兜底 500 的默认 locale 文案：测试未覆盖 get_translator，端点回落到 DEFAULT_LOCALE("zh")，
 # 与 make_translator() 默认 locale 一致。
@@ -24,7 +25,7 @@ _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
 
-class _FakePM:
+class _FakePM(FakeProjectAssetDeleteMixin):
     def __init__(self):
         self.projects = {"demo": {"characters": {}, "scenes": {}, "props": {}, "products": {}}}
 
@@ -77,17 +78,6 @@ class _FakePM:
         project = self.load_project(project_name)
         mutate_fn(project)
         self.save_project(project_name, project)
-
-    def delete_asset(self, project_name, table, name):
-        from lib.asset_types import resolve_asset_key
-
-        project = self.load_project(project_name)
-        bucket = project.get(table) or {}
-        key = resolve_asset_key(bucket, name)
-        if key is None:
-            raise KeyError(name)
-        del bucket[key]
-        return project
 
 
 def _client(monkeypatch):
