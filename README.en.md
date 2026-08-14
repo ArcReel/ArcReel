@@ -44,44 +44,14 @@
   <img src="docs/assets/hero-screenshot.png" alt="ArcReel Workspace" width="900">
 </p>
 
-> ArcReel is not a thin prompt wrapper. It organizes content analysis, screenplay structuring, character and scene assets, storyboards, media generation tasks, cost tracking, version history, and export into an inspectable and resumable production pipeline.
+## What ArcReel is
 
-## What ArcReel solves
+ArcReel is an open-source, self-hosted workspace for AI drama and novel adaptation, narrated short videos, ads, and product shorts. It organizes content analysis, asset management, storyboards, media generation, cost tracking, and export into an inspectable and resumable production pipeline.
 
-- **Content to final cut**: bring a novel, a finished screenplay, or product assets into one workspace and progressively produce characters, scenes, props, storyboards, video clips, and a final video.
-- **Visual continuity**: establish reference assets for characters, scenes, and key props first, then reuse them in downstream shots to reduce cross-shot drift.
-- **Human control**: review results and confirm them at key stages, regenerate individual assets, and roll back to earlier versions.
-- **Provider freedom**: manage multiple text, image, video, and TTS providers behind a unified interface, including compatible APIs.
-- **Cost visibility**: estimate costs before generation and track calls and actual costs by project, episode, and shot afterward.
-- **Editable delivery**: render a final video or export a CapCut draft to continue adjusting subtitles, voice-over, pacing, and transitions.
-
-## Best-fit workflows
-
-<table>
-<tr>
-<td width="33%" valign="top">
-
-### 🎭 AI drama and novel adaptation
-
-Extract characters, scenes, and plot structure from long-form fiction or finished screenplays, then produce episodic animation with consistent characters.
-
-</td>
-<td width="33%" valign="top">
-
-### 🎙️ Narrated short videos
-
-Split content by narration rhythm, generate storyboards and voice-over tracks, and export a vertical video or editable CapCut draft.
-
-</td>
-<td width="33%" valign="top">
-
-### 🛍️ Ads and product shorts
-
-Upload multiple product images, build product reference assets, and generate product-selling shot scripts and product-anchored visuals for a target duration.
-
-</td>
-</tr>
-</table>
+- **One production workflow**: turn novels, finished screenplays, or product assets into characters, scenes, props, storyboards, video clips, and final videos step by step.
+- **Visual continuity with human control**: reuse reference assets across shots, review key stages, regenerate individual assets, and roll back to earlier versions.
+- **Manageable models and costs**: configure text, image, video, and TTS capabilities in one place, then review estimated costs and actual usage.
+- **Editable delivery**: render final videos directly or export CapCut drafts to refine subtitles, voice-over, pacing, and transitions.
 
 ## From source to final video
 
@@ -100,17 +70,7 @@ Every stage can be orchestrated by the AI assistant, or reviewed, adjusted, and 
 
 ## Quick Start
 
-### Prerequisites
-
-- Docker and Docker Compose
-- Start with at least 2 GB of available memory
-- A complete workflow requires:
-  - model credentials for the ArcReel AI assistant
-  - working text, image, and video generation capabilities, provided by one multimodal provider or a combination of providers
-  - optional TTS capability when narration is needed
-- The default setup uses remote model APIs and normally does not require a local GPU; local model deployments have their own requirements
-
-### Default deployment: SQLite
+Install Docker and Docker Compose, then run:
 
 ```bash
 git clone https://github.com/ArcReel/ArcReel.git
@@ -120,135 +80,28 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Verify the service:
+Open <http://localhost:1241>. The default username is `admin`. If `AUTH_PASSWORD` is empty, ArcReel generates a password on first startup and writes it back to `deploy/.env`.
 
-```bash
-docker compose ps
-curl http://localhost:1241/health
-```
+> Default Compose publishes port `1241` on all host interfaces. Do not expose ArcReel directly to the public Internet; before enabling remote access, configure authentication and use HTTPS, a VPN, or a secure tunnel. See [Reverse Proxy and HTTPS](https://docs.arc-reel.com/en/ops/deployment#reverse-proxy-and-https).
 
-Open <http://localhost:1241>.
+After signing in, open **Settings**, configure the ArcReel AI assistant and the required text, image, and video generation capabilities, then create a project.
 
-The default username is `admin`. Set `AUTH_PASSWORD` in `deploy/.env`; when left empty, a password is generated on first startup and written back to `.env`.
-
-After signing in, open **Settings**:
-
-1. Follow the onboarding tour and explore the read-only demo project.
-2. Configure the model credentials used by the ArcReel AI assistant.
-3. Configure the text, image, and video capabilities required by the full workflow.
-4. Create a project and start with a small amount of content to validate the workflow.
-
-> The default deployment is suitable for personal evaluation and light use. For production, concurrent, or long-running environments, use the [PostgreSQL production deployment](https://docs.arc-reel.com/en/ops/deployment#postgresql-deployment). PostgreSQL does not add user isolation; ArcReel does not currently support sharing one instance between mutually untrusted users.
-
-### Production deployment: PostgreSQL
-
-```bash
-cd "$(git rev-parse --show-toplevel)/deploy/production"
-
-cp .env.example .env
-# Edit .env and set POSTGRES_PASSWORD, AUTH_PASSWORD, and AUTH_TOKEN_SECRET
-docker compose up -d
-```
-
-See [Deployment and Operations](https://docs.arc-reel.com/en/ops/deployment) for deployment, upgrades, backups, and reverse proxies. See the [Security Policy](SECURITY.md) for support boundaries and vulnerability reporting.
-
-## Core capabilities
-
-### 🤖 Agent-driven, resumable workflow
-
-ArcReel uses an orchestration Skill and focused Subagents built on the Claude Agent SDK. The main Agent detects the current project stage, delegates character extraction, episode planning, screenplay normalization, and asset generation to the appropriate Subagents, and receives only their condensed results.
-
-### 🎨 Reusable character, scene, and prop assets
-
-Character design sheets, style reference images, and scene and prop assets serve as cross-shot references, reducing drift in character appearance, scene atmosphere, and key objects across shots.
-
-### 🎬 Three video-making workflows
-
-- **Storyboard to Video**: use a single storyboard image to drive video generation, suitable for shot-by-shot review and adjustment.
-- **Grid Storyboard to Video**: generate multiple shots together on one grid storyboard, split it into individual storyboard images, and then generate video; suitable when cross-shot consistency matters more.
-- **Reference to Video**: reference character, scene, and prop assets directly, skipping the standard storyboard step.
-
-### ⚡ Asynchronous tasks and concurrency controls
-
-Image, video, and audio jobs use independent concurrency channels, with RPM limits, task status tracking, failure recovery, and continuation after an interruption.
-
-### 🕰️ Version history and project archives
-
-Regeneration preserves earlier versions. Entire projects can be exported and imported for backup, migration, and handoff.
-
-### 💰 Estimates and actual usage
-
-Track calls by provider and media type, keep currencies separate, and compare estimated and actual costs at the project, episode, and shot levels.
-
-### 🎙️ Voice-over and editable export
-
-Generate narration with TTS, audition it segment by segment, and generate it in bulk. CapCut draft exports preserve video clips, voice-over tracks, and subtitle tracks for further editing.
-
-### 🔌 External Agent integration
-
-ArcReel can issue `arc-` API keys and expose a synchronous Agent chat endpoint for platforms such as OpenClaw.
-
-## Provider support
-
-ArcReel hides provider differences behind `TextBackend`, `ImageBackend`, and `VideoBackend` protocols. Models, parameters, availability, and pricing change over time, so the **ArcReel Settings page and provider documentation are the source of truth**.
-
-| Provider | Text | Image | Video | TTS |
-|---|:---:|:---:|:---:|:---:|
-| Gemini | ✅ | ✅ | ✅ | — |
-| Volcengine Ark | ✅ | ✅ | ✅ | — |
-| Grok | ✅ | ✅ | ✅ | — |
-| OpenAI | ✅ | ✅ | ✅ | — |
-| Vidu | — | ✅ | ✅ | — |
-| DashScope | ✅ | ✅ | ✅ | ✅ |
-| MiniMax | ✅ | ✅ | ✅ | — |
-| Kling | — | ✅ | ✅ | — |
-| Agnes | ✅ | ✅ | ✅ | — |
-| Custom providers | Interface-dependent | Interface-dependent | Interface-dependent | Interface-dependent |
-
-Global defaults, project-level overrides, and multiple API keys per provider are supported. See [Provider Configuration](https://docs.arc-reel.com/en/guide/providers).
-
-## Architecture
-
-```mermaid
-flowchart TB
-    UI["React 19 Web UI"] --> API["FastAPI API / SSE"]
-    API --> AGENT["Agent Runtime<br/>Skill + Subagent"]
-    API --> CORE["Core Services"]
-    AGENT --> CORE
-    CORE --> PROVIDERS["Text / Image / Video / TTS Backends"]
-    CORE --> QUEUE["Generation Queue<br/>RPM + Independent Channels"]
-    CORE --> PROJECTS["Project Manager<br/>File Assets + Version History"]
-    CORE --> DB["SQLAlchemy 2.0<br/>SQLite / PostgreSQL"]
-```
-
-The stack includes React 19, TypeScript, FastAPI, Python 3.12+, the Claude Agent SDK, SQLAlchemy 2.0, FFmpeg, Docker, and Docker Compose. See [Architecture](https://docs.arc-reel.com/en/dev/architecture) for boundaries and extension points.
-
-## Important limitations
-
-- Media generation depends on third-party services; speed, availability, policy, and pricing are provider-controlled.
-- Long-form content still requires human review of episode divisions, character assets, and key plot points. ArcReel aims to empower creators, not eliminate review entirely.
-- Video providers differ in reference-image count, duration, start/end-frame support, audio support, and regional availability.
-- Native Windows can run parts of the basic workflow, but POSIX-dependent Agent sandbox features degrade; prefer Linux, macOS, WSL2, or Docker.
-- Production deployments should use PostgreSQL, HTTPS, strong credentials, and regular backups. Do not expose an unprotected port `1241` to the public Internet.
-
-See [FAQ](https://docs.arc-reel.com/en/guide/faq) for more.
+For the complete first-run workflow, see [Getting Started](https://docs.arc-reel.com/en/guide/getting-started). For production deployment, upgrades, backups, and reverse proxies, see [Deployment and Operations](https://docs.arc-reel.com/en/ops/deployment).
 
 ## Documentation
 
-| Document | Purpose |
+| Page | Purpose |
 |---|---|
-| [Documentation Index](https://docs.arc-reel.com/en/) | Documentation entry points organized for users, operators, and developers |
+| [Documentation Home](https://docs.arc-reel.com/en/) | Entry points for users, operators, and developers |
 | [Getting Started](https://docs.arc-reel.com/en/guide/getting-started) | From first deployment to the first generated video |
 | [Workflows and Modes](https://docs.arc-reel.com/en/guide/workflows) | Novel, screenplay, and ad modes, plus the three video-making workflows |
 | [Provider Configuration](https://docs.arc-reel.com/en/guide/providers) | Selection and configuration of Agent, text, image, video, and TTS providers |
-| [Deployment and Operations](https://docs.arc-reel.com/en/ops/deployment) | SQLite, PostgreSQL, upgrades, backups, and reverse proxies |
-| [Security Policy](SECURITY.md) | Supported versions, deployment boundaries, private reporting, and coordinated disclosure |
-| [Security Threat Model](docs/security/threat-model.md) | Security assets, trust boundaries, attack surfaces, and reassessment triggers |
 | [CapCut Draft Export](https://docs.arc-reel.com/en/guide/jianying-export) | Continue editing ArcReel output in CapCut |
-| [Architecture](https://docs.arc-reel.com/en/dev/architecture) | Agent Runtime, task queue, provider abstraction, and data layer |
 | [FAQ](https://docs.arc-reel.com/en/guide/faq) | Deployment, cost, model, data, and licensing questions |
-| [Contributing](CONTRIBUTING.md) | Local development, tests, conventions, and pull requests |
-| [Changelog](CHANGELOG.md) | Release history |
+| [Deployment and Operations](https://docs.arc-reel.com/en/ops/deployment) | SQLite, PostgreSQL, upgrades, backups, and reverse proxies |
+| [Migrate from SQLite to PostgreSQL](https://docs.arc-reel.com/en/ops/migrate-to-postgres) | Data migration, verification, and rollback |
+| [Architecture](https://docs.arc-reel.com/en/dev/architecture) | Agent Runtime, task queue, provider abstraction, and data layer |
+| [Contributing](https://docs.arc-reel.com/en/dev/contributing) | Local development, tests, conventions, and pull requests |
 
 ## Community
 
