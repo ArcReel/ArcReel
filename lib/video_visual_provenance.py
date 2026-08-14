@@ -21,6 +21,11 @@ from lib.prompt_utils import (
     strip_voice_profiles,
 )
 
+#: 摘要输入的创作类型键名冻结在旧名上：它参与 sha256、取值随产物一并落盘，改名会让既有
+#: 分镜视频的 basis digest 全部对不上、被判为不可复用而重新生成（付费）；而 kind_version 仍是 1，
+#: 等于在同一版本号下悄悄换了输入 schema。这不是领域字段别名——取值来自已更名的 creation_type。
+_CREATION_TYPE_DIGEST_KEY = "content_mode"
+
 
 def resolve_video_aspect_ratio(project: Mapping[str, object], resource_type: str = "videos") -> str:
     """Resolve the effective project video ratio used by generation requests."""
@@ -103,7 +108,7 @@ def build_storyboard_video_visual_basis(
                 "seed": seed,
                 "requested_generate_audio": requested_generate_audio,
             },
-            "creation_type": creation_type,
+            _CREATION_TYPE_DIGEST_KEY: creation_type,
         },
         files=files,
     )

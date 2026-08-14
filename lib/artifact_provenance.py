@@ -16,6 +16,13 @@ _GENERATION_MODES = frozenset({"storyboard", "reference_video"})
 _SOURCE_FILE_TYPES = frozenset({"novel", "screenplay"})
 _DEFAULT_SOURCE_LANGUAGE = "中文"
 
+#: 摘要输入的两个键名冻结在旧名上。它们参与 sha256、取值随产物一并落盘，改名会让既有产物的
+#: basis digest 全部对不上、被判为过期而重新生成（付费）；而 kind_version 仍是 1，等于在同一
+#: 版本号下悄悄换了输入 schema。这不是领域字段别名——没有任何代码从项目数据里读这两个名字，
+#: 取值来自已更名的 creation_type / source_file_type。
+_CREATION_TYPE_DIGEST_KEY = "content_mode"
+_SOURCE_FILE_TYPE_DIGEST_KEY = "source_kind"
+
 
 def build_step1_basis(source_content: object, *, project: Mapping[str, object]) -> ArtifactBasis:
     """Describe the formal source inputs consumed by one episode's step1 artifact."""
@@ -33,10 +40,10 @@ def build_step1_basis(source_content: object, *, project: Mapping[str, object]) 
         "structured-content/step1",
         kind_version=1,
         inputs={
-            "creation_type": creation_type,
+            _CREATION_TYPE_DIGEST_KEY: creation_type,
             "generation_mode": generation_mode,
             "source_content": source_content,
-            "source_file_type": source_file_type,
+            _SOURCE_FILE_TYPE_DIGEST_KEY: source_file_type,
             "source_language": source_language,
         },
     )
@@ -50,7 +57,7 @@ def build_episode_script_basis(step1_content: object, *, project: Mapping[str, o
         "structured-content/episode-script",
         kind_version=1,
         inputs={
-            "creation_type": creation_type,
+            _CREATION_TYPE_DIGEST_KEY: creation_type,
             "generation_mode": generation_mode,
             "step1_content": step1_content,
         },

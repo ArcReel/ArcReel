@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
@@ -142,3 +144,27 @@ def test_step1_basis_canonicalizes_default_source_language(source_language: obje
     explicit = build_step1_basis("source", project={**project, "source_language": "中文"})
 
     assert defaulted.digest == explicit.digest
+
+
+def test_basis_input_key_names_stay_frozen_across_field_rename() -> None:
+    """摘要输入的键名是已落盘摘要的一部分：跟着领域字段改名会让既有产物全部被判过期。"""
+    project = {
+        "creation_type": "narration",
+        "generation_mode": "storyboard",
+        "source_file_type": "screenplay",
+        "source_language": "中文",
+    }
+
+    step1_inputs = json.loads(build_step1_basis("source", project=project).normalized_bytes())["inputs"]
+    script_inputs = json.loads(build_episode_script_basis({"scenes": []}, project=project).normalized_bytes())["inputs"]
+
+    assert set(step1_inputs) == {
+        "content_mode",
+        "generation_mode",
+        "source_content",
+        "source_kind",
+        "source_language",
+    }
+    assert step1_inputs["content_mode"] == "narration"
+    assert step1_inputs["source_kind"] == "screenplay"
+    assert set(script_inputs) == {"content_mode", "generation_mode", "step1_content"}
