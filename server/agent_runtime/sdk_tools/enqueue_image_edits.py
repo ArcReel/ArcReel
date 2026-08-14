@@ -13,6 +13,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.artifact_activation import resolve_artifact_episode
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation_queue_client import TaskSpec, batch_enqueue_and_wait
@@ -168,6 +169,12 @@ def edit_images_tool(ctx: ToolContext):
 
             project = ctx.pm.load_project(ctx.project_name)
             project_path = ctx.project_path
+            if script is not None and script_filename is not None:
+                resolve_artifact_episode(
+                    project=project,
+                    script=script,
+                    script_filename=script_filename,
+                )
 
             if not await _i2i_provider_available(project):
                 return {

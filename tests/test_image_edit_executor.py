@@ -169,6 +169,28 @@ class TestResolveCurrentImageRel:
 
 
 class TestExecuteImageEditTask:
+    async def test_active_storyboard_rejects_an_unbound_script_before_provider(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["schema_version"] = 8
+        fake_pm.script["episode"] = 1
+        fake_generator = _FakeGenerator()
+        _patch_common(monkeypatch, fake_pm, fake_generator)
+
+        with pytest.raises(ValueError, match="not bound"):
+            await execute_image_edit_task(
+                "demo",
+                "E1S01",
+                {
+                    "resource_type": "storyboard",
+                    "prompt": "去掉背景里的路人",
+                    "script_file": "episode_1.json",
+                },
+            )
+
+        assert fake_generator.tracked == []
+        assert fake_generator.image_calls == []
+
     async def test_character_edit_uses_current_image_as_sole_reference(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

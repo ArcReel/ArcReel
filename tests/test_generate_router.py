@@ -781,7 +781,13 @@ class TestGenerateRouter:
     def test_schema8_video_does_not_infer_storyboard_from_same_name_file(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_pm.project["schema_version"] = 8
+        fake_pm.project.update(
+            {
+                "schema_version": 8,
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        )
+        fake_pm.script["episode"] = 1
         fake_pm.script["segments"][0]["generated_assets"] = {}
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
@@ -794,6 +800,44 @@ class TestGenerateRouter:
 
         assert video.status_code == 400, video.text
         assert video.json()["detail"] == i18n_message("generate_storyboard_first", segment_id="E1S01")
+        assert fake_queue.calls == []
+
+    @pytest.mark.integration
+    def test_schema8_storyboard_rejects_an_unbound_script_before_enqueue(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["schema_version"] = 8
+        fake_pm.script["episode"] = 1
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+        assert fake_queue.calls == []
+
+    @pytest.mark.integration
+    def test_schema8_video_reports_an_unbound_script_before_storyboard_validation(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["schema_version"] = 8
+        fake_pm.script["episode"] = 1
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
         assert fake_queue.calls == []
 
     @pytest.mark.integration

@@ -1338,6 +1338,11 @@ async def execute_storyboard_task(
         _project = get_project_manager().load_project(project_name)
         _project_path = get_project_manager().get_project_path(project_name)
         _script = get_project_manager().load_script(project_name, script_file)
+        resolve_artifact_episode(
+            project=_project,
+            script=_script,
+            script_filename=str(script_file),
+        )
         _items, _id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(_script)
 
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
@@ -1498,7 +1503,13 @@ async def execute_tts_task(
                 raise SpeechAdmissionError(admission)
             if not text:
                 raise ValueError(f"segment {resource_id} 无可合成的旁白文本")
-            episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
+            episode = resolve_artifact_episode(
+                project=current_project,
+                script=script,
+                script_filename=str(script_file),
+            )
+            if episode is None:
+                episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
             return current_project, project_path, text, admission.preparation, episode, reference_video_route
 
         legacy_text = payload.get("text") or payload.get("prompt")
@@ -2111,7 +2122,9 @@ async def execute_video_task(
 
     delivery_projection = None
     if delivery_options.narration_delivery == USE_TTS:
-        episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
+        episode = artifact_episode
+        if episode is None:
+            episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
         current_planned_duration = item.get("duration_seconds") if isinstance(item, dict) else None
         if (
             not isinstance(current_planned_duration, int)
@@ -2213,7 +2226,8 @@ async def execute_video_task(
     checkpoint_hook: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = None
     staged_media: tuple[StagedProviderMedia, ...] = ()
     if task_id is not None:
-        artifact_episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
+        if artifact_episode is None:
+            artifact_episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
         artifact_speech_preparation = admit_script_unit(script_kind, item).preparation
         artifact_speech = freeze_video_speech_facts(
             artifact_speech_preparation,
@@ -2962,6 +2976,15 @@ async def execute_grid_task(
     grid = grid_manager.get(resource_id)
     if grid is None:
         raise ValueError(f"grid not found: {resource_id}")
+    project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+    script = await asyncio.to_thread(get_project_manager().load_script, project_name, grid.script_file)
+    artifact_episode = resolve_artifact_episode(
+        project=project,
+        script=script,
+        script_filename=grid.script_file,
+    )
+    if artifact_episode is not None and artifact_episode != grid.episode:
+        raise ValueError(f"grid episode {grid.episode} does not match bound script episode {artifact_episode}")
     initial_grid = copy.deepcopy(grid.to_dict())
 
     version: int | None = None
@@ -2987,8 +3010,6 @@ async def execute_grid_task(
             raise ValueError("prompt is required for grid task")
 
         _needs_i2i = bool(reference_images)
-        project = await asyncio.to_thread(get_project_manager().load_project, project_name)
-        script = await asyncio.to_thread(get_project_manager().load_script, project_name, grid.script_file)
         items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
         item_by_id = {str(item.get(id_field)): item for item in items if isinstance(item, Mapping)}
         if len(set(grid.scene_ids)) != len(grid.scene_ids):

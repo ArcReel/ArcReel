@@ -113,7 +113,7 @@ def grid_storyboard_enabled(project: dict[str, Any]) -> bool:
     return project.get("generation_mode") == "storyboard" and bool(project.get("grid_storyboard"))
 
 
-def find_episode(project: dict[str, Any], episode: int | None) -> dict[str, Any] | None:
+def find_episode(project: Mapping[str, Any], episode: int | None) -> dict[str, Any] | None:
     """返回 project.json ``episodes[]`` 中 ``episode == N`` 的条目，缺失则 None。
 
     ``episode`` 为 None（集号未知）时不匹配任何条目。
@@ -127,20 +127,23 @@ def find_episode(project: dict[str, Any], episode: int | None) -> dict[str, Any]
 
 
 def resolve_episode_script_binding(
-    project: dict[str, Any],
+    project: Mapping[str, Any],
     episode: int,
     expected_script_file: str,
+    *,
+    require_indexed: bool = False,
 ) -> str | None:
     """Return the live binding when it still denotes the expected episode script.
 
     Legacy projects without an ``episodes`` index use the submitted script as
-    their binding. Indexed projects must retain a matching normalized binding;
-    a missing episode or a concurrent rebind returns ``None``.
+    their binding unless ``require_indexed`` is true. Indexed projects must
+    retain a matching normalized binding; a missing episode or a concurrent
+    rebind returns ``None``.
     """
 
     entry = find_episode(project, episode)
     current_binding = entry.get("script_file") if isinstance(entry, dict) else None
-    if current_binding is None and not (project.get("episodes") or []):
+    if current_binding is None and not require_indexed and not (project.get("episodes") or []):
         return expected_script_file
     if isinstance(current_binding, str) and (
         ProjectManager.normalize_script_filename(current_binding)

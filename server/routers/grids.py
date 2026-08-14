@@ -14,7 +14,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError
-from lib.artifact_activation import register_current_resource_artifact
+from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_resource_artifact, resolve_artifact_episode
 from lib.async_thread import run_noninterruptible_sync
 from lib.generation_queue import get_generation_queue
 from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks, video_aspect_ratio_of
@@ -60,6 +60,26 @@ class GenerateGridResponse(BaseModel):
     message: str
 
 
+def _load_admitted_grid_script(
+    project_name: str,
+    project: dict,
+    script_file: str,
+    episode: int,
+) -> dict:
+    """Load a grid script and prove its active project/episode binding."""
+
+    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=script_file)):
+        script = get_project_manager().load_script(project_name, script_file)
+        script_episode = resolve_artifact_episode(
+            project=project,
+            script=script,
+            script_filename=script_file,
+        )
+        if project.get("schema_version") == TARGET_SCHEMA_VERSION and script_episode != episode:
+            raise ValueError(f"script episode {script_episode!r} does not match requested episode {episode}")
+    return script
+
+
 # ==================== 宫格图生成 ====================
 
 
@@ -80,10 +100,9 @@ async def generate_grid(
     # 广告/短片项目与关闭宫格开关的项目在此一并拒绝：写入边界（create/PATCH 拒 ad 开启
     # grid_storyboard）之外，动作端点再设一道防线，不让 HTTP 直调绕过开关产生计费任务
     project = _load_project_for_grid_write(project_name)
-    # 路径穿越等非法 script_file 是坏请求，400 而非落入下方 500 兜底；剧本文件损坏
-    # （JSONDecodeError）不能被误判为非法 script_file，交由 app 级 catch-all 收口为通用 500
-    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=req.script_file)):
-        script = get_project_manager().load_script(project_name, req.script_file)
+    # 路径穿越、解绑、集号失配均是坏请求，400 而非落入下方 500 兜底；剧本文件损坏
+    # （JSONDecodeError）不能被误判为非法 script_file，交由 app 级 catch-all 收口为通用 500。
+    script = _load_admitted_grid_script(project_name, project, req.script_file, episode)
     project_path = get_project_manager().get_project_path(project_name)
 
     items, id_field, _, _, _ = get_storyboard_items(script)
@@ -274,6 +293,7 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     project_path = get_project_manager().get_project_path(project_name)
     gm = GridManager(project_path)
     grid = _load_grid_or_404(project_path, grid_id)
+    _load_admitted_grid_script(project_name, project, grid.script_file, grid.episode)
 
     # 重生成是把同一次产出重跑一遍：rows/cols、prompt 与比例全部沿用记录上冻结的值，
     # 三者必须同源——prompt 里写死了画布比例，换用项目当前比例会让画布描述与下发参数矛盾。

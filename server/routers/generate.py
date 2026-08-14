@@ -29,6 +29,7 @@ from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec
 from lib.i18n import Translator
+from lib.json_io import domain_error_on_value_error
 from lib.narration_delivery import (
     POST_PRODUCTION,
     USE_TTS,
@@ -67,6 +68,22 @@ from server.services.narration_delivery_tasks import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _resolve_request_artifact_episode(
+    project: dict,
+    script: dict,
+    script_file: str,
+) -> int | None:
+    """Validate the submitted script's live project binding before enqueue."""
+
+    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=script_file)):
+        return resolve_artifact_episode(
+            project=project,
+            script=script,
+            script_filename=script_file,
+        )
+
 
 # ==================== 请求模型 ====================
 
@@ -173,8 +190,10 @@ async def generate_storyboard(
     """
 
     def _sync():
-        get_project_manager().load_project(project_name)
-        script = get_project_manager().load_script(project_name, req.script_file)
+        pm_local = get_project_manager()
+        project = pm_local.load_project(project_name)
+        script = pm_local.load_script(project_name, req.script_file)
+        _resolve_request_artifact_episode(project, script, req.script_file)
         items, id_field, _, _, _ = get_storyboard_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
@@ -251,6 +270,7 @@ async def generate_video(
         # 「先返回提交成功、worker 解析脚本时再确定失败」，撕裂用户预期。两者均由 app 级
         # handler 统一映射为脱敏响应（404 / 400）。
         script = pm_local.load_script(project_name, req.script_file)
+        artifact_episode = _resolve_request_artifact_episode(project, script, req.script_file)
         items, id_field, _, _, _ = get_storyboard_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
@@ -266,11 +286,6 @@ async def generate_video(
         # 字段值来自磁盘剧本 JSON，不可信任；路径校验和 schema 激活后的显式绑定要求
         # 与 worker / 当前基线重建共用同一解析器。
         try:
-            artifact_episode = resolve_artifact_episode(
-                project=project,
-                script=script,
-                script_filename=req.script_file,
-            )
             resolve_usable_storyboard_video_inputs(
                 project_path=project_path,
                 project=project,
@@ -438,6 +453,7 @@ async def generate_tts(
         pm_local = get_project_manager()
         _project = pm_local.load_project(project_name)
         script = pm_local.load_script(project_name, req.script_file)
+        _resolve_request_artifact_episode(_project, script, req.script_file)
         items, id_field, kind = resolve_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
@@ -495,11 +511,7 @@ async def generate_tts_batch(
         _project = pm_local.load_project(project_name)
         script = pm_local.load_script(project_name, req.script_file)
         items, id_field, kind = resolve_items(script)
-        episode = resolve_artifact_episode(
-            project=_project,
-            script=script,
-            script_filename=req.script_file,
-        )
+        episode = _resolve_request_artifact_episode(_project, script, req.script_file)
         currency = active_artifact_currency_resolver(pm_local.get_project_path(project_name), _project)
         if currency is not None and episode is None:
             raise ValueError("script episode must be a positive integer")
@@ -928,6 +940,8 @@ async def edit_image(
         project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
         script = pm_local.load_script(project_name, str(script_file)) if is_storyboard else None
+        if script is not None:
+            _resolve_request_artifact_episode(project, script, str(script_file))
         try:
             current_rel = resolve_current_image_rel(project, req.resource_type, req.resource_id, script)
         except KeyError:

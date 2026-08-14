@@ -134,6 +134,56 @@ def test_reset_on_corrupted_ledger_clears_everything(tmp_path: Path) -> None:
     assert EpisodePlanner(project_dir)._effective_start(project) == ("source/novel.txt", 0)
 
 
+def test_full_reset_recovers_an_unreadable_artifact_manifest(tmp_path: Path) -> None:
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],
+        planning_cursor={"source_file": "source/novel.txt", "offset": 10},
+        extra={"schema_version": 8},
+    )
+    derived = project_dir / "source" / "episode_1.txt"
+    derived.write_text(SOURCE[:10], encoding="utf-8")
+    manifest = project_dir / MANIFEST_FILENAME
+    manifest.write_bytes(b"{not-json")
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert _load_project(project_dir)["episodes"] == []
+    assert not derived.exists()
+    assert ProjectArtifactManifestAdapter(project_dir).snapshot_entries() == {}
+    assert manifest.read_bytes() != b"{not-json"
+
+
+def test_unreadable_manifest_recovery_failure_restores_full_reset_exactly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],
+        planning_cursor={"source_file": "source/novel.txt", "offset": 10},
+        extra={"schema_version": 8},
+    )
+    derived = project_dir / "source" / "episode_1.txt"
+    derived.write_text(SOURCE[:10], encoding="utf-8")
+    manifest = project_dir / MANIFEST_FILENAME
+    manifest.write_bytes(b"{not-json")
+    project_before = (project_dir / "project.json").read_bytes()
+
+    def fail_recovery(self, entries):
+        raise RuntimeError("manifest recovery unavailable")
+
+    monkeypatch.setattr(ProjectArtifactManifestAdapter, "replace_unreadable_entries_atomically", fail_recovery)
+
+    with pytest.raises(RuntimeError, match="manifest recovery unavailable"):
+        reset_episode_planning(project_dir, from_episode=1)
+
+    assert (project_dir / "project.json").read_bytes() == project_before
+    assert derived.read_bytes() == SOURCE[:10].encode("utf-8")
+    assert manifest.read_bytes() == b"{not-json"
+
+
 def test_reset_clears_source_fingerprints(tmp_path: Path) -> None:
     """源文指纹随账本一并失效：字段存在时被清除，不存在时不报错。"""
     project_dir = _write_project(

@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from lib.artifact_activation import resolve_artifact_episode
 from lib.artifact_manifest import compose_video_artifact_basis
 from lib.config.resolver import (
     ConfigResolver,
@@ -688,7 +689,13 @@ async def execute_reference_video_task(
     staged_media: tuple[StagedProviderMedia, ...] = ()
     checkpoint_hook: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = None
     if task_id is not None:
-        artifact_episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
+        artifact_episode = resolve_artifact_episode(
+            project=project,
+            script=script,
+            script_filename=str(script_file),
+        )
+        if artifact_episode is None:
+            artifact_episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
         artifact_speech_preparation = admit_script_unit("video_units", unit).preparation
         artifact_duration_basis = build_video_duration_basis(effective_duration)
         image_inputs = tuple(

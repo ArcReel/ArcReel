@@ -1449,7 +1449,7 @@ def resolve_artifact_episode(
     behavior without weakening the schema-8 gate.
     """
 
-    from lib.project_manager import ProjectManager
+    from lib.project_manager import ProjectManager, resolve_episode_script_binding
 
     try:
         episode = ProjectManager.resolve_episode_from_script(script, script_filename)
@@ -1459,6 +1459,17 @@ def resolve_artifact_episode(
         if project.get("schema_version") == TARGET_SCHEMA_VERSION:
             raise
         return None
+    if (
+        project.get("schema_version") == TARGET_SCHEMA_VERSION
+        and resolve_episode_script_binding(
+            project,
+            episode,
+            script_filename,
+            require_indexed=True,
+        )
+        is None
+    ):
+        raise ValueError(f"script {script_filename} is not bound to episode {episode} in project.json")
     return episode
 
 

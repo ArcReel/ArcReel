@@ -866,6 +866,37 @@ class ProjectArtifactManifestAdapter:
             self._atomic_replace(new_bytes, root_fd)
             return True
 
+    def replace_unreadable_entries_atomically(
+        self,
+        entries: Mapping[ArtifactKey, ArtifactManifestEntry],
+    ) -> bool:
+        """Recover an unreadable Manifest with one guarded whole-state replace.
+
+        This seam is intentionally narrower than normal activation: callers may
+        use it only after an explicit recovery policy decided that no existing
+        claim is provable.  The Manifest lock spans revalidation and replacement;
+        if another writer repaired it first, only the identical target is
+        accepted and any other readable state makes the caller retry.
+        """
+
+        encoded = _encode_target_entries(entries)
+        for entry in encoded.values():
+            observation = self.inspect_artifact(entry.artifact_path)
+            if observation.blocker is not None:
+                raise ArtifactRegistrationError(observation.blocker.detail)
+            if not observation.present:
+                raise ArtifactRegistrationError(f"artifact is not present: {entry.artifact_path}")
+        new_bytes = _serialize_manifest(encoded)
+        with self._locked() as root_fd:
+            try:
+                current, _original_bytes = self._load_unlocked(root_fd)
+            except ArtifactManifestError:
+                self._atomic_replace(new_bytes, root_fd)
+                return True
+            if current == encoded:
+                return False
+            raise ArtifactManifestError("artifact manifest became readable during recovery; retry the operation")
+
     def delete_entry(self, key: ArtifactKey) -> bool:
         with self._locked() as root_fd:
             entries, original_bytes = self._load_unlocked(root_fd)

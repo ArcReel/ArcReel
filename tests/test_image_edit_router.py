@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.i18n import _ as i18n_message
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -157,6 +158,29 @@ class TestEditImageEnqueue:
 
 
 class TestEditImageValidation:
+    def test_active_storyboard_rejects_an_unbound_script_before_enqueue(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["schema_version"] = 8
+        fake_pm.script["episode"] = 1
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/edit/image",
+                json={
+                    "resource_type": "storyboard",
+                    "resource_id": "E1S01",
+                    "instruction": "去掉背景里的路人",
+                    "script_file": "episode_1.json",
+                },
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+        assert fake_queue.calls == []
+
     def test_resource_type_whitelist_400(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_queue = _FakeQueue()

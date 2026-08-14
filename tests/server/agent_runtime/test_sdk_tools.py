@@ -218,6 +218,19 @@ async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
     return await tool_obj.handler(args)
 
 
+def _activate_unbound_project(fake_ctx: ToolContext, *, generation_mode: str = "storyboard") -> None:
+    project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
+    project.update(
+        {
+            "schema_version": 8,
+            "content_mode": "narration",
+            "generation_mode": generation_mode,
+            "episodes": [],
+        }
+    )
+    (fake_ctx.project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # build_arcreel_mcp_server
 # ---------------------------------------------------------------------------
@@ -407,6 +420,31 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
     assert "audio/segment_E1S01.wav" in text
 
 
+@pytest.mark.integration
+async def test_generate_narration_audio_rejects_unbound_active_script_before_enqueue(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+
+    _activate_unbound_project(fake_ctx)
+    fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
+    enqueued = False
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        nonlocal enqueued
+        enqueued = True
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    out = await _call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is True
+    assert "not bound" in out["content"][0]["text"]
+    assert enqueued is False
+
+
 @pytest.mark.unit
 async def test_generate_narration_audio_uses_canonical_filename_when_episode_field_is_absent(
     fake_ctx: ToolContext,
@@ -419,7 +457,12 @@ async def test_generate_narration_audio_uses_canonical_filename_when_episode_fie
     script["segments"] = script["segments"][:1]
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
-        {"schema_version": 8, "content_mode": "narration", "generation_mode": "storyboard"}
+        {
+            "schema_version": 8,
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 2, "script_file": "scripts/episode_2.json"}],
+        }
     )
     (fake_ctx.project_path / "project.json").write_text(
         json.dumps(fake_ctx.pm.project_payload),  # type: ignore[attr-defined]
@@ -863,6 +906,31 @@ async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) ->
     assert out.get("is_error") is not True
 
 
+@pytest.mark.integration
+async def test_generate_storyboards_rejects_unbound_active_script_before_enqueue(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
+
+    _activate_unbound_project(fake_ctx)
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}  # type: ignore[attr-defined]
+    enqueued = False
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        nonlocal enqueued
+        enqueued = True
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    out = await _call(mod.generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is True
+    assert "not bound" in out["content"][0]["text"]
+    assert enqueued is False
+
+
 @pytest.mark.unit
 async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
     fake_ctx: ToolContext, monkeypatch
@@ -1003,6 +1071,35 @@ async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext
     out = await _call(tool_obj, {"resource_type": "storyboard", "edits": [{"id": "E1S01", "instruction": "去杂物"}]})
     assert out.get("is_error") is True
     assert "script_file" in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    fake_ctx.pm.project_payload["schema_version"] = 8  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["episodes"] = []  # type: ignore[attr-defined]
+    provider_gate = AsyncMock(return_value=True)
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "_i2i_provider_available", provider_gate)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await _call(
+        edit_images_tool(fake_ctx),
+        {
+            "resource_type": "storyboard",
+            "script_file": "episode_1.json",
+            "edits": [{"id": "E1S01", "instruction": "去掉背景杂物"}],
+        },
+    )
+
+    assert out.get("is_error") is True
+    assert "not bound" in out["content"][0]["text"]
+    provider_gate.assert_not_awaited()
+    enqueue.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -1492,6 +1589,29 @@ async def test_generate_grid_rejected_on_reference_video_route(fake_ctx: ToolCon
     assert out.get("is_error") is True
 
 
+@pytest.mark.unit
+async def test_generate_grid_legacy_unresolvable_episode_fails_before_enqueue(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_grid as mod
+
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
+    ]
+    enqueue = AsyncMock(side_effect=AssertionError("must not enqueue"))
+    monkeypatch.setattr(mod, "enqueue_task_only", enqueue)
+
+    out = await _call(mod.generate_grid_tool(fake_ctx), {"script": "draft.json"})
+
+    assert out.get("is_error") is True
+    assert "无法确定集号" in out["content"][0]["text"]
+    enqueue.assert_not_awaited()
+
+
 # ---------------------------------------------------------------------------
 # enqueue_videos
 # ---------------------------------------------------------------------------
@@ -1521,6 +1641,42 @@ async def test_generate_video_episode_happy(fake_ctx: ToolContext, monkeypatch) 
     assert out.get("is_error") is not True
 
 
+@pytest.mark.integration
+async def test_generate_video_episode_rejects_unbound_active_script_before_enqueue(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from lib.generation_queue_client import TaskSpec
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    _activate_unbound_project(fake_ctx)
+    submitted = False
+    spec = TaskSpec.from_request(
+        task_type="video",
+        media_type="video",
+        resource_id="E1S01",
+        prompt="test",
+        script_file="episode_1.json",
+    )
+
+    def fake_build_specs(**_kwargs):
+        return [spec], {"E1S01": 0}
+
+    async def fake_submit(**_kwargs):
+        nonlocal submitted
+        submitted = True
+        return []
+
+    monkeypatch.setattr(mod, "_build_video_specs", fake_build_specs)
+    monkeypatch.setattr(mod, "_submit_with_checkpoint", fake_submit)
+
+    out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is True
+    assert "not bound" in out["content"][0]["text"]
+    assert submitted is False
+
+
 @pytest.mark.unit
 async def test_generate_video_episode_resolves_episode_from_canonical_filename(
     fake_ctx: ToolContext,
@@ -1531,7 +1687,12 @@ async def test_generate_video_episode_resolves_episode_from_canonical_filename(
 
     fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
-        {"schema_version": 8, "content_mode": "narration", "generation_mode": "storyboard"}
+        {
+            "schema_version": 8,
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 2, "script_file": "scripts/episode_2.json"}],
+        }
     )
     captured: dict[str, int] = {}
     build_video_specs = mod._build_video_specs
@@ -1625,6 +1786,51 @@ def _reference_video_script(**overrides: Any) -> dict[str, Any]:
 def _use_reference_route(fake_ctx: ToolContext) -> None:
     """把 fake 项目切到参考生视频路线——路线是项目级事实，剧本不携带戳。"""
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
+
+
+@pytest.mark.integration
+async def test_generate_reference_video_rejects_unbound_active_script_before_generation(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    _activate_unbound_project(fake_ctx, generation_mode="reference_video")
+    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+    generated = False
+
+    async def fake_generate(**_kwargs):
+        nonlocal generated
+        generated = True
+        return mod.ReferenceGenerationComplete(paths=[], projections=[])
+
+    monkeypatch.setattr(mod, "_generate_reference_units", fake_generate)
+
+    out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is True
+    assert "not bound" in out["content"][0]["text"]
+    assert generated is False
+
+
+@pytest.mark.integration
+async def test_generate_reference_video_legacy_unresolvable_episode_fails_before_generation(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    _use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
+    generate = AsyncMock(return_value=mod.ReferenceGenerationComplete(paths=[], projections=[]))
+    monkeypatch.setattr(mod, "_generate_reference_units", generate)
+
+    out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "draft.json"})
+
+    assert out.get("is_error") is True
+    assert "无法确定集号" in out["content"][0]["text"]
+    generate.assert_not_awaited()
 
 
 @pytest.mark.integration

@@ -365,6 +365,62 @@ class _FakePMGenerate:
         return self._project_path
 
 
+class _FakePMUnboundGrid(_FakePMGenerate):
+    def load_project(self, name):
+        return {
+            **super().load_project(name),
+            "schema_version": 8,
+            "episodes": [],
+        }
+
+
+class _FakePMMismatchedGrid(_FakePMGenerate):
+    def load_project(self, name):
+        return {
+            **super().load_project(name),
+            "schema_version": 8,
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        }
+
+
+def test_generate_grid_rejects_an_unbound_script_before_enqueue(monkeypatch, tmp_path):
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMUnboundGrid(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+
+    with client:
+        response = client.post(
+            "/api/v1/projects/demo/generate/grid/1",
+            json={"script_file": "episode_1.json"},
+        )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+    assert fake_queue.calls == []
+
+
+def test_generate_grid_rejects_an_episode_path_that_mismatches_the_bound_script(monkeypatch, tmp_path):
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMMismatchedGrid(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+
+    with client:
+        response = client.post(
+            "/api/v1/projects/demo/generate/grid/2",
+            json={"script_file": "episode_1.json"},
+        )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+    assert fake_queue.calls == []
+
+
 def test_generate_grid_success(monkeypatch, tmp_path):
     # 完整走一遍分组 -> 布局 -> prompt -> 入队，断言 200 且每组产出一个 grid_id/task_id
     fake_queue = _FakeQueue()
@@ -591,6 +647,49 @@ class _FakePMRegenerate(_FakePMPath):
             "generation_mode": "storyboard",
             "grid_storyboard": True,
         }
+
+    def load_script(self, name, script_file):
+        return _narration_script()
+
+
+class _FakePMRegenerateUnbound(_FakePMRegenerate):
+    def load_project(self, name):
+        return {
+            **super().load_project(name),
+            "schema_version": 8,
+            "episodes": [],
+        }
+
+
+def test_regenerate_grid_rejects_an_unbound_script_without_mutating_the_record(monkeypatch, tmp_path):
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["a", "b", "c", "d"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="stale-provider",
+        model="stale-model",
+        video_aspect_ratio="9:16",
+    )
+    grid.status = "failed"
+    grid.error_message = "boom"
+    GridManager(tmp_path).save(grid)
+
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegenerateUnbound(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        response = client.post(f"/api/v1/projects/demo/grids/{grid.id}/regenerate")
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+    assert fake_queue.calls == []
+    assert GridManager(tmp_path).get(grid.id) == grid
 
 
 def test_regenerate_grid_success(monkeypatch, tmp_path):

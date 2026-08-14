@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from lib.artifact_activation import resolve_artifact_episode
 from lib.asset_types import ASSET_SPECS, resolve_asset_key
 from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists
@@ -118,6 +119,12 @@ async def execute_image_edit_task(
         _project = pm.load_project(project_name)
         _project_path = pm.get_project_path(project_name)
         _script = pm.load_script(project_name, str(script_file)) if resource_type == "storyboard" else None
+        if _script is not None:
+            resolve_artifact_episode(
+                project=_project,
+                script=_script,
+                script_filename=str(script_file),
+            )
         # 资产名可能以 NFC/NFD 任一形态传入：先解析出真实落盘 key，之后的版本登记与
         # canonical 图路径统一按它写，避免同一资产落出两种编码形式的文件与版本记录。
         _key = resource_id

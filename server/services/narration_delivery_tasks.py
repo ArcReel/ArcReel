@@ -15,6 +15,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from lib.artifact_activation import resolve_artifact_episode
 from lib.artifact_manifest import (
     ArtifactKey,
     ArtifactManifestEntry,
@@ -468,7 +469,12 @@ async def prepare_current_storyboard_narrated_video_duration(
         )
     narration = await prepare_current_narration_delivery(
         project=project,
-        episode=ProjectManager.resolve_episode_from_script(script, script_file),
+        episode=resolve_artifact_episode(
+            project=project,
+            script=script,
+            script_filename=script_file,
+        )
+        or ProjectManager.resolve_episode_from_script(script, script_file),
         preparation=preparation,
         project_path=project_path,
         delivery="use_tts",
@@ -555,7 +561,11 @@ async def prepare_current_reference_video_request_options(
     if options.narration_delivery == USE_TTS:
         if not script_file:
             raise ValueError("use_tts reference projection requires script_file")
-        episode = ProjectManager.resolve_episode_from_script(script, script_file)
+        episode = resolve_artifact_episode(
+            project=project,
+            script=script,
+            script_filename=script_file,
+        ) or ProjectManager.resolve_episode_from_script(script, script_file)
     prepared = await materialize_current_reference_request_options(
         project=project,
         script=script,
@@ -912,7 +922,11 @@ async def _prepare_current_task_narration_delivery(
         )
         if item is None:
             raise ValueError(f"narration unit not found: {resource_id}")
-        episode = ProjectManager.resolve_episode_from_script(script, script_file)
+        episode = resolve_artifact_episode(
+            project=project,
+            script=script,
+            script_filename=script_file,
+        ) or ProjectManager.resolve_episode_from_script(script, script_file)
         return project, project_path, episode, admit_script_unit(kind, item).preparation
 
     project, project_path, episode, preparation = await asyncio.to_thread(_load)

@@ -1,6 +1,7 @@
 """旁白配音（TTS）生成端点测试：单段入队、批量补缺、未配置供应商提示。"""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
 from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.i18n import _ as i18n_message
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -30,7 +32,7 @@ class _FakeQueue:
 class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
-        self.project = {"content_mode": "narration"}
+        self.project: dict[str, Any] = {"content_mode": "narration"}
         self.script = {
             "content_mode": "narration",
             "segments": [
@@ -92,6 +94,23 @@ def _client(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True):
 
 
 class TestGenerateTtsSingle:
+    def test_active_manifest_rejects_an_unbound_script_before_enqueue(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.project["schema_version"] = 8
+        fake_pm.script["episode"] = 1
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts/E1S01",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+        assert fake_queue.calls == []
+
     def test_enqueue_success(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
         fake_queue = _FakeQueue()
@@ -232,9 +251,31 @@ class TestGenerateTtsSingle:
 
 
 class TestGenerateTtsBatch:
-    def test_active_manifest_resolves_episode_from_canonical_filename(self, tmp_path, monkeypatch):
+    def test_active_manifest_rejects_an_unbound_script_before_enqueue(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
         fake_pm.project["schema_version"] = 8
+        fake_pm.script["episode"] = 1
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+        assert fake_queue.calls == []
+
+    def test_active_manifest_resolves_episode_from_canonical_filename(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.project.update(
+            {
+                "schema_version": 8,
+                "episodes": [{"episode": 2, "script_file": "scripts/episode_2.json"}],
+            }
+        )
         fake_pm.script.pop("episode", None)
         fake_queue = _FakeQueue()
         observed_keys: list[ArtifactKey] = []
@@ -282,7 +323,12 @@ class TestGenerateTtsBatch:
 
     def test_active_manifest_missing_entry_is_selected_even_with_legacy_path(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
-        fake_pm.project["schema_version"] = 8
+        fake_pm.project.update(
+            {
+                "schema_version": 8,
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        )
         fake_pm.script["episode"] = 1
         fake_queue = _FakeQueue()
 
@@ -304,7 +350,12 @@ class TestGenerateTtsBatch:
 
     def test_active_manifest_stale_entry_remains_usable_for_batch_selection(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
-        fake_pm.project["schema_version"] = 8
+        fake_pm.project.update(
+            {
+                "schema_version": 8,
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        )
         fake_pm.script["episode"] = 1
         fake_queue = _FakeQueue()
 

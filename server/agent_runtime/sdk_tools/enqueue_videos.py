@@ -920,7 +920,14 @@ async def _run_reference_episode(
     when ``_resolve_reference_route`` reports the episode branch; this captures
     the shared tail (resolve episode → generate units → header + log).
     """
-    episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+    project = ctx.pm.load_project(ctx.project_name)
+    episode = resolve_artifact_episode(
+        project=project,
+        script=script,
+        script_filename=script_filename,
+    )
+    if episode is None:
+        episode = ProjectManager.resolve_episode_from_script(script, script_filename)
     units = script.get("video_units")
     if "video_units" in script and not isinstance(units, list):
         # 路线闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
@@ -928,7 +935,6 @@ async def _run_reference_episode(
         raise ValueError(f"第 {episode} 集 video_units 必须是数组，当前为 {type(units).__name__}：{script_filename}")
     if not units:
         raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
-    project = ctx.pm.load_project(ctx.project_name)
     currency = active_artifact_currency_resolver(ctx.project_path, project)
     result = await _generate_reference_units(
         ctx=ctx,
@@ -1031,7 +1037,13 @@ async def _run_reference_units(
     """对点名的参考生视频 unit 强制重新生成成片。"""
     project = ctx.pm.load_project(ctx.project_name)
     script = ctx.pm.load_script(ctx.project_name, script_filename)
-    episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+    episode = resolve_artifact_episode(
+        project=project,
+        script=script,
+        script_filename=script_filename,
+    )
+    if episode is None:
+        episode = ProjectManager.resolve_episode_from_script(script, script_filename)
 
     selected = _select_reference_units(script, unit_ids, log)
     # 结构校验先于在途任务探测：结构不合法的 unit 等在途任务跑完也依然生成不了，

@@ -32,7 +32,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.artifact_manifest import (
+    ArtifactKey,
+    ArtifactManifestEntry,
+    ArtifactManifestError,
+    ProjectArtifactManifestAdapter,
+)
 from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     discover_episode_file_aliases,
@@ -467,9 +472,10 @@ def reset_episode_planning(
     commit_plan: _ResetPlan | None = None
     manifest_expected: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
     manifest_removals: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
+    recover_unreadable_manifest = False
 
     def _commit(p: dict[str, Any]) -> None:
-        nonlocal commit_plan, manifest_expected, manifest_removals
+        nonlocal commit_plan, manifest_expected, manifest_removals, recover_unreadable_manifest
         # 锁内重新校验/重新扫描：确认清单与前置校验都是锁外读取时刻的快照，期间源文件
         # 可能被外部改动、也可能出现清单之外的新消费集
         cursor = _resolve_partial_reset_cursor(project_dir, p, from_episode=from_episode) if from_episode > 1 else None
@@ -492,12 +498,22 @@ def reset_episode_planning(
         from lib.artifact_activation import TARGET_SCHEMA_VERSION
 
         if p.get("schema_version") == TARGET_SCHEMA_VERSION:
-            manifest_expected = {
-                key: entry
-                for key, entry in ProjectArtifactManifestAdapter(project_dir).snapshot_entries().items()
-                if key.episode_number is not None and (from_episode == 1 or key.episode_number >= from_episode)
-            }
-            manifest_removals = dict.fromkeys(manifest_expected)
+            try:
+                snapshot = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
+            except ArtifactManifestError:
+                if from_episode != 1:
+                    raise
+                # Full planning reset is the zero-precondition recovery path.
+                # An unreadable Manifest proves no current claim, so replace its
+                # complete state with an empty valid snapshot during commit.
+                recover_unreadable_manifest = True
+            else:
+                manifest_expected = {
+                    key: entry
+                    for key, entry in snapshot.items()
+                    if key.episode_number is not None and (from_episode == 1 or key.episode_number >= from_episode)
+                }
+                manifest_removals = dict.fromkeys(manifest_expected)
         commit_plan = current
 
     def _commit_side_effects(_project_file: Path) -> None:
@@ -525,6 +541,8 @@ def reset_episode_planning(
                     manifest_removals,
                     expected_entries=manifest_expected,
                 )
+            elif recover_unreadable_manifest:
+                ProjectArtifactManifestAdapter(project_dir).replace_unreadable_entries_atomically({})
         committed = EpisodeResetResult(
             removed_episodes=commit_plan.episode_nums,
             deleted_files=deleted,
