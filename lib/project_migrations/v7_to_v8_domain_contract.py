@@ -89,11 +89,15 @@ _LEGACY_METADATA_COUNT_KEYS = ("total_scenes", "total_segments", "total_shots", 
 def migrate_script_payload(payload: Mapping[str, Any], *, fallback_creation_type: str) -> dict[str, Any]:
     """纯转换绑定剧本。保留具体领域集合与参考生视频 shots/references。"""
     migrated = copy.deepcopy(dict(payload))
-    if "creation_type" not in migrated:
-        raw = migrated.get("content_mode", fallback_creation_type)
-        migrated["creation_type"] = _require_creation_type(raw, source="script")
-    else:
-        migrated["creation_type"] = _require_creation_type(migrated.get("creation_type"), source="script")
+    # 显式 null 与未打戳同义（与 ``lib.script_models.resolve_creation_type`` 同口径），逐级回退到
+    # 项目声明。按「键在场」判断会让 ``"content_mode": null`` 落进兜底值 narration，把一集 drama
+    # 静默改标成说书——后续视频执行会跳过对白与音色注入。
+    raw = migrated.get("creation_type")
+    if raw is None:
+        raw = migrated.get("content_mode")
+    if raw is None:
+        raw = fallback_creation_type
+    migrated["creation_type"] = _require_creation_type(raw, source="script")
     migrated.pop("content_mode", None)
 
     metadata = migrated.get("metadata")
@@ -106,11 +110,16 @@ def migrate_script_payload(payload: Mapping[str, Any], *, fallback_creation_type
 
 
 def migrate_manifest_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """manifest 里 null 戳保持 null：``load_manifest`` 把它读成「未迁移」并整体重置同步，
+    而编出一个兜底值会让一个 drama 项目的 manifest 看起来是说书的、只能靠不匹配才纠回来。"""
     migrated = copy.deepcopy(dict(payload))
-    if "creation_type" not in migrated and "content_mode" in migrated:
-        migrated["creation_type"] = _require_creation_type(migrated.get("content_mode"), source="manifest")
-    elif "creation_type" in migrated:
-        migrated["creation_type"] = _require_creation_type(migrated.get("creation_type"), source="manifest")
+    raw = migrated.get("creation_type")
+    if raw is None:
+        raw = migrated.get("content_mode")
+    if raw is not None:
+        migrated["creation_type"] = _require_creation_type(raw, source="manifest")
+    elif "creation_type" in migrated or "content_mode" in migrated:
+        migrated["creation_type"] = None
     migrated.pop("content_mode", None)
     return migrated
 

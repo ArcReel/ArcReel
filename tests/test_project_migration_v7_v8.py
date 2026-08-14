@@ -312,6 +312,20 @@ def test_removes_every_legacy_metadata_count_key(tmp_path: Path, content_mode: s
     assert metadata["estimated_duration_seconds"] == 16
 
 
+@pytest.mark.parametrize("stamp_key", ["content_mode", "creation_type"])
+def test_explicit_null_script_stamp_falls_back_to_project(tmp_path: Path, stamp_key: str) -> None:
+    """剧本显式 null 戳等同未打戳（与运行时解析同口径），回退项目声明而不是兜底 narration。"""
+    project_dir = _v7_project(tmp_path, content_mode="drama")
+    script = _storyboard_script(content_mode="drama")
+    script.pop("content_mode")
+    script[stamp_key] = None
+    _write_json(project_dir / "scripts/episode_1.json", script)
+
+    migrate_v7_to_v8(project_dir)
+
+    assert _read_json(project_dir / "scripts/episode_1.json")["creation_type"] == "drama"
+
+
 def test_idempotent_when_already_v8(tmp_path: Path) -> None:
     project_dir = _v7_project(tmp_path)
     _write_json(project_dir / "scripts/episode_1.json", _storyboard_script())
@@ -343,4 +357,19 @@ def test_profile_manifest_field_renamed(tmp_path: Path) -> None:
 
     manifest = _read_json(project_dir / ".arcreel_profile_manifest.json")
     assert manifest["creation_type"] == "drama"
+    assert "content_mode" not in manifest
+
+
+def test_profile_manifest_null_stamp_stays_null(tmp_path: Path) -> None:
+    """manifest 的 null 戳被 load_manifest 读成「未迁移」并整体重置；编个兜底值反而会写错模式。"""
+    project_dir = _v7_project(tmp_path)
+    _write_json(
+        project_dir / ".arcreel_profile_manifest.json",
+        {"schema_version": 1, "profile_id": "arcreel/builtin", "content_mode": None, "files": {}},
+    )
+
+    migrate_v7_to_v8(project_dir)
+
+    manifest = _read_json(project_dir / ".arcreel_profile_manifest.json")
+    assert manifest["creation_type"] is None
     assert "content_mode" not in manifest
