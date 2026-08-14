@@ -53,7 +53,6 @@ from lib.speech_composition import (
 from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
-    pending_schema_upgrade_error,
     tool_error,
     validate_script_filename,
 )
@@ -1080,8 +1079,6 @@ def generate_video_episode_tool(ctx: ToolContext):
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         log: list[str] = []
         try:
-            if (schema_error := pending_schema_upgrade_error(ctx)) is not None:
-                return schema_error
             script_filename = validate_script_filename(args["script"])
             resume = bool(args.get("resume"))
             request_options = _batch_reference_request_options(args)
@@ -1187,8 +1184,6 @@ def generate_video_scene_tool(ctx: ToolContext):
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         log: list[str] = []
         try:
-            if (schema_error := pending_schema_upgrade_error(ctx)) is not None:
-                return schema_error
             script_filename = validate_script_filename(args["script"])
             scene_id = args["scene_id"]
             request_options = _reference_request_options(args)
@@ -1302,8 +1297,6 @@ def generate_video_all_tool(ctx: ToolContext):
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         log: list[str] = []
         try:
-            if (schema_error := pending_schema_upgrade_error(ctx)) is not None:
-                return schema_error
             script_filename = validate_script_filename(args["script"])
             request_options = _batch_reference_request_options(args)
             project_dir = ctx.project_path
@@ -1393,8 +1386,6 @@ def generate_video_selected_tool(ctx: ToolContext):
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         log: list[str] = []
         try:
-            if (schema_error := pending_schema_upgrade_error(ctx)) is not None:
-                return schema_error
             script_filename = validate_script_filename(args["script"])
             # 去重以避免同一 ID 重复入队；保留首次出现顺序便于人读日志，
             # checkpoint hash 再单独排序（见下方 ``canonical_scene_ids``）。

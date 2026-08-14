@@ -9,7 +9,6 @@ behavior without hitting the real queue or providers.
 from __future__ import annotations
 
 import copy
-import importlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -28,7 +27,12 @@ from lib.reference_video.quarantine import (
     write_quarantine,
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
-from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
+from server.agent_runtime.sdk_tools import (
+    ARCREEL_MCP_TOOL_IDS,
+    SCHEMA_EXEMPT_TOOL_IDS,
+    build_arcreel_mcp_server,
+    build_arcreel_tools,
+)
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
@@ -36,7 +40,6 @@ from server.agent_runtime.sdk_tools.enqueue_assets import (
 )
 from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool
 from server.agent_runtime.sdk_tools.enqueue_image_edits import edit_images_tool
-from server.agent_runtime.sdk_tools.enqueue_narration_audio import generate_narration_audio_tool
 from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
 from server.agent_runtime.sdk_tools.enqueue_videos import (
     generate_video_all_tool,
@@ -313,58 +316,47 @@ async def test_list_pending_assets_error(fake_ctx: ToolContext, monkeypatch) -> 
     assert out.get("is_error") is True
 
 
-_PAID_TOOL_CASES = [
-    (generate_assets_tool, {"type": "character"}),
-    (generate_storyboards_tool, {"script": "episode_1.json"}),
-    (generate_narration_audio_tool, {"script": "episode_1.json"}),
-    (generate_video_episode_tool, {"script": "episode_1.json"}),
-    (generate_video_scene_tool, {"script": "episode_1.json", "scene_id": "E1S01"}),
-    (generate_video_all_tool, {"script": "episode_1.json"}),
-    (generate_video_selected_tool, {"script": "episode_1.json", "scene_ids": ["E1S01"]}),
-    (generate_grid_tool, {"script": "episode_1.json"}),
-    (edit_images_tool, {"resource_type": "character", "edits": [{"name": "小明", "instruction": "换蓝色外套"}]}),
-]
-
-
 @pytest.mark.unit
-@pytest.mark.parametrize("tool_factory,args", _PAID_TOOL_CASES, ids=lambda v: getattr(v, "__name__", ""))
-async def test_paid_agent_tools_reject_project_pending_data_upgrade(
-    fake_ctx: ToolContext,
-    monkeypatch,
-    tool_factory,
-    args: dict[str, Any],
-) -> None:
-    """未完成数据升级的项目不接受智能体侧的入队提交，与 REST 侧同一道闸门。
+async def test_every_writing_tool_rejects_project_pending_data_upgrade(fake_ctx: ToolContext, monkeypatch) -> None:
+    """未完成数据升级的项目上，工具目录里除只读工具外一律拒绝执行。
 
-    旧形态项目按新契约取创作类型会取到兜底值，广告项目被当成剧集，请求照发照计费。
+    旧形态项目按新契约取创作类型会取到兜底值，广告项目被当成剧集：写入会把新契约的键混进
+    旧结构，付费调用照发照计费。断言按目录全量枚举——新增工具漏挂闸门即在此暴露。
     """
-    from lib import generation_queue_client
+    from lib import generation_queue_client, text_generator
 
     fake_ctx.pm.project_payload["schema_version"] = CURRENT_SCHEMA_VERSION - 1  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["content_mode"] = "ad"  # type: ignore[attr-defined]
 
     async def _fail_if_called(*_args, **_kwargs):
-        raise AssertionError("闸门未生效：不应走到入队")
+        raise AssertionError("闸门未生效：不应走到入队或付费调用")
 
-    for module_name in (
-        "enqueue_assets",
-        "enqueue_grid",
-        "enqueue_image_edits",
-        "enqueue_narration_audio",
-        "enqueue_storyboards",
-        "enqueue_videos",
-    ):
-        module = importlib.import_module(f"server.agent_runtime.sdk_tools.{module_name}")
-        for symbol in ("batch_enqueue_and_wait", "enqueue_and_wait", "enqueue_task_only"):
-            if hasattr(module, symbol):
-                monkeypatch.setattr(module, symbol, _fail_if_called)
     for symbol in ("batch_enqueue_and_wait", "enqueue_and_wait", "enqueue_task_only"):
         monkeypatch.setattr(generation_queue_client, symbol, _fail_if_called)
+    monkeypatch.setattr(text_generator.TextGenerator, "create", _fail_if_called)
 
-    out = await _call(tool_factory(fake_ctx), args)
+    tools = build_arcreel_tools(fake_ctx)
+    assert {tool_def.name for tool_def in tools} == set(ARCREEL_MCP_TOOL_IDS)
+    assert SCHEMA_EXEMPT_TOOL_IDS <= set(ARCREEL_MCP_TOOL_IDS)
 
-    assert out["is_error"] is True
-    assert "未完成数据升级" in out["content"][0]["text"]
+    for tool_def in tools:
+        if tool_def.name in SCHEMA_EXEMPT_TOOL_IDS:
+            continue
+        out = await tool_def.handler({})
+        assert out.get("is_error") is True, tool_def.name
+        assert "未完成数据升级" in out["content"][0]["text"], tool_def.name
+
+
+@pytest.mark.unit
+async def test_read_only_tools_stay_usable_while_data_upgrade_is_pending(fake_ctx: ToolContext) -> None:
+    """只读工具不受闸：用户正需要智能体在这种项目上解释现状、说明为何不能生成。"""
+    fake_ctx.pm.project_payload["schema_version"] = CURRENT_SCHEMA_VERSION - 1  # type: ignore[attr-defined]
+
+    tools = {tool_def.name: tool_def for tool_def in build_arcreel_tools(fake_ctx)}
+    out = await tools["list_pending_assets"].handler({"type": "character"})
+
+    assert out.get("is_error") is not True
+    assert "张三" in out["content"][0]["text"]
 
 
 @pytest.mark.unit

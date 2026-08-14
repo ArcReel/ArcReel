@@ -44,10 +44,11 @@ def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> d
 
 
 def pending_schema_upgrade_error(ctx: ToolContext, project: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    """未完成数据升级的项目拒绝付费入队；已升级返回 ``None``，否则返回现成的错误响应。
+    """未完成数据升级的项目拒绝写入与付费调用；已升级返回 ``None``，否则返回现成的错误响应。
 
     判定与 REST 侧共用 ``require_current_schema``。旧形态项目按新契约取创作类型会取到兜底值，
-    广告项目被当成剧集，付费请求照发照计费。只作用于提交类工具，查询类工具照常可用。
+    广告项目被当成剧集，付费请求照发照计费，写入还会把新契约的键混进旧结构。工具目录在
+    ``build_arcreel_tools`` 处统一套闸，只读工具按 ``SCHEMA_EXEMPT_TOOL_IDS`` 豁免。
     """
     data = project if project is not None else ctx.pm.load_project(ctx.project_name)
     try:
@@ -59,7 +60,7 @@ def pending_schema_upgrade_error(ctx: ToolContext, project: dict[str, Any] | Non
                     "type": "text",
                     "text": (
                         f"❌ 项目「{ctx.project_name}」未完成数据升级"
-                        f"（当前 {data.get('schema_version')!r}），无法提交生成任务；"
+                        f"（当前 {data.get('schema_version')!r}），无法写入或提交生成任务；"
                         "请提示用户重启服务让升级重跑，仍失败则需要人工介入"
                     ),
                 }

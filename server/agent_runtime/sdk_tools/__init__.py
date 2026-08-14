@@ -11,12 +11,13 @@ different project via prompt injection.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server
 
-from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools._context import ToolContext, pending_schema_upgrade_error
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
@@ -58,7 +59,13 @@ from server.agent_runtime.sdk_tools.text_generation import (
 )
 from server.agent_runtime.sdk_tools.workflow_status import complete_step1_rebuild_tool, get_workflow_status_tool
 
-__all__ = ["build_arcreel_mcp_server", "ToolContext", "ARCREEL_MCP_TOOL_IDS"]
+__all__ = [
+    "build_arcreel_mcp_server",
+    "build_arcreel_tools",
+    "ToolContext",
+    "ARCREEL_MCP_TOOL_IDS",
+    "SCHEMA_EXEMPT_TOOL_IDS",
+]
 
 # Single source of truth for the ArcReel in-process MCP tool catalogue.
 # Each id is the **short tool name** (without the ``mcp__arcreel__`` prefix the
@@ -102,13 +109,45 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
 )
 
 
-def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
-    """Build the per-session in-process MCP server with all ArcReel tools."""
-    ctx = ToolContext(project_name=project_name, projects_root=projects_root)
-    return create_sdk_mcp_server(
-        name="arcreel",
-        version="1.0.0",
-        tools=[
+# 未完成数据升级的项目上仍然可用的工具：只查不写、不发起付费调用。用户在这种项目上
+# 需要智能体解释现状、说明为何不能生成，读路径掐掉等于连求助渠道一起掐掉。
+# 其余工具一律受 ``_guard_pending_schema_upgrade`` 拦截——按旧契约取到的创作类型是兜底值，
+# 写入会把新契约的键混进旧结构，付费调用则按错误的创作类型照发照计费。
+# 新增工具默认落在受闸一侧；确属只读时才登记到这里。
+SCHEMA_EXEMPT_TOOL_IDS: frozenset[str] = frozenset(
+    {
+        "get_workflow_status",
+        "list_pending_assets",
+        "get_video_capabilities",
+        "get_episode_script_revision",
+    }
+)
+
+
+def _guard_pending_schema_upgrade(ctx: ToolContext, tool_def: Any) -> Any:
+    """给写入 / 付费类工具套上数据契约版本闸门，与 REST 侧共用同一判定。"""
+    if tool_def.name in SCHEMA_EXEMPT_TOOL_IDS:
+        return tool_def
+    inner = tool_def.handler
+
+    async def _guarded(args: Any) -> dict[str, Any]:
+        try:
+            schema_error = pending_schema_upgrade_error(ctx)
+        except Exception:  # noqa: BLE001
+            # 项目文件读不出来时不在这里改写诊断：交给工具自身的错误处理报出成因。
+            schema_error = None
+        if schema_error is not None:
+            return schema_error
+        return await inner(args)
+
+    return replace(tool_def, handler=_guarded)
+
+
+def build_arcreel_tools(ctx: ToolContext) -> list[Any]:
+    """Build the full tool catalogue for one session, schema gate already applied."""
+    return [
+        _guard_pending_schema_upgrade(ctx, tool_def)
+        for tool_def in (
             complete_asset_inventory_tool(ctx),
             complete_step1_rebuild_tool(ctx),
             get_workflow_status_tool(ctx),
@@ -140,5 +179,11 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
             split_segment_tool(ctx),
             patch_project_tool(ctx),
             rename_asset_tool(ctx),
-        ],
-    )
+        )
+    ]
+
+
+def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
+    """Build the per-session in-process MCP server with all ArcReel tools."""
+    ctx = ToolContext(project_name=project_name, projects_root=projects_root)
+    return create_sdk_mcp_server(name="arcreel", version="1.0.0", tools=build_arcreel_tools(ctx))

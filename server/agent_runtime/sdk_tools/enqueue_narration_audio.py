@@ -22,7 +22,6 @@ from lib.script_skeleton import ensure_route_skeleton
 from lib.speech_composition import SpeechMode, admit_script_unit
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
-    pending_schema_upgrade_error,
     tool_error,
     validate_script_filename,
 )
@@ -62,8 +61,6 @@ def generate_narration_audio_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            if (schema_error := pending_schema_upgrade_error(ctx)) is not None:
-                return schema_error
             script_filename = validate_script_filename(args["script"])
             segment_ids = args.get("segment_ids")
             if segment_ids is not None and not isinstance(segment_ids, list):
