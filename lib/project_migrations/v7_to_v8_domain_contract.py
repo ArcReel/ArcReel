@@ -163,6 +163,9 @@ def migrate_v7_to_v8(project_dir: Path) -> None:
 
     manifest_plan: tuple[Path, dict[str, Any]] | None = None
     manifest_path = project_dir / MANIFEST_FILENAME
+    # symlink 形态的 manifest 跳过而非拒绝：profile 同步侧同样拒绝信任并在下次同步时整体
+    # 重置（见 lib.profile_manifest.load_manifest），其中的旧字段永远不会被读到；为一个
+    # 注定被重置的文件让整个项目迁移失败是把可恢复状态升级成不可用状态。
     if manifest_path.is_file() and not manifest_path.is_symlink():
         manifest = load_json(manifest_path)
         if not isinstance(manifest, dict):

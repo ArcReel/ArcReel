@@ -849,7 +849,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
 
         def _sync():
             manager = get_project_manager()
-            if req.creation_type is not None:
+            if "creation_type" in req.model_fields_set:
                 raise HTTPException(
                     status_code=400,
                     detail=_t("project_id_not_editable"),

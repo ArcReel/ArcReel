@@ -1883,6 +1883,8 @@ class ProjectManager:
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
         resolved_mode = creation_type or "narration"
+        if resolved_mode not in VALID_CREATION_TYPES:
+            raise ValueError(f"creation_type 值无效: {creation_type!r}，必须是 {sorted(VALID_CREATION_TYPES)}")
         resolved_source_kind = DEFAULT_SOURCE_FILE_TYPE if source_file_type is None else source_file_type
         if resolved_source_kind not in VALID_SOURCE_FILE_TYPES:
             raise ValueError(f"source_file_type 值无效: {source_file_type!r}，必须是 {sorted(VALID_SOURCE_FILE_TYPES)}")

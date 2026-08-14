@@ -786,7 +786,11 @@ export function OverviewCanvas({
                         </span>
                         <span style={{ color: "var(--color-text-4)" }}>
                           {t(isAd ? "shots_and_status" : "segments_and_status", {
-                            count: ep.storyboard_count ?? ep.video_unit_count ?? "?",
+                            // 广告文案按「镜头」计数：分镜路线的 storyboard_count 即镜头数，
+                            // 参考路线要读 shot_count（video_unit_count 是单元数，不是镜头数）
+                            count: isAd
+                              ? (ep.storyboard_count ?? ep.shot_count ?? "?")
+                              : (ep.storyboard_count ?? ep.video_unit_count ?? "?"),
                             status: t(`episode_status_label_${ep.status ?? "draft"}`),
                           })}
                         </span>

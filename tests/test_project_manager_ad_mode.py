@@ -63,6 +63,19 @@ class TestCreateAdProjectMetadata:
         with pytest.raises(ValueError, match="brief"):
             pm.create_project_metadata("demo-ad", "短片", "Realistic", "ad", brief=123)  # type: ignore[arg-type]
 
+    def test_rejects_unknown_creation_type(self, tmp_path):
+        """非路由调用方传入未登记创作类型时不得落盘：写进去的项目无分派器能处理。"""
+        pm = _pm(tmp_path)
+        pm.create_project("demo-doc")
+        with pytest.raises(ValueError, match="creation_type"):
+            pm.create_project_metadata("demo-doc", "纪录片", "Realistic", "documentary")
+
+    def test_rejects_unknown_source_file_type(self, tmp_path):
+        pm = _pm(tmp_path)
+        pm.create_project("demo-src")
+        with pytest.raises(ValueError, match="source_file_type"):
+            pm.create_project_metadata("demo-src", "小说", "Anime", "narration", source_file_type="screen_play")
+
     def test_extras_cannot_override_core_fields(self, tmp_path):
         pm = _pm(tmp_path)
         pm.create_project("demo-ad", creation_type="ad")

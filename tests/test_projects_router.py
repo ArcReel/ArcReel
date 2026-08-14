@@ -713,6 +713,16 @@ class TestProjectsRouter:
             assert rejected_null.status_code == 400
 
     @pytest.mark.unit
+    def test_creation_type_not_editable_after_create(self, tmp_path, monkeypatch):
+        """与 source_file_type 同为不可变字段，两者的「出现即拒」口径必须一致。"""
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            rejected = client.patch("/api/v1/projects/ready", json={"creation_type": "drama"})
+            assert rejected.status_code == 400
+            rejected_null = client.patch("/api/v1/projects/ready", json={"creation_type": None})
+            assert rejected_null.status_code == 400
+
+    @pytest.mark.unit
     def test_project_details_and_updates(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         client = _client(monkeypatch, fake_pm, _FakeCalc())

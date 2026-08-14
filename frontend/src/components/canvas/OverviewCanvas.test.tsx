@@ -512,6 +512,52 @@ describe("OverviewCanvas ad mode", () => {
     expect(screen.getByText("视频")).toBeInTheDocument();
   });
 
+  it("counts ad shots by shot_count on the reference route", () => {
+    render(
+      <OverviewCanvas
+        projectName="ad-demo"
+        projectData={makeProjectData({
+          creation_type: "ad",
+          target_duration: 60,
+          brief: "卖点",
+          episodes: [
+            {
+              episode: 1,
+              title: "",
+              script_file: "scripts/episode_1.json",
+              // 参考路线：单元数 2、镜头数 5，「镜头」文案须读后者
+              video_unit_count: 2,
+              shot_count: 5,
+            },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByText(/5 镜头/)).toBeInTheDocument();
+  });
+
+  it("counts ad shots by storyboard_count on the storyboard route", () => {
+    render(
+      <OverviewCanvas
+        projectName="ad-demo"
+        projectData={makeProjectData({
+          creation_type: "ad",
+          target_duration: 60,
+          brief: "卖点",
+          episodes: [
+            {
+              episode: 1,
+              title: "",
+              script_file: "scripts/episode_1.json",
+              storyboard_count: 4,
+            },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByText(/4 镜头/)).toBeInTheDocument();
+  });
+
   it("keeps episode semantics for narration projects", () => {
     render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
     expect(screen.getByText("E1")).toBeInTheDocument();

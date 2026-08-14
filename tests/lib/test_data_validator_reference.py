@@ -185,8 +185,8 @@ def test_validator_rejects_duplicate_ad_reference_unit_ids(tmp_path: Path):
 
 
 @pytest.mark.unit
-def test_validator_rejects_reference_video_in_content_mode(tmp_path: Path):
-    """creation_type 严格只允许 narration / drama；reference_video 属于 generation_mode
+def test_validator_rejects_reference_video_in_creation_type(tmp_path: Path):
+    """creation_type 严格只允许 narration / drama / ad；reference_video 属于 generation_mode
     维度。UI 不可达该值，无需兼容迁移，直接拒绝即可。
     """
     project = {

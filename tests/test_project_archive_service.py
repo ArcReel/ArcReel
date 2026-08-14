@@ -487,6 +487,50 @@ class TestProjectArchiveService:
         assert "content_mode" not in migrated_script
         assert "total_scenes" not in migrated_script["metadata"]
 
+    @pytest.mark.unit
+    def test_import_falls_back_to_project_creation_type_when_script_unstamped(self, tmp_path):
+        """剧本未戳创作类型时按项目声明修复，这是归档修复的本职。"""
+        import json as _json
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        script_file = project_dir / "scripts" / "episode_1.json"
+        script = _json.loads(script_file.read_text(encoding="utf-8"))
+        script.pop("creation_type", None)
+        script_file.write_text(_json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "unstamped.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="unstamped.zip")
+        assert result.project_name
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("dirty", ["", 0])
+    def test_import_reports_dirty_script_creation_type_as_validation_error(self, tmp_path, dirty):
+        """剧本戳了脏值不会静默放行：修复分派沿用项目声明，校验器把脏值报成结构化错误。"""
+        import json as _json
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        script_file = project_dir / "scripts" / "episode_1.json"
+        script = _json.loads(script_file.read_text(encoding="utf-8"))
+        script["creation_type"] = dirty
+        script_file.write_text(_json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "dirty-stamp.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="dirty-stamp.zip")
+        assert any("值无效" in error for error in exc_info.value.render_errors())
+
     @pytest.mark.integration
     def test_import_v5_archive_migrates_conflicting_asset_namespace(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
