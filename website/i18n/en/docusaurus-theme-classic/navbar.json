@@ -7,8 +7,8 @@
     "message": "ArcReel",
     "description": "The alt text of navbar logo"
   },
-  "item.label.GitHub": {
-    "message": "GitHub",
-    "description": "Navbar item with label GitHub"
+  "item.label.GitHub 仓库": {
+    "message": "GitHub Repository",
+    "description": "Navbar item with label GitHub 仓库"
   }
 }

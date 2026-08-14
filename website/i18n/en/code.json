@@ -360,5 +360,13 @@
   "theme.tags.tagsPageTitle": {
     "message": "Tags",
     "description": "The title of the tag list page"
+  },
+  "site.title": {
+    "message": "ArcReel Documentation",
+    "description": "The documentation site title used in browser tabs and social cards"
+  },
+  "site.tagline": {
+    "message": "Open-source, self-hosted AI video creation platform",
+    "description": "The documentation site description used in social cards"
   }
 }

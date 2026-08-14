@@ -14,6 +14,9 @@ importers:
       '@docusaurus/preset-classic':
         specifier: ^3.10.2
         version: 3.10.2(@algolia/client-search@5.56.0)(@mdx-js/react@3.1.1(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(postcss@8.5.26)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(search-insights@2.17.3)(typescript@5.9.3)
+      '@docusaurus/theme-common':
+        specifier: ^3.10.2
+        version: 3.10.2(@docusaurus/plugin-content-docs@3.10.2(@mdx-js/react@3.1.1(@types/react@19.2.18)(react@19.2.8))(postcss@8.5.26)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@5.9.3))(postcss@8.5.26)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@easyops-cn/docusaurus-search-local':
         specifier: ^0.55.3
         version: 0.55.3(@docusaurus/theme-common@3.10.2(@docusaurus/plugin-content-docs@3.10.2(@mdx-js/react@3.1.1(@types/react@19.2.18)(react@19.2.8))(postcss@8.5.26)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@5.9.3))(postcss@8.5.26)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@mdx-js/react@3.1.1(@types/react@19.2.18)(react@19.2.8))(postcss@8.5.26)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@5.9.3)
