@@ -283,6 +283,30 @@ def test_reference_step1_basis_ignores_asset_fields_not_rendered_by_the_prompt()
     assert updated.digest == baseline.digest
 
 
+def test_reference_step1_basis_preserves_rendered_outline_whitespace() -> None:
+    project = {
+        "content_mode": "drama",
+        "generation_mode": "reference_video",
+        "overview": {},
+        "characters": {},
+        "scenes": {},
+        "props": {},
+        "episodes": [{"episode": 1, "outline": {"story_beats": [" 旧节点 "]}}],
+    }
+
+    baseline = build_step1_basis("同一份原文", episode=1, project=project)
+    trimmed = build_step1_basis(
+        "同一份原文",
+        episode=1,
+        project={
+            **project,
+            "episodes": [{"episode": 1, "outline": {"story_beats": ["旧节点"]}}],
+        },
+    )
+
+    assert trimmed.digest != baseline.digest
+
+
 @pytest.mark.parametrize(
     "changed",
     [

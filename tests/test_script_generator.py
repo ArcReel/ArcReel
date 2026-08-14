@@ -694,6 +694,8 @@ class TestScriptGenerator:
 
     @pytest.mark.unit
     async def test_generate_rechecks_legacy_step1_content_while_awaiting_capabilities(self, tmp_path):
+        from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+
         project_path = tmp_path / "demo"
         project = {
             "schema_version": 7,
@@ -728,6 +730,8 @@ class TestScriptGenerator:
             await generator.generate(1)
 
         assert fake.backend.last_request is None
+        assert not (project_path / "scripts" / "episode_1.json").exists()
+        assert ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_script(1)) is None
 
     @pytest.mark.unit
     async def test_generate_injects_hook_and_teaser_from_ledger(self, tmp_path):

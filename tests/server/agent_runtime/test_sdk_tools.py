@@ -3943,6 +3943,75 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch
     assert "DRY RUN" in out["content"][0]["text"]
 
 
+@pytest.mark.parametrize(
+    ("tool_factory", "content_mode", "generation_mode"),
+    [
+        (normalize_drama_script_tool, "narration", "storyboard"),
+        (split_narration_segments_tool, "drama", "storyboard"),
+        (split_reference_video_units_tool, "drama", "storyboard"),
+    ],
+    ids=("normalize", "narration-split", "reference-split"),
+)
+@pytest.mark.unit
+async def test_step1_tools_reject_incompatible_project_axes_before_capability_lookup(
+    fake_ctx: ToolContext,
+    monkeypatch,
+    tool_factory,
+    content_mode: str,
+    generation_mode: str,
+) -> None:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+        content_mode=content_mode,
+        generation_mode=generation_mode,
+    )
+    source_dir = fake_ctx.project_path / "source"
+    source_dir.mkdir(parents=True)
+    (source_dir / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
+
+    async def unexpected_caps(*_args, **_kwargs):
+        pytest.fail("incompatible step1 tool must reject before capability lookup")
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", unexpected_caps)
+    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", unexpected_caps)
+
+    result = await _call(tool_factory(fake_ctx), {"episode": 1, "dry_run": True})
+
+    assert result.get("is_error") is True
+    message = result["content"][0]["text"]
+    assert content_mode in message
+    assert generation_mode in message
+
+
+@pytest.mark.unit
+async def test_normalize_drama_script_projects_durable_inputs_once(fake_ctx: ToolContext, monkeypatch) -> None:
+    from lib import artifact_provenance
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    source_dir = fake_ctx.project_path / "source"
+    source_dir.mkdir(parents=True)
+    (source_dir / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
+    calls = 0
+    original = artifact_provenance.project_step1_prompt_inputs
+
+    def counted_projection(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    async def fake_caps(_project, _episode=None):
+        return 4, [4, 6, 8]
+
+    monkeypatch.setattr(artifact_provenance, "project_step1_prompt_inputs", counted_projection)
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+
+    result = await _call(normalize_drama_script_tool(fake_ctx), {"episode": 1, "dry_run": True})
+
+    assert result.get("is_error") is not True, result
+    assert calls == 1
+
+
 @pytest.mark.unit
 async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContext, monkeypatch) -> None:
     """normalize 把项目 source_language 透传为 build_normalize_prompt 的 target_language——
@@ -6333,6 +6402,17 @@ def _nr_caps(default=4, durations=(4, 6, 8)):
     return fake_caps
 
 
+def _nr_project(fake_ctx: ToolContext) -> None:
+    _rv_project(fake_ctx, generation_mode="storyboard")
+
+
+def _nr_source(fake_ctx: ToolContext) -> None:
+    _nr_project(fake_ctx)
+    src = fake_ctx.project_path / "source"
+    src.mkdir(parents=True)
+    (src / "episode_1.txt").write_text(_RV_NOVEL, encoding="utf-8")
+
+
 def _nr_generator_returning(segments: list[dict], captured: dict[str, Any] | None = None):
     """构造返回指定 segments JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
 
@@ -6373,7 +6453,7 @@ def _nr_segment(segment_id="E1S01", duration=4, novel_text="张三走向村口�
 async def test_split_narration_segments_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
 
     tool_obj = split_narration_segments_tool(fake_ctx)
@@ -6394,7 +6474,7 @@ async def test_split_narration_segments_injects_instructions(fake_ctx: ToolConte
     """instructions 原样进 prompt 末尾的中性「用户意见」分节，不附加强度措辞。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
 
     tool_obj = split_narration_segments_tool(fake_ctx)
@@ -6411,7 +6491,7 @@ async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolC
     """instructions 超长 / 非字符串按参数错误拒绝；空白 strip 后视同未传（校验为四个生成工具共享）。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     tool_obj = split_narration_segments_tool(fake_ctx)
 
@@ -6520,6 +6600,7 @@ async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch
     """happy path：结构化片段 step1 落盘；模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
+    _nr_project(fake_ctx)
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("张三走向村口。他停下脚步，久久凝望。", encoding="utf-8")
@@ -6612,7 +6693,7 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: T
     """静态片段 schema 的 duration 是开区间，超出 supported_durations 的时长由工具后校验拦截，不落盘。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 5)]
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
@@ -6628,7 +6709,7 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: T
 async def test_split_narration_segments_rejects_duplicate_segment_ids(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 4), _nr_segment("E1S01", 6)]
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
@@ -6645,7 +6726,7 @@ async def test_split_narration_segments_rejects_blank_novel_text(fake_ctx: ToolC
     """novel_text 为纯空白（如单个空格）满足 schema min_length=1 却无实际旁白内容，须被后校验拦截，不落盘。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 4, "张三在村口等人"), _nr_segment("E1S02", 4, novel_text=" ")]
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
@@ -6662,7 +6743,7 @@ async def test_split_narration_segments_rejects_blank_novel_text(fake_ctx: ToolC
 async def test_split_narration_segments_rejects_empty_segments(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning([]))
 
@@ -6677,7 +6758,7 @@ async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolCont
     """缺资产字段（characters_in_segment 等）由既有片段 schema（NarrationStep1Segment strict）拦截。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     bad = {"segment_id": "E1S01", "novel_text": "缺字段", "duration_seconds": 4, "segment_break": False}
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning([bad]))
@@ -6696,7 +6777,7 @@ async def test_split_narration_segments_rejects_unregistered_asset_reference(
     """characters_in_segment / scenes / props 引用了 project.json 未登记的名称须被拦截，不落盘。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=["王五"])]
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
@@ -6712,6 +6793,7 @@ async def test_split_narration_segments_rejects_unregistered_asset_reference(
 async def _nr_source_and_call(fake_ctx: ToolContext, monkeypatch, source_text: str, segments: list[dict]):
     from server.agent_runtime.sdk_tools import text_generation as mod
 
+    _nr_project(fake_ctx)
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text(source_text, encoding="utf-8")
@@ -6838,6 +6920,7 @@ async def test_split_narration_segments_rejects_dropped_space_after_punctuation(
 
 @pytest.mark.unit
 async def test_split_narration_segments_no_source(fake_ctx: ToolContext) -> None:
+    _nr_project(fake_ctx)
     tool_obj = split_narration_segments_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True

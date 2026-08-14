@@ -21,7 +21,7 @@ from pydantic import BaseModel, ValidationError
 
 from lib import script_review
 from lib.artifact_manifest import ArtifactBasis
-from lib.artifact_provenance import build_step1_basis, project_step1_prompt_inputs
+from lib.artifact_provenance import Step1PromptVariant, build_step1_request
 from lib.asset_types import BUCKET_KEY
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
@@ -176,11 +176,18 @@ def _load_step1_source_with_basis(
     source: str | None,
     project: dict[str, Any],
     episode: int,
-) -> tuple[str, ArtifactBasis]:
+    expected_variant: Step1PromptVariant,
+) -> tuple[str, dict[str, object], ArtifactBasis]:
     """Freeze the exact source text and project semantics consumed by a step1 request."""
 
     novel_text = _load_novel_source(project_path, source)
-    return novel_text, build_step1_basis(novel_text, episode=episode, project=project)
+    prompt_inputs, basis = build_step1_request(
+        novel_text,
+        episode=episode,
+        project=project,
+        expected_variant=expected_variant,
+    )
+    return novel_text, prompt_inputs, basis
 
 
 # ---------------------------------------------------------------------------
@@ -508,12 +515,17 @@ def normalize_drama_script_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
 
             try:
-                novel_text, step1_basis = _load_step1_source_with_basis(project_path, source, project, episode)
+                novel_text, prompt_inputs, step1_basis = _load_step1_source_with_basis(
+                    project_path,
+                    source,
+                    project,
+                    episode,
+                    "drama",
+                )
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
             default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
-            prompt_inputs = project_step1_prompt_inputs(episode, project=project)
             prompt = build_normalize_prompt(
                 novel_text=novel_text,
                 project_overview=cast(dict[str, Any], prompt_inputs["project_overview"]),
@@ -896,12 +908,13 @@ async def revalidate_reference_step1_draft(
     # 源文可能达数百 KB（整个 source/ 目录拼接），同步读盘直接放在这个 async 函数体里会占用
     # 事件循环——晋升工具走的是独立会话线程不敏感，但 web 审核 gate 的读时重算（同一份代码）
     # 在请求协程里跑，卸到线程避免拖慢并发的其它请求。
-    novel_text, step1_basis = await asyncio.to_thread(
+    novel_text, _prompt_inputs, step1_basis = await asyncio.to_thread(
         _load_step1_source_with_basis,
         project_path,
         draft.meta["source"],
         project,
         episode,
+        "reference_video",
     )
     split_caps = await _fetch_reference_caps_with_fallback(project, episode)
 
@@ -1249,11 +1262,16 @@ def split_reference_video_units_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
 
             try:
-                novel_text, step1_basis = _load_step1_source_with_basis(project_path, source, project, episode)
+                novel_text, prompt_inputs, step1_basis = _load_step1_source_with_basis(
+                    project_path,
+                    source,
+                    project,
+                    episode,
+                    "reference_video",
+                )
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
-            prompt_inputs = project_step1_prompt_inputs(episode, project=project)
             characters = cast(dict[str, Any], prompt_inputs["characters"])
             scenes = cast(dict[str, Any], prompt_inputs["scenes"])
             props = cast(dict[str, Any], prompt_inputs["props"])
@@ -1567,11 +1585,16 @@ def split_narration_segments_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
 
             try:
-                novel_text, step1_basis = _load_step1_source_with_basis(project_path, source, project, episode)
+                novel_text, prompt_inputs, step1_basis = _load_step1_source_with_basis(
+                    project_path,
+                    source,
+                    project,
+                    episode,
+                    "narration",
+                )
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
-            prompt_inputs = project_step1_prompt_inputs(episode, project=project)
             characters = cast(dict[str, Any], prompt_inputs["characters"])
             scenes = cast(dict[str, Any], prompt_inputs["scenes"])
             props = cast(dict[str, Any], prompt_inputs["props"])

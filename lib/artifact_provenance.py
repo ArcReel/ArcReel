@@ -8,6 +8,7 @@ existing structured artifact.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Literal
 
 from lib.artifact_manifest import ArtifactBasis
 from lib.episode_ledger import episode_outline_context
@@ -20,6 +21,8 @@ _SOURCE_KINDS = frozenset({"novel", "screenplay"})
 _DEFAULT_SOURCE_LANGUAGE = "中文"
 _AD_OVERVIEW_FIELDS = ("synopsis", "genre", "theme")
 
+Step1PromptVariant = Literal["drama", "narration", "reference_video"]
+
 
 def build_step1_basis(
     source_content: object,
@@ -31,6 +34,45 @@ def build_step1_basis(
 
     content_mode, generation_mode = _content_axes(project)
     prompt_inputs = project_step1_prompt_inputs(episode, project=project)
+    return _build_step1_basis(
+        source_content,
+        content_mode=content_mode,
+        generation_mode=generation_mode,
+        prompt_inputs=prompt_inputs,
+    )
+
+
+def build_step1_request(
+    source_content: object,
+    *,
+    episode: int,
+    project: Mapping[str, object],
+    expected_variant: Step1PromptVariant,
+) -> tuple[dict[str, object], ArtifactBasis]:
+    """Freeze the prompt projection and basis for one route-specific step1 request."""
+
+    content_mode, generation_mode = _content_axes(project)
+    prompt_inputs = project_step1_prompt_inputs(
+        episode,
+        project=project,
+        expected_variant=expected_variant,
+    )
+    basis = _build_step1_basis(
+        source_content,
+        content_mode=content_mode,
+        generation_mode=generation_mode,
+        prompt_inputs=prompt_inputs,
+    )
+    return prompt_inputs, basis
+
+
+def _build_step1_basis(
+    source_content: object,
+    *,
+    content_mode: str,
+    generation_mode: str,
+    prompt_inputs: Mapping[str, object],
+) -> ArtifactBasis:
     return ArtifactBasis.build(
         "structured-content/step1",
         kind_version=2,
@@ -47,6 +89,7 @@ def project_step1_prompt_inputs(
     episode: int,
     *,
     project: Mapping[str, object],
+    expected_variant: Step1PromptVariant | None = None,
 ) -> dict[str, object]:
     """Project persisted fields passed to the selected step1 prompt builder.
 
@@ -58,6 +101,12 @@ def project_step1_prompt_inputs(
     if type(episode) is not int or episode < 1:
         raise ValueError("episode must be a positive integer")
     content_mode, generation_mode = _content_axes(project)
+    variant = _step1_prompt_variant(content_mode, generation_mode)
+    if expected_variant is not None and variant != expected_variant:
+        raise ValueError(
+            f"{expected_variant} step1 is unavailable for "
+            f"content_mode={content_mode!r}, generation_mode={generation_mode!r}"
+        )
     overview = _mapping_or_empty(project.get("overview"))
     source_language = project.get("source_language") or _DEFAULT_SOURCE_LANGUAGE
     if not isinstance(source_language, str):
@@ -72,7 +121,7 @@ def project_step1_prompt_inputs(
         "target_language": source_language,
     }
 
-    if generation_mode == "reference_video" or content_mode == "drama":
+    if variant in {"reference_video", "drama"}:
         episode_outline, next_episode_outline = episode_outline_context(project, episode)
         inputs.update(
             {
@@ -81,7 +130,7 @@ def project_step1_prompt_inputs(
             }
         )
 
-    if generation_mode == "reference_video" or (content_mode == "drama" and generation_mode == "storyboard"):
+    if variant in {"reference_video", "drama"}:
         raw_source_language = project.get("source_language")
         inputs.update(
             {
@@ -90,7 +139,7 @@ def project_step1_prompt_inputs(
             }
         )
 
-    if content_mode == "drama" and generation_mode == "storyboard":
+    if variant == "drama":
         raw_source_kind = project.get("source_kind")
         source_kind = "novel" if raw_source_kind is None else raw_source_kind
         if not isinstance(source_kind, str) or source_kind not in _SOURCE_KINDS:
@@ -155,10 +204,18 @@ def _freeze_reference_outline(value: object) -> dict[str, object] | None:
             result[field] = raw.strip()
     raw_beats = value.get("story_beats")
     if isinstance(raw_beats, list):
-        beats = [beat.strip() for beat in raw_beats if isinstance(beat, str) and beat.strip()]
+        beats = [beat for beat in raw_beats if isinstance(beat, str) and beat.strip()]
         if beats:
             result["story_beats"] = beats
     return result or None
+
+
+def _step1_prompt_variant(content_mode: str, generation_mode: str) -> Step1PromptVariant:
+    if generation_mode == "reference_video":
+        return "reference_video"
+    if content_mode == "drama":
+        return "drama"
+    return "narration"
 
 
 def build_episode_script_basis(step1_content: object, *, project: Mapping[str, object]) -> ArtifactBasis:
