@@ -10,8 +10,8 @@ CometAPI 等事实标准）：``POST /v2/video/generations`` 提交拿 generatio
 - 请求体取各家公共子集（model / prompt / duration / image_url / last_image_url /
   image_urls / seed / resolution）；尾帧键随模型差异（Veo ``last_image_url`` /
   Kling ``tail_image_url``），generic 取最常见的 ``last_image_url``。
-- 状态串归一化：覆盖 aimlapi 官方枚举（queued/generating/completed/error）并并入
-  跨厂商同义词，未知串当 running 继续轮询。
+- 状态串归一化：走 base 的跨厂商共享归一（覆盖 aimlapi 官方枚举 queued/generating/
+  completed/error），本端点无过期语义故把 expired 折进 failed，未知串当 running 继续轮询。
 - 视频 URL / task_id / status 各用一张多路径优先级表逐个试取，容忍各家回包结构差异。
 """
 
@@ -32,11 +32,15 @@ from lib.retry import (
 )
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
+    ProviderJobStatus,
     ResumeExpiredError,
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
+    extract_provider_error_message,
+    first_str_by_paths,
+    normalize_provider_status,
     poll_with_retry,
     should_retry_poll,
     should_retry_submit,
@@ -62,32 +66,7 @@ _LARGE_IMAGE_WARN_BYTES = 4 * 1024 * 1024
 # 日志摘要里 prompt 截断长度（避免长 prompt 撑爆日志）
 _PROMPT_LOG_MAX = 200
 
-# 状态串 → canonical（lowercase 后查表）。覆盖 aimlapi 官方枚举 queued/generating/
-# completed/error，并并入跨厂商同义词（流派 C 路由到多家时底层状态串可能透传）。
-_STATUS_SYNONYMS: dict[str, str] = {
-    "completed": "succeeded",
-    "succeeded": "succeeded",
-    "succeed": "succeeded",
-    "success": "succeeded",
-    "failed": "failed",
-    "fail": "failed",
-    "error": "failed",
-    "expired": "failed",
-    "canceled": "failed",
-    "cancelled": "failed",
-    "generating": "running",
-    "in_progress": "running",
-    "running": "running",
-    "processing": "running",
-    "queued": "queued",
-    "queueing": "queued",
-    "preparing": "queued",
-    "submitted": "queued",
-    "pending": "queued",
-    "created": "queued",
-}
-
-# 多路径优先级表，配 _dig 逐层走 dict key / list 下标（int 段表 list 下标）。
+# 多路径优先级表，配 dig 逐层走 dict key / list 下标（int 段表 list 下标）。
 # 取自参数对齐表「视频 URL 路径 / task_id 路径」的流派 C 并集。
 _VIDEO_URL_PATHS: tuple[tuple[str | int, ...], ...] = (
     ("video", "url"),
@@ -114,37 +93,14 @@ _STATUS_PATHS: tuple[tuple[str | int, ...], ...] = (
 )
 
 
-def _dig(payload: object, path: tuple[str | int, ...]) -> object | None:
-    """按 path 逐层走 dict key / list 下标，任一层缺失返回 None。"""
-    cur: object = payload
-    for seg in path:
-        if isinstance(seg, int):
-            if not isinstance(cur, list) or seg >= len(cur):
-                return None
-            cur = cur[seg]
-        else:
-            if not isinstance(cur, dict) or seg not in cur:
-                return None
-            cur = cur[seg]
-    return cur
+def normalize_status(raw: object) -> ProviderJobStatus:
+    """raw 状态值 → canonical：queued | running | succeeded | failed。未知串当 running。
 
-
-def _first_str_by_paths(payload: object, paths: tuple[tuple[str | int, ...], ...]) -> str | None:
-    """按优先级逐个试取第一个非空字符串值（int 容忍并 str 化）。"""
-    for path in paths:
-        val = _dig(payload, path)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-        if isinstance(val, int) and not isinstance(val, bool):
-            return str(val)
-    return None
-
-
-def normalize_status(raw: object) -> str:
-    """raw 状态值 → canonical：queued | running | succeeded | failed。未知串当 running。"""
-    if not isinstance(raw, str):
-        return "running"
-    return _STATUS_SYNONYMS.get(raw.strip().lower(), "running")
+    本端点无独立的过期语义（任务过期即失败、无续跑分流），故在共享的五档归一之上把
+    ``EXPIRED`` 折进 ``FAILED``。
+    """
+    status = normalize_provider_status(raw)
+    return ProviderJobStatus.FAILED if status is ProviderJobStatus.EXPIRED else status
 
 
 def _warn_if_large(path: Path) -> None:
@@ -244,16 +200,9 @@ def _normalize_root(base_url: str) -> str:
 
 
 def _extract_failure(state: dict) -> str | None:
-    if normalize_status(_first_str_by_paths(state, _STATUS_PATHS)) != "failed":
+    if normalize_status(first_str_by_paths(state, _STATUS_PATHS)) is not ProviderJobStatus.FAILED:
         return None
-    err = _dig(state, ("error",))
-    if isinstance(err, dict):
-        msg = err.get("message") or err.get("name") or "unknown"
-    elif isinstance(err, str) and err.strip():
-        msg = err
-    else:
-        msg = "unknown"
-    return f"V2 视频生成失败: {msg}"
+    return f"V2 视频生成失败: {extract_provider_error_message(state)}"
 
 
 class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
@@ -319,7 +268,7 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
             provider=PROVIDER_V2_VIDEO,
         )
         payload = resp.json()
-        generation_id = _first_str_by_paths(payload, _TASK_ID_PATHS)
+        generation_id = first_str_by_paths(payload, _TASK_ID_PATHS)
         if not generation_id:
             raise RuntimeError(f"V2 创建任务返回体未能从已知路径提取 task_id: {payload}")
         return generation_id
@@ -355,7 +304,7 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
 
         final = await poll_with_retry(
             poll_fn=_gated_poll,
-            is_done=lambda s: normalize_status(_first_str_by_paths(s, _STATUS_PATHS)) == "succeeded",
+            is_done=lambda s: normalize_status(first_str_by_paths(s, _STATUS_PATHS)) is ProviderJobStatus.SUCCEEDED,
             is_failed=_extract_failure,
             poll_interval=_POLL_INTERVAL_SECONDS,
             max_wait=self._max_wait(request.duration_seconds),
@@ -363,7 +312,7 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
             label="V2",
         )
 
-        video_url = _first_str_by_paths(final, _VIDEO_URL_PATHS)
+        video_url = first_str_by_paths(final, _VIDEO_URL_PATHS)
         if not video_url:
             raise RuntimeError(f"V2 任务完成但未能从已知路径提取视频 URL: {final}")
         await self._download_with_retry(video_url, request.output_path)

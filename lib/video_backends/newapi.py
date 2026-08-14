@@ -22,12 +22,17 @@ from lib.retry import (
     with_retry_async,
 )
 from lib.video_backends.base import (
+    TERMINAL_PROVIDER_STATUSES,
     ProviderJobIdPersistenceMixin,
+    ProviderJobStatus,
     ResumeExpiredError,
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
+    extract_provider_error_message,
+    first_str_by_paths,
+    normalize_provider_status,
     poll_with_retry,
     should_retry_poll,
     should_retry_submit,
@@ -47,6 +52,22 @@ _LARGE_IMAGE_WARN_BYTES = 4 * 1024 * 1024
 
 # 视频标准尺寸对齐 8 的倍数（1920x1080 / 1080x1920 等；1080 非 16 的倍数），主流视频模型通用。
 _VIDEO_ROUND_TO = 8
+
+# 状态与视频地址的多路径优先级表：该端点的回包形状跨部署不统一，既有扁平 ``{status, url}``，
+# 也有 ``{"code": ..., "data": {...}}`` 包装体（视频地址字段名另有 ``result_url`` 一说）。
+# 故按优先级并集探测而非二选一：扁平路径恒排表首，包装路径仅在其缺失时兜底。
+_STATUS_PATHS: tuple[tuple[str | int, ...], ...] = (("status",), ("data", "status"))
+_VIDEO_URL_PATHS: tuple[tuple[str | int, ...], ...] = (
+    ("url",),
+    ("data", "url"),
+    ("data", "result_url"),
+    ("result_url",),
+)
+
+
+def _task_status(state: object) -> ProviderJobStatus:
+    """回包 → canonical 状态。端点跨厂商分发，状态串随底层厂商透传，必须过共享归一。"""
+    return normalize_provider_status(first_str_by_paths(state, _STATUS_PATHS))
 
 
 def _resolve_size(resolution: str | None, aspect_ratio: str) -> tuple[int, int]:
@@ -153,7 +174,7 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
         *,
         is_resume: bool,
     ) -> VideoGenerationResult:
-        # _is_done 纯谓词：completed / failed / expired 均视为终态；caller 按 is_resume
+        # is_done 纯谓词：成功 / 失败 / 过期三档均视为终态；caller 按 is_resume
         # flag 决定 expired 抛 RuntimeError（generate）还是 ResumeExpiredError（resume）。
         # resume 路径下 404 由 _gated_poll 直接抛 ResumeExpiredError：should_retry_poll 把
         # 轮询 404 当作"短暂未就绪"重试，对已过期的 resume 任务会一直重到 max_wait 超时、
@@ -169,7 +190,7 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
 
         final = await poll_with_retry(
             poll_fn=_gated_poll,
-            is_done=lambda state: state.get("status") in ("completed", "failed", "expired"),
+            is_done=lambda state: _task_status(state) in TERMINAL_PROVIDER_STATUSES,
             is_failed=_extract_failure,
             poll_interval=_POLL_INTERVAL_SECONDS,
             max_wait=self._max_wait(request.duration_seconds),
@@ -177,7 +198,7 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
             label="NewAPI",
         )
 
-        if final.get("status") == "expired":
+        if _task_status(final) is ProviderJobStatus.EXPIRED:
             if is_resume:
                 raise ResumeExpiredError(
                     job_id=task_id,
@@ -186,9 +207,9 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
                 )
             raise RuntimeError(f"NewAPI task expired during generate: {task_id}")
 
-        video_url = final.get("url")
+        video_url = first_str_by_paths(final, _VIDEO_URL_PATHS)
         if not video_url:
-            raise RuntimeError(f"NewAPI 任务完成但缺少 url 字段: {final}")
+            raise RuntimeError(f"NewAPI 任务完成但未能从已知路径提取视频 URL: {final}")
 
         # 流式下载，不携带 Authorization 头（视频 URL 常为 CDN/OSS，避免 API Key 泄露）
         await self._download_with_retry(video_url, request.output_path)
@@ -252,7 +273,6 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
 
 
 def _extract_failure(state: dict) -> str | None:
-    if state.get("status") != "failed":
+    if _task_status(state) is not ProviderJobStatus.FAILED:
         return None
-    err = (state.get("error") or {}).get("message") or "unknown"
-    return f"NewAPI 视频生成失败: {err}"
+    return f"NewAPI 视频生成失败: {extract_provider_error_message(state)}"

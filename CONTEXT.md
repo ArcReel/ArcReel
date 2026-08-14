@@ -82,6 +82,10 @@ ArcReel 中始终与 server 主进程**捆绑在同一个 uvicorn 进程内**的
 **孤儿任务（orphan task）**：
 DB 中状态为 `running` 但 worker 内存里没有对应 asyncio.Task 的任务。唯一现实成因是**服务重启**（部署 / 崩溃恢复）；处理原则是不重新触发生成，只有具备完整恢复身份的提交-轮询型任务才可继续轮询。
 
+**provider job status（供应商任务状态）**：
+提交-轮询型 video backend 从供应商回包读到的**远端 job** 状态，与上面 task 状态机同名不同物——它由供应商写、只决定轮询何时终止，不是 DB 里的任务状态。各家状态串写法不一，且经 OpenAI 兼容代理网关转发时会透传底层厂商的串，故一律过 `lib/video_backends/base.py::normalize_provider_status` 归一到五档：`queued` / `running` / `succeeded` / `failed` / `expired`。`expired` 独立于 `failed`：它决定续跑走 `[resume_expired]`（不再自愈）而非普通失败。未登记的状态串按 `running` 处理继续轮询——保守方向，否则会对未就绪任务触发下载。
+_Avoid_: 与 task 状态机的 succeeded/failed 混为一谈；给未知状态串加「猜测即终态」的启发式；在 backend 里各写一份同义词判定。
+
 **execution checkpoint（执行检查点）**：
 视频任务（分镜路线与参考路线）首次向 provider 提交前冻结的单次付费请求身份与实际输入事实。它只证明「这次提交如何发生」，不是入队快照、provider job、任务状态、Artifact Manifest 写入或产物 current 标记；命中同档复用时不创建 checkpoint。
 _Avoid_: request snapshot、resume payload、current marker。

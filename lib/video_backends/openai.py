@@ -13,11 +13,14 @@ from lib.providers import PROVIDER_OPENAI
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
+    TERMINAL_PROVIDER_STATUSES,
     ProviderJobIdPersistenceMixin,
+    ProviderJobStatus,
     ResumeExpiredError,
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
+    normalize_provider_status,
     poll_with_retry,
 )
 
@@ -40,6 +43,16 @@ _SORA_SIZES_1080P: tuple[str, ...] = ("1080x1920", "1920x1080")
 # 向后兼容的并集导出（外部/测试引用「全部合法档」）。
 _SORA_LEGAL_SIZES: tuple[str, ...] = _SORA_SIZES_720P + _SORA_SIZES_1080P
 _SORA_1080P_MIN_SHORT = 1080
+
+
+def _video_status(video: object) -> ProviderJobStatus:
+    """SDK Video 对象 → canonical 状态。
+
+    本端点同时服务内置 Sora 与自定义供应商的 openai-video 协议：官方 Sora 只发
+    ``queued`` / ``in_progress`` / ``completed`` / ``failed``，而 OpenAI 兼容代理网关转发
+    非 Sora 型号时会透传底层厂商的状态串（如 ``succeeded``），故一律过共享归一。
+    """
+    return normalize_provider_status(getattr(video, "status", None))
 
 
 def _resolve_size(model: str, resolution: str | None, aspect_ratio: str) -> str:
@@ -149,7 +162,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
 
         # generate 路径下 expired 是「provider 异常 / 输入参数过期」类失败，
         # 抛 RuntimeError 让 worker mark_failed（不带 [resume_expired] 前缀）。
-        if final.status == "expired":
+        if _video_status(final) is ProviderJobStatus.EXPIRED:
             raise RuntimeError(f"OpenAI Sora job expired during generate: {final.id}")
 
         return await self._download_and_build_result(final, request, kwargs)
@@ -165,7 +178,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
 
         # resume 路径下 expired = provider 端已忘 / 输入资产过期，归类
         # [resume_expired] 让 worker 错误前缀化、不再尝试重启自愈
-        if final.status == "expired":
+        if _video_status(final) is ProviderJobStatus.EXPIRED:
             raise ResumeExpiredError(
                 job_id=job_id,
                 provider=PROVIDER_OPENAI,
@@ -203,23 +216,27 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         return await self._client.videos.create(**kwargs)
 
     async def _poll_until_complete(self, video_id: str, duration_seconds: int):
-        """轮询任务直到 status=='completed'。
+        """轮询任务直到状态归一到终态。
 
         不复用 SDK 的 client.videos.poll：它仅识别 in_progress/queued/completed/failed，
         对接返回非标状态（如 NOT_START）的 OpenAI 兼容网关时会提前退出，导致下载未就绪任务。
         """
         max_wait = max(_MIN_POLL_TIMEOUT_SECONDS, float(duration_seconds) * _POLL_TIMEOUT_PER_SECOND)
 
-        # _is_done 是纯谓词：completed / failed / expired 三种状态都视为「已终态」让 poll 返回。
+        # is_done 是纯谓词：成功 / 失败 / 过期三档都视为「已终态」让 poll 返回。
         # caller (generate / resume_video) 拿到 result 后再分流：
-        #   - completed → 下载
-        #   - failed   → is_failed 已抛 RuntimeError
-        #   - expired  → 在 caller 处按 generate vs resume 上下文抛 RuntimeError / ResumeExpiredError
+        #   - succeeded → 下载
+        #   - failed    → is_failed 已抛 RuntimeError
+        #   - expired   → 在 caller 处按 generate vs resume 上下文抛 RuntimeError / ResumeExpiredError
         # 关键不变量：is_failed 不识别 expired，避免覆盖 caller 分流。
         return await poll_with_retry(
             poll_fn=lambda: self._client.videos.retrieve(video_id),
-            is_done=lambda v: v.status in ("completed", "failed", "expired"),
-            is_failed=lambda v: f"Sora 视频生成失败: {getattr(v, 'error', None)}" if v.status == "failed" else None,
+            is_done=lambda v: _video_status(v) in TERMINAL_PROVIDER_STATUSES,
+            is_failed=lambda v: (
+                f"Sora 视频生成失败: {getattr(v, 'error', None)}"
+                if _video_status(v) is ProviderJobStatus.FAILED
+                else None
+            ),
             poll_interval=_POLL_INTERVAL_SECONDS,
             max_wait=max_wait,
             retryable_errors=OPENAI_RETRYABLE_ERRORS,

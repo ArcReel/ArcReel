@@ -337,6 +337,110 @@ async def submit_post(
     return resp
 
 
+class ProviderJobStatus(StrEnum):
+    """供应商异步任务状态的 canonical 分档。
+
+    ``EXPIRED`` 独立于 ``FAILED``：OpenAI / NewAPI 两条链路据其按 generate / resume 上下文
+    分流抛 ``RuntimeError`` / ``ResumeExpiredError``，后者驱动 worker 的 ``[resume_expired]``
+    前缀与「不再尝试重启自愈」判定。折进 failed 会静默吃掉这条分流。没有过期语义的端点
+    （如流派 C ``/v2/video/generations``）在本分档之上自行折叠。
+    """
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    EXPIRED = "expired"
+
+
+TERMINAL_PROVIDER_STATUSES: frozenset[ProviderJobStatus] = frozenset(
+    {ProviderJobStatus.SUCCEEDED, ProviderJobStatus.FAILED, ProviderJobStatus.EXPIRED}
+)
+
+# 跨厂商状态同义词表（lowercase + strip 后查表）。OpenAI 兼容代理网关转发非原生型号时会把
+# 底层厂商的状态串原样透传，各后端若只认自家文档里的字面量，已就绪的任务会被当成"仍在跑"
+# 一路轮询到 max_wait —— 用户侧报超时失败，供应商侧成品已生成且已计费。
+_PROVIDER_STATUS_SYNONYMS: dict[str, ProviderJobStatus] = {
+    "completed": ProviderJobStatus.SUCCEEDED,
+    "succeeded": ProviderJobStatus.SUCCEEDED,
+    "succeed": ProviderJobStatus.SUCCEEDED,
+    "success": ProviderJobStatus.SUCCEEDED,
+    "failed": ProviderJobStatus.FAILED,
+    "fail": ProviderJobStatus.FAILED,
+    "error": ProviderJobStatus.FAILED,
+    "canceled": ProviderJobStatus.FAILED,
+    "cancelled": ProviderJobStatus.FAILED,
+    "expired": ProviderJobStatus.EXPIRED,
+    "generating": ProviderJobStatus.RUNNING,
+    "in_progress": ProviderJobStatus.RUNNING,
+    "running": ProviderJobStatus.RUNNING,
+    "processing": ProviderJobStatus.RUNNING,
+    "queued": ProviderJobStatus.QUEUED,
+    "queueing": ProviderJobStatus.QUEUED,
+    "preparing": ProviderJobStatus.QUEUED,
+    "submitted": ProviderJobStatus.QUEUED,
+    "pending": ProviderJobStatus.QUEUED,
+    "created": ProviderJobStatus.QUEUED,
+}
+
+
+def normalize_provider_status(raw: object) -> ProviderJobStatus:
+    """任意供应商状态值 → canonical 分档（大小写与首尾空白无关）。
+
+    未登记的状态串一律当 ``RUNNING`` 继续轮询：把未知串判成终态，会让返回非标进行中状态
+    （如 ``NOT_START``）的网关触发"下载未就绪任务"。非字符串（缺字段 / None）同理。
+    """
+    if not isinstance(raw, str):
+        return ProviderJobStatus.RUNNING
+    return _PROVIDER_STATUS_SYNONYMS.get(raw.strip().lower(), ProviderJobStatus.RUNNING)
+
+
+def _dig(payload: object, path: tuple[str | int, ...]) -> object | None:
+    """按 path 逐层走 dict key / list 下标（int 段表 list 下标），任一层缺失返回 None。"""
+    cur: object = payload
+    for seg in path:
+        if isinstance(seg, int):
+            if not isinstance(cur, list) or seg >= len(cur):
+                return None
+            cur = cur[seg]
+        else:
+            if not isinstance(cur, dict) or seg not in cur:
+                return None
+            cur = cur[seg]
+    return cur
+
+
+def first_str_by_paths(payload: object, paths: tuple[tuple[str | int, ...], ...]) -> str | None:
+    """按优先级逐个试取第一个非空字符串值（int 容忍并 str 化）。
+
+    各家回包结构不一致时，用一张按优先级排序的路径表容错取值，而不是为每种形状写一条分支。
+    """
+    for path in paths:
+        val = _dig(payload, path)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+        if isinstance(val, int) and not isinstance(val, bool):
+            return str(val)
+    return None
+
+
+# 错误描述的常见落点：扁平 error 与包装体内的 data.error。
+_ERROR_PATHS: tuple[tuple[str | int, ...], ...] = (("error",), ("data", "error"))
+
+
+def extract_provider_error_message(state: object) -> str:
+    """从回包里尽力取供应商错误描述（dict 取 message/name，或直接是字符串）；取不到返回 unknown。"""
+    for path in _ERROR_PATHS:
+        err = _dig(state, path)
+        if isinstance(err, dict):
+            msg = err.get("message") or err.get("name")
+            if isinstance(msg, str) and msg.strip():
+                return msg.strip()
+        elif isinstance(err, str) and err.strip():
+            return err.strip()
+    return "unknown"
+
+
 async def poll_with_retry[T](
     *,
     poll_fn: Callable[[], Awaitable[T]],
