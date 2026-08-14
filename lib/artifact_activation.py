@@ -793,14 +793,14 @@ class _Planner:
         if target.episode != episode.episode or _normalize_script_binding(target.script_file) != episode.script_file:
             return
         snapshot_rel = record.get("file")
-        if not isinstance(snapshot_rel, str):
+        if not VersionManager.is_managed_snapshot_path(resource_type, snapshot_rel):
             return
         artifact = self._safe_present_path(artifact_path)
-        snapshot = self._safe_present_path(snapshot_rel)
+        snapshot = self._safe_present_path(cast(str, snapshot_rel))
         if artifact is None or snapshot is None:
             return
         try:
-            if artifact.read_bytes() != snapshot.read_bytes():
+            if artifact.samefile(snapshot) or artifact.read_bytes() != snapshot.read_bytes():
                 return
         except OSError:
             return

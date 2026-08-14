@@ -118,6 +118,16 @@ class ArtifactManifestAdapter(Protocol):
     def delete_entry(self, key: ArtifactKey) -> bool:
         raise NotImplementedError
 
+    def replace_entries_if_matches_atomically(
+        self,
+        *,
+        expected: Mapping[ArtifactKey, ArtifactManifestEntry | None],
+        replacements: Mapping[ArtifactKey, ArtifactManifestEntry | None],
+    ) -> bool:
+        """Compare-and-swap a scoped set of claims in one storage commit."""
+
+        raise NotImplementedError
+
     def replace_entries_atomically(
         self,
         entries: Mapping[ArtifactKey, ArtifactManifestEntry],
@@ -125,6 +135,68 @@ class ArtifactManifestAdapter(Protocol):
         """Replace the complete manifest target state in one storage commit."""
 
         raise NotImplementedError
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactEntryRekeyReceipt:
+    """Committed claim rekey that can restore its exact prior key state."""
+
+    adapter: ArtifactManifestAdapter
+    before: Mapping[ArtifactKey, ArtifactManifestEntry | None]
+    after: Mapping[ArtifactKey, ArtifactManifestEntry | None]
+    changed: bool
+
+    def compensate(self) -> bool:
+        if not self.changed:
+            return False
+        if self.adapter.replace_entries_if_matches_atomically(
+            expected=self.after,
+            replacements=self.before,
+        ):
+            return True
+        if _entries_match(self.adapter, self.before):
+            return False
+        raise ArtifactManifestError("artifact claim rekey changed concurrently and could not be restored")
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactEntryRekeyPlan:
+    """Preflighted, whole-Manifest claim rekey used by identity transactions."""
+
+    adapter: ArtifactManifestAdapter
+    before: Mapping[ArtifactKey, ArtifactManifestEntry | None]
+    after: Mapping[ArtifactKey, ArtifactManifestEntry | None]
+    changed: bool
+
+    def commit(self) -> ArtifactEntryRekeyReceipt:
+        receipt = ArtifactEntryRekeyReceipt(
+            adapter=self.adapter,
+            before=self.before,
+            after=self.after,
+            changed=self.changed,
+        )
+        if not self.changed:
+            return receipt
+        try:
+            changed = self.adapter.replace_entries_if_matches_atomically(
+                expected=self.before,
+                replacements=self.after,
+            )
+        except BaseException as original_error:
+            try:
+                restored = self.adapter.replace_entries_if_matches_atomically(
+                    expected=self.after,
+                    replacements=self.before,
+                )
+                if not restored and not _entries_match(self.adapter, self.before):
+                    raise ArtifactManifestError("artifact claim rekey did not leave a recoverable state")
+            except BaseException as rollback_error:
+                rollback_error.__cause__ = original_error
+                raise RuntimeError("artifact claim rekey failed and rollback was incomplete") from rollback_error
+            raise
+        if not changed:
+            raise ArtifactManifestError("artifact claims changed after the rekey preflight")
+        return receipt
 
 
 class ArtifactManifest:
@@ -258,6 +330,58 @@ class ArtifactManifest:
                 raise RuntimeError("artifact entry removal failed and rollback was incomplete") from rollback_error
             raise
 
+    def plan_entry_rekey(
+        self,
+        source_key: ArtifactKey,
+        target_key: ArtifactKey,
+        *,
+        artifact_path_rewrites: Mapping[str, str] | None = None,
+    ) -> ArtifactEntryRekeyPlan:
+        """Preflight an identity rename without reconstructing its frozen basis.
+
+        The source claim's digest is immutable evidence.  Only the key and a
+        caller-proven formal path move are changed.  A target claim is a hard
+        collision: silently replacing it could attach another artifact's basis
+        to the renamed identity.
+        """
+
+        rewrites = {
+            _normalize_relative_path(source): _normalize_relative_path(target)
+            for source, target in (artifact_path_rewrites or {}).items()
+        }
+        source_entry = self._adapter.get_entry(source_key)
+        if source_key == target_key:
+            if source_entry is None:
+                return ArtifactEntryRekeyPlan(self._adapter, {}, {}, False)
+            replacement = ArtifactManifestEntry(
+                artifact_path=rewrites.get(source_entry.artifact_path, source_entry.artifact_path),
+                basis_digest=source_entry.basis_digest,
+            )
+            if replacement == source_entry:
+                return ArtifactEntryRekeyPlan(self._adapter, {}, {}, False)
+            return ArtifactEntryRekeyPlan(
+                self._adapter,
+                {source_key: source_entry},
+                {source_key: replacement},
+                True,
+            )
+
+        target_entry = self._adapter.get_entry(target_key)
+        if target_entry is not None:
+            raise ArtifactManifestError(f"artifact claim already exists for target key: {target_key.encode()}")
+        if source_entry is None:
+            return ArtifactEntryRekeyPlan(self._adapter, {}, {}, False)
+        replacement = ArtifactManifestEntry(
+            artifact_path=rewrites.get(source_entry.artifact_path, source_entry.artifact_path),
+            basis_digest=source_entry.basis_digest,
+        )
+        return ArtifactEntryRekeyPlan(
+            self._adapter,
+            {source_key: source_entry, target_key: None},
+            {source_key: None, target_key: replacement},
+            True,
+        )
+
     def compare(self, key: ArtifactKey, *, artifact_path: str, basis: ArtifactBasis) -> ArtifactComparison:
         if not isinstance(basis, ArtifactBasis):
             raise TypeError("basis must be an ArtifactBasis")
@@ -358,6 +482,28 @@ class InMemoryArtifactManifestAdapter:
     def delete_entry(self, key: ArtifactKey) -> bool:
         with self._lock:
             return self._entries.pop(key.encode(), None) is not None
+
+    def replace_entries_if_matches_atomically(
+        self,
+        *,
+        expected: Mapping[ArtifactKey, ArtifactManifestEntry | None],
+        replacements: Mapping[ArtifactKey, ArtifactManifestEntry | None],
+    ) -> bool:
+        encoded_expected = _encode_optional_entries(expected)
+        encoded_replacements = _encode_optional_entries(replacements)
+        with self._lock:
+            if any(self._entries.get(key) != entry for key, entry in encoded_expected.items()):
+                return False
+            updated = dict(self._entries)
+            for key, entry in encoded_replacements.items():
+                if entry is None:
+                    updated.pop(key, None)
+                else:
+                    updated[key] = entry
+            if updated == self._entries:
+                return False
+            self._entries = updated
+            return True
 
     def replace_entries_atomically(
         self,
@@ -722,15 +868,30 @@ class ProjectArtifactManifestAdapter:
     ) -> bool:
         """Restore one entry only while the caller's registered claim still wins."""
 
-        encoded = key.encode()
+        return self.replace_entries_if_matches_atomically(
+            expected={key: expected},
+            replacements={key: replacement},
+        )
+
+    def replace_entries_if_matches_atomically(
+        self,
+        *,
+        expected: Mapping[ArtifactKey, ArtifactManifestEntry | None],
+        replacements: Mapping[ArtifactKey, ArtifactManifestEntry | None],
+    ) -> bool:
+        """Compare-and-swap claims while preserving unrelated Manifest entries."""
+
+        encoded_expected = _encode_optional_entries(expected)
+        encoded_replacements = _encode_optional_entries(replacements)
         with self._locked() as root_fd:
             entries, original_bytes = self._load_unlocked(root_fd)
-            if entries.get(encoded) != expected:
+            if any(entries.get(key) != entry for key, entry in encoded_expected.items()):
                 return False
-            if replacement is None:
-                entries.pop(encoded)
-            else:
-                entries[encoded] = replacement
+            for key, entry in encoded_replacements.items():
+                if entry is None:
+                    entries.pop(key, None)
+                else:
+                    entries[key] = entry
             if not entries:
                 try:
                     if root_fd is None:
@@ -738,11 +899,10 @@ class ProjectArtifactManifestAdapter:
                     else:
                         os.unlink(MANIFEST_FILENAME, dir_fd=root_fd)
                 except FileNotFoundError:
-                    # Deletion is idempotent; another cleanup may already have removed the empty manifest.
                     pass
                 except OSError as exc:
                     raise ArtifactManifestError(f"cannot remove empty artifact manifest: {exc}") from exc
-                return True
+                return original_bytes is not None
             new_bytes = _serialize_manifest(entries)
             if original_bytes == new_bytes:
                 return False
@@ -1383,6 +1543,29 @@ def _encode_target_entries(
             raise ValueError(f"duplicate manifest target key: {encoded_key}")
         encoded[encoded_key] = entry
     return encoded
+
+
+def _encode_optional_entries(
+    entries: Mapping[ArtifactKey, ArtifactManifestEntry | None],
+) -> dict[str, ArtifactManifestEntry | None]:
+    present: dict[ArtifactKey, ArtifactManifestEntry] = {}
+    for key, entry in entries.items():
+        if entry is not None:
+            present[key] = entry
+    encoded_present = _encode_target_entries(present)
+    encoded: dict[str, ArtifactManifestEntry | None] = {}
+    for key, entry in entries.items():
+        if not isinstance(key, ArtifactKey):
+            raise TypeError("manifest compare-and-swap keys must be ArtifactKey values")
+        encoded[key.encode()] = encoded_present.get(key.encode()) if entry is not None else None
+    return encoded
+
+
+def _entries_match(
+    adapter: ArtifactManifestAdapter,
+    expected: Mapping[ArtifactKey, ArtifactManifestEntry | None],
+) -> bool:
+    return all(adapter.get_entry(key) == entry for key, entry in expected.items())
 
 
 def _serialize_manifest(entries: Mapping[str, ArtifactManifestEntry]) -> bytes:

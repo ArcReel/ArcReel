@@ -2454,9 +2454,10 @@ class ProjectManager:
         剧本与 step1 草稿的名称引用、规划关联文件迁移、对 project.json 变更做「不更坏」
         结构校验；``dry_run=True`` 时到此为止只返回影响报告（预览与执行共用同一套扫描，
         数字必然一致），否则按 剧本 → 草稿 → 关联文件 → 版本历史 → project.json 的顺序
-        落盘——资产桶 key 最后改，中途失败时旧名仍在桶内，重跑同一次重命名即可收敛
-        （各步骤均幂等）。锁获取顺序与 ``locked_episode_script`` 的 脚本锁 → 项目锁 一致，
-        避免 ABBA 死锁。
+        落盘——schema 8 的 Artifact Manifest claim 与资产桶 key 最后改，中途失败时旧名仍在
+        桶内，重跑同一次重命名即可收敛（各步骤均幂等）。Manifest 以整份文件的一次 CAS
+        重键，project.json 写失败时只补偿本次 claim 变更。锁获取顺序与
+        ``locked_episode_script`` 的 脚本锁 → 项目锁 一致，避免 ABBA 死锁。
 
         Raises:
             ValueError: table 未知或新名非法（``validate_asset_name``）/ 结构校验失败。
@@ -2553,6 +2554,34 @@ class ProjectManager:
             if new_errors:
                 raise ValueError("project.json 结构校验失败: " + "; ".join(sorted(new_errors)))
 
+            manifest_rekey_plan = None
+            from lib.artifact_activation import TARGET_SCHEMA_VERSION
+            from lib.artifact_manifest import MANIFEST_FILENAME
+
+            manifest_path = project_dir / MANIFEST_FILENAME
+            if project.get("schema_version") == TARGET_SCHEMA_VERSION and (
+                manifest_path.exists() or manifest_path.is_symlink()
+            ):
+                from lib.artifact_manifest import ArtifactKey, ArtifactManifest, ProjectArtifactManifestAdapter
+
+                source_entry = project[spec.bucket_key][old_key]
+                old_sheet = source_entry.get(spec.sheet_field) if isinstance(source_entry, Mapping) else None
+                new_sheet = entry.get(spec.sheet_field) if isinstance(entry, Mapping) else None
+                path_rewrites = (
+                    {old_sheet: new_sheet}
+                    if isinstance(old_sheet, str)
+                    and old_sheet
+                    and isinstance(new_sheet, str)
+                    and new_sheet
+                    and old_sheet != new_sheet
+                    else {}
+                )
+                manifest_rekey_plan = ArtifactManifest(ProjectArtifactManifestAdapter(project_dir)).plan_entry_rekey(
+                    ArtifactKey.asset_sheet(asset_type, old_key),
+                    ArtifactKey.asset_sheet(asset_type, new_clean),
+                    artifact_path_rewrites=path_rewrites,
+                )
+
             report = AssetRenameReport(
                 table=table,
                 old_name=old_key,
@@ -2575,7 +2604,21 @@ class ProjectManager:
                     os.replace(src, dst)
             version_manager.rename_resource(spec.bucket_key, old_key, new_clean)
             self._touch_metadata(mutated)
-            atomic_write_json(self._get_project_file_path(project_name), mutated)
+            project_file = self._get_project_file_path(project_name)
+            with formal_write_transaction(project_file):
+                manifest_receipt = manifest_rekey_plan.commit() if manifest_rekey_plan is not None else None
+                try:
+                    atomic_write_json(project_file, mutated)
+                except BaseException as original_error:
+                    if manifest_receipt is not None:
+                        try:
+                            manifest_receipt.compensate()
+                        except BaseException as rollback_error:
+                            rollback_error.__cause__ = original_error
+                            raise RuntimeError(
+                                "asset rename failed and artifact claim rollback was incomplete"
+                            ) from rollback_error
+                    raise
 
         emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
         return report

@@ -14,6 +14,13 @@ from typing import Any
 
 import pytest
 
+from lib.artifact_manifest import (
+    LOCK_FILENAME,
+    MANIFEST_FILENAME,
+    ArtifactKey,
+    ArtifactManifestEntry,
+    ProjectArtifactManifestAdapter,
+)
 from lib.asset_rename import (
     AssetRenameConflictError,
     AssetRenameFileCollisionError,
@@ -422,6 +429,95 @@ class TestRenameAssetCascade:
         assert version_file.name.startswith("主角甲_v1_")
         assert vm.get_versions("characters", "角色A") == {"current_version": 0, "versions": []}
 
+    def test_active_manifest_claim_migrates_with_sheet_identity(self, pm: ProjectManager) -> None:
+        project_dir = _project_dir(pm)
+        sheet = project_dir / "characters" / "角色A.png"
+        sheet.write_bytes(b"current-sheet")
+        pm.update_project(
+            "demo",
+            lambda project: project["characters"]["角色A"].update({"character_sheet": "characters/角色A.png"}),
+        )
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        old_key = ArtifactKey.asset_sheet("character", "角色A")
+        old_entry = ArtifactManifestEntry(
+            artifact_path="characters/角色A.png",
+            basis_digest="sha256-v1:" + "a" * 64,
+        )
+        adapter.put_entry(old_key, old_entry)
+
+        pm.rename_asset("demo", "characters", "角色A", "主角甲")
+
+        assert adapter.get_entry(old_key) is None
+        assert adapter.get_entry(ArtifactKey.asset_sheet("character", "主角甲")) == ArtifactManifestEntry(
+            artifact_path="characters/主角甲.png",
+            basis_digest=old_entry.basis_digest,
+        )
+
+    def test_project_write_failure_compensates_manifest_claim_rekey(
+        self,
+        pm: ProjectManager,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        project_dir = _project_dir(pm)
+        sheet = project_dir / "characters" / "角色A.png"
+        sheet.write_bytes(b"current-sheet")
+        pm.update_project(
+            "demo",
+            lambda project: project["characters"]["角色A"].update({"character_sheet": "characters/角色A.png"}),
+        )
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        old_key = ArtifactKey.asset_sheet("character", "角色A")
+        old_entry = ArtifactManifestEntry(
+            artifact_path="characters/角色A.png",
+            basis_digest="sha256-v1:" + "a" * 64,
+        )
+        adapter.put_entry(old_key, old_entry)
+        project_before = (project_dir / "project.json").read_bytes()
+        original_atomic_write_json = atomic_write_json
+
+        def _write_project_then_fail(path: Path, payload: object) -> None:
+            original_atomic_write_json(path, payload)
+            raise OSError("project write failed")
+
+        monkeypatch.setattr("lib.project_manager.atomic_write_json", _write_project_then_fail)
+
+        with pytest.raises(OSError, match="project write failed"):
+            pm.rename_asset("demo", "characters", "角色A", "主角甲")
+
+        assert adapter.get_entry(old_key) == old_entry
+        assert adapter.get_entry(ArtifactKey.asset_sheet("character", "主角甲")) is None
+        assert (project_dir / "project.json").read_bytes() == project_before
+        assert "角色A" in pm.load_project("demo")["characters"]
+
+    def test_manifest_rekey_retry_updates_path_after_the_file_move_already_completed(
+        self,
+        pm: ProjectManager,
+    ) -> None:
+        project_dir = _project_dir(pm)
+        old_sheet = project_dir / "characters" / "角色A.png"
+        new_sheet = project_dir / "characters" / "主角甲.png"
+        old_sheet.write_bytes(b"current-sheet")
+        pm.update_project(
+            "demo",
+            lambda project: project["characters"]["角色A"].update({"character_sheet": "characters/角色A.png"}),
+        )
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        old_key = ArtifactKey.asset_sheet("character", "角色A")
+        old_entry = ArtifactManifestEntry(
+            artifact_path="characters/角色A.png",
+            basis_digest="sha256-v1:" + "a" * 64,
+        )
+        adapter.put_entry(old_key, old_entry)
+        old_sheet.replace(new_sheet)
+
+        pm.rename_asset("demo", "characters", "角色A", "主角甲")
+
+        assert adapter.get_entry(old_key) is None
+        assert adapter.get_entry(ArtifactKey.asset_sheet("character", "主角甲")) == ArtifactManifestEntry(
+            artifact_path="characters/主角甲.png",
+            basis_digest=old_entry.basis_digest,
+        )
+
     def test_conflict_rejected_atomically(self, pm: ProjectManager) -> None:
         pm.save_script("demo", _narration_script(), "episode_1.json")
         nfd = unicodedata.normalize("NFD", "café")
@@ -629,13 +725,18 @@ class TestRenameAssetCascade:
 
     def test_dry_run_previews_without_writing(self, pm: ProjectManager) -> None:
         pm.save_script("demo", _narration_script(), "episode_1.json")
-        sheet = _project_dir(pm) / "characters" / "角色A.png"
+        project_dir = _project_dir(pm)
+        sheet = project_dir / "characters" / "角色A.png"
         sheet.write_bytes(b"png")
+        (project_dir / MANIFEST_FILENAME).unlink(missing_ok=True)
+        (project_dir / LOCK_FILENAME).unlink(missing_ok=True)
 
         preview = pm.rename_asset("demo", "characters", "角色A", "主角甲", dry_run=True)
 
         assert preview.dry_run is True
         assert sheet.exists()
+        assert not (project_dir / MANIFEST_FILENAME).exists()
+        assert not (project_dir / LOCK_FILENAME).exists()
         assert "角色A" in pm.load_project("demo")["characters"]
         assert _load_script(pm)["segments"][0]["characters_in_segment"] == ["角色A"]
 

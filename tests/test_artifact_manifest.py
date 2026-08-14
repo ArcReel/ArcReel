@@ -11,6 +11,7 @@ from lib.artifact_manifest import (
     ArtifactKind,
     ArtifactManifest,
     ArtifactManifestEntry,
+    ArtifactManifestError,
     ArtifactStatus,
     InMemoryArtifactManifestAdapter,
 )
@@ -134,6 +135,80 @@ def test_manifest_does_not_apply_an_old_path_claim_to_a_new_pointer() -> None:
 
     assert comparison.status is ArtifactStatus.MISSING
     assert not comparison.usable
+
+
+def test_manifest_rekey_plan_moves_one_claim_atomically_and_can_compensate() -> None:
+    old_key = ArtifactKey.asset_sheet("character", "角色A")
+    new_key = ArtifactKey.asset_sheet("character", "主角甲")
+    unrelated_key = ArtifactKey.episode_script(1)
+    old_entry = ArtifactManifestEntry("characters/角色A.png", "sha256-v1:" + "a" * 64)
+    unrelated_entry = ArtifactManifestEntry("scripts/episode_1.json", "sha256-v1:" + "b" * 64)
+    adapter = InMemoryArtifactManifestAdapter()
+    adapter.put_entry(old_key, old_entry)
+    adapter.put_entry(unrelated_key, unrelated_entry)
+
+    plan = ArtifactManifest(adapter).plan_entry_rekey(
+        old_key,
+        new_key,
+        artifact_path_rewrites={"characters/角色A.png": "characters/主角甲.png"},
+    )
+
+    assert adapter.get_entry(old_key) == old_entry
+    receipt = plan.commit()
+    assert adapter.get_entry(old_key) is None
+    assert adapter.get_entry(new_key) == ArtifactManifestEntry(
+        "characters/主角甲.png",
+        old_entry.basis_digest,
+    )
+    assert adapter.get_entry(unrelated_key) == unrelated_entry
+
+    assert receipt.compensate()
+    assert adapter.get_entry(old_key) == old_entry
+    assert adapter.get_entry(new_key) is None
+    assert adapter.get_entry(unrelated_key) == unrelated_entry
+
+
+def test_manifest_rekey_plan_rejects_a_target_claim_without_mutating_either_key() -> None:
+    old_key = ArtifactKey.asset_sheet("character", "角色A")
+    new_key = ArtifactKey.asset_sheet("character", "主角甲")
+    old_entry = ArtifactManifestEntry("characters/角色A.png", "sha256-v1:" + "a" * 64)
+    target_entry = ArtifactManifestEntry("characters/主角甲.png", "sha256-v1:" + "b" * 64)
+    adapter = InMemoryArtifactManifestAdapter()
+    adapter.put_entry(old_key, old_entry)
+    adapter.put_entry(new_key, target_entry)
+
+    with pytest.raises(ArtifactManifestError, match="target key"):
+        ArtifactManifest(adapter).plan_entry_rekey(old_key, new_key)
+
+    assert adapter.get_entry(old_key) == old_entry
+    assert adapter.get_entry(new_key) == target_entry
+
+
+def test_manifest_rekey_plan_restores_both_keys_after_a_write_then_failure(monkeypatch) -> None:
+    old_key = ArtifactKey.asset_sheet("character", "角色A")
+    new_key = ArtifactKey.asset_sheet("character", "主角甲")
+    old_entry = ArtifactManifestEntry("characters/角色A.png", "sha256-v1:" + "a" * 64)
+    adapter = InMemoryArtifactManifestAdapter()
+    adapter.put_entry(old_key, old_entry)
+    plan = ArtifactManifest(adapter).plan_entry_rekey(old_key, new_key)
+    original_replace = adapter.replace_entries_if_matches_atomically
+    calls = 0
+
+    def _write_then_fail(*, expected, replacements):
+        nonlocal calls
+        calls += 1
+        changed = original_replace(expected=expected, replacements=replacements)
+        if calls == 1:
+            raise OSError("manifest write failed")
+        return changed
+
+    monkeypatch.setattr(adapter, "replace_entries_if_matches_atomically", _write_then_fail)
+
+    with pytest.raises(OSError, match="manifest write failed"):
+        plan.commit()
+
+    assert adapter.get_entry(old_key) == old_entry
+    assert adapter.get_entry(new_key) is None
 
 
 def test_manifest_registers_a_strict_frozen_basis_descriptor_after_artifact_exists() -> None:

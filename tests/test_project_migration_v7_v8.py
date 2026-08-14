@@ -547,6 +547,13 @@ def test_v7_activation_uses_only_selected_complete_typed_media_facts(tmp_path: P
                     "references": [],
                     "generated_assets": {"narration_audio": "audio/segment_E1U4.wav"},
                 },
+                {
+                    "unit_id": "E1U5",
+                    "duration_seconds": 8,
+                    "shots": [{"text": "{伪造快照旁白}"}],
+                    "references": [],
+                    "generated_assets": {"narration_audio": "audio/segment_E1U5.wav"},
+                },
             ],
         },
     )
@@ -595,6 +602,29 @@ def test_v7_activation_uses_only_selected_complete_typed_media_facts(tmp_path: P
         tts_basis_digest=audio_descriptor.digest,
     )
 
+    forged_audio = project_dir / "audio" / "segment_E1U5.wav"
+    forged_audio.write_bytes(b"forged")
+    forged_basis = build_narration_audio_basis_from_canonical_text("伪造快照旁白", settings)
+    forged_descriptor = ArtifactBasisDescriptor.from_basis(forged_basis)
+    versions.add_version(
+        "audio",
+        "E1U5",
+        "伪造快照旁白",
+        source_file=forged_audio,
+        artifact_episode=1,
+        artifact_audio_basis=forged_descriptor.to_dict(),
+        execution_script_file="episode_1.json",
+        tts_actual_duration_seconds=5.0,
+        tts_provider_id=settings.provider_id,
+        tts_model_id=settings.model_id,
+        tts_voice=settings.voice,
+        tts_speed=settings.speed,
+        tts_basis_digest=forged_descriptor.digest,
+    )
+    versions_payload = _read_json(versions.versions_file)
+    versions_payload["audio"]["E1U5"]["versions"][0]["file"] = "audio/segment_E1U5.wav"
+    _write_json(versions.versions_file, versions_payload)
+
     migrate_v7_to_v8(project_dir)
 
     entries = _stored_entries(project_dir)
@@ -612,6 +642,7 @@ def test_v7_activation_uses_only_selected_complete_typed_media_facts(tmp_path: P
     assert ArtifactKey.episode_video(1, "E1U2").encode() not in entries
     assert ArtifactKey.episode_audio(1, "E1U3").encode() not in entries
     assert entries[ArtifactKey.episode_audio(1, "E1U4").encode()]["basis_digest"] == audio_descriptor.digest
+    assert ArtifactKey.episode_audio(1, "E1U5").encode() not in entries
 
     resolver = ArtifactCurrencyResolver(project_dir)
     assert (

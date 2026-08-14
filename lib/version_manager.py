@@ -122,6 +122,22 @@ class VersionManager:
         for resource_type in self.RESOURCE_TYPES:
             (self.versions_dir / resource_type).mkdir(exist_ok=True)
 
+    @classmethod
+    def is_managed_snapshot_path(cls, resource_type: str, relative_path: object) -> bool:
+        """Whether a record points to a canonical file in its typed history bucket."""
+
+        if resource_type not in cls.RESOURCE_TYPES or not isinstance(relative_path, str) or "\\" in relative_path:
+            return False
+        path = PurePosixPath(relative_path)
+        return (
+            relative_path == path.as_posix()
+            and not path.is_absolute()
+            and len(path.parts) == 3
+            and path.parts[:2] == ("versions", resource_type)
+            and path.name not in {"", ".", ".."}
+            and path.suffix == cls.EXTENSIONS[resource_type]
+        )
+
     def _load_versions(self) -> dict:
         """加载版本元数据"""
         if not self.versions_file.exists():
