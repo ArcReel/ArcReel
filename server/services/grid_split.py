@@ -27,6 +27,7 @@ from lib.artifact_manifest import (
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
+from lib.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
 from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
 from lib.path_safety import safe_join
@@ -38,6 +39,8 @@ from lib.visual_artifact_provenance import (
     build_grid_member_storyboard_visual_basis,
     build_stale_grid_member_storyboard_visual_basis,
     snapshot_visual_references,
+    visual_file_digest,
+    visual_references_match_snapshot,
 )
 
 logger = logging.getLogger(__name__)
@@ -138,7 +141,10 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
 
         composite_snapshot, cells = _snapshot_and_split()
         staged_commits: list[StagedVersionCommit] = []
+        staged_paths: list[Path] = []
+        version_metadata_by_resource: dict[str, dict[str, Any]] = {}
         try:
+            composite_digest = visual_file_digest(composite_snapshot)
             storyboards_dir = project_path / "storyboards"
             storyboards_dir.mkdir(parents=True, exist_ok=True)
 
@@ -176,10 +182,13 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
                     suffix=f".grid-split{cell_path.suffix}",
                     dir=storyboards_dir,
                 )
-                os.close(fd)
                 staged_path = Path(staged_name)
+                staged_paths.append(staged_path)
+                os.close(fd)
                 staged_path.unlink()
                 cell.save(staged_path, format="PNG")
+                version_metadata = {"source": "grid_split", "grid_id": grid.id}
+                version_metadata_by_resource[resource_id] = version_metadata
                 staged_commits.append(
                     StagedVersionCommit(
                         resource_type="storyboards",
@@ -187,7 +196,7 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
                         prompt="",
                         staged_file=staged_path,
                         current_file=cell_path,
-                        metadata={"source": "grid_split", "grid_id": grid.id},
+                        metadata=version_metadata,
                     )
                 )
                 cell_assignments.append((frame.index, resource_id, cell_rel))
@@ -258,6 +267,7 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
                             columns=grid.cols,
                             member_aspect_ratio=member_ratio,
                             source_grid_basis_digest=source_entry.basis_digest,
+                            source_composite_digest=composite_digest,
                         )
                     except (OSError, TypeError, ValueError):
                         continue
@@ -265,6 +275,7 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
                         artifact_path=cell_rel,
                         basis_digest=basis.digest,
                     )
+                    version_metadata_by_resource[resource_id][IMAGE_ARTIFACT_BASIS_FIELD] = basis.to_evidence_dict()
             elif members is not None and references is not None:
                 for cell_index, resource_id, cell_rel in cell_assignments:
                     try:
@@ -278,12 +289,14 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
                             style=str(project_snapshot.get("style") or ""),
                             member_aspect_ratio=member_ratio,
                             references=references,
+                            source_composite_digest=composite_digest,
                         )
                     except (OSError, TypeError, ValueError):
                         continue
                     manifest_entries[ArtifactKey.episode_storyboard(grid.episode, resource_id)] = ArtifactManifestEntry(
                         artifact_path=cell_rel, basis_digest=basis.digest
                     )
+                    version_metadata_by_resource[resource_id][IMAGE_ARTIFACT_BASIS_FIELD] = basis.to_evidence_dict()
 
             split_at = datetime.now(UTC).isoformat()
             initial_grid = grid.to_dict()
@@ -291,11 +304,25 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
 
             def _register() -> None:
                 if source_key is not None and source_status is not None:
+                    try:
+                        source_unchanged = visual_file_digest(grid_image_file) == composite_digest
+                    except OSError:
+                        source_unchanged = False
+                    references_unchanged = (
+                        source_status is not ArtifactStatus.CURRENT
+                        or references is None
+                        or visual_references_match_snapshot(references)
+                    )
                     latest = ArtifactCurrencyResolver(project_path).compare(
                         source_key,
                         artifact_path=grid_image_path,
                     )
-                    if not latest.usable or latest.status is not source_status:
+                    if (
+                        not source_unchanged
+                        or not references_unchanged
+                        or not latest.usable
+                        or latest.status is not source_status
+                    ):
                         raise GridImageNotReadyError(f"grid {grid.id} changed while being split")
                 expected_entries = (
                     {source_key: source_entry} if source_key is not None and source_entry is not None else {}
@@ -343,8 +370,8 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
             grid.split_at = committed_grid.split_at
             return updated_ids, missing_ids
         finally:
-            for commit in staged_commits:
-                Path(commit.staged_file).unlink(missing_ok=True)
+            for staged_path in staged_paths:
+                staged_path.unlink(missing_ok=True)
             composite_snapshot.unlink(missing_ok=True)
 
     updated_ids, missing_ids = await asyncio.to_thread(_split_and_assign)

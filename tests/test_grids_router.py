@@ -14,9 +14,11 @@ from fastapi.testclient import TestClient
 from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
 from lib.i18n import _ as i18n_message
+from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import grids
+from server.routers import versions as versions_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 pytestmark = pytest.mark.unit
@@ -946,6 +948,84 @@ def test_upload_grid_image_normalizes_to_png_and_versions(monkeypatch, tmp_path)
     assert saved.error_message is None
     assert saved.split_at is None
     assert saved.grid_image_path == f"grids/{grid.id}.png"
+
+
+def test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim(monkeypatch, tmp_path):
+    from io import BytesIO
+
+    from PIL import Image
+
+    from lib.artifact_activation import ArtifactCurrencyResolver
+    from lib.artifact_manifest import ArtifactKey, ArtifactStatus
+    from lib.version_manager import VersionManager
+    from server.services.upload_finalize import UPLOAD_VERSION_SOURCE
+
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    pm.create_project_metadata(
+        "demo",
+        "Demo",
+        "Anime",
+        "narration",
+        extras={"generation_mode": "storyboard", "grid_storyboard": True},
+    )
+    script = {"episode": 1, "title": "E1", **_narration_script()}
+    pm.save_script("demo", script, "episode_1.json", validate=False)
+    project_path = pm.get_project_path("demo")
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["E1S01", "E1S02", "E1S03", "E1S04"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="p",
+        model="m",
+        video_aspect_ratio="9:16",
+    )
+    grid.status = "completed"
+    grid.grid_image_path = f"grids/{grid.id}.png"
+    target = project_path / grid.grid_image_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (64, 64), color=(1, 2, 3)).save(target)
+    GridManager(project_path).save(grid)
+
+    monkeypatch.setattr(grids, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
+    monkeypatch.setattr("server.services.generation_tasks.emit_generation_success_batch", lambda **_kwargs: {})
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+    app.include_router(grids.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    app.include_router(versions_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    register_error_handlers(app)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        first = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("first.png", BytesIO(_png_bytes(color=(10, 20, 30))), "image/png")},
+        )
+        second = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("second.png", BytesIO(_png_bytes(color=(40, 50, 60))), "image/png")},
+        )
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+
+        uploaded = [
+            record
+            for record in VersionManager(project_path).get_versions("grids", grid.id)["versions"]
+            if record.get("source") == UPLOAD_VERSION_SOURCE
+        ]
+        assert len(uploaded) == 2
+        assert "artifact_image_basis" in uploaded[0], uploaded[0]
+        restored = client.post(f"/api/v1/projects/demo/versions/grids/{grid.id}/restore/{uploaded[0]['version']}")
+        assert restored.status_code == 200, restored.text
+
+    comparison = ArtifactCurrencyResolver(project_path).compare(
+        ArtifactKey.episode_grid(1, grid.id),
+        artifact_path=f"grids/{grid.id}.png",
+    )
+    assert comparison.status is ArtifactStatus.CURRENT
 
 
 def test_upload_grid_image_refreshes_frozen_aspect_ratio(monkeypatch, tmp_path):

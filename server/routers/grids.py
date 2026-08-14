@@ -14,7 +14,13 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError
-from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_resource_artifact, resolve_artifact_episode
+from lib.artifact_activation import (
+    TARGET_SCHEMA_VERSION,
+    register_current_resource_artifact,
+    resolve_artifact_episode,
+    resolve_current_resource_artifact_basis,
+)
+from lib.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
 from lib.async_thread import run_noninterruptible_sync
 from lib.generation_queue import get_generation_queue
 from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks, video_aspect_ratio_of
@@ -426,15 +432,23 @@ async def upload_grid_image(
                     current_grid.video_aspect_ratio = aspect_ratio
 
                 def _activate() -> None:
-                    metadata: dict[str, str] = {"source": UPLOAD_VERSION_SOURCE}
+                    basis = resolve_current_resource_artifact_basis(
+                        project_path,
+                        resource_type="grids",
+                        resource_id=grid_id,
+                    )
+                    metadata: dict[str, object] = {"source": UPLOAD_VERSION_SOURCE}
                     if file.filename:
                         metadata["original_filename"] = file.filename
+                    if basis is not None:
+                        metadata[IMAGE_ARTIFACT_BASIS_FIELD] = basis.to_evidence_dict()
 
                     def _register() -> None:
                         register_current_resource_artifact(
                             project_path,
                             resource_type="grids",
                             resource_id=grid_id,
+                            basis=basis,
                         )
 
                     version_box.append(

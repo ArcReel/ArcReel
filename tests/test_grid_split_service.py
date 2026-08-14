@@ -265,6 +265,8 @@ class TestApplyGridSplit:
     ):
         from lib.artifact_activation import ArtifactCurrencyResolver
         from lib.artifact_manifest import ArtifactKey, ArtifactStatus
+        from lib.version_manager import VersionManager
+        from server.routers import versions as versions_router
 
         _enable_manifest_and_register_grid(project_with_script, grid_with_image)
         pm = ProjectManager(project_with_script.parent)
@@ -274,6 +276,24 @@ class TestApplyGridSplit:
             patch("server.services.generation_tasks.emit_generation_success_batch", return_value={}),
         ):
             await apply_grid_split("test-project", grid_with_image)
+
+        versions = VersionManager(project_with_script)
+        selected_version = versions.get_current_version("storyboards", "E1S01")
+        assert selected_version is not None
+        selected_record = next(
+            record
+            for record in versions.get_versions("storyboards", "E1S01")["versions"]
+            if record["version"] == selected_version
+        )
+        assert "artifact_image_basis" in selected_record, selected_record
+        with patch("server.routers.versions.get_project_manager", return_value=pm):
+            restored = await versions_router.restore_version(
+                "test-project",
+                "storyboards",
+                "E1S01",
+                selected_version,
+            )
+        assert restored["success"] is True
 
         resolver = ArtifactCurrencyResolver(project_with_script)
         for scene_id in ("E1S01", "E1S02", "E1S03"):
@@ -432,6 +452,7 @@ class TestApplyGridSplit:
         script_file = project_with_script / "scripts" / "episode_1.json"
         grid_file = project_with_script / "grids" / f"{grid_with_image.id}.json"
         before = {
+            "project": project_file.read_bytes(),
             "script": script_file.read_bytes(),
             "grid": grid_file.read_bytes(),
         }
@@ -457,13 +478,94 @@ class TestApplyGridSplit:
                 await apply_grid_split("test-project", grid_with_image)
 
         assert replaced is True
+        assert project_file.read_bytes() == before["project"]
         assert script_file.read_bytes() == before["script"]
         assert grid_file.read_bytes() == before["grid"]
         assert not (project_with_script / "versions" / "versions.json").exists()
         assert not tuple((project_with_script / "storyboards").glob("scene_*.png"))
         adapter = ProjectArtifactManifestAdapter(project_with_script)
+        assert adapter.get_entry(source_key) is not None
         for scene_id in ("E1S01", "E1S02", "E1S03"):
             assert adapter.get_entry(ArtifactKey.episode_storyboard(1, scene_id)) is None
+
+    async def test_stale_source_composite_change_rolls_back_the_whole_split(
+        self,
+        project_with_script,
+        grid_with_image,
+    ):
+        from lib.artifact_activation import ArtifactCurrencyResolver
+        from lib.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
+        from server.services import grid_split as grid_split_module
+
+        _enable_manifest_and_register_grid(project_with_script, grid_with_image)
+        script_file = project_with_script / "scripts" / "episode_1.json"
+        script = json.loads(script_file.read_text(encoding="utf-8"))
+        script["segments"][0]["image_prompt"] = "changed after the composite was produced"
+        script_file.write_text(json.dumps(script), encoding="utf-8")
+        source_key = ArtifactKey.episode_grid(1, grid_with_image.id)
+        assert (
+            ArtifactCurrencyResolver(project_with_script)
+            .compare(source_key, artifact_path=f"grids/{grid_with_image.id}.png")
+            .status
+            is ArtifactStatus.STALE
+        )
+
+        project_file = project_with_script / "project.json"
+        grid_file = project_with_script / "grids" / f"{grid_with_image.id}.json"
+        composite_file = project_with_script / "grids" / f"{grid_with_image.id}.png"
+        source_entry = ProjectArtifactManifestAdapter(project_with_script).get_entry(source_key)
+        before = {
+            "project": project_file.read_bytes(),
+            "script": script_file.read_bytes(),
+            "grid": grid_file.read_bytes(),
+        }
+        original_build = grid_split_module.build_stale_grid_member_storyboard_visual_basis
+        replaced = False
+
+        def _replace_composite_then_build(**kwargs):
+            nonlocal replaced
+            if not replaced:
+                Image.new("RGB", (400, 400), color=(90, 80, 70)).save(composite_file)
+                replaced = True
+            return original_build(**kwargs)
+
+        pm = ProjectManager(project_with_script.parent)
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            patch(
+                "server.services.grid_split.build_stale_grid_member_storyboard_visual_basis",
+                side_effect=_replace_composite_then_build,
+            ),
+        ):
+            with pytest.raises(GridImageNotReadyError, match="changed while being split"):
+                await apply_grid_split("test-project", grid_with_image)
+
+        assert replaced is True
+        assert project_file.read_bytes() == before["project"]
+        assert script_file.read_bytes() == before["script"]
+        assert grid_file.read_bytes() == before["grid"]
+        assert not (project_with_script / "versions" / "versions.json").exists()
+        assert not tuple((project_with_script / "storyboards").glob("scene_*.png"))
+        assert ProjectArtifactManifestAdapter(project_with_script).get_entry(source_key) == source_entry
+
+    async def test_cell_save_failure_removes_every_staged_path(self, project_with_script, grid_with_image):
+        original_save = Image.Image.save
+
+        def _write_partial_cell_then_fail(image, target, *args, **kwargs):
+            if ".grid-split" in str(target):
+                target.write_bytes(b"partial-cell")
+                raise RuntimeError("cell save failed")
+            return original_save(image, target, *args, **kwargs)
+
+        pm = ProjectManager(project_with_script.parent)
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            patch.object(Image.Image, "save", _write_partial_cell_then_fail),
+        ):
+            with pytest.raises(RuntimeError, match="cell save failed"):
+                await apply_grid_split("test-project", grid_with_image)
+
+        assert not tuple((project_with_script / "storyboards").glob(".*.grid-split.png"))
 
     async def test_script_resolution_failure_removes_the_composite_snapshot(
         self,

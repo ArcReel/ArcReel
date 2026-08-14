@@ -16,6 +16,7 @@ from lib.version_manager import VersionManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import reference_videos, shot_uploads
+from server.routers import versions as versions_router
 from server.services import generation_tasks, reference_video_tasks, upload_finalize
 from tests.auth_deps import AUTH_DEPENDENCIES
 
@@ -44,6 +45,13 @@ def _seed_shot_project(tmp_path) -> ProjectManager:
                     "segment_id": "E1S01",
                     "novel_text": "t",
                     "duration_seconds": 5,
+                    "characters_in_segment": [],
+                    "scenes": [],
+                    "props": [],
+                    "image_prompt": {
+                        "scene": "A quiet room",
+                        "composition": {"shot_type": "Medium Shot", "lighting": "soft", "ambiance": "calm"},
+                    },
                     "generated_assets": {
                         "storyboard_image": None,
                         "video_clip": None,
@@ -67,11 +75,13 @@ def _client(monkeypatch, tmp_path):
     monkeypatch.setattr(shot_uploads, "get_project_manager", lambda: pm)
     monkeypatch.setattr(upload_finalize, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
 
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(shot_uploads.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    app.include_router(versions_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app), pm
 
 
@@ -137,6 +147,31 @@ class TestShotStoryboardUpload:
         assert info["versions"][0]["source"] == "manual_upload"
         assert info["versions"][0]["prompt"] == ""
         assert info["versions"][0]["original_filename"] == "board.jpg"
+
+    def test_restoring_a_manual_upload_preserves_its_manifest_claim(self, tmp_path, monkeypatch):
+        from lib.artifact_activation import ArtifactCurrencyResolver
+        from lib.artifact_manifest import ArtifactKey, ArtifactStatus
+
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            first = _upload(client, "storyboard", "first.png", _img_bytes("PNG"))
+            second = _upload(client, "storyboard", "second.png", _img_bytes("PNG", size=(16, 16)))
+            assert first.status_code == 200, first.text
+            assert second.status_code == 200, second.text
+
+            first_record = VersionManager(pm.get_project_path("demo")).get_versions("storyboards", "E1S01")["versions"][
+                0
+            ]
+            assert "artifact_image_basis" in first_record, first_record
+
+            restored = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
+            assert restored.status_code == 200, restored.text
+
+        comparison = ArtifactCurrencyResolver(pm.get_project_path("demo")).compare(
+            ArtifactKey.episode_storyboard(1, "E1S01"),
+            artifact_path="storyboards/scene_E1S01.png",
+        )
+        assert comparison.status is ArtifactStatus.CURRENT
 
     def test_upload_backfills_untracked_existing_file(self, tmp_path, monkeypatch):
         """磁盘已有旧分镜但无版本记录：上传前补登旧文件，旧字节不丢失。"""

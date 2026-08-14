@@ -25,6 +25,7 @@ from lib.artifact_activation import (
     register_current_resource_artifact,
     register_task_current_resource_artifact,
     resolve_artifact_episode,
+    resolve_current_resource_artifact_basis,
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifact_manifest import (
@@ -297,6 +298,7 @@ def _commit_staged_formal_image(
     version_box: list[int] = []
     created_at_box: list[str] = []
     registered_version_box: list[int] = []
+    resolved_basis_box: list[ArtifactBasis | ArtifactBasisDescriptor | None] = []
 
     def _register() -> None:
         registered_version = versions.get_current_version(resource_type, resource_id)
@@ -312,16 +314,25 @@ def _commit_staged_formal_image(
                 script_file=script_file,
                 task_id=task_id,
                 artifact_path=artifact_path,
-                basis=basis,
+                basis=resolved_basis_box[0],
             )
         )
 
     def _activate() -> None:
+        resolved_basis = basis
+        if resolved_basis is None:
+            resolved_basis = resolve_current_resource_artifact_basis(
+                project_path,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                script_file=script_file,
+            )
+        resolved_basis_box.append(resolved_basis)
         committed_metadata = dict(version_metadata)
         if IMAGE_ARTIFACT_BASIS_FIELD in committed_metadata:
             raise ValueError(f"{IMAGE_ARTIFACT_BASIS_FIELD} is reserved for formal image activation")
-        if isinstance(basis, ArtifactBasis):
-            committed_metadata[IMAGE_ARTIFACT_BASIS_FIELD] = basis.to_evidence_dict()
+        if isinstance(resolved_basis, ArtifactBasis):
+            committed_metadata[IMAGE_ARTIFACT_BASIS_FIELD] = resolved_basis.to_evidence_dict()
         version_box.append(
             versions.commit_staged_version(
                 resource_type=resource_type,
@@ -341,6 +352,7 @@ def _commit_staged_formal_image(
         or version_box != registered_version_box
         or len(created_at_box) != 1
         or len(manifest_box) != 1
+        or len(resolved_basis_box) != 1
     ):
         raise RuntimeError("formal image metadata commit skipped staged activation")
     version = version_box[0]

@@ -182,6 +182,7 @@ class _Planner:
         self._bindings_loaded = False
         self._episodes_loaded = False
         self.entries: dict[ArtifactKey, ArtifactManifestEntry] = {}
+        self.bases: dict[ArtifactKey, ArtifactBasis] = {}
         self._path_owners: dict[str, ArtifactKey] = {}
         self._versions: dict[str, Any] | None = None
         self._activation_mode = False
@@ -218,6 +219,21 @@ class _Planner:
         schema = self.project.get("schema_version")
         if schema != TARGET_SCHEMA_VERSION:
             raise RuntimeError("Artifact Manifest is not activated for this project schema")
+        self._plan_key(key)
+        return self.entries.get(key)
+
+    def resolve_basis(self, key: ArtifactKey) -> ArtifactBasis | None:
+        """Resolve one canonical basis without requiring its formal output yet."""
+
+        schema = self.project.get("schema_version")
+        if schema != TARGET_SCHEMA_VERSION:
+            raise RuntimeError("Artifact Manifest is not activated for this project schema")
+        self._plan_key(key)
+        return self.bases.get(key)
+
+    def _plan_key(self, key: ArtifactKey) -> None:
+        """Run the canonical planning slice shared by target and basis resolution."""
+
         kind = key.kind.value
         if kind == "asset-sheet":
             self._plan_assets()
@@ -243,7 +259,6 @@ class _Planner:
         elif kind in {"episode-subtitle", "episode-presentation"}:
             self._load_episodes()
             self._plan_persisted_presentations()
-        return self.entries.get(key)
 
     def _load_episode_bindings(self) -> None:
         if self._bindings_loaded:
@@ -1259,6 +1274,10 @@ class _Planner:
         return parsed
 
     def _add_if_present(self, key: ArtifactKey, artifact_path: str, basis: ArtifactBasis) -> None:
+        existing_basis = self.bases.get(key)
+        if existing_basis is not None and existing_basis != basis:
+            raise ValueError(f"multiple canonical bases claim artifact key {key.encode()}")
+        self.bases[key] = basis
         observation = self.adapter.inspect_artifact(artifact_path)
         if observation.blocker is not None or not observation.present:
             return
@@ -1478,6 +1497,12 @@ def resolve_current_artifact_target(project_dir: Path, key: ArtifactKey) -> Arti
     """Resolve one formal post-commit target without repairing any other key."""
 
     return _Planner(project_dir, episode_scope=_episode_scope_for_key(key)).resolve_key(key)
+
+
+def resolve_current_artifact_basis(project_dir: Path, key: ArtifactKey) -> ArtifactBasis | None:
+    """Resolve canonical evidence for a formal write before its bytes are selected."""
+
+    return _Planner(project_dir, episode_scope=_episode_scope_for_key(key)).resolve_basis(key)
 
 
 def _episode_scope_for_key(key: ArtifactKey) -> int | None:
@@ -1831,6 +1856,26 @@ def artifact_key_for_resource(
     raise ValueError(f"unsupported formal artifact resource type: {resource_type}")
 
 
+def resolve_current_resource_artifact_basis(
+    project_dir: Path,
+    *,
+    resource_type: str,
+    resource_id: str,
+    script_file: str | None = None,
+) -> ArtifactBasis | None:
+    """Resolve one resource's canonical basis, preserving pre-activation writes."""
+
+    if not _artifact_manifest_is_active(project_dir):
+        return None
+    key = artifact_key_for_resource(
+        project_dir,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        script_file=script_file,
+    )
+    return resolve_current_artifact_basis(project_dir, key)
+
+
 def register_current_resource_artifact(
     project_dir: Path,
     *,
@@ -2122,6 +2167,8 @@ __all__ = [
     "register_current_resource_artifact",
     "register_task_current_resource_artifact",
     "resolve_artifact_episode",
+    "resolve_current_artifact_basis",
     "resolve_current_artifact_target",
+    "resolve_current_resource_artifact_basis",
     "resolve_usable_storyboard_video_inputs",
 ]

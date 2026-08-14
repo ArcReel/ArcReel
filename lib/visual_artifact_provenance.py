@@ -96,6 +96,21 @@ def snapshot_visual_references(references: Sequence[VisualReference]) -> tuple[V
     )
 
 
+def visual_references_match_snapshot(references: Sequence[VisualReference]) -> bool:
+    """Verify that every selected reference still has its frozen content digest."""
+
+    for reference in references:
+        if not isinstance(reference, VisualReference) or reference.content_digest is None:
+            raise ValueError("visual reference comparison requires frozen snapshots")
+        try:
+            current_digest = visual_file_digest(reference.path)
+        except OSError:
+            return False
+        if current_digest != reference.content_digest:
+            return False
+    return True
+
+
 def build_asset_sheet_visual_basis(
     *,
     asset_type: str,
@@ -561,5 +576,6 @@ __all__ = [
     "build_storyboard_image_visual_basis",
     "build_storyboard_video_artifact_visual_basis",
     "snapshot_visual_references",
+    "visual_references_match_snapshot",
     "visual_file_digest",
 ]
