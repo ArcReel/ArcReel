@@ -254,7 +254,7 @@ def _load_project_for_grid_write(project_name: str) -> dict:
     # project.json 损坏（JSONDecodeError）不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
     with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
         project = get_project_manager().load_project(project_name)
-    ensure_grid_writable(project)
+    ensure_grid_writable(project, project_name=project_name)
     return project
 
 

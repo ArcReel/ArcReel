@@ -14,6 +14,7 @@ from lib.artifact_manifest import (
     ArtifactBasisDescriptor,
     compose_video_artifact_basis,
 )
+from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from lib.script_editor import ScriptEditError
 from lib.speech_artifact_provenance import build_video_duration_basis
 from lib.version_manager import VersionManager
@@ -84,7 +85,12 @@ class _GridPM:
         self.project = (
             project
             if project is not None
-            else {"creation_type": "narration", "generation_mode": "storyboard", "grid_storyboard": True}
+            else {
+                "schema_version": CURRENT_SCHEMA_VERSION,
+                "creation_type": "narration",
+                "generation_mode": "storyboard",
+                "grid_storyboard": True,
+            }
         )
 
     def get_project_path(self, project_name):
@@ -495,9 +501,22 @@ class TestVersionsRouter:
     @pytest.mark.parametrize(
         "project,expected_detail",
         [
-            ({"creation_type": "ad", "generation_mode": "storyboard", "grid_storyboard": True}, "广告/短片项目"),
             (
-                {"creation_type": "narration", "generation_mode": "storyboard", "grid_storyboard": False},
+                {
+                    "schema_version": CURRENT_SCHEMA_VERSION,
+                    "creation_type": "ad",
+                    "generation_mode": "storyboard",
+                    "grid_storyboard": True,
+                },
+                "广告/短片项目",
+            ),
+            (
+                {
+                    "schema_version": CURRENT_SCHEMA_VERSION,
+                    "creation_type": "narration",
+                    "generation_mode": "storyboard",
+                    "grid_storyboard": False,
+                },
                 "项目未启用分镜板",
             ),
         ],
@@ -545,6 +564,51 @@ class TestVersionsRouter:
         saved = GridManager(tmp_path).get(grid.id)
         assert saved is not None
         assert saved.split_at == "2026-01-01T00:00:00+00:00"
+
+    def test_grid_restore_rejected_when_project_pending_data_upgrade(self, tmp_path, monkeypatch):
+        """未完成数据升级的项目按旧契约留着 ``content_mode``，还原闸门必须先拦下它。
+
+        放行等于按新契约读旧字段：广告项目读不到 ``creation_type``，会被当成剧集通过宫格判定，
+        历史联合图从还原这条路被改写。
+        """
+        from lib.grid.models import GridGeneration
+        from lib.grid_manager import GridManager
+
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=["a", "b"],
+            rows=2,
+            cols=2,
+            grid_size="grid_4",
+            provider="p",
+            model="m",
+            video_aspect_ratio="9:16",
+        )
+        GridManager(tmp_path).save(grid)
+        (tmp_path / "grids" / f"{grid.id}.png").write_bytes(b"original-bytes")
+
+        legacy = {
+            "schema_version": CURRENT_SCHEMA_VERSION - 1,
+            "content_mode": "ad",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+        }
+        grid_pm = _GridPM(tmp_path, project=legacy)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: grid_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+
+        with TestClient(app) as client:
+            resp = client.post(f"/api/v1/projects/demo/versions/grids/{grid.id}/restore/1")
+
+        assert resp.status_code == 409, resp.text
+        assert "未完成数据升级" in resp.json()["detail"]
+        assert (tmp_path / "grids" / f"{grid.id}.png").read_bytes() == b"original-bytes"
 
     def test_non_grid_restore_unaffected_by_grid_gate(self, monkeypatch):
         """闸门只作用于 grids：其它资源类型的还原不因项目宫格配置被拦。"""

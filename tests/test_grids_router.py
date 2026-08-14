@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
 from lib.i18n import _ as i18n_message
+from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import grids
@@ -149,21 +150,36 @@ class _FakePMNarration(_FakePMPathOnly):
     """ProjectManager 替身：额外提供 load_project，用于 regenerate 的项目校验通过场景。"""
 
     def load_project(self, name):
-        return {"creation_type": "narration", "generation_mode": "storyboard", "grid_storyboard": True}
+        return {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "creation_type": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+        }
 
 
 class _FakePMGridDisabled(_FakePMPathOnly):
     """ProjectManager 替身：路线合法但宫格开关关闭。"""
 
     def load_project(self, name):
-        return {"creation_type": "narration", "generation_mode": "storyboard", "grid_storyboard": False}
+        return {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "creation_type": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": False,
+        }
 
 
 class _FakePMReferenceVideo(_FakePMPathOnly):
     """ProjectManager 替身：参考生视频路线，即使残留 grid_storyboard=true 也不激活宫格。"""
 
     def load_project(self, name):
-        return {"creation_type": "narration", "generation_mode": "reference_video", "grid_storyboard": True}
+        return {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "creation_type": "narration",
+            "generation_mode": "reference_video",
+            "grid_storyboard": True,
+        }
 
 
 def _assert_grid_switch_rejected(resp, queue) -> None:
@@ -199,6 +215,58 @@ def test_regenerate_grid_rejected_when_switch_off(monkeypatch, fake_pm):
     with client:
         resp = client.post("/api/v1/projects/demo/grids/grid-123/regenerate")
         _assert_grid_switch_rejected(resp, fake_queue)
+
+
+class _FakePMLegacySchema(_FakePMPathOnly):
+    """ProjectManager 替身：未完成数据升级的项目，字段仍是 v7 形态（``content_mode``）。"""
+
+    def load_project(self, name):
+        return {
+            "schema_version": CURRENT_SCHEMA_VERSION - 1,
+            "content_mode": "ad",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+        }
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(
+            lambda client: client.post(
+                "/api/v1/projects/demo/generate/grid/1",
+                json={"script_file": "episode_1.json"},
+            ),
+            id="generate",
+        ),
+        pytest.param(lambda client: client.post("/api/v1/projects/demo/grids/grid-123/regenerate"), id="regenerate"),
+        pytest.param(lambda client: client.post("/api/v1/projects/demo/grids/grid-123/split"), id="split"),
+        pytest.param(
+            lambda client: client.post(
+                "/api/v1/projects/demo/grids/grid-123/upload",
+                files={"file": ("a.png", b"not-an-image", "image/png")},
+            ),
+            id="upload",
+        ),
+    ],
+)
+def test_grid_writes_rejected_when_project_pending_data_upgrade(monkeypatch, call):
+    """未完成数据升级的项目一律拒绝改写宫格，四条写入口共用这道闸门。
+
+    旧形态项目读不到 ``creation_type``：放行会让广告项目通过宫格判定，重生成还是一笔付费请求。
+    """
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=_FakePMLegacySchema,
+        GridManager=_FakeGMNotFound,
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        resp = call(client)
+        assert resp.status_code == 409, resp.text
+        assert "未完成数据升级" in resp.json()["detail"]
+        assert fake_queue.calls == []
 
 
 def test_get_grid_not_found(monkeypatch):
@@ -318,6 +386,7 @@ class _FakePMInvalidScriptFile:
 
     def load_project(self, name):
         return {
+            "schema_version": CURRENT_SCHEMA_VERSION,
             "creation_type": "narration",
             "aspect_ratio": "9:16",
             "style": "anime",
@@ -351,6 +420,7 @@ class _FakePMGenerate:
 
     def load_project(self, name):
         return {
+            "schema_version": CURRENT_SCHEMA_VERSION,
             "creation_type": "narration",
             "aspect_ratio": "9:16",
             "style": "anime",
@@ -586,6 +656,7 @@ class _FakePMRegenerate(_FakePMPath):
 
     def load_project(self, name):
         return {
+            "schema_version": CURRENT_SCHEMA_VERSION,
             "creation_type": "narration",
             "aspect_ratio": "9:16",
             "generation_mode": "storyboard",

@@ -50,8 +50,8 @@ from lib.source_loader import (
     SourceLoader,
     UnsupportedFormatError,
 )
-from server.routers._project_schema import require_current_schema
 from server.routers._script_review_errors import raise_review_error
+from server.services.project_schema import require_current_schema
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 router = APIRouter()

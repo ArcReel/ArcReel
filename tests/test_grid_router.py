@@ -2,6 +2,7 @@
 
 import pytest
 
+from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from server.routers.grids import router
 from tests.auth_deps import AUTH_DEPENDENCIES
 
@@ -51,7 +52,12 @@ class TestAdProjectRejected:
 
         class _AdPM:
             def load_project(self, name):
-                return {"creation_type": "ad", "title": "Ad", "episodes": []}
+                return {
+                    "schema_version": CURRENT_SCHEMA_VERSION,
+                    "creation_type": "ad",
+                    "title": "Ad",
+                    "episodes": [],
+                }
 
         monkeypatch.setattr(grids, "get_project_manager", lambda: _AdPM())
 
@@ -77,7 +83,12 @@ class TestAdProjectRejected:
 
         class _AdPM:
             def load_project(self, name):
-                return {"creation_type": "ad", "title": "Ad", "episodes": []}
+                return {
+                    "schema_version": CURRENT_SCHEMA_VERSION,
+                    "creation_type": "ad",
+                    "title": "Ad",
+                    "episodes": [],
+                }
 
         monkeypatch.setattr(grids, "get_project_manager", lambda: _AdPM())
 

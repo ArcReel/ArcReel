@@ -46,7 +46,6 @@ from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from lib.workflow_state import WorkflowStateService, WorkflowStatus
 from server.auth import CurrentUser, create_download_token, verify_download_token
-from server.routers._project_schema import require_current_schema
 from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import (
     execute_current_script_edit,
@@ -59,6 +58,7 @@ from server.services.project_archive import (
     ProjectArchiveValidationError,
 )
 from server.services.project_cover import resolve_project_cover
+from server.services.project_schema import require_current_schema
 
 router = APIRouter()
 
