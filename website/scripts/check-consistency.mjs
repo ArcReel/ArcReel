@@ -72,10 +72,11 @@ function checkAnchors() {
 
   for (const root of docRoots()) {
     const jsxHeadingDocs = new Set();
-    const files = walkDocFiles(root);
+    const docPaths = new Set();
 
-    for (const file of files) {
+    for (const file of walkDocFiles(root)) {
       const docPath = toPosix(relative(root, file));
+      docPaths.add(docPath);
       const seenAnchors = new Set();
 
       for (const { index, line, hashes, text, hasJsxHeading } of scanMarkdownLines(
@@ -106,7 +107,7 @@ function checkAnchors() {
       }
     }
     for (const docPath of JSX_HEADING_EXEMPT_DOCS) {
-      if (!files.includes(`${root}/${docPath}`)) continue;
+      if (!docPaths.has(docPath)) continue;
       exemptDocsFound.add(docPath);
       if (!jsxHeadingDocs.has(docPath)) {
         problems.push(
