@@ -24,7 +24,7 @@ from lib.artifact_manifest import (
 from lib.speech_artifact_provenance import build_video_duration_basis
 from lib.version_manager import VersionManager
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
-from lib.visual_artifact_provenance import build_storyboard_image_visual_basis
+from lib.visual_artifact_provenance import build_asset_sheet_visual_basis, build_storyboard_image_visual_basis
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import versions
@@ -366,6 +366,59 @@ class TestVersionsRouter:
             ),
         )
 
+        assert ProjectArtifactManifestAdapter(project_path).get_entry(key) is None
+
+    def test_deleted_asset_restore_does_not_create_an_orphan_claim(self, tmp_path, monkeypatch):
+        from lib.project_manager import ProjectManager
+
+        project_path = tmp_path / "demo"
+        (project_path / "characters").mkdir(parents=True)
+        project_path.joinpath("project.json").write_text(
+            '{"schema_version":8,"title":"Demo","content_mode":"narration",'
+            '"generation_mode":"storyboard","style":"Anime","style_description":"",'
+            '"aspect_ratio":"9:16","episodes":[],"characters":{},'
+            '"scenes":{},"props":{},"products":{}}',
+            encoding="utf-8",
+        )
+        current = project_path / "characters" / "Alice.png"
+        current.write_bytes(b"deleted-asset-version")
+        basis = build_asset_sheet_visual_basis(
+            asset_type="character",
+            asset_id="Alice",
+            description="hero",
+            style="Anime",
+            style_description="",
+            aspect_ratio="9:16",
+        )
+        manager = VersionManager(project_path)
+        old_version = manager.add_version(
+            "characters",
+            "Alice",
+            "old",
+            source_file=current,
+            artifact_image_basis=basis.to_evidence_dict(),
+        )
+        current.write_bytes(b"new")
+        manager.add_version("characters", "Alice", "new", source_file=current)
+        pm = ProjectManager(tmp_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+
+        manager.restore_version(
+            "characters",
+            "Alice",
+            old_version,
+            current,
+            on_restore=lambda record: versions._restore_non_typed_sidecars(
+                resource_type="characters",
+                project_name="demo",
+                resource_id="Alice",
+                file_path="characters/Alice.png",
+                project_path=project_path,
+                record=record,
+            ),
+        )
+
+        key = ArtifactKey.asset_sheet("character", "Alice")
         assert ProjectArtifactManifestAdapter(project_path).get_entry(key) is None
 
     def test_non_typed_restore_rolls_back_media_pointer_and_metadata_when_manifest_commit_fails(

@@ -122,13 +122,16 @@ def _restore_non_typed_sidecars(
     except (TypeError, ValueError):
         basis = None
 
+    def _forget_claim() -> None:
+        forget_current_resource_artifact(
+            project_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+
     def _commit_claim() -> None:
         if basis is None:
-            forget_current_resource_artifact(
-                project_path,
-                resource_type=resource_type,
-                resource_id=resource_id,
-            )
+            _forget_claim()
             return
         register_current_resource_artifact(
             project_path,
@@ -176,7 +179,7 @@ def _restore_non_typed_sidecars(
                     on_commit=_register_asset,
                 )
         except KeyError:
-            _register_asset(project_path / "project.json")
+            _forget_claim()
         return
 
     if resource_type == "grids":
