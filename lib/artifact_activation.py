@@ -1524,6 +1524,14 @@ class ArtifactCurrencyResolver:
         return self._manifest.compare_entry(key, artifact_path=artifact_path, expected=expected)
 
 
+@dataclass(frozen=True, slots=True)
+class ArtifactInputClaim:
+    """One Manifest-backed formal artifact selected as a provider input."""
+
+    key: ArtifactKey
+    artifact_path: str
+
+
 def active_artifact_currency_resolver(
     project_dir: Path,
     project: Mapping[str, Any],
@@ -1594,6 +1602,39 @@ def artifact_is_usable(
         assert comparison.blocker is not None
         raise ArtifactManifestError(comparison.blocker.detail)
     return comparison.status in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}
+
+
+def artifact_input_is_usable(
+    *,
+    resolver: ArtifactCurrencyResolver | None,
+    key: ArtifactKey,
+    artifact_path: str,
+    claims: list[ArtifactInputClaim] | None,
+) -> bool:
+    """Select one formal input and optionally retain its exact recheck evidence."""
+
+    if not artifact_is_usable(resolver, key, artifact_path):
+        return False
+    if resolver is not None and claims is not None:
+        claims.append(ArtifactInputClaim(key=key, artifact_path=artifact_path))
+    return True
+
+
+def assert_artifact_input_claims_usable(
+    project_path: Path,
+    project: Mapping[str, Any],
+    claims: Sequence[ArtifactInputClaim],
+) -> None:
+    """Recheck selected formal inputs immediately before provider submission."""
+
+    if not claims:
+        return
+    resolver = active_artifact_currency_resolver(project_path, project)
+    if resolver is None:
+        raise RuntimeError("formal artifact input claims require an active Artifact Manifest")
+    for claim in claims:
+        if not artifact_is_usable(resolver, claim.key, claim.artifact_path):
+            raise ValueError(f"formal artifact input is no longer registered: {claim.artifact_path}")
 
 
 def resolve_usable_storyboard_video_inputs(
@@ -2055,12 +2096,15 @@ def _normalize_script_binding(value: str) -> str:
 
 __all__ = [
     "ArtifactCurrencyResolver",
+    "ArtifactInputClaim",
     "ArtifactRegistrationReceipt",
     "ArtifactTargetStatePlan",
     "TARGET_SCHEMA_VERSION",
     "activate_artifact_target_state",
     "active_artifact_currency_resolver",
+    "artifact_input_is_usable",
     "artifact_is_usable",
+    "assert_artifact_input_claims_usable",
     "artifact_key_for_resource",
     "ensure_imported_artifact_target_state",
     "forget_current_resource_artifact",

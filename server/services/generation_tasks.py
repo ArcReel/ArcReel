@@ -17,9 +17,11 @@ from typing import Any, Protocol
 from lib.api_errors import ConflictError
 from lib.artifact_activation import (
     ArtifactCurrencyResolver,
+    ArtifactInputClaim,
     ArtifactRegistrationReceipt,
     active_artifact_currency_resolver,
-    artifact_is_usable,
+    artifact_input_is_usable,
+    assert_artifact_input_claims_usable,
     register_current_resource_artifact,
     register_task_current_resource_artifact,
     resolve_artifact_episode,
@@ -249,45 +251,6 @@ class _FormalImageCommitOutcome:
     receipt: _CancellationReceipt | None
 
 
-@dataclass(frozen=True, slots=True)
-class _FormalImageReferenceClaim:
-    """One Manifest-backed formal image selected for a provider request."""
-
-    key: ArtifactKey
-    artifact_path: str
-
-
-def _formal_image_reference_is_usable(
-    *,
-    resolver: ArtifactCurrencyResolver | None,
-    key: ArtifactKey,
-    artifact_path: str,
-    claims: list[_FormalImageReferenceClaim] | None,
-) -> bool:
-    if not artifact_is_usable(resolver, key, artifact_path):
-        return False
-    if resolver is not None and claims is not None:
-        claims.append(_FormalImageReferenceClaim(key=key, artifact_path=artifact_path))
-    return True
-
-
-def _assert_formal_image_reference_claims_usable(
-    project_path: Path,
-    project: Mapping[str, Any],
-    claims: Sequence[_FormalImageReferenceClaim],
-) -> None:
-    """Recheck selected claims immediately before provider submission."""
-
-    if not claims:
-        return
-    resolver = active_artifact_currency_resolver(project_path, project)
-    if resolver is None:
-        raise RuntimeError("formal image reference claims require an active Artifact Manifest")
-    for claim in claims:
-        if not artifact_is_usable(resolver, claim.key, claim.artifact_path):
-            raise ValueError(f"formal image reference is no longer registered: {claim.artifact_path}")
-
-
 def _formal_image_task_token(task_id: str | None) -> str:
     """Give direct invocations an isolated staging identity without inventing a queue identity."""
 
@@ -487,7 +450,7 @@ def _collect_sheet_references(
     max_count: int = 0,
     visual_references: list[VisualReference] | None = None,
     currency_resolver: ArtifactCurrencyResolver | None = None,
-    formal_claims: list[_FormalImageReferenceClaim] | None = None,
+    formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> tuple[list[dict], set[str]]:
     """Collect character_sheet, scene_sheet and prop_sheet references from scene/segment items.
 
@@ -544,7 +507,7 @@ def _collect_sheet_references(
                     seen.add(sheet)
                     continue
                 key = ArtifactKey.asset_sheet(asset_type, canonical_name)
-                if not _formal_image_reference_is_usable(
+                if not artifact_input_is_usable(
                     resolver=currency_resolver,
                     key=key,
                     artifact_path=sheet,
@@ -583,7 +546,7 @@ def _collect_reference_images(
     visual_references: list[VisualReference] | None = None,
     artifact_episode: int | None = None,
     currency_resolver: ArtifactCurrencyResolver | None = None,
-    formal_claims: list[_FormalImageReferenceClaim] | None = None,
+    formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[object] | None:
     sheet_refs, _ = _collect_sheet_references(
         project,
@@ -618,7 +581,7 @@ def _collect_reference_images(
             if artifact_episode is not None
             else ArtifactKey.episode_storyboard(1, previous_storyboard_id)
         )
-        if not _formal_image_reference_is_usable(
+        if not artifact_input_is_usable(
             resolver=currency_resolver,
             key=previous_key,
             artifact_path=previous_artifact_path,
@@ -645,7 +608,7 @@ def _collect_shot_product_references(
     item: dict,
     *,
     currency_resolver: ArtifactCurrencyResolver | None = None,
-    formal_claims: list[_FormalImageReferenceClaim] | None = None,
+    formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[dict]:
     """产品镜头（``products_in_shot`` 非空）的产品参考集，用于分镜图生成。
 
@@ -680,7 +643,7 @@ def collect_product_references_for_names(
     names: Sequence[str],
     *,
     currency_resolver: ArtifactCurrencyResolver | None = None,
-    formal_claims: list[_FormalImageReferenceClaim] | None = None,
+    formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[dict]:
     """按产品名列表收集产品参考集（注入二元规则的装配核心，条目语义见
     ``_collect_shot_product_references``）。分镜图按镜头注入与 ad 参考直出
@@ -707,7 +670,7 @@ def collect_product_references_for_names(
         if (
             isinstance(sheet, str)
             and safe_exists(project_path, sheet)
-            and _formal_image_reference_is_usable(
+            and artifact_input_is_usable(
                 resolver=currency_resolver,
                 key=ArtifactKey.asset_sheet("product", canonical),
                 artifact_path=sheet,
@@ -1427,7 +1390,7 @@ async def execute_storyboard_task(
             script_filename=str(script_file),
         )
         _currency_resolver = active_artifact_currency_resolver(_project_path, _project)
-        _formal_claims: list[_FormalImageReferenceClaim] = []
+        _formal_claims: list[ArtifactInputClaim] = []
         _items, _id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(_script)
 
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
@@ -1504,7 +1467,7 @@ async def execute_storyboard_task(
             image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
         )
         await asyncio.to_thread(
-            _assert_formal_image_reference_claims_usable,
+            assert_artifact_input_claims_usable,
             project_path,
             project,
             formal_claims,
@@ -2940,7 +2903,7 @@ def _collect_grid_reference_images(
     project: dict[str, Any] | None = None,
     script: dict[str, Any] | None = None,
     currency_resolver: ArtifactCurrencyResolver | None = None,
-    formal_claims: list[_FormalImageReferenceClaim] | None = None,
+    formal_claims: list[ArtifactInputClaim] | None = None,
     visual_references: list[VisualReference] | None = None,
 ) -> tuple[list[object] | None, list[dict]]:
     """Collect character/scene/prop sheet images referenced by grid scenes.
@@ -3129,7 +3092,7 @@ async def execute_grid_task(
         from lib.grid.models import ReferenceImage
 
         currency_resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)
-        formal_claims: list[_FormalImageReferenceClaim] = []
+        formal_claims: list[ArtifactInputClaim] = []
         visual_references: list[VisualReference] = []
         reference_images, ref_metadata = await asyncio.to_thread(
             _collect_grid_reference_images,
@@ -3211,7 +3174,7 @@ async def execute_grid_task(
         formal_outcomes: list[_FormalImageCommitOutcome] = []
 
         await asyncio.to_thread(
-            _assert_formal_image_reference_claims_usable,
+            assert_artifact_input_claims_usable,
             project_path,
             project,
             formal_claims,

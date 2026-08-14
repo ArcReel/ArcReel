@@ -19,7 +19,10 @@ from typing import Any
 
 from lib.artifact_activation import (
     ArtifactCurrencyResolver,
+    ArtifactInputClaim,
     active_artifact_currency_resolver,
+    artifact_input_is_usable,
+    assert_artifact_input_claims_usable,
     resolve_artifact_episode,
 )
 from lib.artifact_manifest import ArtifactBasis, ArtifactKey
@@ -38,13 +41,10 @@ from lib.visual_artifact_provenance import (
 )
 from server.services.generation_context import ImageLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
-    _assert_formal_image_reference_claims_usable,
     _asset_sheet_formal_image_callback,
     _finalize_asset_sheet_task,
     _finalize_storyboard_image_task,
-    _formal_image_reference_is_usable,
     _formal_image_task_token,
-    _FormalImageReferenceClaim,
     _storyboard_formal_image_callback,
     compensable_formal_task_result,
     get_aspect_ratio,
@@ -64,7 +64,7 @@ class _ImageEditSource:
 
     resource_id: str
     artifact_path: str
-    formal_claims: tuple[_FormalImageReferenceClaim, ...]
+    formal_claims: tuple[ArtifactInputClaim, ...]
 
 
 def _build_image_edit_basis(
@@ -188,8 +188,8 @@ def resolve_usable_image_edit_source(
         key = ArtifactKey.episode_storyboard(artifact_episode, resolved_id)
     else:
         key = ArtifactKey.asset_sheet(resource_type, resolved_id)
-    claims: list[_FormalImageReferenceClaim] = []
-    if not _formal_image_reference_is_usable(
+    claims: list[ArtifactInputClaim] = []
+    if not artifact_input_is_usable(
         resolver=resolver,
         key=key,
         artifact_path=artifact_path,
@@ -310,7 +310,7 @@ async def execute_image_edit_task(
         generator = ctx.generator
 
         await asyncio.to_thread(
-            _assert_formal_image_reference_claims_usable,
+            assert_artifact_input_claims_usable,
             project_path,
             project,
             formal_claims,
@@ -327,7 +327,7 @@ async def execute_image_edit_task(
             "",
         )
         await asyncio.to_thread(
-            _assert_formal_image_reference_claims_usable,
+            assert_artifact_input_claims_usable,
             project_path,
             project,
             formal_claims,
