@@ -78,6 +78,42 @@ test("status reports translations whose sources were deleted", () => {
   ]);
 });
 
+test("status reports unregistered document translations but ignores locale assets", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  write(
+    root,
+    "website/i18n/vi/docusaurus-plugin-content-docs/current/guide/unregistered.md",
+    "# Unregistered\n",
+  );
+  write(root, "website/i18n/en/docusaurus-plugin-content-docs/current.json", '{"title":"Docs"}\n');
+  write(root, "website/i18n/en/docusaurus-theme-classic/navbar.json", '{"title":"Docs"}\n');
+  write(root, "website/i18n/en/code.json", '{"theme.ErrorPageContent.title":"Error"}\n');
+
+  assert.deepEqual(status(root), [
+    {
+      source: "website/docs/guide/unregistered.md",
+      target: "website/i18n/vi/docusaurus-plugin-content-docs/current/guide/unregistered.md",
+      state: "orphan",
+    },
+  ]);
+});
+
+test("status reports a translation as orphan when its lock entry was removed", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  write(root, "website/docs/guide/start.md", "# 入门\n");
+  write(root, "website/i18n/en/docusaurus-plugin-content-docs/current/guide/start.md", "# Getting started\n");
+  record(root);
+  write(root, "website/i18n/translation.lock.json", "{}\n");
+
+  assert.deepEqual(status(root), [
+    {
+      source: "website/docs/guide/start.md",
+      target: "website/i18n/en/docusaurus-plugin-content-docs/current/guide/start.md",
+      state: "orphan",
+    },
+  ]);
+});
+
 test("status reports a translated source whose recorded content changed", () => {
   const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
   write(root, "README.md", "# ArcReel\n");
@@ -133,4 +169,19 @@ test("record refuses to hide an orphan translation that still exists", () => {
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Refusing to record orphan translations:\nREADME\.en\.md/);
+});
+
+test("record refuses to hide an unregistered document translation", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  write(root, "website/i18n/en/docusaurus-plugin-content-docs/current/guide/unregistered.md", "# Unregistered\n");
+
+  const result = spawnSync(process.execPath, [scriptPath, "record", "--root", root], {
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /Refusing to record orphan translations:\nwebsite\/i18n\/en\/docusaurus-plugin-content-docs\/current\/guide\/unregistered\.md/,
+  );
 });
