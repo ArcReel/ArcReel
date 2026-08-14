@@ -72,8 +72,13 @@ function sourceForTranslationTarget(target) {
   return `website/docs/${relativeTarget}`;
 }
 
-function unregisteredTranslationOrphans(root, lock) {
-  const registeredTargets = new Set(Object.keys(lock).map(targetForSource).filter((target) => target !== null));
+// A target is registered when a current source maps to it (its lock entry may still be missing or
+// stale) or when a lock entry maps to it (the forward scan already reports it as an orphan).
+function unregisteredTranslationOrphans(root, lock, currentTargets) {
+  const registeredTargets = new Set([
+    ...currentTargets,
+    ...Object.keys(lock).map(targetForSource).filter((target) => target !== null),
+  ]);
   return documentTranslationTargets(root)
     .filter((target) => !registeredTargets.has(target))
     .map((target) => ({ source: sourceForTranslationTarget(target), target, state: "orphan" }));
@@ -94,17 +99,16 @@ function translationStatus(root) {
   const lock = readLock(root);
   const mappings = sourceTargets(root);
   const currentSources = new Set(mappings.map(([source]) => source));
-  const translatedDocumentTargets = new Set(documentTranslationTargets(root));
+  const currentTargets = new Set(mappings.map(([, target]) => target));
   const dirty = mappings.flatMap(([source, target]) => {
     if (!existsSync(resolve(root, target))) return [{ source, target, state: "missing" }];
-    if (!Object.hasOwn(lock, source) && translatedDocumentTargets.has(target)) return [];
     if (lock[source] !== digest(resolve(root, fingerprintSource(source)))) return [{ source, target, state: "stale" }];
     return [];
   });
   const orphans = Object.keys(lock)
     .filter((source) => !currentSources.has(source))
     .map((source) => ({ source, target: targetForSource(source), state: "orphan" }));
-  return [...dirty, ...orphans, ...unregisteredTranslationOrphans(root, lock)].sort(
+  return [...dirty, ...orphans, ...unregisteredTranslationOrphans(root, lock, currentTargets)].sort(
     (left, right) => left.source.localeCompare(right.source) || left.target.localeCompare(right.target),
   );
 }

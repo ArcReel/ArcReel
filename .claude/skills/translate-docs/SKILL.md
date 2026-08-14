@@ -24,9 +24,7 @@ Treat every reported item as one batch:
 
 - `missing`: create the reported target from the complete source.
 - `stale`: retranslate the complete source into the reported target.
-- `orphan`: if an existing source still maps to the reported target but only its lock entry is missing, retranslate the
-  complete source and let `record` restore the entry. Otherwise delete the reported target; `record` removes any obsolete
-  lock entry.
+- `orphan`: delete the reported target if it exists; the later `record` command removes the obsolete lock entry.
 
 Finish discovery only after every item has an explicit action. Never hand-edit `website/i18n/translation.lock.json`.
 
