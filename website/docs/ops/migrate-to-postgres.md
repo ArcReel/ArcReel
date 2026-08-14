@@ -16,7 +16,7 @@ sidebar_position: 2
 | `deploy/projects/` 中的其他文件 | 项目元数据和媒体资产 | 复制到 `deploy/production/projects/` |
 | `deploy/production/pgdata/` | PostgreSQL 集群数据 | 由 PostgreSQL 初始化，不放项目文件或 SQLite 文件 |
 
-如果通过 `ARCREEL_DATA_DIR` 自定义了数据根目录，请把本文中的 `deploy/projects/` 替换为实际源目录。
+以下命令统一用 shell 变量 `source_projects` 指向宿主机上的源数据根目录。默认部署会把它设为 `deploy/projects/` 的绝对路径；如果通过 `ARCREEL_DATA_DIR` 和自定义挂载更改了容器内数据目录，请在第 1 步把 `source_projects` 改为对应的宿主机绝对路径。容器内路径与宿主机路径可能不同，因此本文不会直接从 `.env` 推导该值。迁移期间在同一个 shell 中保留此变量。
 
 ## 前置条件 {#prerequisites}
 
@@ -31,6 +31,15 @@ sidebar_position: 2
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
+
+source_projects="$(cd deploy/projects && pwd)"
+# 自定义数据目录示例：source_projects="/srv/arcreel/projects"
+
+if [ ! -f "${source_projects}/.arcreel.db" ]; then
+  echo "错误：${source_projects}/.arcreel.db 不存在" >&2
+  exit 1
+fi
+
 docker compose -f deploy/docker-compose.yml down
 ```
 
@@ -40,30 +49,38 @@ docker compose -f deploy/docker-compose.yml down
 
 ```bash
 backup_stamp="$(date +%Y%m%d-%H%M%S)"
+umask 077
 mkdir -p deploy/backups
+chmod 700 deploy/backups
 
-sqlite3 deploy/projects/.arcreel.db \
+sqlite3 "${source_projects}/.arcreel.db" \
   ".backup 'deploy/backups/arcreel-sqlite-${backup_stamp}.db'"
 
 sqlite3 "deploy/backups/arcreel-sqlite-${backup_stamp}.db" \
   "PRAGMA quick_check;"
 
 tar -czf "deploy/backups/arcreel-source-${backup_stamp}.tar.gz" \
-  -C deploy .env projects
+  -C "${source_projects}" .
+
+cp deploy/.env "deploy/backups/arcreel-source-${backup_stamp}.env"
 ```
 
-`PRAGMA quick_check;` 必须输出 `ok`。`sqlite3 .backup` 通过 SQLite 备份 API 生成包含已提交 WAL 内容的一致快照；不要在服务运行时只用 `cp` 复制 `.arcreel.db`。SQLite 的 `.arcreel.db-wal` 可能保存已提交但尚未 checkpoint 的交易，与主文件分离可能丢数据或损坏备份。配套的 tar 归档用于恢复原 `.env`、数据库边车文件和项目资产。
+`PRAGMA quick_check;` 必须输出 `ok`。`sqlite3 .backup` 通过 SQLite 备份 API 生成包含已提交 WAL 内容的一致快照；不要在服务运行时只用 `cp` 复制 `.arcreel.db`。SQLite 的 `.arcreel.db-wal` 可能保存已提交但尚未 checkpoint 的交易，与主文件分离可能丢数据或损坏备份。配套的 tar 归档保存 `source_projects` 的完整内容，旁边的 `.env` 副本保存默认部署配置；回滚时两者必须使用相同时间标签。`umask 077` 与目录模式 `0700` 会限制其中凭据和项目资产的读取权限。
 
 ### 3. 准备 PostgreSQL 部署 {#configure-env}
 
 创建生产配置：
 
 ```bash
-test ! -e deploy/production/.env
+if [ -e deploy/production/.env ]; then
+  echo "错误：deploy/production/.env 已存在；请保留并人工核对，禁止覆盖" >&2
+  exit 1
+fi
+
 cp deploy/production/.env.example deploy/production/.env
 ```
 
-如果第一条命令失败，说明生产配置已存在；先核对并保留其中的有效设置，不要直接覆盖。
+如果生产配置已存在，上述守卫会显示错误并停止当前 shell；先核对并保留其中的有效设置，不要直接覆盖。
 
 编辑 `deploy/production/.env`，设置认证参数与 PostgreSQL 密码：
 
@@ -76,18 +93,30 @@ POSTGRES_PASSWORD=请设置只含字母和数字的数据库密码
 
 `DATABASE_URL` 已在生产 Compose 中自动拼接。本迁移命令也会把密码放入 pgloader 的 PostgreSQL URI，因此建议用 `openssl rand -hex 16` 生成 URL-safe 密码。如果必须使用特殊字符，需按[部署指南的说明](./deployment.md#postgresql-start)分开保存原始密码与百分号编码后的 URI 密码，不能把编码值直接当作 `POSTGRES_PASSWORD`。下面的 pgloader 命令在存在 `POSTGRES_PASSWORD_URLENCODED` 时优先使用它。
 
-确认以下命令没有输出；如果目标目录已有内容，先停止迁移，不要覆盖：
+运行目录守卫。目标目录不存在或为空时不会输出；发现任一文件（包括隐藏文件）时会显示错误并停止当前 shell：
 
 ```bash
-find deploy/production/projects -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null
-test ! -e deploy/production/pgdata/PG_VERSION
+for target_dir in deploy/production/projects deploy/production/pgdata; do
+  if [ -e "${target_dir}" ] && [ ! -d "${target_dir}" ]; then
+    echo "错误：${target_dir} 已存在且不是目录；停止迁移" >&2
+    exit 1
+  fi
+
+  if [ -d "${target_dir}" ]; then
+    first_entry="$(find "${target_dir}" -mindepth 1 -maxdepth 1 -print -quit)" || exit 1
+    if [ -n "${first_entry}" ]; then
+      echo "错误：${target_dir} 非空；停止迁移且禁止覆盖" >&2
+      exit 1
+    fi
+  fi
+done
 ```
 
 将项目和媒体资产复制到生产目录，但不把 SQLite 数据库复制进去：
 
 ```bash
 mkdir -p deploy/production/projects
-tar -C deploy/projects --exclude='.arcreel.db*' -cf - . | \
+tar -C "${source_projects}" --exclude='.arcreel.db*' -cf - . | \
   tar -C deploy/production/projects -xf -
 ```
 
@@ -110,8 +139,6 @@ docker compose -f deploy/production/docker-compose.yml ps
 在 ArcReel 容器内使用 pgloader 将原 SQLite 数据库直接迁移到 PostgreSQL：
 
 ```bash
-source_projects="$(cd deploy/projects && pwd)"
-
 docker compose -f deploy/production/docker-compose.yml run --rm \
   -v "${source_projects}:/migration-source:ro" \
   arcreel bash -c '
@@ -148,7 +175,7 @@ docker compose -f deploy/production/docker-compose.yml \
 对比 SQLite 中的记录数：
 
 ```bash
-sqlite3 deploy/projects/.arcreel.db "
+sqlite3 "${source_projects}/.arcreel.db" "
   SELECT 'tasks', COUNT(*) FROM tasks
   UNION ALL
   SELECT 'api_calls', COUNT(*) FROM api_calls
@@ -173,7 +200,7 @@ curl -f http://localhost:1241/health
 
 ## 回滚到 SQLite {#rollback-to-sqlite}
 
-以上迁移流程不会改写原 `deploy/projects/` 和 `deploy/.env`，因此正常回滚应重新启动默认 Compose，而不是修改生产 `.env`：
+以上迁移流程不会改写 `source_projects` 指向的源数据目录和 `deploy/.env`，因此正常回滚应重新启动原 SQLite 部署，而不是修改生产 `.env`。如果在新的 shell 中回滚，先按第 1 步重新设置 `source_projects`：
 
 1. 停止 PostgreSQL 生产部署：
 
@@ -182,7 +209,7 @@ curl -f http://localhost:1241/health
    docker compose -f deploy/production/docker-compose.yml down
    ```
 
-2. 确认 `deploy/projects/.arcreel.db` 和 `deploy/.env` 仍在。如果原目录被修改或损坏，先保留当前副本，再从第 2 步的 `arcreel-source-YYYYMMDD-HHMMSS.tar.gz` 恢复 `.env` 与整个 `projects/`；不要只覆盖主 SQLite 文件而留下不匹配的 `-wal` 或 `-shm` 文件。
+2. 确认 `${source_projects}/.arcreel.db` 和 `deploy/.env` 仍在。如果源目录被修改或损坏，先保留当前目录，再把第 2 步的 `arcreel-source-YYYYMMDD-HHMMSS.tar.gz` 完整解压到空的 `${source_projects}`，并将同一时间标签的 `.env` 副本恢复为 `deploy/.env`；不要只覆盖主 SQLite 文件而留下不匹配的 `-wal` 或 `-shm` 文件。
 
 3. 重新启动 SQLite 默认部署：
 
@@ -196,4 +223,4 @@ curl -f http://localhost:1241/health
 
 5. 在回滚验证完成前，保留 `deploy/production/pgdata/`、`deploy/production/projects/` 和迁移备份以便排查，不要删除。`POSTGRES_PASSWORD` 位于独立的 `deploy/production/.env`，无需从 `deploy/.env` 移除。
 
-如果原来不是默认 Compose，还需将启动环境中的 `DATABASE_URL` 恢复为 SQLite URL 或取消设置，并确认 `ARCREEL_DATA_DIR` 指回原数据目录后再启动。
+如果原来使用自定义 Compose 或数据挂载，还需将启动环境中的 `DATABASE_URL` 恢复为 SQLite URL 或取消设置，确认 `ARCREEL_DATA_DIR` 仍指向容器内原数据目录，并确认该挂载对应宿主机上的 `${source_projects}` 后再启动。

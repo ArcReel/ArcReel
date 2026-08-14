@@ -271,22 +271,33 @@ image: ghcr.io/arcreel/arcreel:vX.Y.Z
 
 ### 6.1 SQLite 部署备份 {#backup-sqlite}
 
-先停止写入，最简单的方式是短暂停止服务：
+先确认宿主机上的实际数据根目录，再停止写入。默认 Compose 使用 `deploy/projects/`；如果通过 `ARCREEL_DATA_DIR` 和自定义挂载改变了容器内路径，请把 `data_dir` 改为该挂载对应的宿主机绝对路径：
 
 ```bash
 cd deploy
+
+data_dir="$(cd projects && pwd)"
+# 自定义数据目录示例：data_dir="/srv/arcreel/projects"
+
 docker compose stop arcreel
 ```
 
 备份：
 
 ```bash
+backup_stamp="$(date +%Y%m%d-%H%M%S)"
+umask 077
 mkdir -p backups
-tar -czf "backups/arcreel-$(date +%Y%m%d-%H%M%S).tar.gz" \
-  .env projects vertex_keys claude_data
+chmod 700 backups
+
+tar -czf "backups/arcreel-config-${backup_stamp}.tar.gz" \
+  .env vertex_keys claude_data
+
+tar -czf "backups/arcreel-projects-${backup_stamp}.tar.gz" \
+  -C "${data_dir}" .
 ```
 
-服务停止后再归档整个 `projects/`，可以让 `.arcreel.db` 与项目资产保持在同一时点。不要在 ArcReel 写入时只复制 `.arcreel.db`：WAL 模式下，已提交交易可能仍在 `.arcreel.db-wal` 中，丢失或错配 WAL 文件会造成数据丢失甚至损坏。如果无法停服，应使用 SQLite Online Backup API（例如 `sqlite3` 的 `.backup`）或 `VACUUM INTO` 生成一致快照，而不是直接 `cp` 主数据库文件。
+服务停止后再归档整个 `data_dir`，可以让 `.arcreel.db` 与项目资产保持在同一时点。配置归档与数据归档必须使用相同时间标签并配套保存；`umask 077` 与备份目录模式 `0700` 会限制其中凭据和项目资产的读取权限。不要在 ArcReel 写入时只复制 `.arcreel.db`：WAL 模式下，已提交交易可能仍在 `.arcreel.db-wal` 中，丢失或错配 WAL 文件会造成数据丢失甚至损坏。如果无法停服，应使用 SQLite Online Backup API（例如 `sqlite3` 的 `.backup`）或 `VACUUM INTO` 生成一致快照，而不是直接 `cp` 主数据库文件。
 
 恢复服务：
 
@@ -298,7 +309,7 @@ docker compose start arcreel
 
 1. 停止 ArcReel；
 2. 备份当前目录，避免覆盖后无法回退；
-3. 将归档中的 `.env`、`projects/`、`vertex_keys/` 和 `claude_data/` 恢复到原位置；
+3. 将配置归档中的 `.env`、`vertex_keys/` 和 `claude_data/` 恢复到原位置，并将配套数据归档完整解压到空的 `data_dir`；
 4. 启动并检查 `/health`；
 5. 打开几个项目验证图片、视频和版本历史。
 
@@ -308,7 +319,9 @@ docker compose start arcreel
 
 ```bash
 cd "$(git rev-parse --show-toplevel)/deploy/production"
+umask 077
 mkdir -p backups
+chmod 700 backups
 docker compose stop arcreel
 
 backup_stamp="$(date +%Y%m%d-%H%M%S)"
@@ -323,7 +336,7 @@ tar -czf "backups/arcreel-files-${backup_stamp}.tar.gz" \
 docker compose start arcreel
 ```
 
-数据库备份和文件备份使用同一时间标签，必须配套保存和恢复。
+数据库备份和文件备份使用同一时间标签，必须配套保存和恢复。`umask 077` 与备份目录模式 `0700` 会让宿主机重定向生成的 SQL 文件和文件归档仅对当前用户可读写。
 
 `pg_dump` 会使用 libpq 的 `PGPASSWORD`。上述命令只在 PostgreSQL 容器内的该次 `pg_dump` 进程中设置它，因此 `docker compose exec -T` 可以非交互执行，也不会把密码展开到宿主机命令行。长期的宿主机备份自动化应改用权限为 `0600` 的 PostgreSQL password file，不要把密码写进脚本或备份文件名。
 

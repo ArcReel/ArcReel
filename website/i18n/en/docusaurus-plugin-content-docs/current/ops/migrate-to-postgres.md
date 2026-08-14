@@ -16,7 +16,7 @@ Before migrating, distinguish the three types of data involved:
 | Other files under `deploy/projects/` | Project metadata and media assets | Copy to `deploy/production/projects/` |
 | `deploy/production/pgdata/` | PostgreSQL cluster data | Initialize with PostgreSQL; never place project or SQLite files here |
 
-If you customized the data root with `ARCREEL_DATA_DIR`, replace `deploy/projects/` throughout this guide with the actual source directory.
+The commands below consistently use the shell variable `source_projects` for the source data root on the host. The default deployment sets it to the absolute path of `deploy/projects/`. If you changed the container data directory with `ARCREEL_DATA_DIR` and a custom mount, set `source_projects` in step 1 to the corresponding absolute host path. The container and host paths may differ, so this guide does not derive that value directly from `.env`. Keep this variable in the same shell throughout the migration.
 
 ## Prerequisites {#prerequisites}
 
@@ -31,6 +31,15 @@ If you customized the data root with `ARCREEL_DATA_DIR`, replace `deploy/project
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
+
+source_projects="$(cd deploy/projects && pwd)"
+# Custom data directory example: source_projects="/srv/arcreel/projects"
+
+if [ ! -f "${source_projects}/.arcreel.db" ]; then
+  echo "Error: ${source_projects}/.arcreel.db does not exist" >&2
+  exit 1
+fi
+
 docker compose -f deploy/docker-compose.yml down
 ```
 
@@ -40,30 +49,38 @@ Do not restart the default deployment until migration verification is complete. 
 
 ```bash
 backup_stamp="$(date +%Y%m%d-%H%M%S)"
+umask 077
 mkdir -p deploy/backups
+chmod 700 deploy/backups
 
-sqlite3 deploy/projects/.arcreel.db \
+sqlite3 "${source_projects}/.arcreel.db" \
   ".backup 'deploy/backups/arcreel-sqlite-${backup_stamp}.db'"
 
 sqlite3 "deploy/backups/arcreel-sqlite-${backup_stamp}.db" \
   "PRAGMA quick_check;"
 
 tar -czf "deploy/backups/arcreel-source-${backup_stamp}.tar.gz" \
-  -C deploy .env projects
+  -C "${source_projects}" .
+
+cp deploy/.env "deploy/backups/arcreel-source-${backup_stamp}.env"
 ```
 
-`PRAGMA quick_check;` must print `ok`. `sqlite3 .backup` uses the SQLite backup API to create a consistent snapshot that includes committed WAL content. Do not copy only `.arcreel.db` with `cp` while the service is running. `.arcreel.db-wal` may contain committed transactions that have not yet been checkpointed, so separating it from the main file can lose data or corrupt the backup. The paired tar archive restores the original `.env`, database sidecar files, and project assets.
+`PRAGMA quick_check;` must print `ok`. `sqlite3 .backup` uses the SQLite backup API to create a consistent snapshot that includes committed WAL content. Do not copy only `.arcreel.db` with `cp` while the service is running. `.arcreel.db-wal` may contain committed transactions that have not yet been checkpointed, so separating it from the main file can lose data or corrupt the backup. The paired tar archive stores the complete contents of `source_projects`, while the adjacent `.env` copy stores the default deployment configuration. Restore only artifacts with the same timestamp. `umask 077` and directory mode `0700` restrict access to the credentials and project assets they contain.
 
 ### 3. Prepare the PostgreSQL Deployment {#configure-env}
 
 Create the production configuration:
 
 ```bash
-test ! -e deploy/production/.env
+if [ -e deploy/production/.env ]; then
+  echo "Error: deploy/production/.env already exists; preserve and review it instead of overwriting it" >&2
+  exit 1
+fi
+
 cp deploy/production/.env.example deploy/production/.env
 ```
 
-If the first command fails, a production configuration already exists. Review and preserve its valid settings instead of overwriting it.
+If a production configuration already exists, the guard above prints an error and stops the current shell. Review and preserve its valid settings instead of overwriting it.
 
 Edit `deploy/production/.env` and set the authentication values and PostgreSQL password:
 
@@ -76,18 +93,30 @@ POSTGRES_PASSWORD=set a database password containing only letters and numbers
 
 Production Compose assembles `DATABASE_URL` automatically. The migration command also embeds the password in pgloader's PostgreSQL URI, so use `openssl rand -hex 16` to generate a URL-safe password. If special characters are required, follow the [deployment guide](./deployment.md#postgresql-start) to store the raw password separately from the percent-encoded URI password. Never use the encoded value itself as `POSTGRES_PASSWORD`. The pgloader command below prefers `POSTGRES_PASSWORD_URLENCODED` when it is present.
 
-Confirm that the following commands produce no output. If either target directory already contains data, stop the migration instead of overwriting it:
+Run the directory guard. It produces no output when the target directories are absent or empty. If it finds any entry, including a hidden file, it prints an error and stops the current shell:
 
 ```bash
-find deploy/production/projects -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null
-test ! -e deploy/production/pgdata/PG_VERSION
+for target_dir in deploy/production/projects deploy/production/pgdata; do
+  if [ -e "${target_dir}" ] && [ ! -d "${target_dir}" ]; then
+    echo "Error: ${target_dir} exists and is not a directory; stopping migration" >&2
+    exit 1
+  fi
+
+  if [ -d "${target_dir}" ]; then
+    first_entry="$(find "${target_dir}" -mindepth 1 -maxdepth 1 -print -quit)" || exit 1
+    if [ -n "${first_entry}" ]; then
+      echo "Error: ${target_dir} is not empty; stopping migration without overwriting it" >&2
+      exit 1
+    fi
+  fi
+done
 ```
 
 Copy project and media assets to the production directory without copying the SQLite database:
 
 ```bash
 mkdir -p deploy/production/projects
-tar -C deploy/projects --exclude='.arcreel.db*' -cf - . | \
+tar -C "${source_projects}" --exclude='.arcreel.db*' -cf - . | \
   tar -C deploy/production/projects -xf -
 ```
 
@@ -110,8 +139,6 @@ docker compose -f deploy/production/docker-compose.yml ps
 Use pgloader inside the ArcReel container to migrate the original SQLite database directly to PostgreSQL:
 
 ```bash
-source_projects="$(cd deploy/projects && pwd)"
-
 docker compose -f deploy/production/docker-compose.yml run --rm \
   -v "${source_projects}:/migration-source:ro" \
   arcreel bash -c '
@@ -148,7 +175,7 @@ docker compose -f deploy/production/docker-compose.yml \
 Compare the record counts in SQLite:
 
 ```bash
-sqlite3 deploy/projects/.arcreel.db "
+sqlite3 "${source_projects}/.arcreel.db" "
   SELECT 'tasks', COUNT(*) FROM tasks
   UNION ALL
   SELECT 'api_calls', COUNT(*) FROM api_calls
@@ -173,7 +200,7 @@ Visit `http://<your-ip>:1241` and verify that the service is working.
 
 ## Roll Back to SQLite {#rollback-to-sqlite}
 
-The migration procedure above does not modify the original `deploy/projects/` or `deploy/.env`. A normal rollback therefore restarts the default Compose deployment instead of changing the production `.env`:
+The migration procedure above does not modify the source data directory referenced by `source_projects` or `deploy/.env`. A normal rollback therefore restarts the original SQLite deployment instead of changing the production `.env`. If you roll back from a new shell, first set `source_projects` again as described in step 1:
 
 1. Stop the PostgreSQL production deployment:
 
@@ -182,7 +209,7 @@ The migration procedure above does not modify the original `deploy/projects/` or
    docker compose -f deploy/production/docker-compose.yml down
    ```
 
-2. Confirm that `deploy/projects/.arcreel.db` and `deploy/.env` still exist. If the original directory was changed or damaged, preserve its current contents first, then restore `.env` and the entire `projects/` directory from `arcreel-source-YYYYMMDD-HHMMSS.tar.gz` created in step 2. Do not overwrite only the main SQLite file while leaving mismatched `-wal` or `-shm` files behind.
+2. Confirm that `${source_projects}/.arcreel.db` and `deploy/.env` still exist. If the source directory was changed or damaged, preserve the current directory first, extract the complete `arcreel-source-YYYYMMDD-HHMMSS.tar.gz` from step 2 into an empty `${source_projects}`, and restore the `.env` copy with the same timestamp as `deploy/.env`. Do not overwrite only the main SQLite file while leaving mismatched `-wal` or `-shm` files behind.
 
 3. Restart the default SQLite deployment:
 
@@ -196,4 +223,4 @@ The migration procedure above does not modify the original `deploy/projects/` or
 
 5. Keep `deploy/production/pgdata/`, `deploy/production/projects/`, and the migration backups until rollback verification is complete. Do not delete them. `POSTGRES_PASSWORD` is stored in the separate `deploy/production/.env` and does not need to be removed from `deploy/.env`.
 
-If the original deployment did not use the default Compose configuration, also restore or unset `DATABASE_URL` so it selects SQLite, confirm that `ARCREEL_DATA_DIR` points to the original data directory, and only then restart ArcReel.
+If the original deployment used custom Compose configuration or a custom data mount, also restore or unset `DATABASE_URL` so it selects SQLite, confirm that `ARCREEL_DATA_DIR` still points to the original directory inside the container, and verify that the mount maps it to `${source_projects}` on the host before restarting ArcReel.

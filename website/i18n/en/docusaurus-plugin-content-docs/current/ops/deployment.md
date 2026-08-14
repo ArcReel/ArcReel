@@ -271,22 +271,33 @@ Explicitly changing the version when upgrading reduces the risk of unintentional
 
 ### 6.1 Back Up a SQLite Deployment {#backup-sqlite}
 
-First stop writes. The simplest method is to stop the service briefly:
+First identify the actual data root on the host, then stop writes. Default Compose uses `deploy/projects/`. If you changed the container path with `ARCREEL_DATA_DIR` and a custom mount, set `data_dir` to the corresponding absolute host path:
 
 ```bash
 cd deploy
+
+data_dir="$(cd projects && pwd)"
+# Custom data directory example: data_dir="/srv/arcreel/projects"
+
 docker compose stop arcreel
 ```
 
 Create the backup:
 
 ```bash
+backup_stamp="$(date +%Y%m%d-%H%M%S)"
+umask 077
 mkdir -p backups
-tar -czf "backups/arcreel-$(date +%Y%m%d-%H%M%S).tar.gz" \
-  .env projects vertex_keys claude_data
+chmod 700 backups
+
+tar -czf "backups/arcreel-config-${backup_stamp}.tar.gz" \
+  .env vertex_keys claude_data
+
+tar -czf "backups/arcreel-projects-${backup_stamp}.tar.gz" \
+  -C "${data_dir}" .
 ```
 
-Archiving the entire `projects/` directory after the service has stopped keeps `.arcreel.db` and project assets at the same point in time. Do not copy only `.arcreel.db` while ArcReel is writing to it. In WAL mode, committed transactions may still reside in `.arcreel.db-wal`; losing or mismatching the WAL can cause data loss or corruption. If downtime is not possible, use the SQLite Online Backup API, such as the `sqlite3` `.backup` command, or `VACUUM INTO` to create a consistent snapshot instead of copying the main database file directly with `cp`.
+Archiving the entire `data_dir` after the service has stopped keeps `.arcreel.db` and project assets at the same point in time. The configuration and data archives must use the same timestamp and be stored together. `umask 077` and backup directory mode `0700` restrict access to the credentials and project assets they contain. Do not copy only `.arcreel.db` while ArcReel is writing to it. In WAL mode, committed transactions may still reside in `.arcreel.db-wal`; losing or mismatching the WAL can cause data loss or corruption. If downtime is not possible, use the SQLite Online Backup API, such as the `sqlite3` `.backup` command, or `VACUUM INTO` to create a consistent snapshot instead of copying the main database file directly with `cp`.
 
 Restart the service:
 
@@ -298,7 +309,7 @@ To restore:
 
 1. Stop ArcReel;
 2. Back up the current directory so you can roll back if files are overwritten;
-3. Restore `.env`, `projects/`, `vertex_keys/`, and `claude_data/` from the archive to their original locations;
+3. Restore `.env`, `vertex_keys/`, and `claude_data/` from the configuration archive, then extract the paired data archive completely into an empty `data_dir`;
 4. Start the service and check `/health`;
 5. Open several projects and verify their images, videos, and version history.
 
@@ -308,7 +319,9 @@ Stop the ArcReel application first, but leave PostgreSQL running, so no new writ
 
 ```bash
 cd "$(git rev-parse --show-toplevel)/deploy/production"
+umask 077
 mkdir -p backups
+chmod 700 backups
 docker compose stop arcreel
 
 backup_stamp="$(date +%Y%m%d-%H%M%S)"
@@ -323,7 +336,7 @@ tar -czf "backups/arcreel-files-${backup_stamp}.tar.gz" \
 docker compose start arcreel
 ```
 
-The database backup and file backup use the same timestamp and must be stored and restored together.
+The database and file backups use the same timestamp and must be stored and restored together. `umask 077` and backup directory mode `0700` ensure that the host-created SQL file and file archive are readable and writable only by the current user.
 
 `pg_dump` reads `PGPASSWORD` through libpq. The command above sets it only for that `pg_dump` process inside the PostgreSQL container, allowing `docker compose exec -T` to run non-interactively without expanding the password into the host command line. For long-running host-side backup automation, use a PostgreSQL password file with `0600` permissions instead. Never put the password in a script or backup filename.
 
