@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from itertools import chain
 from pathlib import Path
 
+from lib.json_io import atomic_write_bytes
 from lib.project_migrations.script_binding import resolve_bound_script_path
 from lib.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_v1_to_v2
@@ -83,7 +84,10 @@ def _backup_project_json(project_dir: Path, from_version: int) -> None:
         return
     ts = int(time.time())
     bak = project_dir / _versioned_backup_name("project.json", from_version, ts)
-    bak.write_bytes(pj.read_bytes())
+    # 同目录 tmp + rename：备份要么完整要么不存在。直接 write_bytes 中途失败（磁盘满 / IO 错误）
+    # 会留下截断的 .bak，而迁移器自己的备份逻辑按同一命名规则复用既有备份当原版，回滚时反倒用
+    # 半截内容盖掉现场。
+    atomic_write_bytes(bak, pj.read_bytes())
 
 
 def _hardlink_backup_clues(project_dir: Path, from_version: int) -> None:

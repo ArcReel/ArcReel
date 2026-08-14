@@ -551,6 +551,36 @@ class TestProjectArchiveService:
             service.import_project_archive(archive_path, uploaded_filename="internal-failure.zip")
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("stamp", ["commercial", ""])
+    def test_import_reports_invalid_script_creation_type_as_validation_error(self, tmp_path, stamp):
+        """剧本戳着非法创作类型是普通的脏数据：要给可行动的校验结论，不是 500。
+
+        结构修复排在校验之前，在修复里按这个戳分派骨架种类会抛错，异常穿到路由就成了通用 500。
+        """
+        import json as _json
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        script_file = project_dir / "scripts" / "episode_1.json"
+        script = _json.loads(script_file.read_text(encoding="utf-8"))
+        script["creation_type"] = stamp
+        script_file.write_text(_json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+        project = _json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
+        project["creation_type"] = stamp
+        (project_dir / "project.json").write_text(_json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "invalid-creation-type.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="invalid-creation-type.zip")
+
+        assert exc_info.value.render_errors(), "校验失败必须带可读的错误清单"
+
+    @pytest.mark.unit
     @pytest.mark.parametrize("binding", ["episode_1.json", "scripts\\episode_1.json"])
     def test_import_v7_archive_migrates_script_bound_by_alias_path(self, tmp_path, binding):
         """外部归档的绑定可能写成裸文件名或带 Windows 分隔符：迁移排在结构修复前，必须自己

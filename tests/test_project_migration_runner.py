@@ -228,6 +228,22 @@ def test_cleanup_sweeps_script_backups_in_subdirectories(tmp_projects: Path):
     assert kept.exists(), "非备份文件即使更老也不能被清理"
 
 
+def test_runner_backup_failure_leaves_no_partial_backup(tmp_projects: Path, monkeypatch):
+    """runner 的备份写到一半失败不得留下截断的 .bak：迁移器按同一命名复用既有备份当原版，
+    半截内容会在回滚时盖掉现场。"""
+    _write_project(tmp_projects, "p1", {"schema_version": 7, "name": "p1"})
+
+    def _fail(path: Path, data: bytes) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr("lib.project_migrations.runner.atomic_write_bytes", _fail)
+
+    with pytest.raises(OSError):
+        migrate_project_dir(tmp_projects / "p1")
+
+    assert not list((tmp_projects / "p1").glob("*.bak.v7-*"))
+
+
 def test_cleanup_sweeps_backups_beside_deeply_bound_scripts(tmp_projects: Path):
     # 绑定可以指到更深的层级，剧本备份就落在那儿；固定扫两层会让它们永久堆积
     import os

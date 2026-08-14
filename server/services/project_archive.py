@@ -880,22 +880,23 @@ class ProjectArchiveService:
                     location=f"{script_path_rel}:{deprecated_field}",
                 )
 
-        # 剧本戳 → 项目声明的回退链保留：这里只为选出修复分派用的骨架种类，剧本自身戳的脏值
-        # （空串 / 非字符串）由随后的 validate_project_tree 报成结构化 blocking 错误，不在此
-        # 重复判定——在这里抢先抛 ValueError 只会把可读的校验结论换成一个 500。链尾 narration
-        # 终兜底删除——项目级 creation_type 必填且被校验，回退到链尾仍不是字符串即数据损坏，
-        # 直接 fail-loud，不静默落 drama。
-        # 不用 str(...) 归一：会把缺失的 None 变成字面量 "None" 字符串，既让 reference 分支拿到
-        # 假值绕过 fail-loud，又使非 reference 分支的报错语义失真。
+        # 剧本戳 → 项目声明的回退链保留：这里只为选出修复分派用的骨架种类，创作类型的脏值
+        # （空串 / 非字符串 / 未知值）由随后的 validate_project_tree 报成结构化 blocking 错误，
+        # 不在此重复判定——在这里抛 ValueError 只会把可读的校验结论换成一个 500。取不到合法
+        # 创作类型就放弃本剧本的结构修复：没有骨架种类就无从分派，已做的字段清理照常提交。
+        # 不用 str(...) 归一：会把缺失的 None 变成字面量 "None" 字符串，使报错语义失真。
         raw_creation_type = script_payload.get("creation_type") or project_payload.get("creation_type")
         if not isinstance(raw_creation_type, str):
-            raise ValueError(f"未知或缺失 creation_type: {raw_creation_type!r}")
+            return script_changed, project_changed
         creation_type = raw_creation_type
         generation_mode = project_payload.get("generation_mode")
 
         # 修复分流按规范解析的骨架种类走：所有参考路线都使用 video_units，storyboard
         # 路线按内容模式使用 segments/scenes/shots。
-        kind = resolve_declared_kind(creation_type, generation_mode)
+        try:
+            kind = resolve_declared_kind(creation_type, generation_mode)
+        except ValueError:
+            return script_changed, project_changed
 
         # video_units 骨架用 references 组织资产，结构与
         # storyboard 骨架的 characters/scenes/props 不同，单独走专用修复分支。
