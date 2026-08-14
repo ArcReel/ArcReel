@@ -138,7 +138,7 @@ class DataValidator:
     # 合法集真相源在 lib.profile_manifest，避免两处枚举漂移。
     VALID_CREATION_TYPES = set(_VALID_CREATION_TYPES)
     # 源文件性质（novel / screenplay）合法集，真相源在 lib.project_manager（创建写入方），
-    # 避免两处枚举漂移。缺省 novel：缺失字段不报错，仅拦截非法值（如 screen_play）。
+    # 避免两处枚举漂移。必填：创建时写入、v7→v8 迁移为存量项目补齐，缺失与非法值（如 screen_play）都报错。
     VALID_SOURCE_FILE_TYPES = set(_VALID_SOURCE_FILE_TYPES)
     # 生成路线合法集（storyboard / reference_video），真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。必填：存量项目由 v4→v5 迁移补写显式值，缺失即非法。
