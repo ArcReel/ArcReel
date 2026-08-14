@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from pathlib import Path
 
 import pytest
@@ -28,7 +30,7 @@ from lib.grid.layout import grid_aspect_ratio_for
 from lib.grid.models import GridGeneration, build_frame_chain
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
 from lib.project_manager import ProjectManager
-from lib.project_migrations.runner import migrate_project_dir
+from lib.project_migrations.runner import cleanup_stale_backups, migrate_project_dir
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from lib.speech_artifact_provenance import (
     RenditionVariant,
@@ -748,6 +750,104 @@ def test_v7_activation_restores_manifest_when_a_dependency_changes_after_its_com
     assert _read_json(project_dir / "project.json")["schema_version"] == 7
     assert _read_json(script_path) == concurrent_script
     assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
+
+
+def test_v7_activation_rejects_two_artifact_keys_that_own_one_formal_path(tmp_path: Path) -> None:
+    project_dir, _project_data, _step1, script = _project(tmp_path)
+    script["segments"].append(
+        {
+            "segment_id": "E1S02",
+            "image_prompt": "同一张正式图的第二个身份",
+            "video_prompt": "镜头前推",
+            "characters_in_segment": [],
+            "scenes": [],
+            "props": [],
+            "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+        }
+    )
+    _write_json(project_dir / "scripts" / "episode_1.json", script)
+
+    with pytest.raises(ValueError, match="formal artifact path.*multiple keys"):
+        migrate_v7_to_v8(project_dir)
+
+    assert _read_json(project_dir / "project.json")["schema_version"] == 7
+    assert not (project_dir / MANIFEST_FILENAME).exists()
+    assert not list(project_dir.rglob("*.bak.v7-*"))
+
+
+def test_v7_activation_restores_manifest_when_a_formal_image_changes_after_preflight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    sheet_path = project_dir / "characters" / "阿离.png"
+    orphan_path = project_dir / "output" / "orphan.srt"
+    orphan_path.parent.mkdir()
+    orphan_path.write_text("old claim", encoding="utf-8")
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_dir)).register(
+        ArtifactKey.episode_subtitle(1, "E1S01", "post_production"),
+        artifact_path="output/orphan.srt",
+        basis=ArtifactBasis.build("old/subtitle", kind_version=1, inputs={}),
+    )
+    manifest_before = (project_dir / MANIFEST_FILENAME).read_bytes()
+    import lib.artifact_activation as artifact_activation
+
+    original_replace = artifact_activation.ProjectArtifactManifestAdapter.replace_entries_atomically
+
+    def _replace_after_formal_image_change(self, entries):
+        sheet_path.write_bytes(b"concurrent-sheet")
+        return original_replace(self, entries)
+
+    monkeypatch.setattr(
+        artifact_activation.ProjectArtifactManifestAdapter,
+        "replace_entries_atomically",
+        _replace_after_formal_image_change,
+    )
+
+    with pytest.raises(RuntimeError, match="artifact activation dependency changed after preflight"):
+        migrate_v7_to_v8(project_dir)
+
+    assert _read_json(project_dir / "project.json")["schema_version"] == 7
+    assert sheet_path.read_bytes() == b"concurrent-sheet"
+    assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
+
+
+def test_v7_activation_retry_refreshes_matching_backups_before_startup_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    import lib.artifact_activation as artifact_activation
+
+    original_replace = artifact_activation.ProjectArtifactManifestAdapter.replace_entries_atomically
+    attempts = 0
+
+    def _fail_first_manifest_commit(self, entries):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise OSError("injected manifest failure")
+        return original_replace(self, entries)
+
+    monkeypatch.setattr(
+        artifact_activation.ProjectArtifactManifestAdapter,
+        "replace_entries_atomically",
+        _fail_first_manifest_commit,
+    )
+    with pytest.raises(OSError, match="injected manifest failure"):
+        migrate_v7_to_v8(project_dir)
+
+    backups = list(project_dir.rglob("*.bak.v7-*"))
+    assert backups
+    expired = time.time() - 8 * 86400
+    for backup in backups:
+        os.utime(backup, (expired, expired))
+
+    migrate_v7_to_v8(project_dir)
+    cleanup_stale_backups(tmp_path, max_age_days=7)
+
+    assert _read_json(project_dir / "project.json")["schema_version"] == 8
+    assert all(backup.exists() for backup in backups)
 
 
 def test_workflow_uses_the_activation_asset_identity_for_legacy_whitespace(tmp_path: Path) -> None:

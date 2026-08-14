@@ -344,12 +344,14 @@ class TestExecuteGridTask:
         from lib.grid.layout import grid_aspect_ratio_for
         from lib.grid.prompt_builder import build_grid_prompt
         from lib.grid_manager import GridManager
+        from lib.visual_artifact_provenance import GridStoryboardVisual, build_grid_composite_visual_basis
         from server.services.generation_tasks import execute_grid_task
 
         script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         project = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
         script["segments"][0]["image_prompt"]["scene"] = "live scene prompt"
         captured_prompt: list[str] = []
+        captured_basis = []
 
         class _Generator:
             versions = MagicMock()
@@ -364,7 +366,10 @@ class TestExecuteGridTask:
                 "server.services.generation_tasks.resolve_generation_context",
                 new=_image_ctx(_Generator()),
             ),
-            patch("server.services.generation_tasks.register_formal_task_artifact", return_value=None),
+            patch(
+                "server.services.generation_tasks.register_formal_task_artifact",
+                side_effect=lambda *_args, **kwargs: captured_basis.append(kwargs["basis"]),
+            ),
         ):
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
@@ -391,6 +396,22 @@ class TestExecuteGridTask:
         )
         assert captured_prompt == [expected]
         assert GridManager(project_with_script).get(grid_json.id).prompt == expected
+        expected_basis = build_grid_composite_visual_basis(
+            group_id=grid_json.id,
+            members=tuple(
+                GridStoryboardVisual(
+                    resource_id=scene_id,
+                    image_prompt=scenes_by_id[scene_id]["image_prompt"],
+                    video_prompt=scenes_by_id[scene_id]["video_prompt"],
+                )
+                for scene_id in grid_json.scene_ids
+            ),
+            rows=2,
+            columns=2,
+            style="realistic",
+            grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
+        )
+        assert captured_basis == [expected_basis]
 
     async def test_manifest_failure_rejects_selected_grid_before_marking_failed(
         self,
@@ -405,7 +426,15 @@ class TestExecuteGridTask:
         Image.new("RGB", (400, 400), color=(128, 200, 100)).save(grid_image_path, format="PNG")
         mock_generator = MagicMock()
         mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 2))
-        mock_generator.versions.reject_current_version.return_value = True
+
+        def _reject_before_failure(*_args, **_kwargs):
+            current_grid = json.loads(
+                (project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8")
+            )
+            assert current_grid["status"] != "failed"
+            return True
+
+        mock_generator.versions.reject_current_version.side_effect = _reject_before_failure
 
         with (
             patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,

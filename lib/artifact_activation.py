@@ -8,6 +8,7 @@ state; ordinary readers never repair or infer entries on first access.
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -64,6 +65,7 @@ from lib.visual_artifact_provenance import (
     build_grid_composite_visual_basis,
     build_grid_member_storyboard_visual_basis,
     build_storyboard_image_visual_basis,
+    visual_file_digest,
 )
 
 TARGET_SCHEMA_VERSION = 8
@@ -77,6 +79,13 @@ _EPISODE_RESOURCE_KINDS = frozenset(
         ArtifactKind.EPISODE_PRESENTATION,
     }
 )
+_FORMAL_IMAGE_KINDS = frozenset(
+    {
+        ArtifactKind.ASSET_SHEET,
+        ArtifactKind.EPISODE_GRID,
+        ArtifactKind.EPISODE_STORYBOARD,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +96,7 @@ class ArtifactTargetStatePlan:
     project: Mapping[str, Any]
     project_bytes: bytes
     dependency_bytes: Mapping[Path, bytes]
+    dependency_digests: Mapping[Path, str]
     script_paths: tuple[Path, ...]
 
 
@@ -165,12 +175,14 @@ class _Planner:
             raise ValueError("project.json must contain an object")
         self.project = cast(dict[str, Any], project)
         self.dependencies: dict[Path, bytes] = {}
+        self.dependency_digests: dict[Path, str] = {}
         self.script_paths: list[Path] = []
         self.bindings: list[_EpisodeBinding] = []
         self.episodes: list[_EpisodeState] = []
         self._bindings_loaded = False
         self._episodes_loaded = False
         self.entries: dict[ArtifactKey, ArtifactManifestEntry] = {}
+        self._path_owners: dict[str, ArtifactKey] = {}
         self._versions: dict[str, Any] | None = None
         self._activation_mode = False
         self._planned: set[str] = set()
@@ -196,6 +208,7 @@ class _Planner:
             project=dict(self.project),
             project_bytes=self.project_bytes,
             dependency_bytes=dict(self.dependencies),
+            dependency_digests=dict(self.dependency_digests),
             script_paths=tuple(self.script_paths),
         )
 
@@ -373,7 +386,7 @@ class _Planner:
             if path is None:
                 return None
             references.append(
-                VisualReference(
+                self._visual_reference(
                     path=path,
                     role="source",
                     logical_type=asset_type,
@@ -500,7 +513,7 @@ class _Planner:
                         if previous_path is None:
                             continue
                         references.append(
-                            VisualReference(
+                            self._visual_reference(
                                 path=previous_path,
                                 role="previous_storyboard",
                                 logical_type="storyboard",
@@ -576,7 +589,7 @@ class _Planner:
                     return
                 seen_paths.add(raw_path)
                 references.append(
-                    VisualReference(
+                    self._visual_reference(
                         path=path,
                         role="asset_sheet" if variant == "sheet" else "source",
                         logical_type=asset_type,
@@ -683,6 +696,7 @@ class _Planner:
                 ):
                     continue
                 try:
+                    composite_digest = self._track_dependency_digest(composite_path)
                     basis = build_grid_member_storyboard_visual_basis(
                         group_id=grid.id,
                         members=members,
@@ -693,6 +707,7 @@ class _Planner:
                         style=str(self.project.get("style") or ""),
                         member_aspect_ratio=member_ratio,
                         references=references,
+                        source_composite_digest=composite_digest,
                     )
                 except (OSError, TypeError, ValueError):
                     continue
@@ -735,7 +750,7 @@ class _Planner:
                 return None
             try:
                 references.append(
-                    VisualReference(
+                    self._visual_reference(
                         path=path,
                         role="asset_sheet",
                         logical_type=raw.ref_type,
@@ -1241,6 +1256,17 @@ class _Planner:
         observation = self.adapter.inspect_artifact(artifact_path)
         if observation.blocker is not None or not observation.present:
             return
+        owner = self._path_owners.get(observation.artifact_path)
+        if owner is not None and owner != key:
+            raise ValueError(
+                "formal artifact path is claimed by multiple keys: "
+                f"{observation.artifact_path} ({owner.encode()}, {key.encode()})"
+            )
+        self._path_owners[observation.artifact_path] = key
+        if key.kind in _FORMAL_IMAGE_KINDS:
+            self._track_dependency_digest(
+                self.project_dir.joinpath(*Path(observation.artifact_path).parts),
+            )
         entry = ArtifactManifestEntry(
             artifact_path=observation.artifact_path,
             basis_digest=basis.digest,
@@ -1249,6 +1275,36 @@ class _Planner:
         if existing is not None and existing != entry:
             raise ValueError(f"multiple canonical targets claim artifact key {key.encode()}")
         self.entries[key] = entry
+
+    def _visual_reference(
+        self,
+        *,
+        path: Path,
+        role: str,
+        logical_type: str | None = None,
+        logical_id: str | None = None,
+        kind: str | None = None,
+    ) -> VisualReference:
+        """Freeze visual evidence once and reuse it for the activation stability gate."""
+
+        return VisualReference(
+            path=path,
+            role=role,
+            logical_type=logical_type,
+            logical_id=logical_id,
+            kind=kind,
+            content_digest=self._track_dependency_digest(path),
+        )
+
+    def _track_dependency_digest(self, path: Path) -> str:
+        try:
+            digest = visual_file_digest(path)
+        except OSError as exc:
+            raise ValueError(f"cannot read artifact activation dependency: {path}") from exc
+        previous = self.dependency_digests.setdefault(path, digest)
+        if previous != digest:
+            raise RuntimeError(f"artifact activation dependency changed during preflight: {path}")
+        return digest
 
     def _safe_present_path(self, relative_path: str) -> Path | None:
         observation = self.adapter.inspect_artifact(relative_path)
@@ -1924,6 +1980,13 @@ def _assert_preflight_unchanged(project_dir: Path, plan: ArtifactTargetStatePlan
             raise RuntimeError(f"artifact activation dependency changed after preflight: {path}") from exc
         if current != expected:
             raise RuntimeError(f"artifact activation dependency changed after preflight: {path}")
+    for path, expected in plan.dependency_digests.items():
+        try:
+            current = visual_file_digest(path)
+        except OSError as exc:
+            raise RuntimeError(f"artifact activation dependency changed after preflight: {path}") from exc
+        if current != expected:
+            raise RuntimeError(f"artifact activation dependency changed after preflight: {path}")
 
 
 def _assert_project_unchanged(project_dir: Path, expected: bytes) -> None:
@@ -1953,6 +2016,10 @@ def _ensure_activation_backup(source: Path, *, stamp: int) -> None:
             continue
         try:
             if candidate.read_bytes() == content:
+                try:
+                    os.utime(candidate, None, follow_symlinks=False)
+                except (NotImplementedError, OSError):
+                    continue
                 return
         except OSError:
             continue

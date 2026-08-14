@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from lib.artifact_manifest import ArtifactBasis
@@ -33,6 +33,7 @@ class VisualReference:
     logical_type: str | None = None
     logical_id: str | None = None
     kind: str | None = None
+    content_digest: str | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.path, Path):
@@ -46,13 +47,15 @@ class VisualReference:
             object.__setattr__(self, "logical_id", normalize_asset_name(logical_id))
         if self.kind is not None:
             _require_non_empty("visual reference kind", self.kind)
+        if self.content_digest is not None:
+            _require_sha256("visual reference content_digest", self.content_digest)
 
     def evidence(self) -> dict[str, object]:
         """Return path-independent, content-addressed manifest evidence."""
 
         evidence: dict[str, object] = {
             "role": self.role,
-            "sha256": _file_digest(self.path),
+            "sha256": self.content_digest or visual_file_digest(self.path),
         }
         if self.logical_type is not None:
             evidence["logical_identity"] = {
@@ -187,6 +190,7 @@ def build_grid_member_storyboard_visual_basis(
     style: str,
     member_aspect_ratio: str,
     references: Sequence[VisualReference] = (),
+    source_composite_digest: str | None = None,
 ) -> ArtifactBasis:
     """Describe one split cell while preserving grid dependency locality.
 
@@ -213,7 +217,13 @@ def build_grid_member_storyboard_visual_basis(
             },
             "style": style,
             "references": _reference_evidence(references),
-            "source_composite": {"sha256": _file_digest(composite_image)},
+            "source_composite": {
+                "sha256": (
+                    _require_sha256("source_composite_digest", source_composite_digest)
+                    if source_composite_digest is not None
+                    else visual_file_digest(composite_image)
+                )
+            },
         },
     )
 
@@ -228,6 +238,7 @@ def build_stale_grid_member_storyboard_visual_basis(
     columns: int,
     member_aspect_ratio: str,
     source_grid_basis_digest: str,
+    source_composite_digest: str | None = None,
 ) -> ArtifactBasis:
     """Describe a cell derived from a claimed but stale grid composite.
 
@@ -256,7 +267,13 @@ def build_stale_grid_member_storyboard_visual_basis(
             "source_grid_claim": {
                 "basis_digest": _require_non_empty("source_grid_basis_digest", source_grid_basis_digest),
             },
-            "source_composite": {"sha256": _file_digest(composite_image)},
+            "source_composite": {
+                "sha256": (
+                    _require_sha256("source_composite_digest", source_composite_digest)
+                    if source_composite_digest is not None
+                    else visual_file_digest(composite_image)
+                )
+            },
         },
     )
 
@@ -291,9 +308,9 @@ def build_storyboard_video_artifact_visual_basis(
         }
     else:
         raise ValueError("visual_prompt must be a string or structured object")
-    frame_evidence: list[dict[str, object]] = [{"role": "storyboard", "sha256": _file_digest(storyboard_image)}]
+    frame_evidence: list[dict[str, object]] = [{"role": "storyboard", "sha256": visual_file_digest(storyboard_image)}]
     if end_frame_image is not None:
-        frame_evidence.append({"role": "end_frame", "sha256": _file_digest(end_frame_image)})
+        frame_evidence.append({"role": "end_frame", "sha256": visual_file_digest(end_frame_image)})
     return ArtifactBasis.build(
         "artifact-visual/video-storyboard",
         kind_version=1,
@@ -484,7 +501,9 @@ def _reference_evidence(references: Sequence[VisualReference]) -> list[dict[str,
     return [reference.evidence() for reference in references]
 
 
-def _file_digest(path: Path) -> str:
+def visual_file_digest(path: Path) -> str:
+    """Hash one visual input without loading the whole file into memory."""
+
     if not path.is_file():
         raise FileNotFoundError(path)
     digest = hashlib.sha256()
@@ -492,6 +511,14 @@ def _file_digest(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _require_sha256(field: str, value: object) -> str:
+    if not isinstance(value, str) or len(value) != 64:
+        raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+    if any(character not in "0123456789abcdef" for character in value):
+        raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+    return value
 
 
 def _require_non_empty(field: str, value: object) -> str:
@@ -516,4 +543,5 @@ __all__ = [
     "build_reference_video_artifact_visual_basis",
     "build_storyboard_image_visual_basis",
     "build_storyboard_video_artifact_visual_basis",
+    "visual_file_digest",
 ]

@@ -10,7 +10,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from lib.artifact_manifest import ArtifactBasis
+from lib.artifact_manifest import (
+    ArtifactBasis,
+    ArtifactKey,
+    ArtifactManifest,
+    ProjectArtifactManifestAdapter,
+)
 from lib.config.resolver import ProviderModel
 from lib.generation_queue import CompensableGenerationResult
 from lib.narration_delivery import (
@@ -415,6 +420,7 @@ class _FakePM:
 class _FakeGenerator:
     def __init__(self):
         self.image_calls = []
+        self.image_reference_bytes = []
         self.video_calls = []
         self.versions = self
         self.current_versions = {}
@@ -425,6 +431,12 @@ class _FakeGenerator:
 
     async def generate_image_async(self, **kwargs):
         self.image_calls.append(kwargs)
+        self.image_reference_bytes.append(
+            [
+                (reference["image"] if isinstance(reference, dict) else reference).read_bytes()
+                for reference in kwargs.get("reference_images") or []
+            ]
+        )
         self.current_versions[(kwargs["resource_type"], kwargs["resource_id"])] = 1
         return Path("/tmp/image.png"), 1
 
@@ -437,7 +449,7 @@ class _FakeGenerator:
         return Path("/tmp/video.mp4"), 2, "ref", "uri"
 
     def get_versions(self, resource_type, resource_id):
-        return {"versions": [{"created_at": "2026-01-01T00:00:00Z"}]}
+        return {"versions": [{"version": 1, "created_at": "2026-01-01T00:00:00Z"}]}
 
     def get_current_version(self, resource_type, resource_id):
         return self.current_versions.get((resource_type, resource_id), 0)
@@ -467,6 +479,38 @@ def _prepare_files(tmp_path: Path):
     (project_path / "products" / "refs").mkdir(parents=True, exist_ok=True)
     (project_path / "products" / "refs" / "保温杯_1.jpg").write_bytes(b"jpg")
     return project_path
+
+
+def _persist_active_fake_project(fake_pm: _FakePM) -> None:
+    """Persist the fake manager's state as one schema-8 project."""
+
+    fake_pm.project.update(
+        {
+            "schema_version": 8,
+            "generation_mode": "storyboard",
+            "aspect_ratio": "9:16",
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        }
+    )
+    fake_pm.script["episode"] = 1
+    scripts_dir = fake_pm.project_path / "scripts"
+    scripts_dir.mkdir(exist_ok=True)
+    (fake_pm.project_path / "project.json").write_text(
+        json.dumps(fake_pm.project, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (scripts_dir / "episode_1.json").write_text(
+        json.dumps(fake_pm.script, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def _register_stale_visual_claim(project_path: Path, key: ArtifactKey, artifact_path: str) -> None:
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+        key,
+        artifact_path=artifact_path,
+        basis=ArtifactBasis.build("test/visual-reference", kind_version=1, inputs={}),
+    )
 
 
 class TestGenerationTasks:
@@ -565,29 +609,31 @@ class TestGenerationTasks:
         assert storyboard_result["resource_type"] == "storyboards"
         storyboard_refs = fake_generator.image_calls[0]["reference_images"]
         # 资产 sheet 以「资产名 label」显式绑定（供 Gemini 等支持内联标签的后端
-        # 把参考图与 prompt 专名对应）；extra_reference_images 无资产名上下文，保持裸 Path
-        assert storyboard_refs == [
-            {"image": project_path / "characters" / "Alice.png", "label": "Alice"},
-            {"image": project_path / "scenes" / "祠堂.png", "label": "祠堂"},
-            {"image": project_path / "props" / "玉佩.png", "label": "玉佩"},
-            project_path / "characters" / "Alice.png",
-            {
-                "image": project_path / "storyboards" / "scene_E1S01.png",
-                "label": PREVIOUS_STORYBOARD_REFERENCE_LABEL,
-                "description": PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
-            },
+        # 把参考图与 prompt 专名对应）；provider 收到的是任务私有快照，extra 无标签仍保持裸 Path。
+        assert [ref.get("label") if isinstance(ref, dict) else None for ref in storyboard_refs] == [
+            "Alice",
+            "祠堂",
+            "玉佩",
+            None,
+            PREVIOUS_STORYBOARD_REFERENCE_LABEL,
         ]
+        assert storyboard_refs[-1]["description"] == PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION
+        assert all(
+            not (ref["image"] if isinstance(ref, dict) else ref).is_relative_to(project_path) for ref in storyboard_refs
+        )
+        assert fake_generator.image_reference_bytes[0] == [b"png"] * 5
 
         await generation_tasks.execute_storyboard_task(
             "demo",
             "E1S03",
             {"script_file": "episode_1.json", "prompt": "direct prompt"},
         )
-        assert fake_generator.image_calls[1]["reference_images"] == [
-            {"image": project_path / "characters" / "Alice.png", "label": "Alice"},
-            {"image": project_path / "scenes" / "祠堂.png", "label": "祠堂"},
-            {"image": project_path / "props" / "玉佩.png", "label": "玉佩"},
+        assert [ref["label"] for ref in fake_generator.image_calls[1]["reference_images"]] == [
+            "Alice",
+            "祠堂",
+            "玉佩",
         ]
+        assert fake_generator.image_reference_bytes[1] == [b"png"] * 3
 
         video_result = await generation_tasks.execute_video_task(
             "demo",
@@ -696,6 +742,180 @@ class TestGenerationTasks:
         assert kwargs["script_file"] == "episode_1.json"
         assert kwargs["artifact_path"] == "storyboards/scene_E1S01.png"
         assert isinstance(kwargs["basis"], ArtifactBasis)
+
+    @pytest.mark.integration
+    async def test_schema8_storyboard_excludes_unclaimed_formal_references(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
+        _persist_active_fake_project(fake_pm)
+        fake_generator = _FakeGenerator()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
+
+        await generation_tasks.execute_storyboard_task(
+            "demo",
+            "E1S02",
+            {"script_file": "episode_1.json", "prompt": "direct prompt"},
+        )
+
+        assert fake_generator.image_calls[0]["reference_images"] is None
+
+    @pytest.mark.integration
+    async def test_storyboard_rechecks_selected_manifest_claims_before_provider(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][2]["scenes"] = []
+        fake_pm.script["segments"][2]["props"] = []
+        _persist_active_fake_project(fake_pm)
+        key = ArtifactKey.asset_sheet("character", "Alice")
+        _register_stale_visual_claim(project_path, key, "characters/Alice.png")
+        fake_generator = _FakeGenerator()
+        resolve_context = _fake_resolve_ctx(fake_generator)
+
+        async def _delete_claim_then_resolve(*args, **kwargs):
+            ProjectArtifactManifestAdapter(project_path).delete_entry(key)
+            return await resolve_context(*args, **kwargs)
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _delete_claim_then_resolve)
+
+        with pytest.raises(ValueError, match="no longer registered"):
+            await generation_tasks.execute_storyboard_task(
+                "demo",
+                "E1S03",
+                {"script_file": "episode_1.json", "prompt": "direct prompt"},
+            )
+
+        assert fake_generator.image_calls == []
+
+    @pytest.mark.integration
+    async def test_storyboard_provider_reads_the_same_reference_bytes_as_its_basis(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        from lib.visual_artifact_provenance import VisualReference, build_storyboard_image_visual_basis
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
+        fake_pm.script["segments"][1]["scenes"] = []
+        fake_pm.script["segments"][1]["props"] = []
+        _persist_active_fake_project(fake_pm)
+        character_path = project_path / "characters" / "Alice.png"
+        previous_path = project_path / "storyboards" / "scene_E1S01.png"
+        character_path.write_bytes(b"selected-character")
+        previous_path.write_bytes(b"selected-previous")
+        _register_stale_visual_claim(
+            project_path,
+            ArtifactKey.asset_sheet("character", "Alice"),
+            "characters/Alice.png",
+        )
+        _register_stale_visual_claim(
+            project_path,
+            ArtifactKey.episode_storyboard(1, "E1S01"),
+            "storyboards/scene_E1S01.png",
+        )
+        expected_basis = build_storyboard_image_visual_basis(
+            resource_id="E1S02",
+            image_prompt="direct prompt",
+            style="Anime",
+            aspect_ratio="9:16",
+            references=(
+                VisualReference(
+                    path=character_path,
+                    role="asset_sheet",
+                    logical_type="character",
+                    logical_id="Alice",
+                    kind="sheet",
+                ),
+                VisualReference(
+                    path=previous_path,
+                    role="previous_storyboard",
+                    logical_type="storyboard",
+                    logical_id="E1S01",
+                ),
+            ),
+        )
+        captured_basis: list[ArtifactBasis] = []
+
+        class _RacingGenerator(_FakeGenerator):
+            def __init__(self):
+                super().__init__()
+                self.reference_bytes: list[bytes] = []
+
+            async def generate_image_async(self, **kwargs):
+                character_path.write_bytes(b"changed-character")
+                previous_path.write_bytes(b"changed-previous")
+                refs = kwargs["reference_images"]
+                self.reference_bytes = [(ref["image"] if isinstance(ref, dict) else ref).read_bytes() for ref in refs]
+                return await super().generate_image_async(**kwargs)
+
+        fake_generator = _RacingGenerator()
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        def _register(*_args, **kwargs):
+            captured_basis.append(kwargs["basis"])
+            return True
+
+        monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", _register)
+
+        await generation_tasks.execute_storyboard_task(
+            "demo",
+            "E1S02",
+            {"script_file": "episode_1.json", "prompt": "direct prompt"},
+        )
+
+        assert fake_generator.reference_bytes == [b"selected-character", b"selected-previous"]
+        assert captured_basis == [expected_basis]
+
+    @pytest.mark.unit
+    async def test_formal_image_commit_requires_the_exact_selected_version_record(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        current = project_path / "characters" / "Alice.png"
+        staged = project_path / "characters" / ".Alice.stage.png"
+
+        class _IncompleteVersions:
+            versions = None
+
+            def __init__(self):
+                self.versions = self
+
+            async def generate_image_async(self, **kwargs):
+                staged.write_bytes(b"generated")
+                version = kwargs["commit_formal_output"](staged, current, {})
+                return current, version
+
+            def commit_staged_version(self, **kwargs):
+                kwargs["current_file"].write_bytes(kwargs["staged_file"].read_bytes())
+                kwargs["on_commit"]()
+                return 2
+
+            def get_current_version(self, resource_type, resource_id):
+                return 2
+
+            def get_versions(self, resource_type, resource_id):
+                return {"versions": [{"version": 1, "created_at": "2026-01-01T00:00:00Z"}]}
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(_IncompleteVersions()),
+        )
+        monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
+
+        with pytest.raises(RuntimeError, match="creation timestamp"):
+            await generation_tasks.execute_character_task(
+                "demo",
+                "Alice",
+                {"prompt": "hero"},
+            )
 
     @pytest.mark.unit
     async def test_storyboard_registers_generation_frozen_basis_when_script_changes_in_flight(
@@ -1183,7 +1403,10 @@ class TestGenerationTasks:
 
         call = fake_generator.image_calls[0]
         # 仅存在的原图进入参考；缺失文件跳过
-        assert call["reference_images"] == [project_path / "products" / "refs" / "保温杯_1.jpg"]
+        assert len(call["reference_images"]) == 1
+        assert call["reference_images"][0].name == "0000-保温杯_1.jpg"
+        assert not call["reference_images"][0].is_relative_to(project_path)
+        assert fake_generator.image_reference_bytes[0] == [b"jpg"]
         assert "保温杯" in call["prompt"]
 
     @pytest.mark.unit
@@ -3165,13 +3388,11 @@ class TestAdProductFidelityStoryboard:
         refs = generator.image_calls[0]["reference_images"]
         paths = _ref_paths(refs)
         # 产品参考全量注入且排首位：sheet 在前、原图压阵，先于角色/场景 sheet
-        assert paths[:2] == [
-            project_path / "products" / "保温杯.png",
-            project_path / "products" / "refs" / "保温杯_1.jpg",
-        ]
+        assert [reference["kind"] for reference in refs[:2]] == ["sheet", "original"]
+        assert [path.name for path in paths[:2]] == ["0000-保温杯.png", "0001-保温杯_1.jpg"]
+        assert generator.image_reference_bytes[0][:2] == [b"png", b"jpg"]
         # 既有装配照常跟在产品参考之后（角色/场景 sheet + 上一分镜衔接参考）
-        assert (project_path / "characters" / "Alice.png") in paths[2:]
-        assert (project_path / "scenes" / "祠堂.png") in paths[2:]
+        assert {reference.get("label") for reference in refs[2:] if isinstance(reference, dict)} >= {"Alice", "祠堂"}
         # 产品参考带可读标签（供支持 label 的后端内联）
         assert all(isinstance(r, dict) and "保温杯" in r["label"] for r in refs[:2])
         # 附高保真还原指令
@@ -3191,8 +3412,11 @@ class TestAdProductFidelityStoryboard:
             "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "产品特写"}
         )
 
-        paths = _ref_paths(generator.image_calls[0]["reference_images"])
-        assert paths[0] == project_path / "products" / "refs" / "保温杯_1.jpg"
+        refs = generator.image_calls[0]["reference_images"]
+        paths = _ref_paths(refs)
+        assert refs[0]["kind"] == "original"
+        assert paths[0].name == "0000-保温杯_1.jpg"
+        assert generator.image_reference_bytes[0][0] == b"jpg"
         # 全量注入 = 存在的原图都进；声明的 missing.jpg 不指向任何文件，不出现
         assert all("missing" not in str(p) for p in paths)
         assert "「保温杯」" in generator.image_calls[0]["prompt"]
@@ -3234,12 +3458,9 @@ class TestAdProductFidelityStoryboard:
             "demo", "E1S01", {"script_file": "episode_1.json", "prompt": "氛围开场"}
         )
 
-        paths = _ref_paths(generator.image_calls[0]["reference_images"])
-        assert all("products" not in str(p) for p in paths)
-        assert paths == [
-            project_path / "characters" / "Alice.png",
-            project_path / "scenes" / "祠堂.png",
-        ]
+        refs = generator.image_calls[0]["reference_images"]
+        assert [reference["label"] for reference in refs] == ["Alice", "祠堂"]
+        assert generator.image_reference_bytes[0] == [b"png", b"png"]
         prompt = generator.image_calls[0]["prompt"]
         assert prompt.startswith("氛围开场")
         assert "产品高保真还原" not in prompt
