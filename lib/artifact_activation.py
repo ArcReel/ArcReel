@@ -1647,6 +1647,14 @@ class ArtifactInputClaim:
     artifact_path: str
 
 
+@dataclass(frozen=True, slots=True)
+class EpisodeScriptInput:
+    """A bound formal script and the identity frozen for provider admission."""
+
+    episode: int
+    claim: ArtifactInputClaim
+
+
 def active_artifact_currency_resolver(
     project_dir: Path,
     project: Mapping[str, Any],
@@ -1694,6 +1702,40 @@ def resolve_artifact_episode(
     return episode
 
 
+def resolve_usable_episode_script_input(
+    *,
+    project_path: Path,
+    project: Mapping[str, object],
+    script: dict[str, Any],
+    script_filename: str,
+) -> EpisodeScriptInput:
+    """Resolve one bound episode script through the shared formal-input seam.
+
+    Legacy projects still admit the script that the caller already loaded, while
+    retaining its typed identity in case schema activation wins before provider
+    submission. Active projects require the exact bound script claim immediately.
+    """
+
+    from lib.project_manager import ProjectManager
+
+    episode = resolve_artifact_episode(
+        project=project,
+        script=script,
+        script_filename=script_filename,
+    )
+    if episode is None:
+        episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+    artifact_path = _normalize_script_binding(ProjectManager.normalize_script_filename(script_filename))
+    claim = resolve_usable_artifact_input_claim(
+        resolver=active_artifact_currency_resolver(project_path, project),
+        key=ArtifactKey.episode_script(episode),
+        artifact_path=artifact_path,
+    )
+    if claim is None:
+        raise ValueError(f"episode script is not registered: {artifact_path}")
+    return EpisodeScriptInput(episode=episode, claim=claim)
+
+
 def artifact_is_usable(
     resolver: ArtifactCurrencyResolver | None,
     key: ArtifactKey | None,
@@ -1735,7 +1777,7 @@ def artifact_input_is_usable(
     )
     if claim is None:
         return False
-    if resolver is not None and claims is not None:
+    if claims is not None:
         claims.append(claim)
     return True
 
@@ -1825,9 +1867,7 @@ def resolve_usable_storyboard_video_inputs(
     if resolver is None:
         resolver = active_artifact_currency_resolver(project_path, project)
     storyboard_rel = storyboard_file.relative_to(project_path).as_posix()
-    if resolver is not None:
-        if type(episode) is not int or episode < 1:
-            raise ValueError("script episode must be a positive integer")
+    if type(episode) is int and episode >= 1:
         if not artifact_input_is_usable(
             resolver=resolver,
             key=ArtifactKey.episode_storyboard(episode, resource_id),
@@ -1835,6 +1875,8 @@ def resolve_usable_storyboard_video_inputs(
             claims=claims,
         ):
             raise StoryboardImageUnavailable(f"storyboard is not registered: {storyboard_rel}")
+    elif resolver is not None:
+        raise ValueError("script episode must be a positive integer")
     return storyboard_file, end_frame
 
 
@@ -2297,6 +2339,7 @@ __all__ = [
     "ArtifactInputClaim",
     "ArtifactRegistrationReceipt",
     "ArtifactTargetStatePlan",
+    "EpisodeScriptInput",
     "TARGET_SCHEMA_VERSION",
     "activate_artifact_target_state",
     "active_artifact_currency_resolver",
@@ -2322,6 +2365,7 @@ __all__ = [
     "resolve_current_artifact_basis",
     "resolve_current_artifact_target",
     "resolve_current_resource_artifact_basis",
+    "resolve_usable_episode_script_input",
     "resolve_usable_artifact_input_claim",
     "resolve_usable_storyboard_video_inputs",
 ]

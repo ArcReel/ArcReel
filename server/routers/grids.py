@@ -463,7 +463,7 @@ async def upload_grid_image(
                         )
                     )
 
-                committed = grid_manager.update(grid_id, _replace_record, on_commit=_activate)
+                committed = grid_manager.update_formal(grid_id, _replace_record, on_commit=_activate)
                 if committed is None or len(version_box) != 1:
                     raise RuntimeError("grid upload metadata commit skipped staged activation")
                 return version_box[0]

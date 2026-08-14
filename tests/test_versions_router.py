@@ -96,6 +96,56 @@ class _FakeVM:
         }
 
 
+def test_non_typed_storyboard_restore_enters_version_commit_from_metadata_transaction(monkeypatch) -> None:
+    order: list[str] = []
+
+    class _OrderedPM(_FakePM):
+        def update_scene_asset_across_scripts(
+            self,
+            project_name,
+            script_filenames,
+            scene_id,
+            asset_type,
+            asset_path,
+            *,
+            on_commit=None,
+            on_miss=None,
+        ):
+            order.append("metadata")
+            assert on_commit is not None
+            on_commit()
+
+    class _OrderedVM(_FakeVM):
+        def restore_version(self, resource_type, resource_id, version, current_file, *, on_restore=None):
+            assert order == ["metadata"]
+            order.append("versions")
+            return super().restore_version(
+                resource_type,
+                resource_id,
+                version,
+                current_file,
+                on_restore=on_restore,
+            )
+
+    pm = _OrderedPM()
+    monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(versions, "register_current_resource_artifact", lambda *_args, **_kwargs: False)
+
+    result = versions._restore_non_typed_version(
+        versions=_OrderedVM(),
+        resource_type="storyboards",
+        project_name="demo",
+        resource_id="E1S01",
+        version=1,
+        current_file=Path("/tmp/demo/storyboards/scene_E1S01.png"),
+        file_path="storyboards/scene_E1S01.png",
+        project_path=Path("/tmp/demo"),
+    )
+
+    assert result["restored_version"] == 1
+    assert order == ["metadata", "versions"]
+
+
 class _GridPM:
     """记录剧本侧写回调用的 ProjectManager 替身，供 grids 还原用例断言「不碰剧本」。
 

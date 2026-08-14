@@ -360,6 +360,8 @@ class _FakePM:
             ],
         }
         self.updated_assets = []
+        self.project_path.mkdir(parents=True, exist_ok=True)
+        (self.project_path / "project.json").write_text('{"schema_version":7}', encoding="utf-8")
 
     def load_project(self, project_name: str):
         return self.project
@@ -481,7 +483,7 @@ def _prepare_files(tmp_path: Path):
     return project_path
 
 
-def _persist_active_fake_project(fake_pm: _FakePM) -> None:
+def _persist_active_fake_project(fake_pm: _FakePM, *, register_script: bool = True) -> None:
     """Persist the fake manager's state as one schema-8 project."""
 
     fake_pm.project.update(
@@ -503,6 +505,12 @@ def _persist_active_fake_project(fake_pm: _FakePM) -> None:
         json.dumps(fake_pm.script, ensure_ascii=False),
         encoding="utf-8",
     )
+    if register_script:
+        ArtifactManifest(ProjectArtifactManifestAdapter(fake_pm.project_path)).register(
+            ArtifactKey.episode_script(1),
+            artifact_path="scripts/episode_1.json",
+            basis=ArtifactBasis.build("test/episode-script", kind_version=1, inputs={}),
+        )
 
 
 def _register_stale_visual_claim(project_path: Path, key: ArtifactKey, artifact_path: str) -> None:
@@ -762,6 +770,129 @@ class TestGenerationTasks:
         )
 
         assert fake_generator.image_calls[0]["reference_images"] is None
+
+    @pytest.mark.integration
+    async def test_schema8_storyboard_rejects_an_unclaimed_bound_script_before_provider(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        _persist_active_fake_project(fake_pm, register_script=False)
+        fake_generator = _FakeGenerator()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="episode script is not registered"):
+            await generation_tasks.execute_storyboard_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json", "prompt": "direct prompt"},
+            )
+
+        assert fake_generator.image_calls == []
+
+    @pytest.mark.integration
+    def test_grid_completion_serializes_manifest_registration_with_schema_activation(self, tmp_path, monkeypatch):
+        from lib import artifact_activation
+        from lib.artifact_activation import activate_artifact_target_state
+        from lib.grid.models import GridGeneration
+        from lib.grid_manager import GridManager
+        from lib.version_manager import VersionManager
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project.update(
+            {
+                "schema_version": 7,
+                "generation_mode": "storyboard",
+                "aspect_ratio": "9:16",
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        )
+        fake_pm.script["episode"] = 1
+        (project_path / "scripts").mkdir(exist_ok=True)
+        (project_path / "project.json").write_text(
+            json.dumps(fake_pm.project, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (project_path / "scripts" / "episode_1.json").write_text(
+            json.dumps(fake_pm.script, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=["E1S01"],
+            rows=1,
+            cols=1,
+            grid_size="grid_1",
+            provider="test",
+            model="test",
+            video_aspect_ratio="9:16",
+        )
+        grid.status = "generating"
+        manager = GridManager(project_path)
+        manager.save(grid)
+        staged = project_path / "grids" / f".{grid.id}.staged.png"
+        staged.write_bytes(b"paid-grid")
+        current = manager.image_path(grid.id)
+        basis = ArtifactBasis.build("test/grid", kind_version=1, inputs={"grid": grid.id})
+        outcomes = []
+        commit = generation_tasks._grid_formal_image_callback(
+            project_path=project_path,
+            grid_manager=manager,
+            grid=grid,
+            initial_grid=grid.to_dict(),
+            resource_id=grid.id,
+            prompt="grid",
+            versions=VersionManager(project_path),
+            task_id=None,
+            basis=basis,
+            outcome_box=outcomes,
+        )
+
+        activation_ready = threading.Event()
+        release_activation = threading.Event()
+        writer_done = threading.Event()
+        failures: list[BaseException] = []
+        original_commit_schema = artifact_activation._commit_schema_version
+
+        def _pause_before_schema(project_dir, project):
+            activation_ready.set()
+            assert release_activation.wait(timeout=5)
+            original_commit_schema(project_dir, project)
+
+        monkeypatch.setattr(artifact_activation, "_commit_schema_version", _pause_before_schema)
+
+        def _activate() -> None:
+            try:
+                activate_artifact_target_state(project_path, bump_schema=True)
+            except BaseException as exc:  # noqa: BLE001 - thread failure is asserted in the parent
+                failures.append(exc)
+
+        def _complete_grid() -> None:
+            try:
+                commit(staged, current, {})
+            except BaseException as exc:  # noqa: BLE001 - thread failure is asserted in the parent
+                failures.append(exc)
+            finally:
+                writer_done.set()
+
+        activation_thread = threading.Thread(target=_activate)
+        writer_thread = threading.Thread(target=_complete_grid)
+        activation_thread.start()
+        assert activation_ready.wait(timeout=5)
+        writer_thread.start()
+        writer_done.wait(timeout=0.2)
+        release_activation.set()
+        activation_thread.join(timeout=5)
+        writer_thread.join(timeout=5)
+
+        assert not activation_thread.is_alive()
+        assert not writer_thread.is_alive()
+        assert failures == []
+        entry = ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_grid(1, grid.id))
+        assert entry is not None
+        assert entry.basis_digest == basis.digest
 
     @pytest.mark.integration
     async def test_storyboard_rechecks_selected_manifest_claims_before_provider(self, tmp_path, monkeypatch):
@@ -1189,6 +1320,11 @@ class TestGenerationTasks:
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(_Generator()))
         monkeypatch.setattr(generation_tasks, "register_task_current_resource_artifact", lambda *_a, **_kw: _Receipt())
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            ArtifactKey.episode_script(1),
+            artifact_path="scripts/episode_1.json",
+            basis=ArtifactBasis.build("test/episode-script", kind_version=1, inputs={}),
+        )
 
         result = await generation_tasks.execute_storyboard_task(
             "demo",

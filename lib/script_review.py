@@ -35,7 +35,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
     episode_script_relpath,
 )
-from lib.formal_write import formal_write_transaction
+from lib.formal_write import formal_write_transaction, project_metadata_lock
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.reference_video.duration_migration import migrate_unit_durations
@@ -285,7 +285,7 @@ def formal_step1_write_transaction(
     failure restores every supplied formal file byte-for-byte.
     """
 
-    with formal_write_transaction(*paths):
+    with project_metadata_lock(project_path), formal_write_transaction(*paths):
         yield
         from lib.artifact_activation import (
             TARGET_SCHEMA_VERSION,

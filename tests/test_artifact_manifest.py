@@ -4,6 +4,7 @@ import unicodedata
 
 import pytest
 
+from lib.artifact_activation import artifact_input_is_usable
 from lib.artifact_manifest import (
     ArtifactBasis,
     ArtifactBasisDescriptor,
@@ -17,6 +18,20 @@ from lib.artifact_manifest import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_legacy_formal_input_selection_retains_identity_for_later_activation() -> None:
+    key = ArtifactKey.episode_script(1)
+    claims = []
+
+    assert artifact_input_is_usable(
+        resolver=None,
+        key=key,
+        artifact_path="scripts/episode_1.json",
+        claims=claims,
+    )
+
+    assert [(claim.key, claim.artifact_path) for claim in claims] == [(key, "scripts/episode_1.json")]
 
 
 @pytest.mark.parametrize(

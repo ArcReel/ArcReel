@@ -9,7 +9,7 @@ from pathlib import Path
 
 import portalocker
 
-from lib.formal_write import formal_write_transaction
+from lib.formal_write import formal_write_transaction, project_metadata_lock
 from lib.grid.models import GridGeneration
 from lib.json_io import atomic_write_json
 from lib.path_safety import safe_join
@@ -87,6 +87,32 @@ class GridManager:
                 on_commit()
             return grid
 
+    def update_formal(
+        self,
+        grid_id: str,
+        mutate: Callable[[GridGeneration], None],
+        *,
+        on_commit: Callable[[], None] | None = None,
+        on_miss: Callable[[], None] | None = None,
+        ignore_invalid: bool = False,
+    ) -> GridGeneration | None:
+        """Commit a formal grid transition under project then record locks.
+
+        The project lock keeps schema activation outside the complete record,
+        selected-version, canonical-file, and Manifest transition supplied by
+        ``on_commit``. Callers already inside a larger project transaction use
+        :meth:`update` directly to avoid re-entering the process lock.
+        """
+
+        with project_metadata_lock(self._project_dir):
+            return self.update(
+                grid_id,
+                mutate,
+                on_commit=on_commit,
+                on_miss=on_miss,
+                ignore_invalid=ignore_invalid,
+            )
+
     @staticmethod
     def _get_unlocked(path: Path) -> GridGeneration | None:
         if not path.exists():
@@ -104,7 +130,7 @@ class GridManager:
     def delete(self, grid_id: str) -> bool:
         """Delete one grid record, image, and active typed claim atomically."""
         path = self._path(grid_id)
-        with self._record_lock(path):
+        with project_metadata_lock(self._project_dir), self._record_lock(path):
             if not path.exists():
                 return False
             image_file = self.image_path(grid_id)

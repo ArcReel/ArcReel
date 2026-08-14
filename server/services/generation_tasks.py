@@ -21,13 +21,12 @@ from lib.artifact_activation import (
     ArtifactRegistrationReceipt,
     active_artifact_currency_resolver,
     artifact_input_is_usable,
-    assert_artifact_input_claims_usable,
     assert_current_artifact_input_claims_usable,
     register_current_resource_artifact,
     register_task_current_resource_artifact,
     resolve_artifact_episode,
     resolve_current_resource_artifact_basis,
-    resolve_usable_artifact_input_claim,
+    resolve_usable_episode_script_input,
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifact_manifest import (
@@ -1398,13 +1397,15 @@ async def execute_storyboard_task(
         _project = get_project_manager().load_project(project_name)
         _project_path = get_project_manager().get_project_path(project_name)
         _script = get_project_manager().load_script(project_name, script_file)
-        _artifact_episode = resolve_artifact_episode(
+        _script_input = resolve_usable_episode_script_input(
+            project_path=_project_path,
             project=_project,
             script=_script,
             script_filename=str(script_file),
         )
+        _artifact_episode = _script_input.episode
         _currency_resolver = active_artifact_currency_resolver(_project_path, _project)
-        _formal_claims: list[ArtifactInputClaim] = []
+        _formal_claims: list[ArtifactInputClaim] = [_script_input.claim]
         _items, _id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(_script)
 
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
@@ -1480,12 +1481,11 @@ async def execute_storyboard_task(
             user_id=user_id,
             image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
         )
-        await asyncio.to_thread(
-            assert_artifact_input_claims_usable,
-            project_path,
-            project,
-            formal_claims,
-        )
+        await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
+
+        async def _before_submit() -> None:
+            await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
+
         generator = ctx.generator
         generated = await generator.generate_image_async(
             prompt=prompt_text,
@@ -1494,6 +1494,7 @@ async def execute_storyboard_task(
             reference_images=reference_images,
             aspect_ratio=aspect_ratio,
             image_size=ctx.image.resolution,
+            before_submit=_before_submit,
             formal_output=True,
             task_id=_formal_image_task_token(task_id),
             commit_formal_output=_storyboard_formal_image_callback(
@@ -1572,21 +1573,13 @@ async def execute_tts_task(
         project_path = pm.get_project_path(project_name)
         if script_file:
             script = pm.load_script(project_name, script_file)
-            episode = resolve_artifact_episode(
+            script_input = resolve_usable_episode_script_input(
+                project_path=project_path,
                 project=current_project,
                 script=script,
                 script_filename=str(script_file),
             )
-            if episode is None:
-                episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
-            script_artifact_path = f"scripts/{ProjectManager.normalize_script_filename(str(script_file))}"
-            script_claim = resolve_usable_artifact_input_claim(
-                resolver=active_artifact_currency_resolver(project_path, current_project),
-                key=ArtifactKey.episode_script(episode),
-                artifact_path=script_artifact_path,
-            )
-            if script_claim is None:
-                raise ValueError(f"episode script is not registered: {script_artifact_path}")
+            episode = script_input.episode
             items, id_field, kind = _resolve_tts_task_items(
                 script,
                 reference_video_route=reference_video_route,
@@ -1616,7 +1609,7 @@ async def execute_tts_task(
                 admission.preparation,
                 episode,
                 reference_video_route,
-                (script_claim,),
+                (script_input.claim,),
             )
 
         legacy_text = payload.get("text") or payload.get("prompt")
@@ -2348,7 +2341,12 @@ async def execute_video_task(
 
     provider_start_image = storyboard_file
     provider_end_image = end_image
-    checkpoint_hook: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = None
+
+    async def _admit_before_submit(_api_call_id: int) -> Mapping[str, object] | None:
+        await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
+        return None
+
+    checkpoint_hook: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = _admit_before_submit
     staged_media: tuple[StagedProviderMedia, ...] = ()
     if task_id is not None:
         if artifact_episode is None:
@@ -2450,12 +2448,7 @@ async def execute_video_task(
             )
 
             async def _checkpoint_before_submit(api_call_id: int) -> Mapping[str, object]:
-                await asyncio.to_thread(
-                    assert_artifact_input_claims_usable,
-                    project_path,
-                    project,
-                    formal_input_claims,
-                )
+                await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
                 artifact_currency = VideoArtifactCurrencyFacts(
                     episode=artifact_episode,
                     request_duration_seconds=duration_seconds,
@@ -2518,12 +2511,7 @@ async def execute_video_task(
         else None
     )
     try:
-        await asyncio.to_thread(
-            assert_artifact_input_claims_usable,
-            project_path,
-            project,
-            formal_input_claims,
-        )
+        await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
         output_path, version, _, video_uri = await generator.generate_video_async(
             prompt=prompt_text,
             resource_type="videos",
@@ -3055,7 +3043,7 @@ def _grid_formal_image_callback(
                 current_grid.status = "completed"
                 current_grid.split_at = None
 
-            committed_grid = grid_manager.update(resource_id, _complete, on_commit=activate)
+            committed_grid = grid_manager.update_formal(resource_id, _complete, on_commit=activate)
             if committed_grid is None:
                 raise ValueError(f"grid not found: {resource_id}")
             grid.grid_image_path = committed_grid.grid_image_path
@@ -3233,12 +3221,11 @@ async def execute_grid_task(
         image_size = ctx.image.resolution or GRID_FALLBACK_RESOLUTION
         formal_outcomes: list[_FormalImageCommitOutcome] = []
 
-        await asyncio.to_thread(
-            assert_artifact_input_claims_usable,
-            project_path,
-            project,
-            formal_claims,
-        )
+        await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
+
+        async def _before_submit() -> None:
+            await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
+
         _image_path, version = await generator.generate_image_async(
             prompt=prompt_text,
             resource_type="grids",
@@ -3246,6 +3233,7 @@ async def execute_grid_task(
             reference_images=reference_images,
             aspect_ratio=aspect_ratio,
             image_size=image_size,
+            before_submit=_before_submit,
             formal_output=True,
             task_id=_formal_image_task_token(task_id),
             commit_formal_output=_grid_formal_image_callback(
@@ -3286,7 +3274,7 @@ async def execute_grid_task(
                     )
                 )
 
-            committed_grid = grid_manager.update(resource_id, _complete, on_commit=_register)
+            committed_grid = grid_manager.update_formal(resource_id, _complete, on_commit=_register)
             if committed_grid is None:
                 raise ValueError(f"grid not found: {resource_id}")
             grid.grid_image_path = committed_grid.grid_image_path

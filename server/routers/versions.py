@@ -23,6 +23,7 @@ from lib.artifact_activation import (
 )
 from lib.artifact_version_provenance import parse_image_version_basis
 from lib.async_thread import run_noninterruptible_sync
+from lib.formal_write import project_metadata_lock
 from lib.generation_admission import generation_admission_lock
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
@@ -91,7 +92,7 @@ def _sync_grid_record(
     from lib.grid_manager import GridManager
 
     manager = GridManager(project_path)
-    manager.update(
+    manager.update_formal(
         resource_id,
         lambda grid: grid.mark_composite_replaced(),
         on_commit=on_commit,
@@ -109,6 +110,50 @@ _RESOURCE_TO_ASSET_TYPE: dict[str, str] = {
 }
 
 
+def _commit_non_typed_restore_claim(
+    *,
+    resource_type: str,
+    resource_id: str,
+    file_path: str,
+    project_path: Path,
+    record: Mapping[str, Any] | None,
+    owner_present: bool,
+) -> None:
+    """Apply the claim half of a non-typed restore inside its metadata locks."""
+
+    if not owner_present:
+        if resource_type == "storyboards":
+            forget_unbound_storyboard_artifacts(project_path, resource_id)
+        elif resource_type == "grids":
+            forget_unbound_grid_artifacts(project_path, resource_id)
+        else:
+            forget_current_resource_artifact(
+                project_path,
+                resource_type=resource_type,
+                resource_id=resource_id,
+            )
+        return
+
+    try:
+        basis = parse_image_version_basis(resource_type, resource_id, record or {})
+    except (TypeError, ValueError):
+        basis = None
+    if basis is None:
+        forget_current_resource_artifact(
+            project_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+        return
+    register_current_resource_artifact(
+        project_path,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        artifact_path=file_path,
+        basis=basis,
+    )
+
+
 def _restore_non_typed_sidecars(
     *,
     resource_type: str,
@@ -120,28 +165,14 @@ def _restore_non_typed_sidecars(
 ) -> None:
     """Commit restore metadata and its Manifest claim under one compensation seam."""
 
-    try:
-        basis = parse_image_version_basis(resource_type, resource_id, record or {})
-    except (TypeError, ValueError):
-        basis = None
-
-    def _forget_claim() -> None:
-        forget_current_resource_artifact(
-            project_path,
-            resource_type=resource_type,
-            resource_id=resource_id,
-        )
-
     def _commit_claim() -> None:
-        if basis is None:
-            _forget_claim()
-            return
-        register_current_resource_artifact(
-            project_path,
+        _commit_non_typed_restore_claim(
             resource_type=resource_type,
             resource_id=resource_id,
-            artifact_path=file_path,
-            basis=basis,
+            file_path=file_path,
+            project_path=project_path,
+            record=record,
+            owner_present=True,
         )
 
     if resource_type == "storyboards":
@@ -152,7 +183,14 @@ def _restore_non_typed_sidecars(
             _commit_claim()
 
         def _forget_orphan_storyboard() -> None:
-            forget_unbound_storyboard_artifacts(project_path, resource_id)
+            _commit_non_typed_restore_claim(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                file_path=file_path,
+                project_path=project_path,
+                record=record,
+                owner_present=False,
+            )
 
         with project_change_source("webui"):
             get_project_manager().update_scene_asset_across_scripts(
@@ -182,7 +220,14 @@ def _restore_non_typed_sidecars(
                     on_commit=_register_asset,
                 )
         except KeyError:
-            _forget_claim()
+            _commit_non_typed_restore_claim(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                file_path=file_path,
+                project_path=project_path,
+                record=record,
+                owner_present=False,
+            )
         return
 
     if resource_type == "grids":
@@ -191,7 +236,14 @@ def _restore_non_typed_sidecars(
             _commit_claim()
 
         def _forget_orphan_grid() -> None:
-            forget_unbound_grid_artifacts(project_path, resource_id)
+            _commit_non_typed_restore_claim(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                file_path=file_path,
+                project_path=project_path,
+                record=record,
+                owner_present=False,
+            )
 
         _sync_grid_record(
             project_path,
@@ -202,6 +254,90 @@ def _restore_non_typed_sidecars(
         return
 
     _commit_claim()
+
+
+def _restore_non_typed_version(
+    *,
+    versions: VersionManager,
+    resource_type: str,
+    project_name: str,
+    resource_id: str,
+    version: int,
+    current_file: Path,
+    file_path: str,
+    project_path: Path,
+) -> dict[str, Any]:
+    """Restore metadata → version bytes/pointer → claim in canonical lock order.
+
+    Asset rename, grid split, formal generation, and typed restore all acquire
+    script/file/project locks before the versions lock. Non-typed restore enters
+    the same metadata transaction first so none of those paths can form an ABBA
+    cycle while their nested rollback scopes remain intact.
+    """
+
+    restored: list[dict[str, Any]] = []
+
+    def _restore(*, owner_present: bool) -> None:
+        def _commit_claim(record: dict[str, Any]) -> None:
+            _commit_non_typed_restore_claim(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                file_path=file_path,
+                project_path=project_path,
+                record=record,
+                owner_present=owner_present,
+            )
+
+        restored.append(
+            versions.restore_version(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                version=version,
+                current_file=current_file,
+                on_restore=_commit_claim,
+            )
+        )
+
+    if resource_type == "storyboards":
+        scripts_dir = project_path / "scripts"
+        script_names = [path.name for path in sorted(scripts_dir.glob("*.json"))] if scripts_dir.exists() else []
+        with project_change_source("webui"):
+            get_project_manager().update_scene_asset_across_scripts(
+                project_name,
+                script_names,
+                resource_id,
+                "storyboard_image",
+                file_path,
+                on_commit=lambda: _restore(owner_present=True),
+                on_miss=lambda: _restore(owner_present=False),
+            )
+    elif (asset_type := _RESOURCE_TO_ASSET_TYPE.get(resource_type)) is not None:
+        try:
+            with project_change_source("webui"):
+                get_project_manager()._update_asset_sheet(
+                    asset_type,
+                    project_name,
+                    resource_id,
+                    file_path,
+                    on_commit=lambda _project_file: _restore(owner_present=True),
+                )
+        except KeyError:
+            with project_metadata_lock(project_path):
+                _restore(owner_present=False)
+    elif resource_type == "grids":
+        _sync_grid_record(
+            project_path,
+            resource_id,
+            on_commit=lambda: _restore(owner_present=True),
+            on_miss=lambda: _restore(owner_present=False),
+        )
+    else:
+        with project_metadata_lock(project_path):
+            _restore(owner_present=True)
+
+    if len(restored) != 1:
+        raise RuntimeError("non-typed restore metadata transaction skipped version selection")
+    return restored[0]
 
 
 # ==================== 版本查询 ====================
@@ -295,19 +431,15 @@ async def restore_version(
                     artifact_path=file_path,
                 )
             else:
-                result = vm.restore_version(
+                result = _restore_non_typed_version(
+                    versions=vm,
                     resource_type=resource_type,
+                    project_name=project_name,
                     resource_id=resource_id,
                     version=version,
                     current_file=current_file,
-                    on_restore=lambda record: _restore_non_typed_sidecars(
-                        resource_type=resource_type,
-                        project_name=project_name,
-                        resource_id=resource_id,
-                        file_path=file_path,
-                        project_path=project_path,
-                        record=record,
-                    ),
+                    file_path=file_path,
+                    project_path=project_path,
                 )
 
             # 计算还原后文件的 fingerprint；视频还原时同步删除缩略图（内容已失效）

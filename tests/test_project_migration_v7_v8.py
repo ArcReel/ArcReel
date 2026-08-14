@@ -551,6 +551,107 @@ def test_formal_step1_registration_failure_restores_the_previous_file(tmp_path: 
     assert not formal_path.exists()
 
 
+def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Path, monkeypatch) -> None:
+    from lib import artifact_activation
+    from lib.script_review import write_step1_json
+
+    project_dir, _project_data, step1, _script = _project(tmp_path)
+    formal_path = project_dir / "drafts" / "episode_1" / "step1_segments.json"
+    replacement = {"segments": [{"novel_text": "activation overlap replacement"}]}
+    activation_ready = Event()
+    release_activation = Event()
+    writer_done = Event()
+    failures: list[BaseException] = []
+    original_commit_schema = artifact_activation._commit_schema_version
+
+    def _pause_before_schema(project_dir_arg, project):
+        activation_ready.set()
+        assert release_activation.wait(timeout=5)
+        original_commit_schema(project_dir_arg, project)
+
+    monkeypatch.setattr(artifact_activation, "_commit_schema_version", _pause_before_schema)
+
+    def _activate() -> None:
+        try:
+            artifact_activation.activate_artifact_target_state(project_dir, bump_schema=True)
+        except BaseException as exc:  # noqa: BLE001 - thread failure is asserted in the parent
+            failures.append(exc)
+
+    def _write() -> None:
+        try:
+            write_step1_json(project_dir, 1, formal_path, replacement)
+        except BaseException as exc:  # noqa: BLE001 - thread failure is asserted in the parent
+            failures.append(exc)
+        finally:
+            writer_done.set()
+
+    activation_thread = Thread(target=_activate)
+    writer_thread = Thread(target=_write)
+    activation_thread.start()
+    assert activation_ready.wait(timeout=5)
+    writer_thread.start()
+    writer_done.wait(timeout=0.2)
+    release_activation.set()
+    activation_thread.join(timeout=5)
+    writer_thread.join(timeout=5)
+
+    assert not activation_thread.is_alive()
+    assert not writer_thread.is_alive()
+    assert failures == []
+    assert _read_json(formal_path) == replacement
+    comparison = ArtifactCurrencyResolver(project_dir).compare(
+        ArtifactKey.episode_step1(1),
+        artifact_path="drafts/episode_1/step1_segments.json",
+    )
+    assert comparison.status is ArtifactStatus.CURRENT
+    assert step1 != replacement
+
+
+def test_formal_step1_transaction_holds_the_project_lock_through_the_write(tmp_path: Path) -> None:
+    from lib.formal_write import project_metadata_lock
+    from lib.script_review import formal_step1_write_transaction
+
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    formal_path = project_dir / "drafts" / "episode_1" / "step1_segments.json"
+    transaction_entered = Event()
+    release_transaction = Event()
+    competing_lock_acquired = Event()
+    failures: list[BaseException] = []
+
+    def _write() -> None:
+        try:
+            with ProjectManager(tmp_path).file_lock(formal_path):
+                with formal_step1_write_transaction(project_dir, 1, formal_path):
+                    transaction_entered.set()
+                    assert release_transaction.wait(timeout=5)
+        except BaseException as exc:  # noqa: BLE001 - thread failure is asserted in the parent
+            failures.append(exc)
+
+    def _compete() -> None:
+        try:
+            with project_metadata_lock(project_dir):
+                competing_lock_acquired.set()
+        except BaseException as exc:  # noqa: BLE001 - thread failure is asserted in the parent
+            failures.append(exc)
+
+    writer = Thread(target=_write)
+    competitor = Thread(target=_compete)
+    writer.start()
+    assert transaction_entered.wait(timeout=5)
+    competitor.start()
+    try:
+        assert not competing_lock_acquired.wait(timeout=0.1)
+    finally:
+        release_transaction.set()
+    writer.join(timeout=5)
+    competitor.join(timeout=5)
+
+    assert not writer.is_alive()
+    assert not competitor.is_alive()
+    assert competing_lock_acquired.is_set()
+    assert failures == []
+
+
 def test_v7_preflight_failure_writes_no_manifest_schema_or_backups(tmp_path: Path) -> None:
     project_dir, _project_data, _step1, _script = _project(tmp_path)
     script_path = project_dir / "scripts" / "episode_1.json"
