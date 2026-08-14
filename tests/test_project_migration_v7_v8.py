@@ -318,6 +318,17 @@ def test_removes_every_legacy_metadata_count_key(tmp_path: Path, content_mode: s
     assert metadata["estimated_duration_seconds"] == 16
 
 
+@pytest.mark.parametrize("count_key", ["scenes_count", "units_count"])
+def test_removes_every_legacy_episode_count_key(tmp_path: Path, count_key: str) -> None:
+    """episodes[] 上落盘过的读模型计数不止 scenes_count：残留的会与读时注入的新计数打架。"""
+    project_dir = _v7_project(tmp_path, extra_episode_fields={count_key: 9})
+    _write_json(project_dir / "scripts/episode_1.json", _storyboard_script())
+
+    migrate_v7_to_v8(project_dir)
+
+    assert count_key not in _read_json(project_dir / "project.json")["episodes"][0]
+
+
 @pytest.mark.parametrize("binding", ["episode_1.json", "scripts\\episode_1.json"])
 def test_migrates_script_bound_by_alias_path(tmp_path: Path, binding: str) -> None:
     """裸文件名与 Windows 分隔符是同一剧本的合法别名：按字面找不到就跳过，会留下版本号已升、

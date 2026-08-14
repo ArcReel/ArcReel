@@ -47,6 +47,11 @@ def _require_source_file_type(value: object, *, source: str) -> str:
     return value
 
 
+#: v7 ``episodes[]`` 上可能落盘的读模型计数旧名：``scenes_count`` 与参考路线的 ``units_count``，
+#: 归档往返会把读时注入的计数写回条目。与下面的 metadata 计数键同理，这里按 v7 那一刻的形状固定成表。
+_LEGACY_EPISODE_COUNT_KEYS = ("scenes_count", "units_count")
+
+
 def migrate_project_payload(project: Mapping[str, Any]) -> dict[str, Any]:
     """纯转换 project.json；已是 v8 字段形态时保持幂等。"""
     migrated = copy.deepcopy(dict(project))
@@ -72,7 +77,8 @@ def migrate_project_payload(project: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(entry, dict):
             raise ValueError(f"project.episodes[{index}] 必须是对象")
         item = dict(entry)
-        item.pop("scenes_count", None)
+        for key in _LEGACY_EPISODE_COUNT_KEYS:
+            item.pop(key, None)
         cleaned.append(item)
     migrated["episodes"] = cleaned
     return migrated

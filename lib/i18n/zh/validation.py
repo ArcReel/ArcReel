@@ -147,6 +147,7 @@ MESSAGES = {
     "arch_non_standard_entry_excluded": "非标准顶层目录/文件 '{entry}' 未包含在导出中",
     "arch_invalid_project_json": "无法解析 {file}: {path}",
     "arch_project_schema_incompatible": "项目数据版本不兼容（包内为 {found}，当前支持 {expected}），请用匹配的版本导入",
+    "arch_migration_failed": "项目数据升级失败，该导入包的数据结构不完整或存在非法引用",
     "arch_script_file_repaired": "{location}: 自动修复为 {path}",
     "arch_missing_script_file_pending": "{location}: 剧本尚未生成: {path}",
     "arch_missing_script_file": "{location}: 引用的文件不存在: {path}",

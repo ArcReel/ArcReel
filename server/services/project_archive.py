@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from lib.asset_types import normalize_asset_name
 from lib.config.resolver import resolve_raw_supported_durations
@@ -320,7 +320,7 @@ class ProjectArchiveService:
                     # 目录，无需回滚已落盘安装。
                     # schema 迁移先于结构修复：修复逻辑按最新契约读字段（如 creation_type），旧归档
                     # 未迁移就进修复会直接抛错，整个归档不可导入。
-                    migrate_project_dir(staging_dir)
+                    self._migrate_staging_dir(staging_dir)
                     # 迁移链对未来版本号与不可解析值（true / 空串 / 非数字串）一律跳过而非报错，跳过后
                     # 装进来的项目打不开（项目详情按 schema_version 判不兼容），overwrite 策略下
                     # 还会顶掉一个本来能用的项目。版本闸门排在结构修复**之前**：修复按 v8 契约读字段，
@@ -561,6 +561,31 @@ class ProjectArchiveService:
                 destination_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_path, destination_path)
 
+    @staticmethod
+    def _raise_blocking(code: str, message: ValidationMessage, *, cause: BaseException | None = None) -> NoReturn:
+        """把单条阻断性结论抛成结构化校验失败（导入路由只对这一类异常给出可行动响应）。"""
+        diagnostics = ArchiveDiagnostics()
+        diagnostics.add("blocking", code, message)
+        raise ProjectArchiveValidationError(
+            ValidationMessage("arch_import_validation_failed"),
+            errors=diagnostics.blocking_messages(),
+            warnings=diagnostics.warning_messages(),
+            diagnostics=diagnostics,
+        ) from cause
+
+    def _migrate_staging_dir(self, project_dir: Path) -> None:
+        """在 staging 副本上跑迁移链，失败转成结构化校验失败。
+
+        迁移抛错的是归档自身的问题（绑定越界、episodes 形状非法等），而导入路由只对
+        ``ProjectArchiveValidationError`` 给出结构化响应，直接放行异常会让用户拿到 500 而不是
+        「这个包坏在哪」。原始异常进日志，不进用户可见文案。
+        """
+        try:
+            migrate_project_dir(project_dir)
+        except Exception as exc:
+            logger.exception("导入包迁移失败: %s", project_dir)
+            self._raise_blocking("project_migration_failed", ValidationMessage("arch_migration_failed"), cause=exc)
+
     def _reject_incompatible_schema(self, project_dir: Path) -> None:
         """迁移后的 staging 副本不是当前 schema 版本就直接拒绝导入。"""
         project = self._load_json_file(project_dir / self.project_manager.PROJECT_FILE)
@@ -569,20 +594,12 @@ class ProjectArchiveService:
         version = project.get("schema_version")
         if isinstance(version, int) and not isinstance(version, bool) and version == CURRENT_SCHEMA_VERSION:
             return
-        diagnostics = ArchiveDiagnostics()
-        diagnostics.add(
-            "blocking",
+        self._raise_blocking(
             "project_schema_incompatible",
             ValidationMessage(
                 "arch_project_schema_incompatible",
                 {"found": version, "expected": CURRENT_SCHEMA_VERSION},
             ),
-        )
-        raise ProjectArchiveValidationError(
-            ValidationMessage("arch_import_validation_failed"),
-            errors=diagnostics.blocking_messages(),
-            warnings=diagnostics.warning_messages(),
-            diagnostics=diagnostics,
         )
 
     def _repair_project_tree(self, project_dir: Path) -> ArchiveDiagnostics:

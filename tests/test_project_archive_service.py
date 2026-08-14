@@ -489,6 +489,34 @@ class TestProjectArchiveService:
         assert "total_scenes" not in migrated_script["metadata"]
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("script_file", ["../../outside.json", 123])
+    def test_import_reports_migration_failure_as_validation_error(self, tmp_path, script_file):
+        """迁移抛错的是归档自身的问题：路由只对校验失败给结构化响应，放行异常等于给用户一个 500。"""
+        import json as _json
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        pj = project_dir / "project.json"
+        original = pj.read_text(encoding="utf-8")
+        data = _json.loads(original)
+        data["schema_version"] = 7
+        data["content_mode"] = data.pop("creation_type")
+        data["source_kind"] = data.pop("source_file_type", "novel")
+        data["episodes"][0]["script_file"] = script_file
+        pj.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "broken-migration.zip"
+        _make_manual_zip(project_dir, archive_path)
+        pj.write_text(original, encoding="utf-8")
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="broken-migration.zip")
+
+        assert any("升级失败" in error for error in exc_info.value.render_errors())
+
+    @pytest.mark.unit
     @pytest.mark.parametrize("binding", ["episode_1.json", "scripts\\episode_1.json"])
     def test_import_v7_archive_migrates_script_bound_by_alias_path(self, tmp_path, binding):
         """外部归档的绑定可能写成裸文件名或带 Windows 分隔符：迁移排在结构修复前，必须自己

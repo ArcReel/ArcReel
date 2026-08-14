@@ -366,6 +366,7 @@ class TestStatusCalculator:
                     "episode": 1,
                     "script_file": "scripts/episode_1.json",
                     "scenes_count": 9,
+                    "units_count": 9,
                     "video_unit_count": 9,
                     "shot_count": 9,
                 }
@@ -379,7 +380,7 @@ class TestStatusCalculator:
         episode = calc.enrich_project("demo", project)["episodes"][0]
 
         assert episode["storyboard_count"] == 1
-        for stale in ("scenes_count", "video_unit_count", "shot_count"):
+        for stale in ("scenes_count", "units_count", "video_unit_count", "shot_count"):
             assert stale not in episode
 
     @pytest.mark.unit

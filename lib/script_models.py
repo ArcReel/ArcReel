@@ -773,12 +773,14 @@ def ad_script_total_duration(shots: object) -> int:
 _ITEM_FALLBACK_DURATIONS: dict[str, int] = {"segments": 4, "scenes": 8, "shots": 0, "video_units": 0}
 
 
-#: 一切不该落盘的条目计数键：``scenes_count`` 是 ``episodes[]`` 上的旧计数，中间四个是按骨架种类
-#: 写进剧本 ``metadata`` 的旧名（segments→total_segments，shots→total_shots，
-#: video_units→total_units，scenes→total_scenes），最后三个是读时注入的新名。读时注入与写盘重算都先按此表整体剔除再写当前骨架那一个——注入只
-#: 覆盖当前骨架的键，留下的另一族计数会以陈旧值混在响应里，等于对外给出两套互相矛盾的计数。
+#: 一切不该落盘的条目计数键：``scenes_count`` 与 ``units_count`` 是 ``episodes[]`` 上的旧计数，
+#: 中间四个是按骨架种类写进剧本 ``metadata`` 的旧名（segments→total_segments，shots→total_shots，
+#: video_units→total_units，scenes→total_scenes），最后三个是读时注入的新名。读时注入与写盘重算
+#: 都先按此表整体剔除再写当前骨架那一个——注入只覆盖当前骨架的键，留下的另一族计数会以陈旧值混在
+#: 响应里，等于对外给出两套互相矛盾的计数。
 NON_PERSISTED_COUNT_KEYS = (
     "scenes_count",
+    "units_count",
     "total_scenes",
     "total_segments",
     "total_shots",

@@ -170,6 +170,7 @@ MESSAGES = {
     "arch_non_standard_entry_excluded": "Thư mục/tệp cấp cao không chuẩn '{entry}' không được đưa vào bản xuất",
     "arch_invalid_project_json": "Không phân tích được {file}: {path}",
     "arch_project_schema_incompatible": "Phiên bản dữ liệu dự án không tương thích (gói là {found}, hiện tại là {expected}); hãy nhập bằng phiên bản phù hợp",
+    "arch_migration_failed": "Nâng cấp dữ liệu dự án thất bại: gói này có cấu trúc không đầy đủ hoặc tham chiếu không hợp lệ",
     "arch_script_file_repaired": "{location}: đã tự động sửa thành {path}",
     "arch_missing_script_file_pending": "{location}: kịch bản chưa được sinh: {path}",
     "arch_missing_script_file": "{location}: tệp được tham chiếu không tồn tại: {path}",
