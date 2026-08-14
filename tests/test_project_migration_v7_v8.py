@@ -896,7 +896,7 @@ def test_v7_schema_promotion_does_not_overwrite_a_concurrent_project_writer(
     original_assert = artifact_activation._assert_preflight_unchanged
     final_check_reached = Event()
     writer_finished = Event()
-    writer_errors: list[BaseException] = []
+    writer_errors: list[Exception] = []
     check_count = 0
 
     def _update_project() -> None:
@@ -906,7 +906,7 @@ def test_v7_schema_promotion_does_not_overwrite_a_concurrent_project_writer(
                 "demo",
                 lambda project: project.update({"title": "Concurrent writer"}),
             )
-        except BaseException as exc:  # pragma: no cover - asserted below
+        except Exception as exc:  # pragma: no cover - asserted below
             writer_errors.append(exc)
         finally:
             writer_finished.set()
@@ -951,7 +951,7 @@ def test_script_save_rechecks_manifest_activation_inside_the_project_lock(
     }
     commit_reached = Event()
     release_save = Event()
-    save_errors: list[BaseException] = []
+    save_errors: list[Exception] = []
     original_commit = pm._commit_script_unlocked
 
     def _commit_after_activation(*args: object, **kwargs: object) -> Path:
@@ -962,7 +962,7 @@ def test_script_save_rechecks_manifest_activation_inside_the_project_lock(
     def _save() -> None:
         try:
             pm.save_script("demo", replacement, "episode_1.json", validate=False)
-        except BaseException as exc:  # pragma: no cover - asserted below
+        except Exception as exc:  # pragma: no cover - asserted below
             save_errors.append(exc)
 
     monkeypatch.setattr(pm, "_commit_script_unlocked", _commit_after_activation)
