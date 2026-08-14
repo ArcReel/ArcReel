@@ -205,6 +205,23 @@ class TestGenerateAudioAsync:
         assert gen.ledger.outcomes[0]["result"].characters == len("你好世界")
         assert gen.versions.add_calls[0]["resource_type"] == "audio"
 
+    async def test_before_submit_failure_prevents_audio_backend_call(self, tmp_path: Path):
+        gen = _build_generator(tmp_path)
+
+        async def _reject() -> None:
+            raise ValueError("formal input is no longer admitted")
+
+        with pytest.raises(ValueError, match="no longer admitted"):
+            await gen.generate_audio_async(
+                text="你好世界",
+                resource_id="E1S01",
+                voice="Cherry",
+                before_submit=_reject,
+            )
+
+        assert gen._audio_backend.calls == []
+        assert gen.ledger.outcomes[-1]["status"] == "failed"
+
     async def test_backend_failure_marks_failed(self, tmp_path: Path):
         gen = _build_generator(tmp_path)
 

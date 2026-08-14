@@ -10,6 +10,7 @@ from lib.artifact_activation import (
     ArtifactInputClaim,
     active_artifact_currency_resolver,
     artifact_input_is_usable,
+    resolve_usable_artifact_input_claim,
 )
 from lib.artifact_manifest import ArtifactKey
 from lib.reference_video.request_projection import FilesystemReferenceAssets, ResolvedReferenceAsset
@@ -62,15 +63,16 @@ class CurrentReferenceAssets:
             if not self._filesystem.is_available(asset):
                 raise ValueError(f"selected reference image is no longer available: {asset.path}")
             claim = self._claim_for(asset)
-            if self._resolver is None or claim is None:
+            if claim is None:
                 continue
-            if not artifact_input_is_usable(
+            selected = resolve_usable_artifact_input_claim(
                 resolver=self._resolver,
                 key=claim.key,
                 artifact_path=claim.artifact_path,
-                claims=claims,
-            ):
+            )
+            if selected is None:
                 raise ValueError(f"formal artifact input is no longer registered: {claim.artifact_path}")
+            claims.append(selected)
         return tuple(claims)
 
 

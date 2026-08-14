@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.artifact_activation import assert_artifact_input_claims_usable, resolve_artifact_episode
+from lib.artifact_activation import assert_current_artifact_input_claims_usable, resolve_artifact_episode
 from lib.artifact_manifest import compose_video_artifact_basis
 from lib.config.resolver import (
     ConfigResolver,
@@ -832,9 +832,8 @@ async def execute_reference_video_task(
 
             async def _checkpoint_before_submit(api_call_id: int) -> Mapping[str, object]:
                 await asyncio.to_thread(
-                    assert_artifact_input_claims_usable,
+                    assert_current_artifact_input_claims_usable,
                     project_path,
-                    project,
                     formal_input_claims,
                 )
                 checkpoint = _build_checkpoint(api_call_id)
@@ -869,9 +868,8 @@ async def execute_reference_video_task(
     )
     try:
         await asyncio.to_thread(
-            assert_artifact_input_claims_usable,
+            assert_current_artifact_input_claims_usable,
             project_path,
-            project,
             formal_input_claims,
         )
         # MediaGenerator compresses only transient derivatives of the immutable staged images. A 413 retry keeps

@@ -1728,11 +1728,34 @@ def artifact_input_is_usable(
 ) -> bool:
     """Select one formal input and optionally retain its exact recheck evidence."""
 
-    if not artifact_is_usable(resolver, key, artifact_path):
+    claim = resolve_usable_artifact_input_claim(
+        resolver=resolver,
+        key=key,
+        artifact_path=artifact_path,
+    )
+    if claim is None:
         return False
     if resolver is not None and claims is not None:
-        claims.append(ArtifactInputClaim(key=key, artifact_path=artifact_path))
+        claims.append(claim)
     return True
+
+
+def resolve_usable_artifact_input_claim(
+    *,
+    resolver: ArtifactCurrencyResolver | None,
+    key: ArtifactKey,
+    artifact_path: str,
+) -> ArtifactInputClaim | None:
+    """Return recheck evidence for one usable formal input in either schema.
+
+    Legacy selection still uses filesystem ownership, but retaining the logical
+    key and exact path lets a provider-boundary check apply a Manifest that was
+    activated while the task awaited provider configuration or staging.
+    """
+
+    if not artifact_is_usable(resolver, key, artifact_path):
+        return None
+    return ArtifactInputClaim(key=key, artifact_path=artifact_path)
 
 
 def assert_artifact_input_claims_usable(
@@ -1750,6 +1773,33 @@ def assert_artifact_input_claims_usable(
     for claim in claims:
         if not artifact_is_usable(resolver, claim.key, claim.artifact_path):
             raise ValueError(f"formal artifact input is no longer registered: {claim.artifact_path}")
+
+
+def assert_current_artifact_input_claims_usable(
+    project_path: Path,
+    claims: Sequence[ArtifactInputClaim],
+) -> None:
+    """Recheck frozen input identities against one current schema snapshot.
+
+    The project lock serializes this read with schema activation and formal
+    metadata writes. Legacy projects retain their filesystem admission rule;
+    once schema 8 wins the lock, every frozen formal identity must have a
+    current or stale Manifest claim before a paid provider can be called.
+    """
+
+    if not claims:
+        return
+    with project_metadata_lock(project_path):
+        try:
+            raw = (project_path / "project.json").read_bytes()
+            project = json.loads(raw.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            raise ValueError("project.json is not valid UTF-8 JSON") from exc
+        if not isinstance(project, Mapping):
+            raise ValueError("project.json must contain an object")
+        if project.get("schema_version") != TARGET_SCHEMA_VERSION:
+            return
+        assert_artifact_input_claims_usable(project_path, project, claims)
 
 
 def resolve_usable_storyboard_video_inputs(
@@ -2253,6 +2303,7 @@ __all__ = [
     "artifact_input_is_usable",
     "artifact_is_usable",
     "assert_artifact_input_claims_usable",
+    "assert_current_artifact_input_claims_usable",
     "artifact_key_for_resource",
     "ensure_imported_artifact_target_state",
     "forget_current_resource_artifact",
@@ -2271,5 +2322,6 @@ __all__ = [
     "resolve_current_artifact_basis",
     "resolve_current_artifact_target",
     "resolve_current_resource_artifact_basis",
+    "resolve_usable_artifact_input_claim",
     "resolve_usable_storyboard_video_inputs",
 ]

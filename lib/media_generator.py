@@ -680,6 +680,7 @@ class MediaGenerator:
         voice: str,
         language_type: str = "Chinese",
         speed: float | None = None,
+        before_submit: Callable[[], Awaitable[None]] | None = None,
         before_commit: Callable[[Path], Awaitable[None]] | None = None,
         commit_staged: Callable[[Path, Path], int | PaidVersionCommit] | None = None,
         **version_metadata,
@@ -695,6 +696,7 @@ class MediaGenerator:
             voice: 音色（如 Cherry）
             language_type: 语种，默认 Chinese
             speed: 语速预留（同步模型忽略）
+            before_submit: 首次 provider 提交紧前执行一次的异步准入钩子
             **version_metadata: 额外元数据
 
         Returns:
@@ -741,6 +743,8 @@ class MediaGenerator:
                     language_type=language_type,
                     speed=speed,
                 )
+                if before_submit is not None:
+                    await before_submit()
                 result = await self._audio_backend.synthesize(request)
                 if not staged_path.is_file():
                     raise RuntimeError("audio backend completed without a regular output file")

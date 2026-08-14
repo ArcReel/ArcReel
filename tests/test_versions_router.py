@@ -904,7 +904,7 @@ class TestVersionsRouter:
         image_path.write_bytes(b"historical-grid")
         if record_bytes is not None:
             (grids_dir / f"{grid_id}.json").write_bytes(record_bytes)
-        # Seed a historical invalid sidecar directly. Normal Manifest writers now reject
+        # Seed a historical invalid sidecar directly. Normal Manifest writers reject
         # two keys owning one formal path, while restore must still repair old data.
         entries = {}
         for episode in (1, 2):

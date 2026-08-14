@@ -22,10 +22,12 @@ from lib.artifact_activation import (
     active_artifact_currency_resolver,
     artifact_input_is_usable,
     assert_artifact_input_claims_usable,
+    assert_current_artifact_input_claims_usable,
     register_current_resource_artifact,
     register_task_current_resource_artifact,
     resolve_artifact_episode,
     resolve_current_resource_artifact_basis,
+    resolve_usable_artifact_input_claim,
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifact_manifest import (
@@ -1563,13 +1565,28 @@ async def execute_tts_task(
     """为一个 narrator-owned script unit 合成独立旁白音频。"""
     script_file = payload.get("script_file")
 
-    def _prepare() -> tuple[dict, Path, str, Any | None, int | None, bool]:
+    def _prepare() -> tuple[dict, Path, str, Any | None, int | None, bool, tuple[ArtifactInputClaim, ...]]:
         pm = get_project_manager()
         current_project = pm.load_project(project_name)
         reference_video_route = is_reference_video_project(current_project)
         project_path = pm.get_project_path(project_name)
         if script_file:
             script = pm.load_script(project_name, script_file)
+            episode = resolve_artifact_episode(
+                project=current_project,
+                script=script,
+                script_filename=str(script_file),
+            )
+            if episode is None:
+                episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
+            script_artifact_path = f"scripts/{ProjectManager.normalize_script_filename(str(script_file))}"
+            script_claim = resolve_usable_artifact_input_claim(
+                resolver=active_artifact_currency_resolver(project_path, current_project),
+                key=ArtifactKey.episode_script(episode),
+                artifact_path=script_artifact_path,
+            )
+            if script_claim is None:
+                raise ValueError(f"episode script is not registered: {script_artifact_path}")
             items, id_field, kind = _resolve_tts_task_items(
                 script,
                 reference_video_route=reference_video_route,
@@ -1592,21 +1609,30 @@ async def execute_tts_task(
                 raise SpeechAdmissionError(admission)
             if not text:
                 raise ValueError(f"segment {resource_id} 无可合成的旁白文本")
-            episode = resolve_artifact_episode(
-                project=current_project,
-                script=script,
-                script_filename=str(script_file),
+            return (
+                current_project,
+                project_path,
+                text,
+                admission.preparation,
+                episode,
+                reference_video_route,
+                (script_claim,),
             )
-            if episode is None:
-                episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
-            return current_project, project_path, text, admission.preparation, episode, reference_video_route
 
         legacy_text = payload.get("text") or payload.get("prompt")
         if not isinstance(legacy_text, str) or not legacy_text.strip():
             raise ValueError("tts task 需要 payload.text 或 payload.script_file 之一")
-        return current_project, project_path, legacy_text.strip(), None, None, reference_video_route
+        return current_project, project_path, legacy_text.strip(), None, None, reference_video_route, ()
 
-    project, project_path, text, preparation, episode, reference_video_route = await asyncio.to_thread(_prepare)
+    (
+        project,
+        project_path,
+        text,
+        preparation,
+        episode,
+        reference_video_route,
+        formal_input_claims,
+    ) = await asyncio.to_thread(_prepare)
 
     if isinstance(script_file, str) and resource_id in await active_narrated_video_resource_ids(
         project_name=project_name,
@@ -1822,11 +1848,19 @@ async def execute_tts_task(
         selected_current = committed_outcome.selected
         return committed_outcome
 
+    async def _before_submit() -> None:
+        await asyncio.to_thread(
+            assert_current_artifact_input_claims_usable,
+            project_path,
+            formal_input_claims,
+        )
+
     output_path, version = await generator.generate_audio_async(
         text=text,
         resource_id=resource_id,
         voice=voice,
         speed=speed,
+        before_submit=_before_submit,
         before_commit=_measure_staged,
         commit_staged=_commit_staged,
         tts_provider_id=settings.provider_id,
