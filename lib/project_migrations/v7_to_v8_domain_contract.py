@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import copy
 import logging
-import os
-import shutil
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -159,10 +157,11 @@ def _ensure_backup(path: Path) -> Path:
     if existing:
         return existing[0]
     backup = path.with_name(f"{path.name}.bak.v7-{time.time_ns()}")
-    shutil.copy2(path, backup)
-    # copy2 会把源文件的旧 mtime 一并复制过来。启动时迁移紧接着跑 7 天过期清理，长期没改过的
-    # 项目刚做出来的备份会在同一次启动里被当成陈旧备份删掉——恰恰是最需要保留回滚材料的那批。
-    os.utime(backup, None)
+    # 同目录 tmp + rename 落备份：备份要么完整要么不存在。``shutil.copy2`` 中途失败（磁盘满 /
+    # IO 错误）会留下截断的 .bak，而下一轮 ``_ensure_backup`` 把既有备份当原版复用，回滚时反倒
+    # 用半截内容盖掉现场。顺带让备份 mtime 是它的生成时刻——继承源文件旧 mtime 会让长期没改过
+    # 的项目刚做出来的备份被同一次启动的 7 天过期清理删掉。
+    atomic_write_bytes(backup, path.read_bytes())
     return backup
 
 

@@ -275,7 +275,12 @@ def test_rollback_keeps_valid_json_when_restore_itself_fails(tmp_path: Path, mon
             raise OSError(28, "No space left on device")
         real_write(path, payload, **kwargs)
 
+    real_write_bytes = v7_to_v8.atomic_write_bytes
+
     def _restore_also_fails(path: Path, data: bytes) -> None:
+        if ".bak.v7-" in path.name:
+            real_write_bytes(path, data)  # 备份照常落盘，失败的只是回滚写回
+            return
         raise OSError(28, "No space left on device")
 
     monkeypatch.setattr(v7_to_v8, "atomic_write_json", _fail_on_second)
@@ -325,6 +330,24 @@ def test_explicit_null_script_stamp_falls_back_to_project(tmp_path: Path, stamp_
     migrate_v7_to_v8(project_dir)
 
     assert _read_json(project_dir / "scripts/episode_1.json")["creation_type"] == "drama"
+
+
+def test_backup_creation_failure_leaves_no_partial_backup(tmp_path: Path, monkeypatch) -> None:
+    """备份写入中途失败不得留下截断的 .bak：下一轮会把它当原版复用，回滚时反倒盖掉现场。"""
+    project_dir = _v7_project(tmp_path)
+    _write_json(project_dir / "scripts/episode_1.json", _storyboard_script())
+
+    def _fail(path: Path, data: bytes) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(v7_to_v8, "atomic_write_bytes", _fail)
+
+    with pytest.raises(OSError):
+        migrate_v7_to_v8(project_dir)
+
+    assert not list(project_dir.glob("*.bak.v7-*"))
+    assert not list((project_dir / "scripts").glob("*.bak.v7-*"))
+    assert _read_json(project_dir / "project.json")["schema_version"] == 7
 
 
 def test_backup_mtime_is_creation_time_not_source_mtime(tmp_path: Path) -> None:

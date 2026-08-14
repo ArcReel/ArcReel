@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import copy
 import json
-import os
-import shutil
 import time
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
 from lib.asset_types import asset_name_comparison_key
-from lib.json_io import atomic_write_json, load_json
+from lib.json_io import atomic_write_bytes, atomic_write_json, load_json
 from lib.path_safety import safe_join
 from lib.reference_video.writing_syntax import MAX_SHOTS_PER_UNIT
 from lib.script_models import REFERENCE_UNIT_DURATION_RANGE, ReferenceVideoScript
@@ -335,10 +333,9 @@ def _ensure_script_backup(path: Path) -> None:
     if any(path.parent.glob(f"{path.name}.bak.v6-*")):
         return
     backup = path.with_name(f"{path.name}.bak.v6-{time.time_ns()}")
-    shutil.copy2(path, backup)
-    # 备份时间戳按「做出来的时刻」算：copy2 复制的是源文件旧 mtime，会让长期没改过的项目刚
-    # 生成的备份被启动时的 7 天过期清理立刻删掉。
-    os.utime(backup, None)
+    # 同目录 tmp + rename：截断的备份会被下一轮当成原版复用，且备份的龄期按生成时刻算而不是
+    # 继承源文件旧 mtime（否则会被启动时的 7 天过期清理立刻删掉）。
+    atomic_write_bytes(backup, path.read_bytes())
 
 
 def migrate_v6_to_v7(project_dir: Path) -> None:
