@@ -6,6 +6,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { scanMarkdownLines } from "./markdown-scan.mjs";
+
 const websiteDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const source = resolve(websiteDir, "..", "CONTRIBUTING.md");
 const target = resolve(websiteDir, "docs", "dev", "contributing.md");
@@ -36,29 +38,14 @@ const ANCHORS = new Map([
   ["### commit 示例", "commit-examples"],
 ]);
 
-const FENCE = /^\s*(```|~~~)/;
-const HEADING = /^(#{1,6})\s+(.*?)\s*$/;
-
 function injectAnchors(markdown) {
   const seen = new Set();
   const usedAnchors = new Set();
-  let fence = "";
-  const lines = markdown.split("\n").map((line) => {
-    const fenceMatch = FENCE.exec(line);
-    if (fenceMatch) {
-      if (!fence) {
-        fence = fenceMatch[1];
-      } else if (line.trim().startsWith(fence)) {
-        fence = "";
-      }
-      return line;
-    }
-    if (fence) return line;
+  const lines = markdown.split("\n");
 
-    const heading = HEADING.exec(line);
-    if (!heading) return line;
+  for (const { index, hashes, text } of scanMarkdownLines(markdown)) {
+    if (hashes === null) continue;
 
-    const [, hashes, text] = heading;
     const key = `${hashes} ${text}`;
     const anchor = ANCHORS.get(key);
     if (!anchor) {
@@ -72,8 +59,8 @@ function injectAnchors(markdown) {
     }
     usedAnchors.add(anchor);
     seen.add(key);
-    return `${hashes} ${text} {#${anchor}}`;
-  });
+    lines[index] = `${lines[index].replace(/\s*$/, "")} {#${anchor}}`;
+  }
 
   const stale = [...ANCHORS.keys()].filter((key) => !seen.has(key));
   if (stale.length > 0) {

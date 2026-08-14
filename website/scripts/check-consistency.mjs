@@ -8,6 +8,8 @@ import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "no
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { scanMarkdownLines } from "./markdown-scan.mjs";
+
 const websiteDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(websiteDir, "..");
 
@@ -30,16 +32,30 @@ function checkOrphanTranslations() {
 
 // ---- 2. 上站文档标题缺显式锚点 ----
 //
-// 全部标题须带 `{#id}`（两 locale 共用锚点作为链接目标）。index.mdx 的首页卡片标题是 JSX
-// `<h2>`，`{#id}` 语法在 JSX 里不生效，无法补锚点。这里显式登记豁免文件，而不是让扫描器
-// 对 JSX 标题沉默：新增 .mdx 若引入未登记的 JSX 标题会在此处 fail，逼审查者显式决定豁免
-// 还是改回 Markdown 标题；已登记文件若不再含 JSX 标题也会 fail（登记项过期，须及时摘除）。
-const JSX_HEADING_EXEMPT_FILES = new Set(["docs/index.mdx"]);
+// 全部标题须带 `{#id}`（各 locale 共用锚点作为链接目标）。译文与源同结构、受同一套规则约束：
+// 只扫源的话，译文漏写 `{#id}` 只有在恰好有链接指向该锚点时才会被 build 期 onBrokenAnchors 拦下。
+//
+// index.mdx 的首页卡片标题是 JSX `<h2>`，`{#id}` 语法在 JSX 里不生效，无法补锚点。这里显式登记
+// 豁免文件，而不是让扫描器对 JSX 标题沉默：新增 .mdx 若引入未登记的 JSX 标题会在此处 fail，逼
+// 审查者显式决定豁免还是改回 Markdown 标题；已登记文件若不再含 JSX 标题也会 fail（登记项过期，
+// 须及时摘除）。登记路径相对文档根，源与各 locale 译文里的同名副本一并豁免。
+const JSX_HEADING_EXEMPT_DOCS = new Set(["index.mdx"]);
 
-const FENCE = /^ {0,3}(```|~~~)/;
-const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*$/;
 const ANCHOR_SUFFIX = /\{#([a-z0-9-]+)\}$/;
-const JSX_HEADING = /<h[1-6][\s/>]/i;
+
+const TRANSLATION_DOCS_SUFFIX = "docusaurus-plugin-content-docs/current";
+
+// 文档根：中文源目录，加 i18n 下每个 locale 的译文目录。新增 locale 自动纳入，无需登记。
+function docRoots() {
+  const i18nDir = resolve(websiteDir, "i18n");
+  if (!existsSync(i18nDir)) return ["docs"];
+  const localeRoots = readdirSync(i18nDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => `i18n/${entry.name}/${TRANSLATION_DOCS_SUFFIX}`)
+    .filter((root) => existsSync(resolve(websiteDir, root)))
+    .sort();
+  return ["docs", ...localeRoots];
+}
 
 function walkDocFiles(directory) {
   const absoluteDirectory = resolve(websiteDir, directory);
@@ -54,52 +70,58 @@ function walkDocFiles(directory) {
 
 function checkAnchors() {
   const problems = [];
-  const jsxHeadingFiles = new Set();
+  const exemptDocsFound = new Set();
 
-  for (const file of walkDocFiles("docs")) {
-    const content = readFileSync(resolve(websiteDir, file), "utf8");
-    const lines = content.split("\n");
-    const seenAnchors = new Set();
-    let fence = "";
+  for (const root of docRoots()) {
+    const jsxHeadingDocs = new Set();
+    const docPaths = new Set();
 
-    for (const [index, line] of lines.entries()) {
-      const fenceMatch = FENCE.exec(line);
-      if (fenceMatch) {
-        if (!fence) fence = fenceMatch[1];
-        else if (line.trim().startsWith(fence)) fence = "";
-        continue;
+    for (const file of walkDocFiles(root)) {
+      const docPath = toPosix(relative(root, file));
+      docPaths.add(docPath);
+      const seenAnchors = new Set();
+
+      for (const { index, line, hashes, text, hasJsxHeading } of scanMarkdownLines(
+        readFileSync(resolve(websiteDir, file), "utf8"),
+      )) {
+        if (hasJsxHeading) jsxHeadingDocs.add(docPath);
+        if (hashes === null) continue;
+
+        const anchorMatch = ANCHOR_SUFFIX.exec(text);
+        if (!anchorMatch) {
+          problems.push(`${file}:${index + 1} 标题缺少显式锚点 {#id}：${line.trim()}`);
+          continue;
+        }
+        const anchor = anchorMatch[1];
+        if (seenAnchors.has(anchor)) {
+          problems.push(`${file} 锚点 id「${anchor}」在同页内重复`);
+        }
+        seenAnchors.add(anchor);
       }
-      if (fence) continue;
+    }
 
-      if (JSX_HEADING.test(line)) jsxHeadingFiles.add(file);
-
-      const heading = HEADING.exec(line);
-      if (!heading) continue;
-      const [, , text] = heading;
-      const anchorMatch = ANCHOR_SUFFIX.exec(text);
-      if (!anchorMatch) {
-        problems.push(`${file}:${index + 1} 标题缺少显式锚点 {#id}：${line.trim()}`);
-        continue;
+    for (const docPath of jsxHeadingDocs) {
+      if (!JSX_HEADING_EXEMPT_DOCS.has(docPath)) {
+        problems.push(
+          `${root}/${docPath} 含 JSX 标题标签但 ${docPath} 未登记在 check-consistency.mjs 的 ` +
+            "JSX_HEADING_EXEMPT_DOCS 中——要么改回带 {#id} 的 Markdown 标题，要么显式登记豁免",
+        );
       }
-      const anchor = anchorMatch[1];
-      if (seenAnchors.has(anchor)) {
-        problems.push(`${file} 锚点 id「${anchor}」在同页内重复`);
+    }
+    for (const docPath of JSX_HEADING_EXEMPT_DOCS) {
+      if (!docPaths.has(docPath)) continue;
+      exemptDocsFound.add(docPath);
+      if (!jsxHeadingDocs.has(docPath)) {
+        problems.push(
+          `${root}/${docPath} 已不含 JSX 标题标签，若各 locale 副本均已如此，请从 JSX_HEADING_EXEMPT_DOCS 摘除 ${docPath}`,
+        );
       }
-      seenAnchors.add(anchor);
     }
   }
 
-  for (const file of jsxHeadingFiles) {
-    if (!JSX_HEADING_EXEMPT_FILES.has(file)) {
-      problems.push(
-        `${file} 含 JSX 标题标签但未登记在 check-consistency.mjs 的 JSX_HEADING_EXEMPT_FILES 中——` +
-          "要么改回带 {#id} 的 Markdown 标题，要么显式登记豁免",
-      );
-    }
-  }
-  for (const file of JSX_HEADING_EXEMPT_FILES) {
-    if (!jsxHeadingFiles.has(file)) {
-      problems.push(`${file} 登记在 JSX_HEADING_EXEMPT_FILES 中但已不含 JSX 标题标签，登记项已过期，请摘除`);
+  for (const docPath of JSX_HEADING_EXEMPT_DOCS) {
+    if (!exemptDocsFound.has(docPath)) {
+      problems.push(`${docPath} 登记在 JSX_HEADING_EXEMPT_DOCS 中但源与各 locale 译文均无此文件，登记项已过期，请摘除`);
     }
   }
 
