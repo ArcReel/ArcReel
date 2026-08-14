@@ -2117,12 +2117,14 @@ async def execute_video_task(
         script=script,
         script_filename=script_file,
     )
+    formal_input_claims: list[ArtifactInputClaim] = []
     storyboard_file, end_image = resolve_usable_storyboard_video_inputs(
         project_path=project_path,
         project=project,
         episode=artifact_episode,
         resource_id=resource_id,
         item=item,
+        claims=formal_input_claims,
     )
     aspect_ratio = get_aspect_ratio(project, "videos")
     seed = payload.get("seed")
@@ -2402,6 +2404,12 @@ async def execute_video_task(
             )
 
             async def _checkpoint_before_submit(api_call_id: int) -> Mapping[str, object]:
+                await asyncio.to_thread(
+                    assert_artifact_input_claims_usable,
+                    project_path,
+                    project,
+                    formal_input_claims,
+                )
                 artifact_currency = VideoArtifactCurrencyFacts(
                     episode=artifact_episode,
                     request_duration_seconds=duration_seconds,
@@ -2464,6 +2472,12 @@ async def execute_video_task(
         else None
     )
     try:
+        await asyncio.to_thread(
+            assert_artifact_input_claims_usable,
+            project_path,
+            project,
+            formal_input_claims,
+        )
         output_path, version, _, video_uri = await generator.generate_video_async(
             prompt=prompt_text,
             resource_type="videos",

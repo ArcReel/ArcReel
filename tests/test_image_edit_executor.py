@@ -182,7 +182,6 @@ class TestExecuteImageEditTask:
     async def test_registration_failure_never_exposes_an_edited_image(self, tmp_path, monkeypatch):
         from lib.artifact_activation import register_current_artifact
         from lib.media_generator import task_image_staging_path
-        from server.services import generation_tasks
 
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")

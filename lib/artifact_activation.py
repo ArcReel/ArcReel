@@ -1645,9 +1645,10 @@ def resolve_usable_storyboard_video_inputs(
     resource_id: str,
     item: dict[str, object],
     resolver: ArtifactCurrencyResolver | None = None,
+    claims: list[ArtifactInputClaim] | None = None,
     allow_legacy_same_name: bool | None = None,
 ) -> tuple[Path, Path | None]:
-    """Resolve video inputs and enforce the active Manifest selection gate."""
+    """Resolve video inputs and retain active-Manifest recheck evidence."""
 
     storyboard_file, end_frame = resolve_storyboard_video_inputs(
         project_path=project_path,
@@ -1658,15 +1659,17 @@ def resolve_usable_storyboard_video_inputs(
     )
     if resolver is None:
         resolver = active_artifact_currency_resolver(project_path, project)
-    if resolver is not None and (type(episode) is not int or episode < 1):
-        raise ValueError("script episode must be a positive integer")
     storyboard_rel = storyboard_file.relative_to(project_path).as_posix()
-    if not artifact_is_usable(
-        resolver,
-        ArtifactKey.episode_storyboard(episode, resource_id) if resolver is not None and episode is not None else None,
-        storyboard_rel,
-    ):
-        raise StoryboardImageUnavailable(f"storyboard is not registered: {storyboard_rel}")
+    if resolver is not None:
+        if type(episode) is not int or episode < 1:
+            raise ValueError("script episode must be a positive integer")
+        if not artifact_input_is_usable(
+            resolver=resolver,
+            key=ArtifactKey.episode_storyboard(episode, resource_id),
+            artifact_path=storyboard_rel,
+            claims=claims,
+        ):
+            raise StoryboardImageUnavailable(f"storyboard is not registered: {storyboard_rel}")
     return storyboard_file, end_frame
 
 

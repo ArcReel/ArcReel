@@ -723,8 +723,9 @@ def _scan_completed_items(
 
     Returns ``(ordered_paths, already_done, completed_filtered)``:
     - ``ordered_paths[i]`` is the existing mp4 path for items[i] iff the
-      checkpoint claimed it, the file is on disk, and its exact formal path is
-      usable under the active Manifest; else ``None``.
+      checkpoint claimed it and it is reusable: legacy projects require the
+      file on disk, while active projects require its exact formal path to be
+      usable under the Manifest (which also rejects absent files); else ``None``.
     - ``already_done`` is the subset of items the caller can skip enqueueing.
     - ``completed_filtered`` drops ids whose checkpoint output is missing or
       no longer admitted — caller should write this back instead of mutating

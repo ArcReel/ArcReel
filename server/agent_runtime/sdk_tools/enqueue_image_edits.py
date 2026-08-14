@@ -48,6 +48,7 @@ async def _i2i_provider_available(project: dict[str, Any]) -> bool:
 
 
 def _build_specs(
+    *,
     project: dict[str, Any],
     project_path: Any,
     resource_type: str,
@@ -205,15 +206,15 @@ def edit_images_tool(ctx: ToolContext):
 
             warnings: list[str] = []
             specs = _build_specs(
-                project,
-                project_path,
-                resource_type,
-                edits,
-                script,
-                script_filename,
-                artifact_episode,
-                resolver,
-                warnings,
+                project=project,
+                project_path=project_path,
+                resource_type=resource_type,
+                edits=edits,
+                script=script,
+                script_filename=script_filename,
+                artifact_episode=artifact_episode,
+                resolver=resolver,
+                warnings=warnings,
             )
             if not specs:
                 return {

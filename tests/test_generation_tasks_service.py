@@ -1964,6 +1964,59 @@ class TestGenerationTasks:
         assert fake_generator.video_calls == []
 
     @pytest.mark.integration
+    async def test_execute_video_task_rechecks_storyboard_claim_after_staging_before_provider(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        """A restore that drops the selected claim cannot race a paid video submission."""
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        item = fake_pm.script["segments"][0]
+        item["novel_text"] = "旁白正文"
+        item["video_prompt"] = {"action": "跑", "camera_motion": "Static", "dialogue": []}
+        item["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
+        _persist_active_fake_project(fake_pm)
+        key = ArtifactKey.episode_storyboard(1, "E1S01")
+        _register_stale_visual_claim(project_path, key, "storyboards/scene_E1S01.png")
+
+        provider_submissions: list[str] = []
+
+        class _SubmittingGenerator(_FakeGenerator):
+            async def generate_video_async(self, **kwargs):
+                await kwargs["before_submit"](72)
+                provider_submissions.append("submitted")
+                raise AssertionError("provider submission must remain unreachable")
+
+        fake_generator = _SubmittingGenerator()
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        original_stage = generation_tasks.stage_provider_media_for_task
+
+        async def _drop_claim_after_staging(project_dir, task_id, inputs):
+            staged = await original_stage(project_dir, task_id, inputs)
+            ProjectArtifactManifestAdapter(project_path).delete_entry(key)
+            return staged
+
+        monkeypatch.setattr(generation_tasks, "stage_provider_media_for_task", _drop_claim_after_staging)
+        fake_queue = type("Queue", (), {})()
+        fake_queue.persist_execution_checkpoint = AsyncMock()
+        monkeypatch.setattr(generation_tasks, "get_generation_queue", lambda: fake_queue)
+
+        with pytest.raises(ValueError, match="no longer registered"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json"},
+                task_id="task-storyboard-claim-race",
+            )
+
+        assert provider_submissions == []
+        fake_queue.persist_execution_checkpoint.assert_not_awaited()
+
+    @pytest.mark.integration
     async def test_execute_video_task_generated_assets_non_dict_falls_back_to_default(self, monkeypatch, tmp_path):
         """generated_assets 容器本身被外部编辑损坏为非 dict（如 list）时按「未设置」处理、
         回退默认路径，不抛未捕获 AttributeError（`{"...": ...}.get()` 在非 dict 上不存在）。"""
