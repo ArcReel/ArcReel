@@ -955,6 +955,40 @@ class TestGenerationTasks:
         assert fake_generator.image_calls == []
 
     @pytest.mark.integration
+    async def test_storyboard_rejects_a_replaced_manifest_claim_before_provider(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][2]["scenes"] = []
+        fake_pm.script["segments"][2]["props"] = []
+        _persist_active_fake_project(fake_pm)
+        key = ArtifactKey.asset_sheet("character", "Alice")
+        artifact_path = "characters/Alice.png"
+        _register_stale_visual_claim(project_path, key, artifact_path)
+        fake_generator = _FakeGenerator()
+        resolve_context = _fake_resolve_ctx(fake_generator)
+
+        async def _replace_claim_then_resolve(*args, **kwargs):
+            (project_path / artifact_path).write_bytes(b"replacement")
+            ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+                key,
+                artifact_path=artifact_path,
+                basis=ArtifactBasis.build("test/visual-reference", kind_version=1, inputs={"revision": 2}),
+            )
+            return await resolve_context(*args, **kwargs)
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _replace_claim_then_resolve)
+
+        with pytest.raises(ValueError, match="changed since it was selected"):
+            await generation_tasks.execute_storyboard_task(
+                "demo",
+                "E1S03",
+                {"script_file": "episode_1.json", "prompt": "direct prompt"},
+            )
+
+        assert fake_generator.image_calls == []
+
+    @pytest.mark.integration
     async def test_storyboard_provider_reads_the_same_reference_bytes_as_its_basis(
         self,
         tmp_path,

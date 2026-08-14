@@ -12,6 +12,7 @@ from lib.artifact_manifest import (
     ArtifactBlocker,
     ArtifactComparison,
     ArtifactKey,
+    ArtifactManifestEntry,
     ArtifactManifestError,
     ArtifactStatus,
 )
@@ -521,6 +522,15 @@ class TestExecuteImageEditTask:
                 )
                 return ArtifactComparison(status=claim_status, artifact_path=artifact_path, blocker=blocker)
 
+            def resolve_usable_entry(self, key, *, artifact_path):
+                comparison = self.compare(key, artifact_path=artifact_path)
+                if comparison.status is ArtifactStatus.BLOCKED:
+                    assert comparison.blocker is not None
+                    raise ArtifactManifestError(comparison.blocker.detail)
+                if comparison.status not in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}:
+                    return None
+                return ArtifactManifestEntry(artifact_path=artifact_path, basis_digest="selected")
+
         monkeypatch.setattr(
             image_edit_tasks,
             "active_artifact_currency_resolver",
@@ -601,6 +611,18 @@ class TestExecuteImageEditTask:
                     else None
                 )
                 return ArtifactComparison(status=self.status, artifact_path=artifact_path, blocker=blocker)
+
+            def resolve_usable_entry(self, key, *, artifact_path):
+                comparison = self.compare(key, artifact_path=artifact_path)
+                if comparison.status is ArtifactStatus.BLOCKED:
+                    assert comparison.blocker is not None
+                    raise ArtifactManifestError(comparison.blocker.detail)
+                if comparison.status not in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}:
+                    return None
+                return ArtifactManifestEntry(artifact_path=artifact_path, basis_digest="selected")
+
+            def compare_frozen_entry(self, key, entry):
+                return self.compare(key, artifact_path=entry.artifact_path)
 
         def _resolver(*_args):
             return _Currency(statuses.pop(0))

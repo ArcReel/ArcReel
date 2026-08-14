@@ -1629,7 +1629,8 @@ class ArtifactCurrencyResolver:
         root_planner.adapter.get_entry(ArtifactKey.episode_script(1))
         self._project_bytes = root_planner.project_bytes
         self._planners: dict[int | None, _Planner] = {None: root_planner}
-        self._manifest = ArtifactManifest(root_planner.adapter)
+        self._adapter = root_planner.adapter
+        self._manifest = ArtifactManifest(self._adapter)
 
     def _planner_for(self, key: ArtifactKey) -> _Planner:
         scope = _episode_scope_for_key(key)
@@ -1647,6 +1648,25 @@ class ArtifactCurrencyResolver:
         expected = self._planner_for(key).resolve_key(key)
         return self._manifest.compare_entry(key, artifact_path=artifact_path, expected=expected)
 
+    def resolve_usable_entry(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactManifestEntry | None:
+        """Return the exact registered entry selected through canonical admission."""
+
+        comparison = self.compare(key, artifact_path=artifact_path)
+        if comparison.status is ArtifactStatus.BLOCKED:
+            assert comparison.blocker is not None
+            raise ArtifactManifestError(comparison.blocker.detail)
+        if comparison.status not in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}:
+            return None
+        entry = self._adapter.get_entry(key)
+        if entry is None or entry.artifact_path != comparison.artifact_path:
+            return None
+        return entry
+
+    def compare_frozen_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> ArtifactComparison:
+        """Compare the current formal claim with one provider-selected entry."""
+
+        return self._manifest.compare_entry(key, artifact_path=entry.artifact_path, expected=entry)
+
 
 @dataclass(frozen=True, slots=True)
 class ArtifactInputClaim:
@@ -1654,6 +1674,7 @@ class ArtifactInputClaim:
 
     key: ArtifactKey
     artifact_path: str
+    basis_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1811,9 +1832,14 @@ def resolve_usable_artifact_input_claim(
     activated while the task awaited provider configuration or staging.
     """
 
-    if not artifact_is_usable(resolver, key, artifact_path):
+    if resolver is None:
+        if not artifact_is_usable(resolver, key, artifact_path):
+            return None
+        return ArtifactInputClaim(key=key, artifact_path=artifact_path)
+    entry = resolver.resolve_usable_entry(key, artifact_path=artifact_path)
+    if entry is None:
         return None
-    return ArtifactInputClaim(key=key, artifact_path=artifact_path)
+    return ArtifactInputClaim(key=key, artifact_path=entry.artifact_path, basis_digest=entry.basis_digest)
 
 
 def assert_artifact_input_claims_usable(
@@ -1829,7 +1855,23 @@ def assert_artifact_input_claims_usable(
     if resolver is None:
         raise RuntimeError("formal artifact input claims require an active Artifact Manifest")
     for claim in claims:
-        if not artifact_is_usable(resolver, claim.key, claim.artifact_path):
+        if claim.basis_digest is None:
+            if artifact_is_usable(resolver, claim.key, claim.artifact_path):
+                continue
+            raise ValueError(f"formal artifact input is no longer registered: {claim.artifact_path}")
+        comparison = resolver.compare_frozen_entry(
+            claim.key,
+            ArtifactManifestEntry(
+                artifact_path=claim.artifact_path,
+                basis_digest=claim.basis_digest,
+            ),
+        )
+        if comparison.status is ArtifactStatus.BLOCKED:
+            assert comparison.blocker is not None
+            raise ArtifactManifestError(comparison.blocker.detail)
+        if comparison.status is ArtifactStatus.STALE:
+            raise ValueError(f"formal artifact input changed since it was selected: {claim.artifact_path}")
+        if comparison.status is not ArtifactStatus.CURRENT:
             raise ValueError(f"formal artifact input is no longer registered: {claim.artifact_path}")
 
 

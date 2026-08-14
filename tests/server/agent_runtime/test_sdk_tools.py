@@ -1111,6 +1111,10 @@ async def test_edit_images_active_asset_without_a_manifest_claim_is_not_enqueued
             comparisons.append((key, artifact_path))
             return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
 
+        def resolve_usable_entry(self, key, *, artifact_path):
+            self.compare(key, artifact_path=artifact_path)
+            return None
+
     async def fake_i2i(_project):
         return True
 
@@ -1721,7 +1725,14 @@ async def test_storyboard_resume_requires_usable_manifest_video_claim(
     claim_state: str,
 ) -> None:
     """A checkpoint can reuse only the exact canonical video admitted by active currency."""
-    from lib.artifact_manifest import ArtifactBlocker, ArtifactComparison, ArtifactKey, ArtifactStatus
+    from lib.artifact_manifest import (
+        ArtifactBlocker,
+        ArtifactComparison,
+        ArtifactKey,
+        ArtifactManifestEntry,
+        ArtifactManifestError,
+        ArtifactStatus,
+    )
     from lib.generation_queue_client import BatchTaskResult
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
@@ -1768,6 +1779,15 @@ async def test_storyboard_resume_requires_usable_manifest_video_claim(
                     )
                 return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
             return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=artifact_path)
+
+        def resolve_usable_entry(self, key, *, artifact_path):
+            comparison = self.compare(key, artifact_path=artifact_path)
+            if comparison.status is ArtifactStatus.BLOCKED:
+                assert comparison.blocker is not None
+                raise ArtifactManifestError(comparison.blocker.detail)
+            if comparison.status not in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}:
+                return None
+            return ArtifactManifestEntry(artifact_path=artifact_path, basis_digest="selected")
 
     currency = _Currency()
 
