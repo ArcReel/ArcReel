@@ -358,9 +358,11 @@ class TestGenerateTtsBatch:
         )
         fake_pm.script["episode"] = 1
         fake_queue = _FakeQueue()
+        observed_keys: list[ArtifactKey] = []
 
         class _StaleResolver:
-            def compare(self, _key, *, artifact_path):
+            def compare(self, key, *, artifact_path):
+                observed_keys.append(key)
                 return ArtifactComparison(status=ArtifactStatus.STALE, artifact_path=artifact_path)
 
         monkeypatch.setattr(generate, "active_artifact_currency_resolver", lambda *_args: _StaleResolver())
@@ -374,6 +376,7 @@ class TestGenerateTtsBatch:
 
         assert response.status_code == 200, response.text
         assert [call["resource_id"] for call in fake_queue.calls] == ["E1S01"]
+        assert ArtifactKey.episode_audio(1, "E1S02") in observed_keys
 
     def test_reference_video_batch_uses_unit_owned_narration_and_skips_character_speech(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
