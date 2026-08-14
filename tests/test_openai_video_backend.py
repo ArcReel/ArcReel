@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from openai import InternalServerError
+from openai.types.video_create_error import VideoCreateError
 
 from lib.providers import PROVIDER_OPENAI
 from lib.video_backends.base import VideoGenerationRequest
@@ -658,3 +659,41 @@ class TestProxyStatusSynonyms:
             with pytest.raises(ResumeExpiredError) as resume_ei:
                 await backend.resume_video("vid_new", request)
             assert resume_ei.value.job_id == "vid_new"
+
+
+class TestFailureMessage:
+    """失败原因要以可读文本落进 task.error_message —— 用户在任务面板读的就是这一句。"""
+
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            # SDK 原生形态：带 code / message 的模型，只取 message
+            (VideoCreateError(code="moderation_blocked", message="content policy"), "content policy"),
+            # 代理网关透传的裸 dict / 裸字符串
+            ({"code": 500, "message": "upstream down"}, "upstream down"),
+            ({"code": "billing_hard_limit_reached"}, "billing_hard_limit_reached"),
+            ("boom", "boom"),
+            # 只给 status 不给 error 的网关：说不出原因，也不能写出一句 "None"
+            (None, "unknown"),
+        ],
+    )
+    async def test_provider_reason_reaches_error_message(self, tmp_path: Path, error, expected: str):
+        failed = _make_mock_video(status="failed")
+        failed.error = error
+
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        mock_client.videos.retrieve = AsyncMock(return_value=failed)
+        mock_client.videos.download_content = AsyncMock()
+
+        with bounded_poll_clock(), patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            with pytest.raises(RuntimeError) as ei:
+                await backend.generate(
+                    VideoGenerationRequest(prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=8)
+                )
+
+        # 逐字断言：错误文本原样落 task.error_message，内部类型的 repr 不该出现在里面
+        assert str(ei.value) == f"Sora 视频生成失败: {expected}"
