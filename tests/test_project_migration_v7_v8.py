@@ -710,6 +710,60 @@ def test_v7_schema_commit_failure_leaves_complete_manifest_retryable(
     assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
 
 
+def test_v7_activation_restores_manifest_when_a_dependency_changes_after_its_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    script_path = project_dir / "scripts" / "episode_1.json"
+    orphan_path = project_dir / "output" / "orphan.srt"
+    orphan_path.parent.mkdir()
+    orphan_path.write_text("old claim", encoding="utf-8")
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_dir)).register(
+        ArtifactKey.episode_subtitle(1, "E1S01", "post_production"),
+        artifact_path="output/orphan.srt",
+        basis=ArtifactBasis.build("old/subtitle", kind_version=1, inputs={}),
+    )
+    manifest_before = (project_dir / MANIFEST_FILENAME).read_bytes()
+    concurrent_script = _read_json(script_path)
+    concurrent_script["segments"][0]["novel_text"] = "并发改写"
+    from lib import artifact_activation
+
+    original_replace = artifact_activation.ProjectArtifactManifestAdapter.replace_entries_atomically
+
+    def _replace_then_edit_dependency(self, entries):
+        changed = original_replace(self, entries)
+        _write_json(script_path, concurrent_script)
+        return changed
+
+    monkeypatch.setattr(
+        artifact_activation.ProjectArtifactManifestAdapter,
+        "replace_entries_atomically",
+        _replace_then_edit_dependency,
+    )
+
+    with pytest.raises(RuntimeError, match="artifact activation dependency changed after preflight"):
+        migrate_v7_to_v8(project_dir)
+
+    assert _read_json(project_dir / "project.json")["schema_version"] == 7
+    assert _read_json(script_path) == concurrent_script
+    assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
+
+
+def test_workflow_uses_the_activation_asset_identity_for_legacy_whitespace(tmp_path: Path) -> None:
+    project_dir, project, _step1, _script = _project(tmp_path)
+    raw_name = "  阿离  "
+    project["characters"] = {raw_name: project["characters"]["阿离"]}
+    _write_json(project_dir / "project.json", project)
+
+    migrate_v7_to_v8(project_dir)
+
+    status = WorkflowStateService(ProjectManager(tmp_path)).get_status("demo")
+    characters = status.artifacts["asset_sheets"]["character"]
+    assert characters["current_ids"] == [raw_name]
+    assert characters["missing_ids"] == []
+
+
 def test_v7_activation_uses_only_selected_complete_typed_media_facts(tmp_path: Path) -> None:
     project_dir = tmp_path / "ad"
     project_dir.mkdir()

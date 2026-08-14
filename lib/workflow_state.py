@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from lib import script_review
 from lib.artifact_activation import TARGET_SCHEMA_VERSION, ArtifactCurrencyResolver
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
-from lib.asset_types import ASSET_SPECS
+from lib.asset_types import ASSET_SPECS, asset_name_comparison_key
 from lib.data_validator import DataValidator
 from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
@@ -329,7 +329,7 @@ class WorkflowStateService:
                     self._classify_artifact(
                         collection,
                         resolver=resolver,
-                        key=ArtifactKey.asset_sheet(asset_type, name),
+                        key=ArtifactKey.asset_sheet(asset_type, asset_name_comparison_key(name)),
                         artifact_path=path,
                         resource_id=name,
                         blockers=blockers,

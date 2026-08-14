@@ -17,6 +17,7 @@ from lib.artifact_manifest import (
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifest,
+    ArtifactManifestEntry,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
@@ -873,7 +874,14 @@ class TestVersionsRouter:
         # 不做分镜侧元数据同步
         assert fake_pm.update_calls == []
 
-    def test_grid_restore_succeeds_when_the_grid_record_is_missing(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize("record_bytes", [None, b"{broken"])
+    def test_grid_restore_clears_orphan_claims_when_the_grid_record_is_missing_or_corrupt(
+        self,
+        tmp_path,
+        monkeypatch,
+        record_bytes,
+    ):
+        grid_id = "grid_000000000000"
         project = {
             "schema_version": 8,
             "title": "Demo",
@@ -888,6 +896,21 @@ class TestVersionsRouter:
             "props": {},
         }
         (tmp_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
+        grids_dir = tmp_path / "grids"
+        grids_dir.mkdir()
+        image_path = grids_dir / f"{grid_id}.png"
+        image_path.write_bytes(b"historical-grid")
+        if record_bytes is not None:
+            (grids_dir / f"{grid_id}.json").write_bytes(record_bytes)
+        adapter = ProjectArtifactManifestAdapter(tmp_path)
+        for episode in (1, 2):
+            adapter.put_entry(
+                ArtifactKey.episode_grid(episode, grid_id),
+                ArtifactManifestEntry(
+                    artifact_path=f"grids/{grid_id}.png",
+                    basis_digest=f"sha256-v1:{episode:064x}",
+                ),
+            )
         fake_pm = _GridPM(tmp_path)
         monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
@@ -897,10 +920,12 @@ class TestVersionsRouter:
         app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
         with TestClient(app, raise_server_exceptions=False) as client:
-            response = client.post("/api/v1/projects/demo/versions/grids/grid_000000000000/restore/1")
+            response = client.post(f"/api/v1/projects/demo/versions/grids/{grid_id}/restore/1")
 
         assert response.status_code == 200, response.text
-        assert response.json()["file_path"] == "grids/grid_000000000000.png"
+        assert response.json()["file_path"] == f"grids/{grid_id}.png"
+        for episode in (1, 2):
+            assert adapter.get_entry(ArtifactKey.episode_grid(episode, grid_id)) is None
 
     @pytest.mark.parametrize(
         "project,expected_detail",

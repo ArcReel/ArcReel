@@ -1310,9 +1310,27 @@ def activate_artifact_target_state(project_dir: Path, *, bump_schema: bool) -> b
     if bump_schema:
         _backup_activation_inputs(project_dir, plan)
         _assert_preflight_unchanged(project_dir, plan)
-    changed = ProjectArtifactManifestAdapter(project_dir).replace_entries_atomically(plan.entries)
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    previous_entries = adapter.snapshot_entries()
+    changed = adapter.replace_entries_atomically(plan.entries)
     if bump_schema:
-        _assert_project_unchanged(project_dir, plan.project_bytes)
+        try:
+            _assert_preflight_unchanged(project_dir, plan)
+        except BaseException as original_error:
+            if changed:
+                try:
+                    restored = adapter.replace_snapshot_if_matches_atomically(
+                        expected=plan.entries,
+                        replacement=previous_entries,
+                    )
+                    if not restored and adapter.snapshot_entries() != previous_entries:
+                        raise ArtifactManifestError("artifact manifest changed concurrently after activation commit")
+                except BaseException as rollback_error:
+                    rollback_error.__cause__ = original_error
+                    raise RuntimeError(
+                        "artifact activation dependency drifted and Manifest rollback was incomplete"
+                    ) from rollback_error
+            raise
         _commit_schema_version(project_dir, plan.project)
         return True
     return changed
@@ -1848,18 +1866,39 @@ def forget_current_resource_artifact(
     return ArtifactManifest(ProjectArtifactManifestAdapter(project_dir)).forget_entry_transactionally(key)
 
 
-def forget_unbound_storyboard_artifacts(project_dir: Path, resource_id: str) -> bool:
-    """Remove storyboard claims when no canonical episode owns the resource."""
+def _forget_unbound_episode_artifacts(
+    project_dir: Path,
+    resource_id: str,
+    *,
+    kind: ArtifactKind,
+) -> bool:
+    """Remove claims of one episode-scoped kind when its canonical owner is absent."""
 
     if not _artifact_manifest_is_active(project_dir):
         return False
     adapter = ProjectArtifactManifestAdapter(project_dir)
-    keys = [
-        key
-        for key in adapter.snapshot_entries()
-        if key.kind is ArtifactKind.EPISODE_STORYBOARD and key.components[1] == resource_id
-    ]
+    keys = [key for key in adapter.snapshot_entries() if key.kind is kind and key.components[1] == resource_id]
     return ArtifactManifest(adapter).forget_entries_transactionally(keys)
+
+
+def forget_unbound_storyboard_artifacts(project_dir: Path, resource_id: str) -> bool:
+    """Remove storyboard claims when no canonical episode owns the resource."""
+
+    return _forget_unbound_episode_artifacts(
+        project_dir,
+        resource_id,
+        kind=ArtifactKind.EPISODE_STORYBOARD,
+    )
+
+
+def forget_unbound_grid_artifacts(project_dir: Path, resource_id: str) -> bool:
+    """Remove grid claims when no valid grid record owns the resource."""
+
+    return _forget_unbound_episode_artifacts(
+        project_dir,
+        resource_id,
+        kind=ArtifactKind.EPISODE_GRID,
+    )
 
 
 def _artifact_manifest_is_active(project_dir: Path) -> bool:
@@ -1947,6 +1986,7 @@ __all__ = [
     "artifact_key_for_resource",
     "ensure_imported_artifact_target_state",
     "forget_current_resource_artifact",
+    "forget_unbound_grid_artifacts",
     "forget_unbound_storyboard_artifacts",
     "plan_artifact_target_state",
     "prepare_episode_script_manifest_commit",

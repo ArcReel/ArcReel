@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 from lib.api_errors import BadRequestError, ConflictError
 from lib.artifact_activation import (
     forget_current_resource_artifact,
+    forget_unbound_grid_artifacts,
     forget_unbound_storyboard_artifacts,
     register_current_resource_artifact,
 )
@@ -77,6 +78,7 @@ def _sync_grid_record(
     resource_id: str,
     *,
     on_commit: Callable[[], None] | None = None,
+    on_miss: Callable[[], None] | None = None,
 ) -> None:
     """还原联合图后复位宫格记录：内容已换回历史版本，旧的落格结果不再对应当前图。
 
@@ -93,6 +95,7 @@ def _sync_grid_record(
         resource_id,
         lambda grid: grid.mark_composite_replaced(),
         on_commit=on_commit,
+        on_miss=on_miss,
         ignore_invalid=True,
     )
 
@@ -187,7 +190,15 @@ def _restore_non_typed_sidecars(
         def _register_grid() -> None:
             _commit_claim()
 
-        _sync_grid_record(project_path, resource_id, on_commit=_register_grid)
+        def _forget_orphan_grid() -> None:
+            forget_unbound_grid_artifacts(project_path, resource_id)
+
+        _sync_grid_record(
+            project_path,
+            resource_id,
+            on_commit=_register_grid,
+            on_miss=_forget_orphan_grid,
+        )
         return
 
     _commit_claim()

@@ -184,6 +184,28 @@ def test_manifest_rekey_plan_rejects_a_target_claim_without_mutating_either_key(
     assert adapter.get_entry(new_key) == target_entry
 
 
+def test_complete_snapshot_cas_does_not_overwrite_an_unexpected_claim() -> None:
+    first_key = ArtifactKey.episode_script(1)
+    second_key = ArtifactKey.episode_script(2)
+    first_entry = ArtifactManifestEntry("scripts/episode_1.json", "sha256-v1:" + "a" * 64)
+    second_entry = ArtifactManifestEntry("scripts/episode_2.json", "sha256-v1:" + "b" * 64)
+    adapter = InMemoryArtifactManifestAdapter()
+    adapter.put_entry(first_key, first_entry)
+    expected = adapter.snapshot_entries()
+    adapter.put_entry(second_key, second_entry)
+
+    assert not adapter.replace_snapshot_if_matches_atomically(expected=expected, replacement={})
+    assert adapter.snapshot_entries() == {
+        first_key: first_entry,
+        second_key: second_entry,
+    }
+    assert adapter.replace_snapshot_if_matches_atomically(
+        expected=adapter.snapshot_entries(),
+        replacement=expected,
+    )
+    assert adapter.snapshot_entries() == expected
+
+
 def test_manifest_rekey_plan_restores_both_keys_after_a_write_then_failure(monkeypatch) -> None:
     old_key = ArtifactKey.asset_sheet("character", "角色A")
     new_key = ArtifactKey.asset_sheet("character", "主角甲")

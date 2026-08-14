@@ -133,6 +133,16 @@ class ArtifactManifestAdapter(Protocol):
 
         raise NotImplementedError
 
+    def replace_snapshot_if_matches_atomically(
+        self,
+        *,
+        expected: Mapping[ArtifactKey, ArtifactManifestEntry],
+        replacement: Mapping[ArtifactKey, ArtifactManifestEntry],
+    ) -> bool:
+        """Replace a complete snapshot only when the complete current state matches."""
+
+        raise NotImplementedError
+
     def replace_entries_atomically(
         self,
         entries: Mapping[ArtifactKey, ArtifactManifestEntry],
@@ -527,6 +537,20 @@ class InMemoryArtifactManifestAdapter:
             if updated == self._entries:
                 return False
             self._entries = updated
+            return True
+
+    def replace_snapshot_if_matches_atomically(
+        self,
+        *,
+        expected: Mapping[ArtifactKey, ArtifactManifestEntry],
+        replacement: Mapping[ArtifactKey, ArtifactManifestEntry],
+    ) -> bool:
+        encoded_expected = _encode_target_entries(expected)
+        encoded_replacement = _encode_target_entries(replacement)
+        with self._lock:
+            if self._entries != encoded_expected:
+                return False
+            self._entries = encoded_replacement
             return True
 
     def replace_entries_atomically(
@@ -967,6 +991,39 @@ class ProjectArtifactManifestAdapter:
             new_bytes = _serialize_manifest(entries)
             if original_bytes == new_bytes:
                 return False
+            self._atomic_replace(new_bytes, root_fd)
+            return True
+
+    def replace_snapshot_if_matches_atomically(
+        self,
+        *,
+        expected: Mapping[ArtifactKey, ArtifactManifestEntry],
+        replacement: Mapping[ArtifactKey, ArtifactManifestEntry],
+    ) -> bool:
+        """Compare and replace the complete Manifest state under one lock."""
+
+        encoded_expected = _encode_target_entries(expected)
+        encoded_replacement = _encode_target_entries(replacement)
+        new_bytes = _serialize_manifest(encoded_replacement)
+        with self._locked() as root_fd:
+            current, original_bytes = self._load_unlocked(root_fd)
+            if current != encoded_expected:
+                return False
+            if current == encoded_replacement:
+                return True
+            if not encoded_replacement:
+                try:
+                    if root_fd is None:
+                        (self._project_dir / MANIFEST_FILENAME).unlink()
+                    else:
+                        os.unlink(MANIFEST_FILENAME, dir_fd=root_fd)
+                except FileNotFoundError:
+                    pass
+                except OSError as exc:
+                    raise ArtifactManifestError(f"cannot remove empty artifact manifest: {exc}") from exc
+                return True
+            if original_bytes == new_bytes:
+                return True
             self._atomic_replace(new_bytes, root_fd)
             return True
 

@@ -62,6 +62,7 @@ class GridManager:
         mutate: Callable[[GridGeneration], None],
         *,
         on_commit: Callable[[], None] | None = None,
+        on_miss: Callable[[], None] | None = None,
         ignore_invalid: bool = False,
     ) -> GridGeneration | None:
         """Read, mutate, and save one record under its canonical file lock."""
@@ -73,8 +74,12 @@ class GridManager:
             except Exception:  # noqa: BLE001 - optional best-effort restore semantics apply only to the read
                 if not ignore_invalid:
                     raise
+                if on_miss is not None:
+                    on_miss()
                 return None
             if grid is None:
+                if on_miss is not None:
+                    on_miss()
                 return None
             mutate(grid)
             atomic_write_json(path, grid.to_dict())
