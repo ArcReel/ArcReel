@@ -46,6 +46,7 @@ from lib.asset_types import (
     resolve_asset_key,
     validate_asset_name,
 )
+from lib.audio_utils import discard_stale_reference_audio, resolve_audio_ref_path, resolve_stale_reference_audio
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
@@ -120,6 +121,30 @@ def find_episode(project: dict[str, Any], episode: int | None) -> dict[str, Any]
     for ep in project.get("episodes") or []:
         if isinstance(ep, dict) and ep.get("episode") == episode:
             return ep
+    return None
+
+
+def resolve_episode_script_binding(
+    project: dict[str, Any],
+    episode: int,
+    expected_script_file: str,
+) -> str | None:
+    """Return the live binding when it still denotes the expected episode script.
+
+    Legacy projects without an ``episodes`` index use the submitted script as
+    their binding. Indexed projects must retain a matching normalized binding;
+    a missing episode or a concurrent rebind returns ``None``.
+    """
+
+    entry = find_episode(project, episode)
+    current_binding = entry.get("script_file") if isinstance(entry, dict) else None
+    if current_binding is None and not (project.get("episodes") or []):
+        return expected_script_file
+    if isinstance(current_binding, str) and (
+        ProjectManager.normalize_script_filename(current_binding)
+        == ProjectManager.normalize_script_filename(expected_script_file)
+    ):
+        return current_binding
     return None
 
 
@@ -234,6 +259,9 @@ class ProjectManager:
         "products",
         "storyboards",
         "videos",
+        "audio",
+        "subtitles",
+        "presentations",
         "thumbnails",
         "output",
         "grids",
@@ -359,7 +387,7 @@ class ProjectManager:
     _DELETE_RETRYABLE_ERRNOS = (errno.ENOTEMPTY, errno.EACCES)
 
     def delete_project_directory(self, name: str) -> None:
-        """删除项目目录，容忍并发扫描与本次删除竞态产生的临时性错误。"""
+        """删除项目目录，容忍并发扫描与删除操作竞态产生的临时性错误。"""
         project_dir = self.get_project_path(name)
         attempts = 5
         for attempt in range(attempts):
@@ -673,7 +701,7 @@ class ProjectManager:
         再次获取 `_project_lock`，故已持有项目锁的调用方（见 `locked_episode_script`）须传 False
         以免同进程自死锁。仅写脚本内容、不改 episode 元数据的场景跳过同步无副作用。
 
-        `validate=True`（默认，fail-safe）时按「不更坏」语义做结构校验：仅当本次写入把一个
+        `validate=True`（默认，fail-safe）时按「不更坏」语义做结构校验：仅当待写数据把一个
         原本合法的剧本改成非法时才 `raise ScriptStructureValidationError`，改前就已非法的旧
         剧本照常放行。读-改-写流程（`locked_script` 一族）已持有改前剧本，应作 `before` 传入
         以零额外读盘；直连保存不传 `before`，由本函数按需读盘取改前（无改前则按严格校验）。
@@ -779,6 +807,26 @@ class ProjectManager:
             before = copy.deepcopy(script) if validate else None
             yield script
             self._write_script_unlocked(project_name, script, norm, validate=validate, before=before)
+
+    @contextmanager
+    def locked_project_script_snapshot(self, project_name: str, script_filename: str):
+        """Yield a read-only project/script snapshot under the canonical write locks.
+
+        Artifact selection must compare execution-frozen inputs with one coherent
+        current snapshot, but a read-only comparison must not rewrite the script
+        or touch project metadata.  The lock order mirrors
+        :meth:`locked_episode_script` (script, then project), so callers can keep
+        the comparison and a guarded downstream commit serialized with both
+        source edit paths.
+        """
+
+        norm = self.normalize_script_filename(script_filename)
+        with self._script_lock(project_name, norm):
+            with self._project_lock(project_name):
+                project = self._read_project_raw_unlocked(project_name)
+                self._migrate_legacy_style(project)
+                script, _migrated = self._read_script_unlocked(project_name, norm)
+                yield project, script
 
     def _read_project_raw_unlocked(self, project_name: str) -> dict:
         """裸读 project.json（不取锁、不迁移）。仅供已持 `_project_lock` 的复核调用。"""
@@ -905,7 +953,7 @@ class ProjectManager:
 
     @staticmethod
     def _guard_no_worse(before: dict | None, after: dict) -> None:
-        """「不更坏」守卫：仅当本次写入引入新结构错误时拒绝。
+        """「不更坏」守卫：仅当待写数据引入新结构错误时拒绝。
 
         改后合法 → 放行；改后非法时：改前合法或无改前 → 拒绝（`raise`）；改前已非法 → 放行
         （不为历史遗留背锅）。校验器经函数内延迟 import，打破 project_manager → 校验器 →
@@ -1656,14 +1704,32 @@ class ProjectManager:
         mutate_fn: Callable[[dict], None],
         copies: list[tuple[Path, Path]],
     ) -> dict:
-        """在项目锁内把文件替换与 project.json 写回作为一个可回滚事务提交。
+        """在项目锁内把文件复制与 project.json 写回作为一个可回滚事务提交。"""
 
-        ``copies`` 的目标路径必须互不重复；``mutate_fn`` 可在锁内完成最终名称规划并向
-        该列表追加拷贝。回调抛错时不会安装任何文件；
-        所有源文件先完成暂存，再逐个替换目标。安装或 JSON 写回失败时按相反顺序恢复
-        已替换目标，恢复失败仅记录日志并保留原始异常；提交成功后清理备份。
+        return self._update_project_with_files(
+            project_name,
+            mutate_fn,
+            copies=copies,
+        )
+
+    def _update_project_with_files(
+        self,
+        project_name: str,
+        mutate_fn: Callable[[dict], None],
+        *,
+        copies: list[tuple[Path, Path]] | None = None,
+        writes: list[tuple[bytes, Path]] | None = None,
+    ) -> dict:
+        """在项目锁内把文件变更与 project.json 写回作为一个可回滚事务提交。
+
+        ``mutate_fn`` 可在锁内完成最终名称规划并向两个列表追加操作。回调抛错时不会安装
+        任何文件；所有复制/字节写入先完成暂存，再逐个替换目标。安装或 JSON 写回失败时按
+        相反顺序恢复，恢复失败仅记录日志并保留原始异常；提交成功后清理备份。全部目标必须
+        互不重复，避免同一事务内操作顺序产生歧义。
         """
         project_file = self._get_project_file_path(project_name)
+        copies = copies if copies is not None else []
+        writes = writes if writes is not None else []
 
         token = secrets.token_hex(8)
         staged: list[tuple[Path, Path]] = []
@@ -1684,13 +1750,20 @@ class ProjectManager:
 
                 # mutate_fn 可在锁内完成最终名称规划并填充 copies；因此目标唯一性也必须
                 # 在回调之后、仍持有同一把项目锁时校验。
-                destinations = [destination for _source, destination in copies]
-                if len(set(destinations)) != len(destinations):
+                replacement_destinations = [destination for _source, destination in copies] + [
+                    destination for _content, destination in writes
+                ]
+                if len(set(replacement_destinations)) != len(replacement_destinations):
                     raise ValueError("项目文件事务包含重复目标路径")
                 for index, (source, destination) in enumerate(copies):
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     temporary = destination.with_name(f".{destination.name}.{token}-{index}.tmp")
                     shutil.copyfile(source, temporary)
+                    staged.append((temporary, destination))
+                for offset, (content, destination) in enumerate(writes, start=len(staged)):
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = destination.with_name(f".{destination.name}.{token}-{offset}.tmp")
+                    atomic_write_bytes(temporary, content)
                     staged.append((temporary, destination))
 
                 for index, (temporary, destination) in enumerate(staged):
@@ -2026,7 +2099,7 @@ class ProjectManager:
         """按 table（characters/scenes/props/products）+ name upsert 资产：不存在则新增、存在则改字段。
 
         在 `update_project` 的单一文件锁内完成 read-modify-write；apply 后、落盘前对结果
-        project dict 做 payload 级结构校验，按**「不更坏」语义**裁决：仅当本次 upsert 把原本
+        project dict 做 payload 级结构校验，按**「不更坏」语义**裁决：仅当该 upsert 把原本
         合法的 project 改成非法时才 raise 且**不落盘**（mutation 抛错时 `update_project` 不执行
         atomic_write）；改前已非法（历史遗留脏数据，如空 `style`）则照常放行——否则带历史问题的
         项目会整条 patch_project 路径不可用（旧 `add_assets.py` 报告校验错误也不阻断写入）。
@@ -2143,7 +2216,7 @@ class ProjectManager:
             # 「不更坏」按 error set diff 判定：after 不应比 before 多任何 errors。
             #   - 改前合法、改后非法 → new_errors=全部 after errors → 拒
             #   - 改前已脏、改后相同脏 → new_errors=∅ → 放行（允许带历史脏数据的项目继续 patch）
-            #   - 改前已脏、改后引入新错误（如本次 entries 缺 description）→ new_errors≠∅ → 拒
+            #   - 改前已脏、改后引入新错误（如 entries 缺 description）→ new_errors≠∅ → 拒
             #   - 改前已脏、改后修复了部分 → new_errors=∅ → 放行（允许 patch 改进历史脏数据）
             # 比单纯比 valid 标志更严：堵住「带历史脏数据的项目里新 entry 的结构错误 piggyback 落盘」。
             new_errors = after_errors - before_errors
@@ -2455,13 +2528,109 @@ class ProjectManager:
         """
 
         def _mutate(project: dict) -> None:
+            self._set_character_reference_audio(project, char_name, ref_path)
+
+        return self.update_project(project_name, _mutate)
+
+    @staticmethod
+    def _set_character_reference_audio(project: dict, char_name: str, ref_path: str) -> None:
+        key = resolve_asset_key(project.get("characters"), char_name)
+        if key is None:
+            raise KeyError(f"角色 '{char_name}' 不存在")
+        project["characters"][key]["reference_audio"] = ref_path
+        project["characters"][key]["voice_updated_at"] = datetime.now(UTC).isoformat()
+
+    def install_character_reference_audio(
+        self,
+        project_name: str,
+        char_name: str,
+        ref_path: str,
+        content: bytes,
+    ) -> dict:
+        """Atomically install reference-audio bytes and point the character at them.
+
+        Video currency selection hashes reference-audio bytes while holding the project lock.  Keeping every
+        physical replacement in that same lock makes the project pointer and the bytes one coherent input snapshot.
+        A replaced file with a different extension is best-effort cleanup after the new pointer commits; it is no
+        longer an input then, so cleanup does not need to prolong the selection-critical section.
+        """
+
+        project_dir = self.get_project_path(project_name)
+        refs_audio_dir = project_dir / "characters" / "refs_audio"
+        target = Path(self._safe_subpath(project_dir, ref_path))
+        if os.path.realpath(target.parent) != os.path.realpath(refs_audio_dir):
+            raise ValueError("reference audio target must be inside characters/refs_audio")
+        stale_audio: Path | None = None
+
+        def _mutate(project: dict) -> None:
+            nonlocal stale_audio
             key = resolve_asset_key(project.get("characters"), char_name)
             if key is None:
                 raise KeyError(f"角色 '{char_name}' 不存在")
-            project["characters"][key]["reference_audio"] = ref_path
-            project["characters"][key]["voice_updated_at"] = datetime.now(UTC).isoformat()
+            old_audio = project["characters"][key].get("reference_audio")
+            stale_audio = resolve_stale_reference_audio(project_dir, refs_audio_dir, old_audio, target)
+            self._set_character_reference_audio(project, char_name, ref_path)
 
-        return self.update_project(project_name, _mutate)
+        project = self._update_project_with_files(
+            project_name,
+            _mutate,
+            writes=[(content, target)],
+        )
+        self._discard_stale_reference_audio_if_unreferenced(project_name, stale_audio)
+        return project
+
+    def _discard_stale_reference_audio_if_unreferenced(
+        self,
+        project_name: str,
+        stale_audio: Path | None,
+    ) -> None:
+        """Best-effort cleanup that cannot delete a newer concurrent selection of the same path."""
+
+        if stale_audio is None:
+            return
+        project_dir = self.get_project_path(project_name)
+        refs_audio_dir = project_dir / "characters" / "refs_audio"
+        stale_identity = os.path.realpath(stale_audio)
+        with self._project_lock(project_name):
+            project = self._read_project_raw_unlocked(project_name)
+            characters = project.get("characters")
+            if isinstance(characters, dict):
+                for character in characters.values():
+                    if not isinstance(character, dict):
+                        continue
+                    reference_audio = character.get("reference_audio")
+                    current = resolve_audio_ref_path(
+                        project_dir,
+                        refs_audio_dir,
+                        reference_audio if isinstance(reference_audio, str) else None,
+                    )
+                    if current is not None and os.path.realpath(current) == stale_identity:
+                        return
+            discard_stale_reference_audio(stale_audio)
+
+    def clear_character_reference_audio(self, project_name: str, char_name: str) -> dict:
+        """Clear the reference first, then best-effort delete the now-unreferenced audio file."""
+
+        project_dir = self.get_project_path(project_name)
+        refs_audio_dir = project_dir / "characters" / "refs_audio"
+        stale_audio: Path | None = None
+
+        def _mutate(project: dict) -> None:
+            nonlocal stale_audio
+            key = resolve_asset_key(project.get("characters"), char_name)
+            if key is None:
+                raise KeyError(f"角色 '{char_name}' 不存在")
+            old_audio = project["characters"][key].get("reference_audio")
+            stale_audio = resolve_audio_ref_path(
+                project_dir,
+                refs_audio_dir,
+                old_audio if isinstance(old_audio, str) else None,
+            )
+            self._set_character_reference_audio(project, char_name, "")
+
+        project = self.update_project(project_name, _mutate)
+        self._discard_stale_reference_audio_if_unreferenced(project_name, stale_audio)
+        return project
 
     def get_project_character(self, project_name: str, name: str) -> dict:
         """获取项目级角色定义"""

@@ -2,8 +2,8 @@ import type * as Preset from "@docusaurus/preset-classic";
 import type { Config } from "@docusaurus/types";
 
 const config: Config = {
-  title: "ArcReel 文档",
-  tagline: "开源、自托管的 AI 视频生产工作台",
+  title: "ArcReel 文档中心",
+  tagline: "开源、自托管的 AI 视频创作平台",
   favicon: "img/favicon.ico",
 
   url: "https://docs.arc-reel.com",
@@ -16,6 +16,9 @@ const config: Config = {
   onBrokenAnchors: "throw",
 
   markdown: {
+    // .md 按 CommonMark 解析，只有 .mdx 走 MDX：文档正文里的 `<1.0.0`、`<域名>` 等
+    // 尖括号片段在 MDX 下会被当成 JSX 而编译失败，且 CONTRIBUTING.md 还要在 GitHub 上原样可读
+    format: "detect",
     hooks: {
       onBrokenMarkdownLinks: "throw",
     },
@@ -75,7 +78,7 @@ const config: Config = {
         },
         {
           href: "https://github.com/ArcReel/ArcReel",
-          label: "GitHub",
+          label: "GitHub 仓库",
           position: "right",
         },
       ],
@@ -84,10 +87,10 @@ const config: Config = {
       style: "dark",
       links: [
         {
-          title: "ArcReel",
+          title: "资源",
           items: [
-            { label: "官网", href: "https://arc-reel.com" },
-            { label: "GitHub", href: "https://github.com/ArcReel/ArcReel" },
+            { label: "ArcReel 官网", href: "https://arc-reel.com" },
+            { label: "GitHub 仓库", href: "https://github.com/ArcReel/ArcReel" },
           ],
         },
       ],

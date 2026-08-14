@@ -21,6 +21,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from lib.audio_backends.base import VoiceOption
@@ -302,6 +303,7 @@ async def resolve_generation_context(
     payload: dict | None,
     *,
     project: dict,
+    project_path: Path | None = None,
     user_id: str = DEFAULT_USER_ID,
     image: ImageLaneRequest | None = None,
     video: VideoLaneRequest | None = None,
@@ -311,7 +313,8 @@ async def resolve_generation_context(
 
     lane 传即声明、None 跳过，任务只为用到的 lane 付出配置要求与构造成本。任一声明 lane
     的解析或构造失败即原样上抛、整次调用失败——无部分结果、无跨 provider 兜底；仅能力
-    查询失败降级空值放行。``project`` 是调用方已加载的项目快照，本函数不读盘。
+    查询失败降级空值放行。``project`` 是调用方已加载的项目快照；``project_path`` 可由已经
+    持有项目路径的事务传入，避免同步事务解析当前配置时嵌套占用默认线程池。本函数不读项目。
 
     video lane 的定桶随 ``VideoLaneRequest.capability``：None 时按项目生成路线解析（见
     ``lib.config.resolver.caps_generation_mode``）——路线创建即定、整个项目按同一条路径生成，
@@ -320,7 +323,11 @@ async def resolve_generation_context(
     """
     from lib.db import async_session_factory
 
-    project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
+    resolved_project_path = (
+        project_path
+        if project_path is not None
+        else await asyncio.to_thread(get_project_manager().get_project_path, project_name)
+    )
     resolver = ConfigResolver(async_session_factory)
 
     image_result: ImageLaneResult | None = None
@@ -419,7 +426,7 @@ async def resolve_generation_context(
             )
 
     generator = MediaGenerator(
-        project_path,
+        resolved_project_path,
         rate_limiter=rate_limiter,
         image_backend=image_backend,
         video_backend=video_backend,

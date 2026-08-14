@@ -1,6 +1,6 @@
 ---
 name: update-docs
-description: 根据最近的 git 改动，更新面向用户的文档（README 双语、getting-started、部署、已知问题等）。手动调用。
+description: 根据最近的 git 改动，更新面向用户的文档（README 双语、入门教程、部署、剪映导出等）。手动调用。
 disable-model-invocation: true
 ---
 
@@ -15,7 +15,7 @@ in-scope 文档分两组，定义在 `.agents/skills/update-docs/scripts/collect
 
 README.en.md 是 README.md 的镜像，中文为源：不独立进引擎，改完后随中文做全文一致性核对（第 6 步）。
 
-排除供应商费用表，以及 docs 下非面向用户的文档（adr、research、各供应商 SDK 文档等）。新增文档按性质归入对应数组。
+面向用户的文档源文件在 `website/docs/` 下（发布到 docs.arc-reel.com）。排除供应商费用表，以及未上站的内部文档（`docs/` 下的 adr、research、各供应商 SDK 文档等）。新增文档按性质归入对应数组。
 
 ## 步骤
 

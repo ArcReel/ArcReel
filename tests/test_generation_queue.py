@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
+from lib.generation_admission import generation_admission_lock
 from lib.generation_queue import CompensableGenerationResult, GenerationQueue, reference_projection_for_queued_task
 from lib.task_failure import encode_failure
 
@@ -26,6 +27,37 @@ async def queue():
 
 
 class TestGenerationQueue:
+    async def test_narration_task_admission_waits_for_the_shared_restore_guard(
+        self,
+        queue,
+        tmp_path,
+        monkeypatch,
+    ):
+        from lib.app_data_dir import _reset_for_tests
+
+        monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "app-data"))
+        _reset_for_tests()
+        async with generation_admission_lock(
+            project_name="admission-demo",
+            script_file="scripts/episode_01.json",
+            resource_id="E1S01",
+        ):
+            enqueue = asyncio.create_task(
+                queue.enqueue_task(
+                    project_name="admission-demo",
+                    task_type="tts",
+                    media_type="audio",
+                    resource_id="E1S01",
+                    script_file="episode_01.json",
+                    provider_id="audio-provider",
+                )
+            )
+            await asyncio.sleep(0.1)
+            assert not enqueue.done()
+
+        result = await enqueue
+        assert result["deduped"] is False
+
     async def test_enqueue_dedupe_claim_and_succeed(self, queue):
         first = await queue.enqueue_task(
             project_name="demo",

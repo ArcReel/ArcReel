@@ -7,7 +7,7 @@
 目标文档（两篇都要覆盖）：
 
 - README.md
-- docs/getting-started.md
+- website/docs/guide/getting-started.md
 
 ## 方法
 

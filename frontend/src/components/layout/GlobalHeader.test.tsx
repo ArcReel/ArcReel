@@ -35,7 +35,12 @@ vi.mock("./ExportScopeDialog", () => ({
     onSelect: (scope: "current" | "full") => void;
     anchorRef: React.RefObject<HTMLElement | null>;
     episodes?: unknown[];
-    onJianyingExport?: (episode: number, draftPath: string, jianyingVersion: string) => void;
+    onJianyingExport?: (
+      episode: number,
+      draftPath: string,
+      jianyingVersion: string,
+      narrationDelivery: "post_production" | "use_tts",
+    ) => void;
     jianyingExporting?: boolean;
   }) =>
     open ? (
@@ -49,7 +54,7 @@ vi.mock("./ExportScopeDialog", () => ({
         {onJianyingExport && (
           <button
             data-testid="scope-jianying"
-            onClick={() => onJianyingExport(1, "/drafts", "6")}
+            onClick={() => onJianyingExport(1, "/drafts", "6", "post_production")}
           >
             剪映草稿
           </button>

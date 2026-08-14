@@ -28,6 +28,7 @@ jobs:
       backend: ${{ steps.domains.outputs.backend }}
       frontend: ${{ steps.domains.outputs.frontend }}
       docker: ${{ steps.domains.outputs.docker }}
+      website: ${{ steps.domains.outputs.website }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -216,6 +217,64 @@ jobs:
           flags: frontend
           fail_ci_if_error: false
 
+  website-checks:
+    # 单一 job 串起文档站的四道闸：CONTRIBUTING 复制前置（否则 gitignore 的中文副本
+    # 缺席，其已提交的英文译文会被误判为孤儿）→ 一致性脚本（孤儿译文 / 缺锚点 /
+    # UI JSON key 齐全性，见 website/scripts/check-consistency.mjs）fail →
+    # 双 locale build（onBrokenLinks/onBrokenAnchors/onBrokenMarkdownLinks 均 throw）
+    # fail → 缺译/滞后清单写 step summary，不阻断。
+    needs: changes
+    if: needs.changes.outputs.website == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          # 版本取自 website/package.json 的 packageManager（含完整性哈希），不在此重复写死；
+          # 该输入必须显式指定——默认值是仓库根的 package.json，本仓库根目录没有这个文件
+          package_json_file: website/package.json
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: website/.node-version
+          cache: "pnpm"
+          cache-dependency-path: website/pnpm-lock.yaml
+
+      - name: Translation lock unit tests
+        run: node --test .claude/skills/translate-docs/scripts/translation-lock.test.mjs
+
+      - name: Install dependencies
+        working-directory: website
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync CONTRIBUTING copy
+        working-directory: website
+        run: pnpm run sync-contributing
+
+      - name: Consistency check (orphan translations / anchors / UI JSON keys)
+        working-directory: website
+        run: pnpm run check-consistency
+
+      - name: Build (zh-Hans + en)
+        working-directory: website
+        run: pnpm run build
+
+      - name: Translation lag report
+        # 报告不阻断，也不该被前面的闸门吞掉：闸门红了的 PR 同样要看到缺译/滞后清单
+        if: always()
+        run: |
+          {
+            echo "### 文档翻译滞后清单"
+            echo
+            echo '```'
+            node .claude/skills/translate-docs/scripts/translation-lock.mjs status
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   docker-verify:
     # PR 阶段的镜像装配验证：只构建 amd64、不登录、不推送。
     # 应用正确性由 backend/frontend 测试保证，这里只验证镜像能构建、容器能起、
@@ -250,7 +309,7 @@ jobs:
 
       - name: Smoke test container health
         run: |
-          # 沙箱运行参数与官方 Compose 一致（docs/deployment.md）：容器内 bwrap
+          # 沙箱运行参数与官方 Compose 一致（website/docs/ops/deployment.md）：容器内 bwrap
           # 需要这些权限，缺失时 server 按沙箱红线启动硬失败
           docker run -d --name arcreel-ci \
             --security-opt seccomp=unconfined \
@@ -343,6 +402,7 @@ jobs:
         postgres-compat,
         frontend-tests,
         docker-verify,
+        website-checks,
         release-integrity,
       ]
     runs-on: ubuntu-latest

@@ -166,6 +166,8 @@ class DataValidator:
         "end_frames",
         "videos",
         "audio",
+        "subtitles",
+        "presentations",
         "thumbnails",
         "output",
         "versions",

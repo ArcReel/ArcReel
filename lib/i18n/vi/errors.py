@@ -364,6 +364,7 @@ MESSAGES = {
     "video_prompt_too_long": "{provider}/{model} chỉ chấp nhận câu lệnh tối đa {limit} ký tự nhưng nhận được {count}; phần vượt quá sẽ bị nhà cung cấp cắt bỏ âm thầm nên đã hủy tạo. Hãy rút ngắn câu lệnh",
     "video_request_conflicts_with_active_task": "Đơn vị '{resource_id}' đã có tác vụ video đang xử lý với lựa chọn bàn giao lời dẫn hoặc thời lượng xác nhận khác; hãy đợi tác vụ hoàn tất hoặc hủy rồi thử lại.",
     "tts_conflicts_with_active_narrated_video": "Đơn vị '{resource_id}' có tác vụ video đang dùng TTS hiện tại; hãy đợi tác vụ hoàn tất hoặc hủy trước khi tạo lại lời dẫn.",
+    "audio_restore_conflicts_with_active_task": "Đơn vị '{resource_id}' đang tạo lời dẫn hoặc lời dẫn đang được tác vụ video sử dụng; hãy đợi hoàn tất hoặc hủy trước khi chuyển phiên bản âm thanh.",
     # Agent credentials
     "agent_preset_unknown": "Nhà cung cấp đặt sẵn không xác định: {preset_id}",
     "agent_base_url_required_custom": "Cấu hình tuỳ chỉnh yêu cầu base_url",
@@ -390,6 +391,7 @@ MESSAGES = {
     "overview_source_empty": "Thư mục nguồn trống; không thể tạo tổng quan",
     "text_provider_not_configured": "Vui lòng cấu hình nhà cung cấp văn bản trước: thêm ít nhất một nhà cung cấp trong Cài đặt → Nhà cung cấp",
     "jianying_no_completed_segments": "Tập {episode} chưa có đoạn video hoàn thành; hãy tạo video trước",
+    "presentation_unavailable": "Bản trình bày video đã chọn không khả dụng hoặc lời thuyết minh vượt quá giới hạn phương tiện",
     "project_config_invalid": "Cấu hình dự án không hợp lệ; hãy kiểm tra tham số và thử lại",
     "invalid_discovery_format": "Định dạng khám phá mô hình không được hỗ trợ: {discovery_format}",
     "request_invalid": "Yêu cầu không hợp lệ, vui lòng kiểm tra và thử lại",

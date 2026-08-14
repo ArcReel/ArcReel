@@ -60,17 +60,15 @@ export function NarrationAudioCard({
         >
           {t("media_narration_title")}
         </span>
-        {assetPath && (
-          <div className="ml-auto">
-            <VersionTimeMachine
-              projectName={projectName}
-              resourceType="audio"
-              resourceId={segmentId}
-              iconOnly
-              readOnly
-            />
-          </div>
-        )}
+        <div className="ml-auto">
+          <VersionTimeMachine
+            projectName={projectName}
+            resourceType="audio"
+            resourceId={segmentId}
+            iconOnly
+            busy={Boolean(generating)}
+          />
+        </div>
       </div>
 
       {/* 只读原文 + 播放器并排 */}

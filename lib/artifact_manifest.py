@@ -51,6 +51,8 @@ class ArtifactKind(StrEnum):
     EPISODE_STORYBOARD = "episode-storyboard"
     EPISODE_VIDEO = "episode-video"
     EPISODE_AUDIO = "episode-audio"
+    EPISODE_SUBTITLE = "episode-subtitle"
+    EPISODE_PRESENTATION = "episode-presentation"
 
 
 class ArtifactStatus(StrEnum):
@@ -124,6 +126,30 @@ class ArtifactManifest:
         self._adapter = adapter
 
     def register(self, key: ArtifactKey, *, artifact_path: str, basis: ArtifactBasis) -> bool:
+        if not isinstance(basis, ArtifactBasis):
+            raise TypeError("basis must be an ArtifactBasis")
+        return self.register_descriptor(
+            key,
+            artifact_path=artifact_path,
+            basis=ArtifactBasisDescriptor.from_basis(basis),
+        )
+
+    def register_descriptor(
+        self,
+        key: ArtifactKey,
+        *,
+        artifact_path: str,
+        basis: ArtifactBasisDescriptor,
+    ) -> bool:
+        """Register source evidence frozen before the formal artifact commit.
+
+        Checkpoints and version metadata intentionally carry only strict
+        descriptors. Accepting that portable form avoids reconstructing or
+        guessing the original input payload during resume and restore.
+        """
+
+        if not isinstance(basis, ArtifactBasisDescriptor):
+            raise TypeError("basis must be an ArtifactBasisDescriptor")
         observation = self._adapter.inspect_artifact(artifact_path)
         if observation.blocker is not None:
             raise ArtifactRegistrationError(observation.blocker.detail)
@@ -136,6 +162,37 @@ class ArtifactManifest:
                 basis_digest=basis.digest,
             ),
         )
+
+    def register_descriptor_transactionally(
+        self,
+        key: ArtifactKey,
+        *,
+        artifact_path: str,
+        basis: ArtifactBasisDescriptor,
+    ) -> bool:
+        """Register a descriptor while restoring the exact prior entry on error."""
+
+        if not isinstance(basis, ArtifactBasisDescriptor):
+            raise TypeError("basis must be an ArtifactBasisDescriptor")
+        previous = self._adapter.get_entry(key)
+        expected = ArtifactManifestEntry(
+            artifact_path=_normalize_relative_path(artifact_path),
+            basis_digest=basis.digest,
+        )
+        try:
+            return self.register_descriptor(key, artifact_path=artifact_path, basis=basis)
+        except BaseException as original_error:
+            try:
+                current = self._adapter.get_entry(key)
+                if current == expected:
+                    if previous is None:
+                        self._adapter.delete_entry(key)
+                    else:
+                        self._adapter.put_entry(key, previous)
+            except BaseException as rollback_error:
+                rollback_error.__cause__ = original_error
+                raise RuntimeError("artifact basis registration failed and rollback was incomplete") from rollback_error
+            raise
 
     def compare(self, key: ArtifactKey, *, artifact_path: str, basis: ArtifactBasis) -> ArtifactComparison:
         observation = self._adapter.inspect_artifact(artifact_path)
@@ -801,6 +858,31 @@ class ArtifactBasis:
     def normalized_bytes(self) -> bytes:
         return self._normalized
 
+    def to_evidence_dict(self) -> dict[str, object]:
+        """Return the complete canonical basis together with its verified digest."""
+
+        payload = json.loads(self._normalized)
+        if not isinstance(payload, dict):  # pragma: no cover - constructor invariant
+            raise RuntimeError("canonical artifact basis is not an object")
+        return {**payload, "digest": self.digest}
+
+    @classmethod
+    def from_evidence_dict(cls, value: object) -> Self:
+        """Parse complete portable evidence and verify its canonical digest."""
+
+        if not isinstance(value, Mapping) or set(value) != {"kind", "kind_version", "inputs", "digest"}:
+            raise ValueError("artifact basis evidence has an invalid schema")
+        kind = value["kind"]
+        kind_version = value["kind_version"]
+        inputs = value["inputs"]
+        digest = value["digest"]
+        if not isinstance(kind, str) or not isinstance(inputs, Mapping):
+            raise ValueError("artifact basis evidence has invalid canonical inputs")
+        basis = cls(kind, kind_version=cast(int, kind_version), inputs=cast(Mapping[str, object], inputs))
+        if not isinstance(digest, str) or basis.digest != digest:
+            raise ValueError("artifact basis evidence digest does not match its canonical inputs")
+        return basis
+
 
 @dataclass(frozen=True, slots=True)
 class ArtifactBasisDescriptor:
@@ -846,9 +928,9 @@ class ArtifactBasisDescriptor:
 
 def compose_video_artifact_basis(
     *,
-    visual: ArtifactBasis,
-    speech: ArtifactBasis | None = None,
-    duration: ArtifactBasis | None = None,
+    visual: ArtifactBasis | ArtifactBasisDescriptor,
+    speech: ArtifactBasis | ArtifactBasisDescriptor | None = None,
+    duration: ArtifactBasis | ArtifactBasisDescriptor | None = None,
 ) -> ArtifactBasis:
     """Compose independently owned video inputs into one manifest basis.
 
@@ -857,27 +939,40 @@ def compose_video_artifact_basis(
     rather than parallel visual/speech/duration artifact states.
     """
 
-    if not isinstance(visual, ArtifactBasis):
-        raise TypeError("visual must be an ArtifactBasis")
-    if speech is not None and not isinstance(speech, ArtifactBasis):
-        raise TypeError("speech must be an ArtifactBasis or null")
-    if duration is not None and not isinstance(duration, ArtifactBasis):
-        raise TypeError("duration must be an ArtifactBasis or null")
+    visual_descriptor = _coerce_artifact_basis_descriptor("visual", visual)
+    speech_descriptor = _coerce_optional_artifact_basis_descriptor("speech", speech)
+    duration_descriptor = _coerce_optional_artifact_basis_descriptor("duration", duration)
     return ArtifactBasis.build(
         "artifact-components/video",
         kind_version=1,
         inputs={
             "components": {
-                "visual": _artifact_basis_descriptor(visual),
-                "speech": _artifact_basis_descriptor(speech) if speech is not None else None,
-                "duration": _artifact_basis_descriptor(duration) if duration is not None else None,
+                "visual": visual_descriptor.to_dict(),
+                "speech": speech_descriptor.to_dict() if speech_descriptor is not None else None,
+                "duration": duration_descriptor.to_dict() if duration_descriptor is not None else None,
             }
         },
     )
 
 
-def _artifact_basis_descriptor(basis: ArtifactBasis) -> dict[str, object]:
-    return ArtifactBasisDescriptor.from_basis(basis).to_dict()
+def _coerce_artifact_basis_descriptor(
+    field: str,
+    value: ArtifactBasis | ArtifactBasisDescriptor,
+) -> ArtifactBasisDescriptor:
+    if isinstance(value, ArtifactBasis):
+        return ArtifactBasisDescriptor.from_basis(value)
+    if isinstance(value, ArtifactBasisDescriptor):
+        return value
+    raise TypeError(f"{field} must be an ArtifactBasis or ArtifactBasisDescriptor")
+
+
+def _coerce_optional_artifact_basis_descriptor(
+    field: str,
+    value: ArtifactBasis | ArtifactBasisDescriptor | None,
+) -> ArtifactBasisDescriptor | None:
+    if value is None:
+        return None
+    return _coerce_artifact_basis_descriptor(field, value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -914,6 +1009,18 @@ class ArtifactKey:
         ):
             episode, resource_id = self.components
             valid = type(episode) is int and episode > 0 and isinstance(resource_id, str) and bool(resource_id)
+        elif (
+            self.kind in {ArtifactKind.EPISODE_SUBTITLE, ArtifactKind.EPISODE_PRESENTATION}
+            and len(self.components) == 3
+        ):
+            episode, resource_id, variant = self.components
+            valid = (
+                type(episode) is int
+                and episode > 0
+                and isinstance(resource_id, str)
+                and bool(resource_id)
+                and variant in {"post_production", "use_tts"}
+            )
         if not valid:
             raise ValueError(f"artifact key components do not match {self.kind!r}: {self.components!r}")
 
@@ -956,6 +1063,32 @@ class ArtifactKey:
         return cls(
             ArtifactKind.EPISODE_AUDIO,
             (_episode_number(episode), _non_empty("resource_id", resource_id)),
+        )
+
+    @classmethod
+    def episode_subtitle(cls, episode: int, resource_id: str, variant: str) -> Self:
+        """Identify one rendition variant's mechanical subtitle artifact."""
+
+        return cls(
+            ArtifactKind.EPISODE_SUBTITLE,
+            (
+                _episode_number(episode),
+                _non_empty("resource_id", resource_id),
+                _rendition_variant(variant),
+            ),
+        )
+
+    @classmethod
+    def episode_presentation(cls, episode: int, resource_id: str, variant: str) -> Self:
+        """Identify one independently current final-presentation variant."""
+
+        return cls(
+            ArtifactKind.EPISODE_PRESENTATION,
+            (
+                _episode_number(episode),
+                _non_empty("resource_id", resource_id),
+                _rendition_variant(variant),
+            ),
         )
 
     def encode(self) -> str:
@@ -1006,6 +1139,12 @@ def _non_empty(field: str, value: object) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{field} must be a non-empty string")
     return value
+
+
+def _rendition_variant(value: object) -> str:
+    if value not in {"post_production", "use_tts"}:
+        raise ValueError(f"variant must be 'post_production' or 'use_tts', got {value!r}")
+    return cast(str, value)
 
 
 def _normalize_json(value: object) -> object:

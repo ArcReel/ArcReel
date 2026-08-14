@@ -6,6 +6,7 @@ import pytest
 
 from lib.artifact_manifest import (
     ArtifactBasis,
+    ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactKind,
     ArtifactManifest,
@@ -29,6 +30,8 @@ pytestmark = pytest.mark.unit
         ArtifactKey.episode_storyboard(12, "E12S03:/"),
         ArtifactKey.episode_video(12, "unit:/3"),
         ArtifactKey.episode_audio(12, "segment:/3"),
+        ArtifactKey.episode_subtitle(12, "segment:/3", "use_tts"),
+        ArtifactKey.episode_presentation(12, "segment:/3", "post_production"),
     ],
 )
 def test_artifact_key_round_trips_without_display_string_parsing(key: ArtifactKey) -> None:
@@ -36,6 +39,12 @@ def test_artifact_key_round_trips_without_display_string_parsing(key: ArtifactKe
 
     assert encoded.startswith("artifact-key-v1:")
     assert ArtifactKey.decode(encoded) == key
+
+
+@pytest.mark.parametrize("variant", ["", "automatic", "USE_TTS", 1])
+def test_rendition_artifact_keys_reject_unknown_variants(variant: object) -> None:
+    with pytest.raises(ValueError, match="variant"):
+        ArtifactKey.episode_presentation(1, "E1U01", variant)  # type: ignore[arg-type]
 
 
 def test_artifact_key_rejects_direct_construction_that_cannot_round_trip() -> None:
@@ -85,6 +94,95 @@ def test_manifest_compares_registered_basis_without_mutating_the_artifact() -> N
     assert blocked.blocker is not None
     assert blocked.blocker.code == "artifact_symlink"
     assert not blocked.usable
+
+
+def test_manifest_registers_a_strict_frozen_basis_descriptor_after_artifact_exists() -> None:
+    path = "videos/scene_E1S01.mp4"
+    adapter = InMemoryArtifactManifestAdapter(artifacts={path})
+    manifest = ArtifactManifest(adapter)
+    key = ArtifactKey.episode_video(1, "E1S01")
+    basis = ArtifactBasis.build("test/video", kind_version=1, inputs={"source": "frozen"})
+
+    assert manifest.register_descriptor(
+        key,
+        artifact_path=path,
+        basis=ArtifactBasisDescriptor.from_basis(basis),
+    )
+    assert manifest.compare(key, artifact_path=path, basis=basis).status is ArtifactStatus.CURRENT
+
+
+def test_transactional_descriptor_registration_restores_previous_entry_after_partial_write(monkeypatch) -> None:
+    path = "videos/scene_E1S01.mp4"
+    adapter = InMemoryArtifactManifestAdapter(artifacts={path})
+    manifest = ArtifactManifest(adapter)
+    key = ArtifactKey.episode_video(1, "E1S01")
+    old = ArtifactBasis.build("test/video", kind_version=1, inputs={"source": "old"})
+    new = ArtifactBasis.build("test/video", kind_version=1, inputs={"source": "new"})
+    manifest.register(key, artifact_path=path, basis=old)
+    original_put = adapter.put_entry
+    calls = 0
+
+    def _write_then_fail(write_key, entry):
+        nonlocal calls
+        calls += 1
+        changed = original_put(write_key, entry)
+        if calls == 1:
+            raise RuntimeError("manifest write failed")
+        return changed
+
+    monkeypatch.setattr(adapter, "put_entry", _write_then_fail)
+
+    with pytest.raises(RuntimeError, match="manifest write failed"):
+        manifest.register_descriptor_transactionally(
+            key,
+            artifact_path=path,
+            basis=ArtifactBasisDescriptor.from_basis(new),
+        )
+
+    assert manifest.compare(key, artifact_path=path, basis=old).status is ArtifactStatus.CURRENT
+
+
+def test_transactional_descriptor_registration_preserves_original_and_rollback_failures(monkeypatch) -> None:
+    path = "videos/scene_E1S01.mp4"
+    adapter = InMemoryArtifactManifestAdapter(artifacts={path})
+    manifest = ArtifactManifest(adapter)
+    key = ArtifactKey.episode_video(1, "E1S01")
+    old = ArtifactBasis.build("test/video", kind_version=1, inputs={"source": "old"})
+    new = ArtifactBasis.build("test/video", kind_version=1, inputs={"source": "new"})
+    manifest.register(key, artifact_path=path, basis=old)
+    original_put = adapter.put_entry
+    original_error = RuntimeError("manifest write failed")
+    rollback_error = OSError("manifest rollback failed")
+    calls = 0
+
+    def _fail_write_and_rollback(write_key, entry):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            original_put(write_key, entry)
+            raise original_error
+        raise rollback_error
+
+    monkeypatch.setattr(adapter, "put_entry", _fail_write_and_rollback)
+
+    with pytest.raises(RuntimeError, match="rollback was incomplete") as exc_info:
+        manifest.register_descriptor_transactionally(
+            key,
+            artifact_path=path,
+            basis=ArtifactBasisDescriptor.from_basis(new),
+        )
+
+    assert exc_info.value.__cause__ is rollback_error
+    assert rollback_error.__cause__ is original_error
+
+
+@pytest.mark.parametrize("kind_version", ["1", True, 1.0])
+def test_artifact_basis_evidence_rejects_non_integer_kind_version(kind_version: object) -> None:
+    evidence = ArtifactBasis.build("test/video", kind_version=1, inputs={}).to_evidence_dict()
+    evidence["kind_version"] = kind_version
+
+    with pytest.raises(ValueError, match="kind_version"):
+        ArtifactBasis.from_evidence_dict(evidence)
 
 
 def test_manifest_blocks_windows_drive_like_artifact_path() -> None:

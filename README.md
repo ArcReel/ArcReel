@@ -33,9 +33,9 @@
 <p align="center">
   <a href="#快速开始"><strong>快速开始</strong></a>
   ·
-  <a href="docs/getting-started.md">入门教程</a>
+  <a href="https://docs.arc-reel.com/guide/getting-started">入门教程</a>
   ·
-  <a href="docs/README.md">完整文档</a>
+  <a href="https://docs.arc-reel.com/">完整文档</a>
   ·
   <a href="#交流群">加入社区</a>
 </p>
@@ -96,7 +96,7 @@ flowchart LR
     F --> H["剪映草稿导出"]
 ```
 
-每个阶段都可以由 AI 助手编排，也可以由用户在工作台中审核、调整或重新生成。详细模式选择见 [创作流程与模式](docs/workflows.md)。
+每个阶段都可以由 AI 助手编排，也可以由用户在工作台中审核、调整或重新生成。详细模式选择见 [创作流程与模式](https://docs.arc-reel.com/guide/workflows)。
 
 ## 快速开始
 
@@ -138,7 +138,7 @@ curl http://localhost:1241/health
 3. 配置完整创作流程所需的文本、图像和视频生成能力。
 4. 创建项目并从少量内容开始验证工作流。
 
-> 默认部署适合个人体验和轻量使用。正式、并发或长期运行环境建议采用 [PostgreSQL 生产部署](docs/deployment.md#2-生产部署postgresql)。PostgreSQL 不提供用户隔离；ArcReel 目前不支持互不信任的用户共享同一实例。
+> 默认部署适合个人体验和轻量使用。正式、并发或长期运行环境建议采用 [PostgreSQL 生产部署](https://docs.arc-reel.com/ops/deployment#postgresql-deployment)。PostgreSQL 不提供用户隔离；ArcReel 目前不支持互不信任的用户共享同一实例。
 
 ### 生产部署：PostgreSQL
 
@@ -150,7 +150,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-部署、升级、备份和反向代理见 [部署与运维](docs/deployment.md)；支持边界和漏洞报告方式见 [安全政策](SECURITY.md)。
+部署、升级、备份和反向代理见 [部署与运维](https://docs.arc-reel.com/ops/deployment)；支持边界和漏洞报告方式见 [安全政策](SECURITY.md)。
 
 ## 核心能力
 
@@ -205,7 +205,7 @@ ArcReel 使用统一的 `TextBackend`、`ImageBackend` 和 `VideoBackend` 协议
 | Agnes | ✅ | ✅ | ✅ | — |
 | 自定义供应商 | 取决于接口 | 取决于接口 | 取决于接口 | 取决于接口 |
 
-支持全局默认和项目级覆盖，也支持为同一供应商管理多个 API Key。详细说明见 [供应商与模型配置](docs/providers.md)。
+支持全局默认和项目级覆盖，也支持为同一供应商管理多个 API Key。详细说明见 [供应商与模型配置](https://docs.arc-reel.com/guide/providers)。
 
 ## 技术架构
 
@@ -221,7 +221,7 @@ flowchart TB
     CORE --> DB["SQLAlchemy 2.0<br/>SQLite / PostgreSQL"]
 ```
 
-技术栈包括 React 19、TypeScript、FastAPI、Python 3.12+、Claude Agent SDK、SQLAlchemy 2.0、FFmpeg、Docker 和 Docker Compose。架构边界与扩展方式见 [架构说明](docs/architecture.md)。
+技术栈包括 React 19、TypeScript、FastAPI、Python 3.12+、Claude Agent SDK、SQLAlchemy 2.0、FFmpeg、Docker 和 Docker Compose。架构边界与扩展方式见 [架构说明](https://docs.arc-reel.com/dev/architecture)。
 
 ## 使用前需要了解的边界
 
@@ -231,22 +231,22 @@ flowchart TB
 - Windows 原生环境可以运行部分基础流程，但 Agent 沙箱等 POSIX 能力会降级；优先使用 Linux、macOS、WSL2 或 Docker。
 - 生产环境应使用 PostgreSQL、HTTPS、强密码和定期备份，不建议直接把未加保护的 `1241` 端口暴露到公网。
 
-更多问题见 [常见问题](docs/FAQ.md)。
+更多问题见 [常见问题](https://docs.arc-reel.com/guide/faq)。
 
 ## 文档
 
 | 文档 | 内容 |
 |---|---|
-| [文档导航](docs/README.md) | 按使用者、运维者和开发者整理的文档入口 |
-| [完整入门教程](docs/getting-started.md) | 从首次部署到生成第一条视频 |
-| [创作流程与模式](docs/workflows.md) | 小说、剧本、广告模式以及三种视频制作方式 |
-| [供应商与模型配置](docs/providers.md) | Agent、文本、图像、视频、TTS 供应商的选择和配置 |
-| [部署与运维](docs/deployment.md) | SQLite、PostgreSQL、升级、备份、反向代理 |
+| [文档导航](https://docs.arc-reel.com/) | 按使用者、运维者和开发者整理的文档入口 |
+| [完整入门教程](https://docs.arc-reel.com/guide/getting-started) | 从首次部署到生成第一条视频 |
+| [创作流程与模式](https://docs.arc-reel.com/guide/workflows) | 小说、剧本、广告模式以及三种视频制作方式 |
+| [供应商与模型配置](https://docs.arc-reel.com/guide/providers) | Agent、文本、图像、视频、TTS 供应商的选择和配置 |
+| [部署与运维](https://docs.arc-reel.com/ops/deployment) | SQLite、PostgreSQL、升级、备份、反向代理 |
 | [安全政策](SECURITY.md) | 支持版本、部署边界、私密漏洞报告和协调披露 |
 | [安全威胁模型](docs/security/threat-model.md) | 安全资产、信任边界、攻击面和重评触发条件 |
-| [剪映草稿导出](docs/jianying-export-guide.md) | 将 ArcReel 生成结果交给剪映继续编辑 |
-| [架构说明](docs/architecture.md) | Agent Runtime、任务队列、供应商抽象和数据层 |
-| [常见问题](docs/FAQ.md) | 部署、费用、模型、数据和许可证问题 |
+| [剪映草稿导出](https://docs.arc-reel.com/guide/jianying-export) | 将 ArcReel 生成结果交给剪映继续编辑 |
+| [架构说明](https://docs.arc-reel.com/dev/architecture) | Agent Runtime、任务队列、供应商抽象和数据层 |
+| [常见问题](https://docs.arc-reel.com/guide/faq) | 部署、费用、模型、数据和许可证问题 |
 | [贡献指南](CONTRIBUTING.md) | 本地开发、测试、代码规范和 PR 流程 |
 | [更新记录](CHANGELOG.md) | 每个版本的功能和修复 |
 

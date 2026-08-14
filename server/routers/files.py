@@ -25,10 +25,7 @@ from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
     AUDIO_REFERENCE_MAX_SECONDS,
     AUDIO_REFERENCE_MIN_SECONDS,
-    discard_stale_reference_audio,
     probe_audio_duration_seconds,
-    resolve_audio_ref_path,
-    resolve_stale_reference_audio,
 )
 from lib.config.resolver import VisionCapabilityError
 from lib.episode_paths import (
@@ -112,13 +109,15 @@ class UploadSpec:
     # 可容忍资产后建，不设此约束。
     host_bucket: str | None = None
     host_not_found_key: str = ""
-    # 替换参考音频时先解析旧文件路径，等新文件与字段写入成功后再删除
+    # 参考音频的字节替换与字段写回须走 ProjectManager 的项目锁事务；提交后再清理旧扩展名文件
     tracks_stale_audio: bool = False
 
     def __post_init__(self) -> None:
         # 宿主约束与其 404 文案必须成对登记，否则拒收路径会拿空 key 去取翻译
         if (self.host_bucket is None) != (not self.host_not_found_key):
             raise ValueError("host_bucket 与 host_not_found_key 必须成对登记")
+        if self.tracks_stale_audio and self.host_bucket is None:
+            raise ValueError("tracks_stale_audio 必须登记宿主约束")
 
 
 UPLOAD_SPECS: dict[str, UploadSpec] = {
@@ -150,6 +149,8 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
         unsupported_ext_key="unsupported_audio_type",
         max_bytes=AUDIO_REFERENCE_MAX_BYTES,
         metadata_setter=ProjectManager.update_character_reference_audio,
+        host_bucket=ASSET_SPECS["character"].bucket_key,
+        host_not_found_key="character_not_found",
         tracks_stale_audio=True,
     ),
     "scene": UploadSpec(
@@ -363,37 +364,31 @@ async def upload_file(
                         seq += 1
                 filename = candidate.name
 
-            stale_audio_path: Path | None = None
-            if spec.tracks_stale_audio and name:
-                # 实际删除推迟到新文件与字段写入成功之后（见 discard_stale_reference_audio）。
-                characters = manager.load_project(project_name).get("characters", {})
-                char_key = resolve_asset_key(characters, name)
-                old_audio = (characters.get(char_key, {}) if char_key else {}).get("reference_audio")
-                stale_audio_path = resolve_stale_reference_audio(
-                    project_dir, target_dir, old_audio, target_dir / filename
-                )
-
             target_path = target_dir / filename
-            with open(target_path, "wb") as f:
-                f.write(content)
-
             relative_path = "/".join((*spec.subdir, filename))
 
-            # 更新元数据
-            if spec.metadata_setter is not None and name:
+            if spec.tracks_stale_audio and name:
                 try:
                     with project_change_source("webui"):
-                        spec.metadata_setter(manager, project_name, name, relative_path)
+                        manager.install_character_reference_audio(project_name, name, relative_path, content)
                 except KeyError:
-                    if spec.host_bucket is not None:
-                        # 入口已校验宿主存在；并发删除导致的窗口期竞态按 404 处理，
-                        # 已落盘的文件一并清理避免孤儿
-                        target_path.unlink(missing_ok=True)
-                        raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
-                    # 单图类型：资产不存在时忽略，文件路径确定，资产后建仍可引用
-                else:
-                    if spec.tracks_stale_audio:
-                        discard_stale_reference_audio(stale_audio_path)
+                    raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
+            else:
+                with open(target_path, "wb") as f:
+                    f.write(content)
+
+                # 更新元数据
+                if spec.metadata_setter is not None and name:
+                    try:
+                        with project_change_source("webui"):
+                            spec.metadata_setter(manager, project_name, name, relative_path)
+                    except KeyError:
+                        if spec.host_bucket is not None:
+                            # 入口已校验宿主存在；并发删除导致的窗口期竞态按 404 处理，
+                            # 已落盘的文件一并清理避免孤儿
+                            target_path.unlink(missing_ok=True)
+                            raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
+                        # 单图类型：资产不存在时忽略，文件路径确定，资产后建仍可引用
 
             return {
                 "success": True,
@@ -420,28 +415,11 @@ async def delete_character_reference_audio(project_name: str, name: str, _t: Tra
 
         def _sync():
             manager = get_project_manager()
-            project_dir = manager.get_project_path(project_name)
-            project = manager.load_project(project_name)
-            characters = project.get("characters") or {}
-            char_key = resolve_asset_key(characters, name)
-            character = characters.get(char_key) if char_key else None
-            if character is None:
+            try:
+                with project_change_source("webui"):
+                    manager.clear_character_reference_audio(project_name, name)
+            except KeyError:
                 raise HTTPException(status_code=404, detail=_t("character_not_found", name=name))
-
-            old_audio = character.get("reference_audio")
-            # 字段值来自 project.json，可被 PATCH 写成任意字符串；经 resolve_audio_ref_path
-            # 确认落在 refs_audio 目录内才允许删除，否则只清字段不碰文件系统
-            audio_refs_dir = project_dir / "characters" / "refs_audio"
-            stale_path = (
-                resolve_audio_ref_path(project_dir, audio_refs_dir, old_audio) if isinstance(old_audio, str) else None
-            )
-            # 先删文件、后清字段：权限/IO 错误（含 Windows 文件被占用的共享冲突）导致
-            # unlink 失败时,字段仍指向该文件,可重试删除;顺序反过来会在物理删除失败时
-            # 留下「字段已清空但文件仍在」的孤儿,且没有指针可供重试发现它。
-            if stale_path is not None:
-                stale_path.unlink(missing_ok=True)
-            with project_change_source("webui"):
-                manager.update_character_reference_audio(project_name, name, "")
 
             return {"success": True}
 

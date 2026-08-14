@@ -1,4 +1,4 @@
-"""音频时长探测（lib/audio_utils.py）的降级与探测行为。"""
+"""媒体时长探测（lib/audio_utils.py）的降级与探测行为。"""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 import lib.audio_utils as audio_utils_module
-from tests.conftest import _wav_bytes
+from tests.conftest import _wav_bytes, make_test_video_with_audio_tail
 
 
 @pytest.fixture(autouse=True)
@@ -130,6 +130,56 @@ class TestFfprobeAvailable:
         for call_args in calls:
             assert "-protocol_whitelist" in call_args
             assert call_args[call_args.index("-protocol_whitelist") + 1] == "file"
+
+
+class TestProbeExistingVideoDuration:
+    @pytest.mark.integration
+    @pytest.mark.skipif(
+        shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+        reason="ffmpeg/ffprobe not available",
+    )
+    async def test_real_video_uses_track_boundary_instead_of_audio_tail(self, tmp_path):
+        path = tmp_path / "clip.mp4"
+        make_test_video_with_audio_tail(path)
+
+        video_duration = await audio_utils_module.probe_existing_video_duration_seconds(path)
+        container_duration = await audio_utils_module.probe_existing_media_duration_seconds(path)
+
+        assert video_duration == pytest.approx(1.0, abs=0.01)
+        assert container_duration == pytest.approx(1.5, abs=0.01)
+
+    @pytest.mark.unit
+    async def test_prefers_video_stream_duration_over_longer_container_tail(self, tmp_path):
+        probe = AsyncMock(return_value=b'{"streams":[{"duration":"1.000000"}],"format":{"duration":"1.500000"}}')
+        with (
+            patch("lib.audio_utils._ffprobe_available", return_value=True),
+            patch("lib.audio_utils._run_ffprobe", probe),
+        ):
+            duration = await audio_utils_module.probe_existing_video_duration_seconds(tmp_path / "clip.mp4")
+
+        assert duration == 1.0
+
+    @pytest.mark.unit
+    async def test_falls_back_to_container_duration_when_stream_duration_is_absent(self, tmp_path):
+        probe = AsyncMock(return_value=b'{"streams":[{}],"format":{"duration":"1.500000"}}')
+        with (
+            patch("lib.audio_utils._ffprobe_available", return_value=True),
+            patch("lib.audio_utils._run_ffprobe", probe),
+        ):
+            duration = await audio_utils_module.probe_existing_video_duration_seconds(tmp_path / "clip.mp4")
+
+        assert duration == 1.5
+
+    @pytest.mark.unit
+    async def test_rejects_container_without_a_video_stream(self, tmp_path):
+        probe = AsyncMock(return_value=b'{"streams":[],"format":{"duration":"1.500000"}}')
+        with (
+            patch("lib.audio_utils._ffprobe_available", return_value=True),
+            patch("lib.audio_utils._run_ffprobe", probe),
+        ):
+            duration = await audio_utils_module.probe_existing_video_duration_seconds(tmp_path / "clip.mp4")
+
+        assert duration is None
 
 
 class TestProbeReferenceAudioTotalSeconds:

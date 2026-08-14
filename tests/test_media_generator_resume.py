@@ -3,8 +3,8 @@
 关注点：
 - resume 路径不落新 pending 行（不开记账括号）
 - ledger.resume_success / resume_failed 按 api_call_id 精准翻 pending → success/failed
-- 版本管理用 add_version：resume 成功后总是 bump 新版本，让 versions.json 与磁盘文件一致
-  （submit→poll 崩 → 登记 v1；已有 v_n 的覆盖式重新生成 → 登记 v_(n+1)）
+- resume 成功后保存一个付费版本；正式媒体经 staging callback 原子决定 current，
+  非正式请求直接追加并选中新版本
 - ResumeExpiredError 沿调用链上抛，pending 翻 failed
 """
 
@@ -19,6 +19,7 @@ import pytest
 
 from lib.media_generator import MediaGenerator
 from lib.video_backends.base import ResumeExpiredError
+from tests.fakes import select_formal_video
 
 pytestmark = pytest.mark.unit
 
@@ -319,6 +320,17 @@ async def test_resume_formal_output_uses_same_staged_version_transaction(tmp_pat
     current.parent.mkdir(parents=True)
     current.write_bytes(b"old-current")
 
+    events = []
+
+    async def _prepare(staged_file, duration_seconds, version_metadata):
+        assert staged_file.read_bytes() == b"fake-resume-video"
+        assert duration_seconds == 8
+        events.append("prepared")
+
+    def _commit(*args):
+        events.append("committed")
+        return select_formal_video(gen)(*args)
+
     output, version, _, _ = await gen.resume_video_async(
         job_id="provider-job-1",
         resource_type="reference_videos",
@@ -326,6 +338,8 @@ async def test_resume_formal_output_uses_same_staged_version_transaction(tmp_pat
         task_id="T-1",
         api_call_id=42,
         formal_output=True,
+        before_formal_commit=_prepare,
+        commit_formal_output=_commit,
         execution_request_digest="d" * 64,
     )
 
@@ -334,6 +348,39 @@ async def test_resume_formal_output_uses_same_staged_version_transaction(tmp_pat
     history = gen.versions.get_versions("reference_videos", "E1U1")
     assert [item["prompt"] for item in history["versions"]] == ["", ""]
     assert history["versions"][-1]["execution_request_digest"] == "d" * 64
+    assert events == ["prepared", "committed"]
+
+
+@pytest.mark.asyncio
+async def test_resume_formal_prepare_failure_archives_paid_history_without_selecting_it(tmp_path):
+    from lib.version_manager import VersionManager
+
+    gen = _build_generator(tmp_path)
+    gen.versions = VersionManager(gen.project_path)
+    current = gen._get_output_path("reference_videos", "E1U1")
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"old-current")
+
+    async def _fail_prepare(*_args):
+        raise RuntimeError("resume paid output validation failed")
+
+    with pytest.raises(RuntimeError, match="resume paid output validation failed"):
+        await gen.resume_video_async(
+            job_id="provider-job-1",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            task_id="T-1",
+            api_call_id=42,
+            formal_output=True,
+            before_formal_commit=_fail_prepare,
+        )
+
+    assert current.read_bytes() == b"old-current"
+    history = gen.versions.get_versions("reference_videos", "E1U1")
+    assert history["current_version"] == 1
+    assert len(history["versions"]) == 2
+    assert history["versions"][-1]["is_current"] is False
+    assert (gen.project_path / history["versions"][-1]["file"]).read_bytes() == b"fake-resume-video"
 
 
 @pytest.mark.asyncio

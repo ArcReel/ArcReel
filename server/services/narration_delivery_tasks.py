@@ -10,20 +10,28 @@ from __future__ import annotations
 import asyncio
 import filecmp
 import math
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from lib.artifact_manifest import (
+    ArtifactKey,
+    ArtifactManifestEntry,
+    ArtifactManifestError,
+    ProjectArtifactManifestAdapter,
+)
 from lib.audio_utils import probe_existing_media_duration_seconds
 from lib.config.resolver import ConfigResolver, VideoCapability
 from lib.db import async_session_factory
+from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import GenerationQueue, get_generation_queue
 from lib.narration_delivery import (
     NarratedVideoDurationBlockedError,
     NarratedVideoDurationPreparation,
     NarrationDeliveryPreparation,
     NarrationDeliveryRequestOptions,
+    NarrationTtsStatus,
     TtsSettingsResolver,
     TtsSynthesisSettings,
     VideoRequestCostFacts,
@@ -53,6 +61,7 @@ from lib.script_skeleton import resolve_script_kind
 from lib.speech_composition import admit_script_unit
 from lib.storyboard_sequence import resolve_storyboard_image_ref
 from lib.version_manager import VersionManager
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_visual_provenance import (
     build_reference_video_visual_basis,
     build_storyboard_video_visual_basis,
@@ -86,15 +95,31 @@ class ResolvedTtsSettingsResolver:
 class CurrentTtsSettingsResolver:
     """Resolve freshness inputs through the same assembled audio lane as synthesis."""
 
-    def __init__(self, project_name: str) -> None:
+    def __init__(
+        self,
+        project_name: str,
+        *,
+        user_id: str = DEFAULT_USER_ID,
+        project_path: Path | None = None,
+        context_resolver: Callable[..., Awaitable[Any]] | None = None,
+    ) -> None:
         self._project_name = project_name
+        self._user_id = user_id
+        self._project_path = project_path
+        self._context_resolver = context_resolver or resolve_generation_context
 
     async def resolve_tts_synthesis_settings(self, project: dict) -> TtsSynthesisSettings:
-        ctx = await resolve_generation_context(
+        context_kwargs: dict[str, Any] = {
+            "project": project,
+            "user_id": self._user_id,
+            "audio": AudioLaneRequest(),
+        }
+        if self._project_path is not None:
+            context_kwargs["project_path"] = self._project_path
+        ctx = await self._context_resolver(
             self._project_name,
             None,
-            project=project,
-            audio=AudioLaneRequest(),
+            **context_kwargs,
         )
         return ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio).settings
 
@@ -108,14 +133,8 @@ def _selected_current_video_record(
     resource_id: str,
     visual_basis_digest: str | None,
 ) -> tuple[str, Path, dict[str, Any], int] | None:
-    if item.get("stale"):
-        return None
-    assets = item.get("generated_assets")
-    if not isinstance(assets, dict) or assets.get("status") != "completed":
-        return None
+    del item  # Script path/status fields are presentation metadata, not artifact currency.
     canonical_rel = resource_relative_path(resource_type, resource_id)
-    if assets.get("video_clip") != canonical_rel:
-        return None
 
     formal_file = try_safe_join(project_path, canonical_rel, require_file=True)
     if formal_file is None:
@@ -138,6 +157,23 @@ def _selected_current_video_record(
         None,
     )
     if current_record is None:
+        return None
+    try:
+        artifact_currency = VideoArtifactCurrencyFacts.from_dict(current_record.get("artifact_video_currency"))
+    except (TypeError, ValueError):
+        return None
+    episode = artifact_currency.episode
+    recorded_basis = artifact_currency.video_descriptor
+    try:
+        manifest_entry = ProjectArtifactManifestAdapter(project_path).get_entry(
+            ArtifactKey.episode_video(episode, resource_id)
+        )
+    except ArtifactManifestError:
+        return None
+    if manifest_entry != ArtifactManifestEntry(
+        artifact_path=canonical_rel,
+        basis_digest=recorded_basis.digest,
+    ):
         return None
     if not visual_basis_digest or current_record.get("visual_basis_digest") != visual_basis_digest:
         return None
@@ -785,12 +821,84 @@ async def require_generated_video_covers_current_tts(
 ) -> None:
     """Reject a paid video unless it covers the latest current TTS in full."""
 
+    try:
+        await validate_generated_video_covers_current_tts(
+            project_name=project_name,
+            script_file=script_file,
+            request_duration_seconds=request_duration_seconds,
+            output_path=output_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+    except NarratedVideoDurationBlockedError:
+        await asyncio.to_thread(
+            versions.reject_current_version,
+            resource_type,
+            resource_id,
+            rejected_version=version,
+            current_file=output_path,
+        )
+        raise
+
+
+async def validate_generated_video_covers_current_tts(
+    *,
+    project_name: str,
+    script_file: str,
+    request_duration_seconds: int,
+    output_path: Path,
+    resource_type: str,
+    resource_id: str,
+) -> None:
+    """Validate staged paid media before it can become the formal selection."""
+
     narration = await _prepare_current_task_narration_delivery(
         project_name=project_name,
         script_file=script_file,
         resource_type=resource_type,
         resource_id=resource_id,
     )
+    await _validate_generated_video_covers_narration(
+        narration=narration,
+        request_duration_seconds=request_duration_seconds,
+        output_path=output_path,
+    )
+
+
+async def validate_generated_video_covers_tts_duration(
+    *,
+    resource_id: str,
+    request_duration_seconds: int,
+    output_path: Path,
+    tts_actual_duration_seconds: float,
+) -> None:
+    """Validate paid media against the immutable TTS duration accepted at submit."""
+
+    if not math.isfinite(tts_actual_duration_seconds) or tts_actual_duration_seconds <= 0:
+        raise ValueError("execution TTS duration must be positive and finite")
+    narration = NarrationDeliveryPreparation(
+        delivery=USE_TTS,
+        unit_id=resource_id,
+        speech_mode=None,
+        tts_status=NarrationTtsStatus.CURRENT,
+        artifact_path="",
+        basis_digest=None,
+        actual_duration_seconds=tts_actual_duration_seconds,
+        problems=(),
+    )
+    await _validate_generated_video_covers_narration(
+        narration=narration,
+        request_duration_seconds=request_duration_seconds,
+        output_path=output_path,
+    )
+
+
+async def _validate_generated_video_covers_narration(
+    *,
+    narration: NarrationDeliveryPreparation,
+    request_duration_seconds: int,
+    output_path: Path,
+) -> None:
     actual_duration = await probe_existing_media_duration_seconds(output_path)
     preparation = NarratedVideoDurationPreparation(
         narration=narration,
@@ -806,13 +914,6 @@ async def require_generated_video_covers_current_tts(
     )
     if checked.allowed:
         return
-    await asyncio.to_thread(
-        versions.reject_current_version,
-        resource_type,
-        resource_id,
-        rejected_version=version,
-        current_file=output_path,
-    )
     raise NarratedVideoDurationBlockedError(checked)
 
 
@@ -878,6 +979,8 @@ __all__ = [
     "prepare_current_reference_video_request_options",
     "ResolvedTtsSettingsResolver",
     "require_generated_video_covers_current_tts",
+    "validate_generated_video_covers_tts_duration",
+    "validate_generated_video_covers_current_tts",
     "reuse_current_video_for_tier",
     "tts_task_in_progress",
 ]

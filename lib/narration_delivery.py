@@ -318,6 +318,21 @@ def build_narration_audio_basis(
     text = canonical_narration_text(preparation)
     if not text:
         raise ValueError("narration audio basis requires non-empty narrator text")
+    return build_narration_audio_basis_from_canonical_text(text, settings)
+
+
+def build_narration_audio_basis_from_canonical_text(
+    text: str,
+    settings: TtsSynthesisSettings,
+) -> ArtifactBasis:
+    """Build a TTS basis from already-canonical synthesis facts.
+
+    Version restore uses this seam to verify persisted execution facts without
+    reconstructing a synthetic script unit or duplicating the basis schema.
+    """
+
+    if not text:
+        raise ValueError("narration audio basis requires non-empty canonical text")
     return ArtifactBasis.build(
         "narration-delivery/tts-audio",
         kind_version=1,
@@ -824,6 +839,7 @@ __all__ = [
     "TtsSynthesisSettings",
     "VideoRequestCostFacts",
     "build_narration_audio_basis",
+    "build_narration_audio_basis_from_canonical_text",
     "canonical_narration_text",
     "prepare_current_narration_delivery",
     "prepare_current_narrated_video_duration",

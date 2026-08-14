@@ -66,6 +66,11 @@ import type {
 } from "@/types";
 import type { GenerationRoute } from "@/utils/generation-mode";
 import type { GridCapability, GridGeneration } from "@/types/grid";
+import type {
+  PresentationReadModel,
+  PresentationRequestOptions,
+  PresentationResourceType,
+} from "@/types/presentation";
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
 import type {
   AgentCredential,
@@ -102,6 +107,19 @@ function referenceRequestQuery(
   }
   const serialized = query.toString();
   return serialized ? `?${serialized}` : "";
+}
+
+function presentationEndpoint(
+  projectName: string,
+  resourceType: PresentationResourceType,
+  resourceId: string,
+  options: PresentationRequestOptions,
+  suffix = "",
+): string {
+  const query = new URLSearchParams({ variant: options.variant ?? "post_production" });
+  if (options.videoVersion !== undefined) query.set("video_version", String(options.videoVersion));
+  if (options.audioVersion !== undefined) query.set("audio_version", String(options.audioVersion));
+  return `/projects/${encodeURIComponent(projectName)}/presentations/${resourceType}/${encodeURIComponent(resourceId)}${suffix}?${query.toString()}`;
 }
 
 /** 资产级联重命名的影响报告（dry_run 预览与执行同一结构）。 */
@@ -283,6 +301,10 @@ export interface VersionInfo {
   created_at: string;
   file_size: number;
   is_current: boolean;
+  /** Whether this history record carries verified provenance for restore. */
+  restorable?: boolean;
+  /** Whether the shared presentation reader can preview/export this video version. */
+  presentation_available?: boolean;
   file_url?: string;
   prompt?: string;
   restored_from?: number;
@@ -947,8 +969,33 @@ class API {
     draftPath: string,
     downloadToken: string,
     jianyingVersion: string = "6",
+    narrationDelivery: "post_production" | "use_tts" = "post_production",
   ): string {
-    return `${API_BASE}/projects/${encodeURIComponent(projectName)}/export/jianying-draft?episode=${encodeURIComponent(episode)}&draft_path=${encodeURIComponent(draftPath)}&download_token=${encodeURIComponent(downloadToken)}&jianying_version=${encodeURIComponent(jianyingVersion)}`;
+    return `${API_BASE}/projects/${encodeURIComponent(projectName)}/export/jianying-draft?episode=${encodeURIComponent(episode)}&draft_path=${encodeURIComponent(draftPath)}&download_token=${encodeURIComponent(downloadToken)}&jianying_version=${encodeURIComponent(jianyingVersion)}&narration_delivery=${encodeURIComponent(narrationDelivery)}`;
+  }
+
+  static async getPresentation(
+    projectName: string,
+    resourceType: PresentationResourceType,
+    resourceId: string,
+    options: PresentationRequestOptions = {},
+  ): Promise<PresentationReadModel> {
+    const endpoint = presentationEndpoint(projectName, resourceType, resourceId, options);
+    return this.request(endpoint, { signal: options.signal });
+  }
+
+  static async downloadPresentationBundle(
+    projectName: string,
+    resourceType: PresentationResourceType,
+    resourceId: string,
+    options: PresentationRequestOptions = {},
+  ): Promise<{ blob: Blob; filename: string }> {
+    const endpoint = presentationEndpoint(projectName, resourceType, resourceId, options, "/bundle");
+    const response = await fetch(`${API_BASE}${endpoint}`, withAuth(endpoint));
+    await throwIfNotOk(response, `HTTP ${response.status}`);
+    const disposition = response.headers.get("Content-Disposition") ?? "";
+    const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] ?? `${resourceId}_presentation.zip`;
+    return { blob: await response.blob(), filename };
   }
 
   static async importProject(

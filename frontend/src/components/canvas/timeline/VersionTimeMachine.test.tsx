@@ -144,7 +144,7 @@ describe("VersionTimeMachine", () => {
     expect(previewImage.parentElement).toHaveClass("h-80");
   });
 
-  it("previews and downloads historical narration audio without offering restore", async () => {
+  it("previews, downloads, and restores verified historical narration audio", async () => {
     vi.spyOn(API, "getVersions").mockResolvedValue({
       resource_type: "audio",
       resource_id: "E1S01",
@@ -156,6 +156,7 @@ describe("VersionTimeMachine", () => {
           created_at: "2026-02-01T00:00:00Z",
           file_size: 10,
           is_current: false,
+          restorable: true,
           file_url: "/api/v1/files/demo/versions/audio/E1S01_v1.wav",
         },
         {
@@ -168,14 +169,13 @@ describe("VersionTimeMachine", () => {
         },
       ],
     });
-    const restore = vi.spyOn(API, "restoreVersion");
+    const restore = vi.spyOn(API, "restoreVersion").mockResolvedValue({ success: true });
 
     render(
       <VersionTimeMachine
         projectName="demo"
         resourceType="audio"
         resourceId="E1S01"
-        readOnly
       />,
     );
 
@@ -187,8 +187,174 @@ describe("VersionTimeMachine", () => {
       "/api/v1/files/demo/versions/audio/E1S01_v1.wav",
     );
     expect(screen.getByRole("link", { name: /下载音频/ })).toHaveAttribute("download");
+    fireEvent.click(screen.getByRole("button", { name: /切换到此版本/ }));
+    await waitFor(() => {
+      expect(restore).toHaveBeenCalledWith("demo", "audio", "E1S01", 1);
+    });
+  });
+
+  it("does not offer restore for history-only narration audio", async () => {
+    vi.spyOn(API, "getVersions").mockResolvedValue({
+      resource_type: "audio",
+      resource_id: "E1S01",
+      current_version: 2,
+      versions: [
+        {
+          version: 1,
+          filename: "E1S01_v1.wav",
+          created_at: "2026-02-01T00:00:00Z",
+          file_size: 10,
+          is_current: false,
+          restorable: false,
+          file_url: "/api/v1/files/demo/versions/audio/E1S01_v1.wav",
+        },
+        {
+          version: 2,
+          filename: "E1S01_v2.wav",
+          created_at: "2026-02-01T01:00:00Z",
+          file_size: 12,
+          is_current: true,
+          restorable: true,
+          file_url: "/api/v1/files/demo/versions/audio/E1S01_v2.wav",
+        },
+      ],
+    });
+    const restore = vi.spyOn(API, "restoreVersion").mockResolvedValue({ success: true });
+
+    render(
+      <VersionTimeMachine
+        projectName="demo"
+        resourceType="audio"
+        resourceId="E1S01"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /版本/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "v1" }));
+
+    expect(await screen.findByLabelText("旁白音频版本 v1")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /切换到此版本/ })).not.toBeInTheDocument();
     expect(restore).not.toHaveBeenCalled();
+  });
+
+  it("previews unverifiable legacy video history as raw media without materializing a presentation", async () => {
+    vi.spyOn(API, "getVersions").mockResolvedValue({
+      resource_type: "videos",
+      resource_id: "E1S01",
+      current_version: 2,
+      versions: [
+        {
+          version: 1,
+          filename: "E1S01_v1.mp4",
+          created_at: "2026-02-01T00:00:00Z",
+          file_size: 10,
+          is_current: false,
+          restorable: false,
+          presentation_available: false,
+          file_url: "/api/v1/files/demo/versions/videos/E1S01_v1.mp4",
+        },
+        {
+          version: 2,
+          filename: "E1S01_v2.mp4",
+          created_at: "2026-02-01T01:00:00Z",
+          file_size: 12,
+          is_current: true,
+          restorable: true,
+          file_url: "/api/v1/files/demo/versions/videos/E1S01_v2.mp4",
+        },
+      ],
+    });
+    const presentation = vi.spyOn(API, "getPresentation");
+
+    render(
+      <VersionTimeMachine
+        projectName="demo"
+        resourceType="videos"
+        resourceId="E1S01"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /版本/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "v1" }));
+
+    expect(await screen.findByLabelText("版本 v1 预览")).toHaveAttribute(
+      "src",
+      "/api/v1/files/demo/versions/videos/E1S01_v1.mp4",
+    );
+    expect(screen.queryByRole("button", { name: /切换到此版本/ })).not.toBeInTheDocument();
+    expect(presentation).not.toHaveBeenCalled();
+  });
+
+  it("previews manual-upload history through the shared raw presentation seam", async () => {
+    vi.spyOn(API, "getVersions").mockResolvedValue({
+      resource_type: "videos",
+      resource_id: "E1S01",
+      current_version: 2,
+      versions: [
+        {
+          version: 1,
+          filename: "E1S01_v1.mp4",
+          created_at: "2026-02-01T00:00:00Z",
+          file_size: 10,
+          is_current: false,
+          restorable: false,
+          presentation_available: true,
+          source: "manual_upload",
+          file_url: "/api/v1/files/demo/versions/videos/E1S01_v1.mp4",
+        },
+      ],
+    });
+    const presentation = vi.spyOn(API, "getPresentation").mockResolvedValue({
+      schema_version: 1,
+      provenance: "unavailable",
+      episode: 1,
+      resource_type: "videos",
+      script_file: "episode_1.json",
+      transition_to_next: "cut",
+      subtitle_artifact_path: null,
+      presentation_artifact_path: null,
+      persisted: false,
+      unit_id: "E1S01",
+      variant: "post_production",
+      speech_mode: null,
+      selection: "history",
+      currency: null,
+      video: {
+        artifact_path: "versions/videos/E1S01_v1.mp4",
+        version: 1,
+        selection: "history",
+        currency: null,
+        basis: null,
+        content_digest: `sha256-v1:${"a".repeat(64)}`,
+        actual_duration_seconds: 4,
+        start_microseconds: 0,
+        duration_microseconds: 4_000_000,
+        audio_enabled: true,
+        gain: 1,
+      },
+      narration_audio: null,
+      subtitles: [],
+      subtitle_basis: null,
+      presentation_basis: null,
+      timing: null,
+      subtitles_adjustable: false,
+      subtitles_webvtt: null,
+    });
+
+    render(
+      <VersionTimeMachine projectName="demo" resourceType="videos" resourceId="E1S01" />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /版本/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "v1" }));
+
+    const previewSource = (await screen.findByLabelText("E1S01 成片预览")).getAttribute("src");
+    expect(previewSource?.startsWith("/api/v1/files/demo/versions/videos/E1S01_v1.mp4")).toBe(true);
+    expect(presentation).toHaveBeenCalledWith(
+      "demo",
+      "videos",
+      "E1S01",
+      expect.objectContaining({ videoVersion: 1 }),
+    );
+    expect(screen.getByText("来源不可用")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /切换到此版本/ })).not.toBeInTheDocument();
   });
 
   it("disables version restore while the resource is busy (image_edit in flight)", async () => {

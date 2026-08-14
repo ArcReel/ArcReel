@@ -12,6 +12,7 @@ import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { useTranslation } from "react-i18next";
 import type { RefObject, ReactNode } from "react";
 import type { EpisodeMeta } from "@/types/project";
+import type { PresentationVariant } from "@/types/presentation";
 import { WARM_TONE } from "@/utils/severity-tone";
 
 export type ExportScope = "current" | "full" | "jianying-draft";
@@ -24,7 +25,12 @@ interface ExportScopeDialogProps {
   onSelect: (scope: ExportScope) => void;
   anchorRef: RefObject<HTMLElement | null>;
   episodes?: EpisodeMeta[];
-  onJianyingExport?: (episode: number, draftPath: string, jianyingVersion: string) => void;
+  onJianyingExport?: (
+    episode: number,
+    draftPath: string,
+    jianyingVersion: string,
+    narrationDelivery: PresentationVariant,
+  ) => void;
   jianyingExporting?: boolean;
 }
 
@@ -51,6 +57,7 @@ export function ExportScopeDialog({
     () => localStorage.getItem(DRAFT_PATH_STORAGE_KEY) || defaultDraftPath,
   );
   const [jianyingVersion, setJianyingVersion] = useState("6");
+  const [narrationDelivery, setNarrationDelivery] = useState<PresentationVariant>("post_production");
 
   useEffect(() => {
     if (!open) {
@@ -69,7 +76,7 @@ export function ExportScopeDialog({
   const handleJianyingSubmit = () => {
     if (!draftPath.trim() || !onJianyingExport) return;
     localStorage.setItem(DRAFT_PATH_STORAGE_KEY, draftPath.trim());
-    onJianyingExport(selectedEpisode, draftPath.trim(), jianyingVersion);
+    onJianyingExport(selectedEpisode, draftPath.trim(), jianyingVersion, narrationDelivery);
   };
 
   return (
@@ -213,6 +220,26 @@ export function ExportScopeDialog({
                 </select>
               </FormField>
             )}
+
+            <FormField
+              htmlFor="jianying-presentation-variant"
+              label={t("dashboard:presentation_variant")}
+            >
+              <select
+                id="jianying-presentation-variant"
+                value={narrationDelivery}
+                onChange={(event) => setNarrationDelivery(event.target.value as PresentationVariant)}
+                className="focus-ring w-full rounded-md px-2.5 py-1.5 text-[13px] outline-none"
+                style={{
+                  background: "oklch(0.16 0.010 265 / 0.6)",
+                  border: "1px solid var(--color-hairline)",
+                  color: "var(--color-text)",
+                }}
+              >
+                <option value="post_production">{t("dashboard:presentation_post_production")}</option>
+                <option value="use_tts">{t("dashboard:presentation_use_tts")}</option>
+              </select>
+            </FormField>
 
             <FormField
               htmlFor="jianying-version-select"

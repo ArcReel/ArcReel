@@ -6,6 +6,7 @@ import { StreamMarkdown } from "@/components/copilot/StreamMarkdown";
 import { CARD_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { formatDate } from "@/utils/date-format";
+import { downloadBlob } from "@/utils/download";
 import type { GetSystemVersionResponse } from "@/types";
 
 const ABOUT_DATE_OPTS: Intl.DateTimeFormatOptions = {
@@ -41,21 +42,7 @@ export function AboutSection() {
     setDownloadError(null);
     try {
       const { blob, filename } = await API.downloadDiagnostics();
-      const url = URL.createObjectURL(blob);
-      try {
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      } finally {
-        // Firefox / Safari 在下载任务尚未开始读取 Blob 前同步 revoke 会导致下载静默失败；
-        // 推迟到下一个宏任务再回收，确保下载已启动读取。createElement / 属性赋值 /
-        // DOM 操作任一环节抛错都不能跳过 revoke，否则 Blob URL 永久泄漏，故 try 从
-        // createObjectURL 之后即开始覆盖，用 finally 兜底
-        setTimeout(() => URL.revokeObjectURL(url), 0);
-      }
+      downloadBlob(blob, filename);
     } catch (err) {
       if (!mountedRef.current) return;
       setDownloadError(err instanceof Error ? err.message : String(err));

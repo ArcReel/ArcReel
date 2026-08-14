@@ -56,6 +56,7 @@ from server.routers import (
     generate,
     grids,
     onboarding,
+    presentations,
     products,
     project_events,
     projects,
@@ -569,6 +570,7 @@ app.include_router(characters.router, prefix="/api/v1", dependencies=[Depends(ge
 app.include_router(scenes.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["场景管理"])
 app.include_router(props.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["道具管理"])
 app.include_router(products.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["产品管理"])
+app.include_router(presentations.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["成片演示"])
 app.include_router(files.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["文件管理"])
 app.include_router(generate.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["生成"])
 app.include_router(
