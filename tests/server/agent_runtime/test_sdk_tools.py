@@ -64,6 +64,7 @@ class _FakePM:
         self._project_name = project_name
         self._project_dir = project_dir
         self.project_payload: dict[str, Any] = {
+            "source_file_type": "novel",
             "characters": {"张三": {"description": "主角"}, "李四": {"description": ""}},
             "scenes": {"村口": {"description": "黄昏的村口"}},
             "props": {},

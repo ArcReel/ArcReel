@@ -76,6 +76,7 @@ def _write_project(
         "schema_version": 3,
         "title": "测试项目",
         "creation_type": creation_type,
+        "source_file_type": "novel",
         "generation_mode": "storyboard",
         "characters": {},
         "scenes": {},

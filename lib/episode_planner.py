@@ -42,7 +42,7 @@ from lib.episode_ledger import (
 )
 from lib.episode_paths import episode_script_relpath
 from lib.path_safety import PathTraversalError, safe_join
-from lib.project_manager import ProjectManager, resolve_source_file_type
+from lib.project_manager import ProjectManager, require_source_file_type
 from lib.prompt_builders_script import USER_INSTRUCTIONS_HEADER
 from lib.text_backends.base import (
     DEFAULT_MAX_OUTPUT_TOKENS,
@@ -1005,7 +1005,7 @@ def _build_planning_prompt(
     overview = project.get("overview") or {}
     unit_name = reading_unit_noun(_language_of(project))
     target_units = project.get("episode_target_units")
-    is_screenplay = resolve_source_file_type(project) == "screenplay"
+    is_screenplay = require_source_file_type(project) == "screenplay"
 
     lines: list[str] = [
         *(_PLAN_INTRO_SCREENPLAY if is_screenplay else _PLAN_INTRO_NOVEL),

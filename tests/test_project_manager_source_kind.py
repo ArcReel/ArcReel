@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.project_manager import ProjectManager, resolve_source_file_type
+from lib.project_manager import ProjectManager, require_source_file_type
 
 pytestmark = pytest.mark.unit
 
@@ -18,25 +18,29 @@ def _pm(tmp_path: Path) -> ProjectManager:
     return ProjectManager(tmp_path / "projects")
 
 
-class TestResolveSourceKind:
-    """统一回退入口：合法值原样返回，缺失 / 非法 / 脏数据一律回退 novel 不抛异常。"""
+class TestRequireSourceFileType:
+    """统一入口：合法值原样返回，缺失 / 非法 / 脏数据一律 fail-loud。
+
+    消费方全是付费文本生成的 prompt 装配，静默落 novel 会让剧本项目按小说改编规则处理。
+    """
 
     def test_valid_values_pass_through(self):
-        assert resolve_source_file_type({"source_file_type": "novel"}) == "novel"
-        assert resolve_source_file_type({"source_file_type": "screenplay"}) == "screenplay"
+        assert require_source_file_type({"source_file_type": "novel"}) == "novel"
+        assert require_source_file_type({"source_file_type": "screenplay"}) == "screenplay"
 
-    def test_missing_key_falls_back_to_novel(self):
-        assert resolve_source_file_type({}) == "novel"
+    @pytest.mark.parametrize(
+        "value",
+        [{}, {"source_file_type": None}, {"source_file_type": "screen_play"}, {"source_file_type": ""}],
+    )
+    def test_missing_or_invalid_raises(self, value):
+        with pytest.raises(ValueError, match="source_file_type"):
+            require_source_file_type(value)
 
-    def test_invalid_string_falls_back_to_novel(self):
-        assert resolve_source_file_type({"source_file_type": "screen_play"}) == "novel"
-        assert resolve_source_file_type({"source_file_type": ""}) == "novel"
-
-    def test_unhashable_dirty_value_falls_back_without_raising(self):
-        # list / dict 等不可哈希脏值不得在成员判断时抛 TypeError，须回退 novel
-        assert resolve_source_file_type({"source_file_type": ["novel"]}) == "novel"
-        assert resolve_source_file_type({"source_file_type": {"k": "v"}}) == "novel"
-        assert resolve_source_file_type({"source_file_type": 123}) == "novel"
+    @pytest.mark.parametrize("dirty", [["novel"], {"k": "v"}, 123])
+    def test_unhashable_dirty_value_raises_without_type_error(self, dirty):
+        # list / dict 等不可哈希脏值不得在成员判断时抛 TypeError，须报成 ValueError
+        with pytest.raises(ValueError, match="source_file_type"):
+            require_source_file_type({"source_file_type": dirty})
 
 
 class TestCreateSourceKind:

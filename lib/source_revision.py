@@ -17,6 +17,11 @@ from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 
 _DERIVED_EPISODE_RE = re.compile(r"episode_[0-9]+\.txt")
 
+#: 源文修订号载荷里的源文件性质键名冻结在旧名上：它参与 sha256，算出的修订号写在
+#: ``workflow.asset_inventory.source_revision`` 上并被逐字比对。改名会让既有资产盘点
+#: 的修订号全部对不上、被判过期，把用户重新赶回资产分析。取值仍来自已更名的 source_file_type。
+_SOURCE_FILE_TYPE_REVISION_KEY = "source_kind"
+
 
 class SourceScope(BaseModel):
     """The source files included in one asset-inventory analysis."""
@@ -219,7 +224,7 @@ def compute_source_revision(
     canonical_fingerprints = sorted(fingerprints, key=lambda item: item[0])
     payload = {
         "files": [{"path": rel, "sha256": digest} for rel, digest in canonical_fingerprints],
-        "source_file_type": project.get("source_file_type", "novel"),
+        _SOURCE_FILE_TYPE_REVISION_KEY: project.get("source_file_type", "novel"),
         "source_language": project.get("source_language"),
     }
     serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")

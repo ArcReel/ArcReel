@@ -35,7 +35,7 @@ from lib.episode_paths import (
 from lib.i18n import _ as translate
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
-from lib.project_manager import is_reference_video_project, require_creation_type, resolve_source_file_type
+from lib.project_manager import is_reference_video_project, require_creation_type, require_source_file_type
 from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import append_user_instructions, build_narration_split_prompt, build_normalize_prompt
 from lib.reference_video.draft_validation import (
@@ -512,7 +512,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 default_duration=default_duration,
                 supported_durations=supported_durations,
                 episode=episode,
-                source_file_type=resolve_source_file_type(project),
+                source_file_type=require_source_file_type(project),
                 episode_outline=episode_outline,
                 next_episode_outline=next_episode_outline,
                 # 输出语言取项目 source_language（生成内容语言的唯一真相源）；缺省回退默认中文，

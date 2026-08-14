@@ -172,12 +172,17 @@ def require_creation_type(project: Mapping[str, Any]) -> CreationType:
     return cast(CreationType, value)
 
 
-def resolve_source_file_type(project: Mapping[str, Any]) -> SourceFileType:
-    """项目源文件性质（novel / screenplay），缺失或非法值回退默认 novel，兼容脏数据。"""
+def require_source_file_type(project: Mapping[str, Any]) -> SourceFileType:
+    """项目源文件性质（novel / screenplay），缺失或非法即抛 ``ValueError``。
+
+    与 ``require_creation_type`` 同理：该字段创建时必写、迁移一次性物化，v8 数据里缺失即损坏。
+    消费方全是付费文本生成的 prompt 装配（分集规划、概述生成、剧本归一化），静默落 novel 会让
+    剧本项目按小说改编规则处理——推断未声明的角色、改写本该逐字保留的台词。
+    """
     value = project.get("source_file_type")
-    if isinstance(value, str) and value in VALID_SOURCE_FILE_TYPES:
-        return cast(SourceFileType, value)
-    return DEFAULT_SOURCE_FILE_TYPE
+    if not isinstance(value, str) or value not in VALID_SOURCE_FILE_TYPES:
+        raise ValueError(f"项目未声明合法的 source_file_type: {value!r}，必须是 {sorted(VALID_SOURCE_FILE_TYPES)}")
+    return cast(SourceFileType, value)
 
 
 def _resolve_items_or_warn(script: dict, *, script_filename: str | None = None) -> list[dict]:
@@ -2911,7 +2916,7 @@ class ProjectManager:
         # 调用 TextGenerator（Structured Outputs）。source_file_type=screenplay 时翻为「提取优先」：
         # 作者写下的创作方案前言优先照用，缺失才退回从正文归纳（novel 行为不变）。
         project_data = self.load_project(project_name)
-        source_file_type = resolve_source_file_type(project_data)
+        source_file_type = require_source_file_type(project_data)
         # source_language 来自 project.json，可能是非字符串脏数据；非字符串或空串回退默认语言
         raw_source_language = project_data.get("source_language")
         target_language = (

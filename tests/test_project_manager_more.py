@@ -788,16 +788,11 @@ class TestProjectManagerMore:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_generate_overview_legacy_project_without_source_kind_falls_back_to_novel(
-        self, tmp_path, monkeypatch
-    ):
-        """遗留 project.json 缺 source_file_type 字段时退回 novel 分支（覆盖 `.get(...) or DEFAULT_SOURCE_FILE_TYPE` 兜底）。"""
-        from lib.prompt_builders_script import build_overview_prompt
-
+    async def test_generate_overview_rejects_project_without_source_file_type(self, tmp_path, monkeypatch):
+        """概述生成是付费调用：源文件性质缺失即数据损坏，不得静默按小说改编规则出 prompt。"""
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", source_file_type="screenplay")
-        # 模拟遗留项目：移除 source_file_type 字段
         pm.update_project("demo", lambda project: project.pop("source_file_type", None))
         assert "source_file_type" not in pm.load_project("demo")
         _write(pm.get_project_path("demo") / "source" / "1.txt", "源文本内容")
@@ -808,11 +803,11 @@ class TestProjectManagerMore:
             return backend, "gemini-aistudio"
 
         monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _fake_create_backend)
-        await pm.generate_overview("demo")
 
-        source_content = pm._read_source_files("demo")
-        assert backend.last_request is not None
-        assert backend.last_request.prompt == build_overview_prompt(source_content, source_file_type="novel")
+        with pytest.raises(ValueError, match="source_file_type"):
+            await pm.generate_overview("demo")
+
+        assert backend.last_request is None
 
 
 class TestFromCwd:
