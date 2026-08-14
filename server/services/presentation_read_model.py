@@ -102,6 +102,14 @@ class _SelectedVersion:
     selection: MediaSelection
 
 
+@dataclass(frozen=True, slots=True)
+class _EpisodeSnapshot:
+    project: dict[str, Any]
+    episode: int
+    script_file: str
+    script: dict[str, Any]
+
+
 class PresentationReadModelService:
     """Materialize current or historical presentations through one project seam."""
 
@@ -167,6 +175,7 @@ class PresentationReadModelService:
         variant: RenditionVariant,
         video_version: int | None = None,
         audio_version: int | None = None,
+        episode_snapshot: _EpisodeSnapshot | None = None,
     ) -> MaterializedPresentation:
         if resource_type not in {"videos", "reference_videos"}:
             raise PresentationUnavailableError(f"unsupported presentation resource type: {resource_type!r}")
@@ -183,6 +192,7 @@ class PresentationReadModelService:
             resource_type=resource_type,
             resource_id=resource_id,
             version=video_version,
+            project_snapshot=episode_snapshot.project if episode_snapshot is not None else None,
         )
         if selected_video.target is None:
             return await self._materialize_manual_upload(
@@ -193,9 +203,16 @@ class PresentationReadModelService:
                 resource_type=resource_type,
                 resource_id=resource_id,
                 selected=selected_video,
+                episode_snapshot=episode_snapshot,
             )
-        script_file = self._current_episode_script(project, selected_video.target.episode)
-        script = await asyncio.to_thread(self._project_manager.load_script, project_name, script_file)
+        if episode_snapshot is not None:
+            if selected_video.target.episode != episode_snapshot.episode:
+                raise PresentationUnavailableError("selected video belongs to a different episode")
+            script_file = episode_snapshot.script_file
+            script = episode_snapshot.script
+        else:
+            script_file = self._current_episode_script(project, selected_video.target.episode)
+            script = await asyncio.to_thread(self._project_manager.load_script, project_name, script_file)
         item, kind = self._find_item(script, resource_id)
         admission = admit_script_unit(kind, item)
         if not admission.allowed or admission.mode is None:
@@ -305,13 +322,33 @@ class PresentationReadModelService:
 
         The requested rendition applies to narrator units. Character and silent
         units have no narrator TTS and therefore retain their post-production
-        presentation while preserving the provider track.
+        presentation while preserving the provider track. All units share one
+        project/script snapshot; a concurrent canonical edit restarts the batch.
         """
 
-        project = await asyncio.to_thread(self._project_manager.load_project, project_name)
-        script_file = self._current_episode_script(project, episode)
-        script = await asyncio.to_thread(self._project_manager.load_script, project_name, script_file)
-        items, id_field, kind = resolve_items(script)
+        for attempt in range(2):
+            try:
+                snapshot = await asyncio.to_thread(self._load_episode_snapshot, project_name, episode)
+                return await self._materialize_episode_once(
+                    project_name=project_name,
+                    variant=variant,
+                    snapshot=snapshot,
+                )
+            except _PresentationSelectionChanged:
+                if attempt > 0:
+                    raise PresentationUnavailableError(
+                        "canonical episode snapshot kept changing while presentations were materialized"
+                    ) from None
+        raise AssertionError("episode presentation retry loop did not return")
+
+    async def _materialize_episode_once(
+        self,
+        *,
+        project_name: str,
+        variant: RenditionVariant,
+        snapshot: _EpisodeSnapshot,
+    ) -> tuple[MaterializedPresentation, ...]:
+        items, id_field, kind = resolve_items(snapshot.script)
         resource_type = "reference_videos" if kind == "video_units" else "videos"
         project_path = await asyncio.to_thread(self._project_manager.get_project_path, project_name)
         versions = VersionManager(project_path)
@@ -333,15 +370,46 @@ class PresentationReadModelService:
             current_version = version_info.get("current_version")
             if type(current_version) is not int or current_version <= 0:
                 continue
-            results.append(
-                await self.materialize_unit(
+            async with generation_admission_lock(
+                project_name=project_name,
+                script_file=snapshot.script_file,
+                resource_id=resource_id,
+            ):
+                result = await self._materialize_unit_once(
                     project_name=project_name,
                     resource_type=resource_type,
                     resource_id=resource_id,
                     variant=effective_variant,
+                    episode_snapshot=snapshot,
                 )
-            )
+            results.append(result)
+        await asyncio.to_thread(self._require_episode_snapshot_unchanged, project_name, snapshot)
         return tuple(results)
+
+    def _load_episode_snapshot(self, project_name: str, episode: int) -> _EpisodeSnapshot:
+        candidate = self._project_manager.load_project(project_name)
+        script_file = self._current_episode_script(candidate, episode)
+        with self._project_manager.locked_project_script_snapshot(project_name, script_file) as (project, script):
+            if self._current_episode_script(project, episode) != script_file:
+                raise _PresentationSelectionChanged
+            return _EpisodeSnapshot(
+                project=project,
+                episode=episode,
+                script_file=script_file,
+                script=script,
+            )
+
+    def _require_episode_snapshot_unchanged(self, project_name: str, snapshot: _EpisodeSnapshot) -> None:
+        with self._project_manager.locked_project_script_snapshot(project_name, snapshot.script_file) as (
+            project,
+            script,
+        ):
+            if (
+                self._current_episode_script(project, snapshot.episode) != snapshot.script_file
+                or project != snapshot.project
+                or script != snapshot.script
+            ):
+                raise _PresentationSelectionChanged
 
     def _load_video_selection(
         self,
@@ -351,8 +419,9 @@ class PresentationReadModelService:
         resource_type: str,
         resource_id: str,
         version: int | None,
+        project_snapshot: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], VersionManager, _SelectedVersion, str | None]:
-        project = self._project_manager.load_project(project_name)
+        project = project_snapshot if project_snapshot is not None else self._project_manager.load_project(project_name)
         versions = VersionManager(project_path)
         selected = self._load_selection(
             project_path=project_path,
@@ -585,13 +654,22 @@ class PresentationReadModelService:
         resource_type: str,
         resource_id: str,
         selected: _SelectedVersion,
+        episode_snapshot: _EpisodeSnapshot | None,
     ) -> MaterializedPresentation:
-        episode, script_file, item = await self._locate_unverified_video_unit(
-            project_name=project_name,
-            project=project,
-            resource_type=resource_type,
-            resource_id=resource_id,
-        )
+        if episode_snapshot is None:
+            episode, script_file, item = await self._locate_unverified_video_unit(
+                project_name=project_name,
+                project=project,
+                resource_type=resource_type,
+                resource_id=resource_id,
+            )
+        else:
+            item, kind = self._find_item(episode_snapshot.script, resource_id)
+            expected_type = "reference_videos" if kind == "video_units" else "videos"
+            if expected_type != resource_type:
+                raise PresentationUnavailableError(f"script unit is unavailable: {resource_id}")
+            episode = episode_snapshot.episode
+            script_file = episode_snapshot.script_file
         duration = await self._video_duration_probe(selected.path)
         if duration is None:
             raise PresentationUnavailableError(f"selected media duration is unavailable: {selected.relative_path}")

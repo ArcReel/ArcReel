@@ -150,6 +150,67 @@ def _setup_narrator_project(tmp_path: Path) -> tuple[ProjectManager, Path, TtsSy
     return ProjectManager(projects_root), project_path, settings
 
 
+def _add_second_narrator_video(project_path: Path) -> None:
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    second_item = {
+        **script["segments"][0],
+        "segment_id": "E1S02",
+        "generated_assets": {
+            "storyboard_image": "storyboards/scene_E1S02.png",
+            "video_clip": "videos/scene_E1S02.mp4",
+            "narration_audio": "audio/segment_E1S02.wav",
+        },
+    }
+    script["segments"].append(second_item)
+    _write_json(script_path, script)
+    storyboard = project_path / "storyboards" / "scene_E1S02.png"
+    storyboard.write_bytes(b"storyboard-2")
+    video = project_path / "videos" / "scene_E1S02.mp4"
+    video.write_bytes(b"provider-video-v2")
+
+    preparation = admit_script_unit("segments", second_item).preparation
+    visual = build_storyboard_video_artifact_visual_basis(
+        resource_id="E1S02",
+        visual_prompt=second_item["video_prompt"],
+        storyboard_image=storyboard,
+        end_frame_image=None,
+        aspect_ratio="9:16",
+    )
+    speech = build_video_speech_basis(preparation)
+    duration = build_video_duration_basis(8)
+    currency = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=8,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(4, 8, 12),
+        reference_image_limit=None,
+        parent_version=0,
+    )
+    VersionManager(project_path).add_version(
+        "videos",
+        "E1S02",
+        "video",
+        source_file=video,
+        execution_checkpoint_schema_version=3,
+        execution_script_file="episode_1.json",
+        execution_duration_seconds=8,
+        execution_request_digest="e" * 64,
+        execution_provider_media=[],
+        execution_generate_audio=True,
+        artifact_video_currency=currency.to_dict(),
+    )
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+        ArtifactKey.episode_video(1, "E1S02"),
+        artifact_path="videos/scene_E1S02.mp4",
+        basis=currency.video_basis,
+    )
+
+
 async def test_current_tts_presentation_materializes_manifest_and_actual_media_boundaries(tmp_path: Path) -> None:
     pm, project_path, settings = _setup_narrator_project(tmp_path)
 
@@ -414,64 +475,7 @@ async def test_episode_materialization_skips_units_with_only_paid_history(tmp_pa
 
 async def test_episode_tts_materialization_keeps_video_without_selected_narration(tmp_path: Path) -> None:
     pm, project_path, settings = _setup_narrator_project(tmp_path)
-    script_path = project_path / "scripts" / "episode_1.json"
-    script = json.loads(script_path.read_text(encoding="utf-8"))
-    second_item = {
-        **script["segments"][0],
-        "segment_id": "E1S02",
-        "generated_assets": {
-            "storyboard_image": "storyboards/scene_E1S02.png",
-            "video_clip": "videos/scene_E1S02.mp4",
-            "narration_audio": "audio/segment_E1S02.wav",
-        },
-    }
-    script["segments"].append(second_item)
-    _write_json(script_path, script)
-    storyboard = project_path / "storyboards" / "scene_E1S02.png"
-    storyboard.write_bytes(b"storyboard-2")
-    video = project_path / "videos" / "scene_E1S02.mp4"
-    video.write_bytes(b"provider-video-v2")
-
-    preparation = admit_script_unit("segments", second_item).preparation
-    visual = build_storyboard_video_artifact_visual_basis(
-        resource_id="E1S02",
-        visual_prompt=second_item["video_prompt"],
-        storyboard_image=storyboard,
-        end_frame_image=None,
-        aspect_ratio="9:16",
-    )
-    speech = build_video_speech_basis(preparation)
-    duration = build_video_duration_basis(8)
-    currency = VideoArtifactCurrencyFacts(
-        episode=1,
-        request_duration_seconds=8,
-        visual_basis=visual,
-        speech_basis=speech,
-        duration_basis=duration,
-        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
-        voice_style_speakers=(),
-        duration_tiers=(4, 8, 12),
-        reference_image_limit=None,
-        parent_version=0,
-    )
-    VersionManager(project_path).add_version(
-        "videos",
-        "E1S02",
-        "video",
-        source_file=video,
-        execution_checkpoint_schema_version=3,
-        execution_script_file="episode_1.json",
-        execution_duration_seconds=8,
-        execution_request_digest="e" * 64,
-        execution_provider_media=[],
-        execution_generate_audio=True,
-        artifact_video_currency=currency.to_dict(),
-    )
-    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
-        ArtifactKey.episode_video(1, "E1S02"),
-        artifact_path="videos/scene_E1S02.mp4",
-        basis=currency.video_basis,
-    )
+    _add_second_narrator_video(project_path)
 
     async def probe(path: Path) -> float | None:
         return 4.5 if path.suffix == ".wav" else 6.25
@@ -491,6 +495,42 @@ async def test_episode_tts_materialization_keeps_video_without_selected_narratio
     assert [(result.presentation.unit_id, result.presentation.variant) for result in results] == [
         ("E1S01", "use_tts"),
         ("E1S02", "post_production"),
+    ]
+
+
+async def test_episode_materialization_restarts_as_one_snapshot_after_script_edit(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    _add_second_narrator_video(project_path)
+
+    video_probes = 0
+
+    async def probe(path: Path) -> float | None:
+        nonlocal video_probes
+        if path.suffix == ".wav":
+            return 4.5
+        video_probes += 1
+        if video_probes == 2:
+            edited = pm.load_script("demo", "episode_1.json")
+            for item in edited["segments"]:
+                item["novel_text"] = "新旁白"
+            pm.save_script("demo", edited, "episode_1.json")
+        return 6.25
+
+    service = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+
+    results = await service.materialize_episode(
+        project_name="demo",
+        episode=1,
+        variant="post_production",
+    )
+
+    assert [[cue.text for cue in result.presentation.subtitles] for result in results] == [
+        ["新旁白"],
+        ["新旁白"],
     ]
 
 
