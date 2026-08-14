@@ -9,12 +9,15 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from lib.artifact_manifest import (
+    ArtifactBasis,
     ArtifactBlocker,
     ArtifactComparison,
     ArtifactKey,
+    ArtifactManifest,
     ArtifactManifestEntry,
     ArtifactManifestError,
     ArtifactStatus,
+    ProjectArtifactManifestAdapter,
 )
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.db.base import Base
@@ -180,6 +183,71 @@ class TestResolveCurrentImageRel:
 
 
 class TestExecuteImageEditTask:
+    async def test_active_edit_rejects_same_claim_with_replaced_source_bytes_before_submit(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.add_character("demo", "Alice", "hero")
+        project_path = pm.get_project_path("demo")
+        current = project_path / "characters" / "Alice.png"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"selected-image")
+        pm.update_project_character_sheet("demo", "Alice", "characters/Alice.png")
+        pm.update_project(
+            "demo",
+            lambda project: project.update(
+                {
+                    "schema_version": 8,
+                    "generation_mode": "storyboard",
+                    "source_kind": "novel",
+                    "source_language": "中文",
+                    "aspect_ratio": "9:16",
+                    "episodes": [],
+                }
+            ),
+        )
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            ArtifactKey.asset_sheet("character", "Alice"),
+            artifact_path="characters/Alice.png",
+            basis=ArtifactBasis.build("test/asset-sheet", kind_version=1, inputs={}),
+        )
+        provider_reached = False
+
+        class _ReplacingGenerator(_FakeGenerator):
+            async def generate_image_async(self, **kwargs):
+                nonlocal provider_reached
+                current.write_bytes(b"same-basis-replacement")
+                await kwargs["before_submit"]()
+                provider_reached = True
+                raise AssertionError("provider must not receive a replaced formal input")
+
+        generator = _ReplacingGenerator()
+        monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: pm)
+
+        async def _resolve(*_args, **_kwargs):
+            lane = ImageLaneResult(
+                provider_model=ProviderModel("gemini-aistudio", "gemini-image"),
+                backend_name="gemini-aistudio",
+                backend_model="gemini-image",
+                resolution=None,
+            )
+            return GenerationContext(generator=generator, image_lane=lane)
+
+        monkeypatch.setattr(image_edit_tasks, "resolve_generation_context", _resolve)
+
+        with pytest.raises(ValueError, match="changed since it was selected"):
+            await execute_image_edit_task(
+                "demo",
+                "Alice",
+                {"resource_type": "character", "prompt": "red hair"},
+            )
+
+        assert provider_reached is False
+
     async def test_legacy_asset_rechecks_manifest_admission_after_schema_activation(
         self,
         tmp_path: Path,
@@ -624,6 +692,9 @@ class TestExecuteImageEditTask:
             def compare_frozen_entry(self, key, entry):
                 return self.compare(key, artifact_path=entry.artifact_path)
 
+            def artifact_content_digest(self, artifact_path):
+                return "0" * 64
+
         def _resolver(*_args):
             return _Currency(statuses.pop(0))
 
@@ -638,7 +709,7 @@ class TestExecuteImageEditTask:
         with pytest.raises(error_type, match=error_match):
             await execute_image_edit_task("demo", resource_id, payload)
 
-        assert [key for key, _path, _status in comparisons] == [expected_key] * (2 + successful_rechecks)
+        assert [key for key, _path, _status in comparisons] == [expected_key] * (3 + successful_rechecks)
         assert statuses == []
         if successful_rechecks:
             assert fake_generator.tracked == [

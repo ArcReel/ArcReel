@@ -45,18 +45,49 @@ def build_step1_basis(source_content: object, *, project: Mapping[str, object]) 
 
 
 def build_episode_script_basis(step1_content: object, *, project: Mapping[str, object]) -> ArtifactBasis:
-    """Describe the formal step1 input consumed by one episode's script artifact."""
+    """Describe every durable prompt input consumed by an episode script."""
 
     content_mode, generation_mode = _content_axes(project)
     return ArtifactBasis.build(
         "structured-content/episode-script",
-        kind_version=1,
+        kind_version=2,
         inputs={
             "content_mode": content_mode,
             "generation_mode": generation_mode,
             "step1_content": step1_content,
+            "prompt_context": project_episode_script_prompt_inputs(project),
         },
     )
+
+
+def project_episode_script_prompt_inputs(project: Mapping[str, object]) -> dict[str, object]:
+    """Project the persisted project fields rendered into non-ad step2 prompts.
+
+    Provider/model capabilities and one-shot user instructions are execution
+    inputs, not durable project state. Asset order is retained because the
+    prompt renders mappings in insertion order; changing that order changes the
+    exact provider input even though JSON object equality would not.
+    """
+
+    content_mode, generation_mode = _content_axes(project)
+    overview = _mapping_or_empty(project.get("overview"))
+    aspect_ratio = project.get("aspect_ratio")
+    if not isinstance(aspect_ratio, str):
+        aspect_ratio = "9:16" if content_mode == "narration" else "16:9"
+    target_language = project.get("source_language") or _DEFAULT_SOURCE_LANGUAGE
+    if not isinstance(target_language, str):
+        raise ValueError("episode script source_language must be a string or null")
+
+    return {
+        "overview": {field: overview.get(field, "") for field in (*_AD_OVERVIEW_FIELDS, "world_setting")},
+        "style": _optional_string(project.get("style"), "style"),
+        "style_description": _optional_string(project.get("style_description"), "style_description"),
+        "aspect_ratio": aspect_ratio,
+        "target_language": target_language,
+        "characters": _project_step2_assets(project.get("characters"), generation_mode=generation_mode),
+        "scenes": _project_step2_assets(project.get("scenes"), generation_mode=generation_mode),
+        "props": _project_step2_assets(project.get("props"), generation_mode=generation_mode),
+    }
 
 
 def build_ad_episode_script_basis(episode: int, *, project: Mapping[str, object]) -> ArtifactBasis:
@@ -135,6 +166,23 @@ def _project_named_assets(value: object) -> dict[str, object]:
         if not isinstance(name, str):
             raise ValueError("ad asset names must be strings")
         result[name] = {}
+    return result
+
+
+def _project_step2_assets(value: object, *, generation_mode: str) -> list[dict[str, object]]:
+    """Project the ordered name/description pairs rendered by step2 builders."""
+
+    result: list[dict[str, object]] = []
+    for raw_name, raw in _mapping_or_empty(value).items():
+        if not isinstance(raw_name, str):
+            raise ValueError("episode script asset names must be strings")
+        data = raw if isinstance(raw, Mapping) else {}
+        description = data.get("description")
+        if generation_mode == "reference_video":
+            rendered_description: object = description if "description" in data else ""
+        else:
+            rendered_description = description.strip() if isinstance(description, str) and description.strip() else ""
+        result.append({"name": raw_name, "description": rendered_description})
     return result
 
 

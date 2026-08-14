@@ -83,7 +83,6 @@ def test_structured_content_basis_tracks_only_the_direct_formal_chain() -> None:
         "credentials": {"api_key": "second-secret"},
         "endpoint": "https://second.invalid",
         "resolution": "4k",
-        "aspect_ratio": "9:16",
         "prompt_builder_version": 99,
         "voice": "second-voice",
         "speed": 2.0,
@@ -101,11 +100,83 @@ def test_structured_content_basis_tracks_only_the_direct_formal_chain() -> None:
         {"scenes": [{"scene_id": "E1S01", "source_text": "changed"}]},
         project=first_project,
     )
+    changed_prompt_context = build_episode_script_basis(
+        {"scenes": [{"scene_id": "E1S01"}]},
+        project={
+            **first_project,
+            "overview": {"synopsis": "新的项目概述"},
+            "style": "水墨",
+            "style_description": "留白",
+            "aspect_ratio": "9:16",
+            "source_language": "en",
+            "characters": {"阿黎": {"description": "红衣"}},
+            "scenes": {"屋顶": {"description": "雨夜"}},
+            "props": {"钥匙": {"description": "黄铜"}},
+        },
+    )
 
     assert same_step1.digest == step1.digest
     assert changed_source.digest != step1.digest
     assert same_script.digest == script.digest
     assert changed_step1.digest != script.digest
+    assert changed_prompt_context.digest != script.digest
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"overview": {"synopsis": "另一段概述", "genre": "悬疑", "theme": "选择", "world_setting": "雨城"}},
+        {"style": "水墨"},
+        {"style_description": "高反差留白"},
+        {"aspect_ratio": "9:16"},
+        {"source_language": "en"},
+        {"characters": {"阿黎": {"description": "红衣"}}},
+        {"scenes": {"屋顶": {"description": "雨夜"}}},
+        {"props": {"钥匙": {"description": "黄铜"}}},
+    ],
+    ids=("overview", "style", "style-description", "aspect-ratio", "language", "characters", "scenes", "props"),
+)
+def test_episode_script_basis_tracks_each_durable_prompt_context_field(changed: dict[str, object]) -> None:
+    project: dict[str, object] = {
+        "content_mode": "drama",
+        "generation_mode": "storyboard",
+        "source_language": "zh",
+        "overview": {"synopsis": "概述", "genre": "剧情", "theme": "成长", "world_setting": "古城"},
+        "style": "写实",
+        "style_description": "自然光",
+        "aspect_ratio": "16:9",
+        "characters": {"阿黎": {"description": "蓝衣"}},
+        "scenes": {"屋顶": {"description": "晴日"}},
+        "props": {"钥匙": {"description": "白银"}},
+    }
+    step1 = {"scenes": [{"scene_id": "E1S01"}]}
+
+    baseline = build_episode_script_basis(step1, project=project)
+    updated = build_episode_script_basis(step1, project={**project, **changed})
+
+    assert updated.digest != baseline.digest
+
+
+def test_episode_script_basis_ignores_asset_fields_not_rendered_into_step2_prompt() -> None:
+    project = {
+        "content_mode": "narration",
+        "generation_mode": "storyboard",
+        "characters": {"阿黎": {"description": "蓝衣", "character_sheet": "characters/old.png"}},
+        "scenes": {},
+        "props": {},
+    }
+    step1 = {"segments": [{"segment_id": "E1S01"}]}
+
+    baseline = build_episode_script_basis(step1, project=project)
+    updated = build_episode_script_basis(
+        step1,
+        project={
+            **project,
+            "characters": {"阿黎": {"description": "蓝衣", "character_sheet": "characters/new.png"}},
+        },
+    )
+
+    assert updated.digest == baseline.digest
 
 
 def test_structured_basis_rejects_malformed_formal_inputs() -> None:

@@ -250,6 +250,8 @@ def _assert_selected_image_edit_source_usable(
         or refreshed.artifact_path != selected.artifact_path
     ):
         raise ValueError(f"selected image edit source is no longer available: {selected.artifact_path}")
+    if refreshed.formal_claims != selected.formal_claims:
+        raise ValueError(f"selected image edit source changed since it was selected: {selected.artifact_path}")
 
 
 async def execute_image_edit_task(

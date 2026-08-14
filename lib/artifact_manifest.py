@@ -102,6 +102,7 @@ class ArtifactObservation:
     artifact_path: str
     present: bool
     blocker: ArtifactBlocker | None = None
+    content_digest: str | None = None
 
 
 class ArtifactManifestAdapter(Protocol):
@@ -629,16 +630,29 @@ class ProjectArtifactManifestAdapter:
         self._project_identity = initial_identity
 
     def inspect_artifact(self, artifact_path: str) -> ArtifactObservation:
+        return self._inspect_artifact(artifact_path, include_content_digest=False)
+
+    def inspect_artifact_content(self, artifact_path: str) -> ArtifactObservation:
+        """Inspect and hash one artifact through the same confined file handle."""
+
+        return self._inspect_artifact(artifact_path, include_content_digest=True)
+
+    def _inspect_artifact(self, artifact_path: str, *, include_content_digest: bool) -> ArtifactObservation:
         try:
             normalized = _normalize_relative_path(artifact_path)
         except ValueError as exc:
             blocker = ArtifactBlocker(code="artifact_path_invalid", path=str(artifact_path), detail=str(exc))
             return ArtifactObservation(artifact_path=str(artifact_path), present=False, blocker=blocker)
         if os.name == "posix":
-            return self._inspect_artifact_posix(normalized)
-        return self._inspect_artifact_portable(normalized)
+            return self._inspect_artifact_posix(normalized, include_content_digest=include_content_digest)
+        return self._inspect_artifact_portable(normalized, include_content_digest=include_content_digest)
 
-    def _inspect_artifact_posix(self, normalized: str) -> ArtifactObservation:
+    def _inspect_artifact_posix(
+        self,
+        normalized: str,
+        *,
+        include_content_digest: bool = False,
+    ) -> ArtifactObservation:
         parts = PurePosixPath(normalized).parts
         directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | _O_NOFOLLOW
         file_flags = os.O_RDONLY | _O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
@@ -757,28 +771,40 @@ class ProjectArtifactManifestAdapter:
                         "artifact_not_regular_file",
                         f"artifact path is not a regular file: {normalized}",
                     )
-                os.read(fd, 1)
-                if expected_file_identity is not None:
-                    current_file_stat = final_path.stat(follow_symlinks=False)
-                    if (
-                        _is_linkish(final_path)
-                        or (opened_file_stat.st_dev, opened_file_stat.st_ino) != expected_file_identity
-                        or (current_file_stat.st_dev, current_file_stat.st_ino) != expected_file_identity
-                    ):
-                        return self._artifact_blocked(
-                            normalized,
-                            "artifact_symlink",
-                            f"artifact changed while it was being opened: {normalized}",
-                        )
+                if include_content_digest:
+                    digest = hashlib.sha256()
+                    for chunk in iter(lambda: os.read(fd, 1024 * 1024), b""):
+                        digest.update(chunk)
+                    content_digest = digest.hexdigest()
+                else:
+                    os.read(fd, 1)
+                    content_digest = None
+                current_file_stat = os.stat(parts[-1], dir_fd=directory_fd, follow_symlinks=False)
+                opened_identity = (opened_file_stat.st_dev, opened_file_stat.st_ino)
+                if (
+                    stat.S_ISLNK(current_file_stat.st_mode)
+                    or (current_file_stat.st_dev, current_file_stat.st_ino) != opened_identity
+                    or (expected_file_identity is not None and opened_identity != expected_file_identity)
+                ):
+                    return self._artifact_blocked(
+                        normalized,
+                        "artifact_symlink",
+                        f"artifact changed while it was being opened: {normalized}",
+                    )
             except OSError as exc:
                 return self._artifact_blocked(
                     normalized,
                     "artifact_unreadable",
                     f"artifact is unreadable: {normalized}: {exc}",
                 )
-        return ArtifactObservation(artifact_path=normalized, present=True)
+        return ArtifactObservation(artifact_path=normalized, present=True, content_digest=content_digest)
 
-    def _inspect_artifact_portable(self, normalized: str) -> ArtifactObservation:
+    def _inspect_artifact_portable(
+        self,
+        normalized: str,
+        *,
+        include_content_digest: bool = False,
+    ) -> ArtifactObservation:
         if _is_linkish(self._project_dir):
             return self._artifact_blocked(
                 normalized,
@@ -787,11 +813,19 @@ class ProjectArtifactManifestAdapter:
             )
         try:
             with self._guard_portable_project_root():
-                return self._inspect_artifact_portable_guarded(normalized)
+                return self._inspect_artifact_portable_guarded(
+                    normalized,
+                    include_content_digest=include_content_digest,
+                )
         except ArtifactManifestError as exc:
             return self._artifact_blocked(normalized, "artifact_unreadable", str(exc))
 
-    def _inspect_artifact_portable_guarded(self, normalized: str) -> ArtifactObservation:
+    def _inspect_artifact_portable_guarded(
+        self,
+        normalized: str,
+        *,
+        include_content_digest: bool = False,
+    ) -> ArtifactObservation:
         path = self._project_dir.joinpath(*PurePosixPath(normalized).parts)
         cursor = self._project_dir
         checked_components: list[tuple[Path, tuple[int, int], int]] = []
@@ -833,7 +867,14 @@ class ProjectArtifactManifestAdapter:
                         "artifact_not_regular_file",
                         f"artifact path is not a regular file: {normalized}",
                     )
-                os.read(fd, 1)
+                if include_content_digest:
+                    digest = hashlib.sha256()
+                    for chunk in iter(lambda: os.read(fd, 1024 * 1024), b""):
+                        digest.update(chunk)
+                    content_digest = digest.hexdigest()
+                else:
+                    os.read(fd, 1)
+                    content_digest = None
                 if (opened_stat.st_dev, opened_stat.st_ino) != checked_components[-1][1]:
                     return self._artifact_blocked(
                         normalized,
@@ -863,7 +904,7 @@ class ProjectArtifactManifestAdapter:
                 detail=f"artifact is unreadable: {normalized}: {exc}",
             )
             return ArtifactObservation(artifact_path=normalized, present=False, blocker=blocker)
-        return ArtifactObservation(artifact_path=normalized, present=True)
+        return ArtifactObservation(artifact_path=normalized, present=True, content_digest=content_digest)
 
     @staticmethod
     def _artifact_blocked(normalized: str, code: str, detail: str) -> ArtifactObservation:

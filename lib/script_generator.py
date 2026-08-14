@@ -4,6 +4,8 @@ script_generator.py - 剧本生成器
 读取 Step 1 结构化中间文件，调用文本生成 Backend 生成最终 JSON 剧本
 """
 
+import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -15,8 +17,14 @@ from typing import Any, Optional, cast
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.artifact_activation import TARGET_SCHEMA_VERSION
-from lib.artifact_manifest import ArtifactBasisDescriptor
+from lib.artifact_activation import (
+    TARGET_SCHEMA_VERSION,
+    ArtifactInputClaim,
+    active_artifact_currency_resolver,
+    assert_current_artifact_input_claims_usable,
+    resolve_usable_artifact_input_claim,
+)
+from lib.artifact_manifest import ArtifactBasisDescriptor, ArtifactKey
 from lib.artifact_provenance import (
     build_ad_episode_script_basis,
     build_episode_script_basis,
@@ -134,6 +142,16 @@ _METADATA_COUNT_KEY: dict[str, str] = {
 }
 
 
+def _file_content_digest(path: Path) -> str:
+    """Hash one selected formal input without loading it all into memory."""
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _units_use_references(units: list[dict] | None) -> bool | None:
     """本集 step1 是否存在带引用的 unit；``units`` 为 None（非参考视频路径）时返回 None。
 
@@ -178,6 +196,7 @@ class ScriptGenerator:
         self.generator = generator
         self._step1_revision: str | None = None
         self._artifact_basis: ArtifactBasisDescriptor | None = None
+        self._step1_input_claim: ArtifactInputClaim | None = None
 
         # 加载 project.json
         self.project_json = self._load_project_json()
@@ -249,6 +268,7 @@ class ScriptGenerator:
 
         self._step1_revision = None
         self._artifact_basis = None
+        self._step1_input_claim = None
         gen_mode = self.generation_mode
 
         # ad 两条路线都一键生成、不走 step1；参考路线直接产出自包含 video_units。
@@ -383,13 +403,12 @@ class ScriptGenerator:
         await self._assert_drama_step1_durations(content_scenes, episode=episode, gen_mode=gen_mode)
 
         logger.info("正在生成第 %d 集剧本（drama step2 视觉层）...", episode)
-        result = await self.generator.generate(
+        result = await self._generate_text(
             TextGenerationRequest(
                 prompt=append_user_instructions(self._build_drama_step2_prompt(content_scenes, episode), instructions),
                 response_schema=DramaVisualScript,
                 max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
-            ),
-            project_name=self.project_path.name,
+            )
         )
 
         visual_scenes = self._parse_drama_visual(result.text)
@@ -510,14 +529,12 @@ class ScriptGenerator:
         assert self.generator is not None  # generate() 入口已检查
         # 调用 TextBackend
         logger.info("正在生成第 %d 集剧本...", episode)
-        project_name = self.project_path.name
-        result = await self.generator.generate(
+        result = await self._generate_text(
             TextGenerationRequest(
                 prompt=prompt,
                 response_schema=schema,
                 max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
-            ),
-            project_name=project_name,
+            )
         )
         response_text = result.text
 
@@ -865,6 +882,32 @@ class ScriptGenerator:
             return
         self._artifact_basis = ArtifactBasisDescriptor.from_basis(basis)
 
+    def _freeze_step1_input_claim(self, episode: int, step1_path: Path, *, content_digest: str) -> None:
+        """Bind parsed step1 bytes to their formal identity for provider admission."""
+
+        artifact_path = step1_path.relative_to(self.project_path).as_posix()
+        claim = resolve_usable_artifact_input_claim(
+            resolver=active_artifact_currency_resolver(self.project_path, self.project_json),
+            key=ArtifactKey.episode_step1(episode),
+            artifact_path=artifact_path,
+            content_digest=content_digest,
+        )
+        if claim is None:
+            raise ValueError(f"formal step1 artifact is not registered: {artifact_path}")
+        self._step1_input_claim = claim
+
+    async def _generate_text(self, request: TextGenerationRequest) -> Any:
+        """Call the paid text provider after one shared formal-input recheck."""
+
+        assert self.generator is not None  # generate() 入口已检查
+        if self._step1_input_claim is not None:
+            await asyncio.to_thread(
+                assert_current_artifact_input_claims_usable,
+                self.project_path,
+                (self._step1_input_claim,),
+            )
+        return await self.generator.generate(request, project_name=self.project_path.name)
+
     def _freeze_ad_artifact_basis(self, episode: int) -> None:
         """Freeze the ad-specific canonical basis before the provider call."""
         try:
@@ -893,7 +936,10 @@ class ScriptGenerator:
                 f"未找到 Step 1 中间文件: {step1_path}；content_mode={self.content_mode} 期望该文件，请先完成本集预处理"
             )
 
-        return step1_path.read_text(encoding="utf-8")
+        raw = step1_path.read_bytes()
+        text = raw.decode("utf-8")
+        self._freeze_step1_input_claim(episode, step1_path, content_digest=hashlib.sha256(raw).hexdigest())
+        return text
 
     def _load_reference_step1(self, episode: int, supported_durations: list[int]) -> list[dict]:
         """加载并校验 reference_video step1 结构化中间文件 ``step1_reference_units.json``。
@@ -956,6 +1002,11 @@ class ScriptGenerator:
             )
             self._step1_revision = content_fingerprint_of_data(raw)
             self._freeze_step1_artifact_basis(raw)
+            self._freeze_step1_input_claim(
+                episode,
+                step1_json,
+                content_digest=_file_content_digest(step1_json),
+            )
 
         # 迁移带 warnings 说明 clamp 改写了实际秒数，那是内容变更、审阅确认随之失效。而 gate
         # 放行据的是改写前的状态：不在此处补判，生成就会拿着用户从未过目的秒数走完付费的
@@ -1022,12 +1073,18 @@ class ScriptGenerator:
                 f"未找到 Step 1 中间文件: {step1_json}；content_mode=narration 期望该文件，请先完成片段拆分"
             )
 
+        raw_bytes = step1_json.read_bytes()
         try:
-            raw = json.loads(step1_json.read_text(encoding="utf-8"))
+            raw = json.loads(raw_bytes.decode("utf-8"))
         except json.JSONDecodeError as e:
             raise ValueError(f"step1_segments.json 解析失败: {e}")
         self._step1_revision = content_fingerprint_of_data(raw)
         self._freeze_step1_artifact_basis(raw)
+        self._freeze_step1_input_claim(
+            episode,
+            step1_json,
+            content_digest=hashlib.sha256(raw_bytes).hexdigest(),
+        )
 
         try:
             draft = NarrationStep1Draft.model_validate(raw)

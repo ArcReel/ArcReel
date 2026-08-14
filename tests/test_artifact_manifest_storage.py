@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import subprocess
@@ -459,6 +460,20 @@ def test_project_adapter_reports_missing_posix_artifact_components(tmp_path: Pat
 
     assert not adapter.inspect_artifact("missing/episode.json").present
     assert not adapter.inspect_artifact("episode.json").present
+
+
+def test_project_adapter_hashes_content_only_through_the_explicit_snapshot_seam(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    content = b"formal-provider-input"
+    (project / "episode.json").write_bytes(content)
+    adapter = ProjectArtifactManifestAdapter(project)
+
+    ordinary = adapter.inspect_artifact("episode.json")
+    snapshot = adapter.inspect_artifact_content("episode.json")
+
+    assert ordinary.present and ordinary.content_digest is None
+    assert snapshot.present and snapshot.content_digest == hashlib.sha256(content).hexdigest()
 
 
 @pytest.mark.skipif(os.name != "posix", reason="descriptor reads are the POSIX artifact inspection path")

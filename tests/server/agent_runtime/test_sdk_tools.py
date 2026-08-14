@@ -1789,6 +1789,12 @@ async def test_storyboard_resume_requires_usable_manifest_video_claim(
                 return None
             return ArtifactManifestEntry(artifact_path=artifact_path, basis_digest="selected")
 
+        def compare_frozen_entry(self, key, entry):
+            return self.compare(key, artifact_path=entry.artifact_path)
+
+        def artifact_content_digest(self, artifact_path):
+            return "0" * 64
+
     currency = _Currency()
 
     enqueued: list[str] = []

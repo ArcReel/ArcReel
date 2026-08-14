@@ -1667,6 +1667,18 @@ class ArtifactCurrencyResolver:
 
         return self._manifest.compare_entry(key, artifact_path=entry.artifact_path, expected=entry)
 
+    def artifact_content_digest(self, artifact_path: str) -> str:
+        """Hash one safely admitted formal path for provider-input identity."""
+
+        observation = self._adapter.inspect_artifact_content(artifact_path)
+        if observation.blocker is not None:
+            raise ArtifactManifestError(observation.blocker.detail)
+        if not observation.present:
+            raise ValueError(f"formal artifact input is no longer registered: {observation.artifact_path}")
+        if observation.content_digest is None:
+            raise ArtifactManifestError(f"formal artifact input has no content digest: {observation.artifact_path}")
+        return observation.content_digest
+
 
 @dataclass(frozen=True, slots=True)
 class ArtifactInputClaim:
@@ -1675,6 +1687,7 @@ class ArtifactInputClaim:
     key: ArtifactKey
     artifact_path: str
     basis_digest: str | None = None
+    content_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1824,6 +1837,7 @@ def resolve_usable_artifact_input_claim(
     resolver: ArtifactCurrencyResolver | None,
     key: ArtifactKey,
     artifact_path: str,
+    content_digest: str | None = None,
 ) -> ArtifactInputClaim | None:
     """Return recheck evidence for one usable formal input in either schema.
 
@@ -1835,11 +1849,22 @@ def resolve_usable_artifact_input_claim(
     if resolver is None:
         if not artifact_is_usable(resolver, key, artifact_path):
             return None
-        return ArtifactInputClaim(key=key, artifact_path=artifact_path)
+        return ArtifactInputClaim(key=key, artifact_path=artifact_path, content_digest=content_digest)
     entry = resolver.resolve_usable_entry(key, artifact_path=artifact_path)
     if entry is None:
         return None
-    return ArtifactInputClaim(key=key, artifact_path=entry.artifact_path, basis_digest=entry.basis_digest)
+    observed_digest = resolver.artifact_content_digest(entry.artifact_path)
+    if content_digest is not None and observed_digest != content_digest:
+        raise ValueError(f"formal artifact input changed while it was selected: {entry.artifact_path}")
+    comparison = resolver.compare_frozen_entry(key, entry)
+    if comparison.status is not ArtifactStatus.CURRENT:
+        raise ValueError(f"formal artifact input changed while it was selected: {entry.artifact_path}")
+    return ArtifactInputClaim(
+        key=key,
+        artifact_path=entry.artifact_path,
+        basis_digest=entry.basis_digest,
+        content_digest=observed_digest,
+    )
 
 
 def assert_artifact_input_claims_usable(
@@ -1856,23 +1881,27 @@ def assert_artifact_input_claims_usable(
         raise RuntimeError("formal artifact input claims require an active Artifact Manifest")
     for claim in claims:
         if claim.basis_digest is None:
-            if artifact_is_usable(resolver, claim.key, claim.artifact_path):
-                continue
-            raise ValueError(f"formal artifact input is no longer registered: {claim.artifact_path}")
-        comparison = resolver.compare_frozen_entry(
-            claim.key,
-            ArtifactManifestEntry(
-                artifact_path=claim.artifact_path,
-                basis_digest=claim.basis_digest,
-            ),
-        )
-        if comparison.status is ArtifactStatus.BLOCKED:
-            assert comparison.blocker is not None
-            raise ArtifactManifestError(comparison.blocker.detail)
-        if comparison.status is ArtifactStatus.STALE:
-            raise ValueError(f"formal artifact input changed since it was selected: {claim.artifact_path}")
-        if comparison.status is not ArtifactStatus.CURRENT:
-            raise ValueError(f"formal artifact input is no longer registered: {claim.artifact_path}")
+            if not artifact_is_usable(resolver, claim.key, claim.artifact_path):
+                raise ValueError(f"formal artifact input is no longer registered: {claim.artifact_path}")
+        else:
+            comparison = resolver.compare_frozen_entry(
+                claim.key,
+                ArtifactManifestEntry(
+                    artifact_path=claim.artifact_path,
+                    basis_digest=claim.basis_digest,
+                ),
+            )
+            if comparison.status is ArtifactStatus.BLOCKED:
+                assert comparison.blocker is not None
+                raise ArtifactManifestError(comparison.blocker.detail)
+            if comparison.status is ArtifactStatus.STALE:
+                raise ValueError(f"formal artifact input changed since it was selected: {claim.artifact_path}")
+            if comparison.status is not ArtifactStatus.CURRENT:
+                raise ValueError(f"formal artifact input is no longer registered: {claim.artifact_path}")
+        if claim.content_digest is not None:
+            current_digest = resolver.artifact_content_digest(claim.artifact_path)
+            if current_digest != claim.content_digest:
+                raise ValueError(f"formal artifact input changed since it was selected: {claim.artifact_path}")
 
 
 def assert_current_artifact_input_claims_usable(

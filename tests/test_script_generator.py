@@ -567,7 +567,13 @@ class TestScriptGenerator:
     @pytest.mark.unit
     async def test_generate_registers_the_basis_frozen_before_the_provider_call(self, tmp_path):
         from lib.artifact_activation import ArtifactCurrencyResolver
-        from lib.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
+        from lib.artifact_manifest import (
+            ArtifactBasis,
+            ArtifactKey,
+            ArtifactManifest,
+            ArtifactStatus,
+            ProjectArtifactManifestAdapter,
+        )
         from lib.artifact_provenance import build_episode_script_basis
 
         project_path = tmp_path / "demo"
@@ -592,6 +598,11 @@ class TestScriptGenerator:
         initial_step1 = json.loads(
             (project_path / "drafts" / "episode_1" / "step1_segments.json").read_text(encoding="utf-8")
         )
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            ArtifactKey.episode_step1(1),
+            artifact_path="drafts/episode_1/step1_segments.json",
+            basis=ArtifactBasis.build("test/step1", kind_version=1, inputs={}),
+        )
 
         class _MutatingTextGenerator(_FakeTextGenerator):
             async def generate(self, request, project_name=None):
@@ -612,6 +623,74 @@ class TestScriptGenerator:
             ArtifactCurrencyResolver(project_path).compare(key, artifact_path="scripts/episode_1.json").status
             is ArtifactStatus.STALE
         )
+
+    @pytest.mark.unit
+    async def test_generate_rejects_an_unregistered_formal_step1_before_provider(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_json(
+            project_path / "project.json",
+            {
+                "schema_version": 8,
+                "title": "项目",
+                "content_mode": "narration",
+                "generation_mode": "storyboard",
+                "source_kind": "novel",
+                "source_language": "中文",
+                "overview": {},
+                "characters": {},
+                "scenes": {},
+                "props": {},
+                "style": "古风",
+                "style_description": "cinematic",
+                "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            },
+        )
+        _write_step1_json(project_path, 1, [_step1_seg("E1S01", "未登记的正式原文。", duration=4)])
+        fake = _FakeTextGenerator(json.dumps(_narration_visual_response(["E1S01"]), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
+
+        with pytest.raises(ValueError, match="step1.*not registered|step1.*未登记|not registered.*step1"):
+            await generator.generate(1)
+
+        assert fake.backend.last_request is None
+
+    @pytest.mark.unit
+    async def test_generate_rechecks_legacy_step1_if_manifest_activates_while_awaiting_capabilities(
+        self,
+        tmp_path,
+    ):
+        project_path = tmp_path / "demo"
+        project = {
+            "schema_version": 7,
+            "title": "项目",
+            "content_mode": "drama",
+            "generation_mode": "storyboard",
+            "source_kind": "novel",
+            "source_language": "中文",
+            "overview": {},
+            "characters": {},
+            "scenes": {},
+            "props": {},
+            "style": "古风",
+            "style_description": "cinematic",
+            "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        }
+        _write_json(project_path / "project.json", project)
+        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
+        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        async def _activate_without_claim():
+            _write_json(project_path / "project.json", {**project, "schema_version": 8})
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _activate_without_claim
+
+        with pytest.raises(ValueError, match="formal artifact input.*no longer registered"):
+            await generator.generate(1)
+
+        assert fake.backend.last_request is None
 
     @pytest.mark.unit
     async def test_generate_injects_hook_and_teaser_from_ledger(self, tmp_path):
