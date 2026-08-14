@@ -389,6 +389,82 @@ class TestApplyGridSplit:
         for scene_id in ("E1S01", "E1S02", "E1S03"):
             assert adapter.get_entry(ArtifactKey.episode_storyboard(1, scene_id)) is None
 
+    async def test_reference_change_while_building_cell_basis_rolls_back_the_whole_split(
+        self,
+        project_with_script,
+        grid_with_image,
+    ):
+        from lib.artifact_activation import ArtifactCurrencyResolver, register_current_resource_artifact
+        from lib.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
+        from lib.grid.models import ReferenceImage
+        from server.services import grid_split as grid_split_module
+
+        project_file = project_with_script / "project.json"
+        project = json.loads(project_file.read_text(encoding="utf-8"))
+        project["characters"] = {
+            "Alice": {
+                "description": "hero",
+                "character_sheet": "characters/Alice.png",
+            }
+        }
+        project_file.write_text(json.dumps(project), encoding="utf-8")
+        sheet_path = project_with_script / "characters" / "Alice.png"
+        sheet_path.parent.mkdir()
+        Image.new("RGB", (4, 4), color=(10, 20, 30)).save(sheet_path)
+        grid_with_image.reference_images = [
+            ReferenceImage(path="characters/Alice.png", name="Alice", ref_type="character")
+        ]
+        GridManager(project_with_script).save(grid_with_image)
+        _enable_manifest_and_register_grid(project_with_script, grid_with_image)
+        assert register_current_resource_artifact(
+            project_with_script,
+            resource_type="characters",
+            resource_id="Alice",
+        )
+
+        source_key = ArtifactKey.episode_grid(1, grid_with_image.id)
+        assert (
+            ArtifactCurrencyResolver(project_with_script)
+            .compare(source_key, artifact_path=f"grids/{grid_with_image.id}.png")
+            .status
+            is ArtifactStatus.CURRENT
+        )
+        script_file = project_with_script / "scripts" / "episode_1.json"
+        grid_file = project_with_script / "grids" / f"{grid_with_image.id}.json"
+        before = {
+            "script": script_file.read_bytes(),
+            "grid": grid_file.read_bytes(),
+        }
+        original_build = grid_split_module.build_grid_member_storyboard_visual_basis
+        replaced = False
+
+        def _replace_reference_then_build(**kwargs):
+            nonlocal replaced
+            if not replaced:
+                Image.new("RGB", (4, 4), color=(90, 80, 70)).save(sheet_path)
+                replaced = True
+            return original_build(**kwargs)
+
+        pm = ProjectManager(project_with_script.parent)
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            patch(
+                "server.services.grid_split.build_grid_member_storyboard_visual_basis",
+                side_effect=_replace_reference_then_build,
+            ),
+        ):
+            with pytest.raises(GridImageNotReadyError, match="changed while being split"):
+                await apply_grid_split("test-project", grid_with_image)
+
+        assert replaced is True
+        assert script_file.read_bytes() == before["script"]
+        assert grid_file.read_bytes() == before["grid"]
+        assert not (project_with_script / "versions" / "versions.json").exists()
+        assert not tuple((project_with_script / "storyboards").glob("scene_*.png"))
+        adapter = ProjectArtifactManifestAdapter(project_with_script)
+        for scene_id in ("E1S01", "E1S02", "E1S03"):
+            assert adapter.get_entry(ArtifactKey.episode_storyboard(1, scene_id)) is None
+
     async def test_script_resolution_failure_removes_the_composite_snapshot(
         self,
         project_with_script,

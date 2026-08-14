@@ -37,6 +37,7 @@ from lib.visual_artifact_provenance import (
     VisualReference,
     build_grid_member_storyboard_visual_basis,
     build_stale_grid_member_storyboard_visual_basis,
+    snapshot_visual_references,
 )
 
 logger = logging.getLogger(__name__)
@@ -240,7 +241,10 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
                     references = None
                     break
             if references is not None:
-                references = tuple(reference_list)
+                try:
+                    references = snapshot_visual_references(reference_list)
+                except OSError:
+                    references = None
             member_ratio = video_aspect_ratio
             if source_status is ArtifactStatus.STALE and source_entry is not None:
                 for cell_index, resource_id, cell_rel in cell_assignments:
@@ -286,6 +290,13 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
             committed_grid_box: list[GridGeneration] = []
 
             def _register() -> None:
+                if source_key is not None and source_status is not None:
+                    latest = ArtifactCurrencyResolver(project_path).compare(
+                        source_key,
+                        artifact_path=grid_image_path,
+                    )
+                    if not latest.usable or latest.status is not source_status:
+                        raise GridImageNotReadyError(f"grid {grid.id} changed while being split")
                 expected_entries = (
                     {source_key: source_entry} if source_key is not None and source_entry is not None else {}
                 )

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from lib.artifact_manifest import ArtifactBasis
@@ -77,6 +77,23 @@ class GridStoryboardVisual:
 
     def __post_init__(self) -> None:
         _require_non_empty("grid member resource_id", self.resource_id)
+
+
+def snapshot_visual_references(references: Sequence[VisualReference]) -> tuple[VisualReference, ...]:
+    """Freeze the observed bytes behind logical visual references.
+
+    Callers that separate input selection from formal registration can retain
+    one content-addressed observation even if a canonical path is atomically
+    replaced while the operation is in flight.
+    """
+
+    return tuple(
+        replace(
+            reference,
+            content_digest=reference.content_digest or visual_file_digest(reference.path),
+        )
+        for reference in references
+    )
 
 
 def build_asset_sheet_visual_basis(
@@ -543,5 +560,6 @@ __all__ = [
     "build_reference_video_artifact_visual_basis",
     "build_storyboard_image_visual_basis",
     "build_storyboard_video_artifact_visual_basis",
+    "snapshot_visual_references",
     "visual_file_digest",
 ]

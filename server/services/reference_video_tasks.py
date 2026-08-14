@@ -29,7 +29,6 @@ from lib.generation_queue import (
 )
 from lib.narration_delivery import USE_TTS
 from lib.path_safety import safe_join
-from lib.project_manager import ProjectManager
 from lib.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.errors import MissingReferenceError
@@ -696,7 +695,7 @@ async def execute_reference_video_task(
             script_filename=str(script_file),
         )
         if artifact_episode is None:
-            artifact_episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
+            artifact_episode = 1
         artifact_speech_preparation = admit_script_unit("video_units", unit).preparation
         artifact_duration_basis = build_video_duration_basis(effective_duration)
         image_inputs = tuple(

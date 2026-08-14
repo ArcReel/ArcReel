@@ -1723,6 +1723,7 @@ async def test_execute_reference_video_task_rechecks_formal_sheet_claim_before_p
     provider_submissions: list[str] = []
 
     async def _fake_generate_video_async(**kwargs):
+        ProjectArtifactManifestAdapter(proj_dir).delete_entry(ArtifactKey.asset_sheet("character", "张三"))
         await kwargs["before_submit"](71)
         provider_submissions.append("submitted")
         raise AssertionError("provider submission must remain unreachable")
@@ -1737,15 +1738,6 @@ async def test_execute_reference_video_task_rechecks_formal_sheet_claim_before_p
         backend_model="doubao-seedance-2-0-260128",
         supported_durations=(3,),
     )
-
-    original_stage = rvt._stage_provider_media_for_task
-
-    async def _drop_claim_after_staging(project_path, task_id, inputs):
-        staged = await original_stage(project_path, task_id, inputs)
-        ProjectArtifactManifestAdapter(proj_dir).delete_entry(ArtifactKey.asset_sheet("character", "张三"))
-        return staged
-
-    monkeypatch.setattr(rvt, "_stage_provider_media_for_task", _drop_claim_after_staging)
     fake_queue = MagicMock()
     fake_queue.persist_execution_checkpoint = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
@@ -1761,6 +1753,63 @@ async def test_execute_reference_video_task_rechecks_formal_sheet_claim_before_p
 
     assert provider_submissions == []
     fake_queue.persist_execution_checkpoint.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_uses_episode_one_for_unresolved_legacy_script_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A legacy noncanonical script keeps the historical episode-one artifact identity."""
+
+    from lib.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
+    from server.services import reference_video_tasks as rvt
+
+    proj_dir = _write_project(tmp_path)
+    canonical_script = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(canonical_script.read_text(encoding="utf-8"))
+    script.pop("episode")
+    legacy_script = proj_dir / "scripts" / "legacy.json"
+    legacy_script.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    canonical_script.unlink()
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(legacy_script.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**kwargs):
+        await kwargs["before_submit"](72)
+        raise RuntimeError("stop after checkpoint")
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="ark",
+        backend_model="doubao-seedance-2-0-260128",
+        supported_durations=(3,),
+    )
+    fake_queue = MagicMock()
+    fake_queue.persist_execution_checkpoint = AsyncMock()
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
+
+    with pytest.raises(RuntimeError, match="stop after checkpoint"):
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "scripts/legacy.json"},
+            user_id="u1",
+            task_id="task-legacy-episode",
+        )
+
+    checkpoint = ReferenceSubmissionCheckpoint.from_json(fake_queue.persist_execution_checkpoint.await_args.args[1])
+    assert checkpoint.artifact_episode == 1
 
 
 @pytest.mark.unit
