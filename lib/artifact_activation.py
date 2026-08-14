@@ -132,11 +132,24 @@ class _PersistedPresentationProof:
 
 
 class _Planner:
-    def __init__(self, project_dir: Path) -> None:
+    def __init__(
+        self,
+        project_dir: Path,
+        *,
+        episode_scope: int | None = None,
+        project_bytes: bytes | None = None,
+    ) -> None:
         self.project_dir = project_dir.resolve(strict=True)
         self.adapter = ProjectArtifactManifestAdapter(self.project_dir)
         self.project_path = self.project_dir / "project.json"
-        self.project_bytes = self._read_required_control_file("project.json", "project.json")
+        if episode_scope is not None and (type(episode_scope) is not int or episode_scope < 1):
+            raise ValueError("episode scope must be a positive integer or null")
+        self.episode_scope = episode_scope
+        self.project_bytes = (
+            self._read_required_control_file("project.json", "project.json")
+            if project_bytes is None
+            else bytes(project_bytes)
+        )
         project = self._parse_json(self.project_bytes, "project.json")
         if not isinstance(project, dict):
             raise ValueError("project.json must contain an object")
@@ -239,6 +252,8 @@ class _Planner:
             return
         self._load_episode_bindings()
         for binding in self.bindings:
+            if self.episode_scope is not None and binding.episode != self.episode_scope:
+                continue
             observation = self.adapter.inspect_artifact(binding.script_file)
             if observation.blocker is not None:
                 raise ArtifactManifestError(observation.blocker.detail)
@@ -378,7 +393,10 @@ class _Planner:
             self._planned.add("structured-content")
             return
         step1_by_episode = {
-            binding.episode: step1 for binding in self.bindings if (step1 := self._plan_one_step1(binding)) is not None
+            binding.episode: step1
+            for binding in self.bindings
+            if (self.episode_scope is None or binding.episode == self.episode_scope)
+            and (step1 := self._plan_one_step1(binding)) is not None
         }
         for episode in self.episodes:
             step1 = step1_by_episode.get(episode.episode)
@@ -1286,8 +1304,19 @@ def activate_artifact_target_state(project_dir: Path, *, bump_schema: bool) -> b
     return changed
 
 
-def ensure_imported_artifact_target_state(project_dir: Path) -> bool:
-    """Eagerly materialize the v8 sidecar at the archive staging boundary."""
+def ensure_imported_artifact_target_state(
+    project_dir: Path,
+    *,
+    preserved_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
+) -> bool:
+    """Eagerly materialize the v8 sidecar at the archive staging boundary.
+
+    Official exports carry the complete source Manifest in their visible archive
+    envelope.  Its digests are immutable generation evidence: validate every key
+    and formal path against the imported canonical target plan, then restore that
+    whole snapshot in one commit.  Legacy archives without the envelope retain
+    the self-proving reconstruction path.
+    """
 
     raw = (project_dir / "project.json").read_bytes()
     try:
@@ -1296,30 +1325,67 @@ def ensure_imported_artifact_target_state(project_dir: Path) -> bool:
         raise ValueError("project.json is not valid UTF-8 JSON") from exc
     if not isinstance(project, Mapping) or project.get("schema_version") != TARGET_SCHEMA_VERSION:
         raise ValueError("archive activation requires a schema-v8 project")
+    if preserved_entries is not None:
+        plan = plan_artifact_target_state(project_dir)
+        invalid = [
+            key.encode()
+            for key, archived in preserved_entries.items()
+            if (current := plan.entries.get(key)) is None or current.artifact_path != archived.artifact_path
+        ]
+        if invalid:
+            raise ValueError(f"archive Artifact Manifest contains unprovable formal claims: {sorted(invalid)}")
+        _assert_preflight_unchanged(project_dir, plan)
+        return ProjectArtifactManifestAdapter(project_dir).replace_entries_atomically(dict(preserved_entries))
     return activate_artifact_target_state(project_dir, bump_schema=False)
 
 
 def resolve_current_artifact_target(project_dir: Path, key: ArtifactKey) -> ArtifactManifestEntry | None:
     """Resolve one formal post-commit target without repairing any other key."""
 
-    return _Planner(project_dir).resolve_key(key)
+    return _Planner(project_dir, episode_scope=_episode_scope_for_key(key)).resolve_key(key)
+
+
+def _episode_scope_for_key(key: ArtifactKey) -> int | None:
+    """Return the one episode whose control files may affect ``key``."""
+
+    if key.kind is ArtifactKind.ASSET_SHEET:
+        return None
+    episode = key.components[0]
+    if type(episode) is not int:
+        raise ValueError("episode artifact key has no positive episode identity")
+    return episode
 
 
 class ArtifactCurrencyResolver:
     """Side-effect-free runtime comparison against canonical target state."""
 
     def __init__(self, project_dir: Path) -> None:
-        self._planner = _Planner(project_dir)
-        if self._planner.project.get("schema_version") != TARGET_SCHEMA_VERSION:
+        self._project_dir = Path(project_dir)
+        root_planner = _Planner(project_dir)
+        if root_planner.project.get("schema_version") != TARGET_SCHEMA_VERSION:
             raise RuntimeError("Artifact Manifest is not activated for this project schema")
         # Validate the sidecar once even when a workflow phase has no artifacts
         # to compare.  A corrupt active manifest is a blocker, never an empty
         # target state or permission to fall back to filesystem existence.
-        self._planner.adapter.get_entry(ArtifactKey.episode_script(1))
-        self._manifest = ArtifactManifest(self._planner.adapter)
+        root_planner.adapter.get_entry(ArtifactKey.episode_script(1))
+        self._project_bytes = root_planner.project_bytes
+        self._planners: dict[int | None, _Planner] = {None: root_planner}
+        self._manifest = ArtifactManifest(root_planner.adapter)
+
+    def _planner_for(self, key: ArtifactKey) -> _Planner:
+        scope = _episode_scope_for_key(key)
+        planner = self._planners.get(scope)
+        if planner is None:
+            planner = _Planner(
+                self._project_dir,
+                episode_scope=scope,
+                project_bytes=self._project_bytes,
+            )
+            self._planners[scope] = planner
+        return planner
 
     def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
-        expected = self._planner.resolve_key(key)
+        expected = self._planner_for(key).resolve_key(key)
         return self._manifest.compare_entry(key, artifact_path=artifact_path, expected=expected)
 
 
@@ -1474,13 +1540,24 @@ def artifact_key_for_resource(
     planner = _Planner(project_dir)
     if planner.project.get("schema_version") != TARGET_SCHEMA_VERSION:
         raise RuntimeError("Artifact Manifest is not activated for this project schema")
-    planner._load_episodes()
     if resource_type == "grids":
         grid = next((candidate for candidate in planner._load_grid_records() if candidate.id == resource_id), None)
         if grid is None:
             raise KeyError(resource_id)
+        planner._load_episode_bindings()
+        binding = next((candidate for candidate in planner.bindings if candidate.episode == grid.episode), None)
+        if binding is None or binding.script_file != _normalize_script_binding(grid.script_file):
+            raise ValueError("formal grid no longer matches an episode script binding")
         return ArtifactKey.episode_grid(grid.episode, resource_id)
-    if script_file is None and resource_type == "storyboards":
+    if script_file is not None:
+        planner._load_episode_bindings()
+        normalized = _normalize_script_binding(script_file)
+        binding = next((candidate for candidate in planner.bindings if candidate.script_file == normalized), None)
+        if binding is None:
+            raise ValueError("formal resource no longer matches an episode script binding")
+        episode_number = binding.episode
+    elif resource_type == "storyboards":
+        planner._load_episodes()
         matches = [
             candidate
             for candidate in planner.episodes
@@ -1488,20 +1565,15 @@ def artifact_key_for_resource(
         ]
         if len(matches) != 1:
             raise ValueError("storyboard identity does not resolve to exactly one episode binding")
-        episode = matches[0]
+        episode_number = matches[0].episode
     else:
-        if script_file is None:
-            raise ValueError(f"script_file is required for {resource_type}")
-        normalized = _normalize_script_binding(script_file)
-        episode = next((candidate for candidate in planner.episodes if candidate.script_file == normalized), None)
-    if episode is None:
-        raise ValueError("formal resource no longer matches an episode script binding")
+        raise ValueError(f"script_file is required for {resource_type}")
     if resource_type == "storyboards":
-        return ArtifactKey.episode_storyboard(episode.episode, resource_id)
+        return ArtifactKey.episode_storyboard(episode_number, resource_id)
     if resource_type in {"videos", "reference_videos"}:
-        return ArtifactKey.episode_video(episode.episode, resource_id)
+        return ArtifactKey.episode_video(episode_number, resource_id)
     if resource_type == "audio":
-        return ArtifactKey.episode_audio(episode.episode, resource_id)
+        return ArtifactKey.episode_audio(episode_number, resource_id)
     raise ValueError(f"unsupported formal artifact resource type: {resource_type}")
 
 
@@ -1577,6 +1649,34 @@ def register_task_current_resource_artifact(
         previous=previous,
         changed=changed,
     )
+
+
+def register_artifact_entries_atomically(
+    project_dir: Path,
+    entries: Mapping[ArtifactKey, ArtifactManifestEntry | None],
+) -> bool:
+    """Replace a frozen batch of formal claims in one Manifest CAS commit."""
+
+    if not entries or not _artifact_manifest_is_active(project_dir):
+        return False
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    expected: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
+    replacements = dict(entries)
+    for key, entry in replacements.items():
+        if entry is not None:
+            observation = adapter.inspect_artifact(entry.artifact_path)
+            if observation.blocker is not None:
+                raise ArtifactManifestError(
+                    f"cannot register blocked formal artifact {entry.artifact_path}: {observation.blocker.detail}"
+                )
+            if not observation.present:
+                raise ArtifactManifestError(f"cannot register missing formal artifact: {entry.artifact_path}")
+        expected[key] = adapter.get_entry(key)
+    if expected == replacements:
+        return False
+    if not adapter.replace_entries_if_matches_atomically(expected=expected, replacements=replacements):
+        raise ArtifactManifestError("artifact manifest changed during batch registration")
+    return True
 
 
 def forget_current_resource_artifact(
@@ -1702,6 +1802,7 @@ __all__ = [
     "forget_unbound_storyboard_artifacts",
     "plan_artifact_target_state",
     "register_current_artifact",
+    "register_artifact_entries_atomically",
     "register_current_artifact_if_provable",
     "register_current_resource_artifact",
     "register_task_current_resource_artifact",

@@ -928,6 +928,7 @@ class ProjectArtifactManifestAdapter:
                     else:
                         os.unlink(MANIFEST_FILENAME, dir_fd=root_fd)
                 except FileNotFoundError:
+                    # Deletion is idempotent; another writer may already have removed the empty sidecar.
                     pass
                 except OSError as exc:
                     raise ArtifactManifestError(f"cannot remove empty artifact manifest: {exc}") from exc
@@ -1610,6 +1611,29 @@ def _serialize_manifest(entries: Mapping[str, ArtifactManifestEntry]) -> bytes:
         "schema_version": MANIFEST_SCHEMA_VERSION,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8") + b"\n"
+
+
+def encode_artifact_manifest_payload(
+    entries: Mapping[ArtifactKey, ArtifactManifestEntry],
+) -> dict[str, object]:
+    """Encode a complete Manifest snapshot for a visible transport envelope."""
+
+    encoded = _encode_target_entries(entries)
+    payload = json.loads(_serialize_manifest(encoded).decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ArtifactManifestError("encoded artifact manifest payload is not an object")
+    return cast(dict[str, object], payload)
+
+
+def decode_artifact_manifest_payload(payload: object) -> Mapping[ArtifactKey, ArtifactManifestEntry]:
+    """Strictly decode a complete Manifest snapshot from a transport envelope."""
+
+    try:
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise ArtifactManifestError(f"artifact manifest payload is not JSON: {exc}") from exc
+    encoded = _parse_manifest(raw)
+    return {ArtifactKey.decode(key): entry for key, entry in encoded.items()}
 
 
 def _parse_manifest(raw: bytes) -> dict[str, ArtifactManifestEntry]:

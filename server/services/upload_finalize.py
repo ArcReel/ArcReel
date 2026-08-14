@@ -140,6 +140,19 @@ def write_bytes_atomic(content: bytes, target: Path) -> None:
         raise
 
 
+def stage_uploaded_bytes(content: bytes, target: Path) -> Path:
+    """Write normalized upload bytes beside the canonical target without selecting them."""
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staged_file = _upload_tmp_path(target)
+    try:
+        staged_file.write_bytes(content)
+        return staged_file
+    except BaseException:
+        staged_file.unlink(missing_ok=True)
+        raise
+
+
 async def save_uploaded_bytes(content: bytes, target: Path) -> None:
     """把内存中的上传内容原子写入 target（同 dot-tmp + replace + 失败清理）。"""
     await asyncio.to_thread(write_bytes_atomic, content, target)

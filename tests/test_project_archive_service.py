@@ -7,7 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from lib.artifact_manifest import MANIFEST_FILENAME, ArtifactBasisDescriptor, ArtifactKey
+from lib.artifact_activation import ArtifactCurrencyResolver
+from lib.artifact_manifest import (
+    MANIFEST_FILENAME,
+    ArtifactBasisDescriptor,
+    ArtifactKey,
+    ArtifactStatus,
+    ProjectArtifactManifestAdapter,
+)
 from lib.i18n import _
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
 from lib.project_manager import ProjectManager
@@ -370,6 +377,72 @@ class TestProjectArchiveService:
         assert imported_manifest == startup_manifest
 
     @pytest.mark.unit
+    def test_official_round_trip_preserves_a_stale_asset_claim(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        migrate_v7_to_v8(project_dir)
+
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert before is not None
+        project = pm.load_project("demo")
+        project["characters"]["Hero"]["description"] = "Changed after generation"
+        _write_json(project_dir / "project.json", project)
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="characters/Hero.png").status
+            is ArtifactStatus.STALE
+        )
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            assert archive_manifest["artifact_manifest"]["entries"][key.encode()]["basis_digest"] == before.basis_digest
+            assert not any(name.endswith(f"/{MANIFEST_FILENAME}") for name in archive.namelist())
+        shutil.rmtree(project_dir)
+
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) == before
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="characters/Hero.png").status
+            is ArtifactStatus.STALE
+        )
+
+    @pytest.mark.unit
+    def test_official_round_trip_preserves_an_empty_manifest_snapshot(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        migrate_v7_to_v8(project_dir)
+
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        for key in tuple(adapter.snapshot_entries()):
+            assert adapter.delete_entry(key)
+        assert not (project_dir / MANIFEST_FILENAME).exists()
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            assert archive_manifest["artifact_manifest"]["entries"] == {}
+        shutil.rmtree(project_dir)
+
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        assert ProjectArtifactManifestAdapter(imported_dir).snapshot_entries() == {}
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="characters/Hero.png").status
+            is ArtifactStatus.MISSING
+        )
+
+    @pytest.mark.unit
     def test_current_export_keeps_selected_typed_snapshot_for_import_activation(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
@@ -434,7 +507,7 @@ class TestProjectArchiveService:
         monkeypatch.setattr(
             project_archive_module,
             "ensure_imported_artifact_target_state",
-            lambda _path: (_ for _ in ()).throw(ValueError("injected activation failure")),
+            lambda _path, **_kwargs: (_ for _ in ()).throw(ValueError("injected activation failure")),
         )
 
         with pytest.raises(ProjectArchiveValidationError) as exc_info:

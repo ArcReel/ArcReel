@@ -15,6 +15,7 @@ from typing import Any, Optional, cast
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
+from lib.artifact_activation import TARGET_SCHEMA_VERSION
 from lib.artifact_manifest import ArtifactBasisDescriptor
 from lib.artifact_provenance import (
     build_ad_episode_script_basis,
@@ -858,7 +859,7 @@ class ScriptGenerator:
             # Legacy projects and small unit-test fixtures can predate the typed
             # artifact contract.  Schema 8 must remain strict because its
             # Manifest is authoritative.
-            if self.project_json.get("schema_version") == 8:
+            if self.project_json.get("schema_version") == TARGET_SCHEMA_VERSION:
                 raise
             self._artifact_basis = None
             return
@@ -869,7 +870,7 @@ class ScriptGenerator:
         try:
             basis = build_ad_episode_script_basis(episode, project=self.project_json)
         except (TypeError, ValueError):
-            if self.project_json.get("schema_version") == 8:
+            if self.project_json.get("schema_version") == TARGET_SCHEMA_VERSION:
                 raise
             self._artifact_basis = None
             return

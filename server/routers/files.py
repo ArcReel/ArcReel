@@ -377,31 +377,50 @@ async def upload_file(
                 except KeyError:
                     raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
             else:
-                with open(target_path, "wb") as f:
-                    f.write(content)
-
-                # 更新元数据
-                if spec.metadata_setter is not None and name:
-                    try:
-                        with project_change_source("webui"):
-                            spec.metadata_setter(manager, project_name, name, relative_path)
-                    except KeyError:
-                        if spec.host_bucket is not None:
-                            # 入口已校验宿主存在；并发删除导致的窗口期竞态按 404 处理，
-                            # 已落盘的文件一并清理避免孤儿
-                            target_path.unlink(missing_ok=True)
-                            raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
-                        # 单图类型：资产不存在时忽略，文件路径确定，资产后建仍可引用
-
                 if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
                     asset_spec = ASSET_SPECS[upload_type]
+                    asset_name = name
                     bucket = manager.load_project(project_name).get(asset_spec.bucket_key)
-                    if resolve_asset_key(bucket, name) is not None:
-                        register_current_resource_artifact(
-                            project_dir,
-                            resource_type=asset_spec.bucket_key,
-                            resource_id=name,
-                        )
+                    if resolve_asset_key(bucket, asset_name) is not None:
+
+                        def _register(_target: Path) -> None:
+                            register_current_resource_artifact(
+                                project_dir,
+                                resource_type=asset_spec.bucket_key,
+                                resource_id=asset_name,
+                            )
+
+                        with project_change_source("webui"):
+                            manager.install_asset_sheet_bytes(
+                                upload_type,
+                                project_name,
+                                asset_name,
+                                relative_path,
+                                content,
+                                on_commit=_register,
+                            )
+                    else:
+                        # Stable single-image paths may be uploaded before their asset definition exists.
+                        # There is no metadata/Manifest claim to commit in that case.
+                        from lib.json_io import atomic_write_bytes
+
+                        atomic_write_bytes(target_path, content)
+                else:
+                    with open(target_path, "wb") as f:
+                        f.write(content)
+
+                    # 更新元数据
+                    if spec.metadata_setter is not None and name:
+                        try:
+                            with project_change_source("webui"):
+                                spec.metadata_setter(manager, project_name, name, relative_path)
+                        except KeyError:
+                            if spec.host_bucket is not None:
+                                # 入口已校验宿主存在；并发删除导致的窗口期竞态按 404 处理，
+                                # 已落盘的文件一并清理避免孤儿
+                                target_path.unlink(missing_ok=True)
+                                raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
+                            # 单图类型：资产不存在时忽略，文件路径确定，资产后建仍可引用
 
             return {
                 "success": True,

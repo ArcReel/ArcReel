@@ -8,6 +8,7 @@ import pytest
 from lib.artifact_activation import (
     ArtifactCurrencyResolver,
     ensure_imported_artifact_target_state,
+    register_current_resource_artifact,
     register_task_current_resource_artifact,
 )
 from lib.artifact_manifest import (
@@ -477,6 +478,35 @@ def test_runtime_resolver_plans_storyboards_only_once_per_snapshot(tmp_path: Pat
     assert resolver.compare(key, artifact_path="storyboards/scene_E1S01.png").status is ArtifactStatus.CURRENT
     assert resolver.compare(key, artifact_path="storyboards/scene_E1S01.png").status is ArtifactStatus.CURRENT
     assert calls == 1
+
+
+def test_runtime_single_episode_resolution_ignores_a_malformed_sibling_script(tmp_path: Path) -> None:
+    project_dir, project, _step1, _script = _project(tmp_path)
+    migrate_v7_to_v8(project_dir)
+    project = _read_json(project_dir / "project.json")
+    project["episodes"].append(
+        {
+            "episode": 2,
+            "title": "第二集",
+            "script_file": "scripts/episode_2.json",
+        }
+    )
+    _write_json(project_dir / "project.json", project)
+    (project_dir / "scripts" / "episode_2.json").write_text("{broken", encoding="utf-8")
+
+    key = ArtifactKey.episode_storyboard(1, "E1S01")
+    resolver = ArtifactCurrencyResolver(project_dir)
+
+    assert resolver.compare(key, artifact_path="storyboards/scene_E1S01.png").status is ArtifactStatus.CURRENT
+    assert (
+        register_current_resource_artifact(
+            project_dir,
+            resource_type="storyboards",
+            resource_id="E1S01",
+            script_file="scripts/episode_1.json",
+        )
+        is False
+    )
 
 
 def test_formal_script_registration_failure_restores_script_and_project(tmp_path: Path, monkeypatch) -> None:

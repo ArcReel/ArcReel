@@ -211,6 +211,52 @@ class TestMediaGenerator:
             gen._get_output_path("bad", "x")
 
     @pytest.mark.unit
+    async def test_cancelled_formal_image_generation_never_replaces_the_canonical_file(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        backend_written = asyncio.Event()
+        keep_running = asyncio.Event()
+
+        class _BlockingImageBackend(_FakeImageBackend):
+            async def generate(self, request) -> ImageGenerationResult:
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"new-image")
+                backend_written.set()
+                await keep_running.wait()
+                return ImageGenerationResult(
+                    image_path=request.output_path,
+                    provider=self.name,
+                    model=self.model,
+                    usage_tokens=8,
+                )
+
+        gen._image_backend = _BlockingImageBackend()
+        canonical = gen._get_output_path("storyboards", "E1S01")
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        canonical.write_bytes(b"old-image")
+        committed: list[Path] = []
+
+        task = asyncio.create_task(
+            gen.generate_image_async(
+                prompt="p",
+                resource_type="storyboards",
+                resource_id="E1S01",
+                formal_output=True,
+                task_id="image-task",
+                commit_formal_output=lambda staged, _current, _metadata: committed.append(staged) or 1,
+            )
+        )
+        await backend_written.wait()
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert canonical.read_bytes() == b"old-image"
+        assert committed == []
+        assert gen.versions.add_calls == []
+        assert not any(canonical.parent.glob(".*.task-output.png"))
+
+    @pytest.mark.unit
     def test_generate_image_success_and_failure(self, tmp_path):
         gen = _build_generator(tmp_path)
         output_path, version = gen.generate_image(

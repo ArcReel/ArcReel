@@ -880,6 +880,38 @@ def test_upload_grid_image_refreshes_frozen_aspect_ratio(monkeypatch, tmp_path):
     assert saved.video_aspect_ratio == "9:16"
 
 
+def test_upload_grid_image_registration_failure_restores_file_version_and_record(monkeypatch, tmp_path):
+    from lib.version_manager import VersionManager
+
+    grid = _make_completed_grid(tmp_path)
+    grid.split_at = "2026-01-01T00:00:00+00:00"
+    GridManager(tmp_path).save(grid)
+    target = tmp_path / "grids" / f"{grid.id}.png"
+    old_bytes = target.read_bytes()
+    versions = VersionManager(tmp_path)
+    versions.add_version("grids", grid.id, "old", source_file=target)
+    versions_bytes = versions.versions_file.read_bytes()
+    record = tmp_path / "grids" / f"{grid.id}.json"
+    record_bytes = record.read_bytes()
+
+    monkeypatch.setattr(
+        grids,
+        "register_current_resource_artifact",
+        lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("manifest commit failed")),
+    )
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("replacement.png", _png_bytes(color=(200, 1, 2)), "image/png")},
+        )
+
+    assert resp.status_code == 500
+    assert target.read_bytes() == old_bytes
+    assert versions.versions_file.read_bytes() == versions_bytes
+    assert record.read_bytes() == record_bytes
+
+
 def test_upload_grid_image_does_not_downscale(monkeypatch, tmp_path):
     """联合图上传不缩放：超过分镜图 2048 上限的大图原尺寸保留（4K 联合图切格不失真）。"""
     grid = _make_completed_grid(tmp_path)

@@ -298,12 +298,13 @@ class _FakePM:
             "style_description": "cinematic",
             "characters": {
                 "Alice": {
+                    "description": "hero",
                     "character_sheet": "characters/Alice.png",
                     "reference_image": "characters/refs/Alice-ref.png",
                 }
             },
-            "scenes": {"祠堂": {"scene_sheet": "scenes/祠堂.png"}},
-            "props": {"玉佩": {"prop_sheet": "props/玉佩.png"}},
+            "scenes": {"祠堂": {"description": "temple", "scene_sheet": "scenes/祠堂.png"}},
+            "props": {"玉佩": {"description": "jade", "prop_sheet": "props/玉佩.png"}},
             "products": {
                 "保温杯": {
                     "description": "不锈钢保温杯",
@@ -754,6 +755,76 @@ class TestGenerationTasks:
         assert captured[0].digest != latest.digest
 
     @pytest.mark.unit
+    async def test_asset_sheet_registers_generation_frozen_basis_when_definition_changes_in_flight(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        from lib.visual_artifact_provenance import VisualReference, build_asset_sheet_visual_basis
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        captured: list[ArtifactBasis] = []
+        original_generate = fake_generator.generate_image_async
+
+        async def _generate(**kwargs):
+            result = await original_generate(**kwargs)
+            fake_pm.project["characters"]["Alice"]["description"] = "latest definition"
+            return result
+
+        fake_generator.generate_image_async = _generate
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        class _Receipt:
+            def compensate_cancelled(self) -> None:
+                pass
+
+        def _register(*_args, **kwargs):
+            captured.append(kwargs["basis"])
+            return _Receipt()
+
+        monkeypatch.setattr(generation_tasks, "register_task_current_resource_artifact", _register)
+
+        await generation_tasks.execute_character_task(
+            "demo",
+            "Alice",
+            {"prompt": "queued definition"},
+            task_id="character-task",
+        )
+
+        references = (
+            VisualReference(
+                path=project_path / "characters" / "refs" / "Alice-ref.png",
+                role="source",
+                logical_type="character",
+                logical_id="Alice",
+                kind="original",
+            ),
+        )
+        expected = build_asset_sheet_visual_basis(
+            asset_type="character",
+            asset_id="Alice",
+            description="queued definition",
+            style="Anime",
+            style_description="cinematic",
+            aspect_ratio="16:9",
+            references=references,
+        )
+        latest = build_asset_sheet_visual_basis(
+            asset_type="character",
+            asset_id="Alice",
+            description="latest definition",
+            style="Anime",
+            style_description="cinematic",
+            aspect_ratio="16:9",
+            references=references,
+        )
+        assert captured == [expected]
+        assert captured[0].digest != latest.digest
+
+    @pytest.mark.unit
     async def test_storyboard_cancellation_waits_for_registration_and_returns_compensation(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -915,6 +986,54 @@ class TestGenerationTasks:
         assert pm.load_project("demo")["characters"]["Alice"]["character_sheet"] == "characters/old.png"
         assert version_manager.get_current_version("characters", "Alice") == old_version
         assert current.read_bytes() == b"old-sheet"
+
+    @pytest.mark.integration
+    async def test_asset_generation_registration_failure_never_exposes_uncommitted_image(self, tmp_path, monkeypatch):
+        from lib.media_generator import task_image_staging_path
+        from lib.project_manager import ProjectManager
+        from lib.version_manager import VersionManager
+
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.add_character("demo", "Alice", "queued definition")
+        project_path = pm.get_project_path("demo")
+        current = project_path / "characters" / "Alice.png"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"old-sheet")
+        versions = VersionManager(project_path)
+        old_version = versions.add_version("characters", "Alice", "old", source_file=current)
+
+        class _Generator:
+            def __init__(self):
+                self.versions = versions
+
+            async def generate_image_async(self, **kwargs):
+                assert kwargs["formal_output"] is True
+                staged = task_image_staging_path(current, kwargs["task_id"])
+                staged.write_bytes(b"new-sheet")
+                version = kwargs["commit_formal_output"](staged, current, {"aspect_ratio": "16:9"})
+                return current, version
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(_Generator()))
+        monkeypatch.setattr(
+            generation_tasks,
+            "register_task_current_resource_artifact",
+            lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("manifest commit failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="manifest commit failed"):
+            await generation_tasks.execute_character_task(
+                "demo",
+                "Alice",
+                {"prompt": "queued definition"},
+                task_id="character-task",
+            )
+
+        assert current.read_bytes() == b"old-sheet"
+        assert versions.get_current_version("characters", "Alice") == old_version
+        assert pm.load_project("demo")["characters"]["Alice"].get("character_sheet") == ""
 
     @pytest.mark.unit
     async def test_reused_video_result_emits_the_normal_generation_success_event(self, monkeypatch):

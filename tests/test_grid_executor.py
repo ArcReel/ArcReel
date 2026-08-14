@@ -261,6 +261,77 @@ class TestExecuteGridTask:
         # 联合图内容更新后落格状态复位，等待显式切分
         assert updated_grid_data["split_at"] is None
 
+    async def test_grid_registers_generation_frozen_basis_when_script_changes_in_flight(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from lib.grid.layout import grid_aspect_ratio_for
+        from lib.visual_artifact_provenance import GridStoryboardVisual, build_grid_composite_visual_basis
+        from server.services.generation_tasks import execute_grid_task
+
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        project = json.loads((project_with_script / "project.json").read_text())
+        captured = []
+
+        class _Generator:
+            versions = MagicMock()
+
+            async def generate_image_async(self, **_kwargs):
+                script["segments"][0]["image_prompt"] = "latest prompt"
+                return project_with_script / "grids" / f"{grid_json.id}.png", 1
+
+        def _register(*_args, **kwargs):
+            captured.append(kwargs["basis"])
+            return None
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(_Generator()),
+            ),
+            patch("server.services.generation_tasks.register_formal_task_artifact", side_effect=_register),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = project
+            mock_pm.load_script.return_value = script
+            mock_pm_fn.return_value = mock_pm
+
+            await execute_grid_task(
+                "test-project",
+                grid_json.id,
+                {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+        members = tuple(
+            GridStoryboardVisual(
+                resource_id=f"E1S0{i}",
+                image_prompt={
+                    "scene": f"scene{i}",
+                    "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+                },
+                video_prompt={
+                    "action": f"action{i}",
+                    "camera_motion": "static",
+                    "ambiance_audio": "quiet",
+                    "dialogue": [],
+                },
+            )
+            for i in range(1, 4)
+        )
+        expected = build_grid_composite_visual_basis(
+            group_id=grid_json.id,
+            members=members,
+            rows=2,
+            columns=2,
+            style="realistic",
+            grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
+        )
+        assert captured == [expected]
+
     async def test_manifest_failure_rejects_selected_grid_before_marking_failed(
         self,
         project_with_script,
@@ -290,6 +361,9 @@ class TestExecuteGridTask:
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
             mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text()
+            )
             mock_pm_fn.return_value = mock_pm
 
             with pytest.raises(RuntimeError, match="manifest commit failed"):
@@ -356,6 +430,9 @@ class TestExecuteGridTask:
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
             mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text()
+            )
             mock_pm_fn.return_value = mock_pm
 
             result = await execute_grid_task(

@@ -14,8 +14,13 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from lib.artifact_activation import ensure_imported_artifact_target_state
-from lib.artifact_manifest import ArtifactManifestError
+from lib.artifact_activation import TARGET_SCHEMA_VERSION, ensure_imported_artifact_target_state
+from lib.artifact_manifest import (
+    ArtifactManifestError,
+    ProjectArtifactManifestAdapter,
+    decode_artifact_manifest_payload,
+    encode_artifact_manifest_payload,
+)
 from lib.asset_types import normalize_asset_name
 from lib.config.resolver import resolve_raw_supported_durations
 from lib.data_validator import DataValidator
@@ -357,11 +362,19 @@ class ProjectArchiveService:
                             warnings=diagnostics.warning_messages(),
                             diagnostics=diagnostics,
                         )
-                    # Artifact Manifest 是 hidden sidecar，不进入归档成员；schema-v8
-                    # 归档因此必须在 staging 激活边界 eager 重建。先让既有 validator
-                    # 保持其结构化导入诊断，再对合法树执行目标态预检与原子提交。
+                    # Artifact Manifest 是 hidden sidecar，不进入归档成员。官方导出把完整
+                    # claim snapshot 放进 visible archive envelope；旧的手工归档没有该字段，
+                    # 仍走 self-proving reconstruction。两条路径均在 staging 一次性提交。
                     try:
-                        ensure_imported_artifact_target_state(staging_dir)
+                        preserved_entries = (
+                            decode_artifact_manifest_payload(manifest["artifact_manifest"])
+                            if isinstance(manifest, dict) and "artifact_manifest" in manifest
+                            else None
+                        )
+                        ensure_imported_artifact_target_state(
+                            staging_dir,
+                            preserved_entries=preserved_entries,
+                        )
                     except _ARTIFACT_ACTIVATION_ERRORS as exc:
                         self._raise_artifact_activation_validation_error(diagnostics, exc)
 
@@ -431,6 +444,11 @@ class ProjectArchiveService:
             )
 
         snapshot_project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE)
+        artifact_manifest = None
+        if isinstance(snapshot_project, dict) and snapshot_project.get("schema_version") == TARGET_SCHEMA_VERSION:
+            artifact_manifest = encode_artifact_manifest_payload(
+                ProjectArtifactManifestAdapter(source_dir).snapshot_entries()
+            )
         manifest = self._build_archive_manifest(
             project_name,
             snapshot_project,
@@ -439,6 +457,7 @@ class ProjectArchiveService:
             # 面向请求的渲染只发生在 router 边界。
             diagnostics=diagnostics.to_export_payload(),
             pass_through_entries=excluded_entries,
+            artifact_manifest=artifact_manifest,
         )
         return temp_dir, snapshot_dir, manifest, diagnostics
 
@@ -450,9 +469,10 @@ class ProjectArchiveService:
         scope: str,
         diagnostics: dict[str, Any],
         pass_through_entries: list[str],
+        artifact_manifest: dict[str, object] | None,
     ) -> dict[str, Any]:
         project_payload = project or {}
-        return {
+        payload = {
             "format_version": ARCHIVE_FORMAT_VERSION,
             "script_schema_version": ARCHIVE_SCRIPT_SCHEMA_VERSION,
             "project_name": project_name,
@@ -463,6 +483,9 @@ class ProjectArchiveService:
             "export_diagnostics": diagnostics,
             "pass_through_entries": pass_through_entries,
         }
+        if artifact_manifest is not None:
+            payload["artifact_manifest"] = artifact_manifest
+        return payload
 
     @staticmethod
     def _write_directory_entry(

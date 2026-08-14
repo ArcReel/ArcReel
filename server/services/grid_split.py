@@ -8,17 +8,38 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from lib.artifact_activation import register_current_resource_artifact
+from lib.artifact_activation import register_artifact_entries_atomically
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry
 from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
+from lib.path_safety import safe_join
 from lib.project_manager import get_project_manager
-from lib.version_manager import VersionManager
+from lib.version_manager import StagedVersionCommit, VersionManager
+from lib.visual_artifact_provenance import (
+    GridStoryboardVisual,
+    VisualReference,
+    build_grid_member_storyboard_visual_basis,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _register_split_entries_atomically(
+    project_path: Path,
+    *,
+    entries: Mapping[ArtifactKey, ArtifactManifestEntry | None],
+) -> None:
+    """Registration boundary for all cells selected by one split."""
+
+    register_artifact_entries_atomically(project_path, entries)
 
 
 class GridImageNotReadyError(Exception):
@@ -83,68 +104,165 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
         asset_updates: list[tuple[str, str, Any]] = []
         updated_ids: list[str] = []
         missing_ids: list[str] = []
+        staged_commits: list[StagedVersionCommit] = []
+        cell_assignments: list[tuple[int, str, str]] = []
 
-        # 宫格已统一走普通图生视频（不再使用 first_last 模式），cell 仅作为
-        # next_scene_id 的起始分镜图，文件名与普通分镜对齐为 scene_{id}.png。
-        for cell, frame in zip(cells, grid.frame_chain):
-            if frame.frame_type == "placeholder":
-                continue
-            if frame.frame_type not in ("first", "transition"):
-                continue
-            if not frame.next_scene_id:
-                continue
+        try:
+            # Cells stay invisible until the script, complete version batch, grid
+            # record, and complete Manifest claim set can all commit.
+            for cell, frame in zip(cells, grid.frame_chain):
+                if frame.frame_type == "placeholder":
+                    continue
+                if frame.frame_type not in ("first", "transition"):
+                    continue
+                if not frame.next_scene_id:
+                    continue
 
-            if str(frame.next_scene_id) not in valid_ids:
-                missing_ids.append(str(frame.next_scene_id))
-                continue
+                resource_id = str(frame.next_scene_id)
+                if resource_id not in valid_ids:
+                    missing_ids.append(resource_id)
+                    continue
 
-            cell_rel = f"storyboards/scene_{frame.next_scene_id}.png"
-            cell_path = storyboards_dir / f"scene_{frame.next_scene_id}.png"
-            # 与 MediaGenerator 版本顺序一致：旧文件先补登再覆写、覆写后登记新版本。
-            # 否则宫格重切的单元格不进版本史，版本面板的「当前版本」与磁盘内容脱节，
-            # 且下一次还原/上传会让未登记的格子字节永久丢失。
-            versions.ensure_current_tracked("storyboards", str(frame.next_scene_id), cell_path, "")
-            cell.save(cell_path, format="PNG")
-            versions.add_version(
-                resource_type="storyboards",
-                resource_id=str(frame.next_scene_id),
-                prompt="",
-                source_file=cell_path,
-                source="grid_split",
-                grid_id=grid.id,
-            )
-            frame.image_path = cell_rel
-            updated_ids.append(str(frame.next_scene_id))
-            asset_updates.append((frame.next_scene_id, "storyboard_image", cell_rel))
-            asset_updates.append((frame.next_scene_id, "grid_id", grid.id))
-            asset_updates.append((frame.next_scene_id, "grid_cell_index", frame.index))
+                cell_rel = f"storyboards/scene_{resource_id}.png"
+                cell_path = storyboards_dir / f"scene_{resource_id}.png"
+                fd, staged_name = tempfile.mkstemp(
+                    prefix=f".{cell_path.stem}.",
+                    suffix=f".grid-split{cell_path.suffix}",
+                    dir=storyboards_dir,
+                )
+                os.close(fd)
+                staged_path = Path(staged_name)
+                staged_path.unlink()
+                cell.save(staged_path, format="PNG")
+                staged_commits.append(
+                    StagedVersionCommit(
+                        resource_type="storyboards",
+                        resource_id=resource_id,
+                        prompt="",
+                        staged_file=staged_path,
+                        current_file=cell_path,
+                        metadata={"source": "grid_split", "grid_id": grid.id},
+                    )
+                )
+                cell_assignments.append((frame.index, resource_id, cell_rel))
+                updated_ids.append(resource_id)
+                asset_updates.append((resource_id, "storyboard_image", cell_rel))
+                asset_updates.append((resource_id, "grid_id", grid.id))
+                asset_updates.append((resource_id, "grid_cell_index", frame.index))
 
-        if missing_ids:
-            logger.warning(
-                "grid %s: frame_chain 中以下分镜在剧本 %s 已不存在,跳过 cell 保存: %s",
-                grid.id,
-                script_file,
-                sorted(set(missing_ids)),
-            )
+            if missing_ids:
+                logger.warning(
+                    "grid %s: frame_chain 中以下分镜在剧本 %s 已不存在,跳过 cell 保存: %s",
+                    grid.id,
+                    script_file,
+                    sorted(set(missing_ids)),
+                )
 
-        # Batch-write all asset updates in one script read+write pass
-        if asset_updates:
-            pm.batch_update_scene_assets(
-                project_name=project_name,
-                script_filename=script_file,
-                updates=asset_updates,
-            )
+            manifest_entries: dict[ArtifactKey, ArtifactManifestEntry | None] = {
+                ArtifactKey.episode_storyboard(grid.episode, resource_id): None for resource_id in updated_ids
+            }
+            item_by_id = {str(item.get(id_field)): item for item in items if isinstance(item, Mapping)}
+            members: tuple[GridStoryboardVisual, ...] | None = None
+            if len(set(grid.scene_ids)) == len(grid.scene_ids) and all(
+                resource_id in item_by_id for resource_id in grid.scene_ids
+            ):
+                members = tuple(
+                    GridStoryboardVisual(
+                        resource_id=resource_id,
+                        image_prompt=item_by_id[resource_id].get("image_prompt"),
+                        video_prompt=item_by_id[resource_id].get("video_prompt"),
+                    )
+                    for resource_id in grid.scene_ids
+                )
+            references: tuple[VisualReference, ...] | None = ()
+            reference_list: list[VisualReference] = []
+            for reference in grid.reference_images or []:
+                try:
+                    reference_path = safe_join(project_path, reference.path)
+                    if not reference_path.is_file():
+                        references = None
+                        break
+                    reference_list.append(
+                        VisualReference(
+                            path=reference_path,
+                            role="asset_sheet",
+                            logical_type=reference.ref_type,
+                            logical_id=reference.name,
+                            kind="sheet",
+                        )
+                    )
+                except (OSError, TypeError, ValueError):
+                    references = None
+                    break
+            if references is not None:
+                references = tuple(reference_list)
+            member_ratio = grid.video_aspect_ratio or get_aspect_ratio(project, "videos")
+            if members is not None and references is not None:
+                for cell_index, resource_id, cell_rel in cell_assignments:
+                    try:
+                        basis = build_grid_member_storyboard_visual_basis(
+                            group_id=grid.id,
+                            members=members,
+                            cell_index=cell_index,
+                            composite_image=grid_image_file,
+                            rows=grid.rows,
+                            columns=grid.cols,
+                            style=str(project.get("style") or ""),
+                            member_aspect_ratio=member_ratio,
+                            references=references,
+                        )
+                    except (OSError, TypeError, ValueError):
+                        continue
+                    manifest_entries[ArtifactKey.episode_storyboard(grid.episode, resource_id)] = ArtifactManifestEntry(
+                        artifact_path=cell_rel, basis_digest=basis.digest
+                    )
 
-        grid.split_at = datetime.now(UTC).isoformat()
-        grid_manager.save(grid)
-        for resource_id in updated_ids:
-            register_current_resource_artifact(
-                project_path,
-                resource_type="storyboards",
-                resource_id=resource_id,
-                script_file=script_file,
-            )
-        return updated_ids, missing_ids
+            split_at = datetime.now(UTC).isoformat()
+            initial_grid = grid.to_dict()
+            committed_grid_box: list[GridGeneration] = []
+
+            def _register() -> None:
+                _register_split_entries_atomically(project_path, entries=manifest_entries)
+
+            def _commit_grid() -> None:
+                assignment_by_index = {index: path for index, _resource_id, path in cell_assignments}
+
+                def _mutate(current: GridGeneration) -> None:
+                    if current.to_dict() != initial_grid:
+                        raise RuntimeError("grid changed while its composite was being split")
+                    for frame in current.frame_chain:
+                        if frame.index in assignment_by_index:
+                            frame.image_path = assignment_by_index[frame.index]
+                    current.split_at = split_at
+
+                committed = grid_manager.update(grid.id, _mutate, on_commit=_register)
+                if committed is None:
+                    raise RuntimeError(f"grid disappeared while being split: {grid.id}")
+                committed_grid_box.append(committed)
+
+            if staged_commits:
+
+                def _activate_versions(_script_path: Path) -> None:
+                    versions.commit_staged_versions(staged_commits, on_commit=_commit_grid)
+
+                pm.batch_update_scene_assets(
+                    project_name=project_name,
+                    script_filename=script_file,
+                    updates=asset_updates,
+                    on_commit=_activate_versions,
+                )
+            else:
+                _commit_grid()
+
+            if len(committed_grid_box) != 1:
+                raise RuntimeError("grid split transaction skipped its grid record commit")
+            committed_grid = committed_grid_box[0]
+            grid.frame_chain = committed_grid.frame_chain
+            grid.split_at = committed_grid.split_at
+            return updated_ids, missing_ids
+        finally:
+            for commit in staged_commits:
+                Path(commit.staged_file).unlink(missing_ok=True)
 
     updated_ids, missing_ids = await asyncio.to_thread(_split_and_assign)
 

@@ -12,7 +12,7 @@ import shutil
 import sys
 import tempfile
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -36,6 +36,18 @@ class PaidVersionCommit:
 
     version: int
     selected: bool
+
+
+@dataclass(frozen=True, slots=True)
+class StagedVersionCommit:
+    """One media selection participating in a multi-resource version commit."""
+
+    resource_type: str
+    resource_id: str
+    prompt: str
+    staged_file: Path
+    current_file: Path
+    metadata: Mapping[str, Any]
 
 
 def _get_versions_file_lock(versions_file: Path) -> threading.RLock:
@@ -390,6 +402,155 @@ class VersionManager:
             finally:
                 if activation_succeeded:
                     _report_cleanup_failures(_unlink_paths(current_backup), active_failure=sys.exception())
+
+    def commit_staged_versions(
+        self,
+        commits: Sequence[StagedVersionCommit],
+        *,
+        on_commit: Callable[[], None] | None = None,
+    ) -> dict[tuple[str, str], int]:
+        """Atomically select a batch of staged media files and version pointers.
+
+        The complete ``versions.json`` plus every canonical file is restored if
+        any activation or the final sidecar hook fails. Resource identities and
+        canonical paths must be unique so rollback has one unambiguous owner.
+        """
+
+        batch = tuple(commits)
+        if not batch:
+            return {}
+        identities: set[tuple[str, str]] = set()
+        current_paths: set[Path] = set()
+        for commit in batch:
+            if commit.resource_type not in self.RESOURCE_TYPES:
+                raise ValueError(f"不支持的资源类型: {commit.resource_type}")
+            identity = (commit.resource_type, commit.resource_id)
+            if identity in identities:
+                raise ValueError(f"duplicate staged version identity: {identity!r}")
+            identities.add(identity)
+            staged_file = Path(commit.staged_file)
+            current_file = Path(commit.current_file)
+            if not staged_file.is_file():
+                raise FileNotFoundError(f"staged version file does not exist: {staged_file}")
+            normalized_current = current_file.resolve(strict=False)
+            if normalized_current in current_paths:
+                raise ValueError(f"duplicate staged version target: {current_file}")
+            current_paths.add(normalized_current)
+
+        with self._lock:
+            versions_existed = self.versions_file.is_file()
+            versions_snapshot = self.versions_file.read_bytes() if versions_existed else None
+            data = self._load_versions()
+            created_snapshots: list[Path] = []
+            current_states: list[tuple[Path, bool, Path | None]] = []
+            result: dict[tuple[str, str], int] = {}
+            activation_succeeded = False
+
+            def _append_version(
+                *,
+                commit: StagedVersionCommit,
+                resource_data: dict[str, Any],
+                source: Path,
+                prompt: str,
+                metadata: Mapping[str, Any],
+            ) -> int:
+                records = resource_data.setdefault("versions", [])
+                previous = resource_data.get("current_version", 0)
+                if not isinstance(previous, int) or isinstance(previous, bool) or previous < 0:
+                    previous = 0
+                version = max((item.get("version", 0) for item in records), default=0) + 1
+                timestamp = self._generate_timestamp()
+                ext = self.EXTENSIONS.get(commit.resource_type, ".png")
+                filename = f"{commit.resource_id}_v{version}_{timestamp}{ext}"
+                rel_path = f"versions/{commit.resource_type}/{filename}"
+                abs_path = self.project_path / rel_path
+                self._ensure_dirs()
+                shutil.copy2(source, abs_path)
+                created_snapshots.append(abs_path)
+                records.append(
+                    {
+                        "version": version,
+                        "file": rel_path,
+                        "prompt": prompt,
+                        "created_at": self._generate_iso_timestamp(),
+                        **dict(metadata),
+                        _PREVIOUS_CURRENT_VERSION: previous,
+                    }
+                )
+                resource_data["current_version"] = version
+                return version
+
+            try:
+                for commit in batch:
+                    staged_file = Path(commit.staged_file)
+                    current_file = Path(commit.current_file)
+                    current_file.parent.mkdir(parents=True, exist_ok=True)
+                    bucket = data.setdefault(commit.resource_type, {})
+                    resource_data = bucket.setdefault(
+                        commit.resource_id,
+                        {"current_version": 0, "versions": []},
+                    )
+                    current_existed = current_file.is_file()
+                    backup = _create_rollback_backup(current_file) if current_existed else None
+                    current_states.append((current_file, current_existed, backup))
+                    if current_existed and not resource_data.get("current_version"):
+                        _append_version(
+                            commit=commit,
+                            resource_data=resource_data,
+                            source=current_file,
+                            prompt="",
+                            metadata={},
+                        )
+                    version = _append_version(
+                        commit=commit,
+                        resource_data=resource_data,
+                        source=staged_file,
+                        prompt=commit.prompt,
+                        metadata=commit.metadata,
+                    )
+                    os.replace(staged_file, current_file)
+                    result[(commit.resource_type, commit.resource_id)] = version
+
+                self._save_versions(data)
+                if on_commit is not None:
+                    on_commit()
+                activation_succeeded = True
+                return result
+            except BaseException as failure:
+                rollback_errors: list[OSError] = []
+                for current_file, current_existed, backup in reversed(current_states):
+                    try:
+                        if backup is None:
+                            if not current_existed:
+                                current_file.unlink(missing_ok=True)
+                        else:
+                            os.replace(backup, current_file)
+                    except OSError as exc:
+                        rollback_errors.append(exc)
+                try:
+                    if versions_snapshot is None:
+                        self.versions_file.unlink(missing_ok=True)
+                    else:
+                        atomic_write_bytes(self.versions_file, versions_snapshot)
+                except OSError as exc:
+                    rollback_errors.append(exc)
+                for path in created_snapshots:
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError as exc:
+                        rollback_errors.append(exc)
+                if rollback_errors:
+                    rollback_errors[0].__cause__ = failure
+                    raise RuntimeError(
+                        "batch version activation failed and durable rollback was incomplete"
+                    ) from rollback_errors[0]
+                raise
+            finally:
+                if activation_succeeded:
+                    _report_cleanup_failures(
+                        _unlink_paths(*(backup for _path, _existed, backup in current_states)),
+                        active_failure=sys.exception(),
+                    )
 
     def commit_staged_paid_version(
         self,

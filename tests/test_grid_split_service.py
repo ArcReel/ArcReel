@@ -8,6 +8,8 @@ import pytest
 from PIL import Image
 
 from lib.grid.models import GridGeneration
+from lib.grid_manager import GridManager
+from lib.project_manager import ProjectManager
 from server.services.grid_split import GridImageNotReadyError, apply_grid_split
 
 pytestmark = pytest.mark.unit
@@ -36,6 +38,7 @@ def project_with_script(tmp_path):
     (p / "scripts" / "episode_1.json").write_text(
         json.dumps(
             {
+                "episode": 1,
                 "content_mode": "narration",
                 "segments": [
                     {
@@ -85,6 +88,13 @@ def _mock_pm(project_with_script, script_data=None):
         if script_data is not None
         else json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
     )
+
+    def _batch_update(*_args, on_commit=None, **_kwargs):
+        if on_commit is not None:
+            on_commit(project_with_script / "scripts" / "episode_1.json")
+        return pm.load_script.return_value
+
+    pm.batch_update_scene_assets.side_effect = _batch_update
     return pm
 
 
@@ -186,11 +196,90 @@ class TestApplyGridSplit:
         assert emit.call_args.kwargs["resource_id"] == grid.id
         assert result.asset_fingerprints == {"a": 1}
 
+    async def test_registration_failure_restores_every_split_sidecar(self, project_with_script, grid_with_image):
+        from lib.version_manager import VersionManager
+
+        project_file = project_with_script / "project.json"
+        project = json.loads(project_file.read_text(encoding="utf-8"))
+        project["schema_version"] = 8
+        project_file.write_text(json.dumps(project), encoding="utf-8")
+        script_file = project_with_script / "scripts" / "episode_1.json"
+        grid_file = project_with_script / "grids" / f"{grid_with_image.id}.json"
+        storyboards = project_with_script / "storyboards"
+        for index, scene_id in enumerate(("E1S01", "E1S02", "E1S03"), start=1):
+            (storyboards / f"scene_{scene_id}.png").write_bytes(f"old-{index}".encode())
+
+        versions = VersionManager(project_with_script)
+        versions.add_version(
+            "storyboards",
+            "E1S01",
+            "old",
+            source_file=storyboards / "scene_E1S01.png",
+        )
+        snapshots = {
+            "project": project_file.read_bytes(),
+            "script": script_file.read_bytes(),
+            "grid": grid_file.read_bytes(),
+            "versions": versions.versions_file.read_bytes(),
+            **{
+                scene_id: (storyboards / f"scene_{scene_id}.png").read_bytes()
+                for scene_id in ("E1S01", "E1S02", "E1S03")
+            },
+        }
+        pm = ProjectManager(project_with_script.parent)
+
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            patch(
+                "server.services.grid_split._register_split_entries_atomically",
+                side_effect=RuntimeError("manifest commit failed"),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="manifest commit failed"):
+                await apply_grid_split("test-project", grid_with_image)
+
+        assert project_file.read_bytes() == snapshots["project"]
+        assert script_file.read_bytes() == snapshots["script"]
+        assert grid_file.read_bytes() == snapshots["grid"]
+        assert versions.versions_file.read_bytes() == snapshots["versions"]
+        for scene_id in ("E1S01", "E1S02", "E1S03"):
+            assert (storyboards / f"scene_{scene_id}.png").read_bytes() == snapshots[scene_id]
+
+    async def test_successful_split_registers_every_cell_from_one_frozen_grid_basis(
+        self,
+        project_with_script,
+        grid_with_image,
+    ):
+        from lib.artifact_activation import ArtifactCurrencyResolver
+        from lib.artifact_manifest import ArtifactKey, ArtifactStatus
+
+        project_file = project_with_script / "project.json"
+        project = json.loads(project_file.read_text(encoding="utf-8"))
+        project["schema_version"] = 8
+        project["style"] = "realistic"
+        project_file.write_text(json.dumps(project), encoding="utf-8")
+        pm = ProjectManager(project_with_script.parent)
+
+        with (
+            patch("server.services.grid_split.get_project_manager", return_value=pm),
+            patch("server.services.generation_tasks.emit_generation_success_batch", return_value={}),
+        ):
+            await apply_grid_split("test-project", grid_with_image)
+
+        resolver = ArtifactCurrencyResolver(project_with_script)
+        for scene_id in ("E1S01", "E1S02", "E1S03"):
+            comparison = resolver.compare(
+                ArtifactKey.episode_storyboard(1, scene_id),
+                artifact_path=f"storyboards/scene_{scene_id}.png",
+            )
+            assert comparison.status is ArtifactStatus.CURRENT
+
 
 class TestSplitAspectRatio:
     """切分按联合图产出时冻结的比例裁切，而非项目当下的 aspect_ratio。"""
 
     async def _split_and_measure(self, project_with_script, grid) -> tuple[int, int]:
+        GridManager(project_with_script).save(grid)
         pm = _mock_pm(project_with_script)
         with (
             patch("server.services.grid_split.get_project_manager", return_value=pm),

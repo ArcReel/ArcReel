@@ -43,8 +43,8 @@ async def _fake_create_backend(*args, **kwargs):
     return _FakeTextBackend(), "fake"
 
 
-def _img_bytes(fmt="JPEG"):
-    image = Image.new("RGB", (8, 8), (255, 0, 0))
+def _img_bytes(fmt="JPEG", color=(255, 0, 0)):
+    image = Image.new("RGB", (8, 8), color)
     buf = BytesIO()
     image.save(buf, format=fmt)
     return buf.getvalue()
@@ -223,6 +223,33 @@ class TestFilesRouter:
             assert project["characters"]["Alice"]["character_sheet"] == "characters/Alice.jpg"
             assert project["characters"]["Alice"]["reference_image"] == "characters/refs/Alice.webp"
             assert project["props"]["玉佩"]["prop_sheet"] == "props/玉佩.jpg"
+
+    @pytest.mark.unit
+    def test_formal_sheet_upload_registration_failure_restores_file_and_metadata(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            first = client.post(
+                "/api/v1/projects/demo/upload/character?name=Alice",
+                files={"file": ("alice.png", _img_bytes("PNG"), "image/png")},
+            )
+            assert first.status_code == 200, first.text
+
+            project_dir = pm.get_project_path("demo")
+            target = project_dir / first.json()["path"]
+            manifest = project_dir / ".arcreel_artifacts.json"
+            before = (target.read_bytes(), (project_dir / "project.json").read_bytes(), manifest.read_bytes())
+
+            def _fail(*_args, **_kwargs):
+                raise RuntimeError("injected manifest failure")
+
+            monkeypatch.setattr(files, "register_current_resource_artifact", _fail)
+            failed = client.post(
+                "/api/v1/projects/demo/upload/character?name=Alice",
+                files={"file": ("replacement.png", _img_bytes("PNG", (0, 0, 255)), "image/png")},
+            )
+
+            assert failed.status_code == 500
+            assert (target.read_bytes(), (project_dir / "project.json").read_bytes(), manifest.read_bytes()) == before
 
     @pytest.mark.unit
     def test_character_audio_ref_upload_success(self, tmp_path, monkeypatch):

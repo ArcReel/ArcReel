@@ -2672,6 +2672,36 @@ class ProjectManager:
 
         return self.update_project(project_name, _mutate, on_commit=on_commit)
 
+    def install_asset_sheet_bytes(
+        self,
+        asset_type: str,
+        project_name: str,
+        name: str,
+        sheet_path: str,
+        content: bytes,
+        *,
+        on_commit: Callable[[Path], None] | None = None,
+    ) -> dict:
+        """Commit a formal sheet file, its metadata pointer, and final sidecars together."""
+
+        project_dir = self.get_project_path(project_name)
+        target = safe_join(project_dir, sheet_path)
+
+        def _install(_project_file: Path) -> None:
+            with formal_write_transaction(target):
+                target.parent.mkdir(parents=True, exist_ok=True)
+                atomic_write_bytes(target, content)
+                if on_commit is not None:
+                    on_commit(target)
+
+        return self._update_asset_sheet(
+            asset_type,
+            project_name,
+            name,
+            sheet_path,
+            on_commit=_install,
+        )
+
     def _get_asset(self, asset_type: str, project_name: str, name: str) -> dict:
         """获取资产定义。不存在抛 KeyError。"""
         spec = ASSET_SPECS[asset_type]

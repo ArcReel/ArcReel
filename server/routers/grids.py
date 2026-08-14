@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.artifact_activation import register_current_resource_artifact
+from lib.async_thread import run_noninterruptible_sync
 from lib.generation_queue import get_generation_queue
 from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks, video_aspect_ratio_of
 from lib.grid.models import GridGeneration, build_grid_task_payload
@@ -32,10 +33,10 @@ from server.services.grid_access import ensure_grid_writable
 from server.services.grid_resolution import resolve_large_grid_allowed
 from server.services.grid_split import GridImageNotReadyError, apply_grid_split
 from server.services.upload_finalize import (
+    UPLOAD_VERSION_SOURCE,
     UploadTooLargeError,
     UploadValidationError,
-    record_upload_version,
-    save_uploaded_bytes,
+    stage_uploaded_bytes,
     validate_upload,
 )
 
@@ -389,42 +390,63 @@ async def upload_grid_image(
     versions = VersionManager(project_path)
 
     with project_change_source("webui"):
-        # 旧联合图若从未入版本库（历史迁移等），先补登，避免被覆盖后字节丢失
-        await asyncio.to_thread(versions.ensure_current_tracked, "grids", grid_id, target, "")
-        await save_uploaded_bytes(png_bytes, target)
-        version = await asyncio.to_thread(
-            record_upload_version,
-            versions=versions,
-            resource_type="grids",
+        staged_file = await asyncio.to_thread(stage_uploaded_bytes, png_bytes, target)
+        try:
+
+            def _commit() -> int:
+                version_box: list[int] = []
+
+                def _replace_record(current_grid: GridGeneration) -> None:
+                    _ensure_grid_idle(current_grid)
+                    # 手动补图等价于一次成功的联合图产出：failed 记录就此回到就绪态；
+                    # 联合图内容已变更，split_at 清空表示「待显式切分」。
+                    current_grid.mark_composite_replaced()
+                    # 上传按项目当前比例排布，冻结值随之改写；沿用旧值会在项目比例
+                    # 改过之后把新图按旧比例中心裁切。
+                    current_grid.video_aspect_ratio = aspect_ratio
+
+                def _activate() -> None:
+                    metadata: dict[str, str] = {"source": UPLOAD_VERSION_SOURCE}
+                    if file.filename:
+                        metadata["original_filename"] = file.filename
+
+                    def _register() -> None:
+                        register_current_resource_artifact(
+                            project_path,
+                            resource_type="grids",
+                            resource_id=grid_id,
+                        )
+
+                    version_box.append(
+                        versions.commit_staged_version(
+                            resource_type="grids",
+                            resource_id=grid_id,
+                            prompt="",
+                            staged_file=staged_file,
+                            current_file=target,
+                            on_commit=_register,
+                            **metadata,
+                        )
+                    )
+
+                committed = grid_manager.update(grid_id, _replace_record, on_commit=_activate)
+                if committed is None or len(version_box) != 1:
+                    raise RuntimeError("grid upload metadata commit skipped staged activation")
+                return version_box[0]
+
+            version = await run_noninterruptible_sync(_commit)
+        finally:
+            await asyncio.to_thread(staged_file.unlink, missing_ok=True)
+
+        from server.services.generation_tasks import emit_generation_success_batch
+
+        fingerprints = await asyncio.to_thread(
+            emit_generation_success_batch,
+            task_type="grid",
+            project_name=project_name,
             resource_id=grid_id,
-            current_file=target,
-            original_filename=file.filename,
+            payload={"script_file": grid.script_file},
         )
-
-        def _finalize_record() -> dict[str, int]:
-            from server.services.generation_tasks import emit_generation_success_batch
-
-            # 手动补图等价于一次成功的联合图产出：failed 记录就此回到就绪态；
-            # 联合图内容已变更，split_at 清空表示「待显式切分」。
-            grid.mark_composite_replaced()
-            # 补的图按用户当前的项目比例排布，冻结值随之改写；沿用旧值会在项目比例
-            # 改过之后把新图按旧比例中心裁切。版本还原不适用：历史联合图当时的比例
-            # 未随版本记录，只能沿用记录上的冻结值。
-            grid.video_aspect_ratio = aspect_ratio
-            grid_manager.save(grid)
-            register_current_resource_artifact(
-                project_path,
-                resource_type="grids",
-                resource_id=grid_id,
-            )
-            return emit_generation_success_batch(
-                task_type="grid",
-                project_name=project_name,
-                resource_id=grid_id,
-                payload={"script_file": grid.script_file},
-            )
-
-        fingerprints = await asyncio.to_thread(_finalize_record)
 
     return {
         "success": True,
