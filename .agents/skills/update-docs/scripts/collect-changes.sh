@@ -43,7 +43,7 @@ done <<< "${inventory}"
 # 归属迁移与日后的归属重划都是纯元数据编辑，算作新鲜会把 baseline 推到该次编辑，
 # 使编辑之前那段区间的能力变更永远不再进入引擎 A 扫描。
 content_freshness() {
-  local target="$1" history ts cs sha
+  local target="$1" history changes ts cs sha
   # 显式判退出码，不靠 set -e：函数在命令替换里被调用时 set -e 不生效，
   # 对象库不完整导致的 git log 失败会伪装成「该文档没有历史」，把它从 baseline 里悄悄摘掉。
   if ! history="$(git log --format='%ct %cs %H' -- "${target}")"; then
@@ -54,7 +54,13 @@ content_freshness() {
     [ -n "${sha}" ] || continue
     # 归属声明与其所在的 frontmatter 分隔符都不算正文：页面原本没有 frontmatter 时，
     # 补声明的提交新增的是整块 `---` / `update_docs` / `---`。
-    if git show --format= -U0 "${sha}" -- "${target}" |
+    # 同样显式判退出码：git show 读不到历史 blob 时管道里只会表现为「没有正文改动行」，
+    # 与元数据提交无从区分，该文档会被跳过甚至整个摘出 baseline。
+    if ! changes="$(git show --format= -U0 "${sha}" -- "${target}")"; then
+      echo "collect-changes: 读不到 ${target} 在 ${sha} 的改动，无法判定是否正文刷新" >&2
+      return 1
+    fi
+    if printf '%s\n' "${changes}" |
       grep -E '^[+-]' | grep -qvE '^(\+\+\+ |--- |[+-](---$|update_docs:))'; then
       echo "${ts} ${cs} ${sha}"
       return 0
