@@ -37,7 +37,7 @@ Before translating prose, search these truth sources for established English pro
 
 Reuse their exact terminology. Do not create a separate glossary.
 
-When those sources conflict, use the official product name a reader outside China would recognize. Documentation translates `剪映` as `CapCut`, which is the term `README.en.md` already uses; the frontend locale's `Jianying` does not govern documentation. Likewise, documentation translates `阿里百炼` as `DashScope`, matching `README.en.md`'s established usage; the frontend locale's per-endpoint `Alibaba Model Studio` labels do not govern documentation.
+Treat product identity as invariant across target languages. Keep `剪映` as `Jianying`; CapCut is a separate international product, and ArcReel has not verified draft compatibility with it. Use `CapCut` only when stating that distinction, never as a translation of `剪映`. Likewise, documentation translates `阿里百炼` as `DashScope`, matching `README.en.md`'s established usage; the frontend locale's per-endpoint `Alibaba Model Studio` labels do not govern documentation.
 
 ## 3. Translate every dirty source
 

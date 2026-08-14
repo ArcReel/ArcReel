@@ -371,7 +371,7 @@ On the Usage page, review:
 
 ### 7.1 Compose the Final Video for a Drama Episode {#compose-final-video}
 
-For Drama Mode projects using the storyboard route, you can use ArcReel to compose the final video after confirming every video clip. For Narration Mode and Ad / Short Video Mode projects using the storyboard route, export a CapCut draft. For reference-to-video projects, download the generated clips and continue in post-production.
+For Drama Mode projects using the storyboard route, you can use ArcReel to compose the final video after confirming every video clip. For Narration Mode and Ad / Short Video Mode projects using the storyboard route, export a Jianying draft. For reference-to-video projects, download the generated clips and continue in post-production.
 
 Before composing, check:
 
@@ -382,11 +382,11 @@ Before composing, check:
 - Whether background music is needed;
 - Whether adjacent shots need transitions.
 
-### 7.2 Export a CapCut Draft or Generated Clips {#export-jianying-draft}
+### 7.2 Export a Jianying Draft or Generated Clips {#export-jianying-draft}
 
-Narration Mode and Ad / Short Video Mode projects using the storyboard route complete the final video through a CapCut draft. Drama Mode projects can also use this option when subtitles, audio tracks, transitions, or pacing need more work. Reference-to-video projects can download the generated video clips and continue editing them in CapCut or another post-production tool.
+Narration Mode and Ad / Short Video Mode projects using the storyboard route complete the final video through a Jianying draft. Drama Mode projects can also use this option when subtitles, audio tracks, transitions, or pacing need more work. Reference-to-video projects can download the generated video clips and continue editing them in Jianying or another post-production tool.
 
-For detailed instructions, see [CapCut Draft Export Guide](./jianying-export.md).
+For detailed instructions, see [Jianying Draft Export Guide](./jianying-export.md).
 
 ## 8. First Project Completion Checklist {#first-project-checklist}
 
