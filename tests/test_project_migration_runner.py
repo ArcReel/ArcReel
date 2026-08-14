@@ -203,6 +203,31 @@ def test_cleanup_old_backups(tmp_projects: Path):
     assert new_clues_dir.exists()
 
 
+def test_cleanup_sweeps_script_backups_in_subdirectories(tmp_projects: Path):
+    # 剧本备份留在 scripts/ 而不是项目根，只扫根会让它们永久堆积
+    import os
+
+    p = _write_project(tmp_projects, "p1", {"schema_version": 8})
+    scripts = p / "scripts"
+    scripts.mkdir()
+    old = scripts / "episode_1.json.bak.v7-100000000"
+    new = scripts / "episode_2.json.bak.v7-9999999999"
+    old.write_text("old", encoding="utf-8")
+    new.write_text("new", encoding="utf-8")
+    kept = scripts / "episode_1.json"
+    kept.write_text("{}", encoding="utf-8")
+
+    eight_days_ago = time.time() - 8 * 86400
+    os.utime(old, (eight_days_ago, eight_days_ago))
+    os.utime(kept, (eight_days_ago, eight_days_ago))
+
+    cleanup_stale_backups(tmp_projects, max_age_days=7)
+
+    assert not old.exists()
+    assert new.exists()
+    assert kept.exists(), "非备份文件即使更老也不能被清理"
+
+
 def test_hardlink_backup_clues_creates_mirror(tmp_projects: Path, monkeypatch):
     """v0→v1 迁移前应硬链接备份 clues/ 到 clues.bak.v0-<ts>/。"""
     p = _write_project(tmp_projects, "p1", {"name": "p1"})  # v0

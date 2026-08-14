@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import time
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from itertools import chain
 from pathlib import Path
 
 from lib.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
@@ -33,9 +35,18 @@ def _versioned_backup_name(base_name: str, from_version: int, ts: int) -> str:
     return f"{base_name}.bak.v{from_version}-{ts}"
 
 
-def _backup_glob_pattern(base_name: str) -> str:
-    """生成 cleanup 用 glob，例如 project.json → project.json.bak.v*-*。"""
-    return f"{base_name}.bak.v*-*"
+#: 迁移备份名形如 ``<原名>.bak.v<版本>-<时间戳>``，与被备份的文件同目录。
+_BACKUP_NAME_GLOB = "*.bak.v*-*"
+_BACKUP_NAME_RE = re.compile(r"\.bak\.v\d+-\d+$")
+
+
+def is_migration_backup_name(name: str) -> bool:
+    """判断单个文件 / 目录名是否是迁移备份。
+
+    导出、校验等遍历项目树的调用方用它把备份挡在外面：备份是迁移的回滚材料，不属于项目内容，
+    跟着归档走会让导入方多出一份旧字段形态的剧本副本。
+    """
+    return bool(_BACKUP_NAME_RE.search(name))
 
 
 @dataclass
@@ -159,27 +170,30 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
 
 
 def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
-    """删除超过 max_age_days 的 .bak.v*- 备份文件与 clues.bak.v*-/ 目录。"""
+    """删除超过 max_age_days 的迁移备份文件与目录。
+
+    扫项目根与其一级子目录：备份总是留在被备份文件旁边，project.json 与 profile manifest 在项目根，
+    剧本备份在 episodes[].script_file 指向的子目录（约定为 scripts/）。只扫根会让剧本备份永久堆积。
+    """
     if not projects_root.exists():
         return
     cutoff = time.time() - max_age_days * 86400
     for project_dir in projects_root.iterdir():
         if not project_dir.is_dir():
             continue
-        for bak in project_dir.glob(_backup_glob_pattern("project.json")):
-            try:
-                if bak.stat().st_mtime < cutoff:
-                    bak.unlink()
-            except OSError:
-                logger.warning("无法删除备份：%s", bak)
-        for bak_dir in project_dir.glob(_backup_glob_pattern("clues")):
-            if not bak_dir.is_dir():
+        candidates = chain(project_dir.glob(_BACKUP_NAME_GLOB), project_dir.glob(f"*/{_BACKUP_NAME_GLOB}"))
+        for bak in candidates:
+            if not is_migration_backup_name(bak.name):
                 continue
             try:
-                if bak_dir.stat().st_mtime < cutoff:
-                    shutil.rmtree(bak_dir, ignore_errors=True)
+                if bak.stat().st_mtime >= cutoff:
+                    continue
+                if bak.is_dir() and not bak.is_symlink():
+                    shutil.rmtree(bak, ignore_errors=True)
+                else:
+                    bak.unlink()
             except OSError:
-                logger.warning("无法删除 clues 备份：%s", bak_dir)
+                logger.warning("无法删除迁移备份：%s", bak)
 
 
 # 注册迁移器（顶部 import，此处仅赋值）

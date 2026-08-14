@@ -9,6 +9,7 @@ import pytest
 
 from lib.i18n import _
 from lib.project_manager import ProjectManager
+from lib.project_migrations import CURRENT_SCHEMA_VERSION
 from server.services import project_archive as project_archive_module
 from server.services.project_archive import (
     ARCHIVE_MANIFEST_NAME,
@@ -486,6 +487,52 @@ class TestProjectArchiveService:
         assert migrated_script["creation_type"] == "narration"
         assert "content_mode" not in migrated_script
         assert "total_scenes" not in migrated_script["metadata"]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("version", [99, True, "", "not-a-version"])
+    def test_import_rejects_archive_that_migration_cannot_bring_to_current(self, tmp_path, version):
+        """迁移链对未来版本号与不可解析值一律跳过：跳过后装进来的项目打不开，须阻断导入。"""
+        import json as _json
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        pj = project_dir / "project.json"
+        original = pj.read_text(encoding="utf-8")
+        data = _json.loads(original)
+        data["schema_version"] = version
+        pj.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "unsupported-schema.zip"
+        _make_manual_zip(project_dir, archive_path)
+        pj.write_text(original, encoding="utf-8")  # 现存项目恢复成正常形态，用于验证没被顶掉
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(
+                archive_path,
+                uploaded_filename="unsupported-schema.zip",
+                conflict_policy="overwrite",
+            )
+
+        assert any("版本不兼容" in error for error in exc_info.value.render_errors())
+        # overwrite 策略下阻断必须发生在装机前，原项目不能被顶掉
+        assert pm.load_project("demo")["schema_version"] == CURRENT_SCHEMA_VERSION
+
+    @pytest.mark.unit
+    def test_export_excludes_migration_backups(self, tmp_path):
+        """迁移备份是回滚材料而非项目内容：子目录里的剧本备份也不能跟着归档走。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        _write_text(project_dir / "project.json.bak.v7-100000000", "{}")
+        _write_text(project_dir / "scripts" / "episode_1.json.bak.v7-100000000", "{}")
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+        assert not any(".bak.v" in name for name in names)
+        assert "demo/scripts/episode_1.json" in names
 
     @pytest.mark.unit
     def test_import_falls_back_to_project_creation_type_when_script_unstamped(self, tmp_path):

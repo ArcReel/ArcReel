@@ -22,7 +22,11 @@ from lib.json_io import load_json
 from lib.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_hint
 from lib.project_manager import ProjectManager
-from lib.project_migrations.runner import migrate_project_dir
+from lib.project_migrations.runner import (
+    CURRENT_SCHEMA_VERSION,
+    is_migration_backup_name,
+    migrate_project_dir,
+)
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_project_dict as normalize_legacy_providers
 from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.resource_paths import resource_extension, resource_relative_path
@@ -318,6 +322,10 @@ class ProjectArchiveService:
                     # 未迁移就进修复会直接抛错，整个归档不可导入。
                     migrate_project_dir(staging_dir)
                     diagnostics = self._repair_project_tree(staging_dir)
+                    # 迁移链对未来版本号与不可解析值（true / "7" / null）一律跳过而非报错，跳过后
+                    # 装进来的项目打不开（项目详情按 schema_version 判不兼容），overwrite 策略下
+                    # 还会顶掉一个本来能用的项目。装机前确认 staging 副本确实是当前版本。
+                    self._check_staging_schema_version(staging_dir, diagnostics)
                     for failed_name in encoding_summary.failed:
                         diagnostics.add(
                             "warnings",
@@ -528,6 +536,7 @@ class ProjectArchiveService:
                 for name in sorted(dirnames)
                 if not name.startswith(".")
                 and not (current_path / name).is_symlink()
+                and not is_migration_backup_name(name)
                 and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
                 and not (is_root and name not in self._ROOT_VISIBLE_ENTRIES)
             ]
@@ -539,6 +548,10 @@ class ProjectArchiveService:
                 source_path = current_path / filename
                 if filename.startswith(".") or source_path.is_symlink():
                     continue
+                # 迁移备份不进导出：根目录的备份已被 _ROOT_VISIBLE_ENTRIES 挡下，子目录里的
+                # 剧本备份不挡就会作为旧字段形态的副本跟着归档走。
+                if is_migration_backup_name(filename):
+                    continue
                 if is_root and filename in self._AGENT_RUNTIME_EXCLUDES:
                     continue
                 if is_root and filename not in self._ROOT_VISIBLE_ENTRIES:
@@ -546,6 +559,23 @@ class ProjectArchiveService:
                 destination_path = destination_dir / filename
                 destination_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_path, destination_path)
+
+    def _check_staging_schema_version(self, project_dir: Path, diagnostics: ArchiveDiagnostics) -> None:
+        """确认迁移后的 staging 副本是当前 schema 版本，否则记 blocking 诊断。"""
+        project = self._load_json_file(project_dir / self.project_manager.PROJECT_FILE)
+        if not isinstance(project, dict):
+            return  # project.json 本身不可读已由 _repair_project_tree 记成 blocking
+        version = project.get("schema_version")
+        if isinstance(version, int) and not isinstance(version, bool) and version == CURRENT_SCHEMA_VERSION:
+            return
+        diagnostics.add(
+            "blocking",
+            "project_schema_incompatible",
+            ValidationMessage(
+                "arch_project_schema_incompatible",
+                {"found": version, "expected": CURRENT_SCHEMA_VERSION},
+            ),
+        )
 
     def _repair_project_tree(self, project_dir: Path) -> ArchiveDiagnostics:
         diagnostics = ArchiveDiagnostics()

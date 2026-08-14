@@ -8,6 +8,7 @@ from lib.project_migrations.runner import (
     CURRENT_SCHEMA_VERSION,
     MIGRATORS,
     cleanup_stale_backups,
+    is_migration_backup_name,
     run_project_migrations,
 )
 
@@ -16,4 +17,5 @@ __all__ = [
     "MIGRATORS",
     "run_project_migrations",
     "cleanup_stale_backups",
+    "is_migration_backup_name",
 ]

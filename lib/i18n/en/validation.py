@@ -168,6 +168,7 @@ MESSAGES = {
     ),
     "arch_non_standard_entry_excluded": "Non-standard top-level directory/file '{entry}' was excluded from the export",
     "arch_invalid_project_json": "Cannot parse {file}: {path}",
+    "arch_project_schema_incompatible": "Incompatible project data version (archive has {found}, current is {expected}); import with a matching version",
     "arch_script_file_repaired": "{location}: automatically repaired to {path}",
     "arch_missing_script_file_pending": "{location}: script not generated yet: {path}",
     "arch_missing_script_file": "{location}: referenced file does not exist: {path}",
