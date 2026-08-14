@@ -458,6 +458,71 @@ class TestProjectArchiveService:
         }
 
     @pytest.mark.unit
+    def test_export_retries_when_a_visible_file_disappears_during_copy(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        original_copy = service._copy_visible_tree
+        copy_count = 0
+
+        def _interrupt_first_copy(source_dir: Path, target_dir: Path) -> tuple[tuple[str, str], ...]:
+            nonlocal copy_count
+            copy_count += 1
+            if copy_count == 1:
+                target_dir.mkdir(parents=True)
+                (target_dir / "partial.txt").write_text("partial", encoding="utf-8")
+                raise FileNotFoundError("formal file changed during copy")
+            return original_copy(source_dir, target_dir)
+
+        monkeypatch.setattr(service, "_copy_visible_tree", _interrupt_first_copy)
+
+        archive_path, _ = service.export_project("demo")
+
+        assert copy_count == 2
+        with zipfile.ZipFile(archive_path) as archive:
+            assert "demo/partial.txt" not in archive.namelist()
+
+    @pytest.mark.unit
+    def test_current_export_drops_non_typed_records_with_omitted_snapshots(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        canonical_files = {
+            "storyboards": ("E1S01", project_dir / "storyboards" / "scene_E1S01.png"),
+            "characters": ("Hero", project_dir / "characters" / "Hero.png"),
+            "scenes": ("Temple", project_dir / "scenes" / "Temple.png"),
+            "props": ("Key", project_dir / "props" / "Key.png"),
+        }
+        _write_bytes(canonical_files["scenes"][1], b"scene")
+        versions = VersionManager(project_dir)
+        selected_files: dict[str, str] = {}
+        for resource_type, (resource_id, current_file) in canonical_files.items():
+            selected_version = versions.add_version(resource_type, resource_id, "current", source_file=current_file)
+            selected_files[resource_type] = next(
+                record["file"]
+                for record in versions.get_versions(resource_type, resource_id)["versions"]
+                if record["version"] == selected_version
+            )
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo", scope="current")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            payload = json.loads(archive.read("demo/versions/versions.json"))
+        for resource_type, selected_file in selected_files.items():
+            assert resource_type not in payload
+            assert f"demo/{selected_file}" not in names
+
+        shutil.rmtree(project_dir)
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+        imported_versions = VersionManager(pm.get_project_path("demo"))
+        for resource_type, (resource_id, current_file) in canonical_files.items():
+            assert imported_versions.get_versions(resource_type, resource_id) == {
+                "current_version": 0,
+                "versions": [],
+            }
+            assert (pm.get_project_path("demo") / current_file.relative_to(project_dir)).is_file()
+
+    @pytest.mark.unit
     def test_official_round_trip_rekeys_claims_to_repaired_formal_paths(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
@@ -1618,11 +1683,9 @@ class TestExportScope:
 
         with zipfile.ZipFile(archive_path) as archive:
             versions_content = json.loads(archive.read("demo/versions/versions.json"))
-            # storyboards.E1S01 应只保留 version 3
-            sb_versions = versions_content["storyboards"]["E1S01"]["versions"]
-            assert len(sb_versions) == 1
-            assert sb_versions[0]["version"] == 3
-            assert sb_versions[0]["prompt"] == "p3"
+            # 非 typed 当前文件直接从 canonical 路径导出，其历史快照未入包，
+            # 对应版本记录也不能留下悬空引用。
+            assert "storyboards" not in versions_content
             # videos.E1S01 应只保留 version 2
             vid_versions = versions_content["videos"]["E1S01"]["versions"]
             assert len(vid_versions) == 1

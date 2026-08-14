@@ -591,10 +591,17 @@ class ProjectArchiveService:
 
                 archive.write(source_path, arcname=archive_name)
 
-    @staticmethod
-    def _trim_versions_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    @classmethod
+    def _trim_versions_payload(cls, payload: dict[str, Any]) -> dict[str, Any]:
         trimmed = json.loads(json.dumps(payload))
-        for resource_type_data in trimmed.values():
+        for resource_type, resource_type_data in tuple(trimmed.items()):
+            # Current-only exports retain canonical non-typed media, not their
+            # version-history snapshots.  Their metadata must leave with those
+            # omitted files; typed selected snapshots remain because artifact
+            # activation uses them as independent provenance evidence.
+            if resource_type in cls._VERSION_HISTORY_DIRS and resource_type not in cls._TYPED_VERSION_HISTORY_DIRS:
+                del trimmed[resource_type]
+                continue
             if not isinstance(resource_type_data, dict):
                 continue
             for resource_info in resource_type_data.values():
@@ -649,16 +656,23 @@ class ProjectArchiveService:
         old formal bytes with a newer claim (or the reverse).
         """
 
+        last_missing: FileNotFoundError | None = None
         for _attempt in range(_EXPORT_SNAPSHOT_ATTEMPTS):
             if target_dir.exists():
                 shutil.rmtree(target_dir)
-            manifest_before = self._source_manifest_entries(source_dir)
-            copied = self._copy_visible_tree(source_dir, target_dir)
-            source_after = self._visible_tree_signature(source_dir)
-            manifest_after = self._source_manifest_entries(source_dir)
+            try:
+                manifest_before = self._source_manifest_entries(source_dir)
+                copied = self._copy_visible_tree(source_dir, target_dir)
+                source_after = self._visible_tree_signature(source_dir)
+                manifest_after = self._source_manifest_entries(source_dir)
+            except FileNotFoundError as exc:
+                last_missing = exc
+                continue
             if manifest_before == manifest_after and source_after == copied:
                 return manifest_before
-        raise ArtifactManifestError("project changed repeatedly while creating an archive snapshot")
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        raise ArtifactManifestError("project changed repeatedly while creating an archive snapshot") from last_missing
 
     def _source_manifest_entries(
         self,
