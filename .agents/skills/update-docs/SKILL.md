@@ -8,24 +8,26 @@ disable-model-invocation: true
 
 ## 适用范围
 
-in-scope 文档分两组，定义在 `.agents/skills/update-docs/scripts/collect-changes.sh` 的 `ENGINE_A_DOCS` 与 `ENGINE_B_ONLY_DOCS`：
+in-scope 文档分两组：
 
-- **引擎 A 组**：高频、主题宽的文档（README.md、getting-started）。两个引擎都覆盖，并参与 baseline 计算。
+- **引擎 A 组**：高频、主题宽的文档。两个引擎都覆盖，并参与 baseline 计算。
 - **仅引擎 B 组**：低频、主题窄的文档。只做事实核对，不参与 baseline。
+
+`website/docs/` 下每个 `.md` / `.mdx` 页面在 frontmatter 用 `update_docs` 声明归属：`engine-a`、`engine-b` 或 `none`（明确不参与）。新增页面必须声明，否则收集脚本与 CI 一致性检查都会失败。`README.md` / `CONTRIBUTING.md` 等非 Docusaurus 根目录文件仍在收集脚本内少量枚举。CONTRIBUTING「各页职责」须登记全部上站源页面，包括声明为 `none` 的页面；CI 双向校验缺页和多页。
 
 README.en.md 是 README.md 的镜像，中文为源：不独立进引擎，改完后随中文做全文一致性核对（第 6 步）。
 
-面向用户的文档源文件在 `website/docs/` 下（发布到 docs.arc-reel.com）。排除供应商费用表，以及未上站的内部文档（`docs/` 下的 adr、research、各供应商 SDK 文档等）。新增文档按性质归入对应数组。
+面向用户的文档源文件在 `website/docs/` 下（发布到 docs.arc-reel.com）。排除供应商费用表，以及未上站的内部文档（`docs/` 下的 adr、research、各供应商 SDK 文档等）。新增上站页面按性质声明 `update_docs`，并同步 CONTRIBUTING「各页职责」。
 
 ## 步骤
 
 ### 1. 收集
 
-运行 `bash .agents/skills/update-docs/scripts/collect-changes.sh`，得到 baseline、全量候选 commit 标题、引擎 B 文档清单。
+运行 `bash .agents/skills/update-docs/scripts/collect-changes.sh`，得到 baseline、全量候选 commit 标题、引擎 A 覆盖文档清单与引擎 B 文档清单。任一上站页面未声明归属时脚本非零退出，按提示补 frontmatter 与 CONTRIBUTING「各页职责」后重跑。
 
 ### 2. 引擎 A：git 历史 → 文档
 
-派一个只读 subagent（`subagent_type: Explore`，提示词 `.agents/skills/update-docs/references/gap-finder.md`），传入仓库根路径与全量候选 commit 标题清单，产出 README、getting-started 两篇的遗漏能力清单。
+派一个只读 subagent（`subagent_type: Explore`，提示词 `.agents/skills/update-docs/references/gap-finder.md`），传入仓库根路径、收集输出中的引擎 A 覆盖文档与全量候选 commit 标题清单，产出每篇引擎 A 文档的遗漏能力清单。
 完成判据：拿到 subagent 列出的遗漏项。
 
 ### 3. 引擎 B：文档 → 代码

@@ -54,7 +54,7 @@ pnpm build && pnpm serve
 # Sync the repo-root CONTRIBUTING.md into the docs-site page (start / build already run this automatically, so a manual run is rarely needed)
 pnpm sync-contributing
 
-# CI consistency gate: orphan translations / docs-site headings missing an explicit anchor / UI JSON key completeness — a non-zero exit on any hit;
+# CI consistency gate: page inventory / orphan translations / docs-site headings missing an explicit anchor / UI JSON key completeness — a non-zero exit on any hit;
 # it reads output already synced by sync-contributing, so run sync-contributing first
 pnpm check-consistency
 ```
@@ -154,12 +154,14 @@ This file is the source of truth for the contributing guide. During builds, it i
 | Page | Should contain | Should not contain |
 |---|---|---|
 | `README.md` | Product positioning, core value, and the shortest path to getting started | A complete model list, every environment variable, or internal implementation details |
+| `website/docs/index.mdx` | Documentation-site positioning, primary entry points, and a navigation overview | Complete instructions for specific features |
 | `website/docs/guide/getting-started.md` | The complete path from deployment to the first generated video | Production-grade reverse proxy and backup strategies |
 | `website/docs/guide/workflows.md` | Content modes, video-making workflows, review checkpoints, and selection guidance | Provider credentials and operations commands |
 | `website/docs/guide/providers.md` | Provider types, capability coverage, selection principles, and configuration hierarchy | Price promises likely to become outdated |
 | `website/docs/guide/jianying-export.md` | Locating the CapCut draft directory, exporting, and further editing steps | The video generation process itself |
 | `website/docs/guide/faq.md` | Frequently asked questions and short answers | Long tutorials |
 | `website/docs/ops/deployment.md` | Deployment, upgrades, backup, recovery, monitoring, and security | Product marketing copy |
+| `website/docs/ops/migrate-to-postgres.md` | SQLite-to-PostgreSQL migration, verification, and rollback steps | Day-to-day PostgreSQL deployment and operations guidance |
 | `website/docs/dev/architecture.md` | Stable architectural boundaries, data flows, and extension points | Temporary implementation plans and incomplete designs |
 | `SECURITY.md` | Supported versions, supported deployment boundaries, private vulnerability reporting, and coordinated disclosure policy | Details of unfixed vulnerabilities and dynamic risk registers |
 | `docs/security/threat-model.md` | Security assets, trust boundaries, attack surfaces, existing controls, and reassessment triggers | Directly exploitable unfixed vulnerabilities and patch history |
