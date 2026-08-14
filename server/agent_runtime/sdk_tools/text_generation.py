@@ -20,6 +20,8 @@ from claude_agent_sdk import tool
 from pydantic import BaseModel, ValidationError
 
 from lib import script_review
+from lib.artifact_manifest import ArtifactBasis
+from lib.artifact_provenance import build_step1_basis
 from lib.asset_types import BUCKET_KEY
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
@@ -36,6 +38,7 @@ from lib.i18n import _ as translate
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import DEFAULT_SOURCE_KIND, is_reference_video_project
+from lib.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import append_user_instructions, build_narration_split_prompt, build_normalize_prompt
 from lib.reference_video.draft_validation import (
@@ -168,6 +171,19 @@ def _load_novel_source(project_path: Path, source: str | None) -> str:
     if not novel_text.strip():
         raise ValueError("小说原文为空")
     return novel_text
+
+
+def _load_step1_source_with_basis(
+    project_path: Path,
+    source: str | None,
+    project: dict[str, Any],
+) -> tuple[str, ArtifactBasis | None]:
+    """Freeze the exact source text and project semantics consumed by a step1 request."""
+
+    novel_text = _load_novel_source(project_path, source)
+    if project.get("schema_version") != CURRENT_SCHEMA_VERSION:
+        return novel_text, None
+    return novel_text, build_step1_basis(novel_text, project=project)
 
 
 # ---------------------------------------------------------------------------
@@ -495,7 +511,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
 
             try:
-                novel_text = _load_novel_source(project_path, source)
+                novel_text, step1_basis = _load_step1_source_with_basis(project_path, source, project)
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
@@ -567,7 +583,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
             drafts_dir.mkdir(parents=True, exist_ok=True)
             step1_path = drafts_dir / STEP1_FILENAMES["drama"]
             # 结构化 step1 的所有 Python 正式写共用锁、原子替换与 Manifest 登记边界。
-            script_review.write_step1_json(project_path, episode, step1_path, content)
+            script_review.write_step1_json(project_path, episode, step1_path, content, basis=step1_basis)
 
             scenes = raw_scenes
             return {
@@ -855,6 +871,7 @@ class ReferenceDraftRevalidation(NamedTuple):
     flat_units: list[dict[str, Any]]
     caps: ReferenceSplitCaps
     schema_failed: bool
+    basis: ArtifactBasis | None
 
 
 async def revalidate_reference_step1_draft(
@@ -883,7 +900,12 @@ async def revalidate_reference_step1_draft(
     # 源文可能达数百 KB（整个 source/ 目录拼接），同步读盘直接放在这个 async 函数体里会占用
     # 事件循环——晋升工具走的是独立会话线程不敏感，但 web 审核 gate 的读时重算（同一份代码）
     # 在请求协程里跑，卸到线程避免拖慢并发的其它请求。
-    novel_text = await asyncio.to_thread(_load_novel_source, project_path, draft.meta["source"])
+    novel_text, step1_basis = await asyncio.to_thread(
+        _load_step1_source_with_basis,
+        project_path,
+        draft.meta["source"],
+        project,
+    )
     split_caps = await _fetch_reference_caps_with_fallback(project, episode)
 
     # 手改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_step1_json 卡住时长
@@ -916,7 +938,7 @@ async def revalidate_reference_step1_draft(
                 )
             ]
     if violations:
-        return ReferenceDraftRevalidation(violations, [], split_caps, schema_failed=True)
+        return ReferenceDraftRevalidation(violations, [], split_caps, schema_failed=True, basis=step1_basis)
 
     source_language = project.get("source_language")
     violations = _collect_reference_flat_violations(
@@ -927,7 +949,7 @@ async def revalidate_reference_step1_draft(
         caps=split_caps,
         source_language=source_language,
     )
-    return ReferenceDraftRevalidation(violations, flat_units, split_caps, schema_failed=False)
+    return ReferenceDraftRevalidation(violations, flat_units, split_caps, schema_failed=False, basis=step1_basis)
 
 
 async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: QuarantinedDraft) -> dict[str, Any]:
@@ -969,7 +991,13 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
     )
     try:
         with script_review.step1_write_lock(project_path, episode) as step1_path:
-            script_review.write_step1_locked(project_path, episode, {"units": units}, expected_fingerprint=expected)
+            script_review.write_step1_locked(
+                project_path,
+                episode,
+                {"units": units},
+                expected_fingerprint=expected,
+                basis=revalidation.basis,
+            )
             # 落盘成功后才清草稿：写盘失败（含冲突）时草稿还在，改完重试晋升即可，不会两头皆空。
             # 清理与写盘同一临界区：并发的取回请求不会在两步之间看到「正式文件已是新内容、
             # 草稿却还在场」的中间态。
@@ -1224,7 +1252,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
 
             try:
-                novel_text = _load_novel_source(project_path, source)
+                novel_text, step1_basis = _load_step1_source_with_basis(project_path, source, project)
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
@@ -1332,7 +1360,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
             # 写盘同一临界区：正式文件已是这一份产物，旧草稿留着只会让 gate 与生成侧继续阻塞
             # 在一份已被取代的违约产物上。
             with script_review.step1_write_lock(project_path, episode) as step1_path:
-                script_review.write_step1_locked(project_path, episode, {"units": raw_units})
+                script_review.write_step1_locked(project_path, episode, {"units": raw_units}, basis=step1_basis)
                 clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
             warning_lines = _reference_voice_warning_lines([f["text"] for f in flat_units], project, split_caps.voice)
             return {
@@ -1545,7 +1573,7 @@ def split_narration_segments_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
 
             try:
-                novel_text = _load_novel_source(project_path, source)
+                novel_text, step1_basis = _load_step1_source_with_basis(project_path, source, project)
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
@@ -1608,7 +1636,7 @@ def split_narration_segments_tool(ctx: ToolContext):
             drafts_dir = episode_drafts_dir(project_path, episode)
             drafts_dir.mkdir(parents=True, exist_ok=True)
             step1_path = drafts_dir / STEP1_FILENAMES["narration"]
-            script_review.write_step1_json(project_path, episode, step1_path, content)
+            script_review.write_step1_json(project_path, episode, step1_path, content, basis=step1_basis)
 
             total_chars = sum(len(str(s.get("novel_text") or "")) for s in raw_segments)
             total_seconds = sum(int(s.get("duration_seconds") or 0) for s in raw_segments)

@@ -27,7 +27,7 @@ import logging
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
@@ -46,6 +46,9 @@ from lib.reference_video.quarantine import (
     quarantine_path,
 )
 from lib.validation_messages import ValidationMessage
+
+if TYPE_CHECKING:
+    from lib.artifact_manifest import ArtifactBasis
 
 logger = logging.getLogger(__name__)
 
@@ -272,6 +275,7 @@ def formal_step1_write_transaction(
     project_path: Path,
     episode: int,
     *paths: Path,
+    basis: ArtifactBasis | None = None,
 ) -> Iterator[None]:
     """Commit formal step1 files and their active Manifest claim as one unit.
 
@@ -283,7 +287,11 @@ def formal_step1_write_transaction(
 
     with formal_write_transaction(*paths):
         yield
-        from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_artifact_if_provable
+        from lib.artifact_activation import (
+            TARGET_SCHEMA_VERSION,
+            register_current_artifact,
+            register_current_artifact_if_provable,
+        )
         from lib.artifact_manifest import ArtifactKey
 
         project_file = project_path / "project.json"
@@ -295,15 +303,33 @@ def formal_step1_write_transaction(
         if isinstance(project, dict) and project.get("schema_version") == TARGET_SCHEMA_VERSION:
             # A successful no-op write can still repair a missing claim after a
             # temporarily unavailable source made activation skip this target.
-            register_current_artifact_if_provable(project_path, ArtifactKey.episode_step1(episode))
+            key = ArtifactKey.episode_step1(episode)
+            if basis is None:
+                register_current_artifact_if_provable(project_path, key)
+            else:
+                if not paths:
+                    raise ValueError("a frozen step1 basis requires its formal artifact path")
+                register_current_artifact(
+                    project_path,
+                    key,
+                    artifact_path=paths[0].relative_to(project_path).as_posix(),
+                    basis=basis,
+                )
 
 
-def write_step1_json(project_path: Path, episode: int, path: Path, content: object) -> None:
+def write_step1_json(
+    project_path: Path,
+    episode: int,
+    path: Path,
+    content: object,
+    *,
+    basis: ArtifactBasis | None = None,
+) -> None:
     """Atomically write a structured step1 through its canonical lock and claim seam."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
     pm = ProjectManager(str(project_path.parent))
-    with pm.file_lock(path), formal_step1_write_transaction(project_path, episode, path):
+    with pm.file_lock(path), formal_step1_write_transaction(project_path, episode, path, basis=basis):
         atomic_write_json(path, content)
 
 
@@ -326,6 +352,7 @@ def write_step1_locked(
     *,
     expected_fingerprint: str | None | _UncheckedFingerprint = UNCHECKED_FINGERPRINT,
     clear_step2_quarantine: bool = True,
+    basis: ArtifactBasis | None = None,
 ) -> bool:
     """参考生视频正式 step1 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清 step2
     隔离草稿。返回内容是否发生变化。
@@ -347,7 +374,7 @@ def write_step1_locked(
     previous = load_json_or_none(path)
     changed = previous != content
     quarantine = quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2)
-    with formal_step1_write_transaction(project_path, episode, path, quarantine):
+    with formal_step1_write_transaction(project_path, episode, path, quarantine, basis=basis):
         atomic_write_json(path, content)
         if changed and clear_step2_quarantine:
             clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)

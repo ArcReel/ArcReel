@@ -3926,6 +3926,83 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
 
 
 @pytest.mark.unit
+async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+    from lib.artifact_provenance import build_step1_basis
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project = {
+        **fake_ctx.pm.project_payload,  # type: ignore[attr-defined]
+        "schema_version": 8,
+        "content_mode": "drama",
+        "generation_mode": "storyboard",
+        "source_kind": "novel",
+        "source_language": "中文",
+    }
+    fake_ctx.pm.project_payload = project  # type: ignore[attr-defined]
+    project_file = fake_ctx.project_path / "project.json"
+    project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    source_path = fake_ctx.project_path / "source" / "selected.txt"
+    source_path.parent.mkdir(parents=True)
+    frozen_source = "被显式选中的生成原文"
+    source_path.write_text(frozen_source, encoding="utf-8")
+    expected = build_step1_basis(frozen_source, project=project)
+
+    async def fake_caps(_project, _episode=None):
+        return 4, [4, 6, 8]
+
+    class _Generator:
+        async def generate(self, _request, project_name=None):
+            source_path.write_text("等待供应商期间改过的原文", encoding="utf-8")
+            latest = {**project, "source_language": "English"}
+            fake_ctx.pm.project_payload = latest  # type: ignore[attr-defined]
+            project_file.write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
+            return type(
+                "_Result",
+                (),
+                {
+                    "text": json.dumps(
+                        {
+                            "title": "第一集",
+                            "scenes": [
+                                {
+                                    "scene_id": "E1S01",
+                                    "duration_seconds": 4,
+                                    "segment_break": False,
+                                    "characters_in_scene": [],
+                                    "scenes": [],
+                                    "props": [],
+                                    "scene_description": "山中清晨",
+                                    "utterances": [],
+                                    "source_text": frozen_source,
+                                }
+                            ],
+                        },
+                        ensure_ascii=False,
+                    )
+                },
+            )()
+
+    async def fake_create(_task_type, project_name=None):
+        return _Generator()
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+
+    result = await _call(
+        normalize_drama_script_tool(fake_ctx),
+        {"episode": 1, "source": "source/selected.txt"},
+    )
+
+    assert result.get("is_error") is not True, result
+    entry = ProjectArtifactManifestAdapter(fake_ctx.project_path).get_entry(ArtifactKey.episode_step1(1))
+    assert entry is not None
+    assert entry.basis_digest == expected.digest
+
+
+@pytest.mark.unit
 async def test_normalize_drama_script_marks_mixed_machine_candidate_before_review(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -6193,6 +6270,67 @@ async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch
     assert captured["task_type"] is mod.TextTaskType.SCRIPT
     assert captured["create_project_name"] == "demo"
     assert captured["generate_project_name"] == "demo"
+
+
+@pytest.mark.unit
+async def test_split_narration_segments_registers_the_frozen_combined_source_basis(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+    from lib.artifact_provenance import build_step1_basis
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project = {
+        **fake_ctx.pm.project_payload,  # type: ignore[attr-defined]
+        "schema_version": 8,
+        "content_mode": "narration",
+        "generation_mode": "storyboard",
+        "source_kind": "novel",
+        "source_language": "中文",
+    }
+    fake_ctx.pm.project_payload = project  # type: ignore[attr-defined]
+    project_file = fake_ctx.project_path / "project.json"
+    project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    source_dir = fake_ctx.project_path / "source"
+    source_dir.mkdir(parents=True)
+    first_source = source_dir / "episode_1.txt"
+    second_source = source_dir / "episode_2.txt"
+    first_source.write_text("第一段原文。", encoding="utf-8")
+    second_source.write_text("第二段原文。", encoding="utf-8")
+    frozen_source = "第一段原文。\n\n第二段原文。"
+    expected = build_step1_basis(frozen_source, project=project)
+
+    async def fake_caps(_project, _episode=None):
+        return 4, [4, 6, 8]
+
+    class _Generator:
+        async def generate(self, _request, project_name=None):
+            second_source.write_text("等待供应商期间改过的第二段。", encoding="utf-8")
+            latest = {**project, "source_language": "English"}
+            fake_ctx.pm.project_payload = latest  # type: ignore[attr-defined]
+            project_file.write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
+            return type(
+                "_Result",
+                (),
+                {
+                    "text": json.dumps(
+                        {"episode": 1, "segments": [_nr_segment(novel_text=frozen_source)]}, ensure_ascii=False
+                    )
+                },
+            )()
+
+    async def fake_create(_task_type, project_name=None):
+        return _Generator()
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+
+    result = await _call(split_narration_segments_tool(fake_ctx), {"episode": 1})
+
+    assert result.get("is_error") is not True, result
+    entry = ProjectArtifactManifestAdapter(fake_ctx.project_path).get_entry(ArtifactKey.episode_step1(1))
+    assert entry is not None
+    assert entry.basis_digest == expected.digest
 
 
 @pytest.mark.unit
