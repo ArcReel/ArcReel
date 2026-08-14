@@ -44,7 +44,7 @@
     "should_trigger": false
   },
   {
-    "query": "project.json 里的 content_mode 字段是什么意思？narration 和 drama 有什么区别",
+    "query": "project.json 里的 creation_type 字段是什么意思？narration 和 drama 有什么区别",
     "should_trigger": false
   },
   {

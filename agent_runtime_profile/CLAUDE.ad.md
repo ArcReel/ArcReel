@@ -147,7 +147,7 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 ### project.json 核心字段
 
 - `schema_version`：项目数据格式版本
-- `title`、`content_mode`（固定 `ad`）、`generation_mode`（`storyboard`/`reference_video`，创建后不可更改）、`style`、`style_description`
+- `title`、`creation_type`（固定 `ad`）、`generation_mode`（`storyboard`/`reference_video`，创建后不可更改）、`style`、`style_description`
 - `target_duration`：目标总时长（秒，正整数）
 - `brief`：创作诉求短文本（可为空）
 - `episodes`：恒为第 1 集单条（episode、title、script_file）
@@ -157,5 +157,5 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 ### 数据分层原则
 
 - 产品/角色/场景/道具的完整定义**只存储在 project.json**，剧本中仅引用名称
-- `scenes_count`、`status`、`progress` 等统计字段由 StatusCalculator **读时计算**，不存储
+- `storyboard_count` / `video_unit_count`、`status`、`progress` 等统计字段由 StatusCalculator **读时计算**，不存储
 - 剧集元数据（episode/title/script_file）在剧本保存时**写时同步**

@@ -39,7 +39,7 @@ mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与
 
 - `episode_target_units`：`int >= 1` 设置 / `null` 清除。每集目标体量（按 `source_language` 解读为阅读单位），分集规划工具按它把握每集切分体量
 - `source_language`：`"zh" / "en" / "vi"` 设置 / `null` 清除。优先级：**用户显式配置 > 自动推断**——用户明确指定语言时即可写入（不限于 overview 跳过或失败的场景）；无用户显式确认时不要自行猜测写入，正常路径由 overview 生成自动落盘。发现显式配置与自动推断 / 源文实际语言不一致时，提醒用户（WARN）并按显式配置继续，不阻塞流程
-- `brief`：字符串设置 / `null` 清除。创作诉求短文本，仅广告/短片项目（`content_mode=ad`）可写，其他项目类型写入会被拒
+- `brief`：字符串设置 / `null` 清除。创作诉求短文本，仅广告/短片项目（`creation_type=ad`）可写，其他项目类型写入会被拒
 - `planning_window_chars`：`int >= 1` 设置 / `null` 清除回内部默认。分集规划单批读取的源文窗口字符数
 - `planning_max_episodes`：`int >= 1` 设置 / `null` 清除回内部默认。分集规划单批最多产出的集数
 - `narration_voice`：非空字符串（音色 id 照供应商文档）设置 / `null` 清除。项目级旁白音色覆盖，优先于全局设置生效，只影响当前项目
@@ -66,7 +66,7 @@ mcp__arcreel__get_video_capabilities({})
 
 生成路线由项目唯一决定，无集级覆盖，能力查询全项目同一口径，不接受 / 不需要 `episode` 参数。
 
-**返回**：JSON 文本，含 `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `source` / `default_duration` / `content_mode` / `generation_mode`；narration / drama 的参考生视频项目另含 `reference_unit_durations`（`with_references` / `without_references` 两套生效档位，按 unit 有无 `@` 引用分别适用）；**ad 项目不返回该字段**——ad 的 unit 是从 `shots[]` 派生的轻量索引，镜头时长不受档位枚举管辖（规则见 `manga-workflow/SKILL.ad.md`），不要等待该字段、也不要照档位重排 ad 镜头时长。
+**返回**：JSON 文本，含 `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `source` / `default_duration` / `creation_type` / `generation_mode`；narration / drama 的参考生视频项目另含 `reference_unit_durations`（`with_references` / `without_references` 两套生效档位，按 unit 有无 `@` 引用分别适用）；**ad 项目不返回该字段**——ad 的 unit 是从 `shots[]` 派生的轻量索引，镜头时长不受档位枚举管辖（规则见 `manga-workflow/SKILL.ad.md`），不要等待该字段、也不要照档位重排 ad 镜头时长。
 
 **用途**：所有 generation_mode（storyboard / reference_video）的预处理 subagent 在执行时自查，用于决定单片段 / unit 时长。**决策优先级**（高到低）：硬约束（storyboard 时长必须取自 `supported_durations`；narration / drama 的 reference_video unit 时长必须取自该 unit 引用状态对应的 `reference_unit_durations` 档位；ad 的镜头时长按 `SKILL.ad.md` 的自由整数规则）> `default_duration` 偏好（非 null 时作默认值）> 内容需要（reference_video 按该 unit 内容实际需要的长度取档；narration / drama 长句、复杂画面可取更长值）。装不下时重拆 unit，不违约时长。
 

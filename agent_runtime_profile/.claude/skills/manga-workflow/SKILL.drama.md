@@ -20,12 +20,12 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 ## 阶段 0：项目设置
 
-**重要**：项目目录的创建由 Web 端 `POST /api/v1/projects` 触发 `ProjectManager.create_project()` 完成（包括所有子目录与 `project.json`、按 content_mode 物化对应的 agent profile）。**主 agent 不创建目录、不写入 project.json 初始字段**——session 启动时 cwd 已绑定到已存在的项目根。
+**重要**：项目目录的创建由 Web 端 `POST /api/v1/projects` 触发 `ProjectManager.create_project()` 完成（包括所有子目录与 `project.json`、按 creation_type 物化对应的 agent profile）。**主 agent 不创建目录、不写入 project.json 初始字段**——session 启动时 cwd 已绑定到已存在的项目根。
 
 ### 新项目
 
-1. 提示用户在 Web 端先创建项目，**创建时指定 content_mode（narration / drama）与 generation_mode（storyboard / reference_video）**；两者创建后均不可变更，agent 无对应写入权限。session 启动后 cwd 已绑定到对应项目根
-2. 使用 Read 工具读取 `project.json`，确认 `title`、`content_mode`、`generation_mode` 字段（本 session 当前 content_mode 为 `drama`，创建后不可变更）
+1. 提示用户在 Web 端先创建项目，**创建时指定 creation_type（narration / drama）与 generation_mode（storyboard / reference_video）**；两者创建后均不可变更，agent 无对应写入权限。session 启动后 cwd 已绑定到对应项目根
+2. 使用 Read 工具读取 `project.json`，确认 `title`、`creation_type`、`generation_mode` 字段（本 session 当前 creation_type 为 `drama`，创建后不可变更）
 3. 请用户将小说文本放入 `source/`
 4. **上传后自动生成项目概述**（synopsis、genre、theme、world_setting）
 
@@ -129,7 +129,7 @@ expected source revision：{next_action.args.expected_source_revision}
 根据项目 `generation_mode` 选择 subagent：
 
 - `generation_mode == reference_video` → dispatch `split-reference-video-units`（产出 `drafts/episode_{N}/step1_reference_units.json`）
-- 否则（本项目 content_mode == drama）→ dispatch `normalize-drama-script`（产出结构化内容 `drafts/episode_{N}/step1_normalized_script.json`）
+- 否则（本项目 creation_type == drama）→ dispatch `normalize-drama-script`（产出结构化内容 `drafts/episode_{N}/step1_normalized_script.json`）
 
 dispatch prompt 通用参数：项目名称、项目路径、集数、本集小说文件路径；可选附加说明（用户对本次生成的意见等任何需带给 subagent 的临时上下文，原文透传）。
 
@@ -274,5 +274,5 @@ dispatch `generate-assets` subagent：
 ## 数据分层
 
 - 角色 / 场景 / 道具完整定义**只存 project.json**，剧本中仅引用名称
-- 统计字段（scenes_count、status、progress）**读时计算**，不存储
+- 统计字段（storyboard_count / video_unit_count、status、progress）**读时计算**，不存储
 - 剧集元数据在剧本保存时**写时同步**

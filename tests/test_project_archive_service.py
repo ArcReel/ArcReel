@@ -616,7 +616,7 @@ class TestProjectArchiveService:
         assert "content_mode" not in migrated_script
 
     @pytest.mark.unit
-    @pytest.mark.parametrize("version", [99, True, "", "not-a-version"])
+    @pytest.mark.parametrize("version", [99, True, "", "not-a-version", 7.5, "7"])
     def test_import_rejects_archive_that_migration_cannot_bring_to_current(self, tmp_path, version):
         """迁移链对未来版本号与不可解析值一律跳过：跳过后装进来的项目打不开，须阻断导入。"""
         import json as _json

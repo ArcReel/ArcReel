@@ -154,6 +154,19 @@ def test_falsy_or_bool_schema_version_skipped_not_v0(tmp_projects: Path):
         assert name not in summary.migrated + summary.failed + summary.skipped
 
 
+def test_non_integer_schema_version_skipped_not_truncated(tmp_projects: Path):
+    """小数 / 数字串版本号按损坏跳过：截断成整数会拿未知形态当某一版重迁一遍。"""
+    for name, bad in [("fractional", 7.5), ("numeric-string", "7")]:
+        _write_project(tmp_projects, name, {"schema_version": bad, "episodes": []})
+
+    summary = run_project_migrations(tmp_projects)
+
+    for name, bad in [("fractional", 7.5), ("numeric-string", "7")]:
+        assert name not in summary.migrated + summary.failed + summary.skipped
+        data = json.loads((tmp_projects / name / "project.json").read_text(encoding="utf-8"))
+        assert data["schema_version"] == bad  # 原样保留，待人工修复
+
+
 def test_explicit_null_schema_version_treated_as_v0(tmp_projects: Path):
     """显式 null 与字段缺失同义（v0），正常走完整迁移链。"""
     _write_project(tmp_projects, "p1", {"schema_version": None, "episodes": []})

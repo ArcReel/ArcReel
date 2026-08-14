@@ -7,7 +7,7 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 ## 路由
 
-让 MCP 工具读取 `project.json`，按 `generation_mode` × `content_mode` 选择路线，并校验剧本骨架：
+让 MCP 工具读取 `project.json`，按 `generation_mode` × `creation_type` 选择路线，并校验剧本骨架：
 
 | 项目路线 × 内容模式 | 应有骨架 | 路由 | 输出目录 |
 |---|---|---|---|

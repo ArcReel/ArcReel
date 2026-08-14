@@ -67,12 +67,14 @@ def _load_schema_version(project_dir: Path) -> int:
         raw_version = data.get("schema_version")
         if raw_version is None:
             return 0  # 仅字段缺失或显式 null 视为旧项目（v0）
-        if isinstance(raw_version, bool):
-            # bool 是 int 子类：int(True) == 1 会把损坏值静默当 v1
+        # 只认真正的整数：bool 是 int 子类（int(True) == 1 会把损坏值当 v1），小数与
+        # 数字串则会被 int() 截断（7.5 当成 v7 迁一遍，把未知形态改写成 v8 的样子）。
+        # 判定与 require_current_schema / 导入侧版本闸门同口径。
+        if isinstance(raw_version, bool) or not isinstance(raw_version, int):
             raise ValueError(f"schema_version 不可解析: {raw_version!r}")
-        # int 解析留在 try 内：其余不可解析值（空串/非数字串）与 JSON 损坏
-        # 同口径跳过——不当 v0 重跑迁移，也不让单个损坏项目中断整个迁移循环
-        return int(raw_version)
+        # 抛出留在 try 内：不可解析值与 JSON 损坏同口径跳过——不当 v0 重跑迁移，
+        # 也不让单个损坏项目中断整个迁移循环
+        return raw_version
     except Exception as exc:
         logger.warning("project.json 损坏或 schema_version 不可解析，跳过：%s（%s）", project_dir, exc)
         return -1

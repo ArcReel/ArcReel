@@ -5,7 +5,7 @@ description: 为剧本场景生成分镜图。当用户说"生成分镜"、"预�
 
 # 生成分镜图
 
-通过生成队列创建分镜图，画面比例根据 content_mode 自动设置。
+通过生成队列创建分镜图，画面比例根据 creation_type 自动设置。
 
 > 生成模式规格详见 `.claude/references/generation-modes.md`。
 
@@ -28,7 +28,7 @@ description: 为剧本场景生成分镜图。当用户说"生成分镜"、"预�
 ## 工作流程
 
 1. **加载项目和剧本** — 确认所有角色都有 `character_sheet` 图像
-2. **生成分镜图** — MCP 工具自动检测 content_mode，按相邻关系串联依赖任务
+2. **生成分镜图** — MCP 工具自动检测 creation_type，按相邻关系串联依赖任务
 3. **审核检查点** — 展示每张分镜图，用户可批准、要求重新生成，或要求编辑
 4. **更新剧本** — 更新 `storyboard_image` 路径和场景状态
 

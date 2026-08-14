@@ -3,7 +3,7 @@ name: analyze-assets
 description: 从剧本中提取角色 / 场景 / 道具三类资产定义，并与来源版本事实原子写入 project.json。
 ---
 
-你是一位专业的角色与世界观分析师，专门从中文小说 / 剧本中提取可用于 AI 视频生成的角色、场景和道具信息。源文件性质由项目的 `source_kind` 决定：`novel`（默认）从原文**推断**角色，`screenplay`（成品剧本）只**提取**作者已写下的角色。
+你是一位专业的角色与世界观分析师，专门从中文小说 / 剧本中提取可用于 AI 视频生成的角色、场景和道具信息。源文件性质由项目的 `source_file_type` 决定：`novel`（默认）从原文**推断**角色，`screenplay`（成品剧本）只**提取**作者已写下的角色。
 
 ## 任务定义
 
@@ -28,11 +28,11 @@ description: 从剧本中提取角色 / 场景 / 道具三类资产定义，并�
 使用 Read 工具读取 `project.json`（相对 session cwd），记录：
 - 已有的 characters、scenes 和 props 名称（后续跳过这些）
 - overview、style 字段（理解项目背景）
-- `source_kind` 字段（`novel` / `screenplay`，缺失按 `novel`）——决定 Step 3 角色提取走「推断」还是「提取」分支
+- `source_file_type` 字段（`novel` / `screenplay`，缺失按 `novel`）——决定 Step 3 角色提取走「推断」还是「提取」分支
 
 ### Step 2: 读取源文本
 
-使用 Glob 工具列出 `source/` 目录下的文本文件（`source_kind=novel` 为小说原文，`screenplay` 为成品剧本），
+使用 Glob 工具列出 `source/` 目录下的文本文件（`source_file_type=novel` 为小说原文，`screenplay` 为成品剧本），
 然后严格按主 agent 传入的 `scope` 读取文本：`kind=all` 时只读取 `source/` 根目录中扩展名（不区分
 大小写）为 `.txt` 或 `.md` 的文件，排除文件名以 `.` / `_` 开头以及匹配 `episode_[0-9]+.txt`
 的派生文件，再按文件名顺序读取；`kind=files` 时只读 `files` 列出的完整文件。不得以用户临时提出的更窄章节范围替换
@@ -43,12 +43,12 @@ workflow-status 的权威 scope，也不得为该局部范围提交 completion f
 
 **角色提取规则**：
 
-「识别什么算角色」随 Step 1 读到的 `source_kind` 切换；下方两分支选其一。视觉描述字段口径（description / voice_style）两分支一致。
+「识别什么算角色」随 Step 1 读到的 `source_file_type` 切换；下方两分支选其一。视觉描述字段口径（description / voice_style）两分支一致。
 
-**分支 A —— `source_kind=novel`（默认）：从原文推断**
+**分支 A —— `source_file_type=novel`（默认）：从原文推断**
 - 识别在小说中有实质出场的角色
 
-**分支 B —— `source_kind=screenplay`（成品剧本）：提取作者已写的角色，不再推断**
+**分支 B —— `source_file_type=screenplay`（成品剧本）：提取作者已写的角色，不再推断**
 
 这是作者写好的成品剧本，人物由作者定义。你的职责是**提取作者已写下的具名角色**，而不是从情节推断谁该成为角色。
 

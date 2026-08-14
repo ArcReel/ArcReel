@@ -13,8 +13,8 @@
           "type": "behavior"
         },
         {
-          "name": "asks_content_mode",
-          "text": "询问内容模式（narration 或 drama）",
+          "name": "asks_creation_type",
+          "text": "询问创作类型（narration 或 drama）",
           "type": "behavior"
         },
         {
