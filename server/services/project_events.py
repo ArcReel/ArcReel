@@ -594,6 +594,7 @@ class ProjectEventService:
                 "script_file": str(ep.get("script_file") or ""),
             }
 
+        candidates: dict[int, tuple[Path, str]] = {}
         for script_path in sorted(scripts_dir.glob("*.json")):
             try:
                 script = self.pm.load_script(project_name, script_path.name)
@@ -605,6 +606,21 @@ class ProjectEventService:
             if not isinstance(episode, int):
                 continue
             title = str(script.get("title") or "")
+            try:
+                self.pm.require_filename_episode_consistency(script, script_path.name)
+            except ValueError as exc:
+                logger.warning(
+                    "剧集集号不一致，跳过同步 project=%s file=%s reason=%s",
+                    project_name,
+                    script_path.name,
+                    exc,
+                )
+                continue
+            # sorted() + overwrite preserves the watcher's established final
+            # winner while ensuring each episode is reconciled at most once.
+            candidates[episode] = (script_path, title)
+
+        for episode, (script_path, title) in sorted(candidates.items()):
             expected_script_file = f"scripts/{script_path.name}"
             existing = current_episodes.get(episode)
             if existing and existing["title"] == title and existing["script_file"] == expected_script_file:
@@ -614,8 +630,8 @@ class ProjectEventService:
                 with project_change_source("filesystem"):
                     self.pm.sync_episode_from_script(project_name, script_path.name)
             except ValueError as exc:
-                # filename 与脚本内 episode 字段不一致：跳过同步避免污染 project.json，
-                # 同时避免 SSE 扫描循环无限重试导致 metadata.updated_at 抖动。
+                # 文件可能在候选快照后被外部改写；同步边界再次校验并 fail-safe 跳过，
+                # 避免污染 project.json 或让 SSE 扫描循环持续抖动 metadata.updated_at。
                 logger.warning(
                     "剧集集号不一致，跳过同步 project=%s file=%s reason=%s",
                     project_name,

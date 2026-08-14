@@ -849,7 +849,7 @@ class ProjectManager:
 
         # 再做 filename/内部 episode 一致性校验，避免写盘后才在 sync 阶段抛错，
         # 造成"脚本文件已落盘、project.json 未同步"的部分提交。
-        self._require_filename_episode_consistency(script, filename)
+        self.require_filename_episode_consistency(script, filename)
 
         # 更新元数据（兼容旧脚本：可能缺少 metadata，或 narration 使用 segments）
         now = datetime.now(UTC).isoformat()
@@ -1054,7 +1054,7 @@ class ProjectManager:
                 )
 
     @staticmethod
-    def _require_filename_episode_consistency(script: dict, script_filename: str) -> None:
+    def require_filename_episode_consistency(script: dict, script_filename: str) -> None:
         """校验脚本内 `episode` 字段与文件名隐含的集号一致；不一致则 raise ValueError。
 
         filename 缺集号模式或脚本内无 `episode` int 时静默放行（兼容旧数据）。
@@ -1152,7 +1152,7 @@ class ProjectManager:
         """
         base_name = self.normalize_script_filename(script_filename)
         # 防御纵深：SSE 扫描路径直接调用此函数（不经 save_script），同样需要校验
-        self._require_filename_episode_consistency(script, base_name)
+        self.require_filename_episode_consistency(script, base_name)
 
         script_episode = script.get("episode")
         if isinstance(script_episode, int):

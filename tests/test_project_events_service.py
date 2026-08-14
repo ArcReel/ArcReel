@@ -5,6 +5,7 @@ import logging
 
 import pytest
 
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
 from lib.script_skeleton import (
@@ -290,6 +291,42 @@ class TestProjectEventService:
             assert any(episode["episode"] == 2 for episode in pm.load_project("demo")["episodes"])
 
         await service.shutdown()
+
+    @pytest.mark.unit
+    def test_script_index_sync_reconciles_only_the_authoritative_duplicate(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        def _script(resource_id: str) -> dict:
+            return {
+                "episode": 1,
+                "title": "Episode 1",
+                "content_mode": "narration",
+                "segments": [{"segment_id": resource_id, "duration_seconds": 4}],
+            }
+
+        current_path = project_dir / "scripts" / "z-current.json"
+        pm.save_script("demo", _script("E1S02"), current_path.name, validate=False)
+        (project_dir / "scripts" / "a-old.json").write_text(
+            json.dumps(_script("E1S01")),
+            encoding="utf-8",
+        )
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        current_keys = ArtifactKey.episode_resource_artifacts(1, "E1S02")
+        for index, key in enumerate(current_keys):
+            adapter.put_entry(
+                key,
+                ArtifactManifestEntry(
+                    artifact_path=f"formal/current-{index}.bin",
+                    basis_digest=f"sha256-v1:{index:064x}",
+                ),
+            )
+
+        ProjectEventService(tmp_path)._ensure_script_index_synced("demo")
+
+        assert pm.load_project("demo")["episodes"][0]["script_file"] == "scripts/z-current.json"
+        assert all(adapter.get_entry(key) is not None for key in current_keys)
 
     @pytest.mark.unit
     @pytest.mark.asyncio
