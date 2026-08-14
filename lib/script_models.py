@@ -773,6 +773,12 @@ def ad_script_total_duration(shots: object) -> int:
 _ITEM_FALLBACK_DURATIONS: dict[str, int] = {"segments": 4, "scenes": 8, "shots": 0, "video_units": 0}
 
 
+#: 统计改为读时计算前，剧本 ``metadata`` 按骨架种类落盘过的计数键（segments→total_segments，
+#: shots→total_shots，video_units→total_units，加上早期的 total_scenes）。读时计算与写盘重算
+#: 都按此表剔除：留一个在剧本里就等于同时对外给出两套互相矛盾、其中一套永远陈旧的计数。
+LEGACY_METADATA_COUNT_KEYS = ("total_scenes", "total_segments", "total_shots", "total_units")
+
+
 def item_duration(kind: str, item: object) -> int:
     """单条剧本条目时长（秒）的脏数据归一口径——沿 ``ad_shot_duration_seconds`` 先例推广到四骨架。
 

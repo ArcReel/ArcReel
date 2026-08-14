@@ -259,6 +259,59 @@ def test_write_failure_rolls_back_already_written_scripts(tmp_path: Path, monkey
     assert _read_json(second_script)["creation_type"] == "drama"
 
 
+def test_rollback_keeps_valid_json_when_restore_itself_fails(tmp_path: Path, monkeypatch) -> None:
+    """回滚写入失败（磁盘继续满）不得把剧本截断成半截：文件保持完整 v8 形态，重跑可收敛。"""
+    project_dir = _v7_project(tmp_path, episodes=2)
+    for episode in (1, 2):
+        _write_json(project_dir / f"scripts/episode_{episode}.json", _storyboard_script())
+    first_script = project_dir / "scripts/episode_1.json"
+    second_script = project_dir / "scripts/episode_2.json"
+
+    real_write = v7_to_v8.atomic_write_json
+
+    def _fail_on_second(path: Path, payload: object, **kwargs) -> None:
+        if path == second_script:
+            raise OSError(28, "No space left on device")
+        real_write(path, payload, **kwargs)
+
+    def _restore_also_fails(path: Path, data: bytes) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(v7_to_v8, "atomic_write_json", _fail_on_second)
+    monkeypatch.setattr(v7_to_v8, "atomic_write_bytes", _restore_also_fails)
+
+    with pytest.raises(OSError):
+        migrate_v7_to_v8(project_dir)
+
+    restored = _read_json(first_script)  # 解析得出来就说明没被截断
+    assert restored["creation_type"] == "drama"
+    assert _read_json(project_dir / "project.json")["schema_version"] == 7
+
+    monkeypatch.setattr(v7_to_v8, "atomic_write_json", real_write)
+    migrate_v7_to_v8(project_dir)
+    assert _read_json(project_dir / "project.json")["schema_version"] == 8
+    assert _read_json(second_script)["creation_type"] == "drama"
+
+
+@pytest.mark.parametrize(
+    ("content_mode", "count_key"),
+    [("narration", "total_segments"), ("ad", "total_shots"), ("drama", "total_units")],
+)
+def test_removes_every_legacy_metadata_count_key(tmp_path: Path, content_mode: str, count_key: str) -> None:
+    """v7 按骨架落盘的计数键不止 total_scenes：残留任何一个都会与读时计算的新计数打架。"""
+    project_dir = _v7_project(tmp_path, content_mode=content_mode)
+    script = _storyboard_script(content_mode=content_mode)
+    script["metadata"][count_key] = 99
+    _write_json(project_dir / "scripts/episode_1.json", script)
+
+    migrate_v7_to_v8(project_dir)
+
+    metadata = _read_json(project_dir / "scripts/episode_1.json")["metadata"]
+    assert count_key not in metadata
+    assert "total_scenes" not in metadata
+    assert metadata["estimated_duration_seconds"] == 16
+
+
 def test_idempotent_when_already_v8(tmp_path: Path) -> None:
     project_dir = _v7_project(tmp_path)
     _write_json(project_dir / "scripts/episode_1.json", _storyboard_script())

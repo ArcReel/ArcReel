@@ -421,6 +421,21 @@ class TestStatusCalculator:
         assert enriched_script["props_in_episode"] == ["P1"]
 
     @pytest.mark.unit
+    def test_enrich_script_drops_every_legacy_count_key(self, tmp_path):
+        """未走过迁移的剧本带着旧计数键：读时一并剔除，不与计算出的新计数并存。"""
+        script = {
+            "creation_type": "narration",
+            "metadata": {"total_scenes": 9, "total_segments": 9, "total_shots": 9, "total_units": 9},
+            "segments": [{"segment_id": "E1S01", "duration_seconds": 6, "generated_assets": {}}],
+        }
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        metadata = calc.enrich_script(script)["metadata"]
+
+        assert metadata["storyboard_count"] == 1
+        for stale in ("total_scenes", "total_segments", "total_shots", "total_units"):
+            assert stale not in metadata
+
+    @pytest.mark.unit
     def test_load_episode_script_corrupted_json(self, tmp_path):
         """JSON 损坏时应降级返回 ('generated', None)，而不是上抛异常。"""
         import json

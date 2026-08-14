@@ -3,7 +3,7 @@
 一次性改写：
 - ``content_mode`` → ``creation_type``
 - ``source_kind`` → ``source_file_type``
-- 删除 ``episodes[].scenes_count`` 与剧本 ``metadata.total_scenes``
+- 删除 ``episodes[].scenes_count`` 与剧本 ``metadata`` 里按骨架落盘的四个统计键
 - 绑定剧本与 profile manifest 同步更名
 
 不触碰参考生视频的 ``shots[]`` / ``references[]``。
@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from lib.json_io import atomic_write_json, load_json
+from lib.json_io import atomic_write_bytes, atomic_write_json, load_json
 from lib.path_safety import safe_join
 from lib.profile_manifest import MANIFEST_FILENAME
 
@@ -79,6 +79,13 @@ def migrate_project_payload(project: Mapping[str, Any]) -> dict[str, Any]:
     return migrated
 
 
+#: v7 剧本按骨架种类落盘的四个统计键。骨架不同键名也不同（segments→total_segments，
+#: shots→total_shots，video_units→total_units），一个项目里三种形态都可能存在，逐个删。
+#: 这里刻意抄一份而不引用 ``lib.script_models.LEGACY_METADATA_COUNT_KEYS``：迁移描述的是
+#: v7 那一刻的形状，后续版本再新增计数键也不该改变这一步的行为。
+_LEGACY_METADATA_COUNT_KEYS = ("total_scenes", "total_segments", "total_shots", "total_units")
+
+
 def migrate_script_payload(payload: Mapping[str, Any], *, fallback_creation_type: str) -> dict[str, Any]:
     """纯转换绑定剧本。保留具体领域集合与参考生视频 shots/references。"""
     migrated = copy.deepcopy(dict(payload))
@@ -92,7 +99,8 @@ def migrate_script_payload(payload: Mapping[str, Any], *, fallback_creation_type
     metadata = migrated.get("metadata")
     if isinstance(metadata, dict):
         cleaned_meta = dict(metadata)
-        cleaned_meta.pop("total_scenes", None)
+        for key in _LEGACY_METADATA_COUNT_KEYS:
+            cleaned_meta.pop(key, None)
         migrated["metadata"] = cleaned_meta
     return migrated
 
@@ -151,13 +159,17 @@ def _restore_from_backups(written: list[Path], backups: Mapping[Path, Path]) -> 
     逐文件 best-effort：还原本身失败（磁盘满、权限收紧往往就是首次写失败的同因）只记日志、
     继续还原其余文件，最终由调用方抛出原始异常。半还原态不影响可恢复性——三个 payload 转换器
     对已迁移字段幂等，且 ``project.json`` 未提交 ``schema_version``，重跑本迁移即可收敛。
+
+    还原走 ``atomic_write_bytes`` 而不是 ``shutil.copy2``：后者先截断目标再拷贝，磁盘耗尽时
+    留下的是半截无效 JSON，下次重跑在 ``load_json`` 上直接失败，前面说的「重跑即可收敛」就不
+    成立了。原子替换让还原失败的文件保持完整的 v8 形态。
     """
     for path in reversed(written):
         backup = backups.get(path)
         if backup is None:
             continue
         try:
-            shutil.copy2(backup, path)
+            atomic_write_bytes(path, backup.read_bytes())
         except OSError:
             logger.exception("v7→v8 迁移回滚失败，%s 仍是 v8 形态；重跑迁移可收敛", path)
 

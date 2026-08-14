@@ -15,7 +15,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
 )
 from lib.path_safety import safe_exists
-from lib.script_models import get_generated_assets, script_duration_total
+from lib.script_models import LEGACY_METADATA_COUNT_KEYS, get_generated_assets, script_duration_total
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 
 logger = logging.getLogger(__name__)
@@ -448,7 +448,9 @@ class StatusCalculator:
         if "metadata" not in script:
             script["metadata"] = {}
 
-        script["metadata"].pop("total_scenes", None)
+        # 未走过迁移的剧本（手工放进 projects/ 的旧文件）否则会同时带着新旧两套计数返回给前端
+        for key in LEGACY_METADATA_COUNT_KEYS:
+            script["metadata"].pop(key, None)
         if kind == "video_units":
             script["metadata"]["video_unit_count"] = len(items)
             script["metadata"]["shot_count"] = _shot_count([item for item in items if isinstance(item, dict)])

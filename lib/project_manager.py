@@ -72,7 +72,7 @@ from lib.profile_manifest import (
 from lib.project_change_hints import emit_project_change_hint
 from lib.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
-from lib.script_models import get_generated_assets, script_duration_total
+from lib.script_models import LEGACY_METADATA_COUNT_KEYS, get_generated_assets, script_duration_total
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 from lib.validation_messages import ValidationResult
 
@@ -752,11 +752,11 @@ class ProjectManager:
         metadata["updated_at"] = now
 
         # 选当前剧本的分镜数组：与结构校验 `_select_model` / 编辑核心 `resolve_items` 共用同一
-        # 判别（含 reference 模式的 video_units——否则它会落入 segments 兜底分支、total_scenes 错算为 0）。
+        # 判别（含 reference 模式的 video_units——否则它会落入 segments 兜底分支、条目数错算为 0）。
         # `resolve_items` 对 segments/scenes/video_units 存在但非 list（含 null 这类历史脏数据）会
         # fail-loud：`validate=True` 路径已被 `_guard_no_worse` 提前拦下（不会到这里）；只有
         # `validate=False` 资产回写热路径才会撞上脏数据键，此时**保留旧 metadata 不重算**——
-        # 旧的 total_scenes / estimated_duration_seconds 即便陈旧，也好过把 reference 模式
+        # 旧的 estimated_duration_seconds 即便陈旧，也好过把 reference 模式
         # 改写成 0-scene narration shell（fallback hard-pin kind='segments' 那种）。资产回写本就
         # 「整体豁免结构校验」，连带豁免 metadata 重算与「不更坏」语义一致：脏数据不更坏。
         try:
@@ -770,10 +770,11 @@ class ProjectManager:
         else:
             # 损坏脚本可能混入非 dict 元素（如 ["foo", {...}]）——它们在读取路径
             # （get_pending_scenes 等）与写入路径（batch_update 索引 / update_scene_asset 循环）
-            # 都被当作不存在过滤掉，metadata 重算一并排除：否则 total_scenes 会多计、
+            # 都被当作不存在过滤掉，metadata 重算一并排除：否则
             # estimated_duration_seconds 会被垃圾元素按 default 时长撑大，与各路径不一致。
             scene_items = [item for item in items if isinstance(item, dict)]
-            metadata.pop("total_scenes", None)
+            for stale_count_key in LEGACY_METADATA_COUNT_KEYS:
+                metadata.pop(stale_count_key, None)
             # 总时长走 script_duration_total 单一真相源：脏值（None/bool/负数/字符串）按骨架
             # 兜底时长归一、不抛（见 lib/script_models.py）。与 StatusCalculator 读时计算、
             # ScriptGenerator 落盘估算共用同一兜底表与守卫，避免三处口径漂移。
