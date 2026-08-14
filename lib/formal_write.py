@@ -8,6 +8,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+import portalocker
+
 from lib.json_io import atomic_write_bytes
 
 
@@ -17,6 +19,16 @@ class _FileSnapshot:
     content: bytes | None
     symlink_target: str | None = None
     symlink_is_directory: bool = False
+
+
+@contextmanager
+def project_metadata_lock(project_dir: Path) -> Iterator[None]:
+    """Serialize every project.json read-modify-write across process boundaries."""
+
+    lock_path = Path(project_dir) / ".project.json.lock"
+    lock_path.touch(exist_ok=True)
+    with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
+        yield
 
 
 @contextmanager
@@ -84,4 +96,4 @@ def formal_write_transaction(*paths: Path) -> Iterator[None]:
         raise
 
 
-__all__ = ["formal_write_transaction"]
+__all__ = ["formal_write_transaction", "project_metadata_lock"]

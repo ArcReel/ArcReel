@@ -4,6 +4,7 @@ import json
 import os
 import time
 from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 
@@ -710,6 +711,53 @@ def test_v7_schema_commit_failure_leaves_complete_manifest_retryable(
 
     assert _read_json(project_dir / "project.json")["schema_version"] == 8
     assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
+
+
+def test_v7_schema_promotion_does_not_overwrite_a_concurrent_project_writer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    from lib import artifact_activation
+
+    original_assert = artifact_activation._assert_preflight_unchanged
+    final_check_reached = Event()
+    writer_finished = Event()
+    writer_errors: list[BaseException] = []
+    check_count = 0
+
+    def _update_project() -> None:
+        final_check_reached.wait()
+        try:
+            ProjectManager(tmp_path).update_project(
+                "demo",
+                lambda project: project.update({"title": "Concurrent writer"}),
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            writer_errors.append(exc)
+        finally:
+            writer_finished.set()
+
+    def _assert_then_release_writer(project_path: Path, plan) -> None:
+        nonlocal check_count
+        original_assert(project_path, plan)
+        check_count += 1
+        if check_count == 3:
+            final_check_reached.set()
+            writer_finished.wait(timeout=0.2)
+
+    writer = Thread(target=_update_project)
+    writer.start()
+    monkeypatch.setattr(artifact_activation, "_assert_preflight_unchanged", _assert_then_release_writer)
+
+    migrate_v7_to_v8(project_dir)
+
+    writer.join(timeout=2)
+    assert not writer.is_alive()
+    assert writer_errors == []
+    promoted = _read_json(project_dir / "project.json")
+    assert promoted["schema_version"] == 8
+    assert promoted["title"] == "Concurrent writer"
 
 
 def test_v7_activation_restores_manifest_when_a_dependency_changes_after_its_commit(

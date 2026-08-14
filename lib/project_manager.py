@@ -57,7 +57,7 @@ from lib.episode_paths import (
     STEP1_FILENAMES,
     episode_script_relpath,
 )
-from lib.formal_write import formal_write_transaction
+from lib.formal_write import formal_write_transaction, project_metadata_lock
 from lib.json_io import atomic_write_bytes, atomic_write_json, load_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import (
@@ -1805,9 +1805,7 @@ class ProjectManager:
         更换 inode 后锁失效的问题。
         """
         project_file = self._get_project_file_path(project_name)
-        lock_path = project_file.parent / f".{project_file.name}.lock"
-        lock_path.touch(exist_ok=True)
-        with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
+        with project_metadata_lock(project_file.parent):
             yield
 
     @contextmanager

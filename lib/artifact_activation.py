@@ -35,6 +35,7 @@ from lib.artifact_manifest import (
 from lib.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis, build_step1_basis
 from lib.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
 from lib.asset_types import ASSET_SPECS, asset_name_comparison_key
+from lib.formal_write import project_metadata_lock
 from lib.grid.layout import grid_aspect_ratio_for
 from lib.grid.models import GridGeneration
 from lib.json_io import atomic_write_bytes, atomic_write_json
@@ -1395,30 +1396,34 @@ def activate_artifact_target_state(project_dir: Path, *, bump_schema: bool) -> b
     _assert_preflight_unchanged(project_dir, plan)
     if bump_schema:
         _backup_activation_inputs(project_dir, plan)
-        _assert_preflight_unchanged(project_dir, plan)
     adapter = ProjectArtifactManifestAdapter(project_dir)
-    previous_entries = adapter.snapshot_entries()
-    changed = adapter.replace_entries_atomically(plan.entries)
     if bump_schema:
-        try:
+        with project_metadata_lock(project_dir):
             _assert_preflight_unchanged(project_dir, plan)
-        except BaseException as original_error:
-            if changed:
-                try:
-                    restored = adapter.replace_snapshot_if_matches_atomically(
-                        expected=plan.entries,
-                        replacement=previous_entries,
-                    )
-                    if not restored and adapter.snapshot_entries() != previous_entries:
-                        raise ArtifactManifestError("artifact manifest changed concurrently after activation commit")
-                except BaseException as rollback_error:
-                    rollback_error.__cause__ = original_error
-                    raise RuntimeError(
-                        "artifact activation dependency drifted and Manifest rollback was incomplete"
-                    ) from rollback_error
-            raise
-        _commit_schema_version(project_dir, plan.project)
-        return True
+            previous_entries = adapter.snapshot_entries()
+            changed = adapter.replace_entries_atomically(plan.entries)
+            try:
+                _assert_preflight_unchanged(project_dir, plan)
+            except BaseException as original_error:
+                if changed:
+                    try:
+                        restored = adapter.replace_snapshot_if_matches_atomically(
+                            expected=plan.entries,
+                            replacement=previous_entries,
+                        )
+                        if not restored and adapter.snapshot_entries() != previous_entries:
+                            raise ArtifactManifestError(
+                                "artifact manifest changed concurrently after activation commit"
+                            )
+                    except BaseException as rollback_error:
+                        rollback_error.__cause__ = original_error
+                        raise RuntimeError(
+                            "artifact activation dependency drifted and Manifest rollback was incomplete"
+                        ) from rollback_error
+                raise
+            _commit_schema_version(project_dir, plan.project)
+            return True
+    changed = adapter.replace_entries_atomically(plan.entries)
     return changed
 
 
