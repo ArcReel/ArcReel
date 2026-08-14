@@ -95,7 +95,22 @@ POSTGRES_PASSWORD=set a database password
 # LOG_LEVEL=INFO
 ```
 
-Use only letters and numbers in `POSTGRES_PASSWORD` where possible, to prevent special URL characters from affecting `DATABASE_URL` parsing.
+Generate a password containing only hexadecimal characters where possible:
+
+```bash
+openssl rand -hex 16
+```
+
+The default Compose configuration passes the raw `POSTGRES_PASSWORD` to PostgreSQL and also interpolates it into the password segment of `DATABASE_URL`. If the password contains URL-reserved characters such as `@`, `:`, `/`, `?`, `#`, or `%`, the password in the connection URI must be percent-encoded. Do not put the encoded value directly in `POSTGRES_PASSWORD`: PostgreSQL needs the raw password, while only the URI needs the encoded form.
+
+When special characters are required, keep the raw and encoded values separate in `.env`:
+
+```dotenv
+POSTGRES_PASSWORD='p@ss/word'
+POSTGRES_PASSWORD_URLENCODED=p%40ss%2Fword
+```
+
+Then change only the password segment of `DATABASE_URL` in `deploy/production/docker-compose.yml` to `${POSTGRES_PASSWORD_URLENCODED}`; leave the PostgreSQL container's `POSTGRES_PASSWORD` unchanged. You can generate the encoded value with `urllib.parse.quote(raw_password, safe="")`. If you do not want to maintain this Compose customization, use the hexadecimal password described above.
 
 Start the service:
 
@@ -122,6 +137,8 @@ curl http://localhost:1241/health
 | `deploy/production/vertex_keys/` | Vertex AI credentials |
 | `deploy/production/claude_data/` | Agent runtime data |
 | `deploy/production/.env` | Authentication and database configuration |
+
+`pgdata/` stores only the PostgreSQL cluster, while `projects/` stores project metadata and media assets. Both directories must be persisted and backed up together. The production deployment uses PostgreSQL through `DATABASE_URL` and does not use `deploy/production/projects/.arcreel.db`. Do not copy SQLite files into `pgdata/`, and do not treat these two directories as interchangeable database backups.
 
 ### 2.3 Database Migrations {#database-migrations}
 
@@ -254,20 +271,33 @@ Explicitly changing the version when upgrading reduces the risk of unintentional
 
 ### 6.1 Back Up a SQLite Deployment {#backup-sqlite}
 
-First stop writes. The simplest method is to stop the service briefly:
+First identify the actual data root on the host, then stop writes. Default Compose uses `deploy/projects/`. If you changed the container path with `ARCREEL_DATA_DIR` and a custom mount, set `data_dir` to the corresponding absolute host path:
 
 ```bash
 cd deploy
+
+data_dir="$(cd projects && pwd)"
+# Custom data directory example: data_dir="/srv/arcreel/projects"
+
 docker compose stop arcreel
 ```
 
 Create the backup:
 
 ```bash
+backup_stamp="$(date +%Y%m%d-%H%M%S)"
+umask 077
 mkdir -p backups
-tar -czf "backups/arcreel-$(date +%Y%m%d-%H%M%S).tar.gz" \
-  .env projects vertex_keys claude_data
+chmod 700 backups
+
+tar -czf "backups/arcreel-config-${backup_stamp}.tar.gz" \
+  .env vertex_keys claude_data
+
+tar -czf "backups/arcreel-projects-${backup_stamp}.tar.gz" \
+  -C "${data_dir}" .
 ```
+
+Archiving the entire `data_dir` after the service has stopped keeps `.arcreel.db` and project assets at the same point in time. The configuration and data archives must use the same timestamp and be stored together. `umask 077` and backup directory mode `0700` restrict access to the credentials and project assets they contain. Do not copy only `.arcreel.db` while ArcReel is writing to it. In WAL mode, committed transactions may still reside in `.arcreel.db-wal`; losing or mismatching the WAL can cause data loss or corruption. If downtime is not possible, use the SQLite Online Backup API, such as the `sqlite3` `.backup` command, or `VACUUM INTO` to create a consistent snapshot instead of copying the main database file directly with `cp`.
 
 Restart the service:
 
@@ -279,7 +309,7 @@ To restore:
 
 1. Stop ArcReel;
 2. Back up the current directory so you can roll back if files are overwritten;
-3. Restore `.env`, `projects/`, `vertex_keys/`, and `claude_data/` from the archive to their original locations;
+3. Restore `.env`, `vertex_keys/`, and `claude_data/` from the configuration archive, then extract the paired data archive completely into an empty `data_dir`;
 4. Start the service and check `/health`;
 5. Open several projects and verify their images, videos, and version history.
 
@@ -289,22 +319,26 @@ Stop the ArcReel application first, but leave PostgreSQL running, so no new writ
 
 ```bash
 cd "$(git rev-parse --show-toplevel)/deploy/production"
+umask 077
 mkdir -p backups
+chmod 700 backups
 docker compose stop arcreel
 
 backup_stamp="$(date +%Y%m%d-%H%M%S)"
 
-docker compose exec -T postgres \
-  pg_dump -U arcreel -d arcreel \
+docker compose exec -T postgres sh -c \
+  'PGPASSWORD="$POSTGRES_PASSWORD" exec pg_dump -h 127.0.0.1 -U arcreel -d arcreel' \
   > "backups/arcreel-db-${backup_stamp}.sql"
 
 tar -czf "backups/arcreel-files-${backup_stamp}.tar.gz" \
-  .env projects vertex_keys claude_data
+  .env docker-compose.yml projects vertex_keys claude_data
 
 docker compose start arcreel
 ```
 
-The database backup and file backup use the same timestamp and must be stored and restored together.
+The database and file backups use the same timestamp and must be stored and restored together. The file backup includes the active `docker-compose.yml`, so any `DATABASE_URL` customization required by a special-character password is restored together with `.env`. `umask 077` and backup directory mode `0700` ensure that the host-created SQL file and file archive are readable and writable only by the current user.
+
+`pg_dump` reads `PGPASSWORD` through libpq. The command above sets it only for that `pg_dump` process inside the PostgreSQL container, allowing `docker compose exec -T` to run non-interactively without expanding the password into the host command line. For long-running host-side backup automation, use a PostgreSQL password file with `0600` permissions instead. Never put the password in a script or backup filename.
 
 If `tar` reports `Permission denied`, the mounted directory contains files created by the container's root user that the current host user cannot read. Rerun the corresponding `tar` command with `sudo`, then restrict read access to the backup file when finished.
 
@@ -315,9 +349,12 @@ Before restoring, stop ArcReel but leave PostgreSQL running:
 ```bash
 cd "$(git rev-parse --show-toplevel)/deploy/production"
 docker compose stop arcreel
+
+backup_stamp=YYYYMMDD-HHMMSS
+tar -xzf "backups/arcreel-files-${backup_stamp}.tar.gz"
 ```
 
-The following procedure deletes the existing data in the target `arcreel` database. First verify that both the database backup and its paired file backup are complete, and rehearse the restoration procedure in an isolated environment.
+The file archive restores `.env`, `docker-compose.yml`, `projects/`, and the runtime directories. The following procedure also deletes the existing data in the target `arcreel` database. First verify that the database and file backups with the same `backup_stamp` are complete, and rehearse the restoration procedure in an isolated environment.
 
 Recreate an empty database before importing to avoid conflicts with existing schemas or data:
 
@@ -328,11 +365,11 @@ docker compose exec -T postgres \
 docker compose exec -T postgres \
   createdb -U arcreel --maintenance-db=postgres -O arcreel arcreel
 
-cat backups/arcreel-db-YYYYMMDD-HHMMSS.sql | \
+cat "backups/arcreel-db-${backup_stamp}.sql" | \
   docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U arcreel -d arcreel
 ```
 
-Then restore the matching `projects/` and other file directories and restart the application:
+After the database import succeeds, restart the application:
 
 ```bash
 docker compose start arcreel
