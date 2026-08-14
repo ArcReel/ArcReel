@@ -31,6 +31,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     download_video,
     extract_provider_error_message,
+    first_mapping_by_paths,
     first_str_by_paths,
     normalize_provider_status,
     poll_with_retry,
@@ -63,6 +64,9 @@ _VIDEO_URL_PATHS: tuple[tuple[str | int, ...], ...] = (
     ("data", "result_url"),
     ("result_url",),
 )
+# metadata 与状态、视频地址同源：包装体形状下它一并落在 ``data`` 里。实际时长是计费依据，
+# 取不到会退回请求时长记账。
+_METADATA_PATHS: tuple[tuple[str | int, ...], ...] = (("metadata",), ("data", "metadata"))
 
 
 def _task_status(state: object) -> ProviderJobStatus:
@@ -214,7 +218,7 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
         # 流式下载，不携带 Authorization 头（视频 URL 常为 CDN/OSS，避免 API Key 泄露）
         await self._download_with_retry(video_url, request.output_path)
 
-        meta = final.get("metadata") or {}
+        meta = first_mapping_by_paths(final, _METADATA_PATHS) or {}
         raw_duration = meta.get("duration")
         duration_seconds = int(float(raw_duration)) if raw_duration is not None else request.duration_seconds
         return VideoGenerationResult(

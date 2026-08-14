@@ -424,6 +424,19 @@ def first_str_by_paths(payload: object, paths: tuple[tuple[str | int, ...], ...]
     return None
 
 
+def first_mapping_by_paths(payload: object, paths: tuple[tuple[str | int, ...], ...]) -> dict | None:
+    """按优先级逐个试取第一个 dict 值；取不到返回 None。
+
+    同 ``first_str_by_paths``，用于回包里成组的子结构（如 metadata）——形状随部署变化时
+    与状态、视频地址走同一张优先级表，不各写一套形状分支。
+    """
+    for path in paths:
+        val = _dig(payload, path)
+        if isinstance(val, dict):
+            return val
+    return None
+
+
 # 错误描述的常见落点：扁平 error 与包装体内的 data.error。
 _ERROR_PATHS: tuple[tuple[str | int, ...], ...] = (("error",), ("data", "error"))
 

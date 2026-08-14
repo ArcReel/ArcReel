@@ -824,3 +824,34 @@ class TestWrappedResponseShape:
             )
 
         assert fake_download.await_args.args[0] == "https://cdn/flat.mp4"
+
+    async def test_wrapped_metadata_feeds_duration_and_seed(self, tmp_path: Path):
+        """包装体里的 metadata 与状态、视频地址同源，同样要取到——实际时长是计费依据。"""
+        mock_client = _mock_http_client(
+            poll_body={
+                "code": "success",
+                "data": {
+                    "task_id": "t-proxy",
+                    "status": "SUCCESS",
+                    "result_url": "https://cdn/wrapped.mp4",
+                    "metadata": {"duration": 8, "seed": 4242},
+                },
+            }
+        )
+
+        with (
+            bounded_poll_clock(),
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("lib.video_backends.newapi.download_video", AsyncMock(side_effect=_fake_download_factory())),
+        ):
+            from lib.video_backends.newapi import NewAPIVideoBackend
+
+            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+            result = await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
+                )
+            )
+
+        assert result.duration_seconds == 8
+        assert result.seed == 4242

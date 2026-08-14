@@ -83,7 +83,7 @@ ArcReel 中始终与 server 主进程**捆绑在同一个 uvicorn 进程内**的
 DB 中状态为 `running` 但 worker 内存里没有对应 asyncio.Task 的任务。唯一现实成因是**服务重启**（部署 / 崩溃恢复）；处理原则是不重新触发生成，只有具备完整恢复身份的提交-轮询型任务才可继续轮询。
 
 **provider job status（供应商任务状态）**：
-提交-轮询型 video backend 从供应商回包读到的**远端 job** 状态，与上面 task 状态机同名不同物——它由供应商写、只决定轮询何时终止，不是 DB 里的任务状态。各家状态串写法不一，且经 OpenAI 兼容代理网关转发时会透传底层厂商的串，故一律过 `lib/video_backends/base.py::normalize_provider_status` 归一到五档：`queued` / `running` / `succeeded` / `failed` / `expired`。`expired` 独立于 `failed`：它决定续跑走 `[resume_expired]`（不再自愈）而非普通失败。未登记的状态串按 `running` 处理继续轮询——保守方向，否则会对未就绪任务触发下载。
+提交-轮询型 video backend 从供应商回包读到的**远端 job** 状态，与上面 task 状态机同名不同物——它由供应商写、只决定轮询何时终止，不是 DB 里的任务状态。OpenAI 兼容协议的三个端点（`openai-video` / `newapi-video` / `v2-video-generations`）状态串不由单一厂商固定，经代理网关转发时还会透传底层厂商的写法，故过 `lib/video_backends/base.py::normalize_provider_status` 归一到五档：`queued` / `running` / `succeeded` / `failed` / `expired`；各家自有 API 的 backend 状态串由该家文档定死，仍按字面量判定。`expired` 独立于 `failed`：它决定续跑走 `[resume_expired]`（不再自愈）而非普通失败；协议本身没有过期语义的端点（`v2-video-generations`）在五档之上自行折叠。未登记的状态串按 `running` 处理继续轮询——保守方向，否则会对未就绪任务触发下载。
 _Avoid_: 与 task 状态机的 succeeded/failed 混为一谈；给未知状态串加「猜测即终态」的启发式；在 backend 里各写一份同义词判定。
 
 **execution checkpoint（执行检查点）**：

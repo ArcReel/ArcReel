@@ -16,6 +16,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     _dig,
     extract_provider_error_message,
+    first_mapping_by_paths,
     first_str_by_paths,
     is_retryable_http_status,
     normalize_provider_status,
@@ -308,6 +309,17 @@ class TestDigAndFirstStrByPaths:
         assert first_str_by_paths({"data": {"result_url": "b"}}, paths) == "b"
         assert first_str_by_paths({"url": "   ", "data": {"result_url": "b"}}, paths) == "b"
         assert first_str_by_paths({"foo": "bar"}, paths) is None
+
+    def test_first_mapping_by_paths_priority(self):
+        paths = (("metadata",), ("data", "metadata"))
+        assert first_mapping_by_paths({"metadata": {"seed": 1}, "data": {"metadata": {"seed": 2}}}, paths) == {
+            "seed": 1
+        }
+        assert first_mapping_by_paths({"data": {"metadata": {"seed": 2}}}, paths) == {"seed": 2}
+        assert first_mapping_by_paths({"metadata": "not-a-mapping", "data": {"metadata": {"seed": 2}}}, paths) == {
+            "seed": 2
+        }
+        assert first_mapping_by_paths({"foo": "bar"}, paths) is None
 
 
 class TestExtractProviderErrorMessage:
