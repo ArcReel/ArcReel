@@ -647,6 +647,32 @@ class ProjectArtifactManifestAdapter:
             return self._inspect_artifact_posix(normalized, include_content_digest=include_content_digest)
         return self._inspect_artifact_portable(normalized, include_content_digest=include_content_digest)
 
+    def _read_open_artifact(
+        self,
+        normalized: str,
+        fd: int,
+        opened_stat: os.stat_result,
+        *,
+        include_content_digest: bool,
+    ) -> tuple[str | None, ArtifactObservation | None]:
+        if not include_content_digest:
+            os.read(fd, 1)
+            return None, None
+
+        digest = hashlib.sha256()
+        for chunk in iter(lambda: os.read(fd, 1024 * 1024), b""):
+            digest.update(chunk)
+        completed_stat = os.fstat(fd)
+        opened_version = (opened_stat.st_size, opened_stat.st_mtime_ns, opened_stat.st_ctime_ns)
+        completed_version = (completed_stat.st_size, completed_stat.st_mtime_ns, completed_stat.st_ctime_ns)
+        if completed_version != opened_version:
+            return None, self._artifact_blocked(
+                normalized,
+                "artifact_unreadable",
+                f"artifact changed while its content digest was being read: {normalized}",
+            )
+        return digest.hexdigest(), None
+
     def _inspect_artifact_posix(
         self,
         normalized: str,
@@ -771,14 +797,14 @@ class ProjectArtifactManifestAdapter:
                         "artifact_not_regular_file",
                         f"artifact path is not a regular file: {normalized}",
                     )
-                if include_content_digest:
-                    digest = hashlib.sha256()
-                    for chunk in iter(lambda: os.read(fd, 1024 * 1024), b""):
-                        digest.update(chunk)
-                    content_digest = digest.hexdigest()
-                else:
-                    os.read(fd, 1)
-                    content_digest = None
+                content_digest, content_blocker = self._read_open_artifact(
+                    normalized,
+                    fd,
+                    opened_file_stat,
+                    include_content_digest=include_content_digest,
+                )
+                if content_blocker is not None:
+                    return content_blocker
                 current_file_stat = os.stat(parts[-1], dir_fd=directory_fd, follow_symlinks=False)
                 opened_identity = (opened_file_stat.st_dev, opened_file_stat.st_ino)
                 if (
@@ -867,14 +893,14 @@ class ProjectArtifactManifestAdapter:
                         "artifact_not_regular_file",
                         f"artifact path is not a regular file: {normalized}",
                     )
-                if include_content_digest:
-                    digest = hashlib.sha256()
-                    for chunk in iter(lambda: os.read(fd, 1024 * 1024), b""):
-                        digest.update(chunk)
-                    content_digest = digest.hexdigest()
-                else:
-                    os.read(fd, 1)
-                    content_digest = None
+                content_digest, content_blocker = self._read_open_artifact(
+                    normalized,
+                    fd,
+                    opened_stat,
+                    include_content_digest=include_content_digest,
+                )
+                if content_blocker is not None:
+                    return content_blocker
                 if (opened_stat.st_dev, opened_stat.st_ino) != checked_components[-1][1]:
                     return self._artifact_blocked(
                         normalized,

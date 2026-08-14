@@ -362,6 +362,12 @@ class _FakePM:
         self.updated_assets = []
         self.project_path.mkdir(parents=True, exist_ok=True)
         (self.project_path / "project.json").write_text('{"schema_version":7}', encoding="utf-8")
+        scripts_dir = self.project_path / "scripts"
+        scripts_dir.mkdir(exist_ok=True)
+        (scripts_dir / "episode_1.json").write_text(
+            json.dumps(self.script, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
     def load_project(self, project_name: str):
         return self.project
@@ -1840,6 +1846,10 @@ class TestGenerationTasks:
     async def test_execute_post_production_video_does_not_require_an_episode_number(self, monkeypatch, tmp_path):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        (project_path / "scripts" / "legacy_script.json").write_text(
+            json.dumps(fake_pm.script, ensure_ascii=False),
+            encoding="utf-8",
+        )
         fake_generator = _FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)

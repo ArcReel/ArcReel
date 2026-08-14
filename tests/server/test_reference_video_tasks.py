@@ -1874,6 +1874,64 @@ async def test_execute_reference_video_task_rechecks_legacy_selection_after_acti
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_execute_reference_video_task_rejects_replaced_legacy_sheet_before_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from server.services import reference_video_tasks as rvt
+
+    proj_dir = _write_project(tmp_path)
+    project_path = proj_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project["schema_version"] = 7
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = project
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    provider_submissions: list[str] = []
+
+    async def _fake_generate_video_async(**kwargs):
+        (proj_dir / "characters" / "张三.png").write_bytes(b"replacement-sheet")
+        await kwargs["before_submit"](73)
+        provider_submissions.append("submitted")
+        raise AssertionError("provider submission must remain unreachable")
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="ark",
+        backend_model="doubao-seedance-2-0-260128",
+        supported_durations=(3,),
+    )
+    fake_queue = MagicMock()
+    fake_queue.persist_execution_checkpoint = AsyncMock()
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
+
+    with pytest.raises(ValueError, match="changed since it was selected"):
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "scripts/episode_1.json"},
+            user_id="u1",
+            task_id="task-reference-sheet-bytes-race",
+        )
+
+    assert provider_submissions == []
+    fake_queue.persist_execution_checkpoint.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_execute_reference_video_task_uses_episode_one_for_unresolved_legacy_script_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

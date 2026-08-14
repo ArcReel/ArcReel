@@ -600,7 +600,12 @@ async def execute_reference_video_task(
         raise ValueError("reference request projection has no duration tier")
 
     constrained_entries = list(projection.request_assets)
-    formal_input_claims = (script_input.claim, *asset_availability.snapshot_selected_claims(constrained_entries))
+    formal_input_claims = (script_input.claim,)
+    if task_id is None:
+        formal_input_claims = (
+            script_input.claim,
+            *asset_availability.snapshot_selected_claims(constrained_entries),
+        )
     constrained_refs = [entry.path for entry in constrained_entries]
     aspect_ratio = resolve_video_aspect_ratio(project)
     candidate = projection.provider_candidate
@@ -747,6 +752,16 @@ async def execute_reference_video_task(
         audio_targets_tuple = tuple(reference_audio_targets) if reference_audio_targets is not None else None
         staged_media = await _stage_provider_media_for_task(project_path, task_id, image_inputs + audio_inputs)
         try:
+            staged_reference_digests = {
+                media.source_locator: media.sha256 for media in staged_media if media.role == "reference_image"
+            }
+            formal_input_claims = (
+                script_input.claim,
+                *asset_availability.snapshot_selected_claims(
+                    constrained_entries,
+                    staged_content_digests=staged_reference_digests,
+                ),
+            )
             provider_refs = [
                 safe_join(project_path, media.staged_locator, require_file=True)
                 for media in staged_media

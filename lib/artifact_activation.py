@@ -1800,7 +1800,8 @@ def resolve_usable_episode_script_input(
             else legacy_episode_fallback
         )
     artifact_path = _normalize_script_binding(ProjectManager.normalize_script_filename(script_filename))
-    claim = resolve_usable_artifact_input_claim(
+    claim = snapshot_usable_artifact_input_claim(
+        project_path=project_path,
         resolver=active_artifact_currency_resolver(project_path, project),
         key=ArtifactKey.episode_script(episode),
         artifact_path=artifact_path,
@@ -1888,6 +1889,28 @@ def resolve_usable_artifact_input_claim(
         artifact_path=entry.artifact_path,
         basis_digest=entry.basis_digest,
         content_digest=observed_digest,
+    )
+
+
+def snapshot_usable_artifact_input_claim(
+    *,
+    project_path: Path,
+    resolver: ArtifactCurrencyResolver | None,
+    key: ArtifactKey,
+    artifact_path: str,
+) -> ArtifactInputClaim | None:
+    """Select one formal input and freeze its byte identity in every schema."""
+
+    content_digest = (
+        resolver.artifact_content_digest(artifact_path)
+        if resolver is not None
+        else _artifact_content_digest(ProjectArtifactManifestAdapter(project_path), artifact_path)
+    )
+    return resolve_usable_artifact_input_claim(
+        resolver=resolver,
+        key=key,
+        artifact_path=artifact_path,
+        content_digest=content_digest,
     )
 
 
@@ -2495,4 +2518,5 @@ __all__ = [
     "resolve_usable_episode_script_input",
     "resolve_usable_artifact_input_claim",
     "resolve_usable_storyboard_video_inputs",
+    "snapshot_usable_artifact_input_claim",
 ]

@@ -11,6 +11,7 @@ from lib.artifact_activation import (
     active_artifact_currency_resolver,
     artifact_input_is_usable,
     resolve_usable_artifact_input_claim,
+    snapshot_usable_artifact_input_claim,
 )
 from lib.artifact_manifest import ArtifactKey
 from lib.reference_video.request_projection import FilesystemReferenceAssets, ResolvedReferenceAsset
@@ -55,8 +56,13 @@ class CurrentReferenceAssets:
             claims=None,
         )
 
-    def snapshot_selected_claims(self, assets: Sequence[ResolvedReferenceAsset]) -> tuple[ArtifactInputClaim, ...]:
-        """Freeze only the formal sheets that survived provider projection."""
+    def snapshot_selected_claims(
+        self,
+        assets: Sequence[ResolvedReferenceAsset],
+        *,
+        staged_content_digests: Mapping[str, str] | None = None,
+    ) -> tuple[ArtifactInputClaim, ...]:
+        """Freeze formal sheets against their source or exact staged bytes."""
 
         claims: list[ArtifactInputClaim] = []
         for asset in assets:
@@ -65,11 +71,23 @@ class CurrentReferenceAssets:
             claim = self._claim_for(asset)
             if claim is None:
                 continue
-            selected = resolve_usable_artifact_input_claim(
-                resolver=self._resolver,
-                key=claim.key,
-                artifact_path=claim.artifact_path,
-            )
+            if staged_content_digests is None:
+                selected = snapshot_usable_artifact_input_claim(
+                    project_path=self._project_path,
+                    resolver=self._resolver,
+                    key=claim.key,
+                    artifact_path=claim.artifact_path,
+                )
+            else:
+                content_digest = staged_content_digests.get(claim.artifact_path)
+                if content_digest is None:
+                    raise ValueError(f"staged formal artifact digest is missing: {claim.artifact_path}")
+                selected = resolve_usable_artifact_input_claim(
+                    resolver=self._resolver,
+                    key=claim.key,
+                    artifact_path=claim.artifact_path,
+                    content_digest=content_digest,
+                )
             if selected is None:
                 raise ValueError(f"formal artifact input is no longer registered: {claim.artifact_path}")
             claims.append(selected)

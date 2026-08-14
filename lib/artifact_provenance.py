@@ -267,10 +267,11 @@ def project_episode_script_prompt_inputs(project: Mapping[str, object]) -> dict[
 def build_ad_episode_script_basis(episode: int, *, project: Mapping[str, object]) -> ArtifactBasis:
     """Describe the persisted business inputs consumed by ad script generation."""
 
+    inputs = project_ad_episode_script_inputs(episode, project=project)
     return ArtifactBasis.build(
         "structured-content/ad-episode-script",
-        kind_version=1,
-        inputs=project_ad_episode_script_inputs(episode, project=project),
+        kind_version=2,
+        inputs=_freeze_ad_prompt_table_order(inputs),
     )
 
 
@@ -332,6 +333,15 @@ def _optional_string(value: object, field: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"ad {field} must be a string or null")
     return value
+
+
+def _freeze_ad_prompt_table_order(inputs: Mapping[str, object]) -> dict[str, object]:
+    """Encode prompt-rendered mapping order explicitly for canonical JSON."""
+
+    frozen = dict(inputs)
+    for field in ("characters", "scenes", "props", "products"):
+        frozen[field] = [{"name": name, "value": value} for name, value in _mapping_or_empty(inputs.get(field)).items()]
+    return frozen
 
 
 def _project_named_assets(value: object) -> dict[str, object]:

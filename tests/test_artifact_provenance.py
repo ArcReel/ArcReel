@@ -481,6 +481,36 @@ def test_ad_script_basis_tracks_only_persisted_prompt_inputs() -> None:
     assert changed_speech_rate.digest != baseline.digest
 
 
+@pytest.mark.parametrize("field", ["characters", "scenes", "props", "products"])
+def test_ad_script_basis_tracks_prompt_table_order(field: str) -> None:
+    project = {
+        "content_mode": "ad",
+        "generation_mode": "storyboard",
+        "target_duration": 30,
+        "brief": "突出耐用",
+        "overview": {},
+        "characters": {"角色甲": {}, "角色乙": {}},
+        "scenes": {"场景甲": {}, "场景乙": {}},
+        "props": {"道具甲": {}, "道具乙": {}},
+        "products": {
+            "产品甲": {"description": "甲"},
+            "产品乙": {"description": "乙"},
+        },
+    }
+    reordered = {
+        **project,
+        field: dict(reversed(tuple(project[field].items()))),
+    }
+
+    assert (
+        build_ad_episode_script_basis(1, project=reordered).digest
+        != build_ad_episode_script_basis(
+            1,
+            project=project,
+        ).digest
+    )
+
+
 def test_ad_reference_script_basis_excludes_storyboard_only_inputs() -> None:
     project = {
         "content_mode": "ad",

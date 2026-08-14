@@ -524,6 +524,45 @@ def test_project_adapter_hashes_content_only_through_the_explicit_snapshot_seam(
     assert snapshot.present and snapshot.content_digest == hashlib.sha256(content).hexdigest()
 
 
+@pytest.mark.parametrize("inspection_path", ["posix", "portable"])
+def test_project_adapter_rejects_in_place_write_during_content_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    inspection_path: str,
+) -> None:
+    if inspection_path == "posix" and os.name != "posix":
+        pytest.skip("descriptor traversal is the POSIX artifact inspection path")
+    project = tmp_path / "project"
+    project.mkdir()
+    artifact = project / "episode.json"
+    artifact.write_bytes(b"formal-provider-input")
+    original_identity = (artifact.stat().st_dev, artifact.stat().st_ino)
+    adapter = ProjectArtifactManifestAdapter(project)
+    original_read = os.read
+    mutated = False
+
+    def mutate_after_first_read(fd: int, length: int) -> bytes:
+        nonlocal mutated
+        chunk = original_read(fd, length)
+        if chunk and not mutated:
+            with artifact.open("ab") as handle:
+                handle.write(b"-concurrent-update")
+            mutated = True
+        return chunk
+
+    monkeypatch.setattr("lib.artifact_manifest.os.read", mutate_after_first_read)
+
+    if inspection_path == "posix":
+        observation = adapter._inspect_artifact_posix("episode.json", include_content_digest=True)
+    else:
+        observation = adapter._inspect_artifact_portable("episode.json", include_content_digest=True)
+
+    assert mutated
+    assert (artifact.stat().st_dev, artifact.stat().st_ino) == original_identity
+    assert not observation.present
+    assert observation.blocker is not None and observation.blocker.code == "artifact_unreadable"
+
+
 @pytest.mark.skipif(os.name != "posix", reason="descriptor reads are the POSIX artifact inspection path")
 def test_project_adapter_reports_posix_artifact_read_failure(
     tmp_path: Path,

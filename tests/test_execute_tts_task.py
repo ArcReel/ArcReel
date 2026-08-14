@@ -320,6 +320,38 @@ class TestExecuteTtsTask:
         assert provider_submissions == []
         assert gen.audio_calls == []
 
+    async def test_legacy_script_bytes_replaced_before_provider_are_rejected(self, tts_env, monkeypatch):
+        pm, gen = tts_env
+        original_generate = gen.generate_audio_async
+        provider_submissions: list[str] = []
+
+        async def _replace_script_before_submit(**kwargs):
+            before_submit = kwargs["before_submit"]
+
+            async def _replace_then_admit() -> None:
+                replacement = copy.deepcopy(pm.script)
+                replacement["segments"][0]["novel_text"] = "并发保存后的另一版旁白。"
+                (pm.project_path / "scripts" / "episode_1.json").write_text(
+                    json.dumps(replacement, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                await before_submit()
+                provider_submissions.append("submitted")
+
+            return await original_generate(**{**kwargs, "before_submit": _replace_then_admit})
+
+        monkeypatch.setattr(gen, "generate_audio_async", _replace_script_before_submit)
+
+        with pytest.raises(ValueError, match="changed since it was selected"):
+            await generation_tasks.execute_tts_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json"},
+            )
+
+        assert provider_submissions == []
+        assert gen.audio_calls == []
+
     async def test_active_use_tts_video_blocks_regeneration_before_provider_call(self, tts_env, monkeypatch):
         from lib.api_errors import ConflictError
 
