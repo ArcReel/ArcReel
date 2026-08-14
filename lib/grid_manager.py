@@ -98,14 +98,15 @@ class GridManager:
     def delete(self, grid_id: str) -> bool:
         """Delete a grid record and its image file. Returns True if found and deleted."""
         path = self._path(grid_id)
-        if not path.exists():
-            return False
-        # Also remove the grid image if it exists
-        image_file = self.image_path(grid_id)
-        if image_file.exists():
-            image_file.unlink()
-        path.unlink()
-        return True
+        with self._record_lock(path):
+            if not path.exists():
+                return False
+            # Also remove the grid image if it exists
+            image_file = self.image_path(grid_id)
+            if image_file.exists():
+                image_file.unlink()
+            path.unlink()
+            return True
 
     def list_all(self) -> list[GridGeneration]:
         """Return all grids sorted by created_at ascending."""

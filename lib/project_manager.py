@@ -1525,7 +1525,7 @@ class ProjectManager:
                     if self._requires_unique_asset_namespace(project):
                         ensure_project_asset_namespace(project)
                     atomic_write_json(project_file, project)
-                if on_commit is not None:
+                if changed and on_commit is not None:
                     on_commit()
 
         if changed:

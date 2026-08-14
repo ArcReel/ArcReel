@@ -38,6 +38,7 @@ ARCHIVE_MANIFEST_NAME = "arcreel-export.json"
 ARCHIVE_FORMAT_VERSION = 2
 ARCHIVE_SCRIPT_SCHEMA_VERSION = 2
 DEFAULT_IMPORT_FILENAME = "imported-project.zip"
+_ARTIFACT_ACTIVATION_ERRORS = (ArtifactManifestError, OSError, UnicodeError, ValueError)
 
 
 def _resolve_existing_asset(name: str, candidates: set[str]) -> str:
@@ -277,6 +278,23 @@ class ProjectArchiveService:
         download_name = f"{project_name}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
         return archive_path, download_name
 
+    @staticmethod
+    def _raise_artifact_activation_validation_error(
+        diagnostics: ArchiveDiagnostics,
+        cause: Exception,
+    ) -> None:
+        diagnostics.add(
+            "blocking",
+            "artifact_activation_failed",
+            ValidationMessage("arch_artifact_activation_failed"),
+        )
+        raise ProjectArchiveValidationError(
+            ValidationMessage("arch_import_validation_failed"),
+            errors=diagnostics.blocking_messages(),
+            warnings=diagnostics.warning_messages(),
+            diagnostics=diagnostics,
+        ) from cause
+
     def import_project_archive(
         self,
         archive_path: Path,
@@ -324,7 +342,13 @@ class ProjectArchiveService:
                             "source_encoding_unconverted",
                             ValidationMessage("arch_source_encoding_unconverted", {"name": failed_name}),
                         )
-                    migrate_project_dir(staging_dir)
+                    try:
+                        migrate_project_dir(staging_dir)
+                    except _ARTIFACT_ACTIVATION_ERRORS as exc:
+                        stalled_project = self._load_json_file(staging_dir / self.project_manager.PROJECT_FILE)
+                        if stalled_project is not None and stalled_project.get("schema_version") == 7:
+                            self._raise_artifact_activation_validation_error(diagnostics, exc)
+                        raise
                     diagnostics.extend_validation(self.validator.validate_project_tree(staging_dir))
                     if diagnostics.blocking:
                         raise ProjectArchiveValidationError(
@@ -338,18 +362,8 @@ class ProjectArchiveService:
                     # 保持其结构化导入诊断，再对合法树执行目标态预检与原子提交。
                     try:
                         ensure_imported_artifact_target_state(staging_dir)
-                    except (ArtifactManifestError, OSError, UnicodeError, ValueError) as exc:
-                        diagnostics.add(
-                            "blocking",
-                            "artifact_activation_failed",
-                            ValidationMessage("arch_artifact_activation_failed"),
-                        )
-                        raise ProjectArchiveValidationError(
-                            ValidationMessage("arch_import_validation_failed"),
-                            errors=diagnostics.blocking_messages(),
-                            warnings=diagnostics.warning_messages(),
-                            diagnostics=diagnostics,
-                        ) from exc
+                    except _ARTIFACT_ACTIVATION_ERRORS as exc:
+                        self._raise_artifact_activation_validation_error(diagnostics, exc)
 
                     project = self._load_project_file(staging_dir / self.project_manager.PROJECT_FILE)
                     target_name = self._resolve_target_project_name(

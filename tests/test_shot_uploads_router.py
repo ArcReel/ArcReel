@@ -83,6 +83,34 @@ def _upload(client, kind: str, filename: str, content: bytes, shot_id="E1S01", s
 
 
 class TestShotStoryboardUpload:
+    @pytest.mark.asyncio
+    async def test_finalize_registration_failure_restores_storyboard_metadata(self, tmp_path, monkeypatch):
+        pm = _seed_shot_project(tmp_path)
+        script = pm.load_script("demo", "episode_1.json")
+        script["segments"][0]["characters_in_segment"] = ["Missing"]
+        pm.save_script("demo", script, "episode_1.json", validate=False)
+        project = pm.load_project("demo")
+        project["generation_mode"] = "storyboard"
+        project["grid_storyboard"] = False
+        project["style"] = 123
+        pm.save_project("demo", project)
+        project_path = pm.get_project_path("demo")
+        storyboard = project_path / "storyboards" / "scene_E1S01.png"
+        storyboard.write_bytes(_img_bytes("PNG"))
+        script_path = project_path / "scripts" / "episode_1.json"
+        before = script_path.read_bytes()
+        monkeypatch.setattr(upload_finalize, "get_project_manager", lambda: pm)
+
+        with pytest.raises(ValueError, match="must be strings"):
+            await upload_finalize.finalize_shot_storyboard_upload(
+                project_name="demo",
+                script_file="episode_1.json",
+                shot_id="E1S01",
+                asset_path="storyboards/scene_E1S01.png",
+            )
+
+        assert script_path.read_bytes() == before
+
     def test_upload_updates_metadata_versions_and_fingerprints(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:

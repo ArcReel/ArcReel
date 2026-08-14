@@ -151,7 +151,8 @@ logger = logging.getLogger(__name__)
 
 
 class _CancellationReceipt(Protocol):
-    def compensate_cancelled(self) -> None: ...
+    def compensate_cancelled(self) -> None:
+        pass
 
 
 def register_formal_task_artifact(

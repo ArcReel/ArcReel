@@ -83,14 +83,12 @@ def _sync_grid_record(
     from lib.grid_manager import GridManager
 
     manager = GridManager(project_path)
-    updated = manager.update(
+    manager.update(
         resource_id,
         lambda grid: grid.mark_composite_replaced(),
         on_commit=on_commit,
         ignore_invalid=True,
     )
-    if updated is None and on_commit is not None:
-        on_commit()
 
 
 # resource_type（复数，URL 段）→ asset_type（单数，ASSET_SPECS 键）

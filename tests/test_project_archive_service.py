@@ -443,6 +443,23 @@ class TestProjectArchiveService:
         assert any(item.code == "artifact_activation_failed" for item in exc_info.value.diagnostics.blocking)
 
     @pytest.mark.unit
+    def test_import_reports_v7_migration_activation_failure_as_archive_validation(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        (project_dir / "scripts" / "episode_1.json").write_text("{", encoding="utf-8")
+        archive_path = tmp_path / "broken-v7.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="broken-v7.zip")
+
+        assert any(item.code == "artifact_activation_failed" for item in exc_info.value.diagnostics.blocking)
+
+    @pytest.mark.unit
     def test_import_manual_zip_without_manifest(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)

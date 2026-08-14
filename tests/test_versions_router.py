@@ -17,7 +17,6 @@ from lib.artifact_manifest import (
     ArtifactBasisDescriptor,
     compose_video_artifact_basis,
 )
-from lib.script_editor import ScriptEditError
 from lib.speech_artifact_provenance import build_video_duration_basis
 from lib.version_manager import VersionManager
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
@@ -113,35 +112,6 @@ class _GridPM:
 
     def batch_update_scene_assets(self, *args, **kwargs):
         self.update_calls.append((args, kwargs))
-
-
-class _StoryboardSyncPM:
-    def __init__(self, project_path):
-        self.project_path = project_path
-        self.update_calls = []
-
-    def get_project_path(self, project_name):
-        return self.project_path
-
-    def update_scene_asset(self, project_name, script_filename, scene_id, asset_type, asset_path):
-        self.update_calls.append(script_filename)
-        if script_filename == "a.json":
-            # KeyError = 该集脚本不引用此 scene_id,正常跳过(非脏数据)
-            raise KeyError("missing scene")
-        if script_filename == "b.json":
-            # ScriptEditError = 该集脚本脏(分镜数组键损坏),路由层精确捕获 + warning 后跳过
-            raise ScriptEditError("segments 必须是列表，当前为 NoneType")
-
-    def update_scene_asset_across_scripts(
-        self, project_name, script_filenames, scene_id, asset_type, asset_path, *, on_commit=None
-    ):
-        for script_filename in script_filenames:
-            try:
-                self.update_scene_asset(project_name, script_filename, scene_id, asset_type, asset_path)
-            except (KeyError, ScriptEditError, OSError):
-                continue
-        if on_commit is not None:
-            on_commit()
 
 
 def _typed_video_versions(project_path: Path, resource_type: str, resource_id: str) -> VersionManager:
@@ -716,6 +686,35 @@ class TestVersionsRouter:
         # 不做分镜侧元数据同步
         assert fake_pm.update_calls == []
 
+    def test_grid_restore_succeeds_when_the_grid_record_is_missing(self, tmp_path, monkeypatch):
+        project = {
+            "schema_version": 8,
+            "title": "Demo",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "style": "Anime",
+            "aspect_ratio": "9:16",
+            "episodes": [],
+            "characters": {},
+            "scenes": {},
+            "props": {},
+        }
+        (tmp_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
+        fake_pm = _GridPM(tmp_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post("/api/v1/projects/demo/versions/grids/grid_000000000000/restore/1")
+
+        assert response.status_code == 200, response.text
+        assert response.json()["file_path"] == "grids/grid_000000000000.png"
+
     @pytest.mark.parametrize(
         "project,expected_detail",
         [
@@ -1011,14 +1010,36 @@ class TestVersionsRouter:
         assert current_file == expected
 
     def test_storyboard_restore_syncs_scripts_with_error_tolerance(self, tmp_path, monkeypatch):
-        project_path = tmp_path / "demo"
-        scripts_dir = project_path / "scripts"
-        scripts_dir.mkdir(parents=True)
-        for name in ("a.json", "b.json", "c.json"):
-            (scripts_dir / name).write_text("{}", encoding="utf-8")
+        from lib.project_manager import ProjectManager
 
-        fake_pm = _StoryboardSyncPM(project_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        pm = ProjectManager(tmp_path)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        project["episodes"] = [
+            {"episode": episode, "script_file": f"scripts/episode_{episode}.json"} for episode in (1, 2, 3)
+        ]
+        pm.save_project("demo", project)
+        project_path = pm.get_project_path("demo")
+        scripts_dir = project_path / "scripts"
+        scripts = {
+            "episode_1.json": {
+                "episode": 1,
+                "content_mode": "narration",
+                "segments": [{"segment_id": "OTHER", "generated_assets": {"storyboard_image": None}}],
+            },
+            "episode_2.json": {"episode": 2, "content_mode": "narration", "segments": None},
+            "episode_3.json": {
+                "episode": 3,
+                "content_mode": "narration",
+                "segments": [{"segment_id": "E1S01", "generated_assets": {"storyboard_image": None}}],
+            },
+        }
+        for name, payload in scripts.items():
+            (scripts_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
         app = FastAPI()
@@ -1030,7 +1051,12 @@ class TestVersionsRouter:
             assert resp.status_code == 200
             assert resp.json()["file_path"] == "storyboards/scene_E1S01.png"
 
-        assert sorted(fake_pm.update_calls) == ["a.json", "b.json", "c.json"]
+        untouched = json.loads((scripts_dir / "episode_1.json").read_text(encoding="utf-8"))
+        malformed = json.loads((scripts_dir / "episode_2.json").read_text(encoding="utf-8"))
+        updated = pm.load_script("demo", "episode_3.json")
+        assert untouched["segments"][0]["generated_assets"]["storyboard_image"] is None
+        assert malformed["segments"] is None
+        assert updated["segments"][0]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S01.png"
 
     def test_storyboard_restore_unexpected_error_surfaces_as_5xx(self, tmp_path, monkeypatch):
         """跨集同步遇未预期异常时不再被 except Exception 吞掉，让 router 层 5xx 暴露问题。"""
@@ -1061,44 +1087,69 @@ class TestVersionsRouter:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
             assert resp.status_code == 500
 
+    def test_orphaned_storyboard_version_restore_succeeds_without_a_script_binding(self, tmp_path, monkeypatch):
+        from lib.project_manager import ProjectManager
+
+        pm = ProjectManager(tmp_path)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post("/api/v1/projects/demo/versions/storyboards/ORPHAN/restore/1")
+
+        assert response.status_code == 200, response.text
+        assert response.json()["file_path"] == "storyboards/scene_ORPHAN.png"
+
     def test_storyboard_restore_transient_oserror_does_not_5xx(self, tmp_path, monkeypatch):
         """跨集同步 sibling 集遇到 transient IO 错误(OSError)不应让主集 restore 5xx——
         restore 主集已成功,housekeeping 性质的 sibling 同步应降级跳过 + warning。
         """
-        project_path = tmp_path / "demo"
-        scripts_dir = project_path / "scripts"
-        scripts_dir.mkdir(parents=True)
-        for name in ("a.json", "b.json"):
-            (scripts_dir / name).write_text("{}", encoding="utf-8")
+        from lib.project_manager import ProjectManager
 
-        class _TransientIOFailPM:
-            """模拟 sibling 集 IO 失败(flock 超时 / EBUSY 等),主集 a.json 同步正常。"""
+        class _TransientIOFailPM(ProjectManager):
+            """只在 sibling 集读取边界注入 transient IO failure。"""
 
-            def __init__(self, path):
-                self.project_path = path
+            def __init__(self, projects_root):
+                super().__init__(projects_root)
                 self.calls: list[str] = []
 
-            def get_project_path(self, project_name):
-                return self.project_path
-
-            def update_scene_asset(self, project_name, script_filename, scene_id, asset_type, asset_path):
-                self.calls.append(script_filename)
-                if script_filename == "b.json":
+            def _read_script_unlocked(self, project_name, filename):
+                normalized = self.normalize_script_filename(filename)
+                self.calls.append(normalized)
+                if normalized == "episode_2.json":
                     raise OSError("transient flock timeout")
+                return super()._read_script_unlocked(project_name, normalized)
 
-            def update_scene_asset_across_scripts(
-                self, project_name, script_filenames, scene_id, asset_type, asset_path, *, on_commit=None
-            ):
-                for script_filename in script_filenames:
-                    try:
-                        self.update_scene_asset(project_name, script_filename, scene_id, asset_type, asset_path)
-                    except OSError:
-                        continue
-                if on_commit is not None:
-                    on_commit()
+        pm = _TransientIOFailPM(tmp_path)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        project["episodes"] = [
+            {"episode": episode, "script_file": f"scripts/episode_{episode}.json"} for episode in (1, 2)
+        ]
+        pm.save_project("demo", project)
+        scripts_dir = pm.get_project_path("demo") / "scripts"
+        for episode in (1, 2):
+            payload = {
+                "episode": episode,
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01" if episode == 1 else "E2S01",
+                        "generated_assets": {"storyboard_image": None},
+                    }
+                ],
+            }
+            (scripts_dir / f"episode_{episode}.json").write_text(json.dumps(payload), encoding="utf-8")
 
-        fake_pm = _TransientIOFailPM(project_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
         app = FastAPI()
@@ -1110,8 +1161,9 @@ class TestVersionsRouter:
             # transient IO 降级 + warning,主集 restore 仍 200
             assert resp.status_code == 200
             assert resp.json()["file_path"] == "storyboards/scene_E1S01.png"
-        # 两个 sibling 集都被尝试过(b.json 抛 OSError 后 continue,不阻塞)
-        assert sorted(fake_pm.calls) == ["a.json", "b.json"]
+        assert set(pm.calls) == {"episode_1.json", "episode_2.json"}
+        updated = pm.load_script("demo", "episode_1.json")
+        assert updated["segments"][0]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S01.png"
 
     def test_restore_returns_asset_fingerprints(self, monkeypatch, tmp_path):
         """版本还原应返回受影响文件的 fingerprint"""

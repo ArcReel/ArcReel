@@ -1,5 +1,8 @@
 """Tests for GridManager file-based CRUD."""
 
+import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+
 import pytest
 
 from lib.grid.models import GridGeneration
@@ -84,6 +87,41 @@ class TestGridManager:
             gm.save(g)
         loaded = gm.list_all()
         assert [g.id for g in loaded] == [g.id for g in sorted(grids, key=lambda g: g.created_at)]
+
+    def test_delete_waits_for_an_in_flight_record_update(self, tmp_path):
+        gm = GridManager(tmp_path)
+        grid = _make_grid()
+        gm.save(grid)
+        image = gm.image_path(grid.id)
+        image.write_bytes(b"grid")
+        update_started = threading.Event()
+        release_update = threading.Event()
+        delete_started = threading.Event()
+
+        def _pause_update(current: GridGeneration) -> None:
+            update_started.set()
+            assert release_update.wait(timeout=5)
+            current.status = "completed"
+
+        def _delete() -> bool:
+            delete_started.set()
+            return gm.delete(grid.id)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            update_future = pool.submit(gm.update, grid.id, _pause_update)
+            assert update_started.wait(timeout=5)
+            delete_future = pool.submit(_delete)
+            assert delete_started.wait(timeout=5)
+            try:
+                with pytest.raises(TimeoutError):
+                    delete_future.result(timeout=0.1)
+            finally:
+                release_update.set()
+            assert update_future.result(timeout=5) is not None
+            assert delete_future.result(timeout=5) is True
+
+        assert gm.get(grid.id) is None
+        assert not image.exists()
 
 
 class TestLegacyRecordMigration:

@@ -161,18 +161,22 @@ async def finalize_shot_storyboard_upload(
 
     def _finalize() -> None:
         manager = get_project_manager()
+
+        def _register(_script_path: Path) -> None:
+            register_current_resource_artifact(
+                manager.get_project_path(project_name),
+                resource_type="storyboards",
+                resource_id=shot_id,
+                script_file=script_file,
+            )
+
         manager.update_scene_asset(
             project_name=project_name,
             script_filename=script_file,
             scene_id=shot_id,
             asset_type="storyboard_image",
             asset_path=asset_path,
-        )
-        register_current_resource_artifact(
-            manager.get_project_path(project_name),
-            resource_type="storyboards",
-            resource_id=shot_id,
-            script_file=script_file,
+            on_commit=_register,
         )
 
     await asyncio.to_thread(_finalize)
