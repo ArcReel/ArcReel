@@ -876,7 +876,22 @@ class TestResolveCreationType:
         assert resolve_creation_type({}, {"creation_type": "drama"}) == "drama"
 
     @pytest.mark.unit
-    def test_raises_when_both_omit_it(self):
+    def test_explicit_null_on_episode_falls_back_to_project(self):
+        """显式 null 等同未打戳：项目级声明完好的项目不因某集带 null 戳而生不出来。"""
+        assert resolve_creation_type({"creation_type": None}, {"creation_type": "drama"}) == "drama"
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("dirty", ["", [], 0])
+    def test_dirty_episode_value_returned_for_downstream_invalid_report(self, dirty):
+        """空串 / 非字符串是「声明了但值非法」，原样交给 resolve_declared_kind 报告，不并入「未声明」。"""
+        assert resolve_creation_type({"creation_type": dirty}, {"creation_type": "drama"}) == dirty
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("script", "project"),
+        [({}, {}), ({"creation_type": None}, {}), ({}, {"creation_type": None})],
+    )
+    def test_raises_when_both_omit_it(self, script, project):
         """项目级必填且由迁移物化：两处皆缺即数据损坏，不静默落 narration。"""
         with pytest.raises(ValueError, match="creation_type"):
-            resolve_creation_type({}, {})
+            resolve_creation_type(script, project)

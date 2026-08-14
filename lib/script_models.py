@@ -901,8 +901,14 @@ def resolve_creation_type(script: dict[str, Any], project: dict[str, Any]) -> st
     损坏，抛 ``ValueError``。静默落 narration 会让 drama 项目跳过台词与音色注入，照常提交
     付费视频任务。已声明但取值脏（空串 / 非字符串）原样返回，由下游 ``resolve_declared_kind``
     按「取值非法」报告——两类问题的结论不同，不在此合并。
+
+    剧本级显式 ``null`` 等同未打戳、照常回退项目值：JSON 的 null 表达「该集没有自己的声明」，
+    与 ``lib.data_validator`` 对项目级同字段的判定同口径。把它算作「脏声明」会让一个项目级
+    声明完好的 drama 项目因为某集带了个 null 戳而整集生不出来。
     """
-    creation_type = script.get("creation_type", project.get("creation_type"))
+    creation_type = script.get("creation_type")
+    if creation_type is None:
+        creation_type = project.get("creation_type")
     if creation_type is None:
         raise ValueError("项目与剧本均未声明 creation_type")
     return creation_type
