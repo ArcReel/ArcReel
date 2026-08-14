@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import shutil
 import time
 from collections.abc import Mapping
@@ -22,6 +23,8 @@ from typing import Any
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
 from lib.profile_manifest import MANIFEST_FILENAME
+
+logger = logging.getLogger(__name__)
 
 _VALID_CREATION_TYPES = frozenset({"narration", "drama", "ad"})
 _VALID_SOURCE_FILE_TYPES = frozenset({"novel", "screenplay"})
@@ -132,11 +135,31 @@ def _script_paths(project_dir: Path, project: Mapping[str, Any]) -> list[Path]:
     return result
 
 
-def _ensure_backup(path: Path) -> None:
-    if any(path.parent.glob(f"{path.name}.bak.v7-*")):
-        return
+def _ensure_backup(path: Path) -> Path:
+    """备份 ``path`` 并返回备份路径；已有备份时复用最早那份（首轮留下的才是原版）。"""
+    existing = sorted(path.parent.glob(f"{path.name}.bak.v7-*"))
+    if existing:
+        return existing[0]
     backup = path.with_name(f"{path.name}.bak.v7-{time.time_ns()}")
     shutil.copy2(path, backup)
+    return backup
+
+
+def _restore_from_backups(written: list[Path], backups: Mapping[Path, Path]) -> None:
+    """把已写入的附属文件还原回备份内容，让失败的迁移不留下部分写入。
+
+    逐文件 best-effort：还原本身失败（磁盘满、权限收紧往往就是首次写失败的同因）只记日志、
+    继续还原其余文件，最终由调用方抛出原始异常。半还原态不影响可恢复性——三个 payload 转换器
+    对已迁移字段幂等，且 ``project.json`` 未提交 ``schema_version``，重跑本迁移即可收敛。
+    """
+    for path in reversed(written):
+        backup = backups.get(path)
+        if backup is None:
+            continue
+        try:
+            shutil.copy2(backup, path)
+        except OSError:
+            logger.exception("v7→v8 迁移回滚失败，%s 仍是 v8 形态；重跑迁移可收敛", path)
 
 
 def migrate_v7_to_v8(project_dir: Path) -> None:
@@ -172,24 +195,33 @@ def migrate_v7_to_v8(project_dir: Path) -> None:
             raise ValueError("profile manifest 必须是对象")
         manifest_plan = (manifest_path, migrate_manifest_payload(manifest))
 
-    _ensure_backup(project_file)
+    backups: dict[Path, Path] = {project_file: _ensure_backup(project_file)}
     for path, _payload in script_plans:
-        _ensure_backup(path)
+        backups[path] = _ensure_backup(path)
     if manifest_plan is not None:
-        _ensure_backup(manifest_plan[0])
+        backups[manifest_plan[0]] = _ensure_backup(manifest_plan[0])
 
     # 写入顺序是刻意的：单文件由 atomic_write_json 保证原子，跨文件则以 project.json 的
-    # schema_version 作为唯一提交点——附属文件全部落盘后才最后提交它。中途崩溃留下的是
-    # 「附属文件已是 v8 形态、project.json 仍标 v7」，下次启动重跑本迁移即可收敛：三个
-    # payload 转换器对已迁移字段均幂等，且 _ensure_backup 见到既有 .bak.v7-* 会跳过，
-    # 不会用半迁移态覆盖首轮留下的原版备份。反过来先提交 schema_version 才是不可恢复的
-    # ——项目会被当作已升级，而附属文件仍是旧字段。
-    for path, payload in script_plans:
-        atomic_write_json(path, payload)
-    if manifest_plan is not None:
-        atomic_write_json(manifest_plan[0], manifest_plan[1])
-    migrated_project["schema_version"] = 8
-    atomic_write_json(project_file, migrated_project)
+    # schema_version 作为唯一提交点——附属文件全部落盘后才最后提交它。反过来先提交
+    # schema_version 是不可恢复的：项目会被当作已升级，而附属文件仍是旧字段。
+    #
+    # 写入期异常按已写入清单逆序回滚到备份，失败的迁移不留下部分写入。进程崩溃这类跑不到
+    # 回滚的中断留下「附属文件已是 v8 形态、project.json 仍标 v7」，下次启动重跑本迁移即可
+    # 收敛：三个 payload 转换器对已迁移字段均幂等，且 _ensure_backup 见到既有 .bak.v7-*
+    # 会复用，不会用半迁移态覆盖首轮留下的原版备份。
+    written: list[Path] = []
+    try:
+        for path, payload in script_plans:
+            atomic_write_json(path, payload)
+            written.append(path)
+        if manifest_plan is not None:
+            atomic_write_json(manifest_plan[0], manifest_plan[1])
+            written.append(manifest_plan[0])
+        migrated_project["schema_version"] = 8
+        atomic_write_json(project_file, migrated_project)
+    except Exception:
+        _restore_from_backups(written, backups)
+        raise
 
 
 __all__ = [

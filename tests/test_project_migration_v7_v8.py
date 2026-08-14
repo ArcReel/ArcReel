@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.project_migrations import v7_to_v8_domain_contract as v7_to_v8
 from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION, migrate_project_dir
 from lib.project_migrations.v7_to_v8_domain_contract import (
     _ensure_backup,
@@ -223,6 +224,39 @@ def test_resumes_after_crash_between_script_and_project_commit(tmp_path: Path) -
     backups = list((project_dir / "scripts").glob("episode_1.json.bak.v7-*"))
     assert len(backups) == 1
     assert backups[0].read_text(encoding="utf-8") == pristine_script
+
+
+def test_write_failure_rolls_back_already_written_scripts(tmp_path: Path, monkeypatch) -> None:
+    """写入期失败（磁盘满 / 权限收紧）不得留下部分写入：先落盘的剧本还原回 v7 原文。"""
+    project_dir = _v7_project(tmp_path, episodes=2)
+    for episode in (1, 2):
+        _write_json(project_dir / f"scripts/episode_{episode}.json", _storyboard_script())
+    first_script = project_dir / "scripts/episode_1.json"
+    second_script = project_dir / "scripts/episode_2.json"
+    pristine_first = first_script.read_text(encoding="utf-8")
+    pristine_project = (project_dir / "project.json").read_text(encoding="utf-8")
+
+    real_write = v7_to_v8.atomic_write_json
+
+    def _fail_on_second(path: Path, payload: object, **kwargs) -> None:
+        if path == second_script:
+            raise OSError(28, "No space left on device")
+        real_write(path, payload, **kwargs)
+
+    monkeypatch.setattr(v7_to_v8, "atomic_write_json", _fail_on_second)
+
+    with pytest.raises(OSError):
+        migrate_v7_to_v8(project_dir)
+
+    assert first_script.read_text(encoding="utf-8") == pristine_first
+    assert (project_dir / "project.json").read_text(encoding="utf-8") == pristine_project
+
+    # 回滚后重跑（写入恢复正常）仍收敛到 v8
+    monkeypatch.setattr(v7_to_v8, "atomic_write_json", real_write)
+    migrate_v7_to_v8(project_dir)
+    assert _read_json(project_dir / "project.json")["schema_version"] == 8
+    assert _read_json(first_script)["creation_type"] == "drama"
+    assert _read_json(second_script)["creation_type"] == "drama"
 
 
 def test_idempotent_when_already_v8(tmp_path: Path) -> None:
