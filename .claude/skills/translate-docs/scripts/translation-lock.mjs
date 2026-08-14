@@ -4,7 +4,9 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 
-const DOCS_TRANSLATION_ROOT = "website/i18n/en/docusaurus-plugin-content-docs/current";
+const I18N_ROOT = "website/i18n";
+const DOCS_TRANSLATION_SUBDIRECTORY = "docusaurus-plugin-content-docs/current";
+const DOCS_TRANSLATION_ROOT = `${I18N_ROOT}/en/${DOCS_TRANSLATION_SUBDIRECTORY}`;
 const LOCK_PATH = "website/i18n/translation.lock.json";
 
 function toPosix(path) {
@@ -53,6 +55,35 @@ function sourceTargets(root) {
     .sort(([left], [right]) => left.localeCompare(right));
 }
 
+function documentTranslationTargets(root) {
+  const absoluteI18nRoot = resolve(root, I18N_ROOT);
+  if (!existsSync(absoluteI18nRoot)) return [];
+
+  return readdirSync(absoluteI18nRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .flatMap((entry) => walkMarkdown(root, `${I18N_ROOT}/${entry.name}/${DOCS_TRANSLATION_SUBDIRECTORY}`))
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function sourceForTranslationTarget(target) {
+  const marker = `/${DOCS_TRANSLATION_SUBDIRECTORY}/`;
+  const relativeTarget = target.slice(target.indexOf(marker) + marker.length);
+  if (relativeTarget === "dev/contributing.md") return "CONTRIBUTING.md";
+  return `website/docs/${relativeTarget}`;
+}
+
+// A target is registered when a current source maps to it (its lock entry may still be missing or
+// stale) or when a lock entry maps to it (the forward scan already reports it as an orphan).
+function unregisteredTranslationOrphans(root, lock, currentTargets) {
+  const registeredTargets = new Set([
+    ...currentTargets,
+    ...Object.keys(lock).map(targetForSource).filter((target) => target !== null),
+  ]);
+  return documentTranslationTargets(root)
+    .filter((target) => !registeredTargets.has(target))
+    .map((target) => ({ source: sourceForTranslationTarget(target), target, state: "orphan" }));
+}
+
 function digest(path) {
   const normalized = readFileSync(path, "utf8").replace(/\r\n?/g, "\n");
   return createHash("sha256").update(normalized, "utf8").digest("hex");
@@ -68,6 +99,7 @@ function translationStatus(root) {
   const lock = readLock(root);
   const mappings = sourceTargets(root);
   const currentSources = new Set(mappings.map(([source]) => source));
+  const currentTargets = new Set(mappings.map(([, target]) => target));
   const dirty = mappings.flatMap(([source, target]) => {
     if (!existsSync(resolve(root, target))) return [{ source, target, state: "missing" }];
     if (lock[source] !== digest(resolve(root, fingerprintSource(source)))) return [{ source, target, state: "stale" }];
@@ -76,7 +108,9 @@ function translationStatus(root) {
   const orphans = Object.keys(lock)
     .filter((source) => !currentSources.has(source))
     .map((source) => ({ source, target: targetForSource(source), state: "orphan" }));
-  return [...dirty, ...orphans].sort((left, right) => left.source.localeCompare(right.source));
+  return [...dirty, ...orphans, ...unregisteredTranslationOrphans(root, lock, currentTargets)].sort(
+    (left, right) => left.source.localeCompare(right.source) || left.target.localeCompare(right.target),
+  );
 }
 
 function recordTranslations(root) {
@@ -86,12 +120,16 @@ function recordTranslations(root) {
     throw new Error(`Refusing to record missing translations:\n${missing.map(([source]) => source).join("\n")}`);
   }
   const currentSources = new Set(mappings.map(([source]) => source));
-  const orphanTargets = Object.keys(readLock(root))
-    .filter((source) => !currentSources.has(source))
-    .map(targetForSource)
-    .filter((target) => target !== null && existsSync(resolve(root, target)));
+  const currentTargets = new Set(mappings.map(([, target]) => target));
+  const orphanTargets = [
+    ...Object.keys(readLock(root))
+      .filter((source) => !currentSources.has(source))
+      .map(targetForSource)
+      .filter((target) => target !== null && existsSync(resolve(root, target))),
+    ...documentTranslationTargets(root).filter((target) => !currentTargets.has(target)),
+  ];
   if (orphanTargets.length > 0) {
-    throw new Error(`Refusing to record orphan translations:\n${orphanTargets.join("\n")}`);
+    throw new Error(`Refusing to record orphan translations:\n${[...new Set(orphanTargets)].sort().join("\n")}`);
   }
 
   const lock = Object.fromEntries(
