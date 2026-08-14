@@ -60,9 +60,9 @@ _VIDEO_ROUND_TO = 8
 _STATUS_PATHS: tuple[tuple[str | int, ...], ...] = (("status",), ("data", "status"))
 _VIDEO_URL_PATHS: tuple[tuple[str | int, ...], ...] = (
     ("url",),
+    ("result_url",),
     ("data", "url"),
     ("data", "result_url"),
-    ("result_url",),
 )
 # metadata 与状态、视频地址同源：包装体形状下它一并落在 ``data`` 里。实际时长是计费依据，
 # 取不到会退回请求时长记账。

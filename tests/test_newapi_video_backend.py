@@ -825,6 +825,34 @@ class TestWrappedResponseShape:
 
         assert fake_download.await_args.args[0] == "https://cdn/flat.mp4"
 
+    async def test_flat_result_url_wins_over_wrapped(self, tmp_path: Path):
+        """混合形状下扁平字段整体优先于包装体，不因字段名不同而让位。"""
+        mock_client = _mock_http_client(
+            poll_body={
+                "task_id": "t-proxy",
+                "status": "completed",
+                "result_url": "https://cdn/flat.mp4",
+                "data": {"url": "https://cdn/wrapped.mp4"},
+            }
+        )
+        fake_download = AsyncMock(side_effect=_fake_download_factory())
+
+        with (
+            bounded_poll_clock(),
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("lib.video_backends.newapi.download_video", fake_download),
+        ):
+            from lib.video_backends.newapi import NewAPIVideoBackend
+
+            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+            await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
+                )
+            )
+
+        assert fake_download.await_args.args[0] == "https://cdn/flat.mp4"
+
     async def test_wrapped_metadata_feeds_duration_and_seed(self, tmp_path: Path):
         """包装体里的 metadata 与状态、视频地址同源，同样要取到——实际时长是计费依据。"""
         mock_client = _mock_http_client(
