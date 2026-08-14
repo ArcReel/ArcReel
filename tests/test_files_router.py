@@ -1121,6 +1121,30 @@ class TestFilesRouter:
             assert resp.text == "fallback content"
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("method", ["get", "put", "delete"])
+    def test_draft_endpoints_reject_project_pending_data_upgrade(self, tmp_path, monkeypatch, method):
+        """迁移失败留下的项目只有旧字段，兜底值会把 narration 文本按 drama 落到错误的草稿文件上。
+
+        项目详情对同一个项目已报 409，草稿端点放行等于让创作流程从旁路继续写。
+        """
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+
+        project_json = project_dir / "project.json"
+        payload = json.loads(project_json.read_text(encoding="utf-8"))
+        payload["schema_version"] = 7
+        payload["content_mode"] = payload.pop("creation_type")
+        project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        with client:
+            request = getattr(client, method)
+            kwargs = {"content": "draft content", "headers": {"content-type": "text/plain"}} if method == "put" else {}
+            resp = request("/api/v1/projects/demo/drafts/1/step1", **kwargs)
+
+            assert resp.status_code == 409
+            assert not (project_dir / "drafts" / "episode_1" / "step1_normalized_script.json").exists()
+
+    @pytest.mark.unit
     def test_draft_content_routes_by_project_generation_mode(self, tmp_path, monkeypatch):
         """草稿文件名按项目生成路线路由：参考路线全项目落 step1_reference_units.json。"""
         client, pm = _client(monkeypatch, tmp_path)

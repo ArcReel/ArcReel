@@ -50,6 +50,7 @@ from lib.source_loader import (
     SourceLoader,
     UnsupportedFormatError,
 )
+from server.routers._project_schema import require_current_schema
 from server.routers._script_review_errors import raise_review_error
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 
@@ -742,11 +743,16 @@ def _load_project_modes(project_name: str) -> tuple[str, str | None]:
 
     复用 load_project 以获得文件锁和 _migrate_legacy_style 迁移；两轴都是项目级字段，
     草稿文件名不随集号变化。项目不存在时返回 ("drama", None)，由调用方走 creation_type-only 分支。
+
+    先过版本闸门再取 creation_type：未完成升级的项目只有旧字段，兜底值会把 narration 的分段文本
+    按 drama 结构化 JSON 收、把本无 step1 的 ad 项目开出一个 step1 出口，落到错误的草稿文件上。
+    项目详情对同一个项目已经报 409，这里放行只会让创作流程从旁路继续写坏数据。
     """
     try:
         data = get_project_manager().load_project(project_name)
     except FileNotFoundError:
         return "drama", None
+    require_current_schema(data, name=project_name)
     return data.get("creation_type", "drama"), data.get("generation_mode")
 
 

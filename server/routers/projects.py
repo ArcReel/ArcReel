@@ -29,7 +29,7 @@ from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
-from lib.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError
+from lib.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.asset_types import asset_name_comparison_key
 from lib.config.registry import default_model_for_provider
@@ -40,13 +40,13 @@ from lib.json_io import domain_error_on_value_error
 from lib.profile_manifest import CreationType
 from lib.project_change_hints import project_change_source
 from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceFileType, get_project_manager
-from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from lib.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, script_revision
 from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from lib.workflow_state import WorkflowStateService, WorkflowStatus
 from server.auth import CurrentUser, create_download_token, verify_download_token
+from server.routers._project_schema import require_current_schema
 from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import (
     execute_current_script_edit,
@@ -736,20 +736,7 @@ async def get_project(
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
 
             project = manager.load_project(name)
-            schema_version = project.get("schema_version")
-            # 只放行确认为当前版本的项目：bool 与非整数值（"7"、null）会被迁移 runner 当作
-            # 不可解析而跳过，放行等于按新契约读未迁移字段——一律报不兼容而非静默降级。
-            if (
-                not isinstance(schema_version, int)
-                or isinstance(schema_version, bool)
-                or schema_version != CURRENT_SCHEMA_VERSION
-            ):
-                raise ConflictError(
-                    "project_schema_incompatible",
-                    name=name,
-                    schema_version=schema_version,
-                    expected=CURRENT_SCHEMA_VERSION,
-                )
+            require_current_schema(project, name=name)
 
             # 注入计算字段（不写入 JSON，仅用于 API 响应）
             project = calculator.enrich_project(name, project)

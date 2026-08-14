@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from itertools import chain
 from pathlib import Path
 
+from lib.project_migrations.script_binding import resolve_bound_script_path
 from lib.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_v1_to_v2
 from lib.project_migrations.v2_to_v3_episode_ledger import migrate_v2_to_v3
@@ -169,12 +170,59 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
     return summary
 
 
-def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
-    """删除超过 max_age_days 的迁移备份文件与目录。
+def _backup_search_dirs(project_dir: Path) -> list[Path]:
+    """备份可能落在哪些目录：项目根、一级子目录，外加绑定剧本的实际所在目录。
 
-    扫项目根与其一级子目录：备份总是留在被备份文件旁边，project.json 与 profile manifest 在项目根，
-    剧本备份在 episodes[].script_file 指向的子目录（约定为 scripts/）。只扫根会让剧本备份永久堆积。
+    备份总是留在被备份文件旁边——project.json 与 profile manifest 在项目根，剧本备份在
+    ``episodes[].script_file`` 指向处。该绑定可以指到更深的层级（``scripts/season_1/episode_1.json``
+    是合法路径），固定扫两层会漏掉这类备份、让它们永久堆积；顺着绑定解析则不必递归整棵项目树——
+    项目树里绝大多数是媒体文件，每次启动全量遍历不划算。
+
+    只收在项目内的真实目录：清理是删除操作，顺着符号链接扫下去会删到项目树以外的文件。
     """
+    dirs: dict[Path, None] = {project_dir: None}
+    try:
+        for child in project_dir.iterdir():
+            if child.is_dir() and not child.is_symlink():
+                dirs[child] = None
+    except OSError:
+        logger.warning("无法列出项目子目录，仅按绑定剧本与项目根清理备份：%s", project_dir)
+
+    project_file = project_dir / "project.json"
+    try:
+        project = json.loads(project_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return list(dirs)
+    if not isinstance(project, dict):
+        return list(dirs)
+    episodes = project.get("episodes")
+    if not isinstance(episodes, list):
+        return list(dirs)
+
+    try:
+        project_root = project_dir.resolve()
+    except OSError:
+        return list(dirs)
+    for entry in episodes:
+        if not isinstance(entry, dict):
+            continue
+        script_file = entry.get("script_file")
+        if not isinstance(script_file, str) or not script_file:
+            continue
+        try:
+            parent = resolve_bound_script_path(project_dir, script_file).parent
+            # 逐段跟随符号链接后仍在项目内才收：链接指到项目外时 resolve() 会暴露真实位置
+            if not parent.resolve().is_relative_to(project_root):
+                continue
+        except (OSError, ValueError):
+            continue
+        if parent.is_dir():
+            dirs[parent] = None
+    return list(dirs)
+
+
+def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
+    """删除超过 max_age_days 的迁移备份文件与目录。"""
     if not projects_root.exists():
         return
     cutoff = time.time() - max_age_days * 86400
@@ -183,11 +231,7 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
         # 只判备份条目自身是不是链接不够——父目录是链接时，链接目标里的备份看起来就在项目内。
         if project_dir.is_symlink() or not project_dir.is_dir():
             continue
-        search_dirs = [project_dir]
-        try:
-            search_dirs.extend(child for child in project_dir.iterdir() if child.is_dir() and not child.is_symlink())
-        except OSError:
-            logger.warning("无法列出项目子目录，仅清理项目根的备份：%s", project_dir)
+        search_dirs = _backup_search_dirs(project_dir)
         for bak in chain.from_iterable(directory.glob(_BACKUP_NAME_GLOB) for directory in search_dirs):
             if not is_migration_backup_name(bak.name):
                 continue

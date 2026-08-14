@@ -228,6 +228,59 @@ def test_cleanup_sweeps_script_backups_in_subdirectories(tmp_projects: Path):
     assert kept.exists(), "非备份文件即使更老也不能被清理"
 
 
+def test_cleanup_sweeps_backups_beside_deeply_bound_scripts(tmp_projects: Path):
+    # 绑定可以指到更深的层级，剧本备份就落在那儿；固定扫两层会让它们永久堆积
+    import os
+
+    p = _write_project(
+        tmp_projects,
+        "p1",
+        {
+            "schema_version": 8,
+            "episodes": [{"episode": 1, "title": "", "script_file": "scripts/season_1/episode_1.json"}],
+        },
+    )
+    nested = p / "scripts" / "season_1"
+    nested.mkdir(parents=True)
+    (nested / "episode_1.json").write_text("{}", encoding="utf-8")
+    old = nested / "episode_1.json.bak.v7-100000000"
+    old.write_text("old", encoding="utf-8")
+
+    eight_days_ago = time.time() - 8 * 86400
+    os.utime(old, (eight_days_ago, eight_days_ago))
+
+    cleanup_stale_backups(tmp_projects, max_age_days=7)
+
+    assert not old.exists()
+
+
+def test_cleanup_does_not_follow_symlinked_script_binding(tmp_path: Path, tmp_projects: Path):
+    # 绑定经符号链接指到项目外时，链接目标里的过期备份不属于本项目，不得删
+    import os
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_backup = outside / "episode_1.json.bak.v7-100000000"
+    linked_backup.write_text("old", encoding="utf-8")
+    eight_days_ago = time.time() - 8 * 86400
+    os.utime(linked_backup, (eight_days_ago, eight_days_ago))
+
+    p = _write_project(
+        tmp_projects,
+        "p1",
+        {
+            "schema_version": 8,
+            "episodes": [{"episode": 1, "title": "", "script_file": "scripts/elsewhere/episode_1.json"}],
+        },
+    )
+    (p / "scripts").mkdir()
+    (p / "scripts" / "elsewhere").symlink_to(outside, target_is_directory=True)
+
+    cleanup_stale_backups(tmp_projects, max_age_days=7)
+
+    assert linked_backup.exists()
+
+
 def test_cleanup_does_not_follow_symlinked_directories(tmp_path: Path, tmp_projects: Path):
     # 清理是删除操作：项目目录或其子目录是符号链接时，链接目标里的过期备份不属于本项目，不得删
     import os
