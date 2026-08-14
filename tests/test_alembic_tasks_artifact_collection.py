@@ -80,3 +80,42 @@ def test_upgrade_moves_request_url_and_fills_artifact_collection(alembic_cfg):
     assert proto_row.provider_endpoint == "openai-video"
     assert proto_row.submitted_base_url == "https://custom.example/v1"
     assert proto_row.artifact_collection == "videos"
+
+
+@pytest.mark.parametrize(
+    ("resource_type", "expected"),
+    [
+        ("storyboard", "storyboards"),
+        ("video", "videos"),
+        ("character", "characters"),
+    ],
+)
+def test_upgrade_canonicalizes_image_edit_collections(alembic_cfg, resource_type, expected):
+    """存量 image_edit 行的产物集合与入队路径 artifact_collection_for 同口径，不留单复数分裂。"""
+    from lib.resource_paths import artifact_collection_for
+
+    cfg, db_path = alembic_cfg
+    command.upgrade(cfg, DOWN_REVISION)
+
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO tasks (task_id, project_name, task_type, media_type, resource_type, resource_id, "
+                "status, source, queued_at, updated_at) VALUES "
+                "('T-edit', 'demo', 'image_edit', 'image', :resource_type, 'r1', 'running', 'webui', "
+                "'2026-08-14 00:00:00', '2026-08-14 00:00:00')"
+            ),
+            {"resource_type": resource_type},
+        )
+    engine.dispose()
+
+    command.upgrade(cfg, REVISION)
+
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        row = conn.execute(sa.text("SELECT artifact_collection FROM tasks WHERE task_id = 'T-edit'")).one()
+    engine.dispose()
+
+    assert row.artifact_collection == expected
+    assert row.artifact_collection == artifact_collection_for(task_type="image_edit", resource_type=resource_type)

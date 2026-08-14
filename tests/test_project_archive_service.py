@@ -442,6 +442,51 @@ class TestProjectArchiveService:
         assert installed["image_provider_i2i"] == "gemini-vertex/imagen-3"  # image_backend 拆分到两槽
         assert "image_backend" not in installed
 
+    @pytest.mark.unit
+    def test_import_v7_archive_with_legacy_fields_runs_migration_before_repair(self, tmp_path):
+        """真 v7 归档（project/剧本都只有 content_mode / source_kind）能导入。
+
+        结构修复按 v8 契约读 creation_type，旧归档必须先过 schema 迁移才进修复。
+        """
+        import json as _json
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        pj = project_dir / "project.json"
+        data = _json.loads(pj.read_text(encoding="utf-8"))
+        data["schema_version"] = 7
+        data["content_mode"] = data.pop("creation_type")
+        data["source_kind"] = data.pop("source_file_type", "novel")
+        data["episodes"][0]["scenes_count"] = 3
+        pj.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        script_file = project_dir / "scripts" / "episode_1.json"
+        script = _json.loads(script_file.read_text(encoding="utf-8"))
+        script["content_mode"] = script.pop("creation_type", "narration")
+        script.setdefault("metadata", {})["total_scenes"] = 3
+        script_file.write_text(_json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "v7-legacy.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="v7-legacy.zip")
+
+        installed_dir = pm.get_project_path(result.project_name)
+        installed = _json.loads((installed_dir / "project.json").read_text(encoding="utf-8"))
+        migrated_script = _json.loads((installed_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        assert installed["schema_version"] == 8
+        assert installed["creation_type"] == "narration"
+        assert installed["source_file_type"] == "novel"
+        assert "content_mode" not in installed
+        assert "source_kind" not in installed
+        assert "scenes_count" not in installed["episodes"][0]
+        assert migrated_script["creation_type"] == "narration"
+        assert "content_mode" not in migrated_script
+        assert "total_scenes" not in migrated_script["metadata"]
+
     @pytest.mark.integration
     def test_import_v5_archive_migrates_conflicting_asset_namespace(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

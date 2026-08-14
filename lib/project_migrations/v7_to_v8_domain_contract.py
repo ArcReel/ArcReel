@@ -21,12 +21,12 @@ from typing import Any
 
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
+from lib.profile_manifest import MANIFEST_FILENAME
 
 _VALID_CREATION_TYPES = frozenset({"narration", "drama", "ad"})
 _VALID_SOURCE_FILE_TYPES = frozenset({"novel", "screenplay"})
 _DEFAULT_CREATION_TYPE = "narration"
 _DEFAULT_SOURCE_FILE_TYPE = "novel"
-_MANIFEST_NAME = ".arcreel_profile_manifest.json"
 
 
 def _require_creation_type(value: object, *, source: str) -> str:
@@ -162,7 +162,7 @@ def migrate_v7_to_v8(project_dir: Path) -> None:
         script_plans.append((path, migrate_script_payload(payload, fallback_creation_type=fallback_creation_type)))
 
     manifest_plan: tuple[Path, dict[str, Any]] | None = None
-    manifest_path = project_dir / _MANIFEST_NAME
+    manifest_path = project_dir / MANIFEST_FILENAME
     if manifest_path.is_file() and not manifest_path.is_symlink():
         manifest = load_json(manifest_path)
         if not isinstance(manifest, dict):

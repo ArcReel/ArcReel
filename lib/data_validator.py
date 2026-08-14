@@ -1349,7 +1349,8 @@ class DataValidator:
         # 与其他参考路线一样使用 video_units；广告 storyboard 路线仍使用 shots。
         gen_mode = project.get("generation_mode")
         try:
-            kind = resolve_declared_kind(creation_type, gen_mode)
+            # 只为 fail-loud 校验声明轴：实际骨架种类由下面两条分支各自解出，此处的返回值不参与分派
+            resolve_declared_kind(creation_type, gen_mode)
         except ValueError:
             # creation_type 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud
             # 抛错，但 validator 的契约是把脏数据报告成结构化错误而非让异常传播出去。跳过依赖

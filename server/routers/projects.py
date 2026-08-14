@@ -737,10 +737,12 @@ async def get_project(
 
             project = manager.load_project(name)
             schema_version = project.get("schema_version")
+            # 只放行确认为当前版本的项目：bool 与非整数值（"7"、null）会被迁移 runner 当作
+            # 不可解析而跳过，放行等于按新契约读未迁移字段——一律报不兼容而非静默降级。
             if (
-                isinstance(schema_version, int)
-                and not isinstance(schema_version, bool)
-                and schema_version != CURRENT_SCHEMA_VERSION
+                not isinstance(schema_version, int)
+                or isinstance(schema_version, bool)
+                or schema_version != CURRENT_SCHEMA_VERSION
             ):
                 raise ConflictError(
                     "project_schema_incompatible",

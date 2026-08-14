@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from lib.i18n.zh import errors as zh_errors
 from lib.project_change_hints import get_project_change_source
 from lib.project_manager import EmptySourceError, ProjectManager
+from lib.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.script_batch_edit import (
     InsertAfterOperation,
     MoveAfterOperation,
@@ -45,6 +46,7 @@ class _FakePM:
         self.projects_root = base
         self.project_data = {
             "ready": {
+                "schema_version": CURRENT_SCHEMA_VERSION,
                 "title": "Ready",
                 "style": "Anime",
                 "generation_mode": "storyboard",
@@ -52,11 +54,13 @@ class _FakePM:
                 "overview": {"synopsis": "old"},
             },
             "broken": {
+                "schema_version": CURRENT_SCHEMA_VERSION,
                 "title": "Broken",
                 "style": "",
                 "episodes": [],
             },
             "ad-ready": {
+                "schema_version": CURRENT_SCHEMA_VERSION,
                 "title": "Ad Ready",
                 "style": "Realistic",
                 "creation_type": "ad",
@@ -577,6 +581,17 @@ class TestProjectsRouter:
     def test_get_project_blocks_stale_schema(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.project_data["ready"]["schema_version"] = 7
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            detail = client.get("/api/v1/projects/ready")
+        assert detail.status_code == 409
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("stale_version", ["7", True, None, 7.0])
+    def test_get_project_blocks_unparsable_schema(self, tmp_path, monkeypatch, stale_version):
+        """迁移 runner 把不可解析的 schema_version 当非项目目录跳过，这类项目一律不放行。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["schema_version"] = stale_version
         client = _client(monkeypatch, fake_pm, _FakeCalc())
         with client:
             detail = client.get("/api/v1/projects/ready")

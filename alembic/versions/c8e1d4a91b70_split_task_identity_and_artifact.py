@@ -34,6 +34,17 @@ _TASK_TYPE_COLLECTION = {
     "image_edit": None,
 }
 
+# image_edit 按目标资产种类定产物集合。两张表都是 lib.resource_paths 映射在本 revision 的冻结快照：
+# 迁移只对既有行做一次性改写，语义须锁在写入时的口径，不随后续 lib 改动漂移。
+_TARGET_TYPE_COLLECTION = {
+    "character": "characters",
+    "scene": "scenes",
+    "prop": "props",
+    "product": "products",
+    "storyboard": "storyboards",
+    "video": "videos",
+}
+
 
 def upgrade() -> None:
     with op.batch_alter_table("tasks", schema=None) as batch_op:
@@ -46,12 +57,7 @@ def upgrade() -> None:
     for task_id, task_type, resource_type, provider_endpoint, submitted_base_url in rows:
         collection = _TASK_TYPE_COLLECTION.get(task_type)
         if task_type == "image_edit":
-            collection = {
-                "character": "characters",
-                "scene": "scenes",
-                "prop": "props",
-                "product": "products",
-            }.get(resource_type or "", resource_type)
+            collection = _TARGET_TYPE_COLLECTION.get(resource_type or "", resource_type)
         updates: dict[str, object] = {}
         if collection:
             updates["artifact_collection"] = collection

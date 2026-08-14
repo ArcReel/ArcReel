@@ -556,6 +556,24 @@ describe("API", () => {
       await expect(
         API.updateProject("demo", { content_mode: "drama" } as never),
       ).rejects.toThrow("项目创建后不支持修改 creation_type");
+      await expect(
+        API.updateProject("demo", { creation_type: "drama" } as never),
+      ).rejects.toThrow("项目创建后不支持修改 creation_type");
+      expect(requestSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects source file type updates before sending the request", async () => {
+      const requestSpy = vi
+        .spyOn(API, "request")
+        .mockResolvedValue({ success: true } as never);
+
+      // 新旧两个字段名都拦：旧名来自尚未刷新的前端缓存/外部调用方，放行会被后端 422 才发现
+      await expect(
+        API.updateProject("demo", { source_file_type: "screenplay" } as never),
+      ).rejects.toThrow("项目创建后不支持修改 source_file_type");
+      await expect(
+        API.updateProject("demo", { source_kind: "screenplay" } as never),
+      ).rejects.toThrow("项目创建后不支持修改 source_file_type");
       expect(requestSpy).not.toHaveBeenCalled();
     });
 

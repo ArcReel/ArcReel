@@ -26,12 +26,10 @@ export function EpisodeHeader({
 }: EpisodeHeaderProps) {
   const { t } = useTranslation("dashboard");
   const isActive = ep.status === "in_production";
+  // 分镜路线用 storyboard_count、参考路线用 video_unit_count；两者互斥，同一集只有一个有值
+  const totalUnits = ep.storyboard_count ?? ep.video_unit_count ?? 0;
   const progress =
-    typeof (ep.storyboard_count ?? ep.video_unit_count) === "number"
-      && (ep.storyboard_count ?? ep.video_unit_count ?? 0) > 0
-      && ep.videos
-      ? Math.round((ep.videos.completed / (ep.storyboard_count ?? ep.video_unit_count ?? 1)) * 100)
-      : 0;
+    totalUnits > 0 && ep.videos ? Math.round((ep.videos.completed / totalUnits) * 100) : 0;
 
   // 费用：取 estimate / actual 总和（按货币聚合）。「已花」含历史支出，「剩余」只对当前剧本
   // 结算，故按当前剧本口径扣减。

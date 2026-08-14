@@ -15,6 +15,53 @@ function episodeCost(actual: EpisodeCost["totals"]["actual"]): EpisodeCost {
 }
 
 describe("EpisodeHeader", () => {
+  it("reads progress from storyboard_count on the storyboard route", () => {
+    render(
+      <EpisodeHeader
+        ep={{
+          ...EP,
+          status: "in_production",
+          storyboard_count: 4,
+          videos: { total: 4, completed: 1 },
+        }}
+        segmentCount={1}
+        totalDuration={5}
+      />,
+    );
+
+    expect(screen.getByText(/25%/)).toBeInTheDocument();
+  });
+
+  it("falls back to video_unit_count on the reference route", () => {
+    render(
+      <EpisodeHeader
+        ep={{
+          ...EP,
+          status: "in_production",
+          video_unit_count: 2,
+          videos: { total: 2, completed: 1 },
+        }}
+        segmentCount={1}
+        totalDuration={5}
+      />,
+    );
+
+    expect(screen.getByText(/50%/)).toBeInTheDocument();
+  });
+
+  it("shows zero progress when neither count is injected", () => {
+    render(
+      <EpisodeHeader
+        ep={{ ...EP, status: "in_production", videos: { total: 0, completed: 3 } }}
+        segmentCount={1}
+        totalDuration={5}
+      />,
+    );
+
+    expect(screen.getByText(/0%/)).toBeInTheDocument();
+  });
+
+
   it("counts history spend as spent but not against the remaining estimate", () => {
     render(
       <EpisodeHeader
