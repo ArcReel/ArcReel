@@ -2344,7 +2344,15 @@ def _forget_unbound_episode_artifacts(
     if not _artifact_manifest_is_active(project_dir):
         return False
     adapter = ProjectArtifactManifestAdapter(project_dir)
-    keys = [key for key in adapter.snapshot_entries() if key.kind is kind and key.components[1] == resource_id]
+    try:
+        snapshot = adapter.snapshot_entries()
+    except ArtifactManifestError:
+        return adapter.repair_path_conflicted_entries_atomically(
+            lambda entries: {
+                key: entry for key, entry in entries.items() if key.kind is not kind or key.components[1] != resource_id
+            }
+        )
+    keys = [key for key in snapshot if key.kind is kind and key.components[1] == resource_id]
     return ArtifactManifest(adapter).forget_entries_transactionally(keys)
 
 

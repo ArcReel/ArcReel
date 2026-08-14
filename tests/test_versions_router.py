@@ -20,6 +20,7 @@ from lib.artifact_manifest import (
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifest,
+    ArtifactManifestEntry,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
@@ -956,6 +957,15 @@ class TestVersionsRouter:
                 "artifact_path": f"grids/{grid_id}.png",
                 "basis_digest": f"sha256-v1:{episode:064x}",
             }
+        unrelated_key = ArtifactKey.episode_script(3)
+        unrelated_entry = ArtifactManifestEntry(
+            artifact_path="scripts/episode_3.json",
+            basis_digest=f"sha256-v1:{3:064x}",
+        )
+        entries[unrelated_key.encode()] = {
+            "artifact_path": unrelated_entry.artifact_path,
+            "basis_digest": unrelated_entry.basis_digest,
+        }
         (tmp_path / MANIFEST_FILENAME).write_text(
             json.dumps(
                 {
@@ -982,6 +992,7 @@ class TestVersionsRouter:
         assert response.json()["file_path"] == f"grids/{grid_id}.png"
         for episode in (1, 2):
             assert adapter.get_entry(ArtifactKey.episode_grid(episode, grid_id)) is None
+        assert adapter.get_entry(unrelated_key) == unrelated_entry
 
     @pytest.mark.parametrize(
         "project,expected_detail",

@@ -19,7 +19,7 @@ import tempfile
 import threading
 import time
 import unicodedata
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -968,6 +968,34 @@ class ProjectArtifactManifestAdapter:
                 return False
             raise ArtifactManifestError("artifact manifest became readable during recovery; retry the operation")
 
+    def repair_path_conflicted_entries_atomically(
+        self,
+        repair: Callable[
+            [Mapping[ArtifactKey, ArtifactManifestEntry]],
+            Mapping[ArtifactKey, ArtifactManifestEntry],
+        ],
+    ) -> bool:
+        """Repair only duplicate path ownership while holding the Manifest lock.
+
+        The recovery view retains every other schema check. General reads stay
+        strict, and the transformed whole snapshot must satisfy normal write
+        invariants before one atomic replacement.
+        """
+
+        with self._locked() as root_fd:
+            current, _original_bytes = self._load_unlocked(root_fd, validate_path_ownership=False)
+            try:
+                _assert_unique_artifact_paths(current)
+            except ArtifactManifestError:
+                pass
+            else:
+                raise ArtifactManifestError("artifact manifest became readable during recovery; retry the operation")
+            decoded = {ArtifactKey.decode(encoded): entry for encoded, entry in current.items()}
+            replacement = _encode_target_entries(repair(decoded))
+            new_bytes = _serialize_manifest(replacement)
+            self._atomic_replace(new_bytes, root_fd)
+            return True
+
     def delete_entry(self, key: ArtifactKey) -> bool:
         with self._locked() as root_fd:
             entries, original_bytes = self._load_unlocked(root_fd)
@@ -1235,7 +1263,12 @@ class ProjectArtifactManifestAdapter:
         ):
             raise ArtifactManifestError(f"{label} changed while it was being opened: {path}")
 
-    def _load_unlocked(self, root_fd: int | None) -> tuple[dict[str, ArtifactManifestEntry], bytes | None]:
+    def _load_unlocked(
+        self,
+        root_fd: int | None,
+        *,
+        validate_path_ownership: bool = True,
+    ) -> tuple[dict[str, ArtifactManifestEntry], bytes | None]:
         path = self._project_dir / MANIFEST_FILENAME
         checked_manifest_identity: tuple[int, int] | None = None
         if root_fd is None or not _O_NOFOLLOW:
@@ -1271,7 +1304,7 @@ class ProjectArtifactManifestAdapter:
                 raw = handle.read()
         except OSError as exc:
             raise ArtifactManifestError(f"cannot read artifact manifest: {path}: {exc}") from exc
-        return _parse_manifest(raw), raw
+        return _parse_manifest(raw, validate_path_ownership=validate_path_ownership), raw
 
     def _atomic_replace(self, content: bytes, root_fd: int | None) -> None:
         if root_fd is None:
@@ -1807,7 +1840,7 @@ def decode_artifact_manifest_payload(payload: object) -> Mapping[ArtifactKey, Ar
     return {ArtifactKey.decode(key): entry for key, entry in encoded.items()}
 
 
-def _parse_manifest(raw: bytes) -> dict[str, ArtifactManifestEntry]:
+def _parse_manifest(raw: bytes, *, validate_path_ownership: bool = True) -> dict[str, ArtifactManifestEntry]:
     try:
         payload = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
     except (UnicodeDecodeError, ValueError) as exc:
@@ -1847,6 +1880,8 @@ def _parse_manifest(raw: bytes) -> dict[str, ArtifactManifestEntry]:
             artifact_path=normalized_path,
             basis_digest=basis_digest,
         )
+    if validate_path_ownership:
+        _assert_unique_artifact_paths(entries)
     return entries
 
 

@@ -138,6 +138,54 @@ def test_project_adapter_rejects_a_second_key_claiming_an_existing_formal_path(t
     assert adapter.snapshot_entries() == {first_key: first_entry}
 
 
+@pytest.mark.parametrize(
+    ("first_path", "second_path"),
+    [
+        ("videos/scene_E1S01.mp4", "videos/scene_E1S01.mp4"),
+        ("videos/scene_E1S01.mp4", "videos/scene_e1s01.mp4"),
+        ("videos/é.mp4", "videos/e\u0301.mp4"),
+    ],
+    ids=("identical", "case-alias", "unicode-alias"),
+)
+def test_project_adapter_rejects_manifest_snapshot_with_duplicate_path_ownership(
+    tmp_path: Path,
+    first_path: str,
+    second_path: str,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    first_key = ArtifactKey.episode_video(1, "E1S01")
+    second_key = ArtifactKey.episode_video(2, "E1S01")
+    malformed = json.dumps(
+        {
+            "entries": {
+                first_key.encode(): {
+                    "artifact_path": first_path,
+                    "basis_digest": ArtifactBasis.build("video", kind_version=1, inputs={"episode": 1}).digest,
+                },
+                second_key.encode(): {
+                    "artifact_path": second_path,
+                    "basis_digest": ArtifactBasis.build("video", kind_version=1, inputs={"episode": 2}).digest,
+                },
+            },
+            "hash_algorithm": HASH_ALGORITHM,
+            "schema_version": 1,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    manifest_path = project / MANIFEST_FILENAME
+    manifest_path.write_bytes(malformed)
+    adapter = ProjectArtifactManifestAdapter(project)
+
+    with pytest.raises(ArtifactManifestError, match="formal artifact path.*multiple keys"):
+        adapter.get_entry(first_key)
+    with pytest.raises(ArtifactManifestError, match="formal artifact path.*multiple keys"):
+        adapter.snapshot_entries()
+
+    assert manifest_path.read_bytes() == malformed
+
+
 def test_stale_comparison_preserves_paid_artifact_and_manifest(tmp_path: Path) -> None:
     project = tmp_path / "project"
     artifact = project / "videos" / "E1S01.mp4"
