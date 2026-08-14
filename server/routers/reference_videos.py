@@ -58,6 +58,7 @@ from server.services.narration_delivery_tasks import (
     prepare_current_reference_video_request_options,
     tts_task_in_progress,
 )
+from server.services.project_schema import require_current_schema
 from server.services.reference_video_tasks import (
     _finalize_reference_video_unit,
     default_unit_duration,
@@ -579,6 +580,9 @@ async def generate_unit(
     req: GenerateUnitRequest | None = None,
 ) -> dict[str, Any]:
     project, script, script_file = _load_episode_script(project_name, episode, _t)
+    # 付费提交前先过数据版本闸门：未完成数据升级的项目按新契约取字段会取到兜底值，
+    # 请求照旧发出去并计费。读路径不受此限，仍照常展示。
+    require_current_schema(project, name=project_name)
     unit = _find_unit(script, unit_id, _t)  # raises 404 if missing
     _require_unit_ready(unit)
     guard_prompt = assemble_shots_text(unit.get("shots") or [])

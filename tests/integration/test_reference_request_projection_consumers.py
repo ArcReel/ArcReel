@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from lib.config.resolver import ConfigResolver
 from lib.generation_queue import reference_projection_for_queued_task
+from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from lib.reference_video.request_projection import USE_TTS, ReferenceRequestOptions
 from server.agent_runtime.sdk_tools import enqueue_videos
 from server.agent_runtime.sdk_tools._context import ToolContext
@@ -51,6 +52,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         "video_units": [unit],
     }
     project: dict[str, Any] = {
+        "schema_version": CURRENT_SCHEMA_VERSION,
         "title": "Narration",
         "creation_type": "narration",
         "generation_mode": "reference_video",
@@ -249,6 +251,7 @@ async def test_malformed_references_block_all_public_consumers_without_queue_or_
         "video_units": [unit],
     }
     project: dict[str, Any] = {
+        "schema_version": CURRENT_SCHEMA_VERSION,
         "generation_mode": "reference_video",
         "characters": {"甲": {"character_sheet": "characters/a.png"}},
         "episodes": [{"episode": 1, "script_file": "ep1.json"}],

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import lib.project_manager as project_manager_module
 from lib.audio_backends.base import VoiceOption
 from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from lib.resource_paths import resource_relative_path
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -37,7 +38,7 @@ class _FakeQueue:
 class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
-        self.project = {"characters": {"艾莉": {"description": "x"}}}
+        self.project = {"schema_version": CURRENT_SCHEMA_VERSION, "characters": {"艾莉": {"description": "x"}}}
         self.updated_audio_refs = []
 
     def load_project(self, project_name):

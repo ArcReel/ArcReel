@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -28,6 +29,7 @@ class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
         self.project = {
+            "schema_version": CURRENT_SCHEMA_VERSION,
             "creation_type": "narration",
             "characters": {"Alice": {"character_sheet": "characters/Alice.png"}},
             "scenes": {"祠堂": {"scene_sheet": "scenes/祠堂.png"}},

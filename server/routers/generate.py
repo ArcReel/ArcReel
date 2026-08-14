@@ -55,6 +55,7 @@ from server.services.narration_delivery_tasks import (
     active_narrated_video_resource_ids,
     prepare_current_storyboard_narrated_video_duration,
 )
+from server.services.project_schema import require_current_schema
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +166,8 @@ async def generate_storyboard(
     """
 
     def _sync():
-        get_project_manager().load_project(project_name)
+        project = get_project_manager().load_project(project_name)
+        require_current_schema(project, name=project_name)
         script = get_project_manager().load_script(project_name, req.script_file)
         items, id_field, _, _, _ = get_storyboard_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
@@ -227,6 +229,7 @@ async def generate_video(
     def _sync() -> tuple[dict, Path, dict, dict]:
         pm_local = get_project_manager()
         project = pm_local.load_project(project_name)
+        require_current_schema(project, name=project_name)
         project_path = pm_local.get_project_path(project_name)
 
         # 路线闸门前置于分镜图存在性检查：参考路线项目本无分镜图步骤，落到下面会拿到
@@ -419,7 +422,8 @@ async def generate_tts(
 
     def _sync() -> tuple[dict, dict]:
         pm_local = get_project_manager()
-        _project = pm_local.load_project(project_name)
+        project = pm_local.load_project(project_name)
+        require_current_schema(project, name=project_name)
         script = pm_local.load_script(project_name, req.script_file)
         items, id_field, kind = resolve_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
@@ -434,7 +438,7 @@ async def generate_tts(
             raise HTTPException(status_code=409, detail=admission.to_dict())
         if admission.mode is not SpeechMode.NARRATOR_VOICEOVER or not narration_text:
             raise BadRequestError("tts_not_applicable", segment_id=segment_id)
-        return _project, item
+        return project, item
 
     project, segment = await asyncio.to_thread(_sync)
 
@@ -475,7 +479,8 @@ async def generate_tts_batch(
 
     def _sync() -> tuple[dict, list[str]]:
         pm_local = get_project_manager()
-        _project = pm_local.load_project(project_name)
+        project = pm_local.load_project(project_name)
+        require_current_schema(project, name=project_name)
         script = pm_local.load_script(project_name, req.script_file)
         items, id_field, kind = resolve_items(script)
         missing: list[str] = []
@@ -490,7 +495,7 @@ async def generate_tts_batch(
             seg_id = item.get(id_field)
             if seg_id:
                 missing.append(str(seg_id))
-        return _project, missing
+        return project, missing
 
     project, missing_ids = await asyncio.to_thread(_sync)
 
@@ -586,6 +591,7 @@ async def generate_character_voice_sample(
     def _sync() -> tuple[dict, str]:
         pm_local = get_project_manager()
         project = pm_local.load_project(project_name)
+        require_current_schema(project, name=project_name)
         try:
             char_name = validate_asset_name(name)
         except ValueError:
@@ -742,6 +748,7 @@ async def _enqueue_asset_generation(
 
     def _sync() -> str:
         project = get_project_manager().load_project(project_name)
+        require_current_schema(project, name=project_name)
         # 存量 key 可能是 NFD，按坐标系解析存在性并取真实落盘 key；
         # 非 dict / 显式 null 的畸形桶由 resolve_asset_key 按空桶处理
         resolved = resolve_asset_key(project.get(spec.bucket_key), resource_name)
@@ -897,6 +904,7 @@ async def edit_image(
     def _sync() -> dict:
         pm_local = get_project_manager()
         project = pm_local.load_project(project_name)
+        require_current_schema(project, name=project_name)
         project_path = pm_local.get_project_path(project_name)
         script = pm_local.load_script(project_name, str(script_file)) if is_storyboard else None
         try:

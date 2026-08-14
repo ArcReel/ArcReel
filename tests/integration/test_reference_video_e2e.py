@@ -20,6 +20,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import fake_reference_request_projector
@@ -48,6 +49,7 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (proj_dir / "project.json").write_text(
         json.dumps(
             {
+                "schema_version": CURRENT_SCHEMA_VERSION,
                 "title": "Demo",
                 "creation_type": "narration",
                 "generation_mode": "reference_video",

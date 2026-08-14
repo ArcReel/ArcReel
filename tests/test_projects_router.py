@@ -2069,6 +2069,24 @@ class TestProjectsRouter:
             assert "style_description" not in data
 
     @pytest.mark.unit
+    def test_update_project_rejected_when_project_pending_data_upgrade(self, tmp_path, monkeypatch):
+        """未完成数据升级的项目不接受设置写入：按新契约分流会把广告项目当成剧集，
+        把广告不允许的字段写进去，之后即使升级成功也留着这份非法配置。"""
+        fake_pm = _FakePM(tmp_path)
+        legacy = dict(fake_pm.project_data["ready"])
+        legacy["schema_version"] = CURRENT_SCHEMA_VERSION - 1
+        legacy["content_mode"] = "ad"
+        fake_pm.project_data["ready"] = legacy
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"title": "改名"})
+
+        assert resp.status_code == 409, resp.text
+        assert "未完成数据升级" in resp.json()["detail"]
+        assert fake_pm.project_data["ready"]["title"] == "Ready"
+
+    @pytest.mark.unit
     def test_update_project_with_unknown_template_id_returns_400(self, tmp_path, monkeypatch):
         client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
         with client:

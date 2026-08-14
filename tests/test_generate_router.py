@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.i18n import _ as i18n_message
+from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -28,6 +29,7 @@ class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
         self.project = {
+            "schema_version": CURRENT_SCHEMA_VERSION,
             "style": "Anime",
             "style_description": "cinematic",
             "creation_type": "narration",
@@ -147,6 +149,43 @@ def _client(monkeypatch, fake_pm, fake_queue):
 
 
 class TestGenerateRouter:
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("path", "payload"),
+        [
+            pytest.param(
+                "/api/v1/projects/demo/generate/storyboard/E1S01",
+                {"script_file": "episode_1.json", "prompt": {"scene": "雨夜"}},
+                id="storyboard",
+            ),
+            pytest.param(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                {"script_file": "episode_1.json", "duration_seconds": 5, "prompt": {"action": "奔跑"}},
+                id="video",
+            ),
+            pytest.param("/api/v1/projects/demo/generate/character/Alice", {"prompt": "p"}, id="character"),
+            pytest.param("/api/v1/projects/demo/generate/tts/E1S01", {"script_file": "episode_1.json"}, id="tts"),
+        ],
+    )
+    def test_generation_rejected_when_project_pending_data_upgrade(self, tmp_path, monkeypatch, path, payload):
+        """未完成数据升级的项目不得提交付费生成：按新契约取字段会取到兜底值，请求照发照计费。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project = {
+            "schema_version": CURRENT_SCHEMA_VERSION - 1,
+            "content_mode": "narration",
+            **{k: v for k, v in fake_pm.project.items() if k not in ("schema_version", "creation_type")},
+        }
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(path, json=payload)
+
+        assert response.status_code == 409, response.text
+        assert "未完成数据升级" in response.json()["detail"]
+        assert fake_queue.calls == []
+
     @pytest.mark.integration
     def test_tts_regeneration_rejects_an_active_use_tts_video(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

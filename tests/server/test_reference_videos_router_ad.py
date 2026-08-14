@@ -10,6 +10,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -23,7 +24,7 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     (project_dir / "project.json").write_text(
         json.dumps(
             {
-                "schema_version": 7,
+                "schema_version": CURRENT_SCHEMA_VERSION,
                 "title": "带货短片",
                 "creation_type": "ad",
                 "generation_mode": "reference_video",

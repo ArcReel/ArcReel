@@ -854,6 +854,9 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
 
             def _mutate(project: dict) -> None:
                 # 整段 read-modify-write 在单一 _project_lock 内完成，避免并发 PATCH / 任务回写丢更新
+                # 闸门排在按创作类型分流之前：未完成数据升级的项目读不到 creation_type，广告项目
+                # 会被当成剧集，把广告不允许的字段写进去，之后即使升级成功也留着这份非法配置。
+                require_current_schema(project, name=name)
                 is_ad = project.get("creation_type") == "ad"
                 if req.title is not None:
                     project["title"] = req.title
@@ -990,7 +993,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
         return await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    except HTTPException:
+    except (ApiError, HTTPException):
         raise
     except Exception:
         logger.exception("请求处理失败")
