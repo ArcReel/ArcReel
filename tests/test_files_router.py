@@ -1136,13 +1136,25 @@ class TestFilesRouter:
         payload["content_mode"] = payload.pop("creation_type")
         project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
+        drafts_dir = project_dir / "drafts"
+
+        def _snapshot_drafts() -> dict[Path, bytes]:
+            if not drafts_dir.exists():
+                return {}
+            return {path.relative_to(drafts_dir): path.read_bytes() for path in drafts_dir.rglob("*") if path.is_file()}
+
+        before = _snapshot_drafts()
+
         with client:
             request = getattr(client, method)
             kwargs = {"content": "draft content", "headers": {"content-type": "text/plain"}} if method == "put" else {}
             resp = request("/api/v1/projects/demo/drafts/1/step1", **kwargs)
 
             assert resp.status_code == 409
-            assert not (project_dir / "drafts" / "episode_1" / "step1_normalized_script.json").exists()
+            # 断到具体结论：仅看 409 的话，别的冲突（如集号占用）也能让测试通过
+            assert "未完成数据升级" in resp.text
+            # 整个草稿目录逐字节比对：只查 drama 那一个文件名，写到 narration 文件或旧 .md 上不会被发现
+            assert _snapshot_drafts() == before
 
     @pytest.mark.unit
     def test_draft_content_routes_by_project_generation_mode(self, tmp_path, monkeypatch):
