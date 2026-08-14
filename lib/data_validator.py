@@ -34,9 +34,9 @@ from lib.episode_ledger import (
 )
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
-from lib.profile_manifest import VALID_CREATION_TYPES as _VALID_CONTENT_MODES
+from lib.profile_manifest import VALID_CREATION_TYPES as _VALID_CREATION_TYPES
 from lib.project_manager import VALID_GENERATION_MODES as _VALID_GENERATION_MODES
-from lib.project_manager import VALID_SOURCE_FILE_TYPES as _VALID_SOURCE_KINDS
+from lib.project_manager import VALID_SOURCE_FILE_TYPES as _VALID_SOURCE_FILE_TYPES
 from lib.reference_video.writing_syntax import MAX_SHOTS_PER_UNIT
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
@@ -136,10 +136,10 @@ class DataValidator:
 
     # creation_type 严格只表达"内容类型"；"视频来源"维度由项目级 generation_mode 字段表达。
     # 合法集真相源在 lib.profile_manifest，避免两处枚举漂移。
-    VALID_CREATION_TYPES = set(_VALID_CONTENT_MODES)
+    VALID_CREATION_TYPES = set(_VALID_CREATION_TYPES)
     # 源文件性质（novel / screenplay）合法集，真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。缺省 novel：缺失字段不报错，仅拦截非法值（如 screen_play）。
-    VALID_SOURCE_FILE_TYPES = set(_VALID_SOURCE_KINDS)
+    VALID_SOURCE_FILE_TYPES = set(_VALID_SOURCE_FILE_TYPES)
     # 生成路线合法集（storyboard / reference_video），真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。必填：存量项目由 v4→v5 迁移补写显式值，缺失即非法。
     VALID_GENERATION_MODES = set(_VALID_GENERATION_MODES)

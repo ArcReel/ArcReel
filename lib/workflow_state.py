@@ -545,7 +545,7 @@ class WorkflowStateService:
         blockers: list[WorkflowBlocker] = []
         if not isinstance(mode, str) or mode not in {"narration", "drama", "ad"}:
             blockers.append(
-                WorkflowBlocker(code="invalid_content_mode", path="creation_type", reason="unsupported mode")
+                WorkflowBlocker(code="invalid_creation_type", path="creation_type", reason="unsupported mode")
             )
         if not isinstance(generation_mode, str) or generation_mode not in {"storyboard", "reference_video"}:
             blockers.append(

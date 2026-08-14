@@ -1179,7 +1179,7 @@ class TestWan3:
 
     @pytest.mark.unit
     async def test_submit_persists_actual_base_url(self, tmp_path: Path):
-        """提交时把实际使用的域名与 job_id 一并落库——续跑要靠它回放。"""
+        """提交时把实际使用的域名与 job_id 一并落请求地址列——续跑要靠它回放。"""
         post = AsyncMock(return_value=_resp(_submit("t-wan3")))
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
@@ -1193,7 +1193,9 @@ class TestWan3:
                 )
             )
 
-        assert persist.call_args.kwargs["endpoint"] == "https://maas-a.example.com/ws-1/api/v1"
+        assert persist.call_args.kwargs["base_url"] == "https://maas-a.example.com/ws-1/api/v1"
+        # 内置供应商无接口身份维度，该列留空——两列不再按供应商类型互换语义
+        assert persist.call_args.kwargs["endpoint"] is None
 
     @pytest.mark.unit
     async def test_resume_polls_submitted_base_url_after_config_change(self, tmp_path: Path):

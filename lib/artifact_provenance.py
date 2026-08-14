@@ -11,19 +11,19 @@ from collections.abc import Mapping
 
 from lib.artifact_manifest import ArtifactBasis
 
-_STRUCTURED_CONTENT_MODES = frozenset({"narration", "drama"})
+_STRUCTURED_CREATION_TYPES = frozenset({"narration", "drama"})
 _GENERATION_MODES = frozenset({"storyboard", "reference_video"})
-_SOURCE_KINDS = frozenset({"novel", "screenplay"})
+_SOURCE_FILE_TYPES = frozenset({"novel", "screenplay"})
 _DEFAULT_SOURCE_LANGUAGE = "中文"
 
 
 def build_step1_basis(source_content: object, *, project: Mapping[str, object]) -> ArtifactBasis:
     """Describe the formal source inputs consumed by one episode's step1 artifact."""
 
-    creation_type, generation_mode = _content_axes(project)
-    raw_source_kind = project.get("source_file_type")
-    source_file_type = "novel" if raw_source_kind is None else raw_source_kind
-    if not isinstance(source_file_type, str) or source_file_type not in _SOURCE_KINDS:
+    creation_type, generation_mode = _creation_axes(project)
+    raw_source_file_type = project.get("source_file_type")
+    source_file_type = "novel" if raw_source_file_type is None else raw_source_file_type
+    if not isinstance(source_file_type, str) or source_file_type not in _SOURCE_FILE_TYPES:
         raise ValueError(f"unsupported source_file_type: {source_file_type!r}")
     raw_source_language = project.get("source_language")
     source_language = raw_source_language or _DEFAULT_SOURCE_LANGUAGE
@@ -45,7 +45,7 @@ def build_step1_basis(source_content: object, *, project: Mapping[str, object]) 
 def build_episode_script_basis(step1_content: object, *, project: Mapping[str, object]) -> ArtifactBasis:
     """Describe the formal step1 input consumed by one episode's script artifact."""
 
-    creation_type, generation_mode = _content_axes(project)
+    creation_type, generation_mode = _creation_axes(project)
     return ArtifactBasis.build(
         "structured-content/episode-script",
         kind_version=1,
@@ -57,9 +57,9 @@ def build_episode_script_basis(step1_content: object, *, project: Mapping[str, o
     )
 
 
-def _content_axes(project: Mapping[str, object]) -> tuple[str, str]:
+def _creation_axes(project: Mapping[str, object]) -> tuple[str, str]:
     creation_type = project.get("creation_type")
-    if not isinstance(creation_type, str) or creation_type not in _STRUCTURED_CONTENT_MODES:
+    if not isinstance(creation_type, str) or creation_type not in _STRUCTURED_CREATION_TYPES:
         raise ValueError(f"structured content basis does not support creation_type: {creation_type!r}")
     generation_mode = project.get("generation_mode")
     if not isinstance(generation_mode, str) or generation_mode not in _GENERATION_MODES:

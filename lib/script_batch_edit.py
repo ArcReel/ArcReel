@@ -32,6 +32,7 @@ from lib.project_manager import EpisodeScriptReboundError, ProjectManager
 from lib.reference_video import rederive_unit_references
 from lib.script_editor import ScriptEditError, patch_field, resolve_items
 from lib.script_review import content_fingerprint_of_data, step1_path
+from lib.script_skeleton import item_id as script_item_id
 from lib.script_structure_validator import validate_script_structure
 from lib.speech_composition import SpeechAdmission, admit_script_unit, refresh_video_unit_replan_state
 from lib.validation_messages import ValidationMessage
@@ -672,11 +673,11 @@ def _apply_operation(
 
 
 def _admissions(script: dict[str, Any]) -> dict[str, SpeechAdmission]:
-    items, id_field, kind = resolve_items(script)
+    items, _id_field, kind = resolve_items(script)
     return {
-        str(item.get(id_field)): admit_script_unit(kind, item)
+        script_item_id(item, kind): admit_script_unit(kind, item)
         for item in items
-        if isinstance(item, dict) and isinstance(item.get(id_field), str)
+        if isinstance(item, dict) and script_item_id(item, kind)
     }
 
 
@@ -780,14 +781,13 @@ def _parse_path(value: str) -> tuple[str | int, ...]:
 
 
 def _unit_id_at_location(script: dict[str, Any], path: tuple[str | int, ...]) -> str | None:
-    items, id_field, kind = resolve_items(script)
+    items, _id_field, kind = resolve_items(script)
     if len(path) < 2 or path[0] != kind or not isinstance(path[1], int):
         return None
     index = path[1]
     if index < 0 or index >= len(items) or not isinstance(items[index], dict):
         return None
-    value = items[index].get(id_field)
-    return value if isinstance(value, str) else None
+    return script_item_id(items[index], kind) or None
 
 
 def _responsible_operation(

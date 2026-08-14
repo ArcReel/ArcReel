@@ -117,15 +117,6 @@ _KIND_PARSE_SCHEMA: dict[str, type[BaseModel]] = {
     "video_units": ReferenceVideoScript,
 }
 
-# 骨架种类 → metadata 统计的计数键名。计数键名为业务附着（video_units→total_units 非
-# f"total_{kind}"），随 kind 显式保留、不进 SKELETONS 窄表。
-_METADATA_COUNT_KEY: dict[str, str] = {
-    "segments": "total_segments",
-    "scenes": "total_scenes",
-    "shots": "total_shots",
-    "video_units": "total_units",
-}
-
 
 def _units_use_references(units: list[dict] | None) -> bool | None:
     """本集 step1 是否存在带引用的 unit；``units`` 为 None（非参考视频路径）时返回 None。
@@ -1619,13 +1610,12 @@ class ScriptGenerator:
         if step1_revision is not None:
             script_data["metadata"][SCRIPT_STEP1_REVISION_FIELD] = step1_revision
 
-        # 计算统计信息（episode 级角色/场景/道具聚合由 StatusCalculator 读时计算）。
-        # 数组键经上方规范解析所得 kind 查表；计数键名为业务附着、随 kind 显式保留。
-        # 校验失败降级保存的原始 dict 里数组可能为 null / 含脏条目：len(items) 计入全部条目
-        # （既有口径），时长走 script_duration_total 单一真相源逐条兜底（脏值归一、不抛）。
+        # 总时长落盘（条目计数不落盘——分镜数 / 视频单元数 / 镜头数一律由 StatusCalculator
+        # 读时计算，episode 级角色/场景/道具聚合同理）。数组键经上方规范解析所得 kind 查表；
+        # 校验失败降级保存的原始 dict 里数组可能为 null / 含脏条目，时长走 script_duration_total
+        # 单一真相源逐条兜底（脏值归一、不抛）。
         raw_items = script_data.get(kind)
         items = raw_items if isinstance(raw_items, list) else []
-        script_data["metadata"][_METADATA_COUNT_KEY[kind]] = len(items)
         script_data["duration_seconds"] = script_duration_total(kind, items)
 
         # 剥离废弃的 episode 级聚合字段（改为读时计算）

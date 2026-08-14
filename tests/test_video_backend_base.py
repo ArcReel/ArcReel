@@ -592,7 +592,10 @@ class TestProviderJobIdPersistenceMixin:
         )
 
     async def test_worker_path_persists_backend_endpoint_when_builtin(self):
-        """内置供应商由 backend 传入实际请求域名 → 落库供续跑回放。"""
+        """内置供应商由 backend 传入实际请求域名 → 落请求地址列供续跑回放。
+
+        两列不按供应商类型互换语义：内置供应商没有接口身份维度，接口身份列留空。
+        """
         with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:
             await self._backend()._persist_provider_job_id(
                 self._request(task_id="local-task-1"),
@@ -601,7 +604,7 @@ class TestProviderJobIdPersistenceMixin:
                 endpoint="https://maas.example.com/api/v1",
             )
         persist.assert_awaited_once_with(
-            "local-task-1", "job-1", provider="dashscope", endpoint="https://maas.example.com/api/v1", base_url=None
+            "local-task-1", "job-1", provider="dashscope", endpoint=None, base_url="https://maas.example.com/api/v1"
         )
 
     async def test_execution_endpoint_and_backend_domain_land_in_separate_columns(self):

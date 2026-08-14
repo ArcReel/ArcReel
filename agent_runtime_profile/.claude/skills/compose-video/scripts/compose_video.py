@@ -614,11 +614,11 @@ def compose_video(
 
     # 仅支持 drama 模式（顶层 scenes[]）；narration/ad/reference_video 给友好错误
     if "scenes" not in script:
-        content_mode = script.get("content_mode") or "unknown"
+        creation_type = script.get("creation_type") or "unknown"
         actual_keys = [k for k in ("segments", "shots", "video_units") if k in script]
         raise RuntimeError(
             f"compose_video.py 目前仅支持 drama 模式（剧本顶层需有 scenes[]）；"
-            f"当前剧本 content_mode={content_mode}，实际结构含 {actual_keys or ['无法识别']}，"
+            f"当前剧本 creation_type={creation_type}，实际结构含 {actual_keys or ['无法识别']}，"
             "请使用 Web 端剪映草稿导出"
         )
 

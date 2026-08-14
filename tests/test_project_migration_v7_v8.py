@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION, migrate_project_dir
-from lib.project_migrations.v7_to_v8_domain_contract import migrate_v7_to_v8
+from lib.project_migrations.v7_to_v8_domain_contract import (
+    _ensure_backup,
+    migrate_script_payload,
+    migrate_v7_to_v8,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -193,6 +197,32 @@ def test_invalid_creation_type_blocks_rewrite(tmp_path: Path) -> None:
 
     assert (project_dir / "project.json").read_text(encoding="utf-8") == original_project
     assert _read_json(project_dir / "project.json")["schema_version"] == 7
+
+
+def test_resumes_after_crash_between_script_and_project_commit(tmp_path: Path) -> None:
+    """崩在附属文件已落盘、schema_version 未提交之间：重跑收敛，原版备份不被覆盖。"""
+    project_dir = _v7_project(tmp_path)
+    _write_json(project_dir / "scripts/episode_1.json", _storyboard_script())
+    script_path = project_dir / "scripts/episode_1.json"
+    pristine_script = script_path.read_text(encoding="utf-8")
+
+    # 模拟崩溃点，按首轮真实顺序：先备份原版，再改写剧本，project.json 尚未提交
+    _ensure_backup(script_path)
+    _write_json(script_path, migrate_script_payload(_storyboard_script(), fallback_creation_type="drama"))
+    assert _read_json(project_dir / "project.json")["schema_version"] == 7
+
+    migrate_v7_to_v8(project_dir)
+
+    project = _read_json(project_dir / "project.json")
+    script = _read_json(script_path)
+    assert project["schema_version"] == 8
+    assert project["creation_type"] == "drama"
+    assert script["creation_type"] == "drama"
+    assert "content_mode" not in script
+    # 首轮备份是原版 v7 剧本，重跑不得用半迁移态覆盖它
+    backups = list((project_dir / "scripts").glob("episode_1.json.bak.v7-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == pristine_script
 
 
 def test_idempotent_when_already_v8(tmp_path: Path) -> None:

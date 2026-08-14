@@ -72,6 +72,11 @@ def _unit_items(script: dict) -> list[dict]:
     return [item for item in items if isinstance(item, dict)]
 
 
+def _shot_count(units: list[dict]) -> int:
+    """参考路线的镜头数：各 unit 内嵌 ``shots`` 之和。非数组容器（脏数据）计 0。"""
+    return sum(len(unit["shots"]) for unit in units if isinstance(unit.get("shots"), list))
+
+
 class StatusCalculator:
     """状态和统计字段的实时计算器"""
 
@@ -164,14 +169,9 @@ class StatusCalculator:
         else:
             status = "draft"
 
-        shot_count = 0
-        for unit in units:
-            shots = unit.get("shots")
-            if isinstance(shots, list):
-                shot_count += len(shots)
         return {
             "video_unit_count": total,
-            "shot_count": shot_count,
+            "shot_count": _shot_count(units),
             "status": status,
             "duration_seconds": script_duration_total("video_units", units),
             "storyboards": {"total": total, "completed": 0},
@@ -451,9 +451,7 @@ class StatusCalculator:
         script["metadata"].pop("total_scenes", None)
         if kind == "video_units":
             script["metadata"]["video_unit_count"] = len(items)
-            script["metadata"]["shot_count"] = sum(
-                len(item["shots"]) for item in items if isinstance(item, dict) and isinstance(item.get("shots"), list)
-            )
+            script["metadata"]["shot_count"] = _shot_count([item for item in items if isinstance(item, dict)])
         else:
             script["metadata"]["storyboard_count"] = len(items)
         script["metadata"]["estimated_duration_seconds"] = total_duration

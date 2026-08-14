@@ -175,6 +175,12 @@ def migrate_v7_to_v8(project_dir: Path) -> None:
     if manifest_plan is not None:
         _ensure_backup(manifest_plan[0])
 
+    # 写入顺序是刻意的：单文件由 atomic_write_json 保证原子，跨文件则以 project.json 的
+    # schema_version 作为唯一提交点——附属文件全部落盘后才最后提交它。中途崩溃留下的是
+    # 「附属文件已是 v8 形态、project.json 仍标 v7」，下次启动重跑本迁移即可收敛：三个
+    # payload 转换器对已迁移字段均幂等，且 _ensure_backup 见到既有 .bak.v7-* 会跳过，
+    # 不会用半迁移态覆盖首轮留下的原版备份。反过来先提交 schema_version 才是不可恢复的
+    # ——项目会被当作已升级，而附属文件仍是旧字段。
     for path, payload in script_plans:
         atomic_write_json(path, payload)
     if manifest_plan is not None:

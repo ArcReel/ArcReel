@@ -98,6 +98,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "media_type": row.media_type,
         "resource_id": row.resource_id,
         "resource_type": row.resource_type,
+        "artifact_collection": row.artifact_collection,
         "script_file": row.script_file,
         "payload": _json_loads(row.payload_json, {}),
         "status": row.status,

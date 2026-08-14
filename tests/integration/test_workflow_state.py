@@ -678,7 +678,7 @@ def test_non_boolean_grid_storyboard_blocks_route_dispatch(tmp_path: Path) -> No
 @pytest.mark.parametrize(
     ("field", "value", "blocker_code"),
     [
-        ("creation_type", [], "invalid_content_mode"),
+        ("creation_type", [], "invalid_creation_type"),
         ("generation_mode", {}, "invalid_generation_mode"),
     ],
 )
