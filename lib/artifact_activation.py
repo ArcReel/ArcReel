@@ -1394,12 +1394,11 @@ def activate_artifact_target_state(project_dir: Path, *, bump_schema: bool) -> b
         raise ValueError("schema-preserving activation requires a v8 project")
 
     _assert_preflight_unchanged(project_dir, plan)
-    if bump_schema:
-        _backup_activation_inputs(project_dir, plan)
     adapter = ProjectArtifactManifestAdapter(project_dir)
     if bump_schema:
         with project_metadata_lock(project_dir):
             _assert_preflight_unchanged(project_dir, plan)
+            _backup_activation_inputs(project_dir, plan)
             previous_entries = adapter.snapshot_entries()
             changed = adapter.replace_entries_atomically(plan.entries)
             try:

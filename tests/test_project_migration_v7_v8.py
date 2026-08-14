@@ -652,6 +652,78 @@ def test_formal_step1_transaction_holds_the_project_lock_through_the_write(tmp_p
     assert failures == []
 
 
+def test_v7_activation_holds_the_project_lock_while_backing_up_its_frozen_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lib import artifact_activation
+    from lib.formal_write import project_metadata_lock
+
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    project_path = project_dir / "project.json"
+    script_path = project_dir / "scripts" / "episode_1.json"
+    frozen_project = project_path.read_bytes()
+    frozen_script = script_path.read_bytes()
+    backup_started = Event()
+    release_backup = Event()
+    writer_started = Event()
+    writer_done = Event()
+    failures: list[BaseException] = []
+    original_backup = artifact_activation._ensure_activation_backup
+
+    def _pause_after_project_backup(source: Path, *, stamp: int) -> None:
+        original_backup(source, stamp=stamp)
+        if source == project_path:
+            backup_started.set()
+            assert release_backup.wait(timeout=5)
+
+    monkeypatch.setattr(artifact_activation, "_ensure_activation_backup", _pause_after_project_backup)
+
+    def _activate() -> None:
+        try:
+            artifact_activation.activate_artifact_target_state(project_dir, bump_schema=True)
+        except Exception as exc:
+            failures.append(exc)
+
+    def _write() -> None:
+        writer_started.set()
+        try:
+            with project_metadata_lock(project_dir):
+                project = _read_json(project_path)
+                project["description"] = "concurrent project update"
+                _write_json(project_path, project)
+                script = _read_json(script_path)
+                script["title"] = "concurrent script update"
+                _write_json(script_path, script)
+        except Exception as exc:
+            failures.append(exc)
+        finally:
+            writer_done.set()
+
+    activation_thread = Thread(target=_activate)
+    writer_thread = Thread(target=_write)
+    activation_thread.start()
+    assert backup_started.wait(timeout=5)
+    writer_thread.start()
+    assert writer_started.wait(timeout=5)
+    try:
+        assert not writer_done.wait(timeout=0.2)
+    finally:
+        release_backup.set()
+    activation_thread.join(timeout=5)
+    writer_thread.join(timeout=5)
+
+    assert not activation_thread.is_alive()
+    assert not writer_thread.is_alive()
+    assert failures == []
+    project_backups = list(project_dir.glob("project.json.bak.v7-*"))
+    assert len(project_backups) == 1
+    stamp = project_backups[0].name.removeprefix("project.json.bak.v7-")
+    script_backup = script_path.with_name(f"{script_path.name}.bak.v7-{stamp}")
+    assert project_backups[0].read_bytes() == frozen_project
+    assert script_backup.read_bytes() == frozen_script
+
+
 def test_v7_preflight_failure_writes_no_manifest_schema_or_backups(tmp_path: Path) -> None:
     project_dir, _project_data, _step1, _script = _project(tmp_path)
     script_path = project_dir / "scripts" / "episode_1.json"

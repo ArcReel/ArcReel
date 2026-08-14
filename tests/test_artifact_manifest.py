@@ -230,6 +230,22 @@ def test_complete_snapshot_cas_does_not_overwrite_an_unexpected_claim() -> None:
     assert adapter.snapshot_entries() == expected
 
 
+def test_manifest_rejects_formal_paths_that_alias_on_case_insensitive_filesystems() -> None:
+    adapter = InMemoryArtifactManifestAdapter()
+    adapter.put_entry(
+        ArtifactKey.episode_video(1, "E1U01"),
+        ArtifactManifestEntry("reference_videos/E1U01.mp4", "sha256-v1:" + "a" * 64),
+    )
+
+    with pytest.raises(ArtifactManifestError, match="claimed by multiple keys"):
+        adapter.put_entry(
+            ArtifactKey.episode_video(1, "e1u01"),
+            ArtifactManifestEntry("reference_videos/e1u01.mp4", "sha256-v1:" + "b" * 64),
+        )
+
+    assert set(adapter.snapshot_entries()) == {ArtifactKey.episode_video(1, "E1U01")}
+
+
 def test_manifest_rekey_plan_restores_both_keys_after_a_write_then_failure(monkeypatch) -> None:
     old_key = ArtifactKey.asset_sheet("character", "角色A")
     new_key = ArtifactKey.asset_sheet("character", "主角甲")

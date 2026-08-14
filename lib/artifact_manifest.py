@@ -1733,12 +1733,13 @@ def _assert_unique_artifact_paths(entries: Mapping[str, ArtifactManifestEntry]) 
 
     owners: dict[str, str] = {}
     for key, entry in entries.items():
-        owner = owners.get(entry.artifact_path)
+        filesystem_identity = entry.artifact_path.casefold()
+        owner = owners.get(filesystem_identity)
         if owner is not None and owner != key:
             raise ArtifactManifestError(
                 f"formal artifact path is claimed by multiple keys: {entry.artifact_path} ({owner}, {key})"
             )
-        owners[entry.artifact_path] = key
+        owners[filesystem_identity] = key
 
 
 def encode_artifact_manifest_payload(

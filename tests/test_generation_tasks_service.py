@@ -880,6 +880,7 @@ class TestGenerationTasks:
 
         activation_ready = threading.Event()
         release_activation = threading.Event()
+        writer_started = threading.Event()
         writer_done = threading.Event()
         failures: list[BaseException] = []
         original_commit_schema = artifact_activation._commit_schema_version
@@ -898,6 +899,7 @@ class TestGenerationTasks:
                 failures.append(exc)
 
         def _complete_grid() -> None:
+            writer_started.set()
             try:
                 commit(staged, current, {})
             except Exception as exc:
@@ -910,6 +912,7 @@ class TestGenerationTasks:
         activation_thread.start()
         assert activation_ready.wait(timeout=5)
         writer_thread.start()
+        assert writer_started.wait(timeout=5)
         assert not writer_done.wait(timeout=0.2)
         release_activation.set()
         activation_thread.join(timeout=5)
