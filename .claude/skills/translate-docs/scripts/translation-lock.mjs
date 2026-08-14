@@ -4,9 +4,9 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 
-const DOCS_TRANSLATION_ROOT = "website/i18n/en/docusaurus-plugin-content-docs/current";
-const DOCS_TRANSLATION_SUBDIRECTORY = "docusaurus-plugin-content-docs/current";
 const I18N_ROOT = "website/i18n";
+const DOCS_TRANSLATION_SUBDIRECTORY = "docusaurus-plugin-content-docs/current";
+const DOCS_TRANSLATION_ROOT = `${I18N_ROOT}/en/${DOCS_TRANSLATION_SUBDIRECTORY}`;
 const LOCK_PATH = "website/i18n/translation.lock.json";
 
 function toPosix(path) {

@@ -23,7 +23,9 @@ function checkOrphanTranslations() {
     encoding: "utf8",
   });
   const orphans = JSON.parse(output).filter((item) => item.state === "orphan");
-  return orphans.map((item) => `孤儿译文：${item.target}（源 ${item.source} 已不存在）`);
+  // 孤儿有两种来源：lockfile 里源已删的登记项，以及反向扫描发现的未登记译文文件。
+  // 后者的 source 是按目标路径反推的、未必存在的源，所以措辞不断言「已不存在」。
+  return orphans.map((item) => `孤儿译文：${item.target}（源 ${item.source} 未登记或已不存在）`);
 }
 
 // ---- 2. 上站文档标题缺显式锚点 ----

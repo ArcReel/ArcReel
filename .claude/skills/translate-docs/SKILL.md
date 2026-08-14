@@ -87,4 +87,5 @@ pnpm typecheck
 pnpm build
 ```
 
-`record` refuses to update the lockfile while a target is missing. Completion requires `status` to print `Translations are up to date.`, typecheck to pass, and the build to emit both `build/` and `build/en/` without broken links or anchors.
+`record` refuses to update the lockfile while a target is missing, and while any Markdown file under
+`website/i18n/*/docusaurus-plugin-content-docs/current/` has no source mapping to it. Completion requires `status` to print `Translations are up to date.`, typecheck to pass, and the build to emit both `build/` and `build/en/` without broken links or anchors.
