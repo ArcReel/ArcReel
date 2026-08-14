@@ -14,7 +14,7 @@ from fastapi import APIRouter
 logger = logging.getLogger(__name__)
 
 from lib.api_errors import BadRequestError, ConflictError
-from lib.artifact_activation import register_current_resource_artifact
+from lib.artifact_activation import forget_unbound_storyboard_artifacts, register_current_resource_artifact
 from lib.async_thread import run_noninterruptible_sync
 from lib.generation_admission import generation_admission_lock
 from lib.path_safety import PathTraversalError, safe_join
@@ -121,6 +121,9 @@ def _restore_non_typed_sidecars(
                 resource_id=resource_id,
             )
 
+        def _forget_orphan_storyboard() -> None:
+            forget_unbound_storyboard_artifacts(project_path, resource_id)
+
         with project_change_source("webui"):
             get_project_manager().update_scene_asset_across_scripts(
                 project_name,
@@ -129,6 +132,7 @@ def _restore_non_typed_sidecars(
                 "storyboard_image",
                 file_path,
                 on_commit=_register_storyboard,
+                on_miss=_forget_orphan_storyboard,
             )
         return
 

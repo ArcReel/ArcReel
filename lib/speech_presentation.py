@@ -7,6 +7,7 @@ media probing, browser playback, and editor serialization remain adapters.
 
 from __future__ import annotations
 
+import base64
 import math
 import re
 from dataclasses import dataclass
@@ -33,6 +34,22 @@ _CONTENT_DIGEST_PATTERN = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
 
 class PresentationBoundaryError(ValueError):
     """A requested narration track cannot fit inside its video unit."""
+
+
+def presentation_artifact_paths(episode: int, resource_id: str, variant: RenditionVariant) -> tuple[str, str]:
+    """Return the canonical persisted subtitle and presentation paths."""
+
+    if type(episode) is not int or episode <= 0:
+        raise ValueError("episode must be a positive integer")
+    if not isinstance(resource_id, str) or not resource_id:
+        raise ValueError("resource_id must be a non-empty string")
+    if variant not in {POST_PRODUCTION, USE_TTS}:
+        raise ValueError(f"unsupported rendition variant: {variant!r}")
+    token = base64.urlsafe_b64encode(resource_id.encode("utf-8")).decode("ascii").rstrip("=")
+    return (
+        f"subtitles/episode_{episode}/{token}.{variant}.json",
+        f"presentations/episode_{episode}/{token}.{variant}.json",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -519,4 +536,5 @@ __all__ = [
     "materialize_speech_presentation",
     "materialize_raw_video_presentation",
     "subtitles_webvtt",
+    "presentation_artifact_paths",
 ]

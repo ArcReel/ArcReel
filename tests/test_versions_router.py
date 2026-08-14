@@ -15,6 +15,9 @@ from lib.api_errors import BadRequestError
 from lib.artifact_manifest import (
     ArtifactBasis,
     ArtifactBasisDescriptor,
+    ArtifactKey,
+    ArtifactManifest,
+    ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
 from lib.speech_artifact_provenance import build_video_duration_basis
@@ -46,12 +49,14 @@ class _FakePM:
         self.updated.append(("storyboard", args, kwargs))
 
     def update_scene_asset_across_scripts(
-        self, project_name, script_filenames, scene_id, asset_type, asset_path, *, on_commit=None
+        self, project_name, script_filenames, scene_id, asset_type, asset_path, *, on_commit=None, on_miss=None
     ):
         for script_filename in script_filenames:
             self.update_scene_asset(project_name, script_filename, scene_id, asset_type, asset_path)
-        if on_commit is not None:
+        if script_filenames and on_commit is not None:
             on_commit()
+        if not script_filenames and on_miss is not None:
+            on_miss()
 
 
 class _FakeVM:
@@ -391,6 +396,7 @@ class TestVersionsRouter:
         project_path = pm.get_project_path("demo")
         registration_started = threading.Event()
         release_registration = threading.Event()
+        edit_started = threading.Event()
         edit_finished = threading.Event()
 
         def _fail_registration(*_args, **_kwargs):
@@ -411,6 +417,7 @@ class TestVersionsRouter:
             )
 
         def _concurrent_edit() -> None:
+            edit_started.set()
             pm.update_scene_asset(
                 "demo",
                 "episode_1.json",
@@ -424,6 +431,7 @@ class TestVersionsRouter:
             restore_future = pool.submit(_restore)
             assert registration_started.wait(timeout=5)
             edit_future = pool.submit(_concurrent_edit)
+            assert edit_started.wait(timeout=5)
             assert not edit_finished.wait(timeout=0.1)
             release_registration.set()
             with pytest.raises(RuntimeError, match="manifest commit failed"):
@@ -1093,6 +1101,16 @@ class TestVersionsRouter:
         pm = ProjectManager(tmp_path)
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        project_path = pm.get_project_path("demo")
+        orphan = project_path / "storyboards" / "scene_ORPHAN.png"
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_bytes(b"orphan")
+        key = ArtifactKey.episode_storyboard(1, "ORPHAN")
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            key,
+            artifact_path="storyboards/scene_ORPHAN.png",
+            basis=ArtifactBasis.build("test/orphan-storyboard", kind_version=1, inputs={}),
+        )
         monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
@@ -1105,6 +1123,54 @@ class TestVersionsRouter:
 
         assert response.status_code == 200, response.text
         assert response.json()["file_path"] == "storyboards/scene_ORPHAN.png"
+        assert ProjectArtifactManifestAdapter(project_path).get_entry(key) is None
+
+    def test_storyboard_restore_does_not_swallow_script_write_oserror(self, tmp_path, monkeypatch):
+        from lib.project_manager import ProjectManager
+
+        class _WriteFailPM(ProjectManager):
+            fail_writes = False
+
+            def _write_script_unlocked(self, *args, **kwargs):
+                if self.fail_writes:
+                    raise OSError("disk full")
+                return super()._write_script_unlocked(*args, **kwargs)
+
+        pm = _WriteFailPM(tmp_path)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "novel_text": "旁白",
+                        "generated_assets": {"storyboard_image": "storyboards/old.png"},
+                    }
+                ],
+            },
+            "episode_1.json",
+            validate=False,
+        )
+        project_path = pm.get_project_path("demo")
+        script_path = project_path / "scripts" / "episode_1.json"
+        before = script_path.read_bytes()
+        pm.fail_writes = True
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+
+        with pytest.raises(OSError, match="disk full"):
+            versions._restore_non_typed_sidecars(
+                resource_type="storyboards",
+                project_name="demo",
+                resource_id="E1S01",
+                file_path="storyboards/scene_E1S01.png",
+                project_path=project_path,
+            )
+
+        assert script_path.read_bytes() == before
 
     def test_storyboard_restore_transient_oserror_does_not_5xx(self, tmp_path, monkeypatch):
         """跨集同步 sibling 集遇到 transient IO 错误(OSError)不应让主集 restore 5xx——

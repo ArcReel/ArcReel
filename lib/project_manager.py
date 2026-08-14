@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
 from lib.app_data_dir import app_data_dir
+from lib.artifact_manifest import ArtifactBasisDescriptor
 from lib.asset_rename import (
     AssetRenameConflictError,
     AssetRenameNotFoundError,
@@ -655,7 +656,13 @@ class ProjectManager:
         return script
 
     def save_script(
-        self, project_name: str, script: dict, filename: str | None = None, *, validate: bool = True
+        self,
+        project_name: str,
+        script: dict,
+        filename: str | None = None,
+        *,
+        validate: bool = True,
+        artifact_basis: ArtifactBasisDescriptor | None = None,
     ) -> Path:
         """
         保存分镜剧本
@@ -666,6 +673,7 @@ class ProjectManager:
             filename: 可选的文件名，默认使用章节名
             validate: 是否做「不更坏」结构校验（默认 True，fail-safe）。直连保存不持有
                 改前剧本，由写盘统一入口按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
+            artifact_basis: 生成调用开始前冻结的剧本来源 basis；普通编辑不传，按提交时现值解析。
 
         Returns:
             保存的文件路径
@@ -684,13 +692,26 @@ class ProjectManager:
                 return
             if not self.project_exists(project_name):
                 return
-            from lib.artifact_activation import TARGET_SCHEMA_VERSION, register_current_artifact_if_provable
+            from lib.artifact_activation import (
+                TARGET_SCHEMA_VERSION,
+                register_current_artifact,
+                register_current_artifact_if_provable,
+            )
             from lib.artifact_manifest import ArtifactKey
 
             project_path = self.get_project_path(project_name)
             project = self._read_project_raw_unlocked(project_name)
             if project.get("schema_version") == TARGET_SCHEMA_VERSION:
-                register_current_artifact_if_provable(project_path, ArtifactKey.episode_script(episode))
+                key = ArtifactKey.episode_script(episode)
+                if artifact_basis is None:
+                    register_current_artifact_if_provable(project_path, key)
+                else:
+                    register_current_artifact(
+                        project_path,
+                        key,
+                        artifact_path=_script_path.relative_to(project_path).as_posix(),
+                        basis=artifact_basis,
+                    )
 
         with self._script_lock(project_name, filename):
             return self._commit_script_unlocked(
@@ -1470,6 +1491,7 @@ class ProjectManager:
         asset_path: str,
         *,
         on_commit: Callable[[], None] | None = None,
+        on_miss: Callable[[], None] | None = None,
     ) -> tuple[str, ...]:
         """Update every matching script and a final sidecar under one lock set.
 
@@ -1497,15 +1519,6 @@ class ProjectManager:
                         script, _migrated = self._read_script_unlocked(project_name, name)
                         before = copy.deepcopy(script)
                         self._set_scene_asset_in_script(script, scene_id, asset_type, asset_path)
-                        self._write_script_unlocked(
-                            project_name,
-                            script,
-                            name,
-                            sync_project=False,
-                            validate=False,
-                            before=before,
-                            emit_change=False,
-                        )
                     except KeyError:
                         continue
                     except ScriptEditError as exc:
@@ -1514,6 +1527,15 @@ class ProjectManager:
                     except OSError as exc:
                         logger.warning("跨集同步元数据 sibling 集 %s IO 失败: %s", name, exc)
                         continue
+                    self._write_script_unlocked(
+                        project_name,
+                        script,
+                        name,
+                        sync_project=False,
+                        validate=False,
+                        before=before,
+                        emit_change=False,
+                    )
                     if isinstance(script.get("episode"), int):
                         self._apply_episode_sync(project, script, name)
                     changed.append(name)
@@ -1527,6 +1549,8 @@ class ProjectManager:
                     atomic_write_json(project_file, project)
                 if changed and on_commit is not None:
                     on_commit()
+                if not changed and on_miss is not None:
+                    on_miss()
 
         if changed:
             emit_project_change_hint(

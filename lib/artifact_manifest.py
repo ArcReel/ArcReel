@@ -18,7 +18,7 @@ import stat
 import tempfile
 import threading
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -110,6 +110,11 @@ class ArtifactManifestAdapter(Protocol):
         raise NotImplementedError
 
     def get_entry(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
+        raise NotImplementedError
+
+    def snapshot_entries(self) -> Mapping[ArtifactKey, ArtifactManifestEntry]:
+        """Return one decoded snapshot of the complete Manifest."""
+
         raise NotImplementedError
 
     def put_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> bool:
@@ -330,6 +335,21 @@ class ArtifactManifest:
                 raise RuntimeError("artifact entry removal failed and rollback was incomplete") from rollback_error
             raise
 
+    def forget_entries_transactionally(self, keys: Sequence[ArtifactKey]) -> bool:
+        """Remove a set of claims through one scoped compare-and-swap commit."""
+
+        unique = tuple(dict.fromkeys(keys))
+        before = {key: entry for key in unique if (entry := self._adapter.get_entry(key)) is not None}
+        if not before:
+            return False
+        receipt = ArtifactEntryRekeyPlan(
+            adapter=self._adapter,
+            before=before,
+            after={key: None for key in before},
+            changed=True,
+        ).commit()
+        return receipt.changed
+
     def plan_entry_rekey(
         self,
         source_key: ArtifactKey,
@@ -470,6 +490,10 @@ class InMemoryArtifactManifestAdapter:
     def get_entry(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
         with self._lock:
             return self._entries.get(key.encode())
+
+    def snapshot_entries(self) -> Mapping[ArtifactKey, ArtifactManifestEntry]:
+        with self._lock:
+            return {ArtifactKey.decode(encoded): entry for encoded, entry in self._entries.items()}
 
     def put_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> bool:
         with self._lock:
@@ -823,6 +847,11 @@ class ProjectArtifactManifestAdapter:
         with self._locked() as root_fd:
             entries, _ = self._load_unlocked(root_fd)
             return entries.get(key.encode())
+
+    def snapshot_entries(self) -> Mapping[ArtifactKey, ArtifactManifestEntry]:
+        with self._locked() as root_fd:
+            entries, _ = self._load_unlocked(root_fd)
+            return {ArtifactKey.decode(encoded): entry for encoded, entry in entries.items()}
 
     def put_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> bool:
         with self._locked() as root_fd:

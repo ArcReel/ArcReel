@@ -15,7 +15,12 @@ from typing import Any, Optional, cast
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.artifact_provenance import project_ad_episode_script_inputs
+from lib.artifact_manifest import ArtifactBasisDescriptor
+from lib.artifact_provenance import (
+    build_ad_episode_script_basis,
+    build_episode_script_basis,
+    project_ad_episode_script_inputs,
+)
 from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import (
@@ -171,6 +176,7 @@ class ScriptGenerator:
         self.project_path = Path(project_path)
         self.generator = generator
         self._step1_revision: str | None = None
+        self._artifact_basis: ArtifactBasisDescriptor | None = None
 
         # 加载 project.json
         self.project_json = self._load_project_json()
@@ -241,12 +247,14 @@ class ScriptGenerator:
             raise ValueError(f"output_filename 只接受纯文件名，不允许目录或路径分隔符: {output_filename!r}")
 
         self._step1_revision = None
+        self._artifact_basis = None
         gen_mode = self.generation_mode
 
         # ad 两条路线都一键生成、不走 step1；参考路线直接产出自包含 video_units。
         if self.content_mode == "ad":
             prompt, schema = await self._compose_ad(episode, gen_mode)
             prompt = append_user_instructions(prompt, instructions)
+            self._freeze_ad_artifact_basis(episode)
             return await self._generate_and_save(prompt, schema, episode, output_filename)
 
         # drama（storyboard / grid）走两段式（见 ADR 0041）：step1 内容已是结构化 JSON，
@@ -391,7 +399,13 @@ class ScriptGenerator:
 
         filename = output_filename or episode_script_filename(episode)
         pm = ProjectManager(str(self.project_path.parent))
-        output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
+        output_path = pm.save_script(
+            self.project_path.name,
+            script_data,
+            filename,
+            validate=True,
+            artifact_basis=self._artifact_basis,
+        )
 
         self._quality_probe(script_data, episode)
         logger.info("剧本已保存至 %s", output_path)
@@ -544,7 +558,13 @@ class ScriptGenerator:
         # 同步——消除「裸 json.dump 旁路」，使 _write_script_unlocked 成为剧本唯一写入点。
         filename = output_filename or episode_script_filename(episode)
         pm = ProjectManager(str(self.project_path.parent))
-        output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
+        output_path = pm.save_script(
+            self.project_path.name,
+            script_data,
+            filename,
+            validate=True,
+            artifact_basis=self._artifact_basis,
+        )
 
         self._quality_probe(script_data, episode)
 
@@ -830,6 +850,31 @@ class ScriptGenerator:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
 
+    def _freeze_step1_artifact_basis(self, step1_content: object) -> None:
+        """Freeze the authoritative step1 basis before the provider call."""
+        try:
+            basis = build_episode_script_basis(step1_content, project=self.project_json)
+        except (TypeError, ValueError):
+            # Legacy projects and small unit-test fixtures can predate the typed
+            # artifact contract.  Schema 8 must remain strict because its
+            # Manifest is authoritative.
+            if self.project_json.get("schema_version") == 8:
+                raise
+            self._artifact_basis = None
+            return
+        self._artifact_basis = ArtifactBasisDescriptor.from_basis(basis)
+
+    def _freeze_ad_artifact_basis(self, episode: int) -> None:
+        """Freeze the ad-specific canonical basis before the provider call."""
+        try:
+            basis = build_ad_episode_script_basis(episode, project=self.project_json)
+        except (TypeError, ValueError):
+            if self.project_json.get("schema_version") == 8:
+                raise
+            self._artifact_basis = None
+            return
+        self._artifact_basis = ArtifactBasisDescriptor.from_basis(basis)
+
     def _load_step1(self, episode: int) -> str:
         """加载 drama 形状两段式的 Step 1 结构化中间文件原始文本。
 
@@ -909,6 +954,7 @@ class ScriptGenerator:
                 supported_durations=supported_durations,
             )
             self._step1_revision = content_fingerprint_of_data(raw)
+            self._freeze_step1_artifact_basis(raw)
 
         # 迁移带 warnings 说明 clamp 改写了实际秒数，那是内容变更、审阅确认随之失效。而 gate
         # 放行据的是改写前的状态：不在此处补判，生成就会拿着用户从未过目的秒数走完付费的
@@ -980,6 +1026,7 @@ class ScriptGenerator:
         except json.JSONDecodeError as e:
             raise ValueError(f"step1_segments.json 解析失败: {e}")
         self._step1_revision = content_fingerprint_of_data(raw)
+        self._freeze_step1_artifact_basis(raw)
 
         try:
             draft = NarrationStep1Draft.model_validate(raw)
@@ -1027,6 +1074,7 @@ class ScriptGenerator:
         if not isinstance(data, dict):
             raise ValueError("Step 1 内容文件结构异常：顶层应为对象 {title, scenes}")
         self._step1_revision = content_fingerprint_of_data(data)
+        self._freeze_step1_artifact_basis(data)
         scenes = data.get("scenes")
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("Step 1 内容文件结构异常：scenes 必须是非空的场景对象数组")
@@ -1309,7 +1357,13 @@ class ScriptGenerator:
 
         filename = output_filename or episode_script_filename(episode)
         pm = ProjectManager(str(self.project_path.parent))
-        output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
+        output_path = pm.save_script(
+            self.project_path.name,
+            script_data,
+            filename,
+            validate=True,
+            artifact_basis=self._artifact_basis,
+        )
         # 落盘成功后才清草稿：写盘失败时草稿还在，重试晋升即可，不会两头皆空。
         clear_quarantine(self.project_path, episode, QUARANTINE_KIND_STEP2)
         self._quality_probe(script_data, episode)

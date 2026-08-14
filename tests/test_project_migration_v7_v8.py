@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from lib.artifact_activation import ArtifactCurrencyResolver, register_task_current_resource_artifact
+from lib.artifact_activation import (
+    ArtifactCurrencyResolver,
+    ensure_imported_artifact_target_state,
+    register_task_current_resource_artifact,
+)
 from lib.artifact_manifest import (
     MANIFEST_FILENAME,
     ArtifactBasis,
@@ -25,8 +29,14 @@ from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_b
 from lib.project_manager import ProjectManager
 from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
-from lib.speech_artifact_provenance import build_video_duration_basis, build_video_speech_basis
+from lib.speech_artifact_provenance import (
+    RenditionVariant,
+    SelectedMediaEvidence,
+    build_video_duration_basis,
+    build_video_speech_basis,
+)
 from lib.speech_composition import admit_script_unit
+from lib.speech_presentation import PresentationMedia, materialize_speech_presentation, presentation_artifact_paths
 from lib.version_manager import VersionManager
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.visual_artifact_provenance import (
@@ -50,6 +60,116 @@ def _write_json(path: Path, payload: object) -> None:
 
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_verified_presentation_claims(
+    project_dir: Path,
+    *,
+    episode: int = 1,
+    resource_id: str = "E1S01",
+    variant: RenditionVariant = "post_production",
+) -> tuple[ArtifactKey, ArtifactManifestEntry, ArtifactKey, ArtifactManifestEntry]:
+    script_path = project_dir / "scripts" / f"episode_{episode}.json"
+    script = _read_json(script_path)
+    item = script["segments"][0]
+    item["duration_seconds"] = 4
+    item["novel_text"] = "雨夜"
+    item["generated_assets"]["video_clip"] = f"videos/scene_{resource_id}.mp4"
+    _write_json(script_path, script)
+    video_path = project_dir / f"videos/scene_{resource_id}.mp4"
+    video_path.parent.mkdir(parents=True, exist_ok=True)
+    video_path.write_bytes(b"paid-video")
+
+    preparation = admit_script_unit("segments", item).preparation
+    visual = build_storyboard_video_artifact_visual_basis(
+        resource_id=resource_id,
+        visual_prompt=item["video_prompt"],
+        storyboard_image=project_dir / f"storyboards/scene_{resource_id}.png",
+        end_frame_image=None,
+        aspect_ratio="9:16",
+    )
+    speech = build_video_speech_basis(preparation)
+    duration = build_video_duration_basis(4)
+    facts = VideoArtifactCurrencyFacts(
+        episode=episode,
+        request_duration_seconds=4,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(4,),
+        reference_image_limit=None,
+        parent_version=0,
+    )
+    versions = VersionManager(project_dir)
+    selected_version = versions.add_version(
+        "videos",
+        resource_id,
+        "paid",
+        source_file=video_path,
+        execution_checkpoint_schema_version=3,
+        execution_duration_seconds=4,
+        execution_request_digest="a" * 64,
+        execution_script_file=f"episode_{episode}.json",
+        execution_provider_media=[],
+        execution_generate_audio=True,
+        artifact_video_currency=facts.to_dict(),
+    )
+    selected = next(
+        record
+        for record in versions.get_versions("videos", resource_id)["versions"]
+        if record["version"] == selected_version
+    )
+    selected_path = project_dir / selected["file"]
+    media = PresentationMedia(
+        artifact_path=selected["file"],
+        version=selected_version,
+        selection="current",
+        currency="current",
+        evidence=SelectedMediaEvidence.from_file(
+            basis=facts.video_basis,
+            path=selected_path,
+            actual_duration_seconds=4.0,
+        ),
+    )
+    presentation = materialize_speech_presentation(
+        preparation,
+        variant=variant,
+        video=media,
+        provider_audio_enabled=True,
+    )
+    subtitle_path, presentation_path = presentation_artifact_paths(episode, resource_id, variant)
+    _write_json(project_dir / subtitle_path, presentation.subtitle_artifact_dict())
+    _write_json(
+        project_dir / presentation_path,
+        {
+            "episode": episode,
+            "resource_type": "videos",
+            "script_file": f"episode_{episode}.json",
+            "transition_to_next": "cut",
+            "subtitle_artifact_path": subtitle_path,
+            "presentation_artifact_path": presentation_path,
+            "persisted": True,
+            **presentation.to_dict(),
+        },
+    )
+    subtitle_key = ArtifactKey.episode_subtitle(episode, resource_id, variant)
+    presentation_key = ArtifactKey.episode_presentation(episode, resource_id, variant)
+    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project_dir))
+    manifest.register(
+        ArtifactKey.episode_video(episode, resource_id),
+        artifact_path=f"videos/scene_{resource_id}.mp4",
+        basis=facts.video_basis,
+    )
+    manifest.register(subtitle_key, artifact_path=subtitle_path, basis=presentation.subtitle_basis)
+    manifest.register(presentation_key, artifact_path=presentation_path, basis=presentation.presentation_basis)
+    return (
+        subtitle_key,
+        ArtifactManifestEntry(subtitle_path, presentation.subtitle_basis.digest),
+        presentation_key,
+        ArtifactManifestEntry(presentation_path, presentation.presentation_basis.digest),
+    )
 
 
 def _project(tmp_path: Path) -> tuple[Path, dict, dict, dict]:
@@ -253,6 +373,25 @@ def test_v7_activation_replaces_partial_manifest_from_canonical_target_state(tmp
     }
     assert old_key.encode() not in _stored_entries(project_dir)
     assert orphan.read_text(encoding="utf-8") == "history"
+
+
+def test_v7_activation_preserves_verified_presentation_claims_in_the_complete_target(tmp_path: Path) -> None:
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    subtitle_key, subtitle_entry, presentation_key, presentation_entry = _write_verified_presentation_claims(
+        project_dir
+    )
+
+    migrate_v7_to_v8(project_dir)
+
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    assert adapter.get_entry(subtitle_key) == subtitle_entry
+    assert adapter.get_entry(presentation_key) == presentation_entry
+    resolver = ArtifactCurrencyResolver(project_dir)
+    assert resolver.compare(subtitle_key, artifact_path=subtitle_entry.artifact_path).status is ArtifactStatus.CURRENT
+    assert (
+        resolver.compare(presentation_key, artifact_path=presentation_entry.artifact_path).status
+        is ArtifactStatus.CURRENT
+    )
     assert list(project_dir.glob("project.json.bak.v7-*"))
     assert list((project_dir / "scripts").glob("episode_1.json.bak.v7-*"))
     assert list(project_dir.glob(f"{MANIFEST_FILENAME}.bak.v7-*"))
@@ -265,6 +404,57 @@ def test_v7_activation_replaces_partial_manifest_from_canonical_target_state(tmp
     before = [(path.read_bytes(), path.stat().st_mtime_ns) for path in tracked]
     assert migrate_project_dir(project_dir) is False
     assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in tracked] == before
+
+    changed_script = _read_json(project_dir / "scripts" / "episode_1.json")
+    changed_script["segments"][0]["novel_text"] = "雨停之后"
+    _write_json(project_dir / "scripts" / "episode_1.json", changed_script)
+    stale_resolver = ArtifactCurrencyResolver(project_dir)
+    assert (
+        stale_resolver.compare(subtitle_key, artifact_path=subtitle_entry.artifact_path).status is ArtifactStatus.STALE
+    )
+    assert (
+        stale_resolver.compare(presentation_key, artifact_path=presentation_entry.artifact_path).status
+        is ArtifactStatus.STALE
+    )
+
+
+def test_schema8_archive_activation_reconstructs_only_self_proving_presentation_pairs(tmp_path: Path) -> None:
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    subtitle_key, subtitle_entry, presentation_key, presentation_entry = _write_verified_presentation_claims(
+        project_dir
+    )
+    migrate_v7_to_v8(project_dir)
+    subtitle_file = project_dir / subtitle_entry.artifact_path
+    presentation_file = project_dir / presentation_entry.artifact_path
+    before_artifacts = (subtitle_file.read_bytes(), presentation_file.read_bytes())
+
+    # Official archives retain the visible typed artifacts and managed version
+    # snapshot, but deliberately filter the hidden Manifest sidecar.
+    (project_dir / MANIFEST_FILENAME).unlink()
+
+    assert ensure_imported_artifact_target_state(project_dir) is True
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    assert adapter.get_entry(subtitle_key) == subtitle_entry
+    assert adapter.get_entry(presentation_key) == presentation_entry
+    assert (subtitle_file.read_bytes(), presentation_file.read_bytes()) == before_artifacts
+
+
+def test_schema8_archive_activation_rejects_tampered_presentation_evidence(tmp_path: Path) -> None:
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    subtitle_key, _subtitle_entry, presentation_key, presentation_entry = _write_verified_presentation_claims(
+        project_dir
+    )
+    migrate_v7_to_v8(project_dir)
+    presentation_file = project_dir / presentation_entry.artifact_path
+    tampered = _read_json(presentation_file)
+    tampered["video"]["content_digest"] = f"sha256-v1:{'0' * 64}"
+    _write_json(presentation_file, tampered)
+    (project_dir / MANIFEST_FILENAME).unlink()
+
+    assert ensure_imported_artifact_target_state(project_dir) is True
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    assert adapter.get_entry(subtitle_key) is None
+    assert adapter.get_entry(presentation_key) is None
 
 
 def test_runtime_resolver_plans_storyboards_only_once_per_snapshot(tmp_path: Path, monkeypatch) -> None:

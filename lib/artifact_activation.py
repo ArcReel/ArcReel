@@ -22,6 +22,7 @@ from lib.artifact_manifest import (
     ArtifactBasisDescriptor,
     ArtifactComparison,
     ArtifactKey,
+    ArtifactKind,
     ArtifactManifest,
     ArtifactManifestAdapter,
     ArtifactManifestEntry,
@@ -36,8 +37,23 @@ from lib.grid.layout import grid_aspect_ratio_for
 from lib.grid.models import GridGeneration
 from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.media_artifact_currency import build_current_audio_artifact_basis, build_current_video_artifact_basis
+from lib.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
+from lib.speech_artifact_provenance import RenditionVariant, SelectedMediaEvidence, media_content_digest
+from lib.speech_composition import (
+    SpeechComposition,
+    SpeechFieldLocation,
+    SpeechInputUtterance,
+    SpeechPreparation,
+    SpeechUnitSnapshot,
+    admit_script_unit,
+)
+from lib.speech_presentation import (
+    PresentationMedia,
+    materialize_speech_presentation,
+    presentation_artifact_paths,
+)
 from lib.storyboard_sequence import StoryboardImageUnavailable, get_storyboard_items, resolve_storyboard_video_inputs
 from lib.version_manager import VersionManager
 from lib.visual_artifact_provenance import (
@@ -107,6 +123,14 @@ class _FormalStep1State:
     content: object
 
 
+@dataclass(frozen=True, slots=True)
+class _PersistedPresentationProof:
+    frozen_subtitle_basis: ArtifactBasis
+    frozen_presentation_basis: ArtifactBasis
+    current_subtitle_basis: ArtifactBasis | None
+    current_presentation_basis: ArtifactBasis | None
+
+
 class _Planner:
     def __init__(self, project_dir: Path) -> None:
         self.project_dir = project_dir.resolve(strict=True)
@@ -143,6 +167,7 @@ class _Planner:
         self._plan_grids()
         self._plan_storyboards()
         self._plan_typed_media()
+        self._plan_persisted_presentations()
         return ArtifactTargetStatePlan(
             entries=dict(self.entries),
             project=dict(self.project),
@@ -179,6 +204,9 @@ class _Planner:
         elif kind in {"episode-video", "episode-audio"}:
             self._load_episodes()
             self._plan_typed_media()
+        elif kind in {"episode-subtitle", "episode-presentation"}:
+            self._load_episodes()
+            self._plan_persisted_presentations()
         return self.entries.get(key)
 
     def _load_episode_bindings(self) -> None:
@@ -833,6 +861,304 @@ class _Planner:
             basis_digest=current_basis.digest,
         )
 
+    def _plan_persisted_presentations(self) -> None:
+        """Rebuild only complete, internally provable persisted presentation pairs."""
+
+        if "persisted-presentations" in self._planned:
+            return
+        # Typed media must be planned first.  Persisted presentation files carry
+        # observed duration/content evidence, but only a selected managed media
+        # snapshot that independently proves its canonical formal file may anchor
+        # that evidence.  This is not a same-name filesystem fallback.
+        self._plan_typed_media()
+        for episode in self.episodes:
+            for item in episode.items:
+                if item.get("needs_replan") is True:
+                    continue
+                resource_id = str(item[episode.id_field])
+                for variant in (POST_PRODUCTION, USE_TTS):
+                    subtitle_path, presentation_path = presentation_artifact_paths(
+                        episode.episode,
+                        resource_id,
+                        variant,
+                    )
+                    subtitle = self._read_optional_json_artifact(subtitle_path)
+                    presentation = self._read_optional_json_artifact(presentation_path)
+                    if subtitle is None or presentation is None:
+                        continue
+                    proof = self._prove_persisted_presentation(
+                        episode=episode,
+                        item=item,
+                        resource_id=resource_id,
+                        variant=variant,
+                        subtitle_path=subtitle_path,
+                        presentation_path=presentation_path,
+                        subtitle=subtitle,
+                        presentation=presentation,
+                    )
+                    if proof is None:
+                        continue
+                    subtitle_basis = (
+                        proof.frozen_subtitle_basis if self._activation_mode else proof.current_subtitle_basis
+                    )
+                    presentation_basis = (
+                        proof.frozen_presentation_basis if self._activation_mode else proof.current_presentation_basis
+                    )
+                    if subtitle_basis is not None:
+                        self.entries[ArtifactKey.episode_subtitle(episode.episode, resource_id, variant)] = (
+                            ArtifactManifestEntry(
+                                artifact_path=subtitle_path,
+                                basis_digest=subtitle_basis.digest,
+                            )
+                        )
+                    if presentation_basis is not None:
+                        self.entries[ArtifactKey.episode_presentation(episode.episode, resource_id, variant)] = (
+                            ArtifactManifestEntry(
+                                artifact_path=presentation_path,
+                                basis_digest=presentation_basis.digest,
+                            )
+                        )
+        self._planned.add("persisted-presentations")
+
+    def _prove_persisted_presentation(
+        self,
+        *,
+        episode: _EpisodeState,
+        item: Mapping[str, Any],
+        resource_id: str,
+        variant: RenditionVariant,
+        subtitle_path: str,
+        presentation_path: str,
+        subtitle: Mapping[str, Any],
+        presentation: Mapping[str, Any],
+    ) -> _PersistedPresentationProof | None:
+        """Validate a frozen typed presentation and derive its current basis."""
+
+        resource_type = "reference_videos" if episode.kind == "video_units" else "videos"
+        video_pair = self._presentation_media_pair(
+            presentation.get("video"),
+            episode=episode,
+            resource_id=resource_id,
+            resource_type=resource_type,
+        )
+        if video_pair is None:
+            return None
+        frozen_video, current_video = video_pair
+        raw_audio = presentation.get("narration_audio")
+        audio_pair = (
+            self._presentation_media_pair(
+                raw_audio,
+                episode=episode,
+                resource_id=resource_id,
+                resource_type="audio",
+            )
+            if raw_audio is not None
+            else None
+        )
+        if (variant == USE_TTS) != (audio_pair is not None):
+            return None
+        frozen_audio, current_audio = audio_pair if audio_pair is not None else (None, None)
+        frozen_preparation = self._persisted_speech_preparation(resource_id, subtitle, presentation)
+        raw_audio_enabled = presentation.get("video")
+        provider_audio_enabled = (
+            raw_audio_enabled.get("audio_enabled") if isinstance(raw_audio_enabled, Mapping) else None
+        )
+        if frozen_preparation is None or not isinstance(provider_audio_enabled, bool):
+            return None
+        try:
+            frozen = materialize_speech_presentation(
+                frozen_preparation,
+                variant=variant,
+                video=frozen_video,
+                narration_audio=frozen_audio,
+                provider_audio_enabled=provider_audio_enabled,
+            )
+        except (TypeError, ValueError):
+            return None
+        transition = presentation.get("transition_to_next")
+        if not isinstance(transition, str):
+            return None
+        expected_presentation = {
+            "episode": episode.episode,
+            "resource_type": resource_type,
+            "script_file": Path(episode.script_file).name,
+            "transition_to_next": transition,
+            "subtitle_artifact_path": subtitle_path,
+            "presentation_artifact_path": presentation_path,
+            "persisted": True,
+            **frozen.to_dict(),
+        }
+        if dict(subtitle) != frozen.subtitle_artifact_dict() or dict(presentation) != expected_presentation:
+            return None
+
+        current_subtitle: ArtifactBasis | None = None
+        current_presentation: ArtifactBasis | None = None
+        admission = admit_script_unit(episode.kind, item)
+        if admission.allowed:
+            try:
+                current = materialize_speech_presentation(
+                    admission.preparation,
+                    variant=variant,
+                    video=current_video,
+                    narration_audio=current_audio,
+                    provider_audio_enabled=provider_audio_enabled,
+                )
+            except (TypeError, ValueError):
+                pass
+            else:
+                current_subtitle = current.subtitle_basis
+                current_presentation = current.presentation_basis
+        return _PersistedPresentationProof(
+            frozen_subtitle_basis=frozen.subtitle_basis,
+            frozen_presentation_basis=frozen.presentation_basis,
+            current_subtitle_basis=current_subtitle,
+            current_presentation_basis=current_presentation,
+        )
+
+    def _presentation_media_pair(
+        self,
+        raw: object,
+        *,
+        episode: _EpisodeState,
+        resource_id: str,
+        resource_type: str,
+    ) -> tuple[PresentationMedia, PresentationMedia] | None:
+        """Prove one selected media snapshot and expose frozen/current currency."""
+
+        if not isinstance(raw, Mapping) or raw.get("selection") != "current":
+            return None
+        key = (
+            ArtifactKey.episode_audio(episode.episode, resource_id)
+            if resource_type == "audio"
+            else ArtifactKey.episode_video(episode.episode, resource_id)
+        )
+        planned = self.entries.get(key)
+        if planned is None or planned.artifact_path != resource_relative_path(resource_type, resource_id):
+            return None
+        versions = self._load_versions()
+        bucket = versions.get(resource_type)
+        resource = bucket.get(resource_id) if isinstance(bucket, Mapping) else None
+        selected_version = resource.get("current_version") if isinstance(resource, Mapping) else None
+        records = resource.get("versions") if isinstance(resource, Mapping) else None
+        if type(selected_version) is not int or not isinstance(records, list) or raw.get("version") != selected_version:
+            return None
+        selected = [
+            record for record in records if isinstance(record, Mapping) and record.get("version") == selected_version
+        ]
+        if len(selected) != 1:
+            return None
+        record = selected[0]
+        snapshot_path = record.get("file")
+        if (
+            not VersionManager.is_managed_snapshot_path(resource_type, snapshot_path)
+            or raw.get("artifact_path") != snapshot_path
+        ):
+            return None
+        try:
+            target = parse_typed_media_version_target(resource_type, record)
+            embedded_basis = ArtifactBasisDescriptor.from_dict(raw.get("basis"))
+        except (TypeError, ValueError):
+            return None
+        if (
+            target.episode != episode.episode
+            or _normalize_script_binding(target.script_file) != episode.script_file
+            or embedded_basis != target.basis
+        ):
+            return None
+        snapshot = self._safe_present_path(cast(str, snapshot_path))
+        artifact = self._safe_present_path(planned.artifact_path)
+        if snapshot is None or artifact is None:
+            return None
+        try:
+            if snapshot.samefile(artifact) or snapshot.read_bytes() != artifact.read_bytes():
+                return None
+            content_digest = media_content_digest(snapshot)
+            evidence = SelectedMediaEvidence(
+                basis=embedded_basis,
+                content_digest=cast(str, raw.get("content_digest")),
+                actual_duration_seconds=cast(float, raw.get("actual_duration_seconds")),
+            )
+        except (OSError, TypeError, ValueError):
+            return None
+        if evidence.content_digest != content_digest:
+            return None
+        frozen_currency = raw.get("currency")
+        if frozen_currency not in {"current", "stale"}:
+            return None
+        frozen = PresentationMedia(
+            artifact_path=cast(str, snapshot_path),
+            version=selected_version,
+            selection="current",
+            currency=cast(Any, frozen_currency),
+            evidence=evidence,
+        )
+        current = PresentationMedia(
+            artifact_path=frozen.artifact_path,
+            version=frozen.version,
+            selection=frozen.selection,
+            currency="current" if planned.basis_digest == target.basis.digest else "stale",
+            evidence=evidence,
+        )
+        return frozen, current
+
+    @staticmethod
+    def _persisted_speech_preparation(
+        resource_id: str,
+        subtitle: Mapping[str, Any],
+        presentation: Mapping[str, Any],
+    ) -> SpeechPreparation | None:
+        """Reconstruct only the speech facts actually frozen into subtitle cues."""
+
+        raw_cues = subtitle.get("cues")
+        if not isinstance(raw_cues, list):
+            return None
+        entries: list[SpeechInputUtterance] = []
+        for index, cue in enumerate(raw_cues):
+            if not isinstance(cue, Mapping):
+                return None
+            owner = cue.get("owner")
+            text = cue.get("text")
+            speaker = cue.get("speaker")
+            if owner == "narrator":
+                if speaker is not None:
+                    return None
+                speaker_required = False
+            elif owner == "character":
+                if not isinstance(speaker, str) or not speaker.strip():
+                    return None
+                speaker_required = True
+            else:
+                return None
+            if not isinstance(text, str) or not text.strip():
+                return None
+            entries.append(
+                SpeechInputUtterance(
+                    text=text,
+                    speaker=cast(str | None, speaker),
+                    speaker_required=speaker_required,
+                    location=SpeechFieldLocation(("cues", index)),
+                )
+            )
+        preparation = SpeechComposition.prepare(SpeechUnitSnapshot(resource_id, tuple(entries)))
+        mode = presentation.get("speech_mode")
+        if preparation.problems or preparation.mode is None or preparation.mode.value != mode:
+            return None
+        return preparation
+
+    def _read_optional_json_artifact(self, relative_path: str) -> Mapping[str, Any] | None:
+        path = self._safe_present_path(relative_path)
+        if path is None:
+            return None
+        try:
+            raw = path.read_bytes()
+            parsed = json.loads(raw.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            return None
+        if not isinstance(parsed, Mapping):
+            return None
+        self.dependencies[path] = raw
+        return cast(Mapping[str, Any], parsed)
+
     @staticmethod
     def _selected_audio_settings(
         versions: Mapping[str, Any],
@@ -1096,13 +1422,24 @@ def register_current_artifact(
     key: ArtifactKey,
     *,
     adapter: ArtifactManifestAdapter | None = None,
+    artifact_path: str | None = None,
+    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
 ) -> bool:
-    """Register a just-committed formal artifact through the shared resolver."""
+    """Register a formal artifact from current or execution-frozen evidence."""
 
+    storage = adapter or ProjectArtifactManifestAdapter(project_dir)
+    if basis is not None:
+        if artifact_path is None:
+            raise ValueError("artifact_path is required with a frozen basis")
+        descriptor = basis if isinstance(basis, ArtifactBasisDescriptor) else ArtifactBasisDescriptor.from_basis(basis)
+        return ArtifactManifest(storage).register_descriptor_transactionally(
+            key,
+            artifact_path=artifact_path,
+            basis=descriptor,
+        )
     entry = resolve_current_artifact_target(project_dir, key)
     if entry is None:
         raise ValueError(f"formal artifact target is not provable: {key.encode()}")
-    storage = adapter or ProjectArtifactManifestAdapter(project_dir)
     return ArtifactManifest(storage).register_entry_transactionally(key, entry)
 
 
@@ -1263,6 +1600,20 @@ def forget_current_resource_artifact(
     return ArtifactManifest(ProjectArtifactManifestAdapter(project_dir)).forget_entry_transactionally(key)
 
 
+def forget_unbound_storyboard_artifacts(project_dir: Path, resource_id: str) -> bool:
+    """Remove storyboard claims when no canonical episode owns the resource."""
+
+    if not _artifact_manifest_is_active(project_dir):
+        return False
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    keys = [
+        key
+        for key in adapter.snapshot_entries()
+        if key.kind is ArtifactKind.EPISODE_STORYBOARD and key.components[1] == resource_id
+    ]
+    return ArtifactManifest(adapter).forget_entries_transactionally(keys)
+
+
 def _artifact_manifest_is_active(project_dir: Path) -> bool:
     """Return whether runtime write-through is enabled by the schema gate."""
 
@@ -1348,6 +1699,7 @@ __all__ = [
     "artifact_key_for_resource",
     "ensure_imported_artifact_target_state",
     "forget_current_resource_artifact",
+    "forget_unbound_storyboard_artifacts",
     "plan_artifact_target_state",
     "register_current_artifact",
     "register_current_artifact_if_provable",
