@@ -40,20 +40,27 @@ class TestProjectManagerCompatibility:
         assert "created_at" in saved["metadata"]
         assert "updated_at" in saved["metadata"]
 
-    def test_save_script_strips_every_legacy_count_key(self, pm_env):
-        """旧剧本按骨架落盘的计数键在写盘重算时全部剔除，不让陈旧计数继续持久化。"""
+    def test_save_script_strips_every_persisted_count_key(self, pm_env):
+        """落盘过的计数键（旧名与另一族新名）在写盘重算时全部剔除，不让陈旧计数继续持久化。"""
         pm, project_name = pm_env
         script = {
             "title": "Episode 1",
             "creation_type": "narration",
-            "metadata": {"total_scenes": 9, "total_segments": 9, "total_shots": 9, "total_units": 9},
+            "metadata": {
+                "total_scenes": 9,
+                "total_segments": 9,
+                "total_shots": 9,
+                "total_units": 9,
+                "video_unit_count": 9,
+                "shot_count": 9,
+            },
             "segments": [{"segment_id": "E1S01", "duration_seconds": 6}],
         }
 
         pm.save_script(project_name, script, "episode_1.json", validate=False)
         saved_metadata = pm.load_script(project_name, "episode_1.json")["metadata"]
 
-        for stale in ("total_scenes", "total_segments", "total_shots", "total_units"):
+        for stale in ("total_scenes", "total_segments", "total_shots", "total_units", "video_unit_count", "shot_count"):
             assert stale not in saved_metadata
         assert saved_metadata["estimated_duration_seconds"] == 6
 

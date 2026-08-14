@@ -72,7 +72,7 @@ from lib.profile_manifest import (
 from lib.project_change_hints import emit_project_change_hint
 from lib.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
-from lib.script_models import LEGACY_METADATA_COUNT_KEYS, get_generated_assets, script_duration_total
+from lib.script_models import NON_PERSISTED_COUNT_KEYS, get_generated_assets, script_duration_total
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 from lib.validation_messages import ValidationResult
 
@@ -773,7 +773,7 @@ class ProjectManager:
             # 都被当作不存在过滤掉，metadata 重算一并排除：否则
             # estimated_duration_seconds 会被垃圾元素按 default 时长撑大，与各路径不一致。
             scene_items = [item for item in items if isinstance(item, dict)]
-            for stale_count_key in LEGACY_METADATA_COUNT_KEYS:
+            for stale_count_key in NON_PERSISTED_COUNT_KEYS:
                 metadata.pop(stale_count_key, None)
             # 总时长走 script_duration_total 单一真相源：脏值（None/bool/负数/字符串）按骨架
             # 兜底时长归一、不抛（见 lib/script_models.py）。与 StatusCalculator 读时计算、
@@ -1063,7 +1063,10 @@ class ProjectManager:
         if episode_entry is None:
             episode_entry = {"episode": episode_num}
             episodes.append(episode_entry)
-        # 同步核心元数据（不包含统计字段，统计字段由 StatusCalculator 读时计算）
+        # 同步核心元数据（不包含统计字段，统计字段由 StatusCalculator 读时计算）；
+        # 归档导入等外部来源写进条目的计数一并清掉，避免它们随导出再传播一轮
+        for stale_count_key in NON_PERSISTED_COUNT_KEYS:
+            episode_entry.pop(stale_count_key, None)
         episode_entry["title"] = episode_title
         episode_entry["script_file"] = script_file
         episodes.sort(key=lambda x: x["episode"])

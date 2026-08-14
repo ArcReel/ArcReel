@@ -15,7 +15,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
 )
 from lib.path_safety import safe_exists
-from lib.script_models import LEGACY_METADATA_COUNT_KEYS, get_generated_assets, script_duration_total
+from lib.script_models import NON_PERSISTED_COUNT_KEYS, get_generated_assets, script_duration_total
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 
 logger = logging.getLogger(__name__)
@@ -419,6 +419,9 @@ class StatusCalculator:
         episodes_stats = self._build_episodes_stats(project_name, project)
 
         for ep, ep_stats in zip(project.get("episodes", []), episodes_stats):
+            # 先清后注：注入只覆盖当前骨架那一个计数键，归档带进来的另一族计数否则会以陈旧值留在响应里
+            for key in NON_PERSISTED_COUNT_KEYS:
+                ep.pop(key, None)
             ep.update(ep_stats)
 
         # 传入预加载的 episodes_stats，避免 calculate_project_status 重复加载剧本
@@ -448,8 +451,8 @@ class StatusCalculator:
         if "metadata" not in script:
             script["metadata"] = {}
 
-        # 未走过迁移的剧本（手工放进 projects/ 的旧文件）否则会同时带着新旧两套计数返回给前端
-        for key in LEGACY_METADATA_COUNT_KEYS:
+        # 未走过迁移或从归档带进来的剧本否则会同时带着两套计数返回给前端
+        for key in NON_PERSISTED_COUNT_KEYS:
             script["metadata"].pop(key, None)
         if kind == "video_units":
             script["metadata"]["video_unit_count"] = len(items)

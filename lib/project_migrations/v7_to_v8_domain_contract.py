@@ -82,7 +82,7 @@ def migrate_project_payload(project: Mapping[str, Any]) -> dict[str, Any]:
 
 #: v7 剧本按骨架种类落盘的四个统计键。骨架不同键名也不同（segments→total_segments，
 #: shots→total_shots，video_units→total_units），一个项目里三种形态都可能存在，逐个删。
-#: 这里刻意抄一份而不引用 ``lib.script_models.LEGACY_METADATA_COUNT_KEYS``：迁移描述的是
+#: 这里刻意抄一份而不引用 ``lib.script_models.NON_PERSISTED_COUNT_KEYS``：迁移描述的是
 #: v7 那一刻的形状，后续版本再新增计数键也不该改变这一步的行为。
 _LEGACY_METADATA_COUNT_KEYS = ("total_scenes", "total_segments", "total_shots", "total_units")
 

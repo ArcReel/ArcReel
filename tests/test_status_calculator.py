@@ -351,6 +351,38 @@ class TestStatusCalculator:
         assert ep2["status"] == "draft"
 
     @pytest.mark.unit
+    def test_enrich_project_drops_persisted_counts_on_episodes(self, tmp_path):
+        """归档带进 episodes[] 的计数：读时注入只覆盖当前骨架那一个，其余须清掉而不是留陈旧值。"""
+        project_root = tmp_path / "projects"
+        project_root.mkdir(parents=True)
+        script = {
+            "creation_type": "narration",
+            "segments": [{"segment_id": "E1S01", "duration_seconds": 6, "generated_assets": {}}],
+        }
+        project = {
+            "overview": {},
+            "episodes": [
+                {
+                    "episode": 1,
+                    "script_file": "scripts/episode_1.json",
+                    "scenes_count": 9,
+                    "video_unit_count": 9,
+                    "shot_count": 9,
+                }
+            ],
+            "characters": {},
+            "scenes": {},
+            "props": {},
+        }
+        calc = StatusCalculator(_FakePM(project_root, project, {"episode_1.json": script}))
+
+        episode = calc.enrich_project("demo", project)["episodes"][0]
+
+        assert episode["storyboard_count"] == 1
+        for stale in ("scenes_count", "video_unit_count", "shot_count"):
+            assert stale not in episode
+
+    @pytest.mark.unit
     def test_stale_ledger_episode_regresses_to_pending_preprocess(self, tmp_path):
         """账本标 stale 的集：读时状态回退为待预处理（script_status=none），已有产物不删除。
 
@@ -421,18 +453,25 @@ class TestStatusCalculator:
         assert enriched_script["props_in_episode"] == ["P1"]
 
     @pytest.mark.unit
-    def test_enrich_script_drops_every_legacy_count_key(self, tmp_path):
-        """未走过迁移的剧本带着旧计数键：读时一并剔除，不与计算出的新计数并存。"""
+    def test_enrich_script_drops_every_persisted_count_key(self, tmp_path):
+        """剧本里落盘过的计数（旧名与另一族新名）读时一并剔除，不与算出来的计数并存。"""
         script = {
             "creation_type": "narration",
-            "metadata": {"total_scenes": 9, "total_segments": 9, "total_shots": 9, "total_units": 9},
+            "metadata": {
+                "total_scenes": 9,
+                "total_segments": 9,
+                "total_shots": 9,
+                "total_units": 9,
+                "video_unit_count": 9,
+                "shot_count": 9,
+            },
             "segments": [{"segment_id": "E1S01", "duration_seconds": 6, "generated_assets": {}}],
         }
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         metadata = calc.enrich_script(script)["metadata"]
 
         assert metadata["storyboard_count"] == 1
-        for stale in ("total_scenes", "total_segments", "total_shots", "total_units"):
+        for stale in ("total_scenes", "total_segments", "total_shots", "total_units", "video_unit_count", "shot_count"):
             assert stale not in metadata
 
     @pytest.mark.unit
