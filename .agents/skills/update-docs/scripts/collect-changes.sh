@@ -43,15 +43,23 @@ done <<< "${inventory}"
 # 归属迁移与日后的归属重划都是纯元数据编辑，算作新鲜会把 baseline 推到该次编辑，
 # 使编辑之前那段区间的能力变更永远不再进入引擎 A 扫描。
 content_freshness() {
-  local target="$1" ts cs sha
+  local target="$1" history ts cs sha
+  # 显式判退出码，不靠 set -e：函数在命令替换里被调用时 set -e 不生效，
+  # 对象库不完整导致的 git log 失败会伪装成「该文档没有历史」，把它从 baseline 里悄悄摘掉。
+  if ! history="$(git log --format='%ct %cs %H' -- "${target}")"; then
+    echo "collect-changes: 读不到 ${target} 的提交历史，无法定新鲜度点" >&2
+    return 1
+  fi
   while read -r ts cs sha; do
     [ -n "${sha}" ] || continue
+    # 归属声明与其所在的 frontmatter 分隔符都不算正文：页面原本没有 frontmatter 时，
+    # 补声明的提交新增的是整块 `---` / `update_docs` / `---`。
     if git show --format= -U0 "${sha}" -- "${target}" |
-      grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -qvE '^[+-]update_docs:'; then
+      grep -E '^[+-]' | grep -qvE '^(\+\+\+ |--- |[+-](---$|update_docs:))'; then
       echo "${ts} ${cs} ${sha}"
       return 0
     fi
-  done < <(git log --format='%ct %cs %H' -- "${target}")
+  done <<< "${history}"
   return 0
 }
 
@@ -66,8 +74,10 @@ for doc in "${ENGINE_A_DOCS[@]}"; do
     echo "- (缺失) ${doc}"
     continue
   fi
-  # 一次取全该文档新鲜度点的时间戳、短日期、完整 sha，避免对同一文档多次 git log。
-  read -r ts cs sha < <(content_freshness "${doc}") || true
+  if ! freshness="$(content_freshness "${doc}")"; then
+    exit 1
+  fi
+  read -r ts cs sha <<< "${freshness}" || true
   if [ -z "${ts}" ]; then
     echo "- (无正文改动历史) ${doc}"
     continue
