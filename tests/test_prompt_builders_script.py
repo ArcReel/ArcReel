@@ -240,6 +240,15 @@ class TestScreenplaySourceKind:
         assert "utterances" in prompt
         assert "source_text" in prompt
 
+    def test_normalize_episode_slice_marks_scope(self):
+        """source_is_episode_slice=True 时原文块标注本集范围，抑制模型扩展整篇。"""
+        prompt = self._normalize_prompt("novel", source_is_episode_slice=True)
+        assert "本集小说原文（仅第 1 集对应段落）" in prompt
+        assert "只包含本集内容" in prompt
+        assert "所有分镜内容须取自上方本集原文段" in prompt
+        # 非切片默认不渲染本集范围说明
+        assert "只包含本集内容" not in self._normalize_prompt("novel")
+
     def test_normalize_novel_releases_voiceover_by_context(self):
         # novel 源画外音克制放开——由语境判断产出，不一律禁用、不预设规则白名单、不作兜底
         prompt = self._normalize_prompt("novel")
@@ -578,6 +587,13 @@ class TestBuildNarrationSplitPrompt:
         # 档位与默认偏好进 prompt
         assert "4, 6, 8" in text
         assert "默认取 4 秒" in text
+
+    def test_narration_episode_slice_marks_scope(self):
+        text = self._prompt(source_is_episode_slice=True)
+        assert "本集小说原文（仅第 1 集对应段落）" in text
+        assert "只包含本集内容" in text
+        assert "所有片段须取自上方本集原文段" in text
+        assert "只包含本集内容" not in self._prompt()
 
     def test_mirrors_narration_pacing_rules(self):
         text = self._prompt()

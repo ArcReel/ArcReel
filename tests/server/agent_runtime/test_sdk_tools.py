@@ -3570,6 +3570,63 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolCont
 
 
 @pytest.mark.unit
+async def test_normalize_drama_script_slices_episode_source_range(fake_ctx: ToolContext, monkeypatch) -> None:
+    """默认路径按账本 source_range 切本集原文：ep2 的 prompt 只含 ep2 切片，不含 ep1 / 派生文件。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    src = project_path / "source"
+    src.mkdir(parents=True)
+    novel = "第一集独有内容甲。第二集独有内容乙。第三集独有内容丙。"
+    (src / "novel.txt").write_text(novel, encoding="utf-8")
+    (src / "episode_2.txt").write_text("派生文件不应被读入", encoding="utf-8")
+    start2 = novel.index("第二集")
+    start3 = novel.index("第三集")
+    fake_ctx.pm.project_payload["episodes"] = [  # type: ignore[attr-defined]
+        {"episode": 1, "source_range": {"source_file": "source/novel.txt", "start": 0, "end": start2}},
+        {"episode": 2, "source_range": {"source_file": "source/novel.txt", "start": start2, "end": start3}},
+    ]
+
+    async def fake_caps(_p, _episode=None):
+        return 4, [4, 6, 8]
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    tool_obj = normalize_drama_script_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 2, "dry_run": True})
+    assert out.get("is_error") is not True, out
+    prompt_text = out["content"][0]["text"]
+    assert "第二集独有内容乙" in prompt_text
+    assert "第一集独有内容甲" not in prompt_text
+    assert "派生文件不应被读入" not in prompt_text
+    assert "本集小说原文" in prompt_text
+    assert "仅第 2 集对应段落" in prompt_text
+
+
+@pytest.mark.unit
+async def test_normalize_drama_script_fallback_excludes_derived_episode_files(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """无 source_range 的旧式回退路径只拼候选源文，派生 episode_N.txt 不再与主文本一起进 prompt。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    src = project_path / "source"
+    src.mkdir(parents=True)
+    (src / "novel.txt").write_text("从前有座山，山上有个庙。", encoding="utf-8")
+    (src / "episode_1.txt").write_text("从前有座山，山上有个庙。", encoding="utf-8")
+
+    async def fake_caps(_p, _episode=None):
+        return 4, [4, 6, 8]
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    tool_obj = normalize_drama_script_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True})
+    assert out.get("is_error") is not True, out
+    prompt_text = out["content"][0]["text"]
+    assert prompt_text.count("从前有座山，山上有个庙。") == 1
+
+
+@pytest.mark.unit
 async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: ToolContext, monkeypatch) -> None:
     """工具必须把 ctx.project_name 传给 TextGenerator.create/generate，
     否则项目级文本档位覆盖被跳过，且 usage tracking 会丢 project_name。"""
@@ -4634,6 +4691,7 @@ def _rv_source(fake_ctx: ToolContext) -> None:
     _rv_project(fake_ctx)
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
+    (src / "novel.txt").write_text(_RV_NOVEL, encoding="utf-8")
     (src / "episode_1.txt").write_text(_RV_NOVEL, encoding="utf-8")
 
 
@@ -5876,13 +5934,40 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolConte
 
 
 @pytest.mark.unit
+async def test_split_narration_segments_slices_episode_source_range(fake_ctx: ToolContext, monkeypatch) -> None:
+    """narration 默认路径同样按账本 source_range 切本集原文，避免整篇重复进每集 prompt。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    src = project_path / "source"
+    src.mkdir(parents=True)
+    novel = "第一段独有内容。第二段独有内容。第三段独有内容。"
+    (src / "novel.txt").write_text(novel, encoding="utf-8")
+    start2 = novel.index("第二段")
+    start3 = novel.index("第三段")
+    fake_ctx.pm.project_payload["episodes"] = [  # type: ignore[attr-defined]
+        {"episode": 1, "source_range": {"source_file": "source/novel.txt", "start": 0, "end": start2}},
+        {"episode": 2, "source_range": {"source_file": "source/novel.txt", "start": start2, "end": start3}},
+    ]
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    tool_obj = split_narration_segments_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 2, "dry_run": True})
+    assert out.get("is_error") is not True, out
+    prompt_text = out["content"][0]["text"]
+    assert "第二段独有内容" in prompt_text
+    assert "第一段独有内容" not in prompt_text
+    assert "本集小说原文（仅第 2 集对应段落）" in prompt_text
+
+
+@pytest.mark.unit
 async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     """happy path：结构化片段 step1 落盘；模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
-    (src / "episode_1.txt").write_text("张三走向村口。他停下脚步，久久凝望。", encoding="utf-8")
+    (src / "novel.txt").write_text("张三走向村口。他停下脚步，久久凝望。", encoding="utf-8")
     captured: dict[str, Any] = {}
     segments = [
         _nr_segment("E1S01", 4, "张三走向村口。", characters_in_segment=["张三"], scenes=["村口"]),
@@ -6013,7 +6098,7 @@ async def _nr_source_and_call(fake_ctx: ToolContext, monkeypatch, source_text: s
 
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
-    (src / "episode_1.txt").write_text(source_text, encoding="utf-8")
+    (src / "novel.txt").write_text(source_text, encoding="utf-8")
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 

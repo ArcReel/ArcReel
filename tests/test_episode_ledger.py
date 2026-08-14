@@ -10,6 +10,7 @@ import pytest
 from lib.episode_ledger import (
     compute_source_fingerprints,
     discover_sources,
+    episode_source_slice,
     episodes_without_source_range,
     mismatched_source_fingerprints,
     normalize_source_text,
@@ -210,3 +211,55 @@ class TestSourceFingerprints:
         d = _project(tmp_path)
         mismatched = mismatched_source_fingerprints({"source/novel.txt": 123}, discover_sources(d))
         assert mismatched == []
+
+
+class TestEpisodeSourceSlice:
+    """按账本 source_range 切本集原文（归一化坐标系）；无位置记录返回 None，坐标/源文件异常 fail-loud。"""
+
+    @pytest.mark.unit
+    def test_slices_normalized_text_by_source_range(self, tmp_path: Path):
+        d = _project(tmp_path)
+        project = {
+            "episodes": [{"episode": 1, "source_range": {"source_file": "source/novel.txt", "start": 0, "end": CUT_1}}]
+        }
+        assert episode_source_slice(d, project, 1) == normalize_source_text(NOVEL[:CUT_1])
+
+    @pytest.mark.unit
+    def test_crlf_source_uses_normalized_coordinates(self, tmp_path: Path):
+        d = _project(tmp_path)
+        # 直接写原始字节内容，避免 Windows write_text 把 \n 翻成 \r\n 干扰坐标
+        (d / "source" / "novel.txt").write_text("ab\r\ncd\r\nef", encoding="utf-8", newline="")
+        project = {
+            "episodes": [{"episode": 1, "source_range": {"source_file": "source/novel.txt", "start": 3, "end": 7}}]
+        }
+        # 归一化后为 "ab\ncd\nef"，[3:7] = "cd\ne"
+        assert episode_source_slice(d, project, 1) == "cd\ne"
+
+    @pytest.mark.unit
+    def test_no_entry_returns_none(self, tmp_path: Path):
+        d = _project(tmp_path)
+        assert episode_source_slice(d, {"episodes": []}, 1) is None
+
+    @pytest.mark.unit
+    def test_no_source_range_returns_none(self, tmp_path: Path):
+        d = _project(tmp_path)
+        project = {"episodes": [{"episode": 1, "title": "旧式条目"}]}
+        assert episode_source_slice(d, project, 1) is None
+
+    @pytest.mark.unit
+    def test_out_of_bounds_raises(self, tmp_path: Path):
+        d = _project(tmp_path)
+        project = {
+            "episodes": [{"episode": 1, "source_range": {"source_file": "source/novel.txt", "start": 0, "end": 9999}}]
+        }
+        with pytest.raises(ValueError):
+            episode_source_slice(d, project, 1)
+
+    @pytest.mark.unit
+    def test_missing_source_file_raises(self, tmp_path: Path):
+        d = _project(tmp_path)
+        project = {
+            "episodes": [{"episode": 1, "source_range": {"source_file": "source/gone.txt", "start": 0, "end": 5}}]
+        }
+        with pytest.raises(ValueError):
+            episode_source_slice(d, project, 1)
