@@ -27,7 +27,7 @@ from typing import Protocol, Self, cast
 
 import portalocker
 
-from lib.asset_types import ASSET_TYPES, normalize_asset_name
+from lib.asset_types import ASSET_TYPES, asset_name_comparison_key
 
 _KEY_PREFIX = "artifact-key-v1:"
 MANIFEST_FILENAME = ".arcreel_artifacts.json"
@@ -1431,14 +1431,11 @@ class ArtifactKey:
         valid = False
         if self.kind is ArtifactKind.ASSET_SHEET and len(self.components) == 2:
             asset_type, asset_id = self.components
-            if (
-                isinstance(asset_type, str)
-                and asset_type in ASSET_TYPES
-                and isinstance(asset_id, str)
-                and bool(asset_id)
-            ):
-                object.__setattr__(self, "components", (asset_type, normalize_asset_name(asset_id)))
-                valid = True
+            if isinstance(asset_type, str) and asset_type in ASSET_TYPES and isinstance(asset_id, str):
+                canonical_asset_id = asset_name_comparison_key(asset_id)
+                if canonical_asset_id:
+                    object.__setattr__(self, "components", (asset_type, canonical_asset_id))
+                    valid = True
         elif self.kind in {ArtifactKind.EPISODE_STEP1, ArtifactKind.EPISODE_SCRIPT} and len(self.components) == 1:
             episode = self.components[0]
             valid = type(episode) is int and episode > 0

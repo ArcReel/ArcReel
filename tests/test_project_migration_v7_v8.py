@@ -760,6 +760,59 @@ def test_v7_schema_promotion_does_not_overwrite_a_concurrent_project_writer(
     assert promoted["title"] == "Concurrent writer"
 
 
+def test_script_save_rechecks_manifest_activation_inside_the_project_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir, _project_data, _step1, script = _project(tmp_path)
+    pm = ProjectManager(tmp_path)
+    replacement = {
+        **script,
+        "segments": [
+            {
+                **script["segments"][0],
+                "segment_id": "E1S02",
+                "generated_assets": {},
+            }
+        ],
+    }
+    commit_reached = Event()
+    release_save = Event()
+    save_errors: list[BaseException] = []
+    original_commit = pm._commit_script_unlocked
+
+    def _commit_after_activation(*args: object, **kwargs: object) -> Path:
+        commit_reached.set()
+        release_save.wait()
+        return original_commit(*args, **kwargs)  # type: ignore[arg-type]
+
+    def _save() -> None:
+        try:
+            pm.save_script("demo", replacement, "episode_1.json", validate=False)
+        except BaseException as exc:  # pragma: no cover - asserted below
+            save_errors.append(exc)
+
+    monkeypatch.setattr(pm, "_commit_script_unlocked", _commit_after_activation)
+    writer = Thread(target=_save)
+    writer.start()
+    assert commit_reached.wait(timeout=2)
+    try:
+        migrate_v7_to_v8(project_dir)
+        assert (
+            ProjectArtifactManifestAdapter(project_dir).get_entry(ArtifactKey.episode_storyboard(1, "E1S01"))
+            is not None
+        )
+    finally:
+        release_save.set()
+
+    writer.join(timeout=2)
+    assert not writer.is_alive()
+    assert save_errors == []
+    assert _read_json(project_dir / "project.json")["schema_version"] == 8
+    assert _read_json(project_dir / "scripts" / "episode_1.json")["segments"][0]["segment_id"] == "E1S02"
+    assert ProjectArtifactManifestAdapter(project_dir).get_entry(ArtifactKey.episode_storyboard(1, "E1S01")) is None
+
+
 def test_v7_activation_restores_manifest_when_a_dependency_changes_after_its_commit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

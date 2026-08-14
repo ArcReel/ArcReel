@@ -61,11 +61,20 @@ def test_asset_sheet_key_uses_the_asset_name_equality_coordinate() -> None:
     canonical = ArtifactKey.asset_sheet("character", nfc_name)
     from_nfd_factory = ArtifactKey.asset_sheet("character", nfd_name)
     from_nfd_constructor = ArtifactKey(ArtifactKind.ASSET_SHEET, ("character", nfd_name))
+    from_whitespace_factory = ArtifactKey.asset_sheet("character", f" {nfc_name} ")
+    from_whitespace_constructor = ArtifactKey(ArtifactKind.ASSET_SHEET, ("character", f" {nfd_name} "))
 
     assert nfc_name != nfd_name
     assert from_nfd_factory == canonical
     assert from_nfd_constructor == canonical
+    assert from_whitespace_factory == canonical
+    assert from_whitespace_constructor == canonical
     assert ArtifactKey.decode(canonical.encode()) == canonical
+
+
+def test_asset_sheet_key_rejects_an_identity_empty_after_normalization() -> None:
+    with pytest.raises(ValueError, match="components"):
+        ArtifactKey.asset_sheet("character", " \t ")
 
 
 def test_manifest_compares_registered_basis_without_mutating_the_artifact() -> None:

@@ -575,15 +575,16 @@ class TestProjectArchiveService:
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         project = pm.load_project("demo")
+        project["characters"][" Hero "] = project["characters"].pop("Hero")
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
         migrate_v7_to_v8(project_dir)
         key = ArtifactKey.asset_sheet("character", "Hero")
         assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) is not None
 
-        pm.delete_asset("demo", "characters", "Hero")
+        pm.delete_asset("demo", "characters", " Hero ")
 
-        assert "Hero" not in pm.load_project("demo")["characters"]
+        assert " Hero " not in pm.load_project("demo")["characters"]
         assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) is None
         archive_path, _ = ProjectArchiveService(pm).export_project("demo")
         shutil.rmtree(project_dir)

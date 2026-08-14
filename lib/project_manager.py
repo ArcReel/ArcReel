@@ -692,38 +692,38 @@ class ProjectManager:
         episode = script.get("episode")
 
         with self._script_lock(project_name, filename):
-            manifest_commit: Callable[[], None] | None = None
+            prepare_on_commit: Callable[[], Callable[[Path], None] | None] | None = None
             before_script: dict | None | _Unset = _UNSET
             if type(episode) is int and episode > 0 and self.project_exists(project_name):
-                from lib.artifact_activation import TARGET_SCHEMA_VERSION, prepare_episode_script_manifest_commit
+                from lib.artifact_activation import prepare_episode_script_manifest_commit
 
-                project = self._read_project_raw_unlocked(project_name)
-                if project.get("schema_version") == TARGET_SCHEMA_VERSION:
-                    project_path = self.get_project_path(project_name)
-                    script_path = Path(self._safe_subpath(project_path / "scripts", filename))
-                    before_script = self._load_script_or_none(script_path)
-                    items, id_field, _kind = resolve_items(script)
-                    resource_ids = tuple(
-                        resource_id
-                        for item in items
-                        if isinstance(item, Mapping)
-                        and isinstance((resource_id := item.get(id_field)), str)
-                        and resource_id
-                    )
-                    previous_resource_ids: tuple[str, ...] = ()
-                    if before_script is not None:
-                        try:
-                            previous_items, previous_id_field, _previous_kind = resolve_items(before_script)
-                        except ScriptEditError:
-                            pass
-                        else:
-                            previous_resource_ids = tuple(
-                                resource_id
-                                for item in previous_items
-                                if isinstance(item, Mapping)
-                                and isinstance((resource_id := item.get(previous_id_field)), str)
-                                and resource_id
-                            )
+                project_path = self.get_project_path(project_name)
+                script_path = Path(self._safe_subpath(project_path / "scripts", filename))
+                before_script = self._load_script_or_none(script_path)
+                items, id_field, _kind = resolve_items(script)
+                resource_ids = tuple(
+                    resource_id
+                    for item in items
+                    if isinstance(item, Mapping)
+                    and isinstance((resource_id := item.get(id_field)), str)
+                    and resource_id
+                )
+                previous_resource_ids: tuple[str, ...] = ()
+                if before_script is not None:
+                    try:
+                        previous_items, previous_id_field, _previous_kind = resolve_items(before_script)
+                    except ScriptEditError:
+                        pass
+                    else:
+                        previous_resource_ids = tuple(
+                            resource_id
+                            for item in previous_items
+                            if isinstance(item, Mapping)
+                            and isinstance((resource_id := item.get(previous_id_field)), str)
+                            and resource_id
+                        )
+
+                def _prepare_manifest_commit() -> Callable[[Path], None] | None:
                     manifest_commit = prepare_episode_script_manifest_commit(
                         project_path,
                         episode=episode,
@@ -732,10 +732,15 @@ class ProjectManager:
                         removed_resource_ids=tuple(set(previous_resource_ids) - set(resource_ids)),
                         basis=artifact_basis,
                     )
+                    if manifest_commit is None:
+                        return None
 
-            def _register_manifest(_script_path: Path) -> None:
-                if manifest_commit is not None:
-                    manifest_commit()
+                    def _register_manifest(_script_path: Path) -> None:
+                        manifest_commit()
+
+                    return _register_manifest
+
+                prepare_on_commit = _prepare_manifest_commit
 
             return self._commit_script_unlocked(
                 project_name,
@@ -743,7 +748,7 @@ class ProjectManager:
                 filename,
                 validate=validate,
                 before=before_script,
-                on_commit=_register_manifest,
+                prepare_on_commit=prepare_on_commit,
             )
 
     def _commit_script_unlocked(
@@ -755,13 +760,19 @@ class ProjectManager:
         validate: bool,
         before: dict | None | _Unset = _UNSET,
         on_commit: Callable[[Path], None] | None = None,
+        prepare_on_commit: Callable[[], Callable[[Path], None] | None] | None = None,
     ) -> Path:
         """Commit a script, its project index, and an optional sidecar hook together.
 
         The caller holds the canonical script lock.  When an episode index is
         present, this method also holds the project lock through the formal
         write and hook so rollback cannot overwrite a concurrent project edit.
+        ``prepare_on_commit`` is evaluated only after that lock is held, so a
+        schema-dependent sidecar plan cannot race with project activation.
         """
+
+        if on_commit is not None and prepare_on_commit is not None:
+            raise ValueError("on_commit and prepare_on_commit are mutually exclusive")
 
         scripts_dir = self.get_project_path(project_name) / "scripts"
         output_path = Path(self._safe_subpath(scripts_dir, filename))
@@ -770,6 +781,7 @@ class ProjectManager:
 
         if sync_project:
             with self._project_lock(project_name):
+                prepared_on_commit = prepare_on_commit() if prepare_on_commit is not None else on_commit
                 with formal_write_transaction(output_path, project_file):
                     output = self._write_script_unlocked(
                         project_name,
@@ -790,8 +802,8 @@ class ProjectManager:
                     if self._requires_unique_asset_namespace(project):
                         ensure_project_asset_namespace(project)
                     atomic_write_json(project_file, project)
-                    if on_commit is not None:
-                        on_commit(output)
+                    if prepared_on_commit is not None:
+                        prepared_on_commit(output)
             changed_paths = [f"scripts/{output_path.name}", self.PROJECT_FILE]
         else:
             with formal_write_transaction(output_path):

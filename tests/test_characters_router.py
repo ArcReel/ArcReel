@@ -93,14 +93,19 @@ class TestCharactersRouter:
         adapter = ProjectArtifactManifestAdapter(project_dir)
         assert adapter.get_entry(key) is not None
 
+        def _keep_legacy_bucket_key(project: dict) -> None:
+            project["characters"][" Alice "] = project["characters"].pop("Alice")
+
+        pm.update_project("demo", _keep_legacy_bucket_key)
+
         with _client(monkeypatch, pm) as client:
             response = client.patch(
-                "/api/v1/projects/demo/characters/Alice",
+                "/api/v1/projects/demo/characters/%20Alice%20",
                 json={"character_sheet": ""},
             )
 
         assert response.status_code == 200, response.text
-        assert pm.load_project("demo")["characters"]["Alice"]["character_sheet"] == ""
+        assert pm.load_project("demo")["characters"][" Alice "]["character_sheet"] == ""
         assert adapter.get_entry(key) is None
 
     def test_add_update_delete_character(self, monkeypatch):
