@@ -99,19 +99,19 @@ class TestEndFrameImageField:
         assert model.model_validate(payload).end_frame_image is None
 
 
-def _seed_project(tmp_path, content_mode: str) -> ProjectManager:
+def _seed_project(tmp_path, creation_type: str) -> ProjectManager:
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
-    pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
-    if content_mode == "narration":
+    pm.create_project_metadata("demo", "Demo", "Anime", creation_type)
+    if creation_type == "narration":
         script = {"segments": [_narration_segment().model_dump(mode="json")]}
-    elif content_mode == "drama":
+    elif creation_type == "drama":
         script = {"scenes": [_drama_scene().model_dump(mode="json")]}
     else:
         script = {"shots": [_ad_shot().model_dump(mode="json")]}
     pm.save_script(
         "demo",
-        {"episode": 1, "title": "E1", "content_mode": content_mode, **script},
+        {"episode": 1, "title": "E1", "creation_type": creation_type, **script},
         "episode_1.json",
         validate=False,
     )
@@ -132,7 +132,7 @@ class TestGenericPatchIgnoresEndFrame:
     """通用剧本 PATCH 白名单不含 end_frame_image：设置尾帧只能走专用端点。"""
 
     @pytest.mark.parametrize(
-        ("content_mode", "path", "items_key", "id_key", "flat_body"),
+        ("creation_type", "path", "items_key", "id_key", "flat_body"),
         [
             # narration 走显式 Pydantic 请求体（字段级白名单），drama/ad 走 updates 字典白名单
             ("narration", "segments", "segments", "segment_id", True),
@@ -141,9 +141,9 @@ class TestGenericPatchIgnoresEndFrame:
         ],
     )
     def test_patch_does_not_write_end_frame_image(
-        self, tmp_path, monkeypatch, content_mode, path, items_key, id_key, flat_body
+        self, tmp_path, monkeypatch, creation_type, path, items_key, id_key, flat_body
     ):
-        pm = _seed_project(tmp_path, content_mode)
+        pm = _seed_project(tmp_path, creation_type)
         client = _projects_client(pm, monkeypatch)
 
         # 白名单内的 note 一并提交：它生效即证明 PATCH 确实执行了，end_frame_image 是被单独忽略

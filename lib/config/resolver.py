@@ -890,7 +890,7 @@ class ConfigResolver:
               "reference_audio_per_image": bool,   # 音频是否须逐段挂在具体参考素材项上（backend 声明）
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
-              "content_mode": str | None,
+              "creation_type": str | None,
               "generation_mode": str | None,       # 项目生成路线（无项目上下文时 None）
               "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode 二维派生
             }
@@ -1448,16 +1448,16 @@ class ConfigResolver:
         )
 
         default_duration: int | None = None
-        content_mode: str | None = None
+        creation_type: str | None = None
         if project is not None:
             raw_default = project.get("default_duration")
             if isinstance(raw_default, int):
                 default_duration = raw_default
             elif isinstance(raw_default, str) and raw_default.strip().isdigit():
                 default_duration = int(raw_default.strip())
-            cm = project.get("content_mode")
+            cm = project.get("creation_type")
             if isinstance(cm, str) and cm:
-                content_mode = cm
+                creation_type = cm
         generation_mode = caps_generation_mode(project)
 
         voice_consistency = derive_voice_consistency(
@@ -1480,7 +1480,7 @@ class ConfigResolver:
             "reference_audio_per_image": reference_audio_per_image,
             "source": source,
             "default_duration": default_duration,
-            "content_mode": content_mode,
+            "creation_type": creation_type,
             "generation_mode": generation_mode,
             "voice_consistency": voice_consistency,
         }

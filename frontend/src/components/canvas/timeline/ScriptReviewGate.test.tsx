@@ -8,7 +8,7 @@ import type { ScriptReviewState } from "@/types";
 function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
   return {
     episode: 1,
-    content_mode: "drama",
+    creation_type: "drama",
     status: "pending_review",
     fingerprint: "fp1",
     confirmed_at: null,
@@ -41,7 +41,7 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
 function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
   return {
     episode: 1,
-    content_mode: "narration",
+    creation_type: "narration",
     status: "pending_review",
     fingerprint: "fp1",
     confirmed_at: null,

@@ -51,7 +51,7 @@ export function OverviewCanvas({
   const tRef = useRef(t);
   tRef.current = t;
   // 广告/短片项目恒单集：界面隐藏「集」语义，区块按单视频呈现
-  const isAd = projectData?.content_mode === "ad";
+  const isAd = projectData?.creation_type === "ad";
   const projectTotals = useCostStore((s) => s.costData?.project_totals);
   const getEpisodeCost = useCostStore((s) => s.getEpisodeCost);
   const costLoading = useCostStore((s) => s.loading);
@@ -313,9 +313,9 @@ export function OverviewCanvas({
                 letterSpacing: "1.4px",
               }}
             >
-              {projectData.content_mode === "narration"
+              {projectData.creation_type === "narration"
                 ? t("narration_visuals_mode")
-                : projectData.content_mode === "ad"
+                : projectData.creation_type === "ad"
                   ? t("ad_short_video_mode")
                   : t("drama_animation_mode")}
             </p>
@@ -786,7 +786,7 @@ export function OverviewCanvas({
                         </span>
                         <span style={{ color: "var(--color-text-4)" }}>
                           {t(isAd ? "shots_and_status" : "segments_and_status", {
-                            count: ep.scenes_count ?? "?",
+                            count: ep.storyboard_count ?? ep.video_unit_count ?? "?",
                             status: t(`episode_status_label_${ep.status ?? "draft"}`),
                           })}
                         </span>

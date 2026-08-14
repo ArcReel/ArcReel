@@ -36,7 +36,7 @@ def _build_episode_payload(*, video_uri: str | None = None) -> dict:
     return {
         "episode": 1,
         "title": "第一集",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "duration_seconds": 4,
         "summary": "",
         "novel": {
@@ -204,7 +204,7 @@ def _stage_legacy_narration_archive(pm: ProjectManager, project_dir: Path, archi
         {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "novel": {
                 "title": "Demo",
                 "chapter": "第一章",
@@ -381,7 +381,7 @@ class TestProjectArchiveService:
         service = ProjectArchiveService(pm)
 
         project = pm.load_project("demo")
-        project["content_mode"] = "ad"
+        project["creation_type"] = "ad"
         project["generation_mode"] = "reference_video"
         pm.save_project("demo", project)
         _write_json(
@@ -389,7 +389,7 @@ class TestProjectArchiveService:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "ad",
+                "creation_type": "ad",
                 "video_units": [
                     {
                         "unit_id": "E1U1",
@@ -468,7 +468,7 @@ class TestProjectArchiveService:
         installed_dir = pm.get_project_path(result.project_name)
         installed = json.loads((installed_dir / "project.json").read_text(encoding="utf-8"))
         migrated_script = json.loads((installed_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
-        assert installed["schema_version"] == 7
+        assert installed["schema_version"] == 8
         assert list(installed["characters"]) == ["Hero"]
         assert list(installed["scenes"]) == ["Hero_scene"]
         assert migrated_script["segments"][0]["scenes"] == ["Hero_scene"]
@@ -930,7 +930,7 @@ class TestProjectArchiveService:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "novel": {"title": "Demo", "chapter": "第一章"},
                 "segments": [
                     {
@@ -971,7 +971,7 @@ class TestProjectArchiveService:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "novel": {
                     "title": "Demo",
                     "chapter": "第一章",
@@ -1029,7 +1029,7 @@ class TestProjectArchiveService:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "novel": {"title": "Demo", "chapter": "第一章"},
                 "segments": [
                     {
@@ -1071,7 +1071,7 @@ class TestProjectArchiveService:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "novel": {
                     "title": "Demo",
                     "chapter": "第一章",
@@ -1131,7 +1131,7 @@ class TestProjectArchiveService:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "novel": {
                     "title": "Demo",
                     "chapter": "第一章",

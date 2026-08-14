@@ -28,14 +28,14 @@ class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
         self.project = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "characters": {"Alice": {"character_sheet": "characters/Alice.png"}},
             "scenes": {"祠堂": {"scene_sheet": "scenes/祠堂.png"}},
             "props": {"玉佩": {"prop_sheet": "props/玉佩.png"}},
             "products": {"保温杯": {"product_sheet": "products/保温杯.png"}},
         }
         self.script = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {"segment_id": "E1S01", "generated_assets": {}},
                 {"segment_id": "E1S02", "generated_assets": {"storyboard_image": "storyboards/scene_E1S02_first.png"}},

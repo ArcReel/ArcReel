@@ -14,7 +14,7 @@ from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager, grid_storyboard_enabled
-from lib.script_models import resolve_content_mode
+from lib.script_models import resolve_creation_type
 from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
@@ -98,7 +98,7 @@ def generate_grid_tool(ctx: ToolContext):
             script = ctx.pm.load_script(ctx.project_name, script_filename)
             # 失配剧本在此被拒：按分镜路线该读的数组不在剧本里，继续走下去只会
             # 报"没有匹配的场景组"，把成因埋掉。
-            ensure_route_skeleton(script, resolve_content_mode(script, project), project.get("generation_mode"))
+            ensure_route_skeleton(script, resolve_creation_type(script, project), project.get("generation_mode"))
 
             # ``list_only`` 是 ``generate_grid`` 工具的预览模式，与生成分支一样
             # 必须先过宫格开关校验——否则未开宫格的项目靠 ``list_only=true``

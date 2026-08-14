@@ -38,7 +38,7 @@ def _seed_shot_project(tmp_path) -> ProjectManager:
         {
             "episode": 1,
             "title": "E1",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -183,7 +183,7 @@ class TestShotStoryboardUpload:
             {
                 "episode": 2,
                 "title": "E2",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
                 "video_units": [{"unit_id": "E2U1", "generated_assets": {"status": "pending"}}],
             },
@@ -338,7 +338,7 @@ def _seed_reference_project(tmp_path) -> ProjectManager:
         {
             "episode": 1,
             "title": "E1",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "video_units": [
                 {

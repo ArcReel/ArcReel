@@ -82,7 +82,7 @@ describe("AppRoutes", () => {
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {
         title: "Demo Project",
-        content_mode: "narration",
+        creation_type: "narration",
         style: "Anime",
         episodes: [],
         characters: {},
@@ -144,7 +144,7 @@ describe("AppRoutes", () => {
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {
         title: "Demo Project",
-        content_mode: "narration",
+        creation_type: "narration",
       } as never,
       scripts: {},
     });

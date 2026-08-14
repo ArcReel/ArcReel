@@ -109,7 +109,7 @@ def test_narration_empty_inventory_completes_and_advances_to_episode_plan(tmp_pa
     status = WorkflowStateService(pm).get_status("demo")
 
     assert status.schema_version == 1
-    assert status.project.content_mode == "narration"
+    assert status.project.creation_type == "narration"
     assert status.source_revision == revision
     assert status.state == "EPISODE_PLAN"
     assert status.artifacts["asset_inventory"]["state"] == "current"
@@ -175,7 +175,7 @@ def test_media_paths_must_resolve_to_project_files_before_becoming_current(tmp_p
         {
             "episode": 1,
             "title": "广告",
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [
                 _valid_ad_shot(
                     generated_assets={
@@ -290,7 +290,7 @@ def test_narration_progresses_through_storyboard_video_audio_to_export(tmp_path:
     script = {
         "episode": 1,
         "title": "第一集",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "segments": [_valid_narration_segment()],
     }
     atomic_write_json(script_path, script)
@@ -366,7 +366,7 @@ def test_unplanned_source_with_legacy_episode_without_source_range_requires_full
         {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [_valid_narration_segment(generated_assets=generated_assets)],
         },
     )
@@ -413,7 +413,7 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
         {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [_valid_narration_segment(generated_assets=generated_assets)],
         },
     )
@@ -501,7 +501,7 @@ def test_completed_first_episode_does_not_hide_later_planning_reset(tmp_path: Pa
         {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [_valid_narration_segment(generated_assets=generated_assets)],
         },
     )
@@ -678,7 +678,7 @@ def test_non_boolean_grid_storyboard_blocks_route_dispatch(tmp_path: Path) -> No
 @pytest.mark.parametrize(
     ("field", "value", "blocker_code"),
     [
-        ("content_mode", [], "invalid_content_mode"),
+        ("creation_type", [], "invalid_content_mode"),
         ("generation_mode", {}, "invalid_generation_mode"),
     ],
 )
@@ -798,7 +798,7 @@ def test_script_episode_must_match_ledger_target(tmp_path: Path) -> None:
         {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [_valid_narration_segment(segment_id="E2S01")],
         },
     )
@@ -815,7 +815,7 @@ def test_malformed_script_collection_is_a_blocker_not_an_exception(tmp_path: Pat
     pm, project_path = _make_project(tmp_path, "ad")
     atomic_write_json(
         project_path / "scripts" / "episode_1.json",
-        {"episode": 1, "content_mode": "ad", "shots": {"not": "a list"}},
+        {"episode": 1, "creation_type": "ad", "shots": {"not": "a list"}},
     )
 
     status = WorkflowStateService(pm).get_status("demo")
@@ -881,7 +881,7 @@ def test_legacy_storyboard_script_without_duration_remains_resumable(
         {
             "episode": 1,
             "title": "第一集",
-            "content_mode": mode,
+            "creation_type": mode,
             items_key: [item],
             "metadata": {script_review.SCRIPT_STEP1_REVISION_FIELD: revision},
         },
@@ -918,7 +918,7 @@ def test_legacy_narration_scenes_skeleton_remains_resumable(tmp_path: Path) -> N
         {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "scenes": [_valid_drama_scene()],
         },
     )
@@ -935,7 +935,7 @@ def test_empty_script_collection_is_a_blocker_not_completed_work(tmp_path: Path)
     pm, project_path = _make_project(tmp_path, "ad")
     atomic_write_json(
         project_path / "scripts" / "episode_1.json",
-        {"episode": 1, "content_mode": "ad", "shots": []},
+        {"episode": 1, "creation_type": "ad", "shots": []},
     )
 
     status = WorkflowStateService(pm).get_status("demo")
@@ -950,7 +950,7 @@ def test_script_entry_without_required_id_is_a_blocker(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad")
     atomic_write_json(
         project_path / "scripts" / "episode_1.json",
-        {"episode": 1, "content_mode": "ad", "shots": [{"duration_seconds": 4}]},
+        {"episode": 1, "creation_type": "ad", "shots": [{"duration_seconds": 4}]},
     )
 
     status = WorkflowStateService(pm).get_status("demo")
@@ -981,7 +981,7 @@ def test_optional_product_sheet_does_not_block_ad_media(tmp_path: Path) -> None:
         {
             "episode": 1,
             "title": "广告",
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [_valid_ad_shot()],
         },
     )
@@ -1003,7 +1003,7 @@ def test_ad_reference_video_reads_completion_from_video_units(tmp_path: Path) ->
         {
             "episode": 1,
             "title": "广告",
-            "content_mode": "ad",
+            "creation_type": "ad",
             "video_units": [_valid_video_unit(unit_id="E1U1", generated_assets={"video_clip": video_path})],
         },
     )
@@ -1026,7 +1026,7 @@ def test_ad_reference_video_does_not_hydrate_legacy_shots(tmp_path: Path) -> Non
         {
             "episode": 1,
             "title": "广告",
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [_valid_ad_shot()],
         },
     )
@@ -1059,7 +1059,7 @@ def test_stale_episode_requires_step1_even_when_old_artifacts_exist(tmp_path: Pa
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [{"segment_id": "E1S01", "generated_assets": {}}],
         },
     )
@@ -1171,7 +1171,7 @@ def test_null_baseline_stale_rebuild_invalidates_grandfathered_script(tmp_path: 
         {
             "episode": 1,
             "title": "旧剧本",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [_valid_narration_segment()],
         },
     )
@@ -1246,7 +1246,7 @@ def test_confirmed_step1_change_marks_old_final_script_stale(tmp_path: Path) -> 
         {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [_valid_narration_segment()],
             "metadata": {script_review.SCRIPT_STEP1_REVISION_FIELD: old_revision},
         },
@@ -1302,7 +1302,7 @@ def test_script_id_must_match_the_shared_storyboard_pattern(tmp_path: Path) -> N
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [{"shot_id": "bad id", "duration_seconds": 4, "generated_assets": {}}],
         },
     )
@@ -1323,7 +1323,7 @@ def test_ad_reference_replan_shell_requests_repair_before_generation(tmp_path: P
         {
             "episode": 1,
             "title": "广告",
-            "content_mode": "ad",
+            "creation_type": "ad",
             "video_units": [
                 {
                     "unit_id": "E1U1",
@@ -1357,7 +1357,7 @@ def test_structurally_incomplete_ad_script_blocks_media_progress(tmp_path: Path,
         {
             "episode": 1,
             "title": "广告",
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [shot],
         },
     )
@@ -1393,7 +1393,7 @@ def test_narration_script_without_source_text_blocks_media_progress(tmp_path: Pa
         {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [segment],
         },
     )
@@ -1412,7 +1412,7 @@ def test_invalid_required_script_field_blocks_export(tmp_path: Path) -> None:
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [{"shot_id": "E1S01", "duration_seconds": -7, "generated_assets": {}}],
         },
     )
@@ -1516,7 +1516,7 @@ def test_duplicate_reference_video_unit_ids_block_completion(tmp_path: Path) -> 
         project_path / "scripts" / "episode_1.json",
         {
             "episode": 1,
-            "content_mode": "drama",
+            "creation_type": "drama",
             "video_units": [
                 {"unit_id": "E1U01", "duration_seconds": 4, "generated_assets": {}},
                 {"unit_id": "E1U01", "duration_seconds": 4, "generated_assets": {}},
@@ -1555,7 +1555,7 @@ def test_reference_video_route_skips_storyboards_and_audio(tmp_path: Path) -> No
         {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "drama",
+            "creation_type": "drama",
             "video_units": [_valid_video_unit()],
         },
     )
@@ -1589,7 +1589,7 @@ def test_workflow_status_does_not_persist_read_time_script_migrations(tmp_path: 
         {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "drama",
+            "creation_type": "drama",
             "video_units": [
                 {
                     "unit_id": "E1U01",
@@ -1621,7 +1621,7 @@ def test_workflow_status_does_not_persist_read_time_project_migrations(tmp_path:
 
     status = WorkflowStateService(pm).get_status("demo")
 
-    assert status.project.content_mode == "ad"
+    assert status.project.creation_type == "ad"
     assert project_path_json.read_bytes() == before
 
 
@@ -1648,7 +1648,7 @@ def test_nested_ledger_script_path_is_blocked_before_dispatch(tmp_path: Path) ->
         {
             "episode": 1,
             "title": "广告",
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [_valid_ad_shot()],
         },
     )

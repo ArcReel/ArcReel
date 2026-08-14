@@ -40,7 +40,7 @@ def _load_project_and_unit(proj_dir: Path, unit_id: str) -> tuple[dict, dict]:
 def _write_project(tmp_path: Path) -> Path:
     project = {
         "title": "T",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "style": "s",
         "characters": {"张三": {"description": "x", "character_sheet": "characters/张三.png"}},
@@ -51,7 +51,7 @@ def _write_project(tmp_path: Path) -> Path:
     script = {
         "episode": 1,
         "title": "E1",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "summary": "x",
         "novel": {"title": "t", "chapter": "c"},

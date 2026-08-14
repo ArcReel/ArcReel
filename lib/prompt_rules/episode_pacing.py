@@ -27,12 +27,12 @@ NARRATION_PACING_RULES = """说书节奏建议：
   shot_type 倾向 Close-up / Extreme Close-up。""".strip()
 
 
-def render_pacing_section(content_mode: str) -> str:
-    if content_mode == "drama":
+def render_pacing_section(creation_type: str) -> str:
+    if creation_type == "drama":
         return DRAMA_PACING_RULES
-    if content_mode == "narration":
+    if creation_type == "narration":
         return NARRATION_PACING_RULES
-    raise ValueError(f"unknown content_mode: {content_mode!r}")
+    raise ValueError(f"unknown creation_type: {creation_type!r}")
 
 
 __all__ = [

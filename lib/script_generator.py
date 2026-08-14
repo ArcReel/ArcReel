@@ -173,7 +173,7 @@ class ScriptGenerator:
 
         # 加载 project.json
         self.project_json = self._load_project_json()
-        self.content_mode = self.project_json.get("content_mode", "narration")
+        self.creation_type = self.project_json.get("creation_type", "narration")
 
     @property
     def generation_mode(self) -> str | None:
@@ -219,7 +219,7 @@ class ScriptGenerator:
             output_filename: 输出文件名，默认 episode_{episode}.json。剧本一律经写盘统一入口写入
                 项目 scripts/ 目录，故此参数只决定文件名、不接受目录。
             instructions: 用户输入的生成意见原文；非空时以中性「用户意见」分节追加到
-                prompt 末尾（遵循强度由正文表达），所有 content_mode / 生成路线同口径。
+                prompt 末尾（遵循强度由正文表达），所有 creation_type / 生成路线同口径。
 
         Returns:
             生成的 JSON 文件路径
@@ -243,7 +243,7 @@ class ScriptGenerator:
         gen_mode = self.generation_mode
 
         # ad 两条路线都一键生成、不走 step1；参考路线直接产出自包含 video_units。
-        if self.content_mode == "ad":
+        if self.creation_type == "ad":
             prompt, schema = await self._compose_ad(episode, gen_mode)
             prompt = append_user_instructions(prompt, instructions)
             return await self._generate_and_save(prompt, schema, episode, output_filename)
@@ -251,8 +251,8 @@ class ScriptGenerator:
         # drama（storyboard / grid）走两段式（见 ADR 0041）：step1 内容已是结构化 JSON，
         # step2 仅出视觉层（image_prompt / video_prompt），后端按 scene_id 合并回 step1 内容、
         # 透传 utterances / source_text 等非视觉字段。reference_video 路径不入此分支（用 video_units）；
-        # content_mode 非 narration（drama 或脏值）走 step2 drama 形状。
-        if gen_mode != "reference_video" and self.content_mode != "narration":
+        # creation_type 非 narration（drama 或脏值）走 step2 drama 形状。
+        if gen_mode != "reference_video" and self.creation_type != "narration":
             return await self._generate_drama_step2(
                 episode, output_filename, gen_mode=gen_mode, instructions=instructions
             )
@@ -522,7 +522,7 @@ class ScriptGenerator:
         else:
             script_data = (
                 self._parse_ad_reference_response(response_text, episode)
-                if self.content_mode == "ad" and self.generation_mode == "reference_video"
+                if self.creation_type == "ad" and self.generation_mode == "reference_video"
                 else self._parse_response(response_text, episode)
             )
 
@@ -624,13 +624,13 @@ class ScriptGenerator:
         gen_mode = self.generation_mode
 
         # 见 generate() 同位置说明：ad 先于 generation_mode 分派，且不读 step1。
-        if self.content_mode == "ad":
+        if self.creation_type == "ad":
             prompt, _schema = await self._compose_ad(episode, gen_mode)
             return append_user_instructions(prompt, instructions)
 
         # drama（storyboard / grid）dry-run 走 step2 视觉层 prompt：读 step1 结构化内容并渲染
         # （见 generate() 的两段式说明）。reference_video / narration 不入此分支。
-        if gen_mode != "reference_video" and self.content_mode != "narration":
+        if gen_mode != "reference_video" and self.creation_type != "narration":
             content = self._load_drama_step1_content(episode)
             raw_scenes = content.get("scenes")
             content_scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
@@ -803,7 +803,7 @@ class ScriptGenerator:
         """解析项目的 aspect_ratio，向后兼容。narration / ad 默认竖屏（ad 与创建向导默认一致）。"""
         if "aspect_ratio" in self.project_json and isinstance(self.project_json["aspect_ratio"], str):
             return self.project_json["aspect_ratio"]
-        return "9:16" if self.content_mode in ("narration", "ad") else "16:9"
+        return "9:16" if self.creation_type in ("narration", "ad") else "16:9"
 
     def _resolve_max_refs(self, caps: dict | None = None) -> int | None:
         """解析当前视频模型的最大参考图数；caps → project.json 自报身份 → registry 两级回退。
@@ -855,12 +855,12 @@ class ScriptGenerator:
         ``_load_narration_step1``、reference_video 另经 ``_load_reference_step1``。
         """
         drafts_path = episode_drafts_dir(self.project_path, episode)
-        # 按 content_mode 取登记的结构化文件名，脏值兜底 drama。
-        step1_path = drafts_path / STEP1_FILENAMES.get(self.content_mode, STEP1_FILENAMES["drama"])
+        # 按 creation_type 取登记的结构化文件名，脏值兜底 drama。
+        step1_path = drafts_path / STEP1_FILENAMES.get(self.creation_type, STEP1_FILENAMES["drama"])
 
         if not step1_path.exists():
             raise FileNotFoundError(
-                f"未找到 Step 1 中间文件: {step1_path}；content_mode={self.content_mode} 期望该文件，请先完成本集预处理"
+                f"未找到 Step 1 中间文件: {step1_path}；creation_type={self.creation_type} 期望该文件，请先完成本集预处理"
             )
 
         return step1_path.read_text(encoding="utf-8")
@@ -988,7 +988,7 @@ class ScriptGenerator:
                     f"请重跑 split-narration-segments 产出结构化 {narration_json}"
                 )
             raise FileNotFoundError(
-                f"未找到 Step 1 中间文件: {step1_json}；content_mode=narration 期望该文件，请先完成片段拆分"
+                f"未找到 Step 1 中间文件: {step1_json}；creation_type=narration 期望该文件，请先完成片段拆分"
             )
 
         try:
@@ -1360,7 +1360,7 @@ class ScriptGenerator:
 
         # 校验模型经规范解析定骨架种类（分镜路线按内容模式，参考路线统一 video_units），
         # kind→模型映射留本地（模型属上层依赖，不进 SKELETONS 窄表）。
-        kind = resolve_declared_kind(self.content_mode, self.generation_mode)
+        kind = resolve_declared_kind(self.creation_type, self.generation_mode)
         schema = _KIND_PARSE_SCHEMA[kind]
         try:
             return schema.model_validate(data).model_dump()
@@ -1412,7 +1412,7 @@ class ScriptGenerator:
             units.append(unit)
 
         return ReferenceVideoScript.model_validate(
-            {"title": flat.title or f"第{episode}集", "content_mode": "ad", "video_units": units}
+            {"title": flat.title or f"第{episode}集", "creation_type": "ad", "video_units": units}
         ).model_dump()
 
     def _parse_narration_visual(self, response_text: str, episode: int) -> dict:
@@ -1502,9 +1502,9 @@ class ScriptGenerator:
         # 名跨集冲突（如 storyboards/scene_E1S01.png 被 E2 重新覆盖）。
         ep = int(episode)
         # segment/scene/shot/unit ID 前缀统一经规范解析定骨架 + SKELETONS 查 id 字段改写
-        # （参考路线三种 content_mode 均映射到 video_units；不再手写 reference 分支）。self.content_mode
+        # （参考路线三种 creation_type 均映射到 video_units；不再手写 reference 分支）。self.creation_type
         # 为项目级校验值，解析不会 fail-loud。kind 复用到下方 metadata 统计。
-        kind = resolve_declared_kind(self.content_mode, gen_mode)
+        kind = resolve_declared_kind(self.creation_type, gen_mode)
         id_field = SKELETONS[kind].id_field
         # 校验失败降级保存的原始 dict 里该数组可能为非列表脏值（LLM 误写标量），
         # `... or []` 只挡 falsy、挡不住真值标量，isinstance 守卫避免 `for` 迭代崩溃。
@@ -1571,20 +1571,20 @@ class ScriptGenerator:
                         target_duration,
                     )
                 s["duration_seconds"] = target_duration
-        # content_mode 严格只是"内容类型"（narration/drama/ad）；"视频来源"维度是项目级事实，
+        # creation_type 严格只是"内容类型"（narration/drama/ad）；"视频来源"维度是项目级事实，
         # 剧本不落盘任何路线戳——生成分派一律读项目路线。
-        # 参考视频集必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
+        # 参考视频集必须强制覆盖：ReferenceVideoScript.creation_type 有 Pydantic 默认值
         # "narration"，setdefault 拿不到项目级真值；非参考集 LLM 已在 schema 中产出
         # narration/drama，setdefault 仅作 fallback。
-        if self.content_mode != "ad" and gen_mode == "reference_video":
-            script_data["content_mode"] = self.content_mode
+        if self.creation_type != "ad" and gen_mode == "reference_video":
+            script_data["creation_type"] = self.creation_type
         else:
-            script_data.setdefault("content_mode", self.content_mode)
+            script_data.setdefault("creation_type", self.creation_type)
 
         # 集级钩子/下集预告：分集账本是钩子设计的单一真相源，强制以账本值覆盖
         # （LLM 不参与填写，model_dump 只会留下 None 默认值）。账本无规划数据时为 None。
         # ad 恒单集、无分集账本概念，剧本模型也不持有这两个字段，跳过注入。
-        if self.content_mode != "ad":
+        if self.creation_type != "ad":
             entry = self._episode_entry(ep)
             script_data["hook"] = entry.get("hook")
             script_data["next_episode_teaser"] = self._entry_outline(entry).get("next_episode_teaser")
@@ -1649,7 +1649,7 @@ class ScriptGenerator:
             # 骨架经规范解析统一判别、id 字段查 SKELETONS（同 _add_metadata id 改写处置）。
             # video_units 的过短样本落在 unit 内嵌 shots.text，与 narration/drama/ad 平铺条目的
             # image_prompt/video_prompt 探针数据形状不同——结构分支按 kind 显式区分、非骨架分派。
-            kind = resolve_declared_kind(self.content_mode, self.generation_mode)
+            kind = resolve_declared_kind(self.creation_type, self.generation_mode)
             id_key = SKELETONS[kind].id_field
             # 降级保存的原始 dict 里数组可能为非列表脏值；`... or []` 挡不住真值标量，
             # isinstance 守卫避免 `for` 迭代崩溃（外层 try/except 会吞异常但会误跳过整段探针）。
@@ -1693,7 +1693,7 @@ class ScriptGenerator:
 
             # ad 总时长偏差观察：剧本总时长应贴近 target_duration，但供应商时长枚举的
             # 量化误差让精确命中不现实。仅 WARN，不阻断/不重试/不推前端。
-            if self.content_mode == "ad":
+            if self.creation_type == "ad":
                 target = self.project_json.get("target_duration")
                 if isinstance(target, int) and not isinstance(target, bool) and target > 0:
                     total = script_duration_total(kind, items)

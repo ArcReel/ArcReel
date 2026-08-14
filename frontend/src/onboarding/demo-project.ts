@@ -206,7 +206,7 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
       status,
       ...(isScripted
         ? {
-            scenes_count: segmentCount,
+            storyboard_count: segmentCount,
             duration_seconds: SEGMENT_SKELETONS.reduce((sum, s) => sum + s.duration, 0),
             storyboards: {
               total: segmentCount,
@@ -221,8 +221,8 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
 
   return {
     title: t("demo_project_title"),
-    content_mode: "narration",
-    source_kind: "novel",
+    creation_type: "narration",
+    source_file_type: "novel",
     style: t("demo_project_style"),
     aspect_ratio: "9:16",
     default_duration: 5,
@@ -295,7 +295,7 @@ export function buildDemoScripts(t: DemoT): Record<string, NarrationEpisodeScrip
     [DEMO_SCRIPT_FILE]: {
       episode: DEMO_SCRIPTED_EPISODE,
       title: t(`demo_episode_${DEMO_SCRIPTED_EPISODE}_title`),
-      content_mode: "narration",
+      creation_type: "narration",
       duration_seconds: segments.reduce((sum, s) => sum + s.duration_seconds, 0),
       novel: {
         title: t("demo_project_title"),

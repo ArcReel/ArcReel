@@ -45,7 +45,7 @@ vi.mock("../timeline/ShotSplitView", () => ({
 function makeProjectData(): ProjectData {
   return {
     title: "Demo",
-    content_mode: "narration",
+    creation_type: "narration",
     style: "Anime",
     episodes: [{ episode: 1, title: "EP1", script_file: "scripts/episode_1.json" }],
     characters: {},
@@ -56,7 +56,7 @@ function makeScript(): NarrationEpisodeScript {
   return {
     episode: 1,
     title: "EP1",
-    content_mode: "narration",
+    creation_type: "narration",
     duration_seconds: 4,
     novel: { title: "n", chapter: "1" },
     segments: [

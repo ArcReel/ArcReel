@@ -46,13 +46,13 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
     }
     script: dict[str, Any] = {
         "episode": 1,
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "video_units": [unit],
     }
     project: dict[str, Any] = {
         "title": "Narration",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "characters": {
             "甲": {"character_sheet": "characters/a.png"},
@@ -244,7 +244,7 @@ async def test_malformed_references_block_all_public_consumers_without_queue_or_
     }
     script: dict[str, Any] = {
         "episode": 1,
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "video_units": [unit],
     }

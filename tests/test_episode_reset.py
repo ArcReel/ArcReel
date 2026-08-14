@@ -47,7 +47,7 @@ def _write_project(
     project = {
         "schema_version": 3,
         "title": "测试项目",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "storyboard",
         "style": "国漫",
         "characters": {},

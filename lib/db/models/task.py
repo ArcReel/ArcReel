@@ -21,6 +21,8 @@ class Task(UserOwnedMixin, Base):
     # 仅 image_edit 任务写入（其余任务类型 task_type 本身已按资源种类区分，无需此列）：
     # 纳入去重键，避免不同资产类型同名（如角色和道具都叫「玉佩」）时活动任务互相误判去重。
     resource_type: Mapped[str | None] = mapped_column(String)
+    # 产物集合（storyboards / videos / characters …），与任务目标类型 resource_type 拆开。
+    artifact_collection: Mapped[str | None] = mapped_column(String)
     script_file: Mapped[str | None] = mapped_column(String)
     payload_json: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String, nullable=False)

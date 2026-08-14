@@ -57,8 +57,8 @@ class ProfileMisconfiguredError(RuntimeError):
     """profile 端变体文件不合法（成对缺失或与通用文件并存）→ 部署错误。sync 拒绝运行。"""
 
 
-ContentMode = Literal["narration", "drama", "ad"]
-VALID_CONTENT_MODES: frozenset[str] = frozenset({"narration", "drama", "ad"})
+CreationType = Literal["narration", "drama", "ad"]
+VALID_CREATION_TYPES: frozenset[str] = frozenset({"narration", "drama", "ad"})
 
 
 # ---------- 基础工具 ----------
@@ -94,7 +94,7 @@ def _parse_variant_suffix(rel: str) -> tuple[str, str | None]:
     path = PurePosixPath(rel)
     # path.stem 是去掉最后一个扩展名的部分；再 split 一次拿"次外层后缀"
     stem_parts = path.stem.rsplit(".", 1)
-    if len(stem_parts) == 2 and stem_parts[1] in VALID_CONTENT_MODES:
+    if len(stem_parts) == 2 and stem_parts[1] in VALID_CREATION_TYPES:
         # 重组为 logical_parent/<logical_stem><ext>；顶层文件时 parent == PurePosixPath('.')，
         # ``PurePosixPath('.') / 'foo.md'`` 仍然产生 ``PurePosixPath('foo.md')``，无需单独分支
         logical_name = stem_parts[0] + path.suffix
@@ -124,19 +124,19 @@ def enumerate_profile_files(profile_dir: Path) -> set[str]:
 
 def resolve_profile_files_for_mode(
     profile_dir: Path,
-    content_mode: ContentMode,
+    creation_type: CreationType,
 ) -> dict[str, str]:
     """把 profile 端文件树投影成 ``{logical_rel: source_rel}`` 映射。
 
     通用文件：logical_rel == source_rel。
-    变体文件：仅保留匹配 ``content_mode`` 的一份，logical_rel 去掉 ``.<mode>`` 后缀。
+    变体文件：仅保留匹配 ``creation_type`` 的一份，logical_rel 去掉 ``.<mode>`` 后缀。
 
     Raises:
-        ValueError: content_mode 不在 ``VALID_CONTENT_MODES``
+        ValueError: creation_type 不在 ``VALID_CREATION_TYPES``
         ProfileMisconfiguredError: 任一变体配对缺失 / 通用+变体并存
     """
-    if content_mode not in VALID_CONTENT_MODES:
-        raise ValueError(f"content_mode must be one of {VALID_CONTENT_MODES}, got {content_mode!r}")
+    if creation_type not in VALID_CREATION_TYPES:
+        raise ValueError(f"creation_type must be one of {VALID_CREATION_TYPES}, got {creation_type!r}")
 
     profile_files = enumerate_profile_files(profile_dir)
 
@@ -160,7 +160,7 @@ def resolve_profile_files_for_mode(
 
     # 校验 2：变体配对完整
     for logical, by_mode in variants.items():
-        missing = VALID_CONTENT_MODES - set(by_mode)
+        missing = VALID_CREATION_TYPES - set(by_mode)
         if missing:
             raise ProfileMisconfiguredError(
                 f"profile variant {logical!r} missing variant for mode(s): {sorted(missing)}; "
@@ -169,7 +169,7 @@ def resolve_profile_files_for_mode(
 
     mapping: dict[str, str] = dict(commons)
     for logical, by_mode in variants.items():
-        mapping[logical] = by_mode[content_mode]
+        mapping[logical] = by_mode[creation_type]
     return mapping
 
 
@@ -291,10 +291,10 @@ class Manifest:
     schema_version: int
     profile_id: str
     entries: dict[str, dict]
-    # None ≡ "未迁移": 来自 content_mode 字段引入前写的老 manifest；首次新 sync
+    # None ≡ "未迁移": 来自 creation_type 字段引入前写的老 manifest；首次新 sync
     # 会通过 needs_migration 路径回填实际 mode，不触发破坏性 reset。
-    # 非空 ≡ 上次 sync 时使用的 content_mode；与本次请求不一致会触发 reset。
-    content_mode: ContentMode | None = None
+    # 非空 ≡ 上次 sync 时使用的 creation_type；与本次请求不一致会触发 reset。
+    creation_type: CreationType | None = None
 
     @classmethod
     def empty(cls) -> Manifest:
@@ -302,7 +302,7 @@ class Manifest:
             schema_version=MANIFEST_SCHEMA_VERSION,
             profile_id=EXPECTED_PROFILE_ID,
             entries={},
-            content_mode=None,
+            creation_type=None,
         )
 
     def to_jsonable(self) -> dict:
@@ -312,8 +312,8 @@ class Manifest:
             "entries": dict(sorted(self.entries.items())),
         }
         # None 时省略字段：兼容老 manifest 紧凑形态 + 减少 diff 噪音
-        if self.content_mode is not None:
-            data["content_mode"] = self.content_mode
+        if self.creation_type is not None:
+            data["creation_type"] = self.creation_type
         return data
 
     def normalized_bytes(self) -> bytes:
@@ -380,21 +380,21 @@ def load_manifest(project_dir: Path) -> tuple[Manifest, bytes] | None:
         else:
             logger.warning("manifest %s entry %s unknown source=%r, will reset", path, key, source)
             return None
-    raw_mode = data.get("content_mode")
-    content_mode: ContentMode | None
+    raw_mode = data.get("creation_type")
+    creation_type: CreationType | None
     if raw_mode is None:
-        content_mode = None
-    elif isinstance(raw_mode, str) and raw_mode in VALID_CONTENT_MODES:
-        content_mode = cast(ContentMode, raw_mode)
+        creation_type = None
+    elif isinstance(raw_mode, str) and raw_mode in VALID_CREATION_TYPES:
+        creation_type = cast(CreationType, raw_mode)
     else:
-        logger.warning("manifest %s invalid content_mode=%r, will reset", path, raw_mode)
+        logger.warning("manifest %s invalid creation_type=%r, will reset", path, raw_mode)
         return None
     return (
         Manifest(
             schema_version=data["schema_version"],
             profile_id=data["profile_id"],
             entries=entries,
-            content_mode=content_mode,
+            creation_type=creation_type,
         ),
         raw,
     )
@@ -508,16 +508,16 @@ def _full_reset_from_profile(
     project_dir: Path,
     mapping: dict[str, str],
     *,
-    content_mode: ContentMode | None = None,
+    creation_type: CreationType | None = None,
 ) -> dict:
     """删除 dest，从 profile 全量物化，写 manifest baseline。
 
     场景：manifest 缺失 / 损坏 / schema_version 不匹配 / profile_id 不匹配 /
-    content_mode 不匹配（destructive 切换模式）。
+    creation_type 不匹配（destructive 切换模式）。
 
     Args:
         mapping: ``{logical_rel: source_rel}`` 映射，由 resolve_profile_files_for_mode 生成。
-        content_mode: 写入 manifest 的 content_mode 字段；None 时省略（老 force_resync 路径）。
+        creation_type: 写入 manifest 的 creation_type 字段；None 时省略（老 force_resync 路径）。
     """
     stats = _new_stats()
 
@@ -550,7 +550,7 @@ def _full_reset_from_profile(
             logger.warning("profile reset skip %s: %s", rel, e)
             stats["errors"] += 1
 
-    manifest.content_mode = content_mode
+    manifest.creation_type = creation_type
     save_manifest(project_dir, manifest, original_bytes=None)
     return stats
 
@@ -681,7 +681,7 @@ def _apply_decision(
 def sync_profile_to_project(
     profile_dir: Path,
     project_dir: Path,
-    content_mode: ContentMode,
+    creation_type: CreationType,
 ) -> dict:
     """profile → project_dir 同步主入口。
 
@@ -689,11 +689,11 @@ def sync_profile_to_project(
         ProfileMissingError: profile 目录不存在
         ProfileEmptyError: profile 目录无可同步文件
         ProfileMisconfiguredError: 变体文件配置违规
-        ValueError: content_mode 非 narration/drama
+        ValueError: creation_type 非 narration/drama
     """
     if not profile_dir.exists():
         raise ProfileMissingError(f"Profile dir not found: {profile_dir}")
-    mapping = resolve_profile_files_for_mode(profile_dir, content_mode)
+    mapping = resolve_profile_files_for_mode(profile_dir, creation_type)
     if not mapping:
         raise ProfileEmptyError(f"Profile dir empty, likely deploy misconfig: {profile_dir}")
 
@@ -702,18 +702,18 @@ def sync_profile_to_project(
     with _project_lock(project_dir):
         loaded = load_manifest(project_dir)
         if loaded is None:
-            return _full_reset_from_profile(profile_dir, project_dir, mapping, content_mode=content_mode)
+            return _full_reset_from_profile(profile_dir, project_dir, mapping, creation_type=creation_type)
         manifest, original_bytes = loaded
 
         # mode_status 判定：missing(None)=needs_migration，存在但不匹配=mismatch → reset
-        if manifest.content_mode is not None and manifest.content_mode != content_mode:
+        if manifest.creation_type is not None and manifest.creation_type != creation_type:
             logger.info(
-                "manifest %s content_mode %r != requested %r, resetting",
+                "manifest %s creation_type %r != requested %r, resetting",
                 project_dir / MANIFEST_FILENAME,
-                manifest.content_mode,
-                content_mode,
+                manifest.creation_type,
+                creation_type,
             )
-            return _full_reset_from_profile(profile_dir, project_dir, mapping, content_mode=content_mode)
+            return _full_reset_from_profile(profile_dir, project_dir, mapping, creation_type=creation_type)
 
         stats = _new_stats()
         dest_files = enumerate_dest_files(project_dir)
@@ -744,7 +744,7 @@ def sync_profile_to_project(
                 stats["errors"] += 1
 
         # sync 主体完成后写入 mode（无论 needs_migration 还是 match）
-        manifest.content_mode = content_mode
+        manifest.creation_type = creation_type
         save_manifest(project_dir, manifest, original_bytes)
         return stats
 
@@ -752,7 +752,7 @@ def sync_profile_to_project(
 def get_profile_status(
     profile_dir: Path,
     project_dir: Path,
-    content_mode: ContentMode,
+    creation_type: CreationType,
 ) -> dict[str, object]:
     """Return project-local files that a full built-in reset would discard.
 
@@ -763,7 +763,7 @@ def get_profile_status(
     """
     if not profile_dir.exists():
         raise ProfileMissingError(f"Profile dir not found: {profile_dir}")
-    mapping = resolve_profile_files_for_mode(profile_dir, content_mode)
+    mapping = resolve_profile_files_for_mode(profile_dir, creation_type)
     if not mapping:
         raise ProfileEmptyError(f"Profile dir empty, likely deploy misconfig: {profile_dir}")
 
@@ -809,18 +809,18 @@ def get_profile_status(
 def force_resync_profile(
     profile_dir: Path,
     project_dir: Path,
-    content_mode: ContentMode,
+    creation_type: CreationType,
     *,
     paths: Iterable[str] | None = None,
 ) -> dict:
     """强制按 P 覆盖 D 并更新 manifest，清除 tombstone。
 
     给 UI"恢复内置 skill"按钮使用。``paths=None`` 表示全量。
-    ``paths`` 是**逻辑路径**（如 ``CLAUDE.md``），内部按 content_mode 查源路径。
+    ``paths`` 是**逻辑路径**（如 ``CLAUDE.md``），内部按 creation_type 查源路径。
     """
     if not profile_dir.exists():
         raise ProfileMissingError(f"Profile dir not found: {profile_dir}")
-    mapping = resolve_profile_files_for_mode(profile_dir, content_mode)
+    mapping = resolve_profile_files_for_mode(profile_dir, creation_type)
     if not mapping:
         raise ProfileEmptyError(f"Profile dir empty, likely deploy misconfig: {profile_dir}")
 
@@ -833,7 +833,7 @@ def force_resync_profile(
 
     with _project_lock(project_dir):
         if paths is None:
-            return _full_reset_from_profile(profile_dir, project_dir, mapping, content_mode=content_mode)
+            return _full_reset_from_profile(profile_dir, project_dir, mapping, creation_type=creation_type)
         loaded = load_manifest(project_dir)
         if loaded is None:
             manifest, original_bytes = Manifest.empty(), None
@@ -862,6 +862,6 @@ def force_resync_profile(
                 logger.warning("force_resync skip %s: %s", rel, e)
                 stats["errors"] += 1
 
-        manifest.content_mode = content_mode
+        manifest.creation_type = creation_type
         save_manifest(project_dir, manifest, original_bytes)
         return stats

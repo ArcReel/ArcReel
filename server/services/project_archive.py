@@ -423,7 +423,7 @@ class ProjectArchiveService:
             "script_schema_version": ARCHIVE_SCRIPT_SCHEMA_VERSION,
             "project_name": project_name,
             "project_title": project_payload.get("title", project_name),
-            "content_mode": project_payload.get("content_mode", ""),
+            "creation_type": project_payload.get("creation_type", ""),
             "scope": scope,
             "exported_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "export_diagnostics": diagnostics,
@@ -795,19 +795,19 @@ class ProjectArchiveService:
                     location=f"{script_path_rel}:{deprecated_field}",
                 )
 
-        # 剧本戳 → 项目声明的回退链保留；链尾 narration 终兜底删除——项目级 content_mode
+        # 剧本戳 → 项目声明的回退链保留；链尾 narration 终兜底删除——项目级 creation_type
         # 必填且被校验，两处皆缺（或非字符串脏值）即数据损坏，直接 fail-loud，不静默落 drama。
         # 不用 str(...) 归一：会把缺失的 None 变成字面量 "None" 字符串，既让 reference 分支拿到
         # 假值绕过 fail-loud，又使非 reference 分支的报错语义失真。
-        raw_content_mode = script_payload.get("content_mode") or project_payload.get("content_mode")
+        raw_content_mode = script_payload.get("creation_type") or project_payload.get("creation_type")
         if not isinstance(raw_content_mode, str):
-            raise ValueError(f"未知或缺失 content_mode: {raw_content_mode!r}")
-        content_mode = raw_content_mode
+            raise ValueError(f"未知或缺失 creation_type: {raw_content_mode!r}")
+        creation_type = raw_content_mode
         generation_mode = project_payload.get("generation_mode")
 
         # 修复分流按规范解析的骨架种类走：所有参考路线都使用 video_units，storyboard
         # 路线按内容模式使用 segments/scenes/shots。
-        kind = resolve_declared_kind(content_mode, generation_mode)
+        kind = resolve_declared_kind(creation_type, generation_mode)
 
         # video_units 骨架用 references 组织资产，结构与
         # storyboard 骨架的 characters/scenes/props 不同，单独走专用修复分支。
@@ -821,7 +821,7 @@ class ProjectArchiveService:
                 project_scenes=project_scenes,
                 project_props=project_props,
                 project_products=project_products,
-                content_mode=content_mode,
+                creation_type=creation_type,
                 versions_payload=versions_payload,
                 diagnostics=diagnostics,
             )
@@ -875,7 +875,7 @@ class ProjectArchiveService:
 
             assets, assets_changed = self._backfill_generated_assets(
                 item,
-                content_mode=content_mode,
+                creation_type=creation_type,
                 label=items_key,
                 index=index,
                 location_prefix=location_prefix,
@@ -949,7 +949,7 @@ class ProjectArchiveService:
         self,
         item: dict[str, Any],
         *,
-        content_mode: str,
+        creation_type: str,
         label: str,
         index: int,
         location_prefix: str,
@@ -959,7 +959,7 @@ class ProjectArchiveService:
         assets = item.get("generated_assets")
         changed = False
         if isinstance(assets, dict):
-            template = self.project_manager.create_generated_assets(content_mode)
+            template = self.project_manager.create_generated_assets(creation_type)
             missing_keys = [key for key in template if key not in assets]
             if missing_keys:
                 for key in missing_keys:
@@ -989,7 +989,7 @@ class ProjectArchiveService:
                     "arch_invalid_generated_assets",
                     {"label": label, "index": index, "actual": type(assets).__name__},
                 )
-            item["generated_assets"] = self.project_manager.create_generated_assets(content_mode)
+            item["generated_assets"] = self.project_manager.create_generated_assets(creation_type)
             changed = True
             diagnostics.add(
                 "auto_fixed",
@@ -1040,7 +1040,7 @@ class ProjectArchiveService:
         project_scenes: set[str],
         project_props: set[str],
         project_products: set[str],
-        content_mode: str,
+        creation_type: str,
         versions_payload: dict[str, Any],
         diagnostics: ArchiveDiagnostics,
     ) -> tuple[bool, bool]:
@@ -1091,7 +1091,7 @@ class ProjectArchiveService:
 
             assets, assets_changed = self._backfill_generated_assets(
                 unit,
-                content_mode=content_mode,
+                creation_type=creation_type,
                 label="video_units",
                 index=index,
                 location_prefix=location_prefix,

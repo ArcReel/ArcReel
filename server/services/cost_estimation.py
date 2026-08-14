@@ -438,7 +438,7 @@ class CostEstimationService:
             aspect_ratio = raw_ar.get("storyboards", "9:16")
         else:
             # narration/ad 默认竖屏，drama（含未知值的历史兜底）默认横屏
-            aspect_ratio = "9:16" if project_data.get("content_mode", "narration") in {"narration", "ad"} else "16:9"
+            aspect_ratio = "9:16" if project_data.get("creation_type", "narration") in {"narration", "ad"} else "16:9"
 
         # 预计算图片单价
         image_unit_cost: tuple[float, str] | None = None

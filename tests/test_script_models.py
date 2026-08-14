@@ -17,7 +17,7 @@ from lib.script_models import (
     VideoPrompt,
     get_generated_assets,
     item_duration,
-    resolve_content_mode,
+    resolve_creation_type,
     script_duration_total,
 )
 
@@ -321,8 +321,8 @@ class TestScriptModels:
             ],
         )
 
-        assert narration.content_mode == "narration"
-        assert drama.content_mode == "drama"
+        assert narration.creation_type == "narration"
+        assert drama.creation_type == "drama"
         assert drama.scenes[0].duration_seconds == 8
 
 
@@ -377,7 +377,7 @@ class TestAdScriptModels:
                 )
             ],
         )
-        assert script.content_mode == "ad"
+        assert script.creation_type == "ad"
         assert script.shots[0].products_in_shot == ["速干杯"]
 
     @pytest.mark.unit
@@ -672,7 +672,7 @@ class TestLLMSchemaExclusion:
 
     @pytest.mark.unit
     def test_schema_excludes_scene_type_summary_content_mode_novel_transition(self):
-        """LLM 不该看到 scene_type / summary / content_mode / novel / transition_to_next。
+        """LLM 不该看到 scene_type / summary / creation_type / novel / transition_to_next。
 
         前 4 个由 _add_metadata 注入或彻底无消费；transition_to_next 由 Pydantic default="cut"
         兜底,FE PATCH 路径独立。
@@ -689,7 +689,7 @@ class TestLLMSchemaExclusion:
             top_props = set(schema["properties"].keys())
             assert "summary" not in top_props, f"{model.__name__} 顶层不应有 summary"
             assert "novel" not in top_props, f"{model.__name__} 顶层不应有 novel"
-            assert "content_mode" not in top_props, f"{model.__name__} 顶层不应有 content_mode"
+            assert "creation_type" not in top_props, f"{model.__name__} 顶层不应有 creation_type"
             assert "scene_type" not in keys, f"{model.__name__} 不应有 scene_type"
             assert "transition_to_next" not in keys, f"{model.__name__} 不应有 transition_to_next"
 
@@ -780,7 +780,7 @@ class TestRuntimeBackwardCompat:
 
     @pytest.mark.unit
     def test_episode_models_validate_without_optional_fields(self):
-        """LLM 不写 content_mode / novel / summary 时,model_validate 仍应成功并用 default 兜底。"""
+        """LLM 不写 creation_type / novel / summary 时,model_validate 仍应成功并用 default 兜底。"""
         drama = DramaEpisodeScript.model_validate(
             {
                 "title": "第一集",
@@ -797,7 +797,7 @@ class TestRuntimeBackwardCompat:
                 ],
             }
         )
-        assert drama.content_mode == "drama"
+        assert drama.creation_type == "drama"
         assert drama.novel.title == ""
         assert drama.novel.chapter == ""
 
@@ -807,7 +807,7 @@ class TestRuntimeBackwardCompat:
                 "segments": [],
             }
         )
-        assert narration.content_mode == "narration"
+        assert narration.creation_type == "narration"
         assert narration.novel.title == ""
 
     @pytest.mark.unit
@@ -864,17 +864,17 @@ class TestGeneratedAssetsTemplateContract:
 
 
 class TestResolveContentMode:
-    """episode/剧本级 content_mode 缺失时回退到项目级配置，与
+    """episode/剧本级 creation_type 缺失时回退到项目级配置，与
     lib.data_validator._validate_episode_payload 已校验通过的既定口径一致。"""
 
     @pytest.mark.unit
     def test_episode_level_wins_when_present(self):
-        assert resolve_content_mode({"content_mode": "drama"}, {"content_mode": "narration"}) == "drama"
+        assert resolve_creation_type({"creation_type": "drama"}, {"creation_type": "narration"}) == "drama"
 
     @pytest.mark.unit
     def test_falls_back_to_project_when_episode_omits_it(self):
-        assert resolve_content_mode({}, {"content_mode": "drama"}) == "drama"
+        assert resolve_creation_type({}, {"creation_type": "drama"}) == "drama"
 
     @pytest.mark.unit
     def test_falls_back_to_narration_when_both_omit_it(self):
-        assert resolve_content_mode({}, {}) == "narration"
+        assert resolve_creation_type({}, {}) == "narration"

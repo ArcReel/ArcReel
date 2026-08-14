@@ -13,7 +13,7 @@ router / service（结构化中间态审阅 / 编辑 / 确认）。状态派生�
 
 适用范围（拥有结构化 step1 中间态的三条内容/视觉两段式路径）：
 - drama / narration 的图生 / 宫格路径：step1_normalized_script.json / step1_segments.json；
-- reference_video 路径（跨 narration / drama content_mode）：step1_reference_units.json。
+- reference_video 路径（跨 narration / drama creation_type）：step1_reference_units.json。
 三者的 step1 变体由 ``step1_kind`` 统一判定（reference_video 按项目生成路线优先）。ad 无 step1，
 不纳入 gate。
 """
@@ -65,7 +65,7 @@ STALE_STEP1_REBUILT_REVISION_FIELD = "stale_step1_rebuilt_revision"
 #: 重新确认后仍残留的旧剧本，避免仅凭「文件存在」误判 step2 已完成。
 SCRIPT_STEP1_REVISION_FIELD = "step1_revision"
 
-#: step1 变体：drama / narration（按 content_mode）+ reference_video（按项目生成路线，跨 content_mode）。
+#: step1 变体：drama / narration（按 creation_type）+ reference_video（按项目生成路线，跨 creation_type）。
 #: 决定 step1 文件名与结构校验模型；三者共用同一审核 gate。
 Step1Kind = Literal["drama", "narration", "reference_video"]
 
@@ -73,17 +73,17 @@ Step1Kind = Literal["drama", "narration", "reference_video"]
 def step1_kind(project: dict[str, Any]) -> Step1Kind | None:
     """项目的 step1 变体；无结构化 step1 中间态（如 ad）时返回 None。
 
-    reference_video 是 generation_mode 维度、跨 content_mode（narration / drama 均可），按项目
-    生成路线优先判定；否则按 content_mode 落 drama / narration。content_mode 非
+    reference_video 是 generation_mode 维度、跨 creation_type（narration / drama 均可），按项目
+    生成路线优先判定；否则按 creation_type 落 drama / narration。creation_type 非
     STEP1_FILENAMES 成员（ad）即无 step1，reference_video 亦不适用。变体由项目两轴唯一决定，
     不随集号变化。
     """
-    content_mode = project.get("content_mode")
-    if content_mode not in STEP1_FILENAMES:
+    creation_type = project.get("creation_type")
+    if creation_type not in STEP1_FILENAMES:
         return None
     if is_reference_video_project(project):
         return "reference_video"
-    return content_mode  # "drama" | "narration"（STEP1_FILENAMES 成员）
+    return creation_type  # "drama" | "narration"（STEP1_FILENAMES 成员）
 
 
 def is_applicable(project: dict[str, Any]) -> bool:

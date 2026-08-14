@@ -20,27 +20,27 @@ from lib.script_skeleton import SKELETONS, resolve_declared_kind
 
 logger = logging.getLogger(__name__)
 
-# 缺 content_mode 声明的老脚本：按主结构鸭子类型兜底探测的骨架种类，顺序固定
+# 缺 creation_type 声明的老脚本：按主结构鸭子类型兜底探测的骨架种类，顺序固定
 # segments > scenes > shots（video_units 不参与——按声明分派，不嗅探残留派生索引）。
 _LEGACY_DUCK_TYPE_KINDS: tuple[str, ...] = ("segments", "scenes", "shots")
 
-# 「是否分过段」判定中兼认旧版 .md 别名的 content_mode：narration 的旧 step1_segments.md
+# 「是否分过段」判定中兼认旧版 .md 别名的 creation_type：narration 的旧 step1_segments.md
 # 代表真实的分段工作、兼认；drama 的旧 .md 早于内容抽取前移（见 ADR 0041），不再视为有效
 # step1——仅 .md 无剧本 JSON 的在制品会被路由回重跑 step1，故不在此集合。这与 gate 只认结构化
 # .json、web 读取层兼认双模式旧 .md 的语义有意不同。
 _SEGMENTED_LEGACY_MODES: frozenset[str] = frozenset({"narration"})
 
 
-def _draft_candidates(content_mode: str, generation_mode: str | None = None) -> tuple[str, ...]:
-    """剧本缺失时按 (content_mode, generation_mode) 探测的 step1 草稿候选文件名（任一存在即视为已分段）。
+def _draft_candidates(creation_type: str, generation_mode: str | None = None) -> tuple[str, ...]:
+    """剧本缺失时按 (creation_type, generation_mode) 探测的 step1 草稿候选文件名（任一存在即视为已分段）。
 
-    结构化文件名取自单一真相源 ``lib.episode_paths.STEP1_FILENAMES``，新增 content_mode 自动覆盖。
+    结构化文件名取自单一真相源 ``lib.episode_paths.STEP1_FILENAMES``，新增 creation_type 自动覆盖。
     ad 不走拆分中间稿（brief 不经 source_loader），返回空元组表示无草稿可探测；未知值沿用历史
     兜底探 drama 结构化草稿名。旧版 .md 仅对 ``_SEGMENTED_LEGACY_MODES`` 内的模式附加。
 
-    reference_video 是跨 content_mode 的 generation_mode 维度（与 ``lib.script_review.step1_kind``
-    同口径，项目路线优先于 content_mode），命中时探测其专属结构化草稿名
-    ``REFERENCE_VIDEO_STEP1_FILENAME`` 而非 content_mode 对应名——否则 rv 项目的
+    reference_video 是跨 creation_type 的 generation_mode 维度（与 ``lib.script_review.step1_kind``
+    同口径，项目路线优先于 creation_type），命中时探测其专属结构化草稿名
+    ``REFERENCE_VIDEO_STEP1_FILENAME`` 而非 creation_type 对应名——否则 rv 项目的
     ``step1_reference_units.json`` 永远探测不到，script_status 停留 none，web 路由卡在源文审阅页
     进不了 ``ScriptReviewGate``。旧版自由文本别名仅供读取 / 浏览层兼认（见 episode_paths 注释），
     生成侧遇到会拒绝并提示重跑拆分，此处不纳入——避免误报「已分段」掩盖需要重跑的存量草稿。
@@ -50,12 +50,12 @@ def _draft_candidates(content_mode: str, generation_mode: str | None = None) -> 
     落到 ``EpisodeSourceReview`` 而不是挂着隔离态预览面板的 ``ScriptReviewGate``——用户见不到
     违约详情与修复入口，恰是隔离草稿最常见的产出路径（首轮拆分失败）。
     """
-    if content_mode == "ad":
+    if creation_type == "ad":
         return ()
     if generation_mode == "reference_video":
         return (REFERENCE_VIDEO_STEP1_FILENAME, REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME)
-    primary = STEP1_FILENAMES.get(content_mode) or STEP1_FILENAMES["drama"]
-    legacy = STEP1_LEGACY_FILENAMES.get(content_mode, ()) if content_mode in _SEGMENTED_LEGACY_MODES else ()
+    primary = STEP1_FILENAMES.get(creation_type) or STEP1_FILENAMES["drama"]
+    legacy = STEP1_LEGACY_FILENAMES.get(creation_type, ()) if creation_type in _SEGMENTED_LEGACY_MODES else ()
     return (primary, *legacy)
 
 
@@ -88,15 +88,15 @@ class StatusCalculator:
     def _select_kind_and_items(cls, script: dict, generation_mode: str | None) -> tuple[str, list[dict]]:
         """返回 ``(骨架种类, items)``，骨架种类 ∈ {segments, scenes, shots, video_units}。
 
-        **主路径**按剧本级 ``content_mode`` 与调用方传入的项目级 ``generation_mode`` 走规范解析
+        **主路径**按剧本级 ``creation_type`` 与调用方传入的项目级 ``generation_mode`` 走规范解析
         （``resolve_declared_kind``）——计分必须按声明分派、不嗅探数据形状（残留派生索引
         不得污染 storyboard 计分）：``video_units`` 恒按声明取 ``video_units`` 数组、不回退。
-        **legacy 容忍**（本模块本地，不进解析器本体）：缺失/未知 content_mode 的存量剧本，
+        **legacy 容忍**（本模块本地，不进解析器本体）：缺失/未知 creation_type 的存量剧本，
         保留按项目路线的 reference 短路 + 主结构鸭子类型兜底阶梯（现状行为）。
         """
-        content_mode = script.get("content_mode")
+        creation_type = script.get("creation_type")
         try:
-            kind = resolve_declared_kind(content_mode, generation_mode)
+            kind = resolve_declared_kind(creation_type, generation_mode)
         except ValueError:
             kind = None
 
@@ -108,7 +108,7 @@ class StatusCalculator:
             if isinstance(items, list):
                 return kind, items
         elif generation_mode == "reference_video" and "video_units" in script:
-            # 缺失/未知 content_mode 但项目走参考路线：沿用历史 legacy 容忍，按路线取 video_units。
+            # 缺失/未知 creation_type 但项目走参考路线：沿用历史 legacy 容忍，按路线取 video_units。
             # 以 video_units 键在场为前提（与 ``ensure_route_skeleton`` 同判据），避免无条件
             # 短路把遗留主骨架的计分抢成空 video_units。
             return "video_units", _unit_items(script)
@@ -142,7 +142,7 @@ class StatusCalculator:
             status = "draft"
 
         return {
-            "scenes_count": total,
+            "storyboard_count": total,
             "status": status,
             "duration_seconds": script_duration_total(kind, items),
             "storyboards": {"total": total, "completed": storyboard_done},
@@ -164,9 +164,14 @@ class StatusCalculator:
         else:
             status = "draft"
 
+        shot_count = 0
+        for unit in units:
+            shots = unit.get("shots")
+            if isinstance(shots, list):
+                shot_count += len(shots)
         return {
-            "scenes_count": total,
-            "units_count": total,
+            "video_unit_count": total,
+            "shot_count": shot_count,
             "status": status,
             "duration_seconds": script_duration_total("video_units", units),
             "storyboards": {"total": total, "completed": 0},
@@ -179,7 +184,7 @@ class StatusCalculator:
         episode_num: int,
         script_file: str,
         *,
-        content_mode: str = "narration",
+        creation_type: str = "narration",
         generation_mode: str | None = None,
         preloaded_scripts: dict[str, dict] | None = None,
     ) -> tuple:
@@ -201,7 +206,7 @@ class StatusCalculator:
                 safe_num = int(episode_num)
             except (ValueError, TypeError):
                 return "none", None
-            draft_filenames = _draft_candidates(content_mode, generation_mode)
+            draft_filenames = _draft_candidates(creation_type, generation_mode)
             if not draft_filenames:
                 return "none", None
             drafts_dir = episode_drafts_dir(project_dir, safe_num)
@@ -284,7 +289,9 @@ class StatusCalculator:
             "status": "draft",
             "storyboards": {"total": 0, "completed": 0},
             "videos": {"total": 0, "completed": 0},
-            "scenes_count": 0,
+            "storyboard_count": 0,
+            "video_unit_count": 0,
+            "shot_count": 0,
             "duration_seconds": 0,
         }
 
@@ -300,7 +307,7 @@ class StatusCalculator:
         ``preloaded_scripts`` 按 ``episode['script_file']`` 原样作为 key，命中则
         跳过 pm.load_script；未命中仍走磁盘加载 + 草稿探测的既有兜底路径。
         """
-        content_mode = project.get("content_mode", "narration")
+        creation_type = project.get("creation_type", "narration")
         generation_mode = project.get("generation_mode")
         episodes_stats = []
         for ep in project.get("episodes", []):
@@ -318,7 +325,7 @@ class StatusCalculator:
                     project_name,
                     episode_num,
                     script_file,
-                    content_mode=content_mode,
+                    creation_type=creation_type,
                     generation_mode=generation_mode,
                     preloaded_scripts=preloaded_scripts,
                 )
@@ -441,7 +448,14 @@ class StatusCalculator:
         if "metadata" not in script:
             script["metadata"] = {}
 
-        script["metadata"]["total_scenes"] = len(items)
+        script["metadata"].pop("total_scenes", None)
+        if kind == "video_units":
+            script["metadata"]["video_unit_count"] = len(items)
+            script["metadata"]["shot_count"] = sum(
+                len(item["shots"]) for item in items if isinstance(item, dict) and isinstance(item.get("shots"), list)
+            )
+        else:
+            script["metadata"]["storyboard_count"] = len(items)
         script["metadata"]["estimated_duration_seconds"] = total_duration
         script["duration_seconds"] = total_duration  # 读时注入，与 metadata 保持同步
 

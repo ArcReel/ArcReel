@@ -306,7 +306,7 @@ vi.mock("./lorebook/AddCharacterForm", () => ({
 function makeProjectData(overrides: Partial<ProjectData> = {}): ProjectData {
   return {
     title: "Demo",
-    content_mode: "narration",
+    creation_type: "narration",
     style: "Anime",
     episodes: [{ episode: 1, title: "EP1", script_file: "scripts/episode_1.json" }],
     characters: {
@@ -322,7 +322,7 @@ function makeScript(): EpisodeScript {
   return {
     episode: 1,
     title: "EP1",
-    content_mode: "narration",
+    creation_type: "narration",
     duration_seconds: 4,
     novel: { title: "n", chapter: "1" },
     segments: [
@@ -347,7 +347,7 @@ function makeAdScript(): EpisodeScript {
   return {
     episode: 1,
     title: "广告视频",
-    content_mode: "ad",
+    creation_type: "ad",
     duration_seconds: 30,
     novel: { title: "n", chapter: "1" },
     shots: [
@@ -368,7 +368,7 @@ function makeDramaScript(): EpisodeScript {
   return {
     episode: 1,
     title: "EP1",
-    content_mode: "drama",
+    creation_type: "drama",
     duration_seconds: 6,
     novel: { title: "n", chapter: "1" },
     scenes: [
@@ -1147,12 +1147,12 @@ describe("StudioCanvasRouter", () => {
   it("resolves ad shots by shot_id when generating storyboard and video", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData({ content_mode: "ad" }),
+      currentProjectData: makeProjectData({ creation_type: "ad" }),
       currentScripts: { "episode_1.json": makeAdScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ content_mode: "ad" }),
+      project: makeProjectData({ creation_type: "ad" }),
       scripts: { "episode_1.json": makeAdScript() },
     });
     vi.spyOn(API, "generateStoryboard").mockResolvedValue({
@@ -1197,12 +1197,12 @@ describe("StudioCanvasRouter", () => {
   it("dispatches ad prompt updates to the shot PATCH endpoint", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData({ content_mode: "ad" }),
+      currentProjectData: makeProjectData({ creation_type: "ad" }),
       currentScripts: { "episode_1.json": makeAdScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ content_mode: "ad" }),
+      project: makeProjectData({ creation_type: "ad" }),
       scripts: { "episode_1.json": makeAdScript() },
     });
     const updateShotSpy = vi.spyOn(API, "updateShot").mockResolvedValue({ success: true });
@@ -1234,12 +1234,12 @@ describe("StudioCanvasRouter", () => {
     });
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData({ content_mode: "ad" }),
+      currentProjectData: makeProjectData({ creation_type: "ad" }),
       currentScripts: { "episode_1.json": script },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ content_mode: "ad" }),
+      project: makeProjectData({ creation_type: "ad" }),
       scripts: { "episode_1.json": script },
     });
     const reorderSpy = vi.spyOn(API, "reorderShots").mockResolvedValue({ success: true });
@@ -1269,12 +1269,12 @@ describe("StudioCanvasRouter", () => {
     });
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData({ content_mode: "ad" }),
+      currentProjectData: makeProjectData({ creation_type: "ad" }),
       currentScripts: { "episode_1.json": script },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ content_mode: "ad" }),
+      project: makeProjectData({ creation_type: "ad" }),
       scripts: { "episode_1.json": script },
     });
     vi.spyOn(API, "reorderShots").mockRejectedValue(new Error("server boom"));
@@ -1302,7 +1302,7 @@ describe("StudioCanvasRouter", () => {
     });
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData({ content_mode: "ad" }),
+      currentProjectData: makeProjectData({ creation_type: "ad" }),
       currentScripts: { "episode_1.json": script },
     });
 
@@ -1323,13 +1323,13 @@ describe("StudioCanvasRouter", () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData({
-        content_mode: "ad",
+        creation_type: "ad",
         generation_mode: "reference_video",
       }),
       currentScripts: { "episode_1.json": makeAdScript() },
     });
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ content_mode: "ad", generation_mode: "reference_video" }),
+      project: makeProjectData({ creation_type: "ad", generation_mode: "reference_video" }),
       scripts: { "episode_1.json": makeAdScript() },
     });
     vi.spyOn(API, "updateEpisode").mockResolvedValue({ success: true });
@@ -1355,13 +1355,13 @@ describe("StudioCanvasRouter", () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData({
-        content_mode: "ad",
+        creation_type: "ad",
         generation_mode: "reference_video",
       }),
       currentScripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ content_mode: "ad", generation_mode: "reference_video" }),
+      project: makeProjectData({ creation_type: "ad", generation_mode: "reference_video" }),
       scripts: { "episode_1.json": makeScript() },
     });
 
@@ -1375,11 +1375,11 @@ describe("StudioCanvasRouter", () => {
   it("keeps ad + storyboard projects on the shot editor", () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData({ content_mode: "ad" }),
+      currentProjectData: makeProjectData({ creation_type: "ad" }),
       currentScripts: { "episode_1.json": makeAdScript() },
     });
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ content_mode: "ad" }),
+      project: makeProjectData({ creation_type: "ad" }),
       scripts: { "episode_1.json": makeAdScript() },
     });
 
@@ -1392,12 +1392,12 @@ describe("StudioCanvasRouter", () => {
   it("resolves drama scenes by scene_id when generating storyboard", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData({ content_mode: "drama" }),
+      currentProjectData: makeProjectData({ creation_type: "drama" }),
       currentScripts: { "episode_1.json": makeDramaScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ content_mode: "drama" }),
+      project: makeProjectData({ creation_type: "drama" }),
       scripts: { "episode_1.json": makeDramaScript() },
     });
     vi.spyOn(API, "generateStoryboard").mockResolvedValue({

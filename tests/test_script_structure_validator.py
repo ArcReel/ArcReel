@@ -30,7 +30,7 @@ def _segment(segment_id: str = "E1S01", duration: int = 4) -> dict:
 def _narration(segments: list[dict] | None = None) -> dict:
     return {
         "title": "标题",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "novel": {"title": "小说", "chapter": "第一章"},
         "segments": segments if segments is not None else [_segment()],
     }
@@ -52,7 +52,7 @@ def _scene(scene_id: str = "E1S01", duration: int = 8) -> dict:
 def _drama(scenes: list[dict] | None = None) -> dict:
     return {
         "title": "标题",
-        "content_mode": "drama",
+        "creation_type": "drama",
         "novel": {"title": "小说", "chapter": "第一章"},
         "scenes": scenes if scenes is not None else [_scene()],
     }
@@ -70,10 +70,10 @@ def _unit(unit_id: str = "E1U1", shots: list[dict] | None = None, duration: int 
     return unit
 
 
-def _reference(units: list[dict] | None = None, content_mode: str = "narration") -> dict:
+def _reference(units: list[dict] | None = None, creation_type: str = "narration") -> dict:
     return {
         "title": "标题",
-        "content_mode": content_mode,
+        "creation_type": creation_type,
         "generation_mode": "reference_video",
         "novel": {"title": "小说", "chapter": "第一章"},
         "video_units": units if units is not None else [_unit()],
@@ -94,13 +94,13 @@ class TestValidScripts:
 class TestModeDetection:
     def test_video_units_only_picks_reference_model(self):
         """video_units 唯一存在(无 segments/scenes)时走 ReferenceVideoScript,不论
-        content_mode 标记是什么——按数据形状路由(动作 5 引入)。
+        creation_type 标记是什么——按数据形状路由(动作 5 引入)。
 
         reference 剧本只有 video_units、无 segments;若误判为 NarrationEpisodeScript 会因缺
         segments 而 invalid。结果 valid 证明判别走了 ReferenceVideoScript。
         """
-        script = _reference(content_mode="narration")
-        assert script.get("content_mode") == "narration"
+        script = _reference(creation_type="narration")
+        assert script.get("creation_type") == "narration"
         assert validate_script_structure(script).valid
 
     def test_partial_migration_segments_picks_narration_model(self):
@@ -116,7 +116,7 @@ class TestModeDetection:
     def test_stray_video_units_do_not_hijack_storyboard_script(self):
         """历史脏数据：narration 脚本被误塞游离 video_units。video_units 与 segments 并存且无
         显式 reference 模式时，判别不应抢到 ReferenceVideoScript（会因缺合法 units 拒写真实
-        segments），而应按 content_mode 走 Narration（多余 video_units 键被 extra=ignore 忽略）。
+        segments），而应按 creation_type 走 Narration（多余 video_units 键被 extra=ignore 忽略）。
         """
         script = _narration()
         script["video_units"] = [{"unit_id": "E1U1", "generated_assets": {"status": "pending"}}]
@@ -126,7 +126,7 @@ class TestModeDetection:
         assert validate_script_structure(_drama()).valid
 
     def test_empty_scenes_drama_detected_by_content_mode(self):
-        """空场景 drama（scenes=[]，结构合法）应按 content_mode 判到 Drama，而非靠列表真值落回 Narration。
+        """空场景 drama（scenes=[]，结构合法）应按 creation_type 判到 Drama，而非靠列表真值落回 Narration。
 
         scenes 无 min_length 约束，空列表合法（对应「先建空 drama 再逐步填充场景」流程）。
         若用 script.get("scenes") 真值判别，[] falsy 会误落 NarrationEpisodeScript 而被拒写。
@@ -135,15 +135,15 @@ class TestModeDetection:
         assert validate_script_structure(script).valid
 
     def test_drama_detected_by_scenes_key_when_content_mode_absent(self):
-        # 无 content_mode、有 scenes 键（即便空）：按键存在推断 Drama
+        # 无 creation_type、有 scenes 键（即便空）：按键存在推断 Drama
         script = _drama(scenes=[])
-        del script["content_mode"]
+        del script["creation_type"]
         assert validate_script_structure(script).valid
 
     def test_narration_is_default_fallback(self):
-        # 无 content_mode、无 scenes/video_units：回退 NarrationEpisodeScript
+        # 无 creation_type、无 scenes/video_units：回退 NarrationEpisodeScript
         script = _narration()
-        del script["content_mode"]
+        del script["creation_type"]
         assert validate_script_structure(script).valid
 
 
@@ -224,7 +224,7 @@ def _ad_shot(shot_id: str = "E1S01", duration: int = 3) -> dict:
 def _ad(shots: list[dict] | None = None) -> dict:
     return {
         "title": "短片",
-        "content_mode": "ad",
+        "creation_type": "ad",
         "novel": {"title": "", "chapter": ""},
         "shots": shots if shots is not None else [_ad_shot()],
     }
@@ -244,7 +244,7 @@ class TestAdScripts:
 
     def test_ad_detected_by_shots_key_when_content_mode_absent(self):
         script = _ad()
-        del script["content_mode"]
+        del script["creation_type"]
         assert validate_script_structure(script).valid
 
     def test_resolve_kind_and_items_for_ad(self):

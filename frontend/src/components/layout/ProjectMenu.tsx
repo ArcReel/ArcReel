@@ -36,7 +36,7 @@ export function ProjectMenu() {
     : t("no_project_selected");
   const projectTitle = getProjectDisplayName(currentProjectData?.title, fallbackLabel);
   const initial = (projectTitle || "?").slice(0, 1).toUpperCase();
-  const contentMode = currentProjectData?.content_mode;
+  const contentMode = currentProjectData?.creation_type;
   const aspectRatio =
     typeof currentProjectData?.aspect_ratio === "string"
       ? currentProjectData.aspect_ratio

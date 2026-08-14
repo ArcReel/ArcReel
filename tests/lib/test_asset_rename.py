@@ -1,6 +1,6 @@
 """资产级联重命名端到端测试：真实 ProjectManager 走 扫描 → 校验 → 落盘 全路径。
 
-覆盖四类资产、各 content_mode 骨架的引用改写（引用数组 / speaker / mention）、step1 草稿、
+覆盖四类资产、各 creation_type 骨架的引用改写（引用数组 / speaker / mention）、step1 草稿、
 关联文件与版本历史迁移、NFC/NFD 冲突拒绝与 dry-run 预览一致性。speaker 与 mention 不在
 DataValidator 引用扫描范围内，须直接断言改写结果，不能只看校验无新增 error。
 """
@@ -52,7 +52,7 @@ def _narration_script(**overrides: Any) -> dict[str, Any]:
     script = {
         "episode": 1,
         "title": "标题",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
         "segments": [segment],
@@ -82,7 +82,7 @@ def _drama_script() -> dict[str, Any]:
     return {
         "episode": 1,
         "title": "标题",
-        "content_mode": "drama",
+        "creation_type": "drama",
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
         "scenes": [scene],
@@ -110,14 +110,14 @@ def _ad_script() -> dict[str, Any]:
             "dialogue": [{"speaker": "角色A", "line": "广告词"}],
         },
     }
-    return {"episode": 1, "title": "标题", "content_mode": "ad", "shots": [shot]}
+    return {"episode": 1, "title": "标题", "creation_type": "ad", "shots": [shot]}
 
 
 def _reference_script(episode: int = 1) -> dict[str, Any]:
     return {
         "episode": episode,
         "title": "标题",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
         "video_units": [
@@ -371,7 +371,7 @@ class TestRenameAssetCascade:
 
     def test_product_sequenced_files_and_paths(self, tmp_path: Path) -> None:
         pm = ProjectManager(str(tmp_path))
-        pm.create_project("demo", content_mode="ad")
+        pm.create_project("demo", creation_type="ad")
         pm.create_project_metadata("demo", "Demo", "Anime", "ad")
         pm.upsert_assets("demo", "products", {"产品A": {"description": "饮料"}})
         pm.upsert_assets("demo", "characters", {"角色A": {"description": "代言人"}})

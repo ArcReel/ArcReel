@@ -39,7 +39,7 @@ def _make_script(episode: int, payload_size: int) -> dict:
     return {
         "episode": episode,
         "title": f"Episode {episode}",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "summary": "测试摘要",
         "novel": {"title": "测试小说", "chapter": f"第{episode}章"},
         "segments": [

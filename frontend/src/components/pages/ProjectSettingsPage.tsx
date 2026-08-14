@@ -304,7 +304,7 @@ export function ProjectSettingsPage() {
       setSpeechRate(sr);
       setSourceLanguage(sl);
       setProjectTitle(typeof project.title === "string" ? project.title : "");
-      setContentMode(typeof project.content_mode === "string" ? project.content_mode : "narration");
+      setContentMode(typeof project.creation_type === "string" ? project.creation_type : "narration");
 
       // model_settings 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与
       // handleSave 一字不差——后端 resolve_resolution 就是按执行模型查这张表，键位对不上

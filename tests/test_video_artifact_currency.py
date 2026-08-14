@@ -531,7 +531,7 @@ def test_selected_video_cancellation_compensation_restores_media_manifest_and_on
     )
     script = {
         "episode": 1,
-        "content_mode": "narration",
+        "creation_type": "narration",
         "segments": [
             {
                 "segment_id": "E1S01",
@@ -651,7 +651,7 @@ def test_selected_video_compensation_preserves_the_original_and_rollback_failure
     )
     script = {
         "episode": 1,
-        "content_mode": "narration",
+        "creation_type": "narration",
         "segments": [
             {
                 "segment_id": "E1S01",
@@ -768,12 +768,12 @@ def _storyboard_state(tmp_path: Path) -> tuple[Path, dict, dict, dict[str, objec
     storyboard.parent.mkdir(parents=True)
     storyboard.write_bytes(b"storyboard")
     project = {
-        "content_mode": "drama",
+        "creation_type": "drama",
         "aspect_ratio": {"videos": "16:9"},
         "characters": {"阿离": {"voice_style": "清亮"}},
     }
     script = {
-        "content_mode": "drama",
+        "creation_type": "drama",
         "episode": 1,
         "scenes": [
             {
@@ -905,10 +905,10 @@ def test_current_video_basis_rejects_an_episode_rebound_to_another_script(tmp_pa
 
 def test_current_selected_tts_and_planned_tier_drive_video_currency(tmp_path: Path) -> None:
     project_path, project, script, metadata = _storyboard_state(tmp_path)
-    project["content_mode"] = "narration"
+    project["creation_type"] = "narration"
     project["characters"] = {}
     script = {
-        "content_mode": "narration",
+        "creation_type": "narration",
         "episode": 1,
         "segments": [
             {

@@ -43,7 +43,7 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
         json.dumps(
             {
                 "title": "T",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
                 "style": "s",
                 "characters": {"张三": {"description": "x", "character_sheet": "characters/张三.png"}},
@@ -60,7 +60,7 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
             {
                 "episode": 1,
                 "title": "E1",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
                 "summary": "x",
                 "novel": {"title": "t", "chapter": "c"},

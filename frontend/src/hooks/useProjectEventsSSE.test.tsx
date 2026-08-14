@@ -43,7 +43,7 @@ function makeGetProjectResult(title: string): GetProjectResult {
   return {
     project: {
       title,
-      content_mode: "narration",
+      creation_type: "narration",
       style: "Anime",
       episodes: [],
       characters: { hero: { description: "勇者" } },
@@ -63,7 +63,7 @@ describe("useProjectEventsSSE", () => {
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {
         title: "Demo",
-        content_mode: "narration",
+        creation_type: "narration",
         style: "Anime",
         episodes: [{ episode: 1, title: "第一集", script_file: "scripts/episode_1.json" }],
         characters: { hero: { description: "勇者" } },
@@ -74,7 +74,7 @@ describe("useProjectEventsSSE", () => {
         "episode_1.json": {
           episode: 1,
           title: "第一集",
-          content_mode: "narration",
+          creation_type: "narration",
           duration_seconds: 4,
           novel: { title: "", chapter: "" },
           segments: [],

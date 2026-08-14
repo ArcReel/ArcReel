@@ -177,14 +177,14 @@ class TestProjectManagerMore:
         script = {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
         }
         path = pm.save_script("demo", script, "episode_1.json", validate=False)  # helper 测试用简化替身
         assert path.name == "episode_1.json"
 
         loaded = pm.load_script("demo", "episode_1.json")
-        assert loaded["metadata"]["total_scenes"] == 1
+        assert "total_scenes" not in loaded["metadata"]
         assert loaded["metadata"]["estimated_duration_seconds"] == 4
         assert pm.list_scripts("demo") == ["episode_1.json"]
 
@@ -195,7 +195,7 @@ class TestProjectManagerMore:
         drama_script = {
             "episode": 2,
             "title": "第二集",
-            "content_mode": "drama",
+            "creation_type": "drama",
             "scenes": [],
         }
         pm.save_script("demo", drama_script, "episode_2.json", validate=False)
@@ -240,7 +240,7 @@ class TestProjectManagerMore:
         drama_script = {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "drama",
+            "creation_type": "drama",
             "scenes": [],
         }
         pm.save_script("demo", drama_script, "episode_1.json", validate=False)
@@ -268,7 +268,7 @@ class TestProjectManagerMore:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "drama",
+                "creation_type": "drama",
                 "scenes": [
                     {"scene_id": "001", "duration_seconds": 4, "generated_assets": {}},
                     {"scene_id": "002", "duration_seconds": 4},
@@ -300,7 +300,7 @@ class TestProjectManagerMore:
             {
                 "episode": 2,
                 "title": "第二集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [{"segment_id": "E2S01", "duration_seconds": 4}],
             },
             "episode_2.json",
@@ -325,7 +325,7 @@ class TestProjectManagerMore:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "drama",
+                "creation_type": "drama",
                 "scenes": [
                     {"scene_id": "001", "duration_seconds": 4, "generated_assets": {}},
                 ],
@@ -359,7 +359,7 @@ class TestProjectManagerMore:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "drama",
+                "creation_type": "drama",
                 "characters": {"张三": {"description": "x"}},
                 "scenes": [],
             },
@@ -388,7 +388,7 @@ class TestProjectManagerMore:
         bad = {
             "episode": 1,  # 与文件名 episode_10.json 错配
             "title": "第十集错误标题",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "summary": "摘要",
             "novel": {"title": "小说", "chapter": "第一章"},
             "segments": [],
@@ -415,7 +415,7 @@ class TestProjectManagerMore:
         ep1 = {
             "episode": 1,
             "title": "第一集原标题",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
         }
         pm.save_script("demo", ep1, "episode_1.json", validate=False)
@@ -424,7 +424,7 @@ class TestProjectManagerMore:
         corrupted = {
             "episode": 1,
             "title": "第十集错误标题",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [{"segment_id": "E10S01", "duration_seconds": 4}],
         }
         # 绕过 save_script 的潜在未来校验，直接落盘模拟历史产物
@@ -450,7 +450,7 @@ class TestProjectManagerMore:
         script = {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [{"segment_id": "E1S01", "duration_seconds": 4, "generated_assets": {}}],
         }
         pm.save_script("demo", script, "episode_1.json", validate=False)
@@ -731,16 +731,16 @@ class TestProjectManagerMore:
         assert "source_language" not in pm.load_project("demo")
 
     @pytest.mark.unit
-    @pytest.mark.parametrize("source_kind", [None, "novel", "screenplay"])
+    @pytest.mark.parametrize("source_file_type", [None, "novel", "screenplay"])
     @pytest.mark.asyncio
-    async def test_generate_overview_routes_prompt_by_source_kind(self, tmp_path, monkeypatch, source_kind):
-        """overview prompt 按项目 source_kind 路由：screenplay 走「提取优先」分支，
-        novel / 缺省维持原 prompt（回归）。只断言 source_kind 被透传，不测 LLM 提取质量。"""
+    async def test_generate_overview_routes_prompt_by_source_kind(self, tmp_path, monkeypatch, source_file_type):
+        """overview prompt 按项目 source_file_type 路由：screenplay 走「提取优先」分支，
+        novel / 缺省维持原 prompt（回归）。只断言 source_file_type 被透传，不测 LLM 提取质量。"""
         from lib.prompt_builders_script import build_overview_prompt
 
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", source_kind=source_kind)
+        pm.create_project_metadata("demo", "Demo", source_file_type=source_file_type)
         _write(pm.get_project_path("demo") / "source" / "1.txt", "源文本内容")
 
         backend = _FakeTextBackend()
@@ -752,9 +752,9 @@ class TestProjectManagerMore:
         await pm.generate_overview("demo")
 
         source_content = pm._read_source_files("demo")
-        expected_kind = source_kind or "novel"
+        expected_kind = source_file_type or "novel"
         assert backend.last_request is not None
-        assert backend.last_request.prompt == build_overview_prompt(source_content, source_kind=expected_kind)
+        assert backend.last_request.prompt == build_overview_prompt(source_content, source_file_type=expected_kind)
 
     @pytest.mark.unit
     @pytest.mark.parametrize("dirty_source_language", [123, ["zh"], {}, "", "   "])
@@ -783,7 +783,7 @@ class TestProjectManagerMore:
         source_content = pm._read_source_files("demo")
         assert backend.last_request is not None
         assert backend.last_request.prompt == build_overview_prompt(
-            source_content, source_kind="novel", target_language="中文"
+            source_content, source_file_type="novel", target_language="中文"
         )
 
     @pytest.mark.unit
@@ -791,15 +791,15 @@ class TestProjectManagerMore:
     async def test_generate_overview_legacy_project_without_source_kind_falls_back_to_novel(
         self, tmp_path, monkeypatch
     ):
-        """遗留 project.json 缺 source_kind 字段时退回 novel 分支（覆盖 `.get(...) or DEFAULT_SOURCE_KIND` 兜底）。"""
+        """遗留 project.json 缺 source_file_type 字段时退回 novel 分支（覆盖 `.get(...) or DEFAULT_SOURCE_FILE_TYPE` 兜底）。"""
         from lib.prompt_builders_script import build_overview_prompt
 
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", source_kind="screenplay")
-        # 模拟遗留项目：移除 source_kind 字段
-        pm.update_project("demo", lambda project: project.pop("source_kind", None))
-        assert "source_kind" not in pm.load_project("demo")
+        pm.create_project_metadata("demo", "Demo", source_file_type="screenplay")
+        # 模拟遗留项目：移除 source_file_type 字段
+        pm.update_project("demo", lambda project: project.pop("source_file_type", None))
+        assert "source_file_type" not in pm.load_project("demo")
         _write(pm.get_project_path("demo") / "source" / "1.txt", "源文本内容")
 
         backend = _FakeTextBackend()
@@ -812,7 +812,7 @@ class TestProjectManagerMore:
 
         source_content = pm._read_source_files("demo")
         assert backend.last_request is not None
-        assert backend.last_request.prompt == build_overview_prompt(source_content, source_kind="novel")
+        assert backend.last_request.prompt == build_overview_prompt(source_content, source_file_type="novel")
 
 
 class TestFromCwd:

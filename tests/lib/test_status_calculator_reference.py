@@ -46,7 +46,7 @@ def _mk_reference_script(units_total: int, units_done: int) -> dict:
     return {
         "episode": 1,
         "title": "E1",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "duration_seconds": 0,
         "summary": "",
         "novel": {"title": "t", "chapter": "c"},
@@ -60,7 +60,7 @@ def test_calculate_episode_stats_reference_video_all_ready(pm: ProjectManager) -
         "proj", _mk_reference_script(units_total=3, units_done=3), generation_mode="reference_video"
     )
     assert stats["status"] == "completed"
-    assert stats["units_count"] == 3
+    assert stats["video_unit_count"] == 3
     assert stats["videos"] == {"total": 3, "completed": 3}
     # storyboards stays zeroed — reference mode does not produce storyboards
     assert stats["storyboards"] == {"total": 3, "completed": 0}
@@ -82,7 +82,7 @@ def test_calculate_episode_stats_reference_video_empty_draft(pm: ProjectManager)
         "proj", _mk_reference_script(units_total=0, units_done=0), generation_mode="reference_video"
     )
     assert stats["status"] == "draft"
-    assert stats["units_count"] == 0
+    assert stats["video_unit_count"] == 0
     assert stats["duration_seconds"] == 0
 
 
@@ -104,7 +104,7 @@ def test_enrich_script_reference_video_aggregates_references(pm: ProjectManager)
     script = {
         "episode": 1,
         "title": "E1",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "duration_seconds": 0,
         "summary": "",
         "novel": {"title": "t", "chapter": "c"},

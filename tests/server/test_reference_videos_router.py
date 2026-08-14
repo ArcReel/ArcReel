@@ -29,7 +29,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         json.dumps(
             {
                 "title": "T",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
                 "style": "s",
                 "characters": {"张三": {"description": "x", "character_sheet": "characters/张三.png"}},
@@ -50,7 +50,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
             {
                 "episode": 1,
                 "title": "E1",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
                 "summary": "x",
                 "novel": {"title": "t", "chapter": "c"},
@@ -255,10 +255,10 @@ def test_three_reference_route_web_manual_edits_atomically_reject_mixed_speech_o
     pm = router_mod.get_project_manager()
     project_file = tmp_path / "projects" / "demo" / "project.json"
     project = json.loads(project_file.read_text(encoding="utf-8"))
-    project["content_mode"] = case.content_mode
+    project["creation_type"] = case.creation_type
     project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     script = pm.load_script("demo", "episode_1.json")
-    script["content_mode"] = case.content_mode
+    script["creation_type"] = case.creation_type
     script["video_units"][0]["generated_assets"] = before["generated_assets"]
     pm.save_script("demo", script, "episode_1.json")
 
@@ -667,7 +667,7 @@ def test_three_reference_route_web_video_entries_share_structured_speech_admissi
     project_path = tmp_path / "projects" / "demo"
     project_file = project_path / "project.json"
     project = json.loads(project_file.read_text(encoding="utf-8"))
-    project["content_mode"] = case.content_mode
+    project["creation_type"] = case.creation_type
     project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     script_file = project_path / "scripts" / "episode_1.json"
     script = json.loads(script_file.read_text(encoding="utf-8"))

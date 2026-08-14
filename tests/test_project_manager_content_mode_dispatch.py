@@ -1,11 +1,11 @@
-"""PM 按 content_mode 选数据结构的守卫回归测试。
+"""PM 按 creation_type 选数据结构的守卫回归测试。
 
-锁定一个边缘行为：content_mode=narration 但数据落在 `scenes` 键下（无 `segments` 键）
-的畸形脚本，PM 必须沿键存在性守卫回退去读 `scenes`，而非因 content_mode 字面映射到
+锁定一个边缘行为：creation_type=narration 但数据落在 `scenes` 键下（无 `segments` 键）
+的畸形脚本，PM 必须沿键存在性守卫回退去读 `scenes`，而非因 creation_type 字面映射到
 `segments` 就读到空列表。
 
 收敛字段名分派（→ lib.script_skeleton 取证解析）时若天真改为
-`items = script.get(<content_mode 对应 items_key>, [])`、丢掉 `"segments" in script`
+`items = script.get(<creation_type 对应 items_key>, [])`、丢掉 `"segments" in script`
 守卫，这些断言会变红——这正是它们要守的回归。只断言外部行为，不 patch 私有方法。
 """
 
@@ -26,11 +26,11 @@ def _pm(tmp_path: Path) -> ProjectManager:
 
 
 def _narration_script_with_data_under_scenes() -> dict:
-    """content_mode=narration，但内容存在 `scenes` 键下、无 `segments` 键的畸形脚本。"""
+    """creation_type=narration，但内容存在 `scenes` 键下、无 `segments` 键的畸形脚本。"""
     return {
         "episode": 1,
         "title": "标题",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
         "scenes": [

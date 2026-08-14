@@ -94,7 +94,7 @@ class ScriptReviewService:
         """该集 step1 变体 + 结构校验模型；不适用 gate（无结构化 step1）时抛 not_applicable。
 
         变体判定单一真相源在 ``script_review.step1_kind``（reference_video 按项目生成路线优先，
-        跨 content_mode）；本层据此选 Pydantic 模型。返回变体名供 rv 保存时的 references 重派生分支。
+        跨 creation_type）；本层据此选 Pydantic 模型。返回变体名供 rv 保存时的 references 重派生分支。
         """
         kind = script_review.step1_kind(project)
         if kind is None:
@@ -262,7 +262,7 @@ class ScriptReviewService:
             status = script_review.review_status(project_path, project, episode)
         return {
             "episode": episode,
-            "content_mode": project.get("content_mode"),
+            "creation_type": project.get("creation_type"),
             "status": status,
             "fingerprint": fingerprint,
             "confirmed_at": script_review.stored_review(project, episode).get("confirmed_at"),

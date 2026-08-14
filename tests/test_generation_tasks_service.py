@@ -190,7 +190,7 @@ def test_storyboard_visual_basis_tracks_effective_request_context(tmp_path: Path
         "prompt": {"action": "跑"},
         "storyboard_image": storyboard,
         "end_frame_image": None,
-        "content_mode": "narration",
+        "creation_type": "narration",
         "utterances": None,
         "voice_characters": None,
         "provider_id": "ark",
@@ -262,7 +262,7 @@ def test_storyboard_visual_basis_tracks_only_referenced_character_voices(tmp_pat
         "resolution": "720p",
         "seed": None,
         "requested_generate_audio": True,
-        "content_mode": "drama",
+        "creation_type": "drama",
         "utterances": [{"kind": "dialogue", "speaker": "Alice", "text": "Run"}],
         "has_utterances": True,
     }
@@ -289,7 +289,7 @@ class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
         self.project = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "style": "Anime",
             "style_description": "cinematic",
             "characters": {
@@ -311,7 +311,7 @@ class _FakePM:
             },
         }
         self.script = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -435,7 +435,7 @@ class TestGenerationTasks:
     def test_helper_functions(self, tmp_path):
         from lib.storyboard_sequence import get_storyboard_items
 
-        mode_items = get_storyboard_items({"content_mode": "drama", "scenes": []})
+        mode_items = get_storyboard_items({"creation_type": "drama", "scenes": []})
         assert mode_items[1] == "scene_id"
 
         prompt = generation_tasks._normalize_storyboard_prompt("text", "Anime")
@@ -1052,7 +1052,7 @@ class TestGenerationTasks:
             resolution="720p",
             seed=None,
             requested_generate_audio=True,
-            content_mode="narration",
+            creation_type="narration",
             utterances=None,
             has_utterances=False,
             voice_characters=None,
@@ -1673,7 +1673,7 @@ class TestGenerationTasks:
 
         # 改用 drama 剧本：E1S01 携带有序 utterances（voiceover 在前、dialogue 在后）
         fake_pm.script = {
-            "content_mode": "drama",
+            "creation_type": "drama",
             "scenes": [
                 {
                     "scene_id": "E1S01",
@@ -1716,7 +1716,7 @@ class TestGenerationTasks:
 
     def _drama_script(self):
         return {
-            "content_mode": "drama",
+            "creation_type": "drama",
             "scenes": [
                 {
                     "scene_id": "E1S01",
@@ -1954,16 +1954,16 @@ class TestGenerationTasks:
     async def test_execute_video_task_content_mode_falls_back_to_project_when_episode_omits_it(
         self, monkeypatch, tmp_path
     ):
-        """存量 episode 剧本省略顶层 content_mode 时回退到 project.json 的 content_mode
+        """存量 episode 剧本省略顶层 creation_type 时回退到 project.json 的 creation_type
         （与 lib.data_validator 已校验通过的既定口径一致），不因回退缺失而被误判为
         narration、静默跳过 dialogue 重建与 Voice_Profiles 注入。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_pm.project["content_mode"] = "drama"
+        fake_pm.project["creation_type"] = "drama"
         fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
         fake_generator = _FakeGenerator()
         fake_pm.script = {
-            # 顶层无 content_mode：存量 episode 省略该字段，真相源退到 project.json。
+            # 顶层无 creation_type：存量 episode 省略该字段，真相源退到 project.json。
             "scenes": [
                 {
                     "scene_id": "E1S01",
@@ -2198,19 +2198,19 @@ class TestGenerationTasks:
         ("script", "expected_entity_type", "expected_label"),
         [
             pytest.param(
-                {"content_mode": "drama", "scenes": [{"scene_id": "E1S01"}]},
+                {"creation_type": "drama", "scenes": [{"scene_id": "E1S01"}]},
                 "drama_scene",
                 "场景「E1S01」",
                 id="drama-scenes",
             ),
             pytest.param(
-                {"content_mode": "ad", "shots": [{"shot_id": "E1S01"}]},
+                {"creation_type": "ad", "shots": [{"shot_id": "E1S01"}]},
                 "shot",
                 "镜头「E1S01」",
                 id="ad-shots",
             ),
             pytest.param(
-                {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]},
+                {"creation_type": "narration", "segments": [{"segment_id": "E1S01"}]},
                 "segment",
                 "分镜「E1S01」",
                 id="narration-segments",
@@ -2264,7 +2264,7 @@ class TestGenerationTasks:
         project_path = tmp_path / "demo"
         project_path.mkdir()
         fake_pm = _FakePM(project_path)
-        fake_pm.script = {"content_mode": "narration", "video_units": [{"unit_id": "U01"}]}
+        fake_pm.script = {"creation_type": "narration", "video_units": [{"unit_id": "U01"}]}
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
 
         generation_tasks.emit_generation_success_batch(
@@ -2284,7 +2284,7 @@ class TestGenerationTasks:
     def test_emit_success_batch_reference_video_ad_entity_type_not_shot(self, monkeypatch, tmp_path):
         """ad 剧本骨架恒为 shots[]，reference_video 路径派生的 video_unit 索引与 shots
         同存于一份剧本 JSON——resolve_script_kind 的数据形状判别会因 shots 键仍在而落回
-        content_mode==ad→shots，与该任务实际对应 video_unit 资源不符，故需固定解析，
+        creation_type==ad→shots，与该任务实际对应 video_unit 资源不符，故需固定解析，
         不随骨架判别漂到 "shot"。"""
         captured = []
         monkeypatch.setattr(
@@ -2297,7 +2297,7 @@ class TestGenerationTasks:
         project_path.mkdir()
         fake_pm = _FakePM(project_path)
         fake_pm.script = {
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [{"shot_id": "E1S01"}],
             "video_units": [{"unit_id": "U01", "shot_ids": ["E1S01"]}],
         }
@@ -2329,9 +2329,9 @@ class TestGenerationTasks:
         project_path = tmp_path / "demo"
         project_path.mkdir()
         fake_pm = _FakePM(project_path)
-        fake_pm.project.update(content_mode="ad", generation_mode="reference_video")
+        fake_pm.project.update(creation_type="ad", generation_mode="reference_video")
         fake_pm.script = {
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [{"shot_id": "E1S01"}],
             "video_units": [{"unit_id": "E1U01"}],
         }
@@ -2425,7 +2425,7 @@ class TestGenerationTasks:
         project_path = tmp_path / "demo"
         project_path.mkdir()
         fake_pm = _FakePM(project_path)
-        fake_pm.script = {"content_mode": "narration", "episode": 3, "segments": [{"segment_id": "E3S01"}]}
+        fake_pm.script = {"creation_type": "narration", "episode": 3, "segments": [{"segment_id": "E3S01"}]}
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
 
         for task_type in ("storyboard", "video", "reference_video"):
@@ -2535,18 +2535,18 @@ class TestGenerationTasks:
 class TestGetAspectRatio:
     @pytest.mark.unit
     def test_reads_top_level_aspect_ratio(self):
-        project = {"aspect_ratio": "16:9", "content_mode": "narration"}
+        project = {"aspect_ratio": "16:9", "creation_type": "narration"}
         assert generation_tasks.get_aspect_ratio(project, "videos") == "16:9"
         assert generation_tasks.get_aspect_ratio(project, "storyboards") == "16:9"
 
     @pytest.mark.unit
     def test_fallback_to_content_mode_narration(self):
-        project = {"content_mode": "narration"}
+        project = {"creation_type": "narration"}
         assert generation_tasks.get_aspect_ratio(project, "videos") == "9:16"
 
     @pytest.mark.unit
     def test_fallback_to_content_mode_drama(self):
-        project = {"content_mode": "drama"}
+        project = {"creation_type": "drama"}
         assert generation_tasks.get_aspect_ratio(project, "videos") == "16:9"
 
     @pytest.mark.unit
@@ -2565,11 +2565,11 @@ class TestGetAspectRatio:
 def _ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
     """ad 项目 fixture：产品镜头 E1S02（引用保温杯）+ 氛围镜头 E1S01/E1S03。"""
     pm = _FakePM(project_path)
-    pm.project["content_mode"] = "ad"
+    pm.project["creation_type"] = "ad"
     if with_sheet:
         pm.project["products"]["保温杯"]["product_sheet"] = "products/保温杯.png"
     pm.script = {
-        "content_mode": "ad",
+        "creation_type": "ad",
         "shots": [
             {
                 "shot_id": "E1S01",

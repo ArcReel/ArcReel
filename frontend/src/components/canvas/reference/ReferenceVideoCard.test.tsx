@@ -61,7 +61,7 @@ function ControlledCard({
 
 const PROJECT: ProjectData = {
   title: "p",
-  content_mode: "narration",
+  creation_type: "narration",
   style: "",
   episodes: [],
   characters: { 主角: { description: "" }, 张三: { description: "" }, "角色甲（成年）": { description: "" } },

@@ -85,7 +85,7 @@ def fake_pm(tmp_path: Path) -> _FakeProjectManager:
     (project_path / "thumbnails").mkdir(parents=True, exist_ok=True)
     return _FakeProjectManager(
         project_path=project_path,
-        project={"content_mode": "narration", "default_duration": 8, "aspect_ratio": "9:16"},
+        project={"creation_type": "narration", "default_duration": 8, "aspect_ratio": "9:16"},
     )
 
 

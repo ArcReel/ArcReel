@@ -56,7 +56,7 @@ from lib.reference_video.request_projection import (
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.script_editor import resolve_items
-from lib.script_models import get_generated_assets, resolve_content_mode
+from lib.script_models import get_generated_assets, resolve_creation_type
 from lib.script_skeleton import resolve_script_kind
 from lib.speech_composition import admit_script_unit
 from lib.storyboard_sequence import resolve_storyboard_image_ref
@@ -487,7 +487,7 @@ async def prepare_current_storyboard_narrated_video_duration(
         resolution=request_resolution,
         seed=seed,
         requested_generate_audio=candidate.requested_generate_audio,
-        content_mode=resolve_content_mode(script, project),
+        creation_type=resolve_creation_type(script, project),
         is_silent=not candidate.has_audio_track or not candidate.requested_generate_audio,
     )
     current_visual_duration = (
@@ -654,7 +654,7 @@ def _storyboard_visual_basis_digest(
     resolution: str | None,
     seed: object,
     requested_generate_audio: bool,
-    content_mode: str,
+    creation_type: str,
     is_silent: bool,
 ) -> str | None:
     try:
@@ -673,10 +673,10 @@ def _storyboard_visual_basis_digest(
             resolution=resolution,
             seed=seed,
             requested_generate_audio=requested_generate_audio,
-            content_mode=content_mode,
-            utterances=item.get("utterances") if content_mode == "drama" else None,
-            has_utterances=content_mode == "drama" and "utterances" in item,
-            voice_characters=(None if is_silent else project.get("characters")) if content_mode == "drama" else None,
+            creation_type=creation_type,
+            utterances=item.get("utterances") if creation_type == "drama" else None,
+            has_utterances=creation_type == "drama" and "utterances" in item,
+            voice_characters=(None if is_silent else project.get("characters")) if creation_type == "drama" else None,
         ).digest
     except (OSError, TypeError, ValueError):
         return None

@@ -60,7 +60,7 @@ def fake_project(tmp_path: Path) -> Path:
             {
                 "schema_version": 1,
                 "title": "fake",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "storyboard",
                 "characters": {},
                 "scenes": {},
@@ -139,7 +139,7 @@ def test_compose_video_rejects_ad_mode(fake_project: Path) -> None:
     (fake_project / "scripts" / "ep_ad.json").write_text(
         json.dumps(
             {
-                "content_mode": "ad",
+                "creation_type": "ad",
                 "shots": [
                     {
                         "shot_id": "E1S1",
@@ -158,7 +158,7 @@ def test_compose_video_rejects_ad_mode(fake_project: Path) -> None:
     assert result.returncode != 0
     out = result.stdout + result.stderr
     assert "仅支持 drama 模式" in out
-    assert "content_mode=ad" in out
+    assert "creation_type=ad" in out
     assert "剪映草稿导出" in out
     assert "KeyError" not in out
 

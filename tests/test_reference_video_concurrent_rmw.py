@@ -32,7 +32,7 @@ def _seed_reference_video_project(pm: ProjectManager, name: str, n_units: int) -
     script = {
         "episode": 1,
         "title": "Episode 1",
-        "content_mode": "drama",
+        "creation_type": "drama",
         "generation_mode": "reference_video",
         "video_units": [
             {

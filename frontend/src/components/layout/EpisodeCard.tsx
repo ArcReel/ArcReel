@@ -48,7 +48,7 @@ export function EpisodeCard({
   const isActive = status === "in_production";
 
   // 进度：优先用 storyboards/videos completed/total
-  const totalShots = ep.scenes_count ?? ep.storyboards?.total ?? ep.units_count ?? 0;
+  const totalShots = ep.storyboard_count ?? ep.video_unit_count ?? ep.storyboards?.total ?? 0;
   const completedShots = ep.videos?.completed ?? 0;
   const progress =
     totalShots > 0 ? Math.round((completedShots / totalShots) * 100) : 0;

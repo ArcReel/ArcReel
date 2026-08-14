@@ -34,15 +34,15 @@ from lib.episode_ledger import (
 )
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
-from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
+from lib.profile_manifest import VALID_CREATION_TYPES as _VALID_CONTENT_MODES
 from lib.project_manager import VALID_GENERATION_MODES as _VALID_GENERATION_MODES
-from lib.project_manager import VALID_SOURCE_KINDS as _VALID_SOURCE_KINDS
+from lib.project_manager import VALID_SOURCE_FILE_TYPES as _VALID_SOURCE_KINDS
 from lib.reference_video.writing_syntax import MAX_SHOTS_PER_UNIT
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     REFERENCE_UNIT_DURATION_RANGE,
     ad_script_total_duration,
-    resolve_content_mode,
+    resolve_creation_type,
 )
 from lib.script_skeleton import (
     STORYBOARD_ITEM_ID_PATTERN,
@@ -134,12 +134,12 @@ def _is_parseable_iso_timestamp(value: str) -> bool:
 class DataValidator:
     """数据验证器"""
 
-    # content_mode 严格只表达"内容类型"；"视频来源"维度由项目级 generation_mode 字段表达。
+    # creation_type 严格只表达"内容类型"；"视频来源"维度由项目级 generation_mode 字段表达。
     # 合法集真相源在 lib.profile_manifest，避免两处枚举漂移。
-    VALID_CONTENT_MODES = set(_VALID_CONTENT_MODES)
+    VALID_CREATION_TYPES = set(_VALID_CONTENT_MODES)
     # 源文件性质（novel / screenplay）合法集，真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。缺省 novel：缺失字段不报错，仅拦截非法值（如 screen_play）。
-    VALID_SOURCE_KINDS = set(_VALID_SOURCE_KINDS)
+    VALID_SOURCE_FILE_TYPES = set(_VALID_SOURCE_KINDS)
     # 生成路线合法集（storyboard / reference_video），真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。必填：存量项目由 v4→v5 迁移补写显式值，缺失即非法。
     VALID_GENERATION_MODES = set(_VALID_GENERATION_MODES)
@@ -322,7 +322,7 @@ class DataValidator:
     @staticmethod
     def _validate_ad_project_fields(
         project: dict[str, Any],
-        content_mode: Any,
+        creation_type: Any,
         errors: list[ValidationMessage],
     ) -> None:
         """广告/短片项目的专属字段与恒单集约束。
@@ -330,7 +330,7 @@ class DataValidator:
         target_duration / brief 仅 ad 项目持有；ad 项目不持有 default_duration
         （镜头按目标总时长预算逐个规划，单镜头偏好无意义），episodes 恒为第 1 集单条。
         """
-        if content_mode != "ad":
+        if creation_type != "ad":
             if project.get("target_duration") is not None:
                 errors.append(_m("val_ad_only_field", field="target_duration"))
             if project.get("brief") is not None:
@@ -370,18 +370,22 @@ class DataValidator:
         elif not isinstance(project["title"], str):
             errors.append(_m("val_field_type_string", field="title"))
 
-        content_mode = project.get("content_mode")
-        if not content_mode:
-            errors.append(_m("val_missing_field", field="content_mode"))
-        elif not isinstance(content_mode, str) or content_mode not in self.VALID_CONTENT_MODES:
+        creation_type = project.get("creation_type")
+        if not creation_type:
+            errors.append(_m("val_missing_field", field="creation_type"))
+        elif not isinstance(creation_type, str) or creation_type not in self.VALID_CREATION_TYPES:
             errors.append(
-                _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
+                _m("val_content_mode_invalid", value=creation_type, allowed=_allowed(self.VALID_CREATION_TYPES))
             )
 
-        # source_kind 缺省 novel：缺失字段（存量项目）放行，仅拦截非法值（如 screen_play）。
-        source_kind = project.get("source_kind")
-        if source_kind is not None and (not isinstance(source_kind, str) or source_kind not in self.VALID_SOURCE_KINDS):
-            errors.append(_m("val_source_kind_invalid", value=source_kind, allowed=_allowed(self.VALID_SOURCE_KINDS)))
+        # source_file_type 缺省 novel：缺失字段（存量项目）放行，仅拦截非法值（如 screen_play）。
+        source_file_type = project.get("source_file_type")
+        if source_file_type is not None and (
+            not isinstance(source_file_type, str) or source_file_type not in self.VALID_SOURCE_FILE_TYPES
+        ):
+            errors.append(
+                _m("val_source_kind_invalid", value=source_file_type, allowed=_allowed(self.VALID_SOURCE_FILE_TYPES))
+            )
 
         # 生成路线必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
         generation_mode = project.get("generation_mode")
@@ -412,7 +416,7 @@ class DataValidator:
                     )
                 )
 
-        self._validate_ad_project_fields(project, content_mode, errors)
+        self._validate_ad_project_fields(project, creation_type, errors)
 
         if not project.get("style"):
             errors.append(_m("val_missing_field", field="style"))
@@ -1324,7 +1328,7 @@ class DataValidator:
         if not episode.get("title"):
             errors.append(_m("val_missing_field", field="title"))
 
-        content_mode = resolve_content_mode(episode, project)
+        creation_type = resolve_creation_type(episode, project)
 
         for deprecated_field in ("characters_in_episode", "scenes_in_episode", "props_in_episode"):
             if episode.get(deprecated_field) is not None:
@@ -1341,24 +1345,24 @@ class DataValidator:
         scene_speech_rate = project_speech_rate_override(project)
 
         # "视频来源"维度是项目级事实（generation_mode），剧本不携带；骨架种类经规范解析统一
-        # 判别，不再自建 (content_mode, generation_mode) 轴交互的四路 if-elif。广告参考路线
+        # 判别，不再自建 (creation_type, generation_mode) 轴交互的四路 if-elif。广告参考路线
         # 与其他参考路线一样使用 video_units；广告 storyboard 路线仍使用 shots。
         gen_mode = project.get("generation_mode")
         try:
-            kind = resolve_declared_kind(content_mode, gen_mode)
+            kind = resolve_declared_kind(creation_type, gen_mode)
         except ValueError:
-            # content_mode 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud
+            # creation_type 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud
             # 抛错，但 validator 的契约是把脏数据报告成结构化错误而非让异常传播出去。跳过依赖
             # 骨架种类的后续检查——没有合法 kind 就无从判断该读 segments/scenes/shots 中哪个。
             errors.append(
-                _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
+                _m("val_content_mode_invalid", value=creation_type, allowed=_allowed(self.VALID_CREATION_TYPES))
             )
             return
         if validate_route:
             try:
                 # 闸门放行族内历史形态（narration 数据落 scenes 键）并返回剧本的实际骨架，后续按
                 # 该实际种类分派——用声明种类会让这类剧本按不存在的 segments 空读，数据一条都不校验。
-                kind = ensure_route_skeleton(episode, content_mode, gen_mode)
+                kind = ensure_route_skeleton(episode, creation_type, gen_mode)
             except SkeletonRouteMismatchError as exc:
                 # 失配剧本（骨架与项目路线跨族）：按路线该读的数组根本不在剧本里，
                 # 逐字段报"缺少 segments"会把成因埋掉——直接给结构结论与重拆指引，并跳过后续

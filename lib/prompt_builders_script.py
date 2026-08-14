@@ -1,4 +1,4 @@
-"""剧本生成 Prompt 构建器（drama / narration 两种 content_mode）。
+"""剧本生成 Prompt 构建器（drama / narration 两种 creation_type）。
 
 设计原则：
 - 不重复 schema 已声明的枚举（shot_type / camera_motion 等）；让 response_schema 直接约束。
@@ -168,9 +168,9 @@ _AMBIANCE_AUDIO_WRITING_GUIDE = (
 # 两段式分层文案（见 ADR 0041）：step1（normalize）= 内容、step2（drama）= 视觉。
 #
 # 内容抽取前移到 step1：场景边界、出场资产、逐字口播 utterances、原文锚 source_text、
-# 视觉改编描述 scene_description 一次定稿，并按 source_kind 切「改编 / 提取」口径。
+# 视觉改编描述 scene_description 一次定稿，并按 source_file_type 切「改编 / 提取」口径。
 # step2 只补视觉层（image_prompt / video_prompt），按 scene_id 透传内容、不再识别口播、
-# 不分 source_kind——故 step2 文案无 novel/screenplay 分支。
+# 不分 source_file_type——故 step2 文案无 novel/screenplay 分支。
 # ---------------------------------------------------------------------------
 
 # step1（build_normalize_prompt）开篇任务句
@@ -223,7 +223,7 @@ _NORMALIZE_BREAK_RULE_SCREENPLAY = (
     "同一场次内标「否」；不要重新切碎作者的场次"
 )
 
-# step2（build_drama_prompt）开篇角色定位 + 收尾目标——视觉层专责，无 source_kind 分支
+# step2（build_drama_prompt）开篇角色定位 + 收尾目标——视觉层专责，无 source_file_type 分支
 _DRAMA_VISUAL_ROLE = (
     "你是一位资深的短剧分镜摄影 / 动作设计师。下方分镜内容（场景边界、出场资产、逐字口播、"
     "原文锚、视觉改编描述）均已定稿，你的唯一职责是为每个分镜补全视觉生产层："
@@ -435,7 +435,7 @@ def build_drama_prompt(
     内容抽取前移到 step1（见 ADR 0041）：场景边界、出场资产、逐字口播 utterances、原文锚
     source_text、视觉改编描述均已在 step1 定稿，``scenes_content`` 是其渲染输入
     （``render_drama_content_for_step2``）。step2 仅产出视觉层（image_prompt / video_prompt），
-    LLM 输出按 scene_id 与 step1 内容对齐、由后端合并；不再按 source_kind 分支、不再识别口播、
+    LLM 输出按 scene_id 与 step1 内容对齐、由后端合并；不再按 source_file_type 分支、不再识别口播、
     不再标注资产或时长——这些都是 step1 的职责。
 
     ``characters`` / ``scenes`` / ``props`` 注入出场资产的外观描述（project.json 各 bucket），
@@ -528,7 +528,7 @@ def build_normalize_prompt(
     default_duration: int | None,
     supported_durations: list[int],
     episode: int,
-    source_kind: str = "novel",
+    source_file_type: str = "novel",
     target_language: str = "中文",
     source_language: str | None = None,
     speech_rate_override: float | None = None,
@@ -541,7 +541,7 @@ def build_normalize_prompt(
     边界、出场资产、逐字口播、原文锚与视觉改编描述，step2 仅透传 + 补视觉。输出受 response_schema
     （``DramaNormalizedScript``）约束为结构化 JSON。
 
-    ``source_kind="screenplay"`` 翻为「提取/逐字保留」：台词与画外音逐字落 utterances、视觉转写为
+    ``source_file_type="screenplay"`` 翻为「提取/逐字保留」：台词与画外音逐字落 utterances、视觉转写为
     scene_description；默认 ``"novel"`` 维持「改编」语义、画外音由语境判断放开。``episode_outline`` /
     ``next_episode_outline`` 来自分集账本，驱动内容覆盖故事节点、末场落地集尾钩子。
 
@@ -557,7 +557,7 @@ def build_normalize_prompt(
     scene_names = list(scenes.keys())
     prop_names = list(props.keys())
 
-    is_screenplay = source_kind == "screenplay"
+    is_screenplay = source_file_type == "screenplay"
     task_line = _NORMALIZE_TASK_SCREENPLAY if is_screenplay else _NORMALIZE_TASK_NOVEL
     source_heading = "剧本原文" if is_screenplay else "小说原文"
     source_tag = "screenplay" if is_screenplay else "novel"
@@ -808,15 +808,15 @@ _OVERVIEW_TASK_SCREENPLAY = (
 )
 
 
-def build_overview_prompt(source_content: str, source_kind: str = "novel", target_language: str = "中文") -> str:
+def build_overview_prompt(source_content: str, source_file_type: str = "novel", target_language: str = "中文") -> str:
     """构建项目概述（overview）生成 prompt。
 
-    ``source_kind="screenplay"`` 时翻为「提取优先」：作者若在剧本内写下创作方案前言
+    ``source_file_type="screenplay"`` 时翻为「提取优先」：作者若在剧本内写下创作方案前言
     （题材 / 主题 / 一句话故事 / 世界观，形态不限、无固定标记），优先照用其设定填充
     overview 字段，缺失才退回从正文归纳。``"novel"``（默认，含非法值）维持从正文归纳的原行为。
 
     overview 产出的字段会注入后续所有生成 prompt，输出语言须与其余 builder 同口径
     （target_language 由调用方按 project.json 的 source_language 解析）。
     """
-    task = _OVERVIEW_TASK_SCREENPLAY if source_kind == "screenplay" else _OVERVIEW_TASK_NOVEL
+    task = _OVERVIEW_TASK_SCREENPLAY if source_file_type == "screenplay" else _OVERVIEW_TASK_NOVEL
     return f"{task}\n\n**输出语言**：所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。\n\n{source_content}"

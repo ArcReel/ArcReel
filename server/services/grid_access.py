@@ -20,7 +20,7 @@ def ensure_grid_writable(project: dict[str, Any]) -> None:
     - 宫格开关关闭后同理（含 reference_video 路线）——历史 grid 不再可
       重生成/切分/上传/还原。
     """
-    if project.get("content_mode") == "ad":
+    if project.get("creation_type") == "ad":
         raise BadRequestError("ad_grid_not_supported")
     if not grid_storyboard_enabled(project):
         raise BadRequestError("grid_storyboard_not_enabled")

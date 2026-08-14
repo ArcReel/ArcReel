@@ -70,7 +70,7 @@ class TestProjectEventService:
                 {
                     "episode": 1,
                     "title": "第一集",
-                    "content_mode": "narration",
+                    "creation_type": "narration",
                     "segments": [
                         {
                             "segment_id": "E1S01",
@@ -186,7 +186,7 @@ class TestProjectEventService:
                 {
                     "episode": 1,
                     "title": "第一集",
-                    "content_mode": "narration",
+                    "creation_type": "narration",
                     "segments": [
                         {
                             "segment_id": "E1S01",
@@ -272,7 +272,7 @@ class TestProjectEventService:
                     {
                         "episode": 2,
                         "title": "第二集",
-                        "content_mode": "narration",
+                        "creation_type": "narration",
                         "segments": [],
                     },
                     ensure_ascii=False,
@@ -434,7 +434,7 @@ class TestProjectEventService:
         script = {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -495,7 +495,7 @@ class TestProjectEventService:
         script = {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -596,7 +596,7 @@ class TestProjectEventService:
         script = {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -776,7 +776,7 @@ class TestProjectEventService:
                         script_path = pm.get_project_path("demo") / "scripts" / "episode_2.json"
                         script_path.write_text(
                             json.dumps(
-                                {"episode": 2, "title": "第二集", "content_mode": "narration", "segments": []},
+                                {"episode": 2, "title": "第二集", "creation_type": "narration", "segments": []},
                                 ensure_ascii=False,
                             ),
                             encoding="utf-8",
@@ -944,7 +944,7 @@ class TestProjectEventService:
                 {
                     "episode": 1,
                     "title": "广告",
-                    "content_mode": "ad",
+                    "creation_type": "ad",
                     "shots": [
                         {
                             "shot_id": "E1S01",
@@ -1016,7 +1016,7 @@ class TestProjectEventService:
                 {
                     "episode": 1,
                     "title": "剧集",
-                    "content_mode": "drama",
+                    "creation_type": "drama",
                     "scenes": [
                         {
                             "scene_id": "E1S01",
@@ -1080,7 +1080,7 @@ class TestProjectEventService:
                 {
                     "episode": 1,
                     "title": "参考",
-                    "content_mode": "narration",
+                    "creation_type": "narration",
                     "generation_mode": "reference_video",
                     "video_units": [
                         {
@@ -1160,7 +1160,7 @@ class TestProjectEventService:
                 {
                     "episode": 1,
                     "title": "参考",
-                    "content_mode": "narration",
+                    "creation_type": "narration",
                     "generation_mode": "reference_video",
                     "video_units": [
                         {
@@ -1263,7 +1263,7 @@ class TestProjectEventService:
         新增第五种骨架而未在归一化里处置时，本参数化断言会为该 kind 失败，
         而非复刻 ad/reference_video 被静默跳过的路径。
         """
-        content_mode = {
+        creation_type = {
             "segments": "narration",
             "scenes": "drama",
             "shots": "ad",
@@ -1275,7 +1275,7 @@ class TestProjectEventService:
             item[skeleton.chars_field] = ["Hero"]
         else:
             item["references"] = [{"type": "character", "name": "Hero"}]
-        script = {"content_mode": content_mode, kind: [item]}
+        script = {"creation_type": creation_type, kind: [item]}
 
         service = ProjectEventService(tmp_path)
         normalized = service._normalize_script_snapshot(script)
@@ -1298,7 +1298,7 @@ class TestProjectEventService:
 
     @pytest.mark.unit
     @pytest.mark.parametrize(
-        ("kind", "content_mode", "generation_mode", "entity_type", "anchor_type"),
+        ("kind", "creation_type", "generation_mode", "entity_type", "anchor_type"),
         [
             ("segments", "narration", None, "segment", "segment"),
             ("scenes", "drama", None, "drama_scene", "segment"),
@@ -1307,7 +1307,7 @@ class TestProjectEventService:
         ],
     )
     def test_script_item_change_carries_kind_specific_types(
-        self, tmp_path, kind, content_mode, generation_mode, entity_type, anchor_type
+        self, tmp_path, kind, creation_type, generation_mode, entity_type, anchor_type
     ):
         """分镜级事件的 entity_type（分组标签）与 focus.anchor_type（画布滚动目标）按骨架种类推导。"""
         skeleton = SKELETONS[kind]
@@ -1316,7 +1316,7 @@ class TestProjectEventService:
             item[skeleton.chars_field] = ["Hero"]
         else:
             item["references"] = [{"type": "character", "name": "Hero"}]
-        script: dict = {"episode": 1, "content_mode": content_mode, kind: [item]}
+        script: dict = {"episode": 1, "creation_type": creation_type, kind: [item]}
         if generation_mode is not None:
             script["generation_mode"] = generation_mode
 
@@ -1348,7 +1348,7 @@ class TestProjectEventService:
                 {
                     "episode": 1,
                     "title": "广告",
-                    "content_mode": "ad",
+                    "creation_type": "ad",
                     "video_units": [
                         {
                             "unit_id": "E1U01",
@@ -1411,7 +1411,7 @@ class TestProjectEventService:
                 {
                     "episode": 1,
                     "title": "广告",
-                    "content_mode": "ad",
+                    "creation_type": "ad",
                     "shots": [
                         {
                             "shot_id": "E1S01",

@@ -64,7 +64,7 @@ class _FakeTextGenerator:
 def _write_project(
     tmp_path: Path,
     *,
-    content_mode: str = "narration",
+    creation_type: str = "narration",
     episodes: list | None = None,
     planning_cursor: dict | None = None,
     extra: dict | None = None,
@@ -75,7 +75,7 @@ def _write_project(
     project = {
         "schema_version": 3,
         "title": "测试项目",
-        "content_mode": content_mode,
+        "creation_type": creation_type,
         "generation_mode": "storyboard",
         "characters": {},
         "scenes": {},
@@ -366,7 +366,7 @@ class TestPlan:
     @pytest.mark.unit
     async def test_plan_drama_resolves_anchor_with_punctuation_width_mismatch(self, tmp_path: Path):
         """drama 草稿同样走折叠容错：标点宽度不匹配（。→ .）时解析到正确精确偏移。"""
-        project_dir = _write_project(tmp_path, content_mode="drama")
+        project_dir = _write_project(tmp_path, creation_type="drama")
         half_width_anchor = "被追杀的少女."  # 源文全角 。
         fake = _FakeTextGenerator(
             [
@@ -752,7 +752,7 @@ class TestPlan:
     @pytest.mark.unit
     async def test_plan_drama_writes_outline_to_ledger(self, tmp_path: Path):
         """drama 条目加厚为分集大纲：story_beats + next_episode_teaser 落账本 outline。"""
-        project_dir = _write_project(tmp_path, content_mode="drama")
+        project_dir = _write_project(tmp_path, creation_type="drama")
         fake = _FakeTextGenerator(
             [
                 _plan_response(
@@ -780,7 +780,7 @@ class TestPlan:
     @pytest.mark.unit
     async def test_plan_drama_rejects_response_missing_story_beats(self, tmp_path: Path):
         """drama 模式缺 story_beats 的输出被 schema 校验打回重试。"""
-        project_dir = _write_project(tmp_path, content_mode="drama")
+        project_dir = _write_project(tmp_path, creation_type="drama")
         fake = _FakeTextGenerator(
             [
                 _plan_response([{"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1}]),
@@ -806,7 +806,7 @@ class TestPlan:
     @pytest.mark.unit
     async def test_plan_screenplay_respects_author_divisions(self, tmp_path: Path):
         """screenplay：mock 返回尊重作者分集的规划 → 账本落作者的边界 / 标题 / 钩子 / 大纲。"""
-        project_dir = _write_project(tmp_path, content_mode="drama", extra={"source_kind": "screenplay"})
+        project_dir = _write_project(tmp_path, creation_type="drama", extra={"source_file_type": "screenplay"})
         fake = _FakeTextGenerator(
             [
                 _plan_response(
@@ -864,12 +864,14 @@ class TestPlan:
                 ]
             )
 
-        screenplay_dir = _write_project(tmp_path / "scr", content_mode="drama", extra={"source_kind": "screenplay"})
+        screenplay_dir = _write_project(
+            tmp_path / "scr", creation_type="drama", extra={"source_file_type": "screenplay"}
+        )
         scr_fake = _one_episode_generator()
         await EpisodePlanner(screenplay_dir, generator=scr_fake).plan()
         scr_prompt = scr_fake.requests[0].prompt
 
-        novel_dir = _write_project(tmp_path / "nov", content_mode="drama")
+        novel_dir = _write_project(tmp_path / "nov", creation_type="drama")
         nov_fake = _one_episode_generator()
         await EpisodePlanner(novel_dir, generator=nov_fake).plan()
         nov_prompt = nov_fake.requests[0].prompt

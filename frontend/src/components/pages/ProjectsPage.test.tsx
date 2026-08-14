@@ -175,7 +175,7 @@ describe("ProjectsPage", () => {
       project_name: "imported-demo",
       project: {
         title: "Imported Demo",
-        content_mode: "narration",
+        creation_type: "narration",
         style: "Anime",
         episodes: [],
         characters: {},
@@ -293,7 +293,7 @@ describe("ProjectsPage", () => {
         project_name: "demo-renamed",
         project: {
           title: "Renamed Demo",
-          content_mode: "narration",
+          creation_type: "narration",
           style: "Anime",
           episodes: [],
           characters: {},

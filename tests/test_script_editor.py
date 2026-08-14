@@ -37,7 +37,7 @@ def _segment(segment_id: str = "E1S01", duration: int = 4) -> dict:
 def _narration(segments: list[dict] | None = None) -> dict:
     return {
         "title": "标题",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "episode": 1,
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
@@ -63,7 +63,7 @@ def _scene(scene_id: str = "E1S01", duration: int = 8) -> dict:
 def _drama(scenes: list[dict] | None = None) -> dict:
     return {
         "title": "标题",
-        "content_mode": "drama",
+        "creation_type": "drama",
         "episode": 1,
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
@@ -86,7 +86,7 @@ def _unit(unit_id: str = "E1U1", shots: list[dict] | None = None) -> dict:
 def _reference(units: list[dict] | None = None) -> dict:
     return {
         "title": "标题",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "episode": 1,
         "summary": "摘要",
@@ -113,7 +113,7 @@ class TestResolveItems:
     @pytest.mark.unit
     def test_missing_key_is_empty_list(self):
         # 内容数组键缺失 → 空列表（合法的「空草稿」），不报错
-        items, _id, kind = resolve_items({"content_mode": "narration"})
+        items, _id, kind = resolve_items({"creation_type": "narration"})
         assert kind == "segments"
         assert items == []
 
@@ -121,13 +121,13 @@ class TestResolveItems:
     def test_non_list_items_fail_loud(self):
         # 键存在但类型非 list（数据损坏）→ fail-loud，而非静默降级为 []
         with pytest.raises(ScriptEditError):
-            resolve_items({"content_mode": "narration", "segments": "oops"})
+            resolve_items({"creation_type": "narration", "segments": "oops"})
 
     @pytest.mark.unit
     def test_present_but_null_fails_loud(self):
         # 键存在但值为 null（损坏数据）→ fail-loud，不与「键缺失」混为空草稿
         with pytest.raises(ScriptEditError):
-            resolve_items({"content_mode": "narration", "segments": None})
+            resolve_items({"creation_type": "narration", "segments": None})
 
 
 class TestPatchField:

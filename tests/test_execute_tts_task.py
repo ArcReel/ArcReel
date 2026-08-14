@@ -65,9 +65,9 @@ def _audio_ctx(
 class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
-        self.project: dict[str, Any] = {"name": "demo", "content_mode": "narration"}
+        self.project: dict[str, Any] = {"name": "demo", "creation_type": "narration"}
         self.script = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -494,10 +494,10 @@ class TestExecuteTtsTask:
 
     async def test_reference_video_unit_uses_its_own_narrator_text_and_manifest_key(self, tts_env):
         pm, gen = tts_env
-        pm.project.update({"content_mode": "ad", "generation_mode": "reference_video"})
+        pm.project.update({"creation_type": "ad", "generation_mode": "reference_video"})
         pm.script = {
             "episode": 1,
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [
                 {
                     "shot_id": "E1S01",
@@ -522,11 +522,11 @@ class TestExecuteTtsTask:
 
     async def test_reference_video_cancel_uses_video_units_when_ad_script_also_has_shots(self, tts_env):
         pm, gen = tts_env
-        pm.project.update({"content_mode": "ad", "generation_mode": "reference_video"})
+        pm.project.update({"creation_type": "ad", "generation_mode": "reference_video"})
         prior_assets = {"narration_audio": "audio/prior-selection.wav", "status": "old-status"}
         pm.script = {
             "episode": 1,
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [
                 {
                     "shot_id": "E1S01",

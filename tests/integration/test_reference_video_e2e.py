@@ -49,7 +49,7 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         json.dumps(
             {
                 "title": "Demo",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
                 "style": "唐风水墨",
                 "characters": {
@@ -72,7 +72,7 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             {
                 "episode": 1,
                 "title": "江湖夜话",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
                 "summary": "主角手持长剑进酒馆",
                 "novel": {"title": "N", "chapter": "1"},

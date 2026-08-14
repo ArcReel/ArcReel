@@ -59,7 +59,7 @@ class _FakePM:
             "ad-ready": {
                 "title": "Ad Ready",
                 "style": "Realistic",
-                "content_mode": "ad",
+                "creation_type": "ad",
                 "target_duration": 60,
                 "brief": "",
                 "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
@@ -67,11 +67,11 @@ class _FakePM:
         }
         self.scripts = {
             ("ready", "episode_1.json"): {
-                "content_mode": "drama",
+                "creation_type": "drama",
                 "scenes": [{"scene_id": "001", "duration_seconds": 8}],
             },
             ("ready", "narration.json"): {
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
             },
         }
@@ -135,7 +135,7 @@ class _FakePM:
         self.profile_reset_calls.append(project_dir.name)
         return {"repaired": 2, "errors": 0}
 
-    def create_project(self, name, content_mode="narration"):
+    def create_project(self, name, creation_type="narration"):
         if not name or not re.fullmatch(r"[A-Za-z0-9-]+", name):
             raise ValueError("项目标识仅允许英文字母、数字和中划线")
         if name == "exists":
@@ -151,24 +151,24 @@ class _FakePM:
         name,
         title,
         style,
-        content_mode,
+        creation_type,
         aspect_ratio="9:16",
         default_duration=None,
         style_template_id=None,
         extras=None,
         target_duration=None,
         brief=None,
-        source_kind=None,
+        source_file_type=None,
     ):
         payload = {
             "title": (title or name),
             "style": style or "",
-            "content_mode": content_mode,
-            "source_kind": source_kind or "novel",
+            "creation_type": creation_type,
+            "source_file_type": source_file_type or "novel",
             "aspect_ratio": aspect_ratio,
             "episodes": [],
         }
-        if content_mode == "ad":
+        if creation_type == "ad":
             # 镜像真实 ProjectManager 的 ad 形状：常量直接取自生产代码，避免第二份真相
             from lib.project_manager import ProjectManager
 
@@ -447,7 +447,7 @@ class TestProjectsRouter:
                 "narration.json",
                 "/api/v1/projects/ready/segments/E1S01",
                 {
-                    "content_mode": "narration",
+                    "creation_type": "narration",
                     "segments": [
                         {
                             "segment_id": "E1S01",
@@ -465,7 +465,7 @@ class TestProjectsRouter:
                 "episode_1.json",
                 "/api/v1/projects/ready/script-scenes/E1S01",
                 {
-                    "content_mode": "drama",
+                    "creation_type": "drama",
                     "scenes": [{"scene_id": "E1S01", "duration_seconds": 4, "utterances": []}],
                 },
                 {
@@ -483,7 +483,7 @@ class TestProjectsRouter:
                 "episode_1.json",
                 "/api/v1/projects/ad-ready/script-shots/E1S01",
                 {
-                    "content_mode": "ad",
+                    "creation_type": "ad",
                     "shots": [
                         {
                             "shot_id": "E1S01",
@@ -559,6 +559,30 @@ class TestProjectsRouter:
         assert reset.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
 
     @pytest.mark.unit
+    def test_create_rejects_legacy_content_mode_field(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            rejected = client.post(
+                "/api/v1/projects",
+                json={
+                    "generation_mode": "storyboard",
+                    "name": "legacy",
+                    "title": "旧字段",
+                    "content_mode": "drama",
+                },
+            )
+        assert rejected.status_code == 422
+
+    @pytest.mark.unit
+    def test_get_project_blocks_stale_schema(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["schema_version"] = 7
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            detail = client.get("/api/v1/projects/ready")
+        assert detail.status_code == 409
+
+    @pytest.mark.unit
     def test_list_and_create_and_delete(self, tmp_path, monkeypatch):
         client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
         with client:
@@ -572,7 +596,7 @@ class TestProjectsRouter:
 
             create_ok = client.post(
                 "/api/v1/projects",
-                json={"generation_mode": "storyboard", "title": "New", "style": "Real", "content_mode": "narration"},
+                json={"generation_mode": "storyboard", "title": "New", "style": "Real", "creation_type": "narration"},
             )
             assert create_ok.status_code == 200
             assert create_ok.json()["name"] == "project-aa11bb22"
@@ -584,7 +608,7 @@ class TestProjectsRouter:
                     "generation_mode": "storyboard",
                     "name": "manual-project",
                     "style": "Anime",
-                    "content_mode": "narration",
+                    "creation_type": "narration",
                 },
             )
             assert create_manual_name.status_code == 200
@@ -598,7 +622,7 @@ class TestProjectsRouter:
                     "name": "exists",
                     "title": "Dup",
                     "style": "",
-                    "content_mode": "narration",
+                    "creation_type": "narration",
                 },
             )
             assert create_exists.status_code == 400
@@ -610,14 +634,14 @@ class TestProjectsRouter:
                     "name": "bad_name",
                     "title": "Bad",
                     "style": "",
-                    "content_mode": "narration",
+                    "creation_type": "narration",
                 },
             )
             assert create_invalid.status_code == 400
 
             create_missing_title = client.post(
                 "/api/v1/projects",
-                json={"generation_mode": "storyboard", "style": "", "content_mode": "narration"},
+                json={"generation_mode": "storyboard", "style": "", "creation_type": "narration"},
             )
             assert create_missing_title.status_code == 400
 
@@ -635,20 +659,20 @@ class TestProjectsRouter:
                     "generation_mode": "storyboard",
                     "name": "scr",
                     "title": "剧本项目",
-                    "content_mode": "drama",
-                    "source_kind": "screenplay",
+                    "creation_type": "drama",
+                    "source_file_type": "screenplay",
                 },
             )
             assert screenplay.status_code == 200
-            assert screenplay.json()["project"]["source_kind"] == "screenplay"
+            assert screenplay.json()["project"]["source_file_type"] == "screenplay"
 
-            # 缺省 source_kind 落 novel
+            # 缺省 source_file_type 落 novel
             default_novel = client.post(
                 "/api/v1/projects",
-                json={"generation_mode": "storyboard", "name": "nov", "title": "默认项目", "content_mode": "drama"},
+                json={"generation_mode": "storyboard", "name": "nov", "title": "默认项目", "creation_type": "drama"},
             )
             assert default_novel.status_code == 200
-            assert default_novel.json()["project"]["source_kind"] == "novel"
+            assert default_novel.json()["project"]["source_file_type"] == "novel"
 
             # 非法值被 Pydantic 拒（422，不是 500）
             invalid = client.post(
@@ -657,8 +681,8 @@ class TestProjectsRouter:
                     "generation_mode": "storyboard",
                     "name": "bad",
                     "title": "X",
-                    "content_mode": "drama",
-                    "source_kind": "screen_play",
+                    "creation_type": "drama",
+                    "source_file_type": "screen_play",
                 },
             )
             assert invalid.status_code == 422
@@ -667,10 +691,10 @@ class TestProjectsRouter:
     def test_source_kind_not_editable_after_create(self, tmp_path, monkeypatch):
         client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
         with client:
-            rejected = client.patch("/api/v1/projects/ready", json={"source_kind": "screenplay"})
+            rejected = client.patch("/api/v1/projects/ready", json={"source_file_type": "screenplay"})
             assert rejected.status_code == 400
             # 不可变字段「出现即拒」：显式传 null 也不得静默通过
-            rejected_null = client.patch("/api/v1/projects/ready", json={"source_kind": None})
+            rejected_null = client.patch("/api/v1/projects/ready", json={"source_file_type": None})
             assert rejected_null.status_code == 400
 
     @pytest.mark.unit
@@ -696,7 +720,7 @@ class TestProjectsRouter:
 
             rejected_mode = client.patch(
                 "/api/v1/projects/ready",
-                json={"content_mode": "drama"},
+                json={"creation_type": "drama"},
             )
             assert rejected_mode.status_code == 400
 
@@ -732,14 +756,14 @@ class TestProjectsRouter:
     @pytest.mark.integration
     def test_revisioned_batch_endpoint_returns_shared_result_and_rejects_stale_write(self, tmp_path, monkeypatch):
         pm = ProjectManager(str(tmp_path))
-        pm.create_project("demo", content_mode="narration")
+        pm.create_project("demo", creation_type="narration")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
         pm.save_script(
             "demo",
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "summary": "摘要",
                 "novel": {"title": "小说", "chapter": "第一章"},
                 "segments": [
@@ -864,13 +888,13 @@ class TestProjectsRouter:
                     "generation_mode": "storyboard",
                     "name": "ad-default",
                     "title": "Ad",
-                    "content_mode": "ad",
+                    "creation_type": "ad",
                     "aspect_ratio": "9:16",
                 },
             )
             assert created.status_code == 200
             project = created.json()["project"]
-            assert project["content_mode"] == "ad"
+            assert project["creation_type"] == "ad"
             assert project["target_duration"] == 60
             assert project["brief"] == ""
             assert project["episodes"] == [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}]
@@ -882,7 +906,7 @@ class TestProjectsRouter:
                 json={
                     "generation_mode": "storyboard",
                     "name": "ad-custom",
-                    "content_mode": "ad",
+                    "creation_type": "ad",
                     "target_duration": 47,
                     "brief": "卖点",
                 },
@@ -898,21 +922,21 @@ class TestProjectsRouter:
             # ad 不暴露 default_duration
             with_default = client.post(
                 "/api/v1/projects",
-                json={"generation_mode": "storyboard", "name": "ad-a", "content_mode": "ad", "default_duration": 8},
+                json={"generation_mode": "storyboard", "name": "ad-a", "creation_type": "ad", "default_duration": 8},
             )
             assert with_default.status_code == 400
 
             # ad 不开放宫格分镜
             with_grid = client.post(
                 "/api/v1/projects",
-                json={"name": "ad-b", "content_mode": "ad", "generation_mode": "storyboard", "grid_storyboard": True},
+                json={"name": "ad-b", "creation_type": "ad", "generation_mode": "storyboard", "grid_storyboard": True},
             )
             assert with_grid.status_code == 400
 
             # 非正整数 target_duration 被请求模型拒绝
             bad_duration = client.post(
                 "/api/v1/projects",
-                json={"generation_mode": "storyboard", "name": "ad-c", "content_mode": "ad", "target_duration": 0},
+                json={"generation_mode": "storyboard", "name": "ad-c", "creation_type": "ad", "target_duration": 0},
             )
             assert bad_duration.status_code == 422
 
@@ -922,14 +946,14 @@ class TestProjectsRouter:
                 json={
                     "generation_mode": "storyboard",
                     "name": "n-a",
-                    "content_mode": "narration",
+                    "creation_type": "narration",
                     "target_duration": 60,
                 },
             )
             assert narration_with_td.status_code == 400
             narration_with_brief = client.post(
                 "/api/v1/projects",
-                json={"generation_mode": "storyboard", "name": "n-b", "content_mode": "narration", "brief": "x"},
+                json={"generation_mode": "storyboard", "name": "n-b", "creation_type": "narration", "brief": "x"},
             )
             assert narration_with_brief.status_code == 400
 
@@ -940,14 +964,14 @@ class TestProjectsRouter:
             # 缺失 generation_mode：必填无默认值，不被悄悄锁进某条路线
             missing = client.post(
                 "/api/v1/projects",
-                json={"name": "no-mode", "title": "X", "content_mode": "narration"},
+                json={"name": "no-mode", "title": "X", "creation_type": "narration"},
             )
             assert missing.status_code == 422
 
             # 旧三值 grid 不再是合法创建值
             legacy_grid = client.post(
                 "/api/v1/projects",
-                json={"name": "old-grid", "title": "X", "content_mode": "narration", "generation_mode": "grid"},
+                json={"name": "old-grid", "title": "X", "creation_type": "narration", "generation_mode": "grid"},
             )
             assert legacy_grid.status_code == 422
 
@@ -1004,10 +1028,10 @@ class TestProjectsRouter:
         fake_pm = _FakePM(tmp_path)
         client = _client(monkeypatch, fake_pm, _FakeCalc())
         with client:
-            # content_mode 创建后不可变：补 ad 同样 400
+            # creation_type 创建后不可变：补 ad 同样 400
             rejected_mode = client.patch(
                 "/api/v1/projects/ready",
-                json={"content_mode": "ad"},
+                json={"creation_type": "ad"},
             )
             assert rejected_mode.status_code == 400
 
@@ -1048,11 +1072,11 @@ class TestProjectsRouter:
     def test_scene_segment_and_overview_endpoints(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "episode_1.json")] = {
-            "content_mode": "drama",
+            "creation_type": "drama",
             "scenes": [{"scene_id": "001", "duration_seconds": 8, "image_prompt": {}, "video_prompt": {}}],
         }
         fake_pm.scripts[("ready", "narration.json")] = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
         }
 
@@ -1097,7 +1121,7 @@ class TestProjectsRouter:
     def test_update_segment_writes_character_and_clue_refs(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "narration.json")] = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -1146,7 +1170,7 @@ class TestProjectsRouter:
         fake_pm = _FakePM(tmp_path)
         prompt = {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}
         fake_pm.scripts[("ready", "narration.json")] = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -1173,7 +1197,7 @@ class TestProjectsRouter:
     def test_update_segment_allows_visual_prompt_edit_on_legacy_mixed_speech(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "narration.json")] = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -1204,7 +1228,7 @@ class TestProjectsRouter:
         # drama 脚本残留 segments 键不应被当 narration 改写：须返回 400 而非放行
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "drama.json")] = {
-            "content_mode": "drama",
+            "creation_type": "drama",
             "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
             "scenes": [{"scene_id": "E1S01"}],
         }
@@ -1224,7 +1248,7 @@ class TestProjectsRouter:
         # router 须统一转 422 而非落到 500 兜底。
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "narration.json")] = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
         }
 
@@ -1249,7 +1273,7 @@ class TestProjectsRouter:
     def test_update_scene_supports_character_and_clue_refs(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "episode_1.json")] = {
-            "content_mode": "drama",
+            "creation_type": "drama",
             "scenes": [
                 {
                     "scene_id": "001",
@@ -1303,7 +1327,7 @@ class TestProjectsRouter:
         # 人工编辑不能把一次视频请求写成角色发声 + 叙述旁白混合单元。
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "episode_1.json")] = {
-            "content_mode": "drama",
+            "creation_type": "drama",
             "scenes": [
                 {
                     "scene_id": "001",
@@ -1342,7 +1366,7 @@ class TestProjectsRouter:
             {"kind": "voiceover", "speaker": None, "text": "命运就此转向。"},
         ]
         fake_pm.scripts[("ready", "episode_1.json")] = {
-            "content_mode": "drama",
+            "creation_type": "drama",
             "scenes": [{"scene_id": "001", "duration_seconds": 8, "utterances": utterances}],
         }
         client = _client(monkeypatch, fake_pm, _FakeCalc())
@@ -1364,7 +1388,7 @@ class TestProjectsRouter:
         fake_pm = _FakePM(tmp_path)
         original_prompt = {"action": "转身"}
         fake_pm.scripts[("ready", "episode_1.json")] = {
-            "content_mode": "drama",
+            "creation_type": "drama",
             "scenes": [
                 {
                     "scene_id": "001",
@@ -1403,7 +1427,7 @@ class TestProjectsRouter:
     @staticmethod
     def _ad_script(shot_ids: list[str]) -> dict:
         return {
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [
                 {
                     "shot_id": sid,
@@ -1602,7 +1626,7 @@ class TestProjectsRouter:
     def test_corrupted_shots_shape_fails_loud_not_silently_wiped(self, tmp_path, monkeypatch):
         """shots 非列表 / 含非对象元素时返回 422，且不被 reorder 空排列覆盖成 []。"""
         fake_pm = _FakePM(tmp_path)
-        fake_pm.scripts[("ad-ready", "episode_1.json")] = {"content_mode": "ad", "shots": "oops"}
+        fake_pm.scripts[("ad-ready", "episode_1.json")] = {"creation_type": "ad", "shots": "oops"}
         client = _client(monkeypatch, fake_pm, _FakeCalc())
 
         with client:
@@ -1622,7 +1646,7 @@ class TestProjectsRouter:
             assert patched.status_code == 422
 
             # 列表含非对象元素：同样 fail loud
-            fake_pm.scripts[("ad-ready", "episode_1.json")] = {"content_mode": "ad", "shots": [{"shot_id": "a"}, 42]}
+            fake_pm.scripts[("ad-ready", "episode_1.json")] = {"creation_type": "ad", "shots": [{"shot_id": "a"}, 42]}
             mixed = client.post(
                 "/api/v1/projects/ad-ready/script-shots/reorder",
                 json={"script_file": "episode_1.json", "shot_ids": ["a"]},
@@ -1631,7 +1655,7 @@ class TestProjectsRouter:
 
             # shot_id 缺失或非字符串：拦下避免 PATCH 误报 404 / reorder KeyError 变 500
             fake_pm.scripts[("ad-ready", "episode_1.json")] = {
-                "content_mode": "ad",
+                "creation_type": "ad",
                 "shots": [{"shot_id": "a"}, {"section": "hook"}],
             }
             missing_id = client.post(
@@ -1641,7 +1665,7 @@ class TestProjectsRouter:
             assert missing_id.status_code == 422
 
             fake_pm.scripts[("ad-ready", "episode_1.json")] = {
-                "content_mode": "ad",
+                "creation_type": "ad",
                 "shots": [{"shot_id": 7}],
             }
             dirty_id = client.patch(
@@ -1652,7 +1676,7 @@ class TestProjectsRouter:
 
             # 重复 shot_id：身份键不唯一，PATCH 会静默更新首个命中项，必须拦下
             fake_pm.scripts[("ad-ready", "episode_1.json")] = {
-                "content_mode": "ad",
+                "creation_type": "ad",
                 "shots": [{"shot_id": "a"}, {"shot_id": "a"}],
             }
             dup_id = client.patch(
@@ -1688,7 +1712,7 @@ class TestProjectsRouter:
                     "title": "模版项目",
                     "name": "tpl-1",
                     "style_template_id": "live_premium_drama",
-                    "content_mode": "drama",
+                    "creation_type": "drama",
                     "aspect_ratio": "9:16",
                 },
             )
@@ -2434,7 +2458,7 @@ class TestGetVideoCapabilities:
             "max_reference_images": 7,
             "source": "registry",
             "default_duration": None,
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
         }
         self._patch_resolver(monkeypatch, return_value=fake_caps)
@@ -2667,7 +2691,7 @@ class TestUnexpectedErrorsDoNotLeak:
         with client:
             resp = client.post(
                 "/api/v1/projects",
-                json={"generation_mode": "storyboard", "name": "demo", "title": "T", "content_mode": "narration"},
+                json={"generation_mode": "storyboard", "name": "demo", "title": "T", "creation_type": "narration"},
             )
             assert resp.status_code == 500
             assert sentinel not in self._body(resp)

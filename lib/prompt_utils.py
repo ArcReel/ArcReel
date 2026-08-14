@@ -147,7 +147,7 @@ def strip_voice_profiles(video_prompt: dict[str, Any]) -> dict[str, Any]:
 
     ``Voice_Profiles`` 声明段由编排层从角色资产机械派生，剧本 JSON / 调用方请求体均不
     承载它——两处注入点（worker 执行路径、SDK 入队路径）在决定是否调用
-    :func:`build_drama_video_prompt` 之前都须先过一遍本函数，drama 之外的 content_mode
+    :func:`build_drama_video_prompt` 之前都须先过一遍本函数，drama 之外的 creation_type
     或缺 ``utterances`` 的条目才不会让调用方自带（或剧本残留）的 ``voice_profiles`` 绕过
     C 类（真无声）门控直接进入 YAML。
     """

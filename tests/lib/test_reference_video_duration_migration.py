@@ -109,7 +109,7 @@ def _write_legacy_project(tmp_path: Path) -> tuple[ProjectManager, dict]:
         json.dumps(
             {
                 "title": "T",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
                 "characters": {},
                 "scenes": {},
@@ -122,7 +122,7 @@ def _write_legacy_project(tmp_path: Path) -> tuple[ProjectManager, dict]:
     script = {
         "episode": 1,
         "title": "E1",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "novel": {"title": "t", "chapter": "c"},
         "video_units": [_legacy_unit()],

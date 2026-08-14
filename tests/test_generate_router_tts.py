@@ -29,9 +29,9 @@ class _FakeQueue:
 class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
-        self.project = {"content_mode": "narration"}
+        self.project = {"creation_type": "narration"}
         self.script = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -170,10 +170,10 @@ class TestGenerateTtsSingle:
 
     def test_reference_video_narrator_unit_is_an_independent_explicit_tts_action(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
-        fake_pm.project.update({"content_mode": "drama", "generation_mode": "reference_video"})
+        fake_pm.project.update({"creation_type": "drama", "generation_mode": "reference_video"})
         fake_pm.script = {
             "episode": 1,
-            "content_mode": "drama",
+            "creation_type": "drama",
             "video_units": [
                 {
                     "unit_id": "E1U1",
@@ -200,10 +200,10 @@ class TestGenerateTtsSingle:
 
     def test_character_owned_unit_cannot_generate_narrator_tts(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
-        fake_pm.project.update({"content_mode": "drama", "generation_mode": "reference_video"})
+        fake_pm.project.update({"creation_type": "drama", "generation_mode": "reference_video"})
         fake_pm.script = {
             "episode": 1,
-            "content_mode": "drama",
+            "creation_type": "drama",
             "video_units": [
                 {
                     "unit_id": "E1U1",
@@ -251,10 +251,10 @@ class TestGenerateTtsBatch:
 
     def test_reference_video_batch_uses_unit_owned_narration_and_skips_character_speech(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
-        fake_pm.project.update({"content_mode": "drama", "generation_mode": "reference_video"})
+        fake_pm.project.update({"creation_type": "drama", "generation_mode": "reference_video"})
         fake_pm.script = {
             "episode": 1,
-            "content_mode": "drama",
+            "creation_type": "drama",
             "video_units": [
                 {
                     "unit_id": "E1U1",

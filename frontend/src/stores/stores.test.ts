@@ -174,7 +174,7 @@ describe("stores", () => {
 
     projects.setCurrentProject("demo", {
       title: "Demo",
-      content_mode: "narration",
+      creation_type: "narration",
       style: "Anime",
       episodes: [],
       characters: {},

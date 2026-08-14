@@ -343,7 +343,7 @@ def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[
         return True
     drafts_dir = episode_drafts_dir(project_dir, episode_num)
     # step1_* 匹配任意格式（结构化 .json / 旧版 .md / reference_units.md），format-agnostic 地
-    # 覆盖所有 content_mode 的 step1 产物：只要拆过段就算已有下游，避免被重规划覆盖。
+    # 覆盖所有 creation_type 的 step1 产物：只要拆过段就算已有下游，避免被重规划覆盖。
     return drafts_dir.is_dir() and any(drafts_dir.glob("step1_*"))
 
 

@@ -36,7 +36,7 @@ def _valid_script(segments: list[dict] | None = None) -> dict:
     return {
         "episode": 1,
         "title": "标题",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
         "segments": segments if segments is not None else [_segment()],
@@ -48,7 +48,7 @@ def _invalid_script() -> dict:
     return {
         "episode": 1,
         "title": "标题",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "segments": [{"segment_id": "E1S01", "duration_seconds": 4, "image_prompt": "x", "video_prompt": "y"}],
     }
 
@@ -150,7 +150,7 @@ def _valid_drama_script(scenes: list[dict] | None = None) -> dict:
     return {
         "episode": 1,
         "title": "标题",
-        "content_mode": "drama",
+        "creation_type": "drama",
         "novel": {"title": "小说", "chapter": "第一章"},
         "scenes": scenes if scenes is not None else [_drama_scene()],
     }
@@ -208,7 +208,7 @@ def _reference_script(units: list[dict] | None = None) -> dict:
     return {
         "episode": 1,
         "title": "标题",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
@@ -224,7 +224,7 @@ class TestMetadataRecompute:
         pm.save_script("demo", _reference_script(), "episode_1.json")
 
         saved = pm.load_script("demo", "episode_1.json")
-        assert saved["metadata"]["total_scenes"] == 2
+        assert "total_scenes" not in saved["metadata"]
         # 两个 unit 取不同秒数：等长夹具下「unit 数 × 定值」的错算也会通过。
         assert saved["metadata"]["estimated_duration_seconds"] == 14
 
@@ -233,7 +233,7 @@ class TestMetadataRecompute:
         pm.save_script("demo", _valid_script([_segment("E1S01", 4), _segment("E1S02", 6)]), "episode_1.json")
 
         saved = pm.load_script("demo", "episode_1.json")
-        assert saved["metadata"]["total_scenes"] == 2
+        assert "total_scenes" not in saved["metadata"]
         assert saved["metadata"]["estimated_duration_seconds"] == 10
 
 
@@ -262,7 +262,7 @@ class TestAssetWritebackExemption:
         script_dir = tmp_path / "projects" / "demo" / "scripts"
         script_dir.mkdir(parents=True, exist_ok=True)
         (script_dir / "episode_1.json").write_text(
-            '{"episode": 1, "title": "x", "content_mode": "narration", "segments": null, '
+            '{"episode": 1, "title": "x", "creation_type": "narration", "segments": null, '
             '"novel": {"title": "n", "chapter": "c"}, "summary": ""}',
             encoding="utf-8",
         )
@@ -273,7 +273,7 @@ class TestAssetWritebackExemption:
         script_dir = tmp_path / "projects" / "demo" / "scripts"
         script_dir.mkdir(parents=True, exist_ok=True)
         (script_dir / "episode_1.json").write_text(
-            '{"episode": 1, "title": "x", "content_mode": "narration", '
+            '{"episode": 1, "title": "x", "creation_type": "narration", '
             '"generation_mode": "reference_video", "video_units": null, '
             '"novel": {"title": "n", "chapter": "c"}, "summary": "", '
             '"metadata": {"created_at": "2024-01-01T00:00:00+00:00", "status": "draft", '
@@ -347,7 +347,7 @@ class TestAssetWritebackExemption:
         script_dir = tmp_path / "projects" / "demo" / "scripts"
         script_dir.mkdir(parents=True, exist_ok=True)
         (script_dir / "episode_1.json").write_text(
-            '{"episode": 1, "title": "x", "content_mode": "narration", '
+            '{"episode": 1, "title": "x", "creation_type": "narration", '
             '"segments": [{"segment_id": "E1S01", "duration_seconds": 4}], '
             '"novel": {"title": "n", "chapter": "c"}, "summary": ""}',
             encoding="utf-8",
@@ -395,7 +395,7 @@ class TestAssetWritebackExemption:
         script_dir = tmp_path / "projects" / "demo" / "scripts"
         script_dir.mkdir(parents=True, exist_ok=True)
         (script_dir / "episode_1.json").write_text(
-            '{"episode": 1, "title": "x", "content_mode": "narration", '
+            '{"episode": 1, "title": "x", "creation_type": "narration", '
             f'"segments": [{{"segment_id": "E1S01", "duration_seconds": 4, "generated_assets": {assets_json}}}], '
             '"novel": {"title": "n", "chapter": "c"}, "summary": ""}',
             encoding="utf-8",
@@ -411,7 +411,7 @@ class TestAssetWritebackExemption:
         script_dir = tmp_path / "projects" / "demo" / "scripts"
         script_dir.mkdir(parents=True, exist_ok=True)
         (script_dir / "episode_1.json").write_text(
-            '{"episode": 1, "title": "x", "content_mode": "narration", '
+            '{"episode": 1, "title": "x", "creation_type": "narration", '
             '"segments": ["foo", {"segment_id": "E1S01", "duration_seconds": 4}], '
             '"novel": {"title": "n", "chapter": "c"}, "summary": ""}',
             encoding="utf-8",
@@ -447,7 +447,7 @@ class TestAssetWritebackExemption:
         target = next(s for s in saved["segments"] if isinstance(s, dict) and s.get("segment_id") == "E1S01")
         assert target["generated_assets"]["video_clip"] == "videos/E1S01.mp4"
         # 非 dict 元素（"foo"）不计入 metadata：只有 1 个合法片段、4 秒，不被垃圾元素撑大
-        assert saved["metadata"]["total_scenes"] == 1
+        assert "total_scenes" not in saved["metadata"]
         assert saved["metadata"]["estimated_duration_seconds"] == 4
 
     def test_batch_update_scene_assets_missing_id_fails_loud_with_non_dict_sibling(self, tmp_path: Path):

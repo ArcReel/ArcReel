@@ -25,7 +25,7 @@ pytestmark = pytest.mark.unit
 def _narration_script(count: int = 4):
     """``count`` 个无 segment_break 的分段，凑成单组（默认 4 个，即 grid_4 恰好填满）。"""
     return {
-        "content_mode": "narration",
+        "creation_type": "narration",
         "segments": [
             {
                 "segment_id": f"E1S{i:02d}",
@@ -149,21 +149,21 @@ class _FakePMNarration(_FakePMPathOnly):
     """ProjectManager 替身：额外提供 load_project，用于 regenerate 的项目校验通过场景。"""
 
     def load_project(self, name):
-        return {"content_mode": "narration", "generation_mode": "storyboard", "grid_storyboard": True}
+        return {"creation_type": "narration", "generation_mode": "storyboard", "grid_storyboard": True}
 
 
 class _FakePMGridDisabled(_FakePMPathOnly):
     """ProjectManager 替身：路线合法但宫格开关关闭。"""
 
     def load_project(self, name):
-        return {"content_mode": "narration", "generation_mode": "storyboard", "grid_storyboard": False}
+        return {"creation_type": "narration", "generation_mode": "storyboard", "grid_storyboard": False}
 
 
 class _FakePMReferenceVideo(_FakePMPathOnly):
     """ProjectManager 替身：参考生视频路线，即使残留 grid_storyboard=true 也不激活宫格。"""
 
     def load_project(self, name):
-        return {"content_mode": "narration", "generation_mode": "reference_video", "grid_storyboard": True}
+        return {"creation_type": "narration", "generation_mode": "reference_video", "grid_storyboard": True}
 
 
 def _assert_grid_switch_rejected(resp, queue) -> None:
@@ -318,7 +318,7 @@ class _FakePMInvalidScriptFile:
 
     def load_project(self, name):
         return {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "aspect_ratio": "9:16",
             "style": "anime",
             "generation_mode": "storyboard",
@@ -351,7 +351,7 @@ class _FakePMGenerate:
 
     def load_project(self, name):
         return {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "aspect_ratio": "9:16",
             "style": "anime",
             "generation_mode": "storyboard",
@@ -586,7 +586,7 @@ class _FakePMRegenerate(_FakePMPath):
 
     def load_project(self, name):
         return {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "aspect_ratio": "9:16",
             "generation_mode": "storyboard",
             "grid_storyboard": True,

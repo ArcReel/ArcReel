@@ -23,13 +23,13 @@ if TYPE_CHECKING:
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi import Path as FastAPIPath
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 from pydantic import ValidationError as PydanticValidationError
 from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
-from lib.api_errors import ApiError, BadRequestError, NotFoundError
+from lib.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.asset_types import asset_name_comparison_key
 from lib.config.registry import default_model_for_provider
@@ -37,9 +37,10 @@ from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 from lib.db import async_session_factory
 from lib.i18n import Translator
 from lib.json_io import domain_error_on_value_error
-from lib.profile_manifest import ContentMode
+from lib.profile_manifest import CreationType
 from lib.project_change_hints import project_change_source
-from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
+from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceFileType, get_project_manager
+from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from lib.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, script_revision
 from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.status_calculator import StatusCalculator
@@ -128,19 +129,30 @@ def _validated_speech_rate(value: float, _t: Translator) -> float:
     return rate
 
 
+_LEGACY_CONTRACT_FIELDS = frozenset({"content_mode", "source_kind", "scenes_count", "total_scenes"})
+
+
+def _reject_legacy_contract_fields(data: object) -> object:
+    if isinstance(data, dict):
+        forbidden = sorted(_LEGACY_CONTRACT_FIELDS.intersection(data))
+        if forbidden:
+            raise ValueError(f"unsupported fields: {', '.join(forbidden)}")
+    return data
+
+
 class CreateProjectRequest(BaseModel):
     name: str | None = None
     title: str | None = None
     style: str | None = ""  # 保留但不再是用户入口
-    content_mode: ContentMode | None = "narration"
+    creation_type: CreationType | None = "narration"
     # 源文件性质（novel / screenplay），缺省 novel；创建即定、之后不可变。
-    source_kind: SourceKind | None = None
+    source_file_type: SourceFileType | None = None
     aspect_ratio: str | None = "9:16"
     default_duration: int | None = None
-    # 仅 content_mode=ad：目标总时长（秒）。UI 给四档（15/30/60/90，默认 60），
+    # 仅 creation_type=ad：目标总时长（秒）。UI 给四档（15/30/60/90，默认 60），
     # 数据层不硬枚举，任意正整数合法。
     target_duration: int | None = Field(default=None, gt=0)
-    # 仅 content_mode=ad：创作诉求短文本（可空，不走 source_loader）
+    # 仅 creation_type=ad：创作诉求短文本（可空，不走 source_loader）
     brief: str | None = None
     # 生成路线：必填二选一、无默认值——缺失或旧三值 grid 由 Pydantic 校验返回 422，
     # 不再被默认值悄悄锁进某条路线。创建后不可更改（PATCH 模型结构上无此字段）。
@@ -170,6 +182,11 @@ class CreateProjectRequest(BaseModel):
     default_text_backend: str | None = None
     model_settings: dict[str, dict[str, str | None]] | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_legacy_contract_fields(cls, data: object) -> object:
+        return _reject_legacy_contract_fields(data)
+
 
 class EpisodePatch(BaseModel):
     """PATCH body entry for a single episode.
@@ -186,9 +203,9 @@ class EpisodePatch(BaseModel):
 class UpdateProjectRequest(BaseModel):
     title: str | None = None
     style: str | None = None
-    content_mode: ContentMode | None = None
-    # 源文件性质创建即定、不可变；出现即拒（与 content_mode 同性质）。
-    source_kind: SourceKind | None = None
+    creation_type: CreationType | None = None
+    # 源文件性质创建即定、不可变；出现即拒（与 creation_type 同性质）。
+    source_file_type: SourceFileType | None = None
     aspect_ratio: str | None = None
     default_duration: int | None = None
     # 仅 ad 项目：目标总时长（秒），任意正整数合法，不可清空
@@ -219,6 +236,11 @@ class UpdateProjectRequest(BaseModel):
     clear_style_image: bool | None = None
     episodes: list[EpisodePatch] | None = None
     model_settings: dict[str, dict[str, str | None]] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_legacy_contract_fields(cls, data: object) -> object:
+        return _reject_legacy_contract_fields(data)
 
 
 def _cleanup_temp_file(path: str) -> None:
@@ -570,8 +592,8 @@ async def create_project(
 
             # 模式专属字段互斥：target_duration/brief 仅 ad 可用；
             # ad 不暴露 default_duration、不开放宫格分镜
-            content_mode = req.content_mode or "narration"
-            if content_mode == "ad":
+            creation_type = req.creation_type or "narration"
+            if creation_type == "ad":
                 if req.default_duration is not None:
                     raise HTTPException(status_code=400, detail=_t("ad_no_default_duration"))
                 if req.grid_storyboard:
@@ -597,7 +619,7 @@ async def create_project(
             )
 
             try:
-                manager.create_project(project_name, content_mode=req.content_mode or "narration")
+                manager.create_project(project_name, creation_type=req.creation_type or "narration")
             except FileExistsError:
                 raise HTTPException(status_code=400, detail=_t("project_exists", name=project_name))
             extras = {field: value for field in _PROJECT_BACKEND_FIELDS if (value := getattr(req, field))}
@@ -614,20 +636,20 @@ async def create_project(
                     project_name,
                     title or manual_name,
                     style_prompt,
-                    req.content_mode,
+                    req.creation_type,
                     aspect_ratio=req.aspect_ratio,
                     default_duration=req.default_duration,
                     style_template_id=req.style_template_id,
                     extras=extras or None,
                     target_duration=req.target_duration,
                     brief=req.brief,
-                    source_kind=req.source_kind,
+                    source_file_type=req.source_file_type,
                 )
             return {"success": True, "name": project_name, "project": project}
 
         return await asyncio.to_thread(_sync)
     except ValueError as e:
-        # 项目名 / source_kind / duration / brief 等配置校验失败，str(e) 只进日志
+        # 项目名 / source_file_type / duration / brief 等配置校验失败，str(e) 只进日志
         logger.warning("创建项目参数错误: name=%s (%s)", req.name or req.title, e)
         raise BadRequestError("project_config_invalid") from e
     except HTTPException:
@@ -714,6 +736,18 @@ async def get_project(
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
 
             project = manager.load_project(name)
+            schema_version = project.get("schema_version")
+            if (
+                isinstance(schema_version, int)
+                and not isinstance(schema_version, bool)
+                and schema_version != CURRENT_SCHEMA_VERSION
+            ):
+                raise ConflictError(
+                    "project_schema_incompatible",
+                    name=name,
+                    schema_version=schema_version,
+                    expected=CURRENT_SCHEMA_VERSION,
+                )
 
             # 注入计算字段（不写入 JSON，仅用于 API 响应）
             project = calculator.enrich_project(name, project)
@@ -749,6 +783,8 @@ async def get_project(
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except HTTPException:
+        raise
+    except ApiError:
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -811,12 +847,12 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
 
         def _sync():
             manager = get_project_manager()
-            if req.content_mode is not None:
+            if req.creation_type is not None:
                 raise HTTPException(
                     status_code=400,
                     detail=_t("project_id_not_editable"),
                 )
-            if "source_kind" in req.model_fields_set:
+            if "source_file_type" in req.model_fields_set:
                 raise HTTPException(
                     status_code=400,
                     detail=_t("source_kind_not_editable"),
@@ -829,7 +865,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
 
             def _mutate(project: dict) -> None:
                 # 整段 read-modify-write 在单一 _project_lock 内完成，避免并发 PATCH / 任务回写丢更新
-                is_ad = project.get("content_mode") == "ad"
+                is_ad = project.get("creation_type") == "ad"
                 if req.title is not None:
                     project["title"] = req.title
                 if req.style is not None:
@@ -1135,12 +1171,12 @@ _SHOT_UPDATABLE_FIELDS = (
 
 
 def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
-    """断言剧本是 ad 形状（content_mode=ad 且含 shots 键），返回 shots 列表。
+    """断言剧本是 ad 形状（creation_type=ad 且含 shots 键），返回 shots 列表。
 
     与 update_segment 的 narration 守卫同模式：其他模式的脚本即使残留 shots 键也拒绝，
     避免被当 ad 改写。
     """
-    if script.get("content_mode") != "ad" or "shots" not in script:
+    if script.get("creation_type") != "ad" or "shots" not in script:
         raise HTTPException(status_code=400, detail=_t("ad_mode_required"))
     shots = script.get("shots")
     # 非法形状 fail loud：静默降级为空列表会让 reorder 在客户端传空 shot_ids 时
@@ -1304,7 +1340,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
         def _sync():
             manager = get_project_manager()
             current = manager.load_script(name, req.script_file)
-            if current.get("content_mode") != "narration" or "segments" not in current:
+            if current.get("creation_type") != "narration" or "segments" not in current:
                 raise HTTPException(status_code=400, detail=_t("narration_mode_required"))
             segments = current.get("segments")
             if not isinstance(segments, list):

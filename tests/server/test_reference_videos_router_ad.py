@@ -25,7 +25,7 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
             {
                 "schema_version": 7,
                 "title": "带货短片",
-                "content_mode": "ad",
+                "creation_type": "ad",
                 "generation_mode": "reference_video",
                 "characters": {"小美": {}},
                 "scenes": {},
@@ -44,7 +44,7 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
             {
                 "episode": 1,
                 "title": "短片",
-                "content_mode": "ad",
+                "creation_type": "ad",
                 "video_units": [
                     {
                         "unit_id": "E1U1",

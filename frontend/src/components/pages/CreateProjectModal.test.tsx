@@ -142,7 +142,7 @@ describe("CreateProjectModal", () => {
     expect(API.createProject).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "demo",
-        content_mode: "narration",
+        creation_type: "narration",
         aspect_ratio: "9:16",
         generation_mode: "storyboard",
         grid_storyboard: false,
@@ -387,7 +387,7 @@ describe("CreateProjectModal ad mode", () => {
     expect(API.createProject).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "ad demo",
-        content_mode: "ad",
+        creation_type: "ad",
         aspect_ratio: "9:16",
         target_duration: 30,
       })

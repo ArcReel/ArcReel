@@ -51,7 +51,7 @@ class TestAdProjectRejected:
 
         class _AdPM:
             def load_project(self, name):
-                return {"content_mode": "ad", "title": "Ad", "episodes": []}
+                return {"creation_type": "ad", "title": "Ad", "episodes": []}
 
         monkeypatch.setattr(grids, "get_project_manager", lambda: _AdPM())
 
@@ -77,7 +77,7 @@ class TestAdProjectRejected:
 
         class _AdPM:
             def load_project(self, name):
-                return {"content_mode": "ad", "title": "Ad", "episodes": []}
+                return {"creation_type": "ad", "title": "Ad", "episodes": []}
 
         monkeypatch.setattr(grids, "get_project_manager", lambda: _AdPM())
 

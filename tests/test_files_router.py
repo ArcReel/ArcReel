@@ -905,10 +905,10 @@ class TestFilesRouter:
             bad_encoding = client.get("/api/v1/projects/demo/source/binary.txt")
             assert bad_encoding.status_code == 400
 
-            # switch content_mode to drama so step files use normalized-script mapping
+            # switch creation_type to drama so step files use normalized-script mapping
             project_json = project_dir / "project.json"
             payload = json.loads(project_json.read_text(encoding="utf-8"))
-            payload["content_mode"] = "drama"
+            payload["creation_type"] = "drama"
             project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
             # drama step1 落 .json：任意文本被拒（400）
@@ -964,9 +964,9 @@ class TestFilesRouter:
             missing_step = client.delete("/api/v1/projects/demo/drafts/2/step9")
             assert missing_step.status_code == 400
 
-            # 未登记 content_mode 回落到 drama 结构化文件名时同样触发校验（按目标文件名而非 content_mode）：
+            # 未登记 creation_type 回落到 drama 结构化文件名时同样触发校验（按目标文件名而非 creation_type）：
             # 任意文本不再绕过校验被写成结构化 drama JSON，拖到生成阶段才失败
-            payload["content_mode"] = "future_unregistered_mode"
+            payload["creation_type"] = "future_unregistered_mode"
             project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
             reject_dirty_mode = client.put(
                 "/api/v1/projects/demo/drafts/3/step1",
@@ -1036,7 +1036,7 @@ class TestFilesRouter:
         # reference_video 走独立的结构化 step1 文件
         assert files._get_step_files("drama", "reference_video") == {1: "step1_reference_units.json"}
         assert files._get_step_files("narration", "reference_video") == {1: "step1_reference_units.json"}
-        # 其他 generation_mode 回落到 content_mode
+        # 其他 generation_mode 回落到 creation_type
         assert files._get_step_files("narration", "storyboard") == {1: "step1_segments.json"}
 
     @pytest.mark.unit
@@ -1051,12 +1051,12 @@ class TestFilesRouter:
 
     @pytest.mark.unit
     def test_draft_content_reference_video_mode(self, tmp_path, monkeypatch):
-        """参考生视频模式下读/写 step1_reference_units.json，避免被按 content_mode 错误路由；
+        """参考生视频模式下读/写 step1_reference_units.json，避免被按 creation_type 错误路由；
         旧 .md 仅存量兼读，写入经 ScriptReviewService 单一出口做结构校验后落结构化 .json"""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
 
-        # 设置项目为 reference_video 模式（content_mode 仍是 narration 测试正交性）
+        # 设置项目为 reference_video 模式（creation_type 仍是 narration 测试正交性）
         project_json = project_dir / "project.json"
         payload = json.loads(project_json.read_text(encoding="utf-8"))
         payload["generation_mode"] = "reference_video"
@@ -1107,7 +1107,7 @@ class TestFilesRouter:
 
     @pytest.mark.unit
     def test_draft_content_fallback_when_mode_mismatches_file(self, tmp_path, monkeypatch):
-        """content_mode=narration 但磁盘上只有 reference_units 文件（集级模式切换/历史项目）也能读到"""
+        """creation_type=narration 但磁盘上只有 reference_units 文件（集级模式切换/历史项目）也能读到"""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")  # narration by default
 
@@ -1147,12 +1147,12 @@ class TestFilesRouter:
             assert update.json()["path"] == "drafts/episode_2/step1_reference_units.json"
 
         # _load_project_modes 走 load_project：不存在项目 → ("drama", None) 回退
-        content_mode, gen_mode = files._load_project_modes("no-such-project")
-        assert content_mode == "drama"
+        creation_type, gen_mode = files._load_project_modes("no-such-project")
+        assert creation_type == "drama"
         assert gen_mode is None
-        # demo 项目 content_mode=narration（fixture 默认），生成路线取项目字段
-        content_mode, gen_mode = files._load_project_modes("demo")
-        assert content_mode == "narration"
+        # demo 项目 creation_type=narration（fixture 默认），生成路线取项目字段
+        creation_type, gen_mode = files._load_project_modes("demo")
+        assert creation_type == "narration"
         assert gen_mode == "reference_video"
 
     @pytest.mark.unit

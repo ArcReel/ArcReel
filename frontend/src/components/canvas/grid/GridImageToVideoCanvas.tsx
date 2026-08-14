@@ -81,10 +81,10 @@ export function GridImageToVideoCanvas({
   canEditTitle,
 }: GridImageToVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
-  const contentMode = projectData?.content_mode ?? "narration";
+  const contentMode = projectData?.creation_type ?? "narration";
   // grid 画布仅服务 narration/drama（ad 不开放宫格生视频）；
   // 子视图按窄类型接收，ad 显式不进（不落 drama 兜底）。
-  // 未知/脏 content_mode 沿用历史兜底落 drama 视图，仅 ad 显式排除。
+  // 未知/脏 creation_type 沿用历史兜底落 drama 视图，仅 ad 显式排除。
   const editorContentMode: "narration" | "drama" | null =
     contentMode === "narration" ? "narration" : contentMode === "ad" ? null : "drama";
 
@@ -198,7 +198,7 @@ export function GridImageToVideoCanvas({
       episode,
       title: episodeTitle ?? episodeScript?.title ?? "",
       script_file: scriptFile ?? "",
-      scenes_count: segments.length,
+      storyboard_count: segments.length,
       duration_seconds: totalDuration,
       status: hasScript ? "in_production" : "draft",
     } as const);

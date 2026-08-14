@@ -44,6 +44,39 @@ _PATTERNS: dict[str, ResourcePattern] = {
 
 RESOURCE_TYPES: tuple[str, ...] = tuple(_PATTERNS)
 
+_TASK_TYPE_ARTIFACT_COLLECTION: dict[str, str] = {
+    "storyboard": "storyboards",
+    "video": "videos",
+    "reference_video": "reference_videos",
+    "tts": "audio",
+    "grid": "grids",
+    "grid_split": "grids",
+    "voice_sample": "audio",
+    "character": "characters",
+    "scene": "scenes",
+    "prop": "props",
+    "product": "products",
+    "end_frame": END_FRAME_RESOURCE_TYPE,
+}
+
+_TARGET_TYPE_ARTIFACT_COLLECTION: dict[str, str] = {
+    "character": "characters",
+    "scene": "scenes",
+    "prop": "props",
+    "product": "products",
+    "storyboard": "storyboards",
+    "video": "videos",
+}
+
+
+def artifact_collection_for(*, task_type: str, resource_type: str | None = None) -> str | None:
+    """产物集合与任务目标类型拆开：前者是输出目录，后者是目标资产种类。"""
+    if task_type == "image_edit":
+        if not resource_type:
+            return None
+        return _TARGET_TYPE_ARTIFACT_COLLECTION.get(resource_type, resource_type)
+    return _TASK_TYPE_ARTIFACT_COLLECTION.get(task_type)
+
 
 def _pattern(resource_type: str) -> ResourcePattern:
     pattern = _PATTERNS.get(resource_type)

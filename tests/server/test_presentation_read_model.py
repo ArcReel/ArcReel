@@ -54,7 +54,7 @@ def _setup_narrator_project(tmp_path: Path) -> tuple[ProjectManager, Path, TtsSy
         (project_path / subdir).mkdir(parents=True, exist_ok=True)
     project = {
         "title": "Demo",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "storyboard",
         "grid_storyboard": False,
         "aspect_ratio": "9:16",
@@ -73,7 +73,7 @@ def _setup_narrator_project(tmp_path: Path) -> tuple[ProjectManager, Path, TtsSy
             "narration_audio": "audio/segment_E1S01.wav",
         },
     }
-    script = {"episode": 1, "content_mode": "narration", "segments": [item]}
+    script = {"episode": 1, "creation_type": "narration", "segments": [item]}
     _write_json(project_path / "project.json", project)
     _write_json(project_path / "scripts" / "episode_1.json", script)
     storyboard = project_path / "storyboards" / "scene_E1S01.png"

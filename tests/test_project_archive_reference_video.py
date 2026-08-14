@@ -2,7 +2,7 @@
 
 覆盖 _repair_script_payload 对 generation_mode=reference_video 项目剧本里
 video_units 的处理：确保导出-导入往返时 video_units[*].generated_assets
-的路径规范化与版本回溯正常触发（该函数按 content_mode 走 segments/scenes
+的路径规范化与版本回溯正常触发（该函数按 creation_type 走 segments/scenes
 的分支不覆盖 video_units，须单独校验）。
 """
 
@@ -78,7 +78,7 @@ def _build_reference_episode(unit: dict) -> dict:
     return {
         "episode": 1,
         "title": "第一集",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "duration_seconds": 4,
         "summary": "demo",

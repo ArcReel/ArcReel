@@ -17,7 +17,7 @@ import logging
 from copy import deepcopy
 from typing import Any
 
-from lib.script_skeleton import SKELETONS, resolve_script_kind
+from lib.script_skeleton import SKELETONS, resolve_script_kind, script_items
 
 logger = logging.getLogger(__name__)
 
@@ -48,17 +48,16 @@ def resolve_items(script: dict[str, Any]) -> tuple[list[dict[str, Any]], str, st
     """
     kind = resolve_script_kind(script)
     id_field = SKELETONS[kind].id_field
-    if kind not in script:
-        return [], id_field, kind
-    items = script[kind]
-    if not isinstance(items, list):
-        type_name = type(items).__name__
+    try:
+        items = script_items(script)
+    except TypeError as exc:
+        type_name = type(script.get(kind)).__name__
         raise ScriptEditError(
             f"{kind} 必须是列表，当前为 {type_name}",
             key="script_edit_items_not_list",
             kind=kind,
             type_name=type_name,
-        )
+        ) from exc
     return items, id_field, kind
 
 

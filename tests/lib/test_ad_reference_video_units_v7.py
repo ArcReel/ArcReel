@@ -26,15 +26,15 @@ def _unit(**overrides: object) -> dict:
 def test_ad_reference_route_declares_video_units_while_storyboard_stays_shots() -> None:
     assert resolve_declared_kind("ad", "reference_video") == "video_units"
     assert resolve_declared_kind("ad", "storyboard") == "shots"
-    assert ensure_route_skeleton({"content_mode": "ad", "video_units": []}, "ad", "reference_video") == "video_units"
+    assert ensure_route_skeleton({"creation_type": "ad", "video_units": []}, "ad", "reference_video") == "video_units"
 
 
 def test_reference_video_script_accepts_ad_products_and_replan_state() -> None:
     script = ReferenceVideoScript.model_validate(
-        {"title": "广告", "content_mode": "ad", "video_units": [_unit(needs_replan=False)]}
+        {"title": "广告", "creation_type": "ad", "video_units": [_unit(needs_replan=False)]}
     )
 
-    assert script.content_mode == "ad"
+    assert script.creation_type == "ad"
     assert script.video_units[0].references[0].type == "product"
     assert script.video_units[0].needs_replan is False
 

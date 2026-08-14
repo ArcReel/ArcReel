@@ -610,14 +610,14 @@ class TestVideoCapabilities:
                     mock_pm.return_value.load_project.return_value = {
                         "video_backend": "grok/grok-imagine-video",
                         "default_duration": 6,
-                        "content_mode": "narration",
+                        "creation_type": "narration",
                         "generation_mode": "reference_video",
                     }
                     caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
         finally:
             await engine.dispose()
         assert caps["default_duration"] == 6
-        assert caps["content_mode"] == "narration"
+        assert caps["creation_type"] == "narration"
         assert caps["generation_mode"] == "reference_video"
 
     @pytest.mark.unit

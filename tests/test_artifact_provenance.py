@@ -58,9 +58,9 @@ def test_artifact_basis_descriptor_rejects_noncanonical_source_fact(value: objec
 
 def test_structured_content_basis_tracks_only_the_direct_formal_chain() -> None:
     first_project = {
-        "content_mode": "drama",
+        "creation_type": "drama",
         "generation_mode": "storyboard",
-        "source_kind": "screenplay",
+        "source_file_type": "screenplay",
         "source_language": "zh",
         "provider": "first-provider",
         "model": "first-model",
@@ -105,27 +105,27 @@ def test_structured_content_basis_tracks_only_the_direct_formal_chain() -> None:
 
 
 def test_structured_basis_rejects_malformed_formal_inputs() -> None:
-    with pytest.raises(ValueError, match="content_mode"):
+    with pytest.raises(ValueError, match="creation_type"):
         build_step1_basis(
             "source",
-            project={"content_mode": [], "generation_mode": "storyboard"},
+            project={"creation_type": [], "generation_mode": "storyboard"},
         )
     with pytest.raises(ValueError, match="non-finite"):
         build_episode_script_basis(
             {"duration": float("nan")},
-            project={"content_mode": "narration", "generation_mode": "storyboard"},
+            project={"creation_type": "narration", "generation_mode": "storyboard"},
         )
 
 
 def test_step1_basis_treats_null_source_kind_as_default() -> None:
     project = {
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "storyboard",
-        "source_kind": None,
+        "source_file_type": None,
     }
 
     defaulted = build_step1_basis("source", project=project)
-    explicit = build_step1_basis("source", project={**project, "source_kind": "novel"})
+    explicit = build_step1_basis("source", project={**project, "source_file_type": "novel"})
 
     assert defaulted.digest == explicit.digest
 
@@ -133,7 +133,7 @@ def test_step1_basis_treats_null_source_kind_as_default() -> None:
 @pytest.mark.parametrize("source_language", [None, "", False, 0, [], {}])
 def test_step1_basis_canonicalizes_default_source_language(source_language: object) -> None:
     project = {
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "storyboard",
         "source_language": source_language,
     }

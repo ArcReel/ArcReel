@@ -42,7 +42,7 @@ from lib.episode_ledger import (
 )
 from lib.episode_paths import episode_script_relpath
 from lib.path_safety import PathTraversalError, safe_join
-from lib.project_manager import ProjectManager, resolve_source_kind
+from lib.project_manager import ProjectManager, resolve_source_file_type
 from lib.prompt_builders_script import USER_INSTRUCTIONS_HEADER
 from lib.text_backends.base import (
     DEFAULT_MAX_OUTPUT_TOKENS,
@@ -483,8 +483,15 @@ class EpisodePlanner:
         window_end = len(text) if remaining_chars <= window_chars * 1.2 else start + window_chars
         window = text[start:window_end]
         window_is_final = window_end >= len(text)
-        content_mode = str(project.get("content_mode") or "narration")
-        draft_model: type[BaseModel] = DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
+        creation_type = project.get("creation_type")
+        if creation_type == "drama":
+            draft_model: type[BaseModel] = DramaPlanDraft
+        elif creation_type == "narration":
+            draft_model = NarrationPlanDraft
+        elif creation_type == "ad":
+            raise ValueError("ad 项目不走分集规划")
+        else:
+            raise ValueError(f"未知或缺失 creation_type: {creation_type!r}")
         language = _language_of(project)
         # 全局进度仅在有 instructions 时算、仅在有 instructions 时注入 prompt：
         # 无指令路径的 prompt 必须逐字保持不变（CONTEXT.md 对该路径有逐字一致的承诺）。
@@ -502,7 +509,7 @@ class EpisodePlanner:
                 window=window,
                 window_is_final=window_is_final,
                 max_episodes=max_episodes,
-                content_mode=content_mode,
+                creation_type=creation_type,
                 context_entries=_context_entries(project),
                 instructions=planning_instructions,
                 progress=progress,
@@ -983,7 +990,7 @@ def _build_planning_prompt(
     window: str,
     window_is_final: bool,
     max_episodes: int | None,
-    content_mode: str,
+    creation_type: str,
     context_entries: list[dict[str, Any]],
     instructions: str | None,
     failure: list[str] | None,
@@ -998,13 +1005,13 @@ def _build_planning_prompt(
     overview = project.get("overview") or {}
     unit_name = reading_unit_noun(_language_of(project))
     target_units = project.get("episode_target_units")
-    is_screenplay = resolve_source_kind(project) == "screenplay"
+    is_screenplay = resolve_source_file_type(project) == "screenplay"
 
     lines: list[str] = [
         *(_PLAN_INTRO_SCREENPLAY if is_screenplay else _PLAN_INTRO_NOVEL),
         "",
         "# 项目信息",
-        f"- 内容模式：{'剧集动画（drama）' if content_mode == 'drama' else '说书旁白（narration）'}",
+        f"- 内容模式：{'剧集动画（drama）' if creation_type == 'drama' else '说书旁白（narration）'}",
     ]
     synopsis = overview.get("synopsis") if isinstance(overview, Mapping) else None
     if synopsis:
@@ -1047,7 +1054,7 @@ def _build_planning_prompt(
     ]
     if is_screenplay:
         lines.append(_PLAN_RULE_SCREENPLAY)
-    if content_mode == "drama":
+    if creation_type == "drama":
         lines.append(_PLAN_DRAMA_OUTLINE_SCREENPLAY if is_screenplay else _PLAN_DRAMA_OUTLINE_NOVEL)
     lines += [
         "- 各集按顺序排列，end_anchor 位置必须严格递增（范围连续、不重叠、不留空洞）。",

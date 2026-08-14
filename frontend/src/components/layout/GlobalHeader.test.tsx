@@ -95,7 +95,7 @@ describe("GlobalHeader", () => {
       currentProjectName: "halou-92d19a04",
       currentProjectData: {
         title: "哈喽项目",
-        content_mode: "narration",
+        creation_type: "narration",
         style: "Anime",
         episodes: [],
         characters: {},
@@ -165,7 +165,7 @@ describe("GlobalHeader", () => {
       currentProjectName: "demo",
       currentProjectData: {
         title: "导出项目",
-        content_mode: "narration",
+        creation_type: "narration",
         style: "Anime",
         episodes: [],
         characters: {},
@@ -225,7 +225,7 @@ describe("GlobalHeader", () => {
       currentProjectName: "ad-demo",
       currentProjectData: {
         title: "带货短片",
-        content_mode: "ad",
+        creation_type: "ad",
         generation_mode: "reference_video",
         style: "明亮写实",
         episodes: [],
@@ -270,7 +270,7 @@ describe("GlobalHeader", () => {
       currentProjectName: "ad-demo",
       currentProjectData: {
         title: "带货短片",
-        content_mode: "ad",
+        creation_type: "ad",
         generation_mode: "reference_video",
         style: "明亮写实",
         episodes: [],
@@ -310,7 +310,7 @@ describe("GlobalHeader", () => {
       currentProjectName: "ad-demo",
       currentProjectData: {
         title: "带货短片",
-        content_mode: "ad",
+        creation_type: "ad",
         generation_mode: "storyboard",
         style: "明亮写实",
         episodes: [],
@@ -350,7 +350,7 @@ describe("GlobalHeader", () => {
       currentProjectName: "demo",
       currentProjectData: {
         title: "说书项目",
-        content_mode: "narration",
+        creation_type: "narration",
         style: "Anime",
         episodes: [],
         characters: {},
@@ -382,7 +382,7 @@ describe("GlobalHeader", () => {
       currentProjectName: "real-project",
       currentProjectData: {
         title: "真实项目",
-        content_mode: "narration",
+        creation_type: "narration",
         style: "Anime",
         episodes: [],
         characters: {},
@@ -423,7 +423,7 @@ describe("GlobalHeader", () => {
       currentProjectName: "real-project",
       currentProjectData: {
         title: "真实项目",
-        content_mode: "narration",
+        creation_type: "narration",
         style: "Anime",
         episodes: [],
         characters: {},
@@ -475,7 +475,7 @@ describe("GlobalHeader", () => {
       currentProjectName: "demo",
       currentProjectData: {
         title: "导出项目",
-        content_mode: "narration",
+        creation_type: "narration",
         style: "Anime",
         episodes: [],
         characters: {},

@@ -38,7 +38,7 @@ def _seed(pm: ProjectManager, name: str) -> None:
         {
             "episode": 1,
             "title": "E1",
-            "content_mode": "drama",
+            "creation_type": "drama",
             "generation_mode": "reference_video",
             "video_units": [],
         },

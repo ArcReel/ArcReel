@@ -8,7 +8,7 @@ import type { DramaNormalizedScript, ScriptReviewState } from "@/types";
 function reviewState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
   return {
     episode: 1,
-    content_mode: "drama",
+    creation_type: "drama",
     status: "pending_review",
     fingerprint: "fp1",
     confirmed_at: null,

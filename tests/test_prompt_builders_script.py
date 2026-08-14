@@ -204,9 +204,9 @@ class TestPromptBuildersScript:
 
 
 class TestScreenplaySourceKind:
-    """source_kind 分支在 step1（normalize）：novel 改编 + 画外音语境放开、screenplay 提取 + 逐字保留。
+    """source_file_type 分支在 step1（normalize）：novel 改编 + 画外音语境放开、screenplay 提取 + 逐字保留。
 
-    step2（drama）视觉层不再分 source_kind（口播抽取已前移 step1），故 build_drama_prompt 无 source_kind 入参。
+    step2（drama）视觉层不再分 source_file_type（口播抽取已前移 step1），故 build_drama_prompt 无 source_file_type 入参。
     只断言语义关键词在场 / 缺席，不锁逐字措辞、不测 LLM 提取质量。
     """
 
@@ -215,7 +215,7 @@ class TestScreenplaySourceKind:
         """去除全部空白字符，用于跨缩进比较。"""
         return "".join(text.split())
 
-    def _normalize_prompt(self, source_kind: str, **overrides) -> str:
+    def _normalize_prompt(self, source_file_type: str, **overrides) -> str:
         kwargs = dict(
             novel_text="【第1集】角色甲：「你好」",
             project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
@@ -226,7 +226,7 @@ class TestScreenplaySourceKind:
             default_duration=8,
             supported_durations=[4, 6, 8],
             episode=1,
-            source_kind=source_kind,
+            source_file_type=source_file_type,
         )
         kwargs.update(overrides)
         return build_normalize_prompt(**kwargs)
@@ -299,32 +299,32 @@ class TestScreenplaySourceKind:
 
 
 class TestOverviewPrompt:
-    """source_kind=screenplay 下 overview prompt 翻为「提取优先」：作者写下的创作方案前言优先照用、
+    """source_file_type=screenplay 下 overview prompt 翻为「提取优先」：作者写下的创作方案前言优先照用、
     缺失才退回从正文归纳。只断言语义关键词在场/缺席与分支路由，不锁逐字措辞、不测 LLM 提取质量。"""
 
     def test_novel_default_keeps_source_text(self):
-        prompt = build_overview_prompt("正文内容", source_kind="novel")
+        prompt = build_overview_prompt("正文内容", source_file_type="novel")
         assert "正文内容" in prompt
 
     def test_screenplay_keeps_source_text(self):
-        prompt = build_overview_prompt("剧本正文", source_kind="screenplay")
+        prompt = build_overview_prompt("剧本正文", source_file_type="screenplay")
         assert "剧本正文" in prompt
 
     def test_screenplay_differs_from_novel(self):
         content = "同一段源文本"
-        assert build_overview_prompt(content, source_kind="screenplay") != build_overview_prompt(
-            content, source_kind="novel"
+        assert build_overview_prompt(content, source_file_type="screenplay") != build_overview_prompt(
+            content, source_file_type="novel"
         )
 
     def test_unknown_source_kind_falls_back_to_novel(self):
         content = "源文本"
-        assert build_overview_prompt(content, source_kind="bogus") == build_overview_prompt(
-            content, source_kind="novel"
+        assert build_overview_prompt(content, source_file_type="bogus") == build_overview_prompt(
+            content, source_file_type="novel"
         )
 
     def test_default_source_kind_is_novel(self):
         content = "源文本"
-        assert build_overview_prompt(content) == build_overview_prompt(content, source_kind="novel")
+        assert build_overview_prompt(content) == build_overview_prompt(content, source_file_type="novel")
 
 
 class TestDramaDurationSpeechLowerBound:

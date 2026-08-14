@@ -30,7 +30,7 @@ def _setup_project(pm: ProjectManager):
         json.dumps(
             {
                 "title": "测试",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "aspect_ratio": {"video": "16:9"},
                 "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
             },
@@ -41,7 +41,7 @@ def _setup_project(pm: ProjectManager):
     (scripts_dir / "episode_1.json").write_text(
         json.dumps(
             {
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {
                         "segment_id": "S1",
@@ -142,7 +142,7 @@ class TestJianyingDraftExport:
             json.dumps(
                 {
                     "title": "空",
-                    "content_mode": "narration",
+                    "creation_type": "narration",
                     "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
                 },
                 ensure_ascii=False,
@@ -153,7 +153,7 @@ class TestJianyingDraftExport:
         (scripts_dir / "episode_1.json").write_text(
             json.dumps(
                 {
-                    "content_mode": "narration",
+                    "creation_type": "narration",
                     "segments": [
                         {
                             "segment_id": "S1",

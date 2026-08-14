@@ -1,18 +1,18 @@
 """剧本骨架知识的单一真相源（零依赖叶子模块）。
 
 把「剧本按骨架种类如何组织」这一结构事实收归一处：一张以骨架种类（skeleton kind）为键
-的窄表，加上两个把 content_mode / generation_mode 两轴交互收口的解析器。
+的窄表，加上两个把 creation_type / generation_mode 两轴交互收口的解析器。
 
 - 窄表 ``SKELETONS``：键即剧本里的条目数组键（``segments`` / ``scenes`` / ``shots`` /
   ``video_units``），行 ``Skeleton(id_field, chars_field)``。``chars_field`` 可为 ``None``
   ——``video_units`` 无逐条角色名单（角色以 ``references`` 中 ``type == "character"`` 的条目
   形态存在），表如实声明缺位；消费方拿到 ``None`` 必须显式决策（自行派生或声明不适用），
   不提供假字段名使 ``get()`` 返回空值。
-- 规范解析 ``resolve_declared_kind(content_mode, generation_mode)``：服务只有项目配置在手
-  的消费方，输入为项目级已过校验的 content_mode 与项目声明的 generation_mode。**fail-loud**——未知/缺失 content_mode 抛 ``ValueError``，不静默兜底。
+- 规范解析 ``resolve_declared_kind(creation_type, generation_mode)``：服务只有项目配置在手
+  的消费方，输入为项目级已过校验的 creation_type 与项目声明的 generation_mode。**fail-loud**——未知/缺失 creation_type 抛 ``ValueError``，不静默兜底。
 - 取证解析 ``resolve_script_kind(script)``：服务手持剧本数据的消费方（编辑 / 查看 / 导出），
   数据形状优先——回答的是「这份剧本现在长什么样」，与项目声明无关。
-- 路线闸门 ``ensure_route_skeleton(script, content_mode, generation_mode)``：生成入口用，
+- 路线闸门 ``ensure_route_skeleton(script, creation_type, generation_mode)``：生成入口用，
   剧本实际骨架与项目路线要求的骨架不属同一族时拒绝，并给出重拆指引。
 
 行为不进表：validate 钩子、Pydantic 模型映射、编辑白名单不入注册表，留各消费方本地。
@@ -23,12 +23,17 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from lib.validation_messages import MessageRef, ValidationMessage
 
 STORYBOARD_ITEM_ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
+
+# 通用脚本条目：与具体骨架身份（segment_id / scene_id / unit_id / shot_id）正交。
+# 领域持久化集合仍用各自数组键；通用算法只经 script_items / item_id 访问。
+type ScriptItem = dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -105,25 +110,46 @@ def _validate_registry() -> None:
 _validate_registry()
 
 
-def resolve_declared_kind(content_mode: str | None, generation_mode: str | None) -> str:
-    """规范解析：由项目声明的 ``(content_mode, generation_mode)`` 定骨架种类。
+def resolve_declared_kind(creation_type: str | None, generation_mode: str | None) -> str:
+    """规范解析：由项目声明的 ``(creation_type, generation_mode)`` 定骨架种类。
 
-    输入为项目级已过校验的 content_mode 与项目声明的 generation_mode（``project.json`` 字段）。
+    输入为项目级已过校验的 creation_type 与项目声明的 generation_mode（``project.json`` 字段）。
 
     - 任意内容模式 + ``generation_mode == "reference_video"`` → ``video_units``
     - ``ad`` + ``storyboard`` → ``shots``
     - ``narration`` → ``segments``，``drama`` → ``scenes``
-    - 未知/缺失 content_mode → 抛 ``ValueError``（fail-loud，不静默默认到 drama/narration）
+    - 未知/缺失 creation_type → 抛 ``ValueError``（fail-loud，不静默默认到 drama/narration）
 
     服务只有项目配置在手的消费方；手持可能缺字段的剧本 dict 的消费方走 ``resolve_script_kind``。
     """
-    if content_mode == "ad":
+    if creation_type == "ad":
         return "video_units" if generation_mode == "reference_video" else "shots"
-    if content_mode == "narration":
+    if creation_type == "narration":
         return "video_units" if generation_mode == "reference_video" else "segments"
-    if content_mode == "drama":
+    if creation_type == "drama":
         return "video_units" if generation_mode == "reference_video" else "scenes"
-    raise ValueError(f"未知或缺失 content_mode: {content_mode!r}")
+    raise ValueError(f"未知或缺失 creation_type: {creation_type!r}")
+
+
+def script_items(script: Mapping[str, Any]) -> list[Any]:
+    """通用条目数组。返回剧本里的实际引用，调用方可就地编辑。
+
+    键缺失视为空列表；键在场但不是 list 时 fail-loud。
+    """
+    kind = resolve_script_kind(dict(script))
+    if kind not in script:
+        return []
+    items = script[kind]
+    if not isinstance(items, list):
+        raise TypeError(f"{kind} 必须是列表，当前为 {type(items).__name__}")
+    return items
+
+
+def item_id(item: Mapping[str, Any], kind: str) -> str:
+    """按骨架种类读取条目身份。领域字段名保持精确，通用层只认 item_id。"""
+    field = SKELETONS[kind].id_field
+    value = item.get(field)
+    return value if isinstance(value, str) else ""
 
 
 def resolve_script_kind(script: dict[str, Any]) -> str:
@@ -141,23 +167,23 @@ def resolve_script_kind(script: dict[str, Any]) -> str:
     判别顺序：
     1. ``video_units`` 在场且 ``segments`` / ``scenes`` / ``shots`` 都不在 → reference（避免
        storyboard 脚本被误塞的游离 ``video_units`` 抢走判别）
-    2. ``content_mode`` 为权威（``drama`` → scenes，``narration`` → segments，``ad`` → shots）
-    3. ``content_mode=narration`` 但数据落 ``scenes`` 键（无 ``segments``）的历史遗留兼容
-    4. ``content_mode`` 缺失时按顶层键存在性推断
+    2. ``creation_type`` 为权威（``drama`` → scenes，``narration`` → segments，``ad`` → shots）
+    3. ``creation_type=narration`` 但数据落 ``scenes`` 键（无 ``segments``）的历史遗留兼容
+    4. ``creation_type`` 缺失时按顶层键存在性推断
 
     ``script_structure_validator._select_model``（结构校验）/ ``script_editor.resolve_items``
     （编辑核心）/ 写盘统一入口的 metadata 重算共用本判别，多处只此一处真相、不漂移。
     """
     if "video_units" in script and not any(k in script for k in ("segments", "scenes", "shots")):
         return "video_units"
-    content_mode = script.get("content_mode")
-    if content_mode == "ad":
+    creation_type = script.get("creation_type")
+    if creation_type == "ad":
         return "shots"
-    if content_mode == "drama":
+    if creation_type == "drama":
         return "scenes"
-    if content_mode == "narration":
-        # 畸形脚本兼容：content_mode=narration 但数据实际落在 scenes 键下（无 segments 键）的
-        # 历史遗留状态——回退去读 scenes，而非按 content_mode 字面映射到不存在的 segments。
+    if creation_type == "narration":
+        # 畸形脚本兼容：creation_type=narration 但数据实际落在 scenes 键下（无 segments 键）的
+        # 历史遗留状态——回退去读 scenes，而非按 creation_type 字面映射到不存在的 segments。
         if "segments" not in script and "scenes" in script:
             return "scenes"
         return "segments"
@@ -215,7 +241,7 @@ class SkeletonRouteMismatchError(ValueError):
         return self._message
 
 
-def ensure_route_skeleton(script: dict[str, Any], content_mode: str | None, generation_mode: str | None) -> str:
+def ensure_route_skeleton(script: dict[str, Any], creation_type: str | None, generation_mode: str | None) -> str:
     """生成入口的路线闸门：确认剧本骨架属于项目路线要求的族，返回剧本实际骨架种类。
 
     生成分派一律按项目路线（``resolve_declared_kind``），剧本自身不携带路线信息。骨架与路线
@@ -230,7 +256,7 @@ def ensure_route_skeleton(script: dict[str, Any], content_mode: str | None, gene
       同此口径：``is_reference_video_project`` 定路径，形状不投票）。
     - 分镜路线只问 ``segments`` / ``scenes`` / ``shots`` 有没有一个在场。族内的历史形态差异
       （narration 数据落 ``scenes`` 键）照实放行并原样返回取证解析的答案，闸门只管跨族；而
-      三个键全缺时不能放行——``resolve_script_kind`` 会按 ``content_mode`` 合成一个族内答案，
+      三个键全缺时不能放行——``resolve_script_kind`` 会按 ``creation_type`` 合成一个族内答案，
       顺着走下去分镜图入队会落进"✨ 所有片段的分镜图都已生成"的假成功。
 
     两个分支都只问键在不在、不问值的类型：``"video_units": {}`` 这类脏数据是类型错误、不是
@@ -239,9 +265,9 @@ def ensure_route_skeleton(script: dict[str, Any], content_mode: str | None, gene
 
     Raises:
         SkeletonRouteMismatchError: 剧本骨架与路线要求的骨架不属同一族，或剧本没有任何骨架数组。
-        ValueError: content_mode 未知或缺失（由 ``resolve_declared_kind`` fail-loud）。
+        ValueError: creation_type 未知或缺失（由 ``resolve_declared_kind`` fail-loud）。
     """
-    expected = resolve_declared_kind(content_mode, generation_mode)
+    expected = resolve_declared_kind(creation_type, generation_mode)
     has_reference = _REFERENCE_ROUTE_SKELETON in script
     has_storyboard = any(key in script for key in _STORYBOARD_ROUTE_SKELETONS)
     if expected == _REFERENCE_ROUTE_SKELETON:

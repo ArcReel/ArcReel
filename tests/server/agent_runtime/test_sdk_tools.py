@@ -72,7 +72,7 @@ class _FakePM:
             "style_description": "soft pastel",
         }
         self.script_payload: dict[str, Any] = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "episode": 1,
             "segments": [
                 {
@@ -349,7 +349,7 @@ async def test_generate_assets_names_without_type(fake_ctx: ToolContext) -> None
 
 def _narration_audio_script() -> dict[str, Any]:
     return {
-        "content_mode": "narration",
+        "creation_type": "narration",
         "episode": 1,
         "segments": [
             {
@@ -537,9 +537,9 @@ async def test_generate_narration_audio_accepts_drama_narrator_scene(
 ) -> None:
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
-    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["creation_type"] = "drama"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
-        "content_mode": "drama",
+        "creation_type": "drama",
         "episode": 1,
         "scenes": [
             {
@@ -571,7 +571,7 @@ async def test_generate_narration_audio_uses_project_mode_for_drama_without_cont
 ) -> None:
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
-    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["creation_type"] = "drama"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
         "episode": 1,
         "scenes": [
@@ -605,7 +605,7 @@ async def test_generate_narration_audio_accepts_reference_narrator_unit(
 
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
-        "content_mode": "narration",
+        "creation_type": "narration",
         "episode": 1,
         "video_units": [
             {
@@ -651,7 +651,7 @@ async def test_generate_video_rejects_mismatched_unit_script_on_storyboard_route
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
-        "content_mode": "narration",
+        "creation_type": "narration",
         "episode": 1,
         "video_units": [{"unit_id": "E1U1", "shots": [{"text": "x"}], "duration_seconds": 5}],
     }
@@ -684,7 +684,7 @@ async def test_generate_narration_audio_rejects_mismatched_script(fake_ctx: Tool
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
-        "content_mode": "narration",
+        "creation_type": "narration",
         "episode": 1,
         "video_units": [{"unit_id": "E1U1"}],
     }
@@ -859,7 +859,7 @@ async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
 async def test_generate_storyboards_rejects_mismatched_unit_script(fake_ctx: ToolContext) -> None:
     """失配剧本不能落进"✨ 所有片段的分镜图都已生成"的假成功——报结构错误并指引重拆。"""
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
-        "content_mode": "narration",
+        "creation_type": "narration",
         "episode": 1,
         "video_units": [{"unit_id": "E1U1"}],
     }
@@ -1516,7 +1516,7 @@ async def test_generate_video_episode_non_dict_generated_assets_does_not_abort_b
 
 @pytest.mark.unit
 async def test_generate_video_episode_error(fake_ctx: ToolContext) -> None:
-    fake_ctx.pm.script_payload = {"content_mode": "narration", "segments": [], "episode": 1}  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = {"creation_type": "narration", "segments": [], "episode": 1}  # type: ignore[attr-defined]
     tool_obj = generate_video_episode_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
@@ -1524,7 +1524,7 @@ async def test_generate_video_episode_error(fake_ctx: ToolContext) -> None:
 
 def _reference_video_script(**overrides: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "content_mode": "narration",
+        "creation_type": "narration",
         "episode": 1,
         "video_units": [
             {
@@ -2493,9 +2493,9 @@ async def test_generate_video_scene_use_tts_blocks_when_exact_cost_is_unavailabl
 async def test_generate_video_scene_accepts_legacy_drama_dialogue(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["creation_type"] = "drama"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
-        "content_mode": "drama",
+        "creation_type": "drama",
         "scenes": [
             {
                 "scene_id": "E1S01",
@@ -2524,9 +2524,9 @@ async def test_generate_video_scene_accepts_legacy_drama_dialogue(fake_ctx: Tool
 async def test_generate_video_scene_accepts_speech_free_legacy_drama(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["creation_type"] = "drama"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
-        "content_mode": "drama",
+        "creation_type": "drama",
         "scenes": [
             {
                 "scene_id": "E1S01",
@@ -2553,9 +2553,9 @@ async def test_generate_video_scene_accepts_speech_free_legacy_drama(fake_ctx: T
 async def test_generate_video_scene_accepts_legacy_narration_string_prompt(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    fake_ctx.pm.project_payload["content_mode"] = "narration"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["creation_type"] = "narration"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
-        "content_mode": "narration",
+        "creation_type": "narration",
         "segments": [
             {
                 "segment_id": "E1S01",
@@ -2585,7 +2585,7 @@ async def test_six_route_agent_single_video_generation_returns_structured_admiss
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
-        {"content_mode": case.content_mode, "generation_mode": case.generation_mode}
+        {"creation_type": case.creation_type, "generation_mode": case.generation_mode}
     )
     fake_ctx.pm.script_payload = case.script()  # type: ignore[attr-defined]
     enqueue = AsyncMock()
@@ -2769,7 +2769,7 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
     specs, order_map = _build_video_specs(
         items=items,
         id_field="segment_id",
-        content_mode="narration",
+        creation_type="narration",
         script_filename="episode_1.json",
         project_dir=tmp_path,
         skip_ids=None,
@@ -2783,7 +2783,7 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
     specs2, _ = _build_video_specs(
         items=items,
         id_field="segment_id",
-        content_mode="narration",
+        creation_type="narration",
         script_filename="episode_1.json",
         project_dir=tmp_path,
         skip_ids=None,
@@ -2826,7 +2826,7 @@ def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch
     specs, order_map = _build_video_specs(
         items=items,
         id_field="segment_id",
-        content_mode="narration",
+        creation_type="narration",
         script_filename="episode_1.json",
         project_dir=tmp_path,
         skip_ids=None,
@@ -2856,7 +2856,7 @@ def test_build_video_specs_skips_non_dict_generated_assets_without_aborting_batc
     specs, order_map = _build_video_specs(
         items=items,
         id_field="segment_id",
-        content_mode="narration",
+        creation_type="narration",
         script_filename="episode_1.json",
         project_dir=tmp_path,
         skip_ids=None,
@@ -2893,7 +2893,7 @@ def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
             {"kind": "dialogue", "speaker": "王", "text": "你来了。"},
         ],
     }
-    parsed = yaml.safe_load(_get_video_prompt(drama_item, content_mode="drama"))
+    parsed = yaml.safe_load(_get_video_prompt(drama_item, creation_type="drama"))
     assert parsed["Dialogue"] == [{"Speaker": "王", "Line": "你来了。"}]
 
     narration_item = {
@@ -2905,7 +2905,7 @@ def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
             "dialogue": [{"speaker": "Alice", "line": "hello"}],
         },
     }
-    parsed_narr = yaml.safe_load(_get_video_prompt(narration_item, content_mode="narration"))
+    parsed_narr = yaml.safe_load(_get_video_prompt(narration_item, creation_type="narration"))
     assert parsed_narr["Dialogue"] == [{"Speaker": "Alice", "Line": "hello"}]
 
 
@@ -2924,14 +2924,14 @@ def test_get_video_prompt_injects_voice_profiles_when_characters_given() -> None
     }
     characters = {"王": {"voice_style": "低沉沙哑"}}
 
-    parsed = yaml.safe_load(_get_video_prompt(drama_item, content_mode="drama", voice_characters=characters))
+    parsed = yaml.safe_load(_get_video_prompt(drama_item, creation_type="drama", voice_characters=characters))
     assert parsed["Voice_Profiles"] == [{"Speaker": "王", "Voice_Style": "低沉沙哑"}]
 
-    parsed_default = yaml.safe_load(_get_video_prompt(drama_item, content_mode="drama"))
+    parsed_default = yaml.safe_load(_get_video_prompt(drama_item, creation_type="drama"))
     assert "Voice_Profiles" not in parsed_default
 
     parsed_no_style = yaml.safe_load(
-        _get_video_prompt(drama_item, content_mode="drama", voice_characters={"王": {"voice_style": ""}})
+        _get_video_prompt(drama_item, creation_type="drama", voice_characters={"王": {"voice_style": ""}})
     )
     assert "Voice_Profiles" not in parsed_no_style
 
@@ -2955,7 +2955,7 @@ def test_get_video_prompt_injects_voice_profiles_from_legacy_dialogue() -> None:
     }
     characters = {"王": {"voice_style": "低沉沙哑"}}
 
-    parsed = yaml.safe_load(_get_video_prompt(legacy_drama_item, content_mode="drama", voice_characters=characters))
+    parsed = yaml.safe_load(_get_video_prompt(legacy_drama_item, creation_type="drama", voice_characters=characters))
     assert parsed["Voice_Profiles"] == [{"Speaker": "王", "Voice_Style": "低沉沙哑"}]
     assert parsed["Dialogue"] == [{"Speaker": "王", "Line": "你来了。"}]
 
@@ -2978,7 +2978,7 @@ def test_get_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() 
             "voice_profiles": [{"Speaker": "赝品", "Voice_Style": "越权"}],
         },
     }
-    parsed = yaml.safe_load(_get_video_prompt(narration_item, content_mode="narration"))
+    parsed = yaml.safe_load(_get_video_prompt(narration_item, creation_type="narration"))
     assert "Voice_Profiles" not in parsed
 
 
@@ -3177,11 +3177,11 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: T
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    ("generation_mode", "content_mode"),
+    ("generation_mode", "creation_type"),
     [("storyboard", "drama"), ("reference_video", "ad")],
 )
 async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
-    fake_ctx: ToolContext, monkeypatch, generation_mode: str, content_mode: str
+    fake_ctx: ToolContext, monkeypatch, generation_mode: str, creation_type: str
 ) -> None:
     """非剧集参考路径不补该字段：其它路径没有逐 unit 引用状态，ad 镜头时长也不受档位枚举管辖。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -3192,7 +3192,7 @@ async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
             "model": "veo-3.1-generate-preview",
             "supported_durations": [4, 6, 8],
             "generation_mode": generation_mode,
-            "content_mode": content_mode,
+            "creation_type": creation_type,
         }
 
     monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
@@ -3242,7 +3242,7 @@ async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatc
     drafts = project_path / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
     (drafts / "step1_segments.json").write_text("step1 content", encoding="utf-8")
-    (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
+    (project_path / "project.json").write_text(json.dumps({"creation_type": "narration"}), encoding="utf-8")
 
     class _FakeGenerator:
         def __init__(self, _path):
@@ -3282,7 +3282,7 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
     (project_path / "project.json").write_text(
         json.dumps(
             {
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "episodes": [{"episode": 1, "step1_review": {"fingerprint": fingerprint, "confirmed_at": "t"}}],
             }
         ),
@@ -3316,7 +3316,7 @@ async def test_generate_episode_script_ad_skips_step1(fake_ctx: ToolContext, mon
 
     project_path = fake_ctx.project_path
     (project_path / "project.json").write_text(
-        json.dumps({"content_mode": "ad", "target_duration": 30}), encoding="utf-8"
+        json.dumps({"creation_type": "ad", "target_duration": 30}), encoding="utf-8"
     )
 
     class _FakeGenerator:
@@ -4132,7 +4132,7 @@ def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> 
     pm = fake_ctx.pm
     pm.project_payload.update(  # type: ignore[attr-defined]
         {
-            "content_mode": "ad",
+            "creation_type": "ad",
             "generation_mode": "reference_video",
             "style": "明亮写实",
             "products": {"保温杯": {"description": "主推产品"}},
@@ -4140,7 +4140,7 @@ def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> 
         }
     )
     pm.script_payload = {  # type: ignore[attr-defined]
-        "content_mode": "ad",
+        "creation_type": "ad",
         "episode": 1,
         "title": "短片",
         "video_units": [_ad_reference_unit()],
@@ -4623,10 +4623,10 @@ def _rv_project(fake_ctx: ToolContext, generation_mode: str = "reference_video")
     盘上的 project.json 与 pm 的内存视图同步：生成入口从盘上读，晋升工具经 ``pm.load_project`` 读。
     """
     (fake_ctx.project_path / "project.json").write_text(
-        json.dumps({"content_mode": "narration", "generation_mode": generation_mode}, ensure_ascii=False),
+        json.dumps({"creation_type": "narration", "generation_mode": generation_mode}, ensure_ascii=False),
         encoding="utf-8",
     )
-    fake_ctx.pm.project_payload["content_mode"] = "narration"  # pyright: ignore[reportAttributeAccessIssue]
+    fake_ctx.pm.project_payload["creation_type"] = "narration"  # pyright: ignore[reportAttributeAccessIssue]
     fake_ctx.pm.project_payload["generation_mode"] = generation_mode  # pyright: ignore[reportAttributeAccessIssue]
 
 
@@ -5838,7 +5838,7 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolConte
     (project_path / "project.json").write_text(
         json.dumps(
             {
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "episodes": [{"episode": 1, "step1_review": {"fingerprint": fingerprint, "confirmed_at": "t"}}],
             }
         ),
@@ -6149,7 +6149,7 @@ async def test_generate_episode_script_reference_legacy_md_hints_resplit(fake_ct
     (project_path / "project.json").write_text(
         json.dumps(
             {
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
                 "episodes": [{"episode": 1, "generation_mode": "reference_video"}],
             },

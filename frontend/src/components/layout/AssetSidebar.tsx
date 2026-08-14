@@ -54,7 +54,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   const productCount = Object.keys(currentProjectData?.products ?? {}).length;
   const episodes = currentProjectData?.episodes ?? [];
   // 广告/短片项目恒单集：隐藏「集」语义（标题/计数/搜索/添加），直达唯一视频
-  const isAd = currentProjectData?.content_mode === "ad";
+  const isAd = currentProjectData?.creation_type === "ad";
 
   const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
   const [sourceCount, setSourceCount] = useState<number>(0);

@@ -22,7 +22,7 @@ vi.mock("./AdInitCanvas", () => ({
 function makeProjectData(overrides: Partial<ProjectData> = {}): ProjectData {
   return {
     title: "Demo",
-    content_mode: "narration",
+    creation_type: "narration",
     style: "Anime",
     style_description: "old description",
     overview: {
@@ -498,7 +498,7 @@ describe("OverviewCanvas ad mode", () => {
       <OverviewCanvas
         projectName="ad-demo"
         projectData={makeProjectData({
-          content_mode: "ad",
+          creation_type: "ad",
           target_duration: 60,
           brief: "卖点",
           episodes: [{ episode: 1, title: "", script_file: "scripts/episode_1.json" }],
@@ -522,7 +522,7 @@ describe("OverviewCanvas ad mode", () => {
       <OverviewCanvas
         projectName="ad-demo"
         projectData={makeProjectData({
-          content_mode: "ad",
+          creation_type: "ad",
           overview: undefined,
           target_duration: 60,
           brief: "",
@@ -539,7 +539,7 @@ describe("OverviewCanvas ad mode", () => {
       <OverviewCanvas
         projectName="ad-demo"
         projectData={makeProjectData({
-          content_mode: "ad",
+          creation_type: "ad",
           target_duration: 60,
           brief: "卖点",
           episodes: [{ episode: 1, title: "", script_file: "scripts/episode_1.json" }],

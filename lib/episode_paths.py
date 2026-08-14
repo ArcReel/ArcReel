@@ -3,7 +3,7 @@
 这些路径原本散落在审核 gate、状态计算、web 草稿读写层、剧本生成器与 SDK 文本工具中各自
 硬编码同名字面量。审核 gate 找不到 step1 文件时按 ``no_step1`` 放行 step2（文件不存在不等于
 故障），因此任一写盘侧文件名 / 目录漂移都会让 gate 静默绕过且无报错。本模块把这些映射收敛到
-一处：新增走结构化两段式的 content_mode 只需在 ``STEP1_FILENAMES`` 登记结构化文件名，gate、
+一处：新增走结构化两段式的 creation_type 只需在 ``STEP1_FILENAMES`` 登记结构化文件名，gate、
 状态计算、web 读取与写盘自动一致。
 
 保留既有语义差异（收敛时不许抹平）：
@@ -18,22 +18,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-#: 结构化 step1 中间态文件名（按 content_mode）。审核 gate 仅认这两类。
-#: 新增走结构化两段式的 content_mode 在此登记一处即可让 gate / 状态计算 / web 读取 / 写盘一致。
+#: 结构化 step1 中间态文件名（按 creation_type）。审核 gate 仅认这两类。
+#: 新增走结构化两段式的 creation_type 在此登记一处即可让 gate / 状态计算 / web 读取 / 写盘一致。
 STEP1_FILENAMES: dict[str, str] = {
     "drama": "step1_normalized_script.json",
     "narration": "step1_segments.json",
 }
 
-#: 旧版非结构化 step1 别名（按 content_mode）。仅供状态计算 / web 读取层兼认存量在制品，
-#: 审核 gate 与写盘侧不认。新增 content_mode 无历史遗留，无需登记于此。
+#: 旧版非结构化 step1 别名（按 creation_type）。仅供状态计算 / web 读取层兼认存量在制品，
+#: 审核 gate 与写盘侧不认。新增 creation_type 无历史遗留，无需登记于此。
 STEP1_LEGACY_FILENAMES: dict[str, tuple[str, ...]] = {
     "drama": ("step1_normalized_script.md",),
     "narration": ("step1_segments.md",),
 }
 
 #: reference_video 的结构化 step1 中间态文件名。reference_video 是 generation_mode 维度、
-#: 跨 content_mode（narration / drama 均可），不进按 content_mode 键控的 ``STEP1_FILENAMES``；
+#: 跨 creation_type（narration / drama 均可），不进按 creation_type 键控的 ``STEP1_FILENAMES``；
 #: 审核 gate 按 step1 变体单独纳入本文件名（见 ``lib.script_review.step1_kind``）。
 REFERENCE_VIDEO_STEP1_FILENAME = "step1_reference_units.json"
 
@@ -49,20 +49,20 @@ REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME = "step1_reference_units.invalid.json"
 REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME = "step2_reference_script.invalid.json"
 
 
-def step1_filename(content_mode: str) -> str | None:
-    """该 content_mode 的结构化 step1 文件名；不走结构化 step1（如 ad）时返回 None。"""
-    return STEP1_FILENAMES.get(content_mode)
+def step1_filename(creation_type: str) -> str | None:
+    """该 creation_type 的结构化 step1 文件名；不走结构化 step1（如 ad）时返回 None。"""
+    return STEP1_FILENAMES.get(creation_type)
 
 
-def step1_read_candidates(content_mode: str) -> tuple[str, ...]:
+def step1_read_candidates(creation_type: str) -> tuple[str, ...]:
     """结构化 step1 文件名 + 旧版 ``.md`` 别名（读取 / 浏览侧候选，主文件缺失时回落探测）。
 
     不走结构化 step1 的模式返回空元组。审核 gate 不用此函数（只认结构化 ``.json``）。
     """
-    primary = STEP1_FILENAMES.get(content_mode)
+    primary = STEP1_FILENAMES.get(creation_type)
     if primary is None:
         return ()
-    return (primary, *STEP1_LEGACY_FILENAMES.get(content_mode, ()))
+    return (primary, *STEP1_LEGACY_FILENAMES.get(creation_type, ()))
 
 
 def episode_drafts_dir(project_path: Path, episode: int) -> Path:

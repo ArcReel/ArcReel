@@ -17,10 +17,10 @@ def _write_json(path: Path, payload: dict):
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _project_payload(content_mode: str = "narration") -> dict:
+def _project_payload(creation_type: str = "narration") -> dict:
     return {
         "title": "Demo",
-        "content_mode": content_mode,
+        "creation_type": creation_type,
         "generation_mode": "storyboard",
         "style": "Anime",
         "characters": {
@@ -55,7 +55,7 @@ class TestDataValidator:
         _write_json(
             project_dir / "project.json",
             {
-                "content_mode": "invalid",
+                "creation_type": "invalid",
                 "style": "",
                 "characters": {"A": []},
                 "scenes": {
@@ -72,7 +72,7 @@ class TestDataValidator:
         assert not result.valid
         # title 完全缺失 → "缺少必填字段",区别于"字段类型错误"
         assert any("缺少必填字段: title" in error for error in result.errors)
-        assert any("content_mode" in error for error in result.errors)
+        assert any("invalid" in error for error in result.errors)
         assert any("角色 'A' 数据格式错误" in error for error in result.errors)
         # scenes/props 缺少 description 也应报错
         assert any("场景 'X'" in error for error in result.errors)
@@ -171,7 +171,7 @@ class TestDataValidator:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {
                         "segment_id": "E1S01",
@@ -200,7 +200,7 @@ class TestDataValidator:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {
                         "segment_id": "E1S01",
@@ -232,7 +232,7 @@ class TestDataValidator:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {
                         "segment_id": "E1S01",
@@ -261,7 +261,7 @@ class TestDataValidator:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {
                         "segment_id": "E1S03_1",
@@ -290,7 +290,7 @@ class TestDataValidator:
             {
                 "episode": "bad",
                 "title": "",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {
                         "segment_id": "bad-id",
@@ -339,7 +339,7 @@ class TestDataValidator:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {
                         "segment_id": "E1S01",
@@ -378,7 +378,7 @@ class TestDataValidator:
             {
                 "episode": 2,
                 "title": "第二集",
-                "content_mode": "drama",
+                "creation_type": "drama",
                 "scenes": [
                     {
                         "scene_id": "E2S01",
@@ -407,7 +407,7 @@ class TestDataValidator:
             {
                 "episode": 1,
                 "title": "x",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {
                         "segment_id": "E1S01",
@@ -434,7 +434,7 @@ class TestDataValidator:
             {
                 "episode": 2,
                 "title": "第二集",
-                "content_mode": "drama",
+                "creation_type": "drama",
                 "scenes": [
                     {
                         "scene_id": "E2S01",
@@ -470,7 +470,7 @@ class TestDataValidator:
         scene.update(scene_extra)
         _write_json(
             project_dir / "scripts" / "episode_2.json",
-            {"episode": 2, "title": "第二集", "content_mode": "drama", "scenes": [scene]},
+            {"episode": 2, "title": "第二集", "creation_type": "drama", "scenes": [scene]},
         )
         return validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
 
@@ -682,7 +682,7 @@ class TestDataValidator:
             project_dir / "project.json",
             {
                 "title": "Test",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "storyboard",
                 "style": "Anime",
                 "characters": {},
@@ -708,7 +708,7 @@ class TestDataValidator:
             project_dir / "project.json",
             {
                 "title": "Test",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "style": "Anime",
                 "characters": {},
                 "clues": {"玉佩": {"type": "prop", "description": "xxx", "importance": "major"}},
@@ -727,7 +727,7 @@ class TestDataValidator:
             project_dir / "project.json",
             {
                 "title": "Test",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "style": "Anime",
                 "characters": {},
                 "scenes": {
@@ -749,7 +749,7 @@ class TestDataValidator:
             project_dir / "project.json",
             {
                 "title": "Test",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "style": "Anime",
                 "characters": {},
                 "scenes": {},
@@ -773,7 +773,7 @@ class TestDataValidator:
             {
                 "episode": 3,
                 "title": "第三集",
-                "content_mode": "drama",
+                "creation_type": "drama",
                 "scenes": [
                     {
                         "scene_id": "E3S01",
@@ -805,7 +805,7 @@ class TestDataValidator:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {
                         "segment_id": "E1S01",
@@ -838,7 +838,7 @@ class TestDataValidator:
             {
                 "episode": 1,
                 "title": "x",
-                "content_mode": "drama",
+                "creation_type": "drama",
                 "scenes": [
                     {
                         "scene_id": f"E1S{i:02d}",
@@ -1099,7 +1099,7 @@ class TestEpisodeLedgerFields:
 def _ad_project_payload(**overrides) -> dict:
     payload = {
         "title": "速干杯带货",
-        "content_mode": "ad",
+        "creation_type": "ad",
         "generation_mode": "storyboard",
         "style": "Realistic",
         "target_duration": 60,
@@ -1292,7 +1292,7 @@ class TestAdEpisodeValidation:
         _write_json(project_dir / "project.json", project or _ad_project_payload())
         _write_json(
             project_dir / "scripts" / "episode_1.json",
-            {"episode": 1, "title": "速干杯带货", "content_mode": "ad", "shots": shots},
+            {"episode": 1, "title": "速干杯带货", "creation_type": "ad", "shots": shots},
         )
         return DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
@@ -1417,7 +1417,7 @@ class TestAdEpisodeValidationEdgeCases:
             {
                 "episode": 1,
                 "title": "T",
-                "content_mode": "ad",
+                "creation_type": "ad",
                 "shots": [{"shot_id": 101, "voiceover_text": "x", "image_prompt": "i", "video_prompt": "v"}],
             },
         )
@@ -1436,7 +1436,7 @@ class TestAdEpisodeValidationEdgeCases:
             {
                 "episode": 1,
                 "title": "T",
-                "content_mode": "ad",
+                "creation_type": "ad",
                 "shots": [
                     {
                         "shot_id": "E1S01",
@@ -1489,7 +1489,7 @@ class TestAdReferenceVideoUnitsValidation:
         _write_json(project_dir / "project.json", project)
         _write_json(
             project_dir / "scripts" / "episode_1.json",
-            {"episode": 1, "title": "速干杯带货", "content_mode": "ad", "video_units": units},
+            {"episode": 1, "title": "速干杯带货", "creation_type": "ad", "video_units": units},
         )
         return DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
@@ -1590,14 +1590,14 @@ class TestAdReferenceVideoUnitsValidation:
         unit = self._unit(references=[{"type": "character", "name": name_nfc}])
         _write_json(
             project_dir / "scripts" / "episode_1.json",
-            {"episode": 1, "title": "速干杯带货", "content_mode": "ad", "video_units": [unit]},
+            {"episode": 1, "title": "速干杯带货", "creation_type": "ad", "video_units": [unit]},
         )
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
         assert result.valid, result.errors
 
 
 class TestSourceKindValidation:
-    """source_kind 顶层枚举校验：缺省 novel（缺失放行），仅拦非法值；并锁泛指 speaker 回归。"""
+    """source_file_type 顶层枚举校验：缺省 novel（缺失放行），仅拦非法值；并锁泛指 speaker 回归。"""
 
     def _validate(self, tmp_path, project):
         project_dir = tmp_path / "projects" / "demo"
@@ -1606,26 +1606,26 @@ class TestSourceKindValidation:
 
     @pytest.mark.unit
     def test_missing_source_kind_is_valid(self, tmp_path):
-        # 存量项目无 source_kind 字段：缺省 novel，不报错
+        # 存量项目无 source_file_type 字段：缺省 novel，不报错
         result = self._validate(tmp_path, _project_payload("drama"))
         assert result.valid, result.errors
-        assert not any("source_kind" in e for e in result.errors)
+        assert not any("source_file_type" in e for e in result.errors)
 
     @pytest.mark.unit
     @pytest.mark.parametrize("kind", ["novel", "screenplay"])
     def test_valid_source_kind_passes(self, tmp_path, kind):
         payload = _project_payload("drama")
-        payload["source_kind"] = kind
+        payload["source_file_type"] = kind
         result = self._validate(tmp_path, payload)
         assert result.valid, result.errors
 
     @pytest.mark.unit
     def test_invalid_source_kind_rejected(self, tmp_path):
         payload = _project_payload("drama")
-        payload["source_kind"] = "screen_play"
+        payload["source_file_type"] = "screen_play"
         result = self._validate(tmp_path, payload)
         assert not result.valid
-        assert any("source_kind" in e for e in result.errors)
+        assert any("screen_play" in e for e in result.errors)
 
     @pytest.mark.unit
     def test_generic_speaker_in_drama_dialogue_passes_validation(self, tmp_path):
@@ -1636,14 +1636,14 @@ class TestSourceKindValidation:
         """
         project_dir = tmp_path / "projects" / "demo"
         payload = _project_payload("drama")
-        payload["source_kind"] = "screenplay"
+        payload["source_file_type"] = "screenplay"
         _write_json(project_dir / "project.json", payload)
         _write_json(
             project_dir / "scripts" / "episode_1.json",
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "drama",
+                "creation_type": "drama",
                 "scenes": [
                     {
                         "scene_id": "E1S01",
@@ -1670,17 +1670,17 @@ class TestSourceKindValidation:
 
 def _episode_for_kind(kind: str, items: object) -> tuple[dict, dict]:
     """按骨架种类构造 (project, episode)：episode 的骨架数组键置为传入的 items（可为非法值）。"""
-    array_key, content_mode, gen_mode = {
+    array_key, creation_type, gen_mode = {
         "segments": ("segments", "narration", None),
         "scenes": ("scenes", "drama", None),
         "shots": ("shots", "ad", None),
         "video_units": ("video_units", "narration", "reference_video"),
     }[kind]
-    if content_mode == "ad":
+    if creation_type == "ad":
         project = _ad_project_payload()
     else:
-        project = _project_payload(content_mode)
-    episode: dict = {"episode": 1, "title": "第一集", "content_mode": content_mode, array_key: items}
+        project = _project_payload(creation_type)
+    episode: dict = {"episode": 1, "title": "第一集", "creation_type": creation_type, array_key: items}
     if gen_mode:
         project["generation_mode"] = gen_mode
         episode["generation_mode"] = gen_mode
@@ -1740,7 +1740,7 @@ class TestRouteSkeletonMismatchValidation:
         _write_json(project_dir / "project.json", _project_payload())
         _write_json(
             project_dir / "scripts" / "episode_1.json",
-            {"episode": 1, "title": "第一集", "content_mode": "narration", "video_units": []},
+            {"episode": 1, "title": "第一集", "creation_type": "narration", "video_units": []},
         )
 
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
@@ -1758,7 +1758,7 @@ class TestRouteSkeletonMismatchValidation:
         _write_json(project_dir / "project.json", payload)
         _write_json(
             project_dir / "scripts" / "episode_1.json",
-            {"episode": 1, "title": "第一集", "content_mode": "narration", "segments": []},
+            {"episode": 1, "title": "第一集", "creation_type": "narration", "segments": []},
         )
 
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
@@ -1778,7 +1778,7 @@ class TestRouteSkeletonMismatchValidation:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "video_units": [],
                 "segments": [{"segment_id": "E1S1"}],
             },
@@ -1798,7 +1798,7 @@ class TestRouteSkeletonMismatchValidation:
             {
                 "episode": 1,
                 "title": "第一集",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
                 "segments": [],
             },
@@ -1811,7 +1811,7 @@ class TestRouteSkeletonMismatchValidation:
 
 
 class TestInvalidContentModeEpisodeValidation:
-    """content_mode 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud 抛 ValueError，
+    """creation_type 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud 抛 ValueError，
     但剧集级校验的契约是把脏数据报告成结构化错误，不让异常向外传播。"""
 
     @pytest.mark.unit
@@ -1826,7 +1826,7 @@ class TestInvalidContentModeEpisodeValidation:
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert not result.valid
-        assert any("content_mode" in error for error in result.errors), result.errors
+        assert any("bogus_legacy" in error for error in result.errors), result.errors
 
     @pytest.mark.unit
     def test_validate_project_tree_reports_structured_error_not_crash(self, tmp_path):
@@ -1842,27 +1842,27 @@ class TestInvalidContentModeEpisodeValidation:
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(project_dir)
 
         assert not result.valid
-        assert any("content_mode" in error for error in result.errors), result.errors
+        assert any("bogus_legacy" in error for error in result.errors), result.errors
 
     @pytest.mark.unit
     def test_episode_level_invalid_content_mode_also_reported(self, tmp_path):
-        # 项目级 content_mode 合法，但剧集自身声明的 content_mode 非法（覆盖项目级值）：
+        # 项目级 creation_type 合法，但剧集自身声明的 creation_type 非法（覆盖项目级值）：
         # 同样结构化报错，不抛异常。
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
         _write_json(
             project_dir / "scripts" / "episode_1.json",
-            {"episode": 1, "title": "第一集", "content_mode": "bogus_legacy", "segments": []},
+            {"episode": 1, "title": "第一集", "creation_type": "bogus_legacy", "segments": []},
         )
 
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert not result.valid
-        assert any("content_mode" in error for error in result.errors), result.errors
+        assert any("bogus_legacy" in error for error in result.errors), result.errors
 
     @pytest.mark.unit
     def test_missing_episode_content_mode_still_falls_back_to_project_value(self, tmp_path):
-        # 回归防线：剧集级 content_mode 完全缺失时仍应回落项目级值 / "narration"，不触发本次改动
+        # 回归防线：剧集级 creation_type 完全缺失时仍应回落项目级值 / "narration"，不触发本次改动
         # 新增的错误分支。
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
@@ -1891,7 +1891,7 @@ class TestInvalidContentModeEpisodeValidation:
         assert result.valid, result.errors
 
 
-# 骨架种类 → 触发该骨架的 (content_mode, generation_mode)，即 resolve_declared_kind 的逆。
+# 骨架种类 → 触发该骨架的 (creation_type, generation_mode)，即 resolve_declared_kind 的逆。
 _KIND_TO_MODES = {
     "segments": ("narration", None),
     "scenes": ("drama", None),
@@ -1922,15 +1922,15 @@ class TestDataValidatorSkeletonExhaustiveness:
         assert set(_KIND_TO_MODES) == set(SKELETONS)
         assert set(_KIND_TO_VALIDATOR) == set(SKELETONS)
 
-        content_mode, gen_mode = _KIND_TO_MODES[kind]
+        creation_type, gen_mode = _KIND_TO_MODES[kind]
         called: list[str] = []
         spied = (*_KIND_TO_VALIDATOR.values(), "_warn_ad_target_duration_drift")
         for name in spied:
             monkeypatch.setattr(DataValidator, name, lambda *a, _n=name, **k: called.append(_n))
 
-        project = {"content_mode": content_mode, "products": {}}
+        project = {"creation_type": creation_type, "products": {}}
         # 剧本不携带路线戳；骨架数组照 kind 摆出来，否则会先被路线闸门按失配拒掉。
-        episode = {"episode": 1, "title": "第一集", "content_mode": content_mode, kind: []}
+        episode = {"episode": 1, "title": "第一集", "creation_type": creation_type, kind: []}
         if gen_mode:
             project["generation_mode"] = gen_mode
 
@@ -1949,8 +1949,8 @@ class TestDataValidatorSkeletonExhaustiveness:
         for name in _KIND_TO_VALIDATOR.values():
             monkeypatch.setattr(DataValidator, name, lambda *a, _n=name, **k: called.append(_n))
 
-        project = {"content_mode": "narration", "products": {}}
-        episode = {"episode": 1, "title": "第一集", "content_mode": "narration", "scenes": []}
+        project = {"creation_type": "narration", "products": {}}
+        episode = {"episode": 1, "title": "第一集", "creation_type": "narration", "scenes": []}
 
         validator = DataValidator(projects_root=str(tmp_path / "projects"))
         validator._validate_episode_payload(tmp_path, project, episode, [], [])

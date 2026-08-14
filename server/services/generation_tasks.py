@@ -92,7 +92,7 @@ from lib.reference_video.execution_checkpoint import (
 )
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
-from lib.script_models import resolve_content_mode
+from lib.script_models import resolve_creation_type
 from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
 from lib.speech_artifact_provenance import build_video_duration_basis
 from lib.speech_composition import SpeechAdmissionError, admit_script_unit
@@ -977,7 +977,7 @@ async def execute_tts_task(
                     )
                     if not isinstance(assets, dict):
                         assets = ProjectManager.create_generated_assets(
-                            str(current_script.get("content_mode") or "narration")
+                            str(current_script.get("creation_type") or "narration")
                         )
                         item["generated_assets"] = assets
                     assets["narration_audio"] = audio_rel
@@ -1107,7 +1107,7 @@ async def execute_tts_task(
                     assets = item.get("generated_assets")
                     if not isinstance(assets, dict):
                         assets = ProjectManager.create_generated_assets(
-                            str(current_script.get("content_mode") or "narration")
+                            str(current_script.get("creation_type") or "narration")
                         )
                         item["generated_assets"] = assets
                     if assets.get("narration_audio") != audio_rel:
@@ -1263,12 +1263,12 @@ async def execute_video_task(
             _project,
             _project_path,
             _item,
-            resolve_content_mode(_script, _project),
+            resolve_creation_type(_script, _project),
             resolve_script_kind(_script),
             _script,
         )
 
-    project, project_path, item, content_mode, script_kind, script = await asyncio.to_thread(_load)
+    project, project_path, item, creation_type, script_kind, script = await asyncio.to_thread(_load)
     # Queue execution re-materializes mutable visual intent from the current script unit. Direct/internal callers
     # without a task row retain the request-prompt fallback for compatibility with synchronous service tests.
     current_prompt = item.get("video_prompt") if isinstance(item, dict) else None
@@ -1318,11 +1318,11 @@ async def execute_video_task(
             resolution=resolution,
             seed=seed,
             requested_generate_audio=ctx.video.requested_generate_audio,
-            content_mode=content_mode,
-            utterances=item.get("utterances") if content_mode == "drama" else None,
-            has_utterances=content_mode == "drama" and "utterances" in item,
+            creation_type=creation_type,
+            utterances=item.get("utterances") if creation_type == "drama" else None,
+            has_utterances=creation_type == "drama" and "utterances" in item,
             voice_characters=(None if ctx.video.is_silent else project.get("characters"))
-            if content_mode == "drama"
+            if creation_type == "drama"
             else None,
         ).digest
 
@@ -1337,7 +1337,7 @@ async def execute_video_task(
     # drama 口型台词单一真相源在场景级有序 utterances：从 dialogue-kind 条目取台词注入 video YAML
     # 的 dialogue 出口（覆盖 payload 里 drama 已不再携带的 video_prompt.dialogue）。narration / ad
     # 的 item 无 utterances 字段，payload.dialogue 原样透传；SDK 路径 prompt 已是渲染好的字符串、跳过。
-    if isinstance(item, dict) and isinstance(prompt, dict) and content_mode == "drama":
+    if isinstance(item, dict) and isinstance(prompt, dict) and creation_type == "drama":
         # 无声（C 类模型不产音、或本集关闭音频）传 characters=None 即不注入 Voice_Profiles；
         # 有音轨模型（含恒有声、开关不可控的型号）机械派生角色声音风格。
         # 两条无声路径同口径，判据落在 VideoLaneResult.is_silent。台词不受影响、照常下发。
@@ -1546,11 +1546,11 @@ async def execute_video_task(
                         resolution=resolution,
                         seed=seed,
                         requested_generate_audio=ctx.video.requested_generate_audio,
-                        content_mode=content_mode,
-                        utterances=item.get("utterances") if content_mode == "drama" else None,
-                        has_utterances=content_mode == "drama" and "utterances" in item,
+                        creation_type=creation_type,
+                        utterances=item.get("utterances") if creation_type == "drama" else None,
+                        has_utterances=creation_type == "drama" and "utterances" in item,
                         voice_characters=(None if ctx.video.is_silent else project.get("characters"))
-                        if content_mode == "drama"
+                        if creation_type == "drama"
                         else None,
                     ).digest
                 )

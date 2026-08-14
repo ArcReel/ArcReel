@@ -1,7 +1,7 @@
 """step1 / episode 路径单一真相源的行为测试。
 
 只测外部可观察契约：结构化 step1 文件名解析、旧版 .md 兼认边界、episode 剧本路径，
-以及"新增 content_mode 登记一处即被 gate / web / 状态计算共同覆盖"这一收敛不变量。
+以及"新增 creation_type 登记一处即被 gate / web / 状态计算共同覆盖"这一收敛不变量。
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def test_new_content_mode_registered_once_covers_gate_web_and_status(monkeypatch
     monkeypatch.setitem(episode_paths.STEP1_FILENAMES, "docudrama", "step1_docu.json")
 
     # 审核 gate：step1_path 指向登记的结构化文件名
-    project = {"content_mode": "docudrama", "episodes": [{"episode": 1}]}
+    project = {"creation_type": "docudrama", "episodes": [{"episode": 1}]}
     gate_path = script_review.step1_path(tmp_path, project, 1)
     assert gate_path is not None
     assert gate_path == tmp_path / "drafts" / "episode_1" / "step1_docu.json"
@@ -76,7 +76,7 @@ def test_ad_has_no_structured_step1_across_web_and_agent(tmp_path):
     assert files._get_step_files("ad", generation_mode="reference_video") == {}
     # agent 写盘：ad 不依赖 step1
     assert (
-        text_generation._resolve_step1_path(tmp_path, 1, {"content_mode": "ad", "episodes": [{"episode": 1}]}) is None
+        text_generation._resolve_step1_path(tmp_path, 1, {"creation_type": "ad", "episodes": [{"episode": 1}]}) is None
     )
     # 状态计算：ad 无草稿可探测
     assert status_calculator._draft_candidates("ad") == ()
@@ -94,8 +94,8 @@ def test_gate_only_json_status_and_web_also_md():
 
 
 def test_draft_candidates_reference_video_across_content_modes():
-    """rv 是跨 content_mode 的 generation_mode 维度：narration/drama 项目挂 rv 后，状态计算的
-    草稿探测都应改落 rv 专属结构化文件名，而非各自 content_mode 对应名（回归：此前遗漏 generation_mode
+    """rv 是跨 creation_type 的 generation_mode 维度：narration/drama 项目挂 rv 后，状态计算的
+    草稿探测都应改落 rv 专属结构化文件名，而非各自 creation_type 对应名（回归：此前遗漏 generation_mode
     参数，rv 项目的 step1_reference_units.json 永远探测不到，script_status 停留 none）。
 
     候选名同时含正式文件与隔离草稿文件：首次拆分未过校验时只产出隔离草稿、正式文件从未写过，
@@ -109,7 +109,7 @@ def test_draft_candidates_reference_video_across_content_modes():
         episode_paths.REFERENCE_VIDEO_STEP1_FILENAME,
         episode_paths.REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
     )
-    # 未传 generation_mode（向后兼容）沿用 content_mode 既有候选，不受影响
+    # 未传 generation_mode（向后兼容）沿用 creation_type 既有候选，不受影响
     assert status_calculator._draft_candidates("narration") == status_calculator._draft_candidates("narration", None)
     # ad 优先于 generation_mode：即便挂 rv 也无草稿可探测（与 gate/web 同口径，见上一测试）
     assert status_calculator._draft_candidates("ad", "reference_video") == ()

@@ -178,7 +178,7 @@ class _EpisodePM:
         item: dict[str, Any] = {"segment_id": "E1S01", "video_prompt": "镜头平移"}
         if with_storyboard:
             item["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
-        self.script_payload: dict[str, Any] = {"content_mode": "narration", "episode": 1, "segments": [item]}
+        self.script_payload: dict[str, Any] = {"creation_type": "narration", "episode": 1, "segments": [item]}
 
     def get_project_path(self, _name: str) -> Path:
         return self._project_dir

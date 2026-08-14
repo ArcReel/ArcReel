@@ -719,10 +719,10 @@ class ProjectEventService:
         }
 
     def _normalize_script_snapshot(self, script: dict[str, Any]) -> dict[str, Any]:
-        # 取证解析：由剧本数据形状判别骨架种类（narration/drama 走 reference 时 content_mode 仍是
+        # 取证解析：由剧本数据形状判别骨架种类（narration/drama 走 reference 时 creation_type 仍是
         # narration/drama，二值兜底会把 ad 的 shots 与 reference 的 video_units 全部漏读——差分恒空、
         # 分镜级事件从不发出，正是本次修复的 bug 根因）。键即条目数组键。
-        content_mode = str(script.get("content_mode") or "narration")
+        creation_type = str(script.get("creation_type") or "narration")
         kind = resolve_script_kind(script)
         skeleton = SKELETONS[kind]
         raw_items = script.get(kind, [])
@@ -767,7 +767,7 @@ class ProjectEventService:
         return {
             "episode": script.get("episode"),
             "title": str(script.get("title") or ""),
-            "content_mode": content_mode,
+            "creation_type": creation_type,
             "kind": kind,
             "items": items,
         }

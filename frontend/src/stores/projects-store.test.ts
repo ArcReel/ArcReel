@@ -10,7 +10,7 @@ type GetProjectResult = Awaited<ReturnType<typeof API.getProject>>;
 function makeProject(title: string): ProjectData {
   return {
     title,
-    content_mode: "narration",
+    creation_type: "narration",
     style: "Anime",
     episodes: [],
     characters: {},

@@ -302,9 +302,9 @@ export function CreateProjectModal() {
       const isAd = basics.contentMode === "ad";
       const resp = await API.createProject({
         title: basics.title.trim(),
-        content_mode: basics.contentMode,
-        // source_kind 仅 drama 暴露与生效；其余模式由服务端缺省 novel
-        ...(basics.contentMode === "drama" ? { source_kind: basics.sourceKind } : {}),
+        creation_type: basics.contentMode,
+        // source_file_type 仅 drama 暴露与生效；其余模式由服务端缺省 novel
+        ...(basics.contentMode === "drama" ? { source_file_type: basics.sourceKind } : {}),
         aspect_ratio: basics.aspectRatio,
         generation_mode: basics.generationRoute,
         grid_storyboard: basics.gridStoryboard,

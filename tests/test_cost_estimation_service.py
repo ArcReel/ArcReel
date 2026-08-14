@@ -90,7 +90,7 @@ def _make_script(
     return {
         "episode": episode,
         "title": f"Episode {episode}",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "duration_seconds": sum(durations),
         "summary": "test",
         "novel": {"title": "t", "chapter": "c"},
@@ -121,14 +121,14 @@ def _make_ad_script(shot_ids: list[str], durations: list[int]) -> dict:
     return {
         "episode": 1,
         "title": "Ad",
-        "content_mode": "ad",
+        "creation_type": "ad",
         "duration_seconds": sum(durations),
         "novel": {"title": "t", "chapter": "c"},
         "shots": shots,
     }
 
 
-def _make_reference_video_script(episode: int, content_mode: str, unit_specs: list[tuple[str, int]]) -> dict:
+def _make_reference_video_script(episode: int, creation_type: str, unit_specs: list[tuple[str, int]]) -> dict:
     """Helper to create a reference_video episode script dict (video_units[])."""
     units = []
     for unit_id, duration in unit_specs:
@@ -145,7 +145,7 @@ def _make_reference_video_script(episode: int, content_mode: str, unit_specs: li
     return {
         "episode": episode,
         "title": f"Episode {episode}",
-        "content_mode": content_mode,
+        "creation_type": creation_type,
         "generation_mode": "reference_video",
         "duration_seconds": sum(d for _, d in unit_specs),
         "novel": {"title": "t", "chapter": "c"},
@@ -183,7 +183,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_script(1, ["E1S001", "E1S002"], [6, 8])}
@@ -217,7 +217,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_script(1, ["E1S001"], [6])}
@@ -245,7 +245,7 @@ class TestCostEstimationService:
         )
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
@@ -278,7 +278,7 @@ class TestCostEstimationService:
         )
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
@@ -310,7 +310,7 @@ class TestCostEstimationService:
             )
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
@@ -338,7 +338,7 @@ class TestCostEstimationService:
         )
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "episodes": [
                 {"episode": 1, "title": "Ep1", "script_file": "ep1.json"},
@@ -402,7 +402,7 @@ class TestCostEstimationService:
         )
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
@@ -432,7 +432,7 @@ class TestCostEstimationService:
         )
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
@@ -468,7 +468,7 @@ class TestCostEstimationService:
         overrides = [{"grid_id": grid_id, "grid_cell_index": i} for i in range(9)]
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
@@ -516,7 +516,7 @@ class TestCostEstimationService:
         ]
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
@@ -561,7 +561,7 @@ class TestCostEstimationService:
         ]
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
@@ -597,7 +597,7 @@ class TestCostEstimationService:
         overrides = [{"grid_id": grid_id, "grid_cell_index": i} for i in range(9)]
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
@@ -639,7 +639,7 @@ class TestCostEstimationService:
         overrides = [{"grid_id": grid_id, "grid_cell_index": i} for i in range(2)]
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
@@ -681,7 +681,7 @@ class TestCostEstimationService:
         ]
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
@@ -715,7 +715,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "single",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
@@ -760,7 +760,7 @@ class TestCostEstimationService:
         seg_ids = [f"E1S{i:03d}" for i in range(1, 13)]
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             "image_provider_t2i": "custom-1/img",
@@ -795,7 +795,7 @@ class TestCostEstimationService:
         seg_ids = [f"E1S{i:03d}" for i in range(1, 10)]
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             # 显式钉住按分辨率分档定价的型号：测试要验的是「计价档随解析结果走」，
@@ -833,7 +833,7 @@ class TestCostEstimationService:
         seg_ids = [f"E1S{i:03d}" for i in range(1, 4)]
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             # 按分辨率分档定价的型号，档位差异才可观测
             "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image-preview",
@@ -870,7 +870,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
@@ -903,7 +903,7 @@ class TestCostEstimationService:
             )
 
         result = await service.compute(
-            {"title": "T", "content_mode": "narration", "episodes": []},
+            {"title": "T", "creation_type": "narration", "episodes": []},
             {},
             project_name="proj",
         )
@@ -926,7 +926,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "episodes": [
                 {"episode": 1, "title": "Ep1", "script_file": "ep1.json"},
                 {"episode": 2, "title": "Ep2-dirty", "script_file": "ep2.json"},
@@ -937,7 +937,7 @@ class TestCostEstimationService:
         dirty_script = {
             "episode": 2,
             "title": "Dirty",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "summary": "t",
             "novel": {"title": "t", "chapter": "c"},
             "segments": None,  # 脏数据
@@ -976,7 +976,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         script = _make_script(1, ["E1S001", "E1S002"], [6, 8])
@@ -1015,7 +1015,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_script(1, ["E1S001"], [6])}
@@ -1034,7 +1034,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Ad",
-            "content_mode": "ad",
+            "creation_type": "ad",
             "generation_mode": "storyboard",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
@@ -1067,7 +1067,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Ad",
-            "content_mode": "ad",
+            "creation_type": "ad",
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_ad_script(["E1S1"], [4])}
@@ -1084,7 +1084,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Ad",
-            "content_mode": "ad",
+            "creation_type": "ad",
             "generation_mode": "reference_video",
             "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
@@ -1123,7 +1123,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
@@ -1164,7 +1164,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Drama",
-            "content_mode": "drama",
+            "creation_type": "drama",
             "generation_mode": "reference_video",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
@@ -1197,7 +1197,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "video_provider_i2v": "gemini-aistudio/veo-3.1-generate-preview",
             "target_duration": 30,
@@ -1246,7 +1246,7 @@ class TestCostEstimationService:
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1298,7 +1298,7 @@ class TestCostEstimationService:
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "video_provider_i2v": "openai/sora-2",
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
@@ -1408,7 +1408,7 @@ class TestCostEstimationService:
         service = CostEstimationService(resolver, db_factory)
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1442,7 +1442,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
@@ -1452,7 +1452,7 @@ class TestCostEstimationService:
             "ep1.json": {
                 "episode": 1,
                 "title": "Episode 1",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "duration_seconds": 10,
                 "novel": {"title": "t", "chapter": "c"},
                 "segments": [
@@ -1475,7 +1475,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
@@ -1501,7 +1501,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
@@ -1526,7 +1526,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
@@ -1580,7 +1580,7 @@ class TestCostEstimationService:
         service = CostEstimationService(resolver, db_factory)
         project_data = {
             "title": "Ad",
-            "content_mode": "ad",
+            "creation_type": "ad",
             "generation_mode": "reference_video",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
@@ -1616,7 +1616,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
@@ -1645,7 +1645,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
@@ -1673,7 +1673,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
@@ -1700,7 +1700,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "video_backend": "ark",
             "target_duration": 30,
@@ -1721,7 +1721,7 @@ class TestCostEstimationService:
         service = CostEstimationService(resolver, db_factory)
 
         result = await service.compute(
-            {"title": "T", "content_mode": "narration", "episodes": []}, {}, project_name="p"
+            {"title": "T", "creation_type": "narration", "episodes": []}, {}, project_name="p"
         )
 
         assert result["episodes"] == []
@@ -1735,7 +1735,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "image_provider_t2i": "openai/gpt-image-1",
             "image_provider_i2i": "openai/gpt-image-1-edit",
             "episodes": [],
@@ -1757,7 +1757,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             # 仅有 i2i 与 legacy 字段：cost_estimation 应忽略，落到 resolver 默认值
             "image_provider_i2i": "openai/gpt-image-1-edit",
             "image_backend": "gemini/gemini-2.0-flash-preview-image-generation",
@@ -1785,7 +1785,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "episodes": [],
         }
 
@@ -1821,7 +1821,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "video_backend": video_backend,
             "video_generate_audio": configured_generate_audio,
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
@@ -1839,7 +1839,7 @@ class TestCostEstimationService:
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "video_backend": "kling/kling-video-o1",
             "video_generate_audio": True,
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
@@ -1891,7 +1891,7 @@ class TestCostEstimationService:
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "video_backend": "custom-1/disabled",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
@@ -1919,7 +1919,7 @@ class TestCostEstimationService:
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": generation_mode,
             "video_provider_i2v": "kling/kling-v3",
             "video_provider_r2v": "kling/kling-v3-omni",
@@ -1958,7 +1958,7 @@ class TestCostEstimationService:
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "target_duration": 30,
             "video_provider_i2v": "kling/kling-v3",
@@ -1997,7 +1997,7 @@ class TestCostEstimationService:
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "reference_video",
             "target_duration": 30,
             "video_provider_i2v": "kling/kling-v3",
@@ -2030,7 +2030,7 @@ class TestCostEstimationService:
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
             "title": "Narration",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             "target_duration": 30,
             "video_provider_i2v": "kling/kling-v3",
@@ -2078,7 +2078,7 @@ class TestCostEstimationService:
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
             "title": "Ad",
-            "content_mode": "ad",
+            "creation_type": "ad",
             "generation_mode": "reference_video",
             "target_duration": 30,
             "video_provider_i2v": "kling/kling-v3",
@@ -2138,7 +2138,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "image_provider_t2i": "custom-1/img",
             "video_backend": "custom-1/vid",
             "audio_backend": "custom-1/aud",
@@ -2191,7 +2191,7 @@ class TestCostEstimationService:
         seg_ids = [f"E1S{i:03d}" for i in range(1, 10)]  # 9 scenes → 1 张 grid_9
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             "image_provider_t2i": "custom-1/img",
@@ -2239,7 +2239,7 @@ class TestCostEstimationService:
         seg_ids = [f"E1S{i:03d}" for i in range(1, 13)]  # 12 scenes，非 4K 上限 9 → 切 2 张
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             "aspect_ratio": "9:16",
@@ -2264,7 +2264,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "image_provider_t2i": "custom-99/ghost",  # DB 无此供应商/模型
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
@@ -2286,7 +2286,7 @@ class TestCostEstimationService:
 
         project_data = {
             "title": "Test",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "image_provider_t2i": "custom-abc/ghost",  # 写入侧校验只查前缀，后缀非数字仍可能入库
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }

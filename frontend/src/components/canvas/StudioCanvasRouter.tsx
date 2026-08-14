@@ -83,9 +83,9 @@ function resolveSegmentPrompt(
   if (!script) return null;
   if ("video_units" in script) return null;
   const seg =
-    script.content_mode === "narration"
+    script.creation_type === "narration"
       ? script.segments.find((s) => s.segment_id === segmentId)
-      : script.content_mode === "ad"
+      : script.creation_type === "ad"
         ? script.shots.find((s) => s.shot_id === segmentId)
         : script.scenes.find((s) => s.scene_id === segmentId);
   return {
@@ -204,7 +204,7 @@ export function StudioCanvasRouter() {
     scriptFile?: string,
   ): Promise<boolean> => {
     if (!currentProjectName) return false;
-    const mode = currentProjectData?.content_mode ?? "narration";
+    const mode = currentProjectData?.creation_type ?? "narration";
     const patch =
       typeof fieldOrPatch === "string"
         ? { [fieldOrPatch]: value }
@@ -248,7 +248,7 @@ export function StudioCanvasRouter() {
     const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
     if (!resolvedFile) return false;
     const script = currentScripts[resolvedFile];
-    if (!script || script.content_mode !== "ad") return false;
+    if (!script || script.creation_type !== "ad") return false;
     const ids = script.shots.map((s) => s.shot_id);
     const index = ids.indexOf(shotId);
     const target = direction === "earlier" ? index - 1 : index + 1;
@@ -707,7 +707,7 @@ export function StudioCanvasRouter() {
             );
           const hasDraft =
             episode?.script_status === "segmented" || episode?.script_status === "generated";
-          const isAd = currentProjectData?.content_mode === "ad";
+          const isAd = currentProjectData?.creation_type === "ad";
 
           // 已选集但剧本未生成：进入切片审阅视图（narration/drama 全部生成路径——
           // reference_video 此时 units 为空，同样没有可展示内容）；ad 恒单集无源文

@@ -403,7 +403,7 @@ describe("ProjectSettingsPage – style picker", () => {
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {
         title: "Demo",
-        content_mode: "ad",
+        creation_type: "ad",
         generation_mode: "storyboard",
         episodes: [],
         characters: {},

@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from lib.profile_frontmatter import parse_profile_metadata
-from lib.profile_manifest import VALID_CONTENT_MODES
+from lib.profile_manifest import VALID_CREATION_TYPES
 
 pytestmark = pytest.mark.unit
 
@@ -45,7 +45,7 @@ def _find_skill_md(skill_dir: Path) -> Path | None:
     common = skill_dir / "SKILL.md"
     if common.is_file():
         return common
-    variants = [skill_dir / f"SKILL.{mode}.md" for mode in sorted(VALID_CONTENT_MODES)]
+    variants = [skill_dir / f"SKILL.{mode}.md" for mode in sorted(VALID_CREATION_TYPES)]
     existing = [v for v in variants if v.is_file()]
     if not existing:
         return None

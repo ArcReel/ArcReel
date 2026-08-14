@@ -119,7 +119,7 @@ def _project(tmp_path: Path, title: str = "测试项目", aspect_ratio: object =
         json.dumps(
             {
                 "title": title,
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "storyboard",
                 "aspect_ratio": aspect_ratio,
                 "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],

@@ -49,7 +49,7 @@ def _select_model(script: dict[str, Any]) -> type[BaseModel]:
     (`_KIND_MODEL`) 留本地（模型不进注册表）。
 
     判别**数据形状优先**(详见 `resolve_script_kind` docstring):video_units 唯一存在时才路由
-    reference,否则按 content_mode → segments/scenes(空场景 drama 仍走 DramaEpisodeScript)。
+    reference,否则按 creation_type → segments/scenes(空场景 drama 仍走 DramaEpisodeScript)。
     ``generation_mode`` 不参与判别——caller 端的生成路径(enqueue_videos 等)自己按
     generation_mode 分流;此函数只决定**结构校验**用哪个 Pydantic 模型。
     """

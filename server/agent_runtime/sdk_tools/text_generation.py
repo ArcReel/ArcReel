@@ -35,7 +35,7 @@ from lib.episode_paths import (
 from lib.i18n import _ as translate
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
-from lib.project_manager import DEFAULT_SOURCE_KIND, is_reference_video_project
+from lib.project_manager import DEFAULT_SOURCE_FILE_TYPE, is_reference_video_project
 from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import append_user_instructions, build_narration_split_prompt, build_normalize_prompt
 from lib.reference_video.draft_validation import (
@@ -190,7 +190,7 @@ async def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[
     ad 例外：该路径的 unit 是从 ``shots[]`` 派生的轻量索引、镜头时长不受档位枚举管辖，返回这
     两套档位只会诱导按剧集路径的口径去改 ad 镜头。
     """
-    if payload.get("generation_mode") != "reference_video" or payload.get("content_mode") == "ad":
+    if payload.get("generation_mode") != "reference_video" or payload.get("creation_type") == "ad":
         return
     durations = [int(d) for d in payload.get("supported_durations") or []]
     if not durations:
@@ -241,15 +241,15 @@ def _uses_reference_video_units(project_data: dict[str, Any]) -> bool:
 
     ad 的 unit 是 shots 的派生索引、无 step1 拆分，即使走参考路线也不在此列。
     """
-    if project_data.get("content_mode", "narration") == "ad":
+    if project_data.get("creation_type", "narration") == "ad":
         return False
     return is_reference_video_project(project_data)
 
 
 def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str, Any]) -> tuple[Path, str] | None:
     """Return (step1_md path, hint text for missing-file error)；ad 一键生成不依赖 step1，返回 None。"""
-    content_mode = project_data.get("content_mode", "narration")
-    if content_mode == "ad":
+    creation_type = project_data.get("creation_type", "narration")
+    if creation_type == "ad":
         # ad 创作输入是 project.json 的 brief + 产品信息 + target_duration，
         # ScriptGenerator 的 ad 分支不读 drafts/ 中间文件。
         return None
@@ -265,10 +265,10 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
                 f"重新拆分为结构化 {REFERENCE_VIDEO_STEP1_FILENAME}"
             )
         return rv_json, "split-reference-video-units subagent (Step 1)"
-    if content_mode != "narration" and content_mode in STEP1_FILENAMES:
+    if creation_type != "narration" and creation_type in STEP1_FILENAMES:
         # drama 及未来其它走 drama 形状两段式的结构化模式：step1 是结构化 JSON（见 ADR 0041）。
         # narration 虽也在 STEP1_FILENAMES，但另有旧 .md 迁移提示分支，需先排除。
-        return drafts_path / STEP1_FILENAMES[content_mode], "normalize_drama_script tool"
+        return drafts_path / STEP1_FILENAMES[creation_type], "normalize_drama_script tool"
     # narration 生成需结构化 step1 JSON；仅存旧版 .md 时给出与
     # ScriptGenerator._load_narration_step1 一致的重切迁移提示，而非笼统的缺文件错误。
     narration_json = STEP1_FILENAMES["narration"]
@@ -512,7 +512,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 default_duration=default_duration,
                 supported_durations=supported_durations,
                 episode=episode,
-                source_kind=project.get("source_kind") or DEFAULT_SOURCE_KIND,
+                source_file_type=project.get("source_file_type") or DEFAULT_SOURCE_FILE_TYPE,
                 episode_outline=episode_outline,
                 next_episode_outline=next_episode_outline,
                 # 输出语言取项目 source_language（生成内容语言的唯一真相源）；缺省回退默认中文，

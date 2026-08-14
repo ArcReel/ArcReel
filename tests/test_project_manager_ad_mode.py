@@ -22,7 +22,7 @@ def _pm(tmp_path: Path) -> ProjectManager:
 class TestCreateAdProjectMetadata:
     def test_ad_project_json_shape(self, tmp_path):
         pm = _pm(tmp_path)
-        pm.create_project("demo-ad", content_mode="ad")
+        pm.create_project("demo-ad", creation_type="ad")
         project = pm.create_project_metadata(
             "demo-ad",
             "速干杯带货",
@@ -32,7 +32,7 @@ class TestCreateAdProjectMetadata:
             brief="突出 3 秒速干卖点",
         )
 
-        assert project["content_mode"] == "ad"
+        assert project["creation_type"] == "ad"
         assert project["target_duration"] == 30
         assert project["brief"] == "突出 3 秒速干卖点"
         assert "default_duration" not in project
@@ -45,7 +45,7 @@ class TestCreateAdProjectMetadata:
 
     def test_ad_defaults_target_duration_to_60_and_empty_brief(self, tmp_path):
         pm = _pm(tmp_path)
-        pm.create_project("demo-ad", content_mode="ad")
+        pm.create_project("demo-ad", creation_type="ad")
         project = pm.create_project_metadata("demo-ad", "短片", "Realistic", "ad")
 
         assert project["target_duration"] == 60
@@ -53,19 +53,19 @@ class TestCreateAdProjectMetadata:
 
     def test_ad_rejects_default_duration(self, tmp_path):
         pm = _pm(tmp_path)
-        pm.create_project("demo-ad", content_mode="ad")
+        pm.create_project("demo-ad", creation_type="ad")
         with pytest.raises(ValueError, match="default_duration"):
             pm.create_project_metadata("demo-ad", "短片", "Realistic", "ad", default_duration=8)
 
     def test_ad_rejects_non_string_brief(self, tmp_path):
         pm = _pm(tmp_path)
-        pm.create_project("demo-ad", content_mode="ad")
+        pm.create_project("demo-ad", creation_type="ad")
         with pytest.raises(ValueError, match="brief"):
             pm.create_project_metadata("demo-ad", "短片", "Realistic", "ad", brief=123)  # type: ignore[arg-type]
 
     def test_extras_cannot_override_core_fields(self, tmp_path):
         pm = _pm(tmp_path)
-        pm.create_project("demo-ad", content_mode="ad")
+        pm.create_project("demo-ad", creation_type="ad")
         with pytest.raises(ValueError, match="extras"):
             pm.create_project_metadata(
                 "demo-ad",
@@ -75,11 +75,11 @@ class TestCreateAdProjectMetadata:
                 extras={"default_duration": 8, "video_backend": "vidu"},
             )
         with pytest.raises(ValueError, match="extras"):
-            pm.create_project_metadata("demo-ad", "短片", "Realistic", "ad", extras={"content_mode": "drama"})
+            pm.create_project_metadata("demo-ad", "短片", "Realistic", "ad", extras={"creation_type": "drama"})
 
     def test_non_ad_rejects_target_duration_and_brief(self, tmp_path):
         pm = _pm(tmp_path)
-        pm.create_project("demo", content_mode="narration")
+        pm.create_project("demo", creation_type="narration")
         with pytest.raises(ValueError, match="target_duration"):
             pm.create_project_metadata("demo", "Demo", "Anime", "narration", target_duration=60)
         with pytest.raises(ValueError, match="brief"):
@@ -87,7 +87,7 @@ class TestCreateAdProjectMetadata:
 
     def test_narration_metadata_unchanged(self, tmp_path):
         pm = _pm(tmp_path)
-        pm.create_project("demo", content_mode="narration")
+        pm.create_project("demo", creation_type="narration")
         project = pm.create_project_metadata("demo", "Demo", "Anime", "narration", default_duration=4)
 
         assert "target_duration" not in project

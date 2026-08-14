@@ -17,7 +17,7 @@ from lib.generation_queue_client import (
 from lib.narration_delivery import canonical_narration_text
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
-from lib.script_models import get_generated_assets, resolve_content_mode
+from lib.script_models import get_generated_assets, resolve_creation_type
 from lib.script_skeleton import ensure_route_skeleton
 from lib.speech_composition import SpeechMode, admit_script_unit
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
@@ -65,8 +65,8 @@ def generate_narration_audio_tool(ctx: ToolContext):
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
             project = ctx.pm.load_project(ctx.project_name)
-            content_mode = resolve_content_mode(script, project)
-            ensure_route_skeleton(script, content_mode, project.get("generation_mode"))
+            creation_type = resolve_creation_type(script, project)
+            ensure_route_skeleton(script, creation_type, project.get("generation_mode"))
             items, id_field, kind = resolve_items(script)
             if not items:
                 raise ValueError("剧本没有可配音的单元")

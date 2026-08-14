@@ -113,7 +113,7 @@ describe("demo project data", () => {
       (s) => s.generated_assets?.storyboard_image,
     );
 
-    expect(segments.length).toBe(episode.scenes_count);
+    expect(segments.length).toBe(episode.storyboard_count);
     expect(segments.length).toBeGreaterThanOrEqual(6);
     expect(withStoryboard.length).toBe(episode.storyboards?.completed);
     expect(episode.videos?.completed).toBe(0);

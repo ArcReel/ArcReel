@@ -385,9 +385,9 @@ export interface SegmentUpdatePayload {
 export interface CreateProjectPayload {
   title: string;
   name?: string;
-  content_mode?: "narration" | "drama" | "ad";
+  creation_type?: "narration" | "drama" | "ad";
   /** 源文件性质：novel（默认）/ screenplay。仅 drama 暴露，创建即定、不可变。 */
-  source_kind?: "novel" | "screenplay";
+  source_file_type?: "novel" | "screenplay";
   aspect_ratio?: "9:16" | "16:9";
   /** 生成路线，创建时必填二选一、无默认值（后端缺失即 422）。 */
   generation_mode: GenerationRoute;
@@ -886,8 +886,11 @@ class API {
     name: string,
     updates: Partial<ProjectData> & { clear_style_image?: boolean }
   ): Promise<{ success: boolean; project: ProjectData }> {
-    if ("content_mode" in updates) {
-      throw new Error("项目创建后不支持修改 content_mode");
+    if ("creation_type" in updates || "content_mode" in updates) {
+      throw new Error("项目创建后不支持修改 creation_type");
+    }
+    if ("source_file_type" in updates || "source_kind" in updates) {
+      throw new Error("项目创建后不支持修改 source_file_type");
     }
     return this.request(`/projects/${encodeURIComponent(name)}`, {
       method: "PATCH",

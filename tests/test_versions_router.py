@@ -84,7 +84,7 @@ class _GridPM:
         self.project = (
             project
             if project is not None
-            else {"content_mode": "narration", "generation_mode": "storyboard", "grid_storyboard": True}
+            else {"creation_type": "narration", "generation_mode": "storyboard", "grid_storyboard": True}
         )
 
     def get_project_path(self, project_name):
@@ -186,7 +186,7 @@ def _typed_audio_project(tmp_path: Path) -> tuple[object, Path, VersionManager]:
         {
             "episode": 1,
             "title": "E1",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [{"segment_id": "E1S01", "novel_text": "旁白", "generated_assets": {}}],
         },
         "episode_1.json",
@@ -495,9 +495,9 @@ class TestVersionsRouter:
     @pytest.mark.parametrize(
         "project,expected_detail",
         [
-            ({"content_mode": "ad", "generation_mode": "storyboard", "grid_storyboard": True}, "广告/短片项目"),
+            ({"creation_type": "ad", "generation_mode": "storyboard", "grid_storyboard": True}, "广告/短片项目"),
             (
-                {"content_mode": "narration", "generation_mode": "storyboard", "grid_storyboard": False},
+                {"creation_type": "narration", "generation_mode": "storyboard", "grid_storyboard": False},
                 "项目未启用分镜板",
             ),
         ],
@@ -607,7 +607,7 @@ class TestVersionsRouter:
             {
                 "episode": 1,
                 "title": "E1",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
                 "video_units": [
                     {
@@ -665,7 +665,7 @@ class TestVersionsRouter:
             {
                 "episode": 1,
                 "title": "E1",
-                "content_mode": "ad",
+                "creation_type": "ad",
                 "video_units": [
                     {
                         "unit_id": "E1U1",
@@ -713,7 +713,7 @@ class TestVersionsRouter:
             {
                 "episode": 1,
                 "title": "E1",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {
                         "segment_id": "E1S01",

@@ -10,7 +10,7 @@ from lib.source_revision import SourceScope, compute_source_revision
 
 
 def _project() -> dict[str, object]:
-    return {"source_kind": "novel", "source_language": "zh"}
+    return {"source_file_type": "novel", "source_language": "zh"}
 
 
 @pytest.mark.integration
@@ -92,7 +92,7 @@ def test_revision_changes_with_raw_bytes_path_and_source_semantics(tmp_path: Pat
     changed_path = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
     changed_semantics = compute_source_revision(
         tmp_path,
-        {"source_kind": "screenplay", "source_language": "zh"},
+        {"source_file_type": "screenplay", "source_language": "zh"},
         SourceScope(kind="all"),
     )
 

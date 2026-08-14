@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.task import Task, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
+from lib.resource_paths import artifact_collection_for
 from lib.task_failure import bound_reason, collapse_cascade_reason, encode_failure
 from lib.task_terminal_events import TERMINAL_TASK_STATUSES
 
@@ -175,6 +176,7 @@ class TaskRepository(BaseRepository):
             resource_id=resource_id,
             script_file=script_file,
             resource_type=resource_type,
+            artifact_collection=artifact_collection_for(task_type=task_type, resource_type=resource_type),
             payload_json=_json_dumps(payload or {}),
             status="queued",
             source=source,

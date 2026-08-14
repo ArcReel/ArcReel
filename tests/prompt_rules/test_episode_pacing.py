@@ -27,7 +27,7 @@ def test_narration_rules_keywords() -> None:
 
 
 def test_unknown_mode_raises() -> None:
-    with pytest.raises(ValueError, match="unknown content_mode"):
+    with pytest.raises(ValueError, match="unknown creation_type"):
         render_pacing_section("unknown")
 
 

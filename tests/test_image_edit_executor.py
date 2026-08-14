@@ -68,7 +68,7 @@ class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
         self.project = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "image_provider_i2i": "gemini-aistudio/gemini-image",
             "characters": {"Alice": {"character_sheet": "characters/Alice.png", "image_prompt": "原始角色 prompt"}},
             "scenes": {"祠堂": {"scene_sheet": ""}},
@@ -76,7 +76,7 @@ class _FakePM:
             "products": {},
         }
         self.script = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {"segment_id": "E1S01", "generated_assets": {"storyboard_image": "storyboards/scene_E1S01_first.png"}},
                 {"segment_id": "E1S02", "generated_assets": {}},
@@ -150,7 +150,7 @@ class TestResolveCurrentImageRel:
 
     def test_storyboard_pointer_and_canonical_fallback(self):
         script = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {"segment_id": "E1S01", "generated_assets": {"storyboard_image": "storyboards/scene_E1S01_first.png"}},
                 {"segment_id": "E1S02", "generated_assets": {}},

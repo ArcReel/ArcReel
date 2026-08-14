@@ -157,7 +157,7 @@ export type ScriptReviewStatus =
 /** step1→step2 审核 gate 状态（后端 server/routers/script_review.py 的 GET 响应）。 */
 export interface ScriptReviewState {
   episode: number;
-  content_mode: string | null;
+  creation_type: string | null;
   status: ScriptReviewStatus;
   fingerprint: string | null;
   confirmed_at: string | null;
@@ -263,7 +263,7 @@ export interface NovelInfo {
 export interface NarrationEpisodeScript {
   episode: number;
   title: string;
-  content_mode: "narration";
+  creation_type: "narration";
   duration_seconds: number;
   schema_version?: number;
   novel: NovelInfo;
@@ -273,7 +273,7 @@ export interface NarrationEpisodeScript {
 export interface DramaEpisodeScript {
   episode: number;
   title: string;
-  content_mode: "drama";
+  creation_type: "drama";
   duration_seconds: number;
   schema_version?: number;
   novel: NovelInfo;
@@ -321,7 +321,7 @@ export interface AdShot {
 export interface AdEpisodeScript {
   episode: number;
   title: string;
-  content_mode: "ad";
+  creation_type: "ad";
   duration_seconds: number;
   schema_version?: number;
   novel: NovelInfo;

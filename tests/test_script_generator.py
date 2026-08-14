@@ -25,7 +25,7 @@ def _valid_narration_response() -> dict:
     return {
         "episode": 1,
         "title": "第一集",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "duration_seconds": 4,
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "1"},
@@ -61,7 +61,7 @@ def _write_drama_ledger_project(project_path: Path, episodes: list[dict], charac
         project_path / "project.json",
         {
             "title": "项目",
-            "content_mode": "drama",
+            "creation_type": "drama",
             "overview": {},
             "characters": characters or {},
             "style": "古风",
@@ -173,7 +173,7 @@ class TestScriptGenerator:
             project_path / "project.json",
             {
                 "title": "项目",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "overview": {"synopsis": "概述"},
                 "characters": {"姜月茴": {}},
                 "clues": {"玉佩": {}},
@@ -199,7 +199,7 @@ class TestScriptGenerator:
             project_path / "project.json",
             {
                 "title": "项目",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "overview": {"synopsis": "概述"},
                 "characters": {"姜月茴": {}},
                 "style": "古风",
@@ -225,7 +225,7 @@ class TestScriptGenerator:
             project_path / "project.json",
             {
                 "title": "项目",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "overview": {"synopsis": "概述"},
                 "characters": {"姜月茴": {}},
                 "style": "古风",
@@ -251,7 +251,7 @@ class TestScriptGenerator:
             project_path / "project.json",
             {
                 "title": "项目",
-                "content_mode": "drama",
+                "creation_type": "drama",
                 "overview": {},
                 "characters": {},
                 "clues": {},
@@ -529,7 +529,7 @@ class TestScriptGenerator:
             project_path / "project.json",
             {
                 "title": "项目",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "overview": {},
                 "characters": {"姜月茴": {}},
                 "clues": {"玉佩": {}},
@@ -610,7 +610,7 @@ class TestScriptGenerator:
             project_path / "project.json",
             {
                 "title": "项目",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "overview": {},
                 "characters": {"姜月茴": {}},
                 "style": "古风",
@@ -641,7 +641,7 @@ class TestScriptGenerator:
             project_path / "project.json",
             {
                 "title": "项目",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "overview": {},
                 "characters": {"姜月茴": {}},
                 "clues": {"玉佩": {}},
@@ -797,14 +797,14 @@ class TestAddMetadataRewritesEpisodePrefix:
 
     @staticmethod
     def _make_generator(
-        tmp_path: Path, content_mode: str = "narration", generation_mode: str = "storyboard"
+        tmp_path: Path, creation_type: str = "narration", generation_mode: str = "storyboard"
     ) -> ScriptGenerator:
         project_path = tmp_path / "demo"
         _write_json(
             project_path / "project.json",
             {
                 "title": "项目",
-                "content_mode": content_mode,
+                "creation_type": creation_type,
                 "generation_mode": generation_mode,
             },
         )
@@ -812,7 +812,7 @@ class TestAddMetadataRewritesEpisodePrefix:
 
     @pytest.mark.unit
     def test_drama_rewrites_scene_ids(self, tmp_path: Path) -> None:
-        sg = self._make_generator(tmp_path, content_mode="drama")
+        sg = self._make_generator(tmp_path, creation_type="drama")
         data = {
             "scenes": [
                 {"scene_id": "E1S01", "other": "keep"},
@@ -826,7 +826,7 @@ class TestAddMetadataRewritesEpisodePrefix:
 
     @pytest.mark.unit
     def test_narration_rewrites_segment_ids(self, tmp_path: Path) -> None:
-        sg = self._make_generator(tmp_path, content_mode="narration")
+        sg = self._make_generator(tmp_path, creation_type="narration")
         data = {
             "segments": [
                 {"segment_id": "E1S01"},
@@ -844,7 +844,7 @@ class TestAddMetadataRewritesEpisodePrefix:
         tmp_path: Path,
         case: SpeechContractCase,
     ) -> None:
-        sg = self._make_generator(tmp_path, content_mode=case.content_mode, generation_mode=case.generation_mode)
+        sg = self._make_generator(tmp_path, creation_type=case.creation_type, generation_mode=case.generation_mode)
         original = case.unit()
         data = {case.kind: [case.unit()]}
 
@@ -860,7 +860,7 @@ class TestAddMetadataRewritesEpisodePrefix:
             project_path / "project.json",
             {
                 "title": "项目",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
             },
         )
@@ -878,7 +878,7 @@ class TestAddMetadataRewritesEpisodePrefix:
     @pytest.mark.unit
     def test_idempotent_when_prefix_already_correct(self, tmp_path: Path) -> None:
         """ID 前缀已经匹配 episode 时，rewrite 不应改动（不破坏正确数据）。"""
-        sg = self._make_generator(tmp_path, content_mode="narration")
+        sg = self._make_generator(tmp_path, creation_type="narration")
         data = {"segments": [{"segment_id": "E2S01"}, {"segment_id": "E2S02_3"}]}
         out = sg._add_metadata(data, episode=2)
         assert out["segments"][0]["segment_id"] == "E2S01"
@@ -887,7 +887,7 @@ class TestAddMetadataRewritesEpisodePrefix:
     @pytest.mark.unit
     def test_unknown_id_format_unchanged(self, tmp_path: Path) -> None:
         """ID 不带 `E\\d+[SU]` 前缀时不应被改写（避免误伤）。"""
-        sg = self._make_generator(tmp_path, content_mode="narration")
+        sg = self._make_generator(tmp_path, creation_type="narration")
         data = {"segments": [{"segment_id": "G01"}, {"segment_id": "scene_1"}]}
         out = sg._add_metadata(data, episode=2)
         assert out["segments"][0]["segment_id"] == "G01"
@@ -895,61 +895,61 @@ class TestAddMetadataRewritesEpisodePrefix:
 
 
 class TestAddMetadataInjectsHiddenFields:
-    """LLM schema 隐藏 content_mode / novel 之后,_add_metadata 必须保证持久化 JSON 仍带这些字段。
+    """LLM schema 隐藏 creation_type / novel 之后,_add_metadata 必须保证持久化 JSON 仍带这些字段。
 
     下游消费方(status_calculator / files router / jianying / compose-video)读 dict,不读 model,
     所以兜底必须落在 dict 层。
     """
 
     @staticmethod
-    def _make_generator(tmp_path: Path, content_mode: str = "drama") -> ScriptGenerator:
+    def _make_generator(tmp_path: Path, creation_type: str = "drama") -> ScriptGenerator:
         project_path = tmp_path / "demo"
         _write_json(
             project_path / "project.json",
             {
                 "title": "项目标题",
-                "content_mode": content_mode,
+                "creation_type": creation_type,
             },
         )
         return ScriptGenerator(project_path)
 
     @pytest.mark.unit
     def test_drama_injects_content_mode_and_novel_when_llm_omits(self, tmp_path: Path) -> None:
-        sg = self._make_generator(tmp_path, content_mode="drama")
+        sg = self._make_generator(tmp_path, creation_type="drama")
         data = {"title": "第一集", "scenes": [{"scene_id": "E1S01"}]}
         out = sg._add_metadata(data, episode=1)
-        assert out["content_mode"] == "drama"
+        assert out["creation_type"] == "drama"
         assert out["novel"] == {"title": "项目标题", "chapter": "第1集"}
 
     @pytest.mark.unit
     def test_narration_injects_content_mode_and_novel_when_llm_omits(self, tmp_path: Path) -> None:
-        sg = self._make_generator(tmp_path, content_mode="narration")
+        sg = self._make_generator(tmp_path, creation_type="narration")
         data = {"title": "第一集", "segments": [{"segment_id": "E1S01"}]}
         out = sg._add_metadata(data, episode=1)
-        assert out["content_mode"] == "narration"
+        assert out["creation_type"] == "narration"
         assert out["novel"]["chapter"] == "第1集"
 
     @pytest.mark.unit
     def test_strips_legacy_generation_mode_stamp(self, tmp_path: Path) -> None:
         """路线真相源是 project.json，剧本不留戳：存量剧本重生成、或校验失败降级保存的
         原始后端 dict 里带的 generation_mode，必须在写盘前剥离。"""
-        sg = self._make_generator(tmp_path, content_mode="drama")
+        sg = self._make_generator(tmp_path, creation_type="drama")
         data = {"title": "第一集", "generation_mode": "reference_video", "scenes": [{"scene_id": "E1S01"}]}
         out = sg._add_metadata(data, episode=1)
         assert "generation_mode" not in out
 
     @pytest.mark.unit
     def test_setdefault_does_not_overwrite_existing_values(self, tmp_path: Path) -> None:
-        """LLM 若主动填了 content_mode / novel(理论上不会,但兜底要稳),setdefault 不应覆盖。"""
-        sg = self._make_generator(tmp_path, content_mode="drama")
+        """LLM 若主动填了 creation_type / novel(理论上不会,但兜底要稳),setdefault 不应覆盖。"""
+        sg = self._make_generator(tmp_path, creation_type="drama")
         data = {
             "title": "第一集",
-            "content_mode": "drama",
+            "creation_type": "drama",
             "novel": {"title": "用户的小说", "chapter": "卷一·风起"},
             "scenes": [{"scene_id": "E1S01"}],
         }
         out = sg._add_metadata(data, episode=1)
-        assert out["content_mode"] == "drama"
+        assert out["creation_type"] == "drama"
         assert out["novel"] == {"title": "用户的小说", "chapter": "卷一·风起"}
 
     @pytest.mark.unit
@@ -960,7 +960,7 @@ class TestAddMetadataInjectsHiddenFields:
         """
         from lib.script_models import DramaEpisodeScript
 
-        sg = self._make_generator(tmp_path, content_mode="drama")
+        sg = self._make_generator(tmp_path, creation_type="drama")
         llm_response = {
             "title": "第一集",
             "scenes": [
@@ -987,7 +987,7 @@ class TestAddMetadataInjectsHiddenFields:
     def test_narration_overrides_empty_novel_after_model_dump(self, tmp_path: Path) -> None:
         from lib.script_models import NarrationEpisodeScript
 
-        sg = self._make_generator(tmp_path, content_mode="narration")
+        sg = self._make_generator(tmp_path, creation_type="narration")
         llm_response = {
             "title": "第一集",
             "segments": [
@@ -1013,7 +1013,7 @@ class TestAddMetadataInjectsHiddenFields:
     @pytest.mark.unit
     def test_partial_novel_only_title_is_also_reinjected(self, tmp_path: Path) -> None:
         """半填 novel(只有 title 或只有 chapter)也应触发重注入,避免 compose-video 文件名残缺。"""
-        sg = self._make_generator(tmp_path, content_mode="drama")
+        sg = self._make_generator(tmp_path, creation_type="drama")
         data = {
             "title": "第一集",
             "novel": {"title": "残缺标题", "chapter": ""},
@@ -1266,13 +1266,13 @@ def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> Script
     sg = ScriptGenerator.__new__(ScriptGenerator)
     sg.generator = None
     sg.project_path = project_dir
-    sg.project_json = {"content_mode": "narration", "episodes": [], **(project_extra or {})}
-    sg.content_mode = sg.project_json.get("content_mode", "narration")
+    sg.project_json = {"creation_type": "narration", "episodes": [], **(project_extra or {})}
+    sg.creation_type = sg.project_json.get("creation_type", "narration")
     (project_dir / "project.json").write_text(json.dumps(sg.project_json, ensure_ascii=False), encoding="utf-8")
     return sg
 
 
-# 骨架种类 → 触发该骨架的 (content_mode, generation_mode)，即 resolve_declared_kind 的逆。
+# 骨架种类 → 触发该骨架的 (creation_type, generation_mode)，即 resolve_declared_kind 的逆。
 _KIND_TO_MODES: dict[str, tuple[str, str | None]] = {
     "segments": ("narration", None),
     "scenes": ("drama", None),
@@ -1319,8 +1319,8 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         # 参数化遍历 SKELETONS 全键：新增第五种骨架而 _KIND_TO_MODES 未登记即 KeyError 报红。
         assert set(_KIND_TO_MODES) == set(SKELETONS)
 
-        content_mode, gen_mode = _KIND_TO_MODES[kind]
-        extra: dict = {"content_mode": content_mode}
+        creation_type, gen_mode = _KIND_TO_MODES[kind]
+        extra: dict = {"creation_type": creation_type}
         if gen_mode:
             extra["generation_mode"] = gen_mode
         sg = _bare_generator(tmp_path, extra)
@@ -1337,7 +1337,7 @@ class TestScriptGeneratorSkeletonExhaustiveness:
     def test_add_metadata_survives_dirty_degraded_items(self, tmp_path: Path):
         # 校验失败降级保存的原始 dict 里 segments 可能含非 dict / duration_seconds 非数字的脏条目；
         # 前缀改写与时长求和都不得崩溃，时长按稳健口径逐条兜底。
-        sg = _bare_generator(tmp_path, {"content_mode": "narration"})
+        sg = _bare_generator(tmp_path, {"creation_type": "narration"})
 
         out = sg._add_metadata(
             {
@@ -1365,7 +1365,7 @@ class TestScriptGeneratorSkeletonExhaustiveness:
     @pytest.mark.unit
     def test_add_metadata_survives_non_list_array(self, tmp_path: Path):
         # 数组键为真值标量（LLM 误写）时 `... or []` 挡不住，isinstance 守卫避免迭代/求和崩溃。
-        sg = _bare_generator(tmp_path, {"content_mode": "narration"})
+        sg = _bare_generator(tmp_path, {"creation_type": "narration"})
 
         out = sg._add_metadata({"segments": 123}, episode=1)
 
@@ -1376,7 +1376,7 @@ class TestScriptGeneratorSkeletonExhaustiveness:
     def test_quality_probe_survives_non_list_array(self, tmp_path: Path, caplog):
         # 数组键为真值标量时,_quality_probe 应被 isinstance 守卫收敛为空;外层 try/except 虽会
         # 吞异常,但不得走 “quality probe skipped” 兜底(那意味着守卫失效、整段探针被误跳过)。
-        sg = _bare_generator(tmp_path, {"content_mode": "narration"})
+        sg = _bare_generator(tmp_path, {"creation_type": "narration"})
 
         with caplog.at_level("WARNING", logger="lib.script_generator"):
             sg._quality_probe({"segments": 123}, episode=1)
@@ -1755,7 +1755,7 @@ class TestLoadReferenceStep1:
 def _write_ad_project(project_path: Path, *, generation_mode: str = "storyboard", products: dict | None = None):
     payload = {
         "title": "速干杯",
-        "content_mode": "ad",
+        "creation_type": "ad",
         "generation_mode": generation_mode,
         "target_duration": 30,
         "brief": "突出速干卖点",
@@ -1868,7 +1868,7 @@ class TestAdScriptGeneration:
             project_path / "project.json",
             {
                 "title": "速干杯",
-                "content_mode": "ad",
+                "creation_type": "ad",
                 "generation_mode": "storyboard",
                 "target_duration": 30,
                 "brief": None,
@@ -1892,7 +1892,7 @@ class TestAdScriptGeneration:
 
     @pytest.mark.unit
     async def test_generate_writes_ad_script_with_metadata(self, tmp_path):
-        """generate 写盘 ad 剧本：shots 骨架、content_mode=ad、total_shots 与总时长统计。"""
+        """generate 写盘 ad 剧本：shots 骨架、creation_type=ad、total_shots 与总时长统计。"""
         project_path = tmp_path / "demo"
         _write_ad_project(project_path)
 
@@ -1914,7 +1914,7 @@ class TestAdScriptGeneration:
         output_path = await generator.generate(1)
 
         saved = json.loads(output_path.read_text(encoding="utf-8"))
-        assert saved["content_mode"] == "ad"
+        assert saved["creation_type"] == "ad"
         assert saved["episode"] == 1
         assert [s["shot_id"] for s in saved["shots"]] == ["E1S01", "E1S02"]
         assert saved["shots"][0]["voiceover_text"] == "还在等杯子干？"
@@ -2069,11 +2069,11 @@ class TestAdQualityProbe:
         sg.generator = None
         sg.project_path = project_path
         sg.project_json = {
-            "content_mode": "ad",
+            "creation_type": "ad",
             "target_duration": target_duration,
             "generation_mode": "storyboard",
         }
-        sg.content_mode = "ad"
+        sg.creation_type = "ad"
         return sg
 
     def _script(self, durations: list[int]) -> dict:
@@ -2130,8 +2130,8 @@ class TestAdAspectRatioFallback:
         sg = ScriptGenerator.__new__(ScriptGenerator)
         sg.generator = None
         sg.project_path = tmp_path
-        sg.project_json = {"content_mode": "ad"}
-        sg.content_mode = "ad"
+        sg.project_json = {"creation_type": "ad"}
+        sg.creation_type = "ad"
         assert sg._resolve_aspect_ratio() == "9:16"
 
 
@@ -2156,7 +2156,7 @@ class TestAdReferenceSkeletonUnity:
         saved = json.loads(output_path.read_text(encoding="utf-8"))
 
         assert "generation_mode" not in saved
-        assert saved["content_mode"] == "ad"
+        assert saved["creation_type"] == "ad"
         assert "shots" not in saved
         assert "reference_units" not in saved
         assert [unit["unit_id"] for unit in saved["video_units"]] == ["E1U1", "E1U2"]

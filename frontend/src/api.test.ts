@@ -555,7 +555,7 @@ describe("API", () => {
 
       await expect(
         API.updateProject("demo", { content_mode: "drama" } as never),
-      ).rejects.toThrow("项目创建后不支持修改 content_mode");
+      ).rejects.toThrow("项目创建后不支持修改 creation_type");
       expect(requestSpy).not.toHaveBeenCalled();
     });
 
@@ -669,7 +669,7 @@ describe("API", () => {
         title: "P1",
         generation_mode: "storyboard",
         style_template_id: "live_premium_drama",
-        content_mode: "drama",
+        creation_type: "drama",
         aspect_ratio: "9:16",
         video_backend: "gemini-aistudio/veo-3",
         default_duration: 8,
@@ -680,7 +680,7 @@ describe("API", () => {
           title: "P1",
           generation_mode: "storyboard",
           style_template_id: "live_premium_drama",
-          content_mode: "drama",
+          creation_type: "drama",
           aspect_ratio: "9:16",
           video_backend: "gemini-aistudio/veo-3",
           default_duration: 8,
@@ -921,7 +921,7 @@ describe("API", () => {
               project_name: "demo",
               project: {
                 title: "Demo",
-                content_mode: "narration",
+                creation_type: "narration",
                 style: "Anime",
                 episodes: [],
                 characters: {},

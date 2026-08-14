@@ -30,7 +30,7 @@ def resolve_video_aspect_ratio(project: Mapping[str, object], resource_type: str
         return value
     if isinstance(value, Mapping) and resource_type in value:
         return cast(str, value[resource_type])
-    return "9:16" if project.get("content_mode", "narration") in {"narration", "ad"} else "16:9"
+    return "9:16" if project.get("creation_type", "narration") in {"narration", "ad"} else "16:9"
 
 
 def _file_digest(path: Path) -> str:
@@ -70,7 +70,7 @@ def build_storyboard_video_visual_basis(
     resolution: str | None,
     seed: object,
     requested_generate_audio: bool,
-    content_mode: str,
+    creation_type: str,
     utterances: object,
     has_utterances: bool,
     voice_characters: object,
@@ -80,7 +80,7 @@ def build_storyboard_video_visual_basis(
     effective_prompt = prompt
     if isinstance(prompt, dict):
         effective_prompt = strip_voice_profiles(prompt)
-        if content_mode == "drama":
+        if creation_type == "drama":
             characters = voice_characters if isinstance(voice_characters, dict) else None
             effective_prompt = (
                 build_drama_video_prompt(effective_prompt, utterances, characters=characters)
@@ -103,7 +103,7 @@ def build_storyboard_video_visual_basis(
                 "seed": seed,
                 "requested_generate_audio": requested_generate_audio,
             },
-            "content_mode": content_mode,
+            "creation_type": creation_type,
         },
         files=files,
     )

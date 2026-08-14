@@ -220,6 +220,7 @@ MESSAGES = {
     "ad_target_duration_required": "Ad/short-video projects require a target duration (positive integer seconds)",
     "project_id_not_editable": "content_mode cannot be modified after project creation",
     "source_kind_not_editable": "source_kind cannot be modified after project creation",
+    "project_schema_incompatible": "Project '{name}' has not finished data upgrade (schema {schema_version}, current {expected}) and cannot enter the creative workflow",
     "project_deleted": "Project '{name}' deleted",
     "scene_updated": "Scene '{scene_id}' updated",
     "segment_updated": "Segment '{segment_id}' updated",

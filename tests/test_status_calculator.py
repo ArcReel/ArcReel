@@ -29,7 +29,7 @@ class TestStatusCalculator:
     @pytest.mark.unit
     def test_select_kind_and_items(self):
         kind, items = StatusCalculator._select_kind_and_items(
-            {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]}, "storyboard"
+            {"creation_type": "narration", "segments": [{"segment_id": "E1S01"}]}, "storyboard"
         )
         assert kind == "segments"
         assert len(items) == 1
@@ -45,19 +45,19 @@ class TestStatusCalculator:
         # draft：无任何资源
         draft = calc.calculate_episode_stats(
             "demo",
-            {"content_mode": "narration", "segments": [{"duration_seconds": 4}]},
+            {"creation_type": "narration", "segments": [{"duration_seconds": 4}]},
         )
         assert draft["status"] == "draft"
         assert draft["storyboards"] == {"total": 1, "completed": 0}
         assert draft["videos"] == {"total": 1, "completed": 0}
-        assert draft["scenes_count"] == 1
+        assert draft["storyboard_count"] == 1
         assert draft["duration_seconds"] == 4
 
         # in_production：有分镜图
         in_prod = calc.calculate_episode_stats(
             "demo",
             {
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {"generated_assets": {"storyboard_image": "a.png"}, "duration_seconds": 6},
                     {"duration_seconds": 4},
@@ -72,7 +72,7 @@ class TestStatusCalculator:
         completed = calc.calculate_episode_stats(
             "demo",
             {
-                "content_mode": "drama",
+                "creation_type": "drama",
                 "scenes": [
                     {"generated_assets": {"video_clip": "a.mp4"}, "duration_seconds": 8},
                 ],
@@ -90,7 +90,7 @@ class TestStatusCalculator:
         stats = calc.calculate_episode_stats(
             "demo",
             {
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {"generated_assets": "corrupt", "duration_seconds": 4},
                     {"generated_assets": {"storyboard_image": "a.png"}, "duration_seconds": 4},
@@ -106,7 +106,7 @@ class TestStatusCalculator:
         project_path = project_root / "demo"
 
         # Case 1: 脚本 JSON 存在 → ("generated", script)
-        script_data = {"content_mode": "narration", "segments": []}
+        script_data = {"creation_type": "narration", "segments": []}
         scripts = {"episode_1.json": script_data}
         calc = StatusCalculator(_FakePM(project_root, {}, scripts))
         status, script = calc._load_episode_script("demo", 1, "scripts/episode_1.json")
@@ -142,13 +142,13 @@ class TestStatusCalculator:
         draft_dir_drama.mkdir(parents=True)
         (draft_dir_drama / "step1_normalized_script.json").write_text('{"title":"t","scenes":[]}')
         calc4 = StatusCalculator(_FakePM(project_root, {}, {}))
-        status4, script4 = calc4._load_episode_script("demo", 4, "scripts/episode_4.json", content_mode="drama")
+        status4, script4 = calc4._load_episode_script("demo", 4, "scripts/episode_4.json", creation_type="drama")
         assert status4 == "segmented"
         assert script4 is None
 
         # Case 5: drama 模式 — 无 step1_normalized_script.json → ("none", None)
         calc5 = StatusCalculator(_FakePM(project_root, {}, {}))
-        status5, script5 = calc5._load_episode_script("demo", 5, "scripts/episode_5.json", content_mode="drama")
+        status5, script5 = calc5._load_episode_script("demo", 5, "scripts/episode_5.json", creation_type="drama")
         assert status5 == "none"
         assert script5 is None
 
@@ -158,7 +158,7 @@ class TestStatusCalculator:
         draft_dir_drama_legacy.mkdir(parents=True)
         (draft_dir_drama_legacy / "step1_normalized_script.md").write_text("legacy free-text draft")
         calc6 = StatusCalculator(_FakePM(project_root, {}, {}))
-        status6, script6 = calc6._load_episode_script("demo", 7, "scripts/episode_7.json", content_mode="drama")
+        status6, script6 = calc6._load_episode_script("demo", 7, "scripts/episode_7.json", creation_type="drama")
         assert status6 == "none"
         assert script6 is None
 
@@ -283,7 +283,7 @@ class TestStatusCalculator:
         }
         scripts = {
             "episode_1.json": {
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {"duration_seconds": 4, "generated_assets": {"storyboard_image": "a.png", "video_clip": "b.mp4"}},
                 ],
@@ -314,7 +314,7 @@ class TestStatusCalculator:
             "props": {},
         }
         script = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -344,7 +344,7 @@ class TestStatusCalculator:
         ep1 = enriched["episodes"][0]
         assert ep1["script_status"] == "generated"
         assert ep1["status"] == "scripted"
-        assert ep1["scenes_count"] == 1
+        assert ep1["storyboard_count"] == 1
         assert ep1["storyboards"] == {"total": 1, "completed": 0}
         ep2 = enriched["episodes"][1]
         assert ep2["script_status"] == "none"
@@ -372,12 +372,12 @@ class TestStatusCalculator:
         }
         scripts = {
             "episode_1.json": {
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {"duration_seconds": 4, "generated_assets": {"storyboard_image": "a.png", "video_clip": "b.mp4"}}
                 ],
             },
-            "episode_2.json": {"content_mode": "narration", "segments": [{"duration_seconds": 4}]},
+            "episode_2.json": {"creation_type": "narration", "segments": [{"duration_seconds": 4}]},
         }
         calc = StatusCalculator(_FakePM(project_root, project, scripts))
 
@@ -400,7 +400,7 @@ class TestStatusCalculator:
     @pytest.mark.unit
     def test_enrich_script(self, tmp_path):
         script = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -414,7 +414,7 @@ class TestStatusCalculator:
         }
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         enriched_script = calc.enrich_script({**script})
-        assert enriched_script["metadata"]["total_scenes"] == 1
+        assert enriched_script["metadata"]["storyboard_count"] == 1
         assert enriched_script["metadata"]["estimated_duration_seconds"] == 6
         assert enriched_script["characters_in_episode"] == ["A", "B"]
         assert enriched_script["scenes_in_episode"] == ["S1"]
@@ -468,7 +468,7 @@ class TestStatusCalculator:
 
         preloaded = {
             "scripts/episode_1.json": {
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [{"duration_seconds": 4, "generated_assets": {}}],
             }
         }
@@ -510,12 +510,12 @@ class TestStatusCalculator:
         pm = _TrackingPM(
             project_root,
             project,
-            {"episode_2.json": {"content_mode": "narration", "segments": [{"duration_seconds": 4}]}},
+            {"episode_2.json": {"creation_type": "narration", "segments": [{"duration_seconds": 4}]}},
         )
         calc = StatusCalculator(pm)
 
         preloaded = {
-            "scripts/episode_1.json": {"content_mode": "narration", "segments": [{"duration_seconds": 4}]},
+            "scripts/episode_1.json": {"creation_type": "narration", "segments": [{"duration_seconds": 4}]},
         }
         status = calc.calculate_project_status("demo", project, preloaded_scripts=preloaded)
 
@@ -530,7 +530,7 @@ class TestAdStatusCalculation:
 
     @pytest.mark.unit
     def test_select_ad_by_duck_typing_when_content_mode_absent(self):
-        # 本地 legacy 容忍：缺 content_mode 的存量 ad 剧本按 shots 键鸭子推断（矩阵不覆盖本地阶梯）。
+        # 本地 legacy 容忍：缺 creation_type 的存量 ad 剧本按 shots 键鸭子推断（矩阵不覆盖本地阶梯）。
         kind, items = StatusCalculator._select_kind_and_items({"shots": [{"shot_id": "E1S01"}]}, "storyboard")
         assert kind == "shots"
         assert len(items) == 1
@@ -542,7 +542,7 @@ class TestAdStatusCalculation:
         stats = calc.calculate_episode_stats(
             "demo",
             {
-                "content_mode": "ad",
+                "creation_type": "ad",
                 "shots": [
                     {"duration_seconds": 3, "generated_assets": {"storyboard_image": "a.png"}},
                     {"duration_seconds": 5},
@@ -550,7 +550,7 @@ class TestAdStatusCalculation:
             },
         )
         assert stats["status"] == "in_production"
-        assert stats["scenes_count"] == 2
+        assert stats["storyboard_count"] == 2
         assert stats["duration_seconds"] == 8
         assert stats["storyboards"] == {"total": 2, "completed": 1}
         assert stats["videos"] == {"total": 2, "completed": 0}
@@ -560,7 +560,7 @@ class TestAdStatusCalculation:
         """ad + reference_video 与其他内容模式一样按自包含 video_units 计分。"""
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         script = {
-            "content_mode": "ad",
+            "creation_type": "ad",
             "video_units": [
                 {
                     "unit_id": "E1U1",
@@ -577,14 +577,15 @@ class TestAdStatusCalculation:
         assert stats["videos"] == {"total": 1, "completed": 1}
         assert stats["status"] == "completed"
         assert stats["duration_seconds"] == 5
-        assert stats["scenes_count"] == 1
+        assert stats["video_unit_count"] == 1
+        assert stats["shot_count"] == 1
 
     @pytest.mark.unit
     def test_ad_storyboard_path_ignores_leftover_index(self, tmp_path):
         """切回 storyboard 路径后按 shots 计分，残留索引不污染状态。"""
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         script = {
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [{"shot_id": "E1S01", "duration_seconds": 3}],
             "reference_units": [
                 {
@@ -606,7 +607,7 @@ class TestAdStatusCalculation:
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         stats = calc.calculate_episode_stats(
             "demo",
-            {"content_mode": "ad", "shots": [{"duration_seconds": 3}, {}]},
+            {"creation_type": "ad", "shots": [{"duration_seconds": 3}, {}]},
         )
         assert stats["duration_seconds"] == 3
 
@@ -614,7 +615,7 @@ class TestAdStatusCalculation:
     def test_enrich_script_aggregates_ad_references(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         script = {
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [
                 {
                     "shot_id": "E1S01",
@@ -633,7 +634,7 @@ class TestAdStatusCalculation:
             ],
         }
         enriched = calc.enrich_script(script)
-        assert enriched["metadata"]["total_scenes"] == 2
+        assert enriched["metadata"]["storyboard_count"] == 2
         assert enriched["duration_seconds"] == 8
         assert enriched["characters_in_episode"] == ["主播"]
         assert enriched["scenes_in_episode"] == ["客厅"]
@@ -641,7 +642,7 @@ class TestAdStatusCalculation:
 
     @pytest.mark.unit
     def test_legacy_ad_script_on_reference_route_keeps_shots(self):
-        """缺 content_mode 的遗留 shots 剧本仍按可见主骨架计分，不虚构 video_units。"""
+        """缺 creation_type 的遗留 shots 剧本仍按可见主骨架计分，不虚构 video_units。"""
         script = {"shots": [{"shot_id": "E1S01"}, {"shot_id": "E1S02"}]}
         kind, items = StatusCalculator._select_kind_and_items(script, "reference_video")
         assert kind == "shots"
@@ -653,7 +654,7 @@ class TestAdStatusCalculation:
         否则下游按 dict 键迭代、对 str 调 get，项目详情读取变成 500 全不可查看。"""
         for malformed in ({"unit_a": {}}, "E1U1", 3):
             kind, items = StatusCalculator._select_kind_and_items(
-                {"content_mode": "narration", "video_units": malformed}, "reference_video"
+                {"creation_type": "narration", "video_units": malformed}, "reference_video"
             )
             assert kind == "video_units"
             assert items == []
@@ -663,7 +664,7 @@ class TestAdStatusCalculation:
         """``video_units`` 夹非对象条目：剔除而不是原样下传——下游对 str 调 get 会让
         项目详情读取变成 500，整个项目不可查看。"""
         kind, items = StatusCalculator._select_kind_and_items(
-            {"content_mode": "narration", "video_units": ["bad", {"unit_id": "E1U1"}, 7, None]},
+            {"creation_type": "narration", "video_units": ["bad", {"unit_id": "E1U1"}, 7, None]},
             "reference_video",
         )
         assert kind == "video_units"
@@ -674,7 +675,7 @@ class TestAdStatusCalculation:
         """unit 本身合法但 references 容器/条目脏：聚合跳过而非抛 AttributeError。"""
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         script = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "metadata": {},
             "video_units": [
                 {"unit_id": "E1U1", "references": "bad"},
@@ -691,7 +692,7 @@ class TestAdStatusCalculation:
         混类型比较错误——两者都让项目详情读取失败，须一并跳过。"""
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         script = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "metadata": {},
             "video_units": [
                 {
@@ -713,7 +714,7 @@ class TestAdStatusCalculation:
 
     @pytest.mark.unit
     def test_duck_typing_precedence_segments_over_scenes_over_shots(self):
-        """缺 content_mode 的老脚本同时残留多种键时，鸭子类型优先级固定为
+        """缺 creation_type 的老脚本同时残留多种键时，鸭子类型优先级固定为
         segments > scenes > shots（依赖 _LEGACY_DUCK_TYPE_KINDS 顺序，本测试锁定该顺序）。"""
         kind, _ = StatusCalculator._select_kind_and_items(
             {"segments": [{}], "scenes": [{}], "shots": [{}]}, "storyboard"
@@ -723,7 +724,7 @@ class TestAdStatusCalculation:
         assert kind == "scenes"
 
 
-# 骨架种类 → 触发该骨架的 (content_mode, generation_mode)，即 resolve_declared_kind 的逆。
+# 骨架种类 → 触发该骨架的 (creation_type, generation_mode)，即 resolve_declared_kind 的逆。
 _KIND_TO_MODES = {
     "segments": ("narration", None),
     "scenes": ("drama", None),
@@ -747,13 +748,17 @@ class TestStatusCalculatorSkeletonExhaustiveness:
         # 遍历 SKELETONS 全键：新增第五种骨架而 _KIND_TO_MODES 未登记即 KeyError 报红。
         assert set(_KIND_TO_MODES) == set(SKELETONS)
 
-        content_mode, gen_mode = _KIND_TO_MODES[kind]
+        creation_type, gen_mode = _KIND_TO_MODES[kind]
         id_field = SKELETONS[kind].id_field
-        script = {"content_mode": content_mode, kind: [{id_field: "E1S01"}]}
+        script = {"creation_type": creation_type, kind: [{id_field: "E1S01"}]}
 
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         stats = calc.calculate_episode_stats("demo", script, generation_mode=gen_mode)
 
         assert isinstance(stats, dict)
         assert "status" in stats
-        assert stats["scenes_count"] == 1
+        if kind == "video_units":
+            assert stats["video_unit_count"] == 1
+            assert stats["shot_count"] == 0
+        else:
+            assert stats["storyboard_count"] == 1

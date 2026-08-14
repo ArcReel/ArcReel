@@ -122,14 +122,14 @@ def _unresolvable_video_caps(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _make_project(
     tmp_path: Path,
-    content_mode: str,
+    creation_type: str,
     *,
     generation_mode: str | None = None,
 ) -> ProjectManager:
     """建测试项目；档位表另经 ``_stub_video_caps`` 注入。"""
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
-    pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
+    pm.create_project_metadata("demo", "Demo", "Anime", creation_type)
     pm.add_character("demo", "阿离", "少女")
     pm.add_character("demo", "裴与", "将军")
     pm.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
@@ -142,8 +142,8 @@ def _make_project(
     return pm
 
 
-def _write_step1(pm: ProjectManager, content_mode: str, content: dict) -> Path:
-    filename = "step1_normalized_script.json" if content_mode == "drama" else "step1_segments.json"
+def _write_step1(pm: ProjectManager, creation_type: str, content: dict) -> Path:
+    filename = "step1_normalized_script.json" if creation_type == "drama" else "step1_segments.json"
     drafts = pm.get_project_path("demo") / "drafts" / "episode_1"
     drafts.mkdir(parents=True, exist_ok=True)
     path = drafts / filename
@@ -181,11 +181,11 @@ def _write_step2(pm: ProjectManager) -> Path:
     return path
 
 
-def _make_manual_split_project(tmp_path: Path, content_mode: str) -> ProjectManager:
+def _make_manual_split_project(tmp_path: Path, creation_type: str) -> ProjectManager:
     """手动预拆分场景：绕过分集规划器，``episodes[]`` 账本为空，仅有派生 source/episode_N.txt。"""
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
-    pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
+    pm.create_project_metadata("demo", "Demo", "Anime", creation_type)
     return pm
 
 
@@ -346,7 +346,7 @@ class TestNarrationGateFlow:
 
 
 # ---------------------------------------------------------------------------
-# 状态流转（reference_video，跨 content_mode 共用同一 gate）
+# 状态流转（reference_video，跨 creation_type 共用同一 gate）
 # ---------------------------------------------------------------------------
 
 
@@ -946,7 +946,7 @@ class TestReferenceVideoStep2Enforcement:
 class TestApplicability:
     @pytest.mark.unit
     async def test_reference_video_applicable(self, tmp_path):
-        """reference_video（跨 content_mode）纳入 gate，step1 变体判为 reference_video。"""
+        """reference_video（跨 creation_type）纳入 gate，step1 变体判为 reference_video。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         project = pm.load_project("demo")
         assert script_review.step1_kind(project) == "reference_video"

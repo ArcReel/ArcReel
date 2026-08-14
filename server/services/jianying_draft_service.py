@@ -357,7 +357,7 @@ class JianyingDraftService:
         raw_title = project.get("title")
         title = raw_title if isinstance(raw_title, str) and raw_title.strip() else project_name
         safe_title = title.replace("/", "_").replace("\\", "_").replace("..", "_")
-        name = safe_title if project.get("content_mode") == "ad" else f"{safe_title}_第{episode}集"
+        name = safe_title if project.get("creation_type") == "ad" else f"{safe_title}_第{episode}集"
         return name if name.replace(".", "").strip() else project_name
 
 

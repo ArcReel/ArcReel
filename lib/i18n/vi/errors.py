@@ -220,6 +220,7 @@ MESSAGES = {
     "ad_target_duration_required": "Dự án quảng cáo/video ngắn bắt buộc phải có tổng thời lượng mục tiêu (số giây nguyên dương)",
     "project_id_not_editable": "content_mode không thể chỉnh sửa sau khi tạo dự án",
     "source_kind_not_editable": "source_kind không thể chỉnh sửa sau khi tạo dự án",
+    "project_schema_incompatible": "Dự án '{name}' chưa hoàn tất nâng cấp dữ liệu (schema {schema_version}, hiện cần {expected}) nên không thể vào quy trình sáng tạo",
     "project_deleted": "Đã xóa dự án '{name}'",
     "scene_updated": "Đã cập nhật cảnh '{scene_id}'",
     "segment_updated": "Đã cập nhật đoạn '{segment_id}'",

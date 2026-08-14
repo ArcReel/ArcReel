@@ -13,7 +13,7 @@ const LOOKUP: MentionLookup = { 阿离: "character", 长街: "scene" };
 function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
   return {
     episode: 1,
-    content_mode: "narration",
+    creation_type: "narration",
     status: "pending_review",
     fingerprint: "fp1",
     confirmed_at: null,
@@ -41,7 +41,7 @@ function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewS
 function quarantinedState(): ScriptReviewState {
   return {
     episode: 1,
-    content_mode: "narration",
+    creation_type: "narration",
     status: "pending_review",
     fingerprint: null,
     confirmed_at: null,
@@ -200,7 +200,7 @@ describe("ReferenceStep1PreviewPanel", () => {
   it("shows an empty state when there is no step1 content", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
       episode: 1,
-      content_mode: "narration",
+      creation_type: "narration",
       status: "no_step1",
       fingerprint: null,
       confirmed_at: null,

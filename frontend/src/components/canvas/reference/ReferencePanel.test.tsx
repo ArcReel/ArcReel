@@ -7,7 +7,7 @@ import type { ReferenceResource } from "@/types/reference-video";
 
 const PROJECT: ProjectData = {
   title: "p",
-  content_mode: "narration",
+  creation_type: "narration",
   style: "",
   episodes: [],
   characters: { 主角: { description: "" } },
@@ -182,7 +182,7 @@ describe("ReferencePanel", () => {
 describe("ReferencePanel drag a11y", () => {
   const baseProject: ProjectData = {
     title: "p",
-    content_mode: "narration",
+    creation_type: "narration",
     style: "",
     episodes: [],
     characters: { 张三: { description: "" } },

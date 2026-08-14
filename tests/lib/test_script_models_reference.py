@@ -72,13 +72,13 @@ def test_reference_video_unit_transition_enum():
 def test_reference_video_script_valid():
     script = ReferenceVideoScript(
         title="江湖夜话",
-        content_mode="narration",
+        creation_type="narration",
         duration_seconds=8,
         novel=NovelInfo(title="江湖行", chapter="第一回"),
         video_units=[_make_unit()],
     )
     # 剧本只承载"内容类型"维度；"视频来源"是项目级路线，剧本不携带
-    assert script.content_mode == "narration"
+    assert script.creation_type == "narration"
     assert not hasattr(script, "generation_mode")
     assert len(script.video_units) == 1
 
@@ -87,20 +87,20 @@ def test_reference_video_script_valid():
 def test_reference_video_script_accepts_drama_content_mode():
     script = ReferenceVideoScript(
         title="剧集",
-        content_mode="drama",
+        creation_type="drama",
         novel=NovelInfo(title="x", chapter="x"),
         video_units=[_make_unit()],
     )
-    assert script.content_mode == "drama"
+    assert script.creation_type == "drama"
 
 
 @pytest.mark.unit
 def test_reference_video_script_rejects_legacy_reference_video_content_mode():
-    """content_mode 不再允许 reference_video（它属于项目级 generation_mode 维度）。"""
+    """creation_type 不再允许 reference_video（它属于项目级 generation_mode 维度）。"""
     with pytest.raises(ValidationError):
         ReferenceVideoScript(
             title="x",
-            content_mode="reference_video",
+            creation_type="reference_video",
             novel=NovelInfo(title="x", chapter="x"),
             video_units=[_make_unit()],
         )

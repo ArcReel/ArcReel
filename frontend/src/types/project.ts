@@ -103,8 +103,8 @@ export interface EpisodeMeta {
   source_range?: { source_file?: string; start?: number; end?: number };
   /** Written by episode_planner at split time (drama only) */
   outline?: { story_beats?: string[]; next_episode_teaser?: string };
-  /** Injected by StatusCalculator at read time */
-  scenes_count?: number;
+  /** Injected by StatusCalculator at read time (storyboard route) */
+  storyboard_count?: number;
   /** Injected by StatusCalculator at read time */
   script_status?: "none" | "segmented" | "generated";
   /** Injected by StatusCalculator at read time */
@@ -115,8 +115,10 @@ export interface EpisodeMeta {
   storyboards?: ProgressCategory;
   /** Injected by StatusCalculator at read time */
   videos?: ProgressCategory;
-  /** Injected by StatusCalculator at read time (reference_video route only) */
-  units_count?: number;
+  /** Injected by StatusCalculator at read time (reference_video route) */
+  video_unit_count?: number;
+  /** Injected by StatusCalculator at read time (reference_video route) */
+  shot_count?: number;
 }
 
 export interface ModelSettingEntry {
@@ -125,9 +127,9 @@ export interface ModelSettingEntry {
 
 export interface ProjectData {
   title: string;
-  content_mode: "narration" | "drama" | "ad";
+  creation_type: "narration" | "drama" | "ad";
   /** 源文件性质：novel（默认，AI 改编）/ screenplay（成品剧本，逐字提取）。创建即定、不可变。 */
-  source_kind?: "novel" | "screenplay";
+  source_file_type?: "novel" | "screenplay";
   style: string;
   style_template_id?: string | null;
   style_image?: string;
@@ -247,7 +249,7 @@ export interface VideoCapabilities {
   last_frame: boolean;
   source: "registry" | "custom";
   default_duration?: number | null;
-  content_mode?: string | null;
+  creation_type?: string | null;
   generation_mode?: string | null;
   /** 声音一致性三级标识（模型能力 × generation_mode 二维派生），服务端唯一派生点。 */
   voice_consistency: VoiceConsistencyTier;

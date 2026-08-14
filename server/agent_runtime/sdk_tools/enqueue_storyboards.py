@@ -16,7 +16,7 @@ from lib.generation_queue_client import (
     batch_enqueue_and_wait,
 )
 from lib.prompt_utils import image_prompt_to_yaml, is_structured_image_prompt, normalize_style
-from lib.script_models import get_generated_assets, resolve_content_mode
+from lib.script_models import get_generated_assets, resolve_creation_type
 from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import (
     StoryboardTaskPlan,
@@ -167,7 +167,7 @@ def generate_storyboards_tool(ctx: ToolContext):
                 # 会落进"✨ 所有片段的分镜图都已生成"的假成功，把成因埋掉。project.json 缺失
                 # 时无路线可依，沿用上面的降级放行。
                 ensure_route_skeleton(
-                    script, resolve_content_mode(script, project_data), project_data.get("generation_mode")
+                    script, resolve_creation_type(script, project_data), project_data.get("generation_mode")
                 )
 
             items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)

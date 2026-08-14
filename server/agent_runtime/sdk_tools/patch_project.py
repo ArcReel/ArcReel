@@ -139,9 +139,9 @@ def _apply_settings(ctx: ToolContext, settings: dict[str, Any]) -> dict[str, Any
 
     def _mutate(project: dict[str, Any]) -> None:
         # brief 仅广告/短片项目可用（与 DataValidator / 路由层同一约束），
-        # 在持锁读到 content_mode 后门控，整体失败不落盘
-        if "brief" in coerced and project.get("content_mode") != "ad":
-            raise ValueError("brief 仅广告/短片项目（content_mode=ad）可用")
+        # 在持锁读到 creation_type 后门控，整体失败不落盘
+        if "brief" in coerced and project.get("creation_type") != "ad":
+            raise ValueError("brief 仅广告/短片项目（creation_type=ad）可用")
         for key, value in coerced.items():
             current = project.get(key)
             if value is None:

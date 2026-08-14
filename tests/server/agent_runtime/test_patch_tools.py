@@ -44,7 +44,7 @@ def _script() -> dict[str, Any]:
     return {
         "episode": 1,
         "title": "标题",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
         "segments": [_segment("E1S01"), _segment("E1S02")],
@@ -69,7 +69,7 @@ def _drama_script() -> dict[str, Any]:
     return {
         "episode": 1,
         "title": "标题",
-        "content_mode": "drama",
+        "creation_type": "drama",
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
         "scenes": [_scene("E1S01"), _scene("E1S02")],
@@ -90,7 +90,7 @@ def _reference_script() -> dict[str, Any]:
     return {
         "episode": 1,
         "title": "标题",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
@@ -116,7 +116,7 @@ def _ad_script() -> dict[str, Any]:
     return {
         "episode": 1,
         "title": "标题",
-        "content_mode": "ad",
+        "creation_type": "ad",
         "shots": [_ad_shot("E1S01"), _ad_shot("E1S02")],
     }
 
@@ -138,7 +138,7 @@ def ctx(tmp_path: Path) -> ToolContext:
 @pytest.fixture
 def drama_ctx(tmp_path: Path) -> ToolContext:
     pm = ProjectManager(str(tmp_path))
-    pm.create_project("demo", content_mode="drama")
+    pm.create_project("demo", creation_type="drama")
     pm.create_project_metadata("demo", "Demo", "Anime", "drama")
     _register_default_character(pm)
     pm.save_script("demo", _drama_script(), "episode_1.json")
@@ -159,7 +159,7 @@ def ref_ctx(tmp_path: Path) -> ToolContext:
 @pytest.fixture
 def ad_ctx(tmp_path: Path) -> ToolContext:
     pm = ProjectManager(str(tmp_path))
-    pm.create_project("demo", content_mode="ad")
+    pm.create_project("demo", creation_type="ad")
     pm.create_project_metadata("demo", "Demo", "Anime", "ad")
     _register_default_character(pm)
     pm.save_script("demo", _ad_script(), "episode_1.json")
@@ -227,7 +227,7 @@ class TestPatchEpisodeScript:
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        ("content_mode", "generation_mode", "script_factory", "item_id", "edits", "kind"),
+        ("creation_type", "generation_mode", "script_factory", "item_id", "edits", "kind"),
         [
             (
                 "narration",
@@ -260,21 +260,21 @@ class TestPatchEpisodeScript:
             ),
             *[
                 (
-                    content_mode,
+                    creation_type,
                     "reference_video",
                     _reference_script,
                     "E1U1",
                     {"shots": [{"text": "@[角色A]：{快走。}\n{风吹过旷野。}"}]},
                     "video_units",
                 )
-                for content_mode in ("narration", "drama", "ad")
+                for creation_type in ("narration", "drama", "ad")
             ],
         ],
     )
     async def test_six_route_agent_manual_edits_atomically_reject_mixed_speech_on_save(
         self,
         tmp_path: Path,
-        content_mode: str,
+        creation_type: str,
         generation_mode: str,
         script_factory,
         item_id: str,
@@ -282,12 +282,12 @@ class TestPatchEpisodeScript:
         kind: str,
     ) -> None:
         pm = ProjectManager(str(tmp_path))
-        pm.create_project("demo", content_mode=content_mode)
-        pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
+        pm.create_project("demo", creation_type=creation_type)
+        pm.create_project_metadata("demo", "Demo", "Anime", creation_type)
         _register_default_character(pm)
         pm.update_project("demo", lambda project: project.update({"generation_mode": generation_mode}))
         script = script_factory()
-        script["content_mode"] = content_mode
+        script["creation_type"] = creation_type
         pm.save_script("demo", script, "episode_1.json")
         tool_ctx = ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
         before = _load(tool_ctx)
@@ -1724,7 +1724,7 @@ class TestPatchProjectBriefSetting:
     @pytest.fixture
     def ad_ctx(self, tmp_path: Path) -> ToolContext:
         pm = ProjectManager(str(tmp_path))
-        pm.create_project("ad-demo", content_mode="ad")
+        pm.create_project("ad-demo", creation_type="ad")
         pm.create_project_metadata("ad-demo", "Ad Demo", "Realistic", "ad", target_duration=60)
         return ToolContext(project_name="ad-demo", projects_root=tmp_path, pm=pm)
 

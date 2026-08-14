@@ -305,7 +305,7 @@ class TestConfirmCharacterVoiceSample:
         project_path = pm.get_project_path("demo")
         script_file = project_path / "scripts" / "episode_1.json"
         script_file.write_text(
-            '{"episode": 1, "content_mode": "narration", "segments": []}',
+            '{"episode": 1, "creation_type": "narration", "segments": []}',
             encoding="utf-8",
         )
         target = project_path / "characters" / "refs_audio" / "艾莉.wav"

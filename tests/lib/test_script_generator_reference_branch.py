@@ -59,7 +59,7 @@ def reference_project(tmp_path: Path) -> Path:
     (project_dir / "project.json").write_text(
         """{
           "title": "t",
-          "content_mode": "narration",
+          "creation_type": "narration",
           "generation_mode": "reference_video",
           "video_backend": "vidu/vidu2.0",
           "overview": {"synopsis": "s", "genre": "g", "theme": "th", "world_setting": "w"},
@@ -105,9 +105,9 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     import json as _j
 
     data = _j.loads(out.read_text(encoding="utf-8"))
-    # 参考视频集 content_mode 继承项目级 narration/drama；生成路线是项目级事实，
+    # 参考视频集 creation_type 继承项目级 narration/drama；生成路线是项目级事实，
     # 剧本不落盘任何路线戳。
-    assert data["content_mode"] == "narration"
+    assert data["creation_type"] == "narration"
     assert "generation_mode" not in data
     assert len(data["video_units"]) == 1
     unit = data["video_units"][0]
@@ -392,9 +392,9 @@ async def test_script_generator_rejects_step2_unregistered_mention(reference_pro
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp_path: Path):
-    """drama 项目下生成的参考视频集 content_mode 必须为 drama。
+    """drama 项目下生成的参考视频集 creation_type 必须为 drama。
 
-    Pydantic 的 ReferenceVideoScript.content_mode 默认 "narration"，model_dump 会
+    Pydantic 的 ReferenceVideoScript.creation_type 默认 "narration"，model_dump 会
     把该默认值写入 dict；_add_metadata 必须显式覆盖而非 setdefault，否则 drama 项目
     的参考视频集会被错误标记成 narration。
     """
@@ -403,7 +403,7 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
     (project_dir / "project.json").write_text(
         """{
           "title": "t",
-          "content_mode": "drama",
+          "creation_type": "drama",
           "generation_mode": "reference_video",
           "video_backend": "vidu/vidu2.0",
           "overview": {"synopsis": "s", "genre": "g", "theme": "th", "world_setting": "w"},
@@ -424,7 +424,7 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
     import json as _j
 
     data = _j.loads(out.read_text(encoding="utf-8"))
-    assert data["content_mode"] == "drama"
+    assert data["creation_type"] == "drama"
     assert "generation_mode" not in data
 
 
@@ -448,7 +448,7 @@ def test_resolve_max_refs_from_caps(tmp_path: Path, caps, expected):
 
     project = {
         "title": "t",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "overview": {},
         "style": "",
@@ -484,7 +484,7 @@ def test_resolve_max_refs_from_registry_fallback(tmp_path: Path, video_backend, 
 
     project = {
         "title": "t",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "video_backend": video_backend,
         "overview": {},
@@ -517,7 +517,7 @@ async def test_build_prompt_no_video_backend_raises_value_error(tmp_path: Path):
         _j.dumps(
             {
                 "title": "t",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
                 "overview": {"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
                 "style": "s",
@@ -573,7 +573,7 @@ async def test_build_prompt_follows_project_reference_route(tmp_path: Path):
         _j.dumps(
             {
                 "title": "t",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "generation_mode": "reference_video",
                 "video_backend": "vidu/vidu2.0",
                 "overview": {"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},

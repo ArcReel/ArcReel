@@ -303,7 +303,7 @@ async def test_current_reference_task_narration_uses_video_units_when_ad_script_
     pm.get_project_path.return_value = tmp_path
     pm.load_script.return_value = {
         "episode": 1,
-        "content_mode": "ad",
+        "creation_type": "ad",
         "shots": [{"shot_id": "E1S01", "voiceover_text": "广告旁白"}],
         "video_units": [
             {

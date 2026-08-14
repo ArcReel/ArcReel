@@ -43,7 +43,7 @@ def _project(tmp_path: Path) -> tuple[ProjectManager, Path]:
         {
             "episode": 1,
             "title": "E1",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",

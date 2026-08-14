@@ -43,7 +43,7 @@ from lib.reference_video.request_projection import (
     ReferenceUnitRequestProjection,
     project_reference_unit_request,
 )
-from lib.script_models import get_generated_assets, resolve_content_mode
+from lib.script_models import get_generated_assets, resolve_creation_type
 from lib.script_skeleton import ensure_route_skeleton, resolve_script_kind
 from lib.speech_composition import (
     SpeechAdmissionError,
@@ -466,7 +466,7 @@ async def _prepare_storyboard_delivery_specs(
 
 
 def _get_video_prompt(
-    item: dict[str, Any], *, content_mode: str, voice_characters: dict[str, Any] | None = None
+    item: dict[str, Any], *, creation_type: str, voice_characters: dict[str, Any] | None = None
 ) -> str:
     prompt = item.get("video_prompt")
     if not prompt:
@@ -477,7 +477,7 @@ def _get_video_prompt(
         # 里残留的 voice_profiles 一律先剥离，不因门控不触发（narration/ad、或 drama 无
         # utterances 的条目）而绕过 C 类（真无声）门控直达 YAML。
         prompt = strip_voice_profiles(prompt)
-        if content_mode == "drama":
+        if creation_type == "drama":
             # drama 口型台词单一真相源在场景级有序 utterances：取 dialogue-kind 注入 video YAML 的
             # dialogue 出口（drama video_prompt 已不带 dialogue）。utterances 迁移前的存量剧本
             # （load_script 按原始 JSON 读盘不过 pydantic，不会被 DramaScene._migrate_legacy
@@ -510,13 +510,13 @@ async def _assert_audio_switch_for_storyboard(ctx: ToolContext) -> None:
     await assert_audio_switch_supported(project, video_bucket_for_generation_mode(project.get("generation_mode")))
 
 
-async def _resolve_voice_context(ctx: ToolContext, content_mode: str) -> dict[str, Any] | None:
+async def _resolve_voice_context(ctx: ToolContext, creation_type: str) -> dict[str, Any] | None:
     """供 Voice_Profiles 注入的角色资产（``None`` 表示不注入）。
 
     非 drama 不注入；drama 按无声判据排除（C 类模型不产音、或本集关闭了音频，两条路径同口径）。
     台词不受影响、照常下发。
     """
-    if content_mode != "drama":
+    if creation_type != "drama":
         return None
     project = ctx.pm.load_project(ctx.project_name)
     if await resolve_project_is_silent(project):
@@ -535,8 +535,8 @@ def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | 
         SkeletonRouteMismatchError: 剧本骨架与项目路线失配，生成被拒。
     """
     project = ctx.pm.load_project(ctx.project_name)
-    content_mode = resolve_content_mode(script, project)
-    ensure_route_skeleton(script, content_mode, project.get("generation_mode"))
+    creation_type = resolve_creation_type(script, project)
+    ensure_route_skeleton(script, creation_type, project.get("generation_mode"))
     if not is_reference_video_project(project):
         return None
     return "reference"
@@ -582,14 +582,14 @@ def _build_video_specs(
     *,
     items: list[dict[str, Any]],
     id_field: str,
-    content_mode: str,
+    creation_type: str,
     script_filename: str,
     project_dir: Path,
     skip_ids: list[str] | None,
     log: list[str],
     voice_characters: dict[str, Any] | None = None,
 ) -> tuple[list[TaskSpec], dict[str, int]]:
-    item_type = "片段" if content_mode == "narration" else "场景"
+    item_type = "片段" if creation_type == "narration" else "场景"
     skip_set = set(skip_ids or [])
 
     specs: list[TaskSpec] = []
@@ -616,7 +616,7 @@ def _build_video_specs(
             continue
 
         try:
-            prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
+            prompt = _get_video_prompt(item, creation_type=creation_type, voice_characters=voice_characters)
         except Exception as exc:  # noqa: BLE001
             log.append(f"⚠️  {item_type} {item_id} 的 video_prompt 无效，跳过: {exc}")
             continue
@@ -1099,7 +1099,7 @@ def generate_video_episode_tool(ctx: ToolContext):
             episode = ProjectManager.resolve_episode_from_script(script, script_filename)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             project = ctx.pm.load_project(ctx.project_name)
-            content_mode = resolve_content_mode(script, project)
+            creation_type = resolve_creation_type(script, project)
             if not items:
                 raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
 
@@ -1115,11 +1115,11 @@ def generate_video_episode_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(items, id_field, completed, videos_dir)
-            voice_characters = await _resolve_voice_context(ctx, content_mode)
+            voice_characters = await _resolve_voice_context(ctx, creation_type)
             specs, order_map = _build_video_specs(
                 items=items,
                 id_field=id_field,
-                content_mode=content_mode,
+                creation_type=creation_type,
                 script_filename=script_filename,
                 project_dir=project_dir,
                 skip_ids=already_done,
@@ -1222,9 +1222,9 @@ def generate_video_scene_tool(ctx: ToolContext):
                 raise FileNotFoundError(f"分镜图不存在: {storyboard_path}")
 
             project = ctx.pm.load_project(ctx.project_name)
-            content_mode = resolve_content_mode(script, project)
-            voice_characters = await _resolve_voice_context(ctx, content_mode)
-            prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
+            creation_type = resolve_creation_type(script, project)
+            voice_characters = await _resolve_voice_context(ctx, creation_type)
+            prompt = _get_video_prompt(item, creation_type=creation_type, voice_characters=voice_characters)
             # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
             # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
             # 本应被执行层拒绝的非法值静默修正）。缺省由执行层按 caps 收口默认。
@@ -1314,16 +1314,16 @@ def generate_video_all_tool(ctx: ToolContext):
                 )
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             project = ctx.pm.load_project(ctx.project_name)
-            content_mode = resolve_content_mode(script, project)
+            creation_type = resolve_creation_type(script, project)
             pending = [it for it in items if not get_generated_assets(it).get("video_clip")]
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
 
-            voice_characters = await _resolve_voice_context(ctx, content_mode)
+            voice_characters = await _resolve_voice_context(ctx, creation_type)
             specs, _order_map = _build_video_specs(
                 items=pending,
                 id_field=id_field,
-                content_mode=content_mode,
+                creation_type=creation_type,
                 script_filename=script_filename,
                 project_dir=project_dir,
                 skip_ids=None,
@@ -1412,7 +1412,7 @@ def generate_video_selected_tool(ctx: ToolContext):
 
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             project = ctx.pm.load_project(ctx.project_name)
-            content_mode = resolve_content_mode(script, project)
+            creation_type = resolve_creation_type(script, project)
 
             items_by_id: dict[str, dict[str, Any]] = {}
             for item in items:
@@ -1456,11 +1456,11 @@ def generate_video_selected_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(selected, id_field, completed, videos_dir)
-            voice_characters = await _resolve_voice_context(ctx, content_mode)
+            voice_characters = await _resolve_voice_context(ctx, creation_type)
             specs, order_map = _build_video_specs(
                 items=selected,
                 id_field=id_field,
-                content_mode=content_mode,
+                creation_type=creation_type,
                 script_filename=script_filename,
                 project_dir=project_dir,
                 skip_ids=already_done,

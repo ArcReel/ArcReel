@@ -162,7 +162,7 @@ class TestSessionManagerProjectScope:
             json.dumps(
                 {
                     "title": "重生之皇后威武",
-                    "content_mode": "narration",
+                    "creation_type": "narration",
                     "style": "Photographic",
                     "style_description": "Soft diffused lighting, muted earth tones",
                     "overview": {

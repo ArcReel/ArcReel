@@ -9,7 +9,7 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class SpeechContractCase:
-    content_mode: str
+    creation_type: str
     generation_mode: str
     kind: str
     unit_id: str
@@ -18,13 +18,13 @@ class SpeechContractCase:
 
     @property
     def route_id(self) -> str:
-        return f"{self.content_mode}-{self.generation_mode}"
+        return f"{self.creation_type}-{self.generation_mode}"
 
     def unit(self) -> dict[str, Any]:
         return deepcopy(self.mixed_unit)
 
     def script(self) -> dict[str, Any]:
-        return {"content_mode": self.content_mode, "episode": 1, self.kind: [self.unit()]}
+        return {"creation_type": self.creation_type, "episode": 1, self.kind: [self.unit()]}
 
 
 SPEECH_CONTRACT_CASES = (
@@ -71,7 +71,7 @@ SPEECH_CONTRACT_CASES = (
     ),
     *(
         SpeechContractCase(
-            content_mode,
+            creation_type,
             "reference_video",
             "video_units",
             "E1U1",
@@ -83,6 +83,6 @@ SPEECH_CONTRACT_CASES = (
             },
             (("shots", 0, "text"), ("shots", 0, "text")),
         )
-        for content_mode in ("narration", "drama", "ad")
+        for creation_type in ("narration", "drama", "ad")
     ),
 )

@@ -13,7 +13,7 @@ from typing import NoReturn
 from urllib.parse import unquote
 
 from lib.profile_frontmatter import FrontmatterError, ProfileMetadata, parse_profile_metadata
-from lib.profile_manifest import VALID_CONTENT_MODES, ProfileMisconfiguredError, resolve_profile_files_for_mode
+from lib.profile_manifest import VALID_CREATION_TYPES, ProfileMisconfiguredError, resolve_profile_files_for_mode
 from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 
 _MCP_RE = re.compile(r"mcp__arcreel__([a-zA-Z0-9_*.-]+)")
@@ -47,7 +47,7 @@ def _reject_json_constant(value: str) -> NoReturn:
 
 def _metadata_files(profile_dir: Path) -> list[Path]:
     skills_root = profile_dir / ".claude" / "skills"
-    skill_names = ("SKILL.md", *(f"SKILL.{mode}.md" for mode in sorted(VALID_CONTENT_MODES)))
+    skill_names = ("SKILL.md", *(f"SKILL.{mode}.md" for mode in sorted(VALID_CREATION_TYPES)))
     skills = (path for name in skill_names for path in skills_root.glob(f"*/{name}"))
     agents_root = profile_dir / ".claude" / "agents"
     agents = agents_root.glob("*.md") if agents_root.is_dir() else ()
@@ -189,7 +189,7 @@ def lint_profile(
         return [f"profile directory does not exist: {profile_dir}"]
     _validate_metadata(profile_dir, errors)
     tool_ids = set(ARCREEL_MCP_TOOL_IDS) if registered_tools is None else registered_tools
-    for mode in sorted(VALID_CONTENT_MODES):
+    for mode in sorted(VALID_CREATION_TYPES):
         _validate_projection(profile_dir, mode, tool_ids, errors)
     _validate_evals(profile_dir, errors)
     if enforce_target_rules:

@@ -30,7 +30,7 @@ class _FakePM:
         self.project = {
             "style": "Anime",
             "style_description": "cinematic",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "characters": {
                 "Alice": {
                     "character_sheet": "characters/Alice.png",
@@ -61,7 +61,7 @@ class _FakePM:
             },
         }
         self.script = {
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -529,9 +529,9 @@ class TestGenerateRouter:
     def test_legacy_drama_dialogue_can_enqueue_single_video(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_pm.project["content_mode"] = "drama"
+        fake_pm.project["creation_type"] = "drama"
         fake_pm.script = {
-            "content_mode": "drama",
+            "creation_type": "drama",
             "scenes": [
                 {
                     "scene_id": "E1S01",
@@ -562,9 +562,9 @@ class TestGenerateRouter:
     def test_speech_free_legacy_drama_can_enqueue_single_video(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_pm.project["content_mode"] = "drama"
+        fake_pm.project["creation_type"] = "drama"
         fake_pm.script = {
-            "content_mode": "drama",
+            "creation_type": "drama",
             "scenes": [
                 {
                     "scene_id": "E1S01",
@@ -608,20 +608,20 @@ class TestGenerateRouter:
 
     @pytest.mark.unit
     @pytest.mark.parametrize(
-        ("content_mode", "root", "id_field", "narrator_field"),
+        ("creation_type", "root", "id_field", "narrator_field"),
         [
             ("narration", "segments", "segment_id", "novel_text"),
             ("ad", "shots", "shot_id", "voiceover_text"),
         ],
     )
     def test_narrator_video_request_rejects_mixed_queued_prompt(
-        self, tmp_path, monkeypatch, content_mode, root, id_field, narrator_field
+        self, tmp_path, monkeypatch, creation_type, root, id_field, narrator_field
     ):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_pm.project["content_mode"] = content_mode
+        fake_pm.project["creation_type"] = creation_type
         fake_pm.script = {
-            "content_mode": content_mode,
+            "creation_type": creation_type,
             root: [
                 {
                     id_field: "E1S01",
@@ -658,7 +658,7 @@ class TestGenerateRouter:
     ):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_pm.project.update({"content_mode": case.content_mode, "generation_mode": "storyboard"})
+        fake_pm.project.update({"creation_type": case.creation_type, "generation_mode": "storyboard"})
         fake_pm.script = case.script()
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
@@ -1257,7 +1257,7 @@ class TestVideoRouteGate:
         fake_pm.project["generation_mode"] = "reference_video"
         if not storyboard_script:
             fake_pm.script = {
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "video_units": [{"unit_id": "E1U01", "prompt": "镜头1：奔跑"}],
             }
         return fake_pm
@@ -1328,9 +1328,9 @@ class TestAdStoryboardRegeneration:
 
     def _ad_pm(self, project_path: Path) -> _FakePM:
         fake_pm = _FakePM(project_path)
-        fake_pm.project["content_mode"] = "ad"
+        fake_pm.project["creation_type"] = "ad"
         fake_pm.script = {
-            "content_mode": "ad",
+            "creation_type": "ad",
             "shots": [
                 {
                     "shot_id": "E1S01",

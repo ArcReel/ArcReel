@@ -40,7 +40,7 @@ def _create_ad_reference_project(
     name: str = "addemo",
     video_units: list[dict] | None = None,
 ) -> Path:
-    pm.create_project(name, content_mode="ad")
+    pm.create_project(name, creation_type="ad")
     pm.create_project_metadata(name, "AdDemo", "Realistic", "ad", target_duration=12)
 
     project = pm.load_project(name)
@@ -67,7 +67,7 @@ def _create_ad_reference_project(
     episode = {
         "episode": 1,
         "title": "第一集",
-        "content_mode": "ad",
+        "creation_type": "ad",
         "video_units": video_units,
     }
 

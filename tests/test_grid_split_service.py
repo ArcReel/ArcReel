@@ -23,7 +23,7 @@ def project_with_script(tmp_path):
             {
                 "name": "test-project",
                 "title": "Test",
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "aspect_ratio": "9:16",
                 "generation_mode": "storyboard",
                 "grid_storyboard": True,
@@ -36,7 +36,7 @@ def project_with_script(tmp_path):
     (p / "scripts" / "episode_1.json").write_text(
         json.dumps(
             {
-                "content_mode": "narration",
+                "creation_type": "narration",
                 "segments": [
                     {
                         "segment_id": f"E1S0{i}",

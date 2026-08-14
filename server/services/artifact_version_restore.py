@@ -309,7 +309,7 @@ def _apply_restored_asset(
         raise KeyError(resource_id)
     assets = item.get("generated_assets")
     if not isinstance(assets, dict):
-        assets = ProjectManager.create_generated_assets(str(script.get("content_mode") or "narration"))
+        assets = ProjectManager.create_generated_assets(str(script.get("creation_type") or "narration"))
         item["generated_assets"] = assets
     if resource_type == "audio":
         assets["narration_audio"] = artifact_path

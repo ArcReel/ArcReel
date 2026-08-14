@@ -290,8 +290,8 @@ class NarrationEpisodeScript(BaseModel):
     """
 
     title: str = Field(description="剧集标题")
-    # content_mode 由 _add_metadata setdefault 注入项目级真值;Literal 单值让 LLM 写无意义
-    content_mode: SkipJsonSchema[Literal["narration"]] = Field(default="narration", description="内容模式")
+    # creation_type 由 _add_metadata setdefault 注入项目级真值;Literal 单值让 LLM 写无意义
+    creation_type: SkipJsonSchema[Literal["narration"]] = Field(default="narration", description="内容模式")
     # 顶层 duration_seconds 由 ScriptGenerator._add_metadata 求各段之和重算，LLM 填的值会被覆盖；隐藏避免冗余。
     duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
     # novel 由 _add_metadata 注入 {项目 title, f"第N集"};compose-video 用 chapter 作输出文件名,LLM 自由发挥反而不可预测
@@ -519,8 +519,8 @@ class DramaEpisodeScript(BaseModel):
     """
 
     title: str = Field(description="剧集标题")
-    # 见 NarrationEpisodeScript.content_mode 说明
-    content_mode: SkipJsonSchema[Literal["drama"]] = Field(default="drama", description="内容模式")
+    # 见 NarrationEpisodeScript.creation_type 说明
+    creation_type: SkipJsonSchema[Literal["drama"]] = Field(default="drama", description="内容模式")
     # 见 NarrationEpisodeScript.duration_seconds 说明。
     duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
     # 见 NarrationEpisodeScript.novel 说明
@@ -715,8 +715,8 @@ class AdEpisodeScript(BaseModel):
     """
 
     title: str = Field(description="短片标题")
-    # 见 NarrationEpisodeScript.content_mode 说明
-    content_mode: SkipJsonSchema[Literal["ad"]] = Field(default="ad", description="内容模式")
+    # 见 NarrationEpisodeScript.creation_type 说明
+    creation_type: SkipJsonSchema[Literal["ad"]] = Field(default="ad", description="内容模式")
     # 见 NarrationEpisodeScript.duration_seconds 说明。
     duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
     # 见 NarrationEpisodeScript.novel 说明
@@ -872,14 +872,14 @@ class ReferenceVideoScript(BaseModel):
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
     详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
 
-    ``content_mode`` 仅承担"内容类型"维度（narration/drama/ad）；"视频来源"维度是项目级事实
+    ``creation_type`` 仅承担"内容类型"维度（narration/drama/ad）；"视频来源"维度是项目级事实
     （``project.json`` 的 ``generation_mode``），剧本不携带——路线创建时锁定，剧本骨架种类
     本身即路线的体现。
     """
 
     title: str = Field(description="剧集标题")
     # 对 LLM 隐藏：由 _add_metadata 注入。
-    content_mode: SkipJsonSchema[Literal["narration", "drama", "ad"]] = Field(
+    creation_type: SkipJsonSchema[Literal["narration", "drama", "ad"]] = Field(
         default="narration", description="内容类型（narration/drama/ad）"
     )
     # 见 NarrationEpisodeScript.duration_seconds 说明。
@@ -892,12 +892,12 @@ class ReferenceVideoScript(BaseModel):
     video_units: list[ReferenceVideoUnit] = Field(description="视频单元列表")
 
 
-def resolve_content_mode(script: dict[str, Any], project: dict[str, Any]) -> str:
-    """剧本级 ``content_mode`` 缺失（存量 episode 未打戳）时回退到项目级配置，与
+def resolve_creation_type(script: dict[str, Any], project: dict[str, Any]) -> str:
+    """剧本级 ``creation_type`` 缺失（存量 episode 未打戳）时回退到项目级配置，与
     ``lib.data_validator._validate_episode_payload`` 已校验通过的既定口径一致——存量
     episode 允许省略该字段、由项目值兜底，读侧（生成任务）不能另起一份更严格的判定。
     """
-    return script.get("content_mode", project.get("content_mode", "narration"))
+    return script.get("creation_type", project.get("creation_type", "narration"))
 
 
 # ============ 参考生视频 step1 结构化中间态 ============
@@ -1058,7 +1058,7 @@ def _constrained_duration_item(item_base: type[BaseModel], duration_type: object
     )
 
 
-def build_episode_script_model(content_mode: str, supported_durations: list[int]) -> type[BaseModel]:
+def build_episode_script_model(creation_type: str, supported_durations: list[int]) -> type[BaseModel]:
     """构造 ``duration_seconds`` 被 ``supported_durations`` 枚举硬约束的剧集脚本模型。
 
     NarrationSegment / DramaScene 静态定义里 ``duration_seconds`` 是 ``Field(ge=1, le=60)`` 的开区间，
@@ -1069,14 +1069,14 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
     - ``model_validate`` 时强制成员校验。
 
     服务 narration / drama / ad 三种内容模式：骨架种类经规范解析
-    （``resolve_declared_kind``，未知/缺失 content_mode fail-loud 抛 ``ValueError``，不落 drama
+    （``resolve_declared_kind``，未知/缺失 creation_type fail-loud 抛 ``ValueError``，不落 drama
     兜底），kind → 模型的映射留本地（行为不进注册表）。reference_video 不经此路：其 API 消费的是
     ``unit.duration_seconds``（各 shot 之和），与单 shot 枚举不对应，沿用静态 ``ReferenceVideoScript``。
     """
     duration_type = _duration_literal(supported_durations)
     # storyboard schema 生成不涉 reference 路径，generation_mode 传 None（narration→segments、
-    # drama→scenes、ad→shots）；未知 content_mode 在此抛 ValueError。
-    kind = resolve_declared_kind(content_mode, None)
+    # drama→scenes、ad→shots）；未知 creation_type 在此抛 ValueError。
+    kind = resolve_declared_kind(creation_type, None)
     if kind == "segments":
         segment = _constrained_duration_item(
             NarrationSegment, duration_type, "片段时长（秒），必须取 supported_durations 中的值"

@@ -57,7 +57,7 @@ def _create_demo_project(pm: ProjectManager) -> None:
         {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "novel": {"title": "Demo", "chapter": "第一章"},
             "segments": [
                 {

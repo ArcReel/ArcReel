@@ -42,7 +42,7 @@ def _script() -> dict[str, Any]:
     return {
         "episode": 1,
         "title": "第一集",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
         "segments": [_segment("E1S01"), _segment("E1S02"), _segment("E1S03")],
@@ -52,7 +52,7 @@ def _script() -> dict[str, Any]:
 @pytest.fixture
 def editor(tmp_path: Path) -> tuple[ProjectManager, ScriptBatchEditor, Path]:
     pm = ProjectManager(str(tmp_path))
-    pm.create_project("demo", content_mode="narration")
+    pm.create_project("demo", creation_type="narration")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.save_script("demo", _script(), "episode_1.json")
     project_dir = pm.get_project_path("demo")
@@ -505,14 +505,14 @@ def test_preexisting_reference_failure_is_not_attributed_to_unrelated_operation(
 
 def test_unrelated_video_unit_edit_does_not_reject_unmarked_legacy_mixed_speech(tmp_path: Path) -> None:
     pm = ProjectManager(str(tmp_path))
-    pm.create_project("demo", content_mode="narration")
+    pm.create_project("demo", creation_type="narration")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.update_project("demo", lambda project: project.update({"generation_mode": "reference_video"}))
     pm.upsert_assets("demo", "characters", {"角色A": {"description": "主角"}})
     script = {
         "episode": 1,
         "title": "第一集",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "video_units": [
             {
                 "unit_id": "E1U1",
@@ -543,7 +543,7 @@ def test_unrelated_video_unit_edit_does_not_reject_unmarked_legacy_mixed_speech(
 
 def test_malformed_video_unit_shots_returns_structured_failure_without_writes(tmp_path: Path) -> None:
     pm = ProjectManager(str(tmp_path))
-    pm.create_project("demo", content_mode="narration")
+    pm.create_project("demo", creation_type="narration")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.update_project("demo", lambda project: project.update({"generation_mode": "reference_video"}))
     pm.save_script(
@@ -551,7 +551,7 @@ def test_malformed_video_unit_shots_returns_structured_failure_without_writes(tm
         {
             "episode": 1,
             "title": "第一集",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "video_units": [
                 {
                     "unit_id": "E1U1",

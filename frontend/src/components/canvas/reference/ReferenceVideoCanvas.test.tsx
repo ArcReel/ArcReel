@@ -67,7 +67,7 @@ function runningTask(unitId: string) {
 
 const STUB_PROJECT: ProjectData = {
   title: "p",
-  content_mode: "narration",
+  creation_type: "narration",
   style: "",
   episodes: [],
   characters: {},
@@ -567,7 +567,7 @@ describe("ReferenceVideoCanvas", () => {
     });
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
       episode: 1,
-      content_mode: "narration",
+      creation_type: "narration",
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
@@ -592,7 +592,7 @@ describe("ReferenceVideoCanvas", () => {
     const listSpy = vi.spyOn(API, "listReferenceVideoUnits");
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
       episode: 1,
-      content_mode: "narration",
+      creation_type: "narration",
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
@@ -612,7 +612,7 @@ describe("ReferenceVideoCanvas", () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
       episode: 1,
-      content_mode: "narration",
+      creation_type: "narration",
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,

@@ -18,7 +18,7 @@ def _valid_reference_script(episode: int = 1) -> dict:
     return {
         "episode": episode,
         "title": "E1",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "summary": "x",
         "novel": {"title": "t", "chapter": "c"},
@@ -54,7 +54,7 @@ def _valid_reference_script(episode: int = 1) -> dict:
 def _reference_project(*, with_assets: bool = True) -> dict:
     project = {
         "title": "T",
-        "content_mode": "narration",
+        "creation_type": "narration",
         "generation_mode": "reference_video",
         "style": "s",
         "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
@@ -171,9 +171,9 @@ def test_validator_rejects_duplicate_reference_video_unit_ids(tmp_path: Path):
 @pytest.mark.integration
 def test_validator_rejects_duplicate_ad_reference_unit_ids(tmp_path: Path):
     project = _reference_project()
-    project.update({"content_mode": "ad", "target_duration": 10})
+    project.update({"creation_type": "ad", "target_duration": 10})
     script = _valid_reference_script()
-    script.update({"title": "Ad", "content_mode": "ad"})
+    script.update({"title": "Ad", "creation_type": "ad"})
     script["video_units"].append({**script["video_units"][0]})
     _write(tmp_path, "project.json", project)
     _write(tmp_path, "scripts/episode_1.json", script)
@@ -186,12 +186,12 @@ def test_validator_rejects_duplicate_ad_reference_unit_ids(tmp_path: Path):
 
 @pytest.mark.unit
 def test_validator_rejects_reference_video_in_content_mode(tmp_path: Path):
-    """content_mode 严格只允许 narration / drama；reference_video 属于 generation_mode
+    """creation_type 严格只允许 narration / drama；reference_video 属于 generation_mode
     维度。UI 不可达该值，无需兼容迁移，直接拒绝即可。
     """
     project = {
         "title": "T",
-        "content_mode": "reference_video",
+        "creation_type": "reference_video",
         "style": "s",
         "episodes": [],
         "characters": {},
@@ -203,4 +203,4 @@ def test_validator_rejects_reference_video_in_content_mode(tmp_path: Path):
     v = DataValidator()
     result = v.validate_project_tree(tmp_path)
     assert not result.valid
-    assert any("content_mode" in e for e in result.errors)
+    assert any("reference_video" in e for e in result.errors)

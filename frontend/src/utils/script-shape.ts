@@ -1,5 +1,5 @@
 /**
- * 剧本形状分派（与后端 SCRIPT_SHAPES 同口径）：content_mode → 条目 ID / 角色引用字段。
+ * 剧本形状分派（与后端 SCRIPT_SHAPES 同口径）：creation_type → 条目 ID / 角色引用字段。
  *
  * 时间线编辑器各组件（列表 / 分屏 / 详情 / 引用区）共用，避免三元映射在多处漂移。
  */

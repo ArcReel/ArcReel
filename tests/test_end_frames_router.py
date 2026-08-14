@@ -50,7 +50,7 @@ def _seed_project(tmp_path) -> ProjectManager:
         {
             "episode": 1,
             "title": "E1",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
@@ -756,15 +756,15 @@ def _client_with_project(
     tmp_path,
     monkeypatch,
     *,
-    content_mode,
+    creation_type,
     script,
     project_generation_mode=None,
     grid_storyboard=None,
 ):
     """构造项目 generation_mode 可控的测试 client，用于覆盖生成路线准入判定。"""
     pm = ProjectManager(tmp_path / "projects")
-    pm.create_project("demo", content_mode=content_mode)
-    pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
+    pm.create_project("demo", creation_type=creation_type)
+    pm.create_project_metadata("demo", "Demo", "Anime", creation_type)
 
     project = pm.load_project("demo")
     if project_generation_mode is not None:
@@ -788,7 +788,7 @@ def _ad_script(shot_id="E1S01") -> dict:
     return {
         "episode": 1,
         "title": "E1",
-        "content_mode": "ad",
+        "creation_type": "ad",
         "shots": [
             {
                 "shot_id": shot_id,
@@ -814,7 +814,7 @@ class TestReferenceVideoRejection:
     def test_ad_project_level_reference_video_rejects_all_three_endpoints(self, tmp_path, monkeypatch):
         # ad 剧本骨架不携带 generation_mode 戳，参考生视频只由项目级配置声明。
         c, pm = _client_with_project(
-            tmp_path, monkeypatch, content_mode="ad", script=_ad_script(), project_generation_mode="reference_video"
+            tmp_path, monkeypatch, creation_type="ad", script=_ad_script(), project_generation_mode="reference_video"
         )
 
         _assert_reference_video_rejected(_upload(c, _img_bytes("PNG"), shot_id="E1S01"))
@@ -828,7 +828,7 @@ class TestReferenceVideoRejection:
         c, _pm = _client_with_project(
             tmp_path,
             monkeypatch,
-            content_mode="ad",
+            creation_type="ad",
             script=_ad_script(),
             project_generation_mode="storyboard",
         )
@@ -839,12 +839,12 @@ class TestReferenceVideoRejection:
         script = {
             "episode": 1,
             "title": "E1",
-            "content_mode": "drama",
+            "creation_type": "drama",
             "generation_mode": "reference_video",
             "video_units": [{"unit_id": "E1S01", "scenes": [], "props": []}],
         }
         c, _pm = _client_with_project(
-            tmp_path, monkeypatch, content_mode="drama", script=script, project_generation_mode="reference_video"
+            tmp_path, monkeypatch, creation_type="drama", script=script, project_generation_mode="reference_video"
         )
         _assert_reference_video_rejected(_upload(c, _img_bytes("PNG"), shot_id="E1S01"))
 
@@ -853,13 +853,13 @@ class TestReferenceVideoRejection:
         script = {
             "episode": 1,
             "title": "E1",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [{"segment_id": "E1S01", "novel_text": "t", "duration_seconds": 5}],
         }
         c, pm = _client_with_project(
             tmp_path,
             monkeypatch,
-            content_mode="narration",
+            creation_type="narration",
             script=script,
             project_generation_mode="storyboard",
             grid_storyboard=True,
@@ -872,11 +872,11 @@ class TestReferenceVideoRejection:
         # 剧本与文件名都不含集号：判定只需项目路线，照常拒绝且不落到 500。
         script = {
             "title": "E1",
-            "content_mode": "narration",
+            "creation_type": "narration",
             "segments": [{"segment_id": "E1S01", "novel_text": "t", "duration_seconds": 5}],
         }
         c, pm = _client_with_project(
-            tmp_path, monkeypatch, content_mode="narration", script=script, project_generation_mode="reference_video"
+            tmp_path, monkeypatch, creation_type="narration", script=script, project_generation_mode="reference_video"
         )
         pm.save_script("demo", script, "custom.json", validate=False)
 

@@ -96,9 +96,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   } = demoReadOnly ? { ...props, ...DEMO_READ_ONLY_PROPS } : props;
 
   const { t } = useTranslation("dashboard");
-  const contentMode = projectData?.content_mode ?? "narration";
+  const contentMode = projectData?.creation_type ?? "narration";
   // 分镜编辑子视图按剧本形状显式分派：narration（segments）/ drama（scenes）/ ad（shots）。
-  // 未知/脏 content_mode 沿用历史兜底落 drama 视图。
+  // 未知/脏 creation_type 沿用历史兜底落 drama 视图。
   const editorContentMode: "narration" | "drama" | "ad" =
     contentMode === "narration" ? "narration" : contentMode === "ad" ? "ad" : "drama";
 
@@ -135,8 +135,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const aspectRatio: "9:16" | "16:9" =
     rawAspect === "9:16" || rawAspect === "16:9" ? rawAspect : "16:9";
 
-  // 仅三种已注册模式显式取数；未知/脏 content_mode 返回空列表（不渲染可编辑视图）——
-  // 否则会以 drama 形状渲染、保存却按真实 content_mode 分派到错误端点。
+  // 仅三种已注册模式显式取数；未知/脏 creation_type 返回空列表（不渲染可编辑视图）——
+  // 否则会以 drama 形状渲染、保存却按真实 creation_type 分派到错误端点。
   const segments = useMemo<Segment[]>(
     () =>
       !episodeScript || !projectData
@@ -200,7 +200,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       episode,
       title: episodeTitle ?? episodeScript?.title ?? "",
       script_file: scriptFile ?? "",
-      scenes_count: segments.length,
+      storyboard_count: segments.length,
       duration_seconds: totalDuration,
       status: hasScript ? "in_production" : "draft",
     } as const);
@@ -368,7 +368,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
             </div>
           </div>
         ) : (
-          // 兜底：timeline tab 下无可编辑分镜（剧本为空列表或未知 content_mode），
+          // 兜底：timeline tab 下无可编辑分镜（剧本为空列表或未知 creation_type），
           // 或剧本回退后 tab 仍停留在 timeline——给出指引而非空白
           <div
             className="flex h-full items-center justify-center text-[13px]"

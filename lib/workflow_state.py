@@ -50,7 +50,7 @@ WorkflowStateName = Literal[
 class WorkflowProject(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    content_mode: str
+    creation_type: str
     generation_mode: str
     grid_storyboard: bool
 
@@ -427,9 +427,9 @@ class WorkflowStateService:
             )
             return {"state": "blocked", "path": path}, [], None, script
         try:
-            kind = ensure_route_skeleton(script, project.get("content_mode"), project.get("generation_mode"))
+            kind = ensure_route_skeleton(script, project.get("creation_type"), project.get("generation_mode"))
         except ValueError as exc:
-            blockers.append(WorkflowBlocker(code="invalid_project_mode", path="content_mode", reason=str(exc)))
+            blockers.append(WorkflowBlocker(code="invalid_project_mode", path="creation_type", reason=str(exc)))
             return {"state": "blocked", "path": path}, [], None, script
         raw_items = script.get(kind)
         if not isinstance(raw_items, list) or not raw_items or not all(isinstance(item, dict) for item in raw_items):
@@ -540,12 +540,12 @@ class WorkflowStateService:
         return self._get_status(project_name, project, project_path, episode, shared)
 
     def _shared_facts(self, project_path: Path, project: dict[str, Any]) -> _SharedWorkflowFacts:
-        mode = project.get("content_mode")
+        mode = project.get("creation_type")
         generation_mode = project.get("generation_mode")
         blockers: list[WorkflowBlocker] = []
         if not isinstance(mode, str) or mode not in {"narration", "drama", "ad"}:
             blockers.append(
-                WorkflowBlocker(code="invalid_content_mode", path="content_mode", reason="unsupported mode")
+                WorkflowBlocker(code="invalid_content_mode", path="creation_type", reason="unsupported mode")
             )
         if not isinstance(generation_mode, str) or generation_mode not in {"storyboard", "reference_video"}:
             blockers.append(
@@ -612,7 +612,7 @@ class WorkflowStateService:
         episode: int | None,
         shared: _SharedWorkflowFacts,
     ) -> WorkflowStatus:
-        mode = project.get("content_mode")
+        mode = project.get("creation_type")
         if episode is not None and (isinstance(episode, bool) or episode < 1):
             raise ValueError("episode must be a positive integer")
         if mode == "ad" and episode not in {None, 1}:
@@ -967,7 +967,7 @@ class WorkflowStateService:
             project_revision=_project_revision(project),
             source_revision=source.revision if source is not None else None,
             project=WorkflowProject(
-                content_mode=str(project.get("content_mode")),
+                creation_type=str(project.get("creation_type")),
                 generation_mode=str(project.get("generation_mode")),
                 grid_storyboard=project.get("grid_storyboard") is True,
             ),

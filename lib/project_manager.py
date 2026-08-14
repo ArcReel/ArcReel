@@ -58,8 +58,8 @@ from lib.episode_paths import (
 from lib.json_io import atomic_write_bytes, atomic_write_json, load_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import (
-    VALID_CONTENT_MODES,
-    ContentMode,
+    VALID_CREATION_TYPES,
+    CreationType,
     ProfileEmptyError,
     ProfileMisconfiguredError,
     ProfileMissingError,
@@ -87,12 +87,12 @@ PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 VALID_GENERATION_MODES: frozenset[str] = frozenset({"storyboard", "reference_video"})
 _DEFAULT_GENERATION_MODE = "storyboard"
 
-# 源文件性质（source_kind）：与 content_mode / generation_mode 正交的第三轴，project.json
+# 源文件性质（source_file_type）：与 creation_type / generation_mode 正交的第三轴，project.json
 # 顶层字段，创建时确定、之后不可变。novel（默认，现状改编链路）/ screenplay（成品剧本，
 # drama 链路翻为提取优先）。详见 docs/adr/0036 与 CONTEXT.md「剧本源」词条。
-SourceKind = Literal["novel", "screenplay"]
-VALID_SOURCE_KINDS: frozenset[str] = frozenset({"novel", "screenplay"})
-DEFAULT_SOURCE_KIND: SourceKind = "novel"
+SourceFileType = Literal["novel", "screenplay"]
+VALID_SOURCE_FILE_TYPES: frozenset[str] = frozenset({"novel", "screenplay"})
+DEFAULT_SOURCE_FILE_TYPE: SourceFileType = "novel"
 
 
 class _Unset:
@@ -158,12 +158,12 @@ def is_reference_video_project(project: Mapping[str, Any]) -> bool:
     return project.get("generation_mode") == "reference_video"
 
 
-def resolve_source_kind(project: Mapping[str, Any]) -> SourceKind:
+def resolve_source_file_type(project: Mapping[str, Any]) -> SourceFileType:
     """项目源文件性质（novel / screenplay），缺失或非法值回退默认 novel，兼容脏数据。"""
-    value = project.get("source_kind")
-    if isinstance(value, str) and value in VALID_SOURCE_KINDS:
-        return cast(SourceKind, value)
-    return DEFAULT_SOURCE_KIND
+    value = project.get("source_file_type")
+    if isinstance(value, str) and value in VALID_SOURCE_FILE_TYPES:
+        return cast(SourceFileType, value)
+    return DEFAULT_SOURCE_FILE_TYPE
 
 
 def _resolve_items_or_warn(script: dict, *, script_filename: str | None = None) -> list[dict]:
@@ -346,13 +346,13 @@ class ProjectManager:
             (root / sub).mkdir(exist_ok=True)
         return root
 
-    def create_project(self, name: str, content_mode: ContentMode = "narration") -> Path:
+    def create_project(self, name: str, creation_type: CreationType = "narration") -> Path:
         """
         创建新项目
 
         Args:
             name: 项目标识（全局唯一，用于 URL 和文件系统）
-            content_mode: 内容模式（narration / drama），影响 profile 物化时选哪份变体
+            creation_type: 内容模式（narration / drama），影响 profile 物化时选哪份变体
 
         Returns:
             项目目录路径
@@ -367,11 +367,11 @@ class ProjectManager:
         for subdir in self.SUBDIRS:
             (project_dir / subdir).mkdir(parents=True, exist_ok=True)
 
-        # 持久化 content_mode 到 project.json，让后续 sync_all_agent_profiles 启动遍历能恢复模式。
-        # server 路径随后会调 create_project_metadata 覆盖为完整版（也含 content_mode）。
+        # 持久化 creation_type 到 project.json，让后续 sync_all_agent_profiles 启动遍历能恢复模式。
+        # server 路径随后会调 create_project_metadata 覆盖为完整版（也含 creation_type）。
         try:
-            atomic_write_json(project_dir / self.PROJECT_FILE, {"content_mode": content_mode})
-            self.sync_agent_profile(project_dir, content_mode=content_mode)
+            atomic_write_json(project_dir / self.PROJECT_FILE, {"creation_type": creation_type})
+            self.sync_agent_profile(project_dir, creation_type=creation_type)
         except Exception:
             # sync 失败时回滚 project_dir，避免残缺目录阻塞重试（同名 create 撞 FileExistsError）
             shutil.rmtree(project_dir, ignore_errors=True)
@@ -407,13 +407,13 @@ class ProjectManager:
         self,
         project_dir: Path,
         *,
-        content_mode: ContentMode | None = None,
+        creation_type: CreationType | None = None,
     ) -> dict:
         """同步 agent_runtime_profile 到项目目录的 .claude / CLAUDE.md。
 
-        ``content_mode=None`` 时从 ``project_dir/project.json`` 读取；
-        project.json 缺失或 ``content_mode`` 字段缺失 → 回退到 ``"narration"`` + log info。
-        ``content_mode`` 显式非法值 → 抛 ``ValueError``。
+        ``creation_type=None`` 时从 ``project_dir/project.json`` 读取；
+        project.json 缺失或 ``creation_type`` 字段缺失 → 回退到 ``"narration"`` + log info。
+        ``creation_type`` 显式非法值 → 抛 ``ValueError``。
 
         详见 ``lib.profile_manifest.sync_profile_to_project``：manifest-driven
         sync，sha256 区分内置 skill 升级（自动传播）/ 用户修改（保留）/ 用户主动
@@ -423,39 +423,39 @@ class ProjectManager:
         Returns:
             含向后兼容 ``created/repaired/skipped/errors`` + 细分 stat key 的字典
         """
-        if content_mode is None:
-            content_mode = self._resolve_content_mode(project_dir)
+        if creation_type is None:
+            creation_type = self._resolve_creation_type(project_dir)
         profile_dir = agent_profile_dir()
-        return sync_profile_to_project(profile_dir, project_dir, content_mode)
+        return sync_profile_to_project(profile_dir, project_dir, creation_type)
 
     def force_resync_profile(
         self,
         project_dir: Path,
         *,
         paths: list[str] | None = None,
-        content_mode: ContentMode | None = None,
+        creation_type: CreationType | None = None,
     ) -> dict:
         """强制按 profile 覆盖项目内对应文件并刷新 manifest。
 
         用于 UI"恢复内置 skill"按钮等显式触发的场景。``paths=None`` 表示全量；
         指定 paths 中若某文件 profile 已删，会 skip + log warn（不算 error）。
 
-        ``content_mode=None`` 时与 ``sync_agent_profile`` 同语义，自动从 project.json 解析。
+        ``creation_type=None`` 时与 ``sync_agent_profile`` 同语义，自动从 project.json 解析。
         """
-        if content_mode is None:
-            content_mode = self._resolve_content_mode(project_dir)
+        if creation_type is None:
+            creation_type = self._resolve_creation_type(project_dir)
         profile_dir = agent_profile_dir()
-        return _force_resync_profile(profile_dir, project_dir, content_mode, paths=paths)
+        return _force_resync_profile(profile_dir, project_dir, creation_type, paths=paths)
 
     def get_agent_profile_status(self, project_dir: Path) -> dict[str, object]:
         """Describe project-local Agent Profile customizations for settings UI."""
-        content_mode = self._resolve_content_mode(project_dir)
-        return get_profile_status(agent_profile_dir(), project_dir, content_mode)
+        creation_type = self._resolve_creation_type(project_dir)
+        return get_profile_status(agent_profile_dir(), project_dir, creation_type)
 
-    def _resolve_content_mode(self, project_dir: Path) -> ContentMode:
-        """从 project_dir/project.json 读 content_mode；缺失回退 narration。
+    def _resolve_creation_type(self, project_dir: Path) -> CreationType:
+        """从 project_dir/project.json 读 creation_type；缺失回退 narration。
 
-        ``project.json`` 不存在或缺 ``content_mode`` 字段 → 回退 narration（兼容
+        ``project.json`` 不存在或缺 ``creation_type`` 字段 → 回退 narration（兼容
         老项目）。文件存在但读取/解析失败 → raise，让上层 sync_all_agent_profiles
         走 failed_projects 分支；若静默回退到 narration，drama 项目会因 manifest
         记录的 mode 不匹配触发破坏性 reset，把 profile 错误切回说书变体。
@@ -464,18 +464,18 @@ class ProjectManager:
         try:
             data = load_json(pj_path)
         except FileNotFoundError:
-            logger.info("project.json missing under %s, defaulting content_mode=narration", project_dir)
+            logger.info("project.json missing under %s, defaulting creation_type=narration", project_dir)
             return "narration"
-        mode = data.get("content_mode") if isinstance(data, dict) else None
+        mode = data.get("creation_type") if isinstance(data, dict) else None
         if mode is None:
-            logger.info("project.json has no content_mode under %s, defaulting narration", project_dir)
+            logger.info("project.json has no creation_type under %s, defaulting narration", project_dir)
             return "narration"
-        if not isinstance(mode, str) or mode not in VALID_CONTENT_MODES:
+        if not isinstance(mode, str) or mode not in VALID_CREATION_TYPES:
             raise ValueError(
-                f"project {project_dir.name}: invalid content_mode={mode!r} "
-                f"(must be one of {sorted(VALID_CONTENT_MODES)})"
+                f"project {project_dir.name}: invalid creation_type={mode!r} "
+                f"(must be one of {sorted(VALID_CREATION_TYPES)})"
             )
-        return cast(ContentMode, mode)
+        return cast(CreationType, mode)
 
     def sync_all_agent_profiles(self) -> dict:
         """扫描所有项目目录，同步 agent_runtime_profile（启动 hook 用）。
@@ -532,7 +532,7 @@ class ProjectManager:
                 totals["aborted"] = True
                 break
             except ValueError as e:
-                # 单个项目 content_mode 非法 → 跳过，不影响其它项目
+                # 单个项目 creation_type 非法 → 跳过，不影响其它项目
                 logger.warning("Skip sync for %s: %s", project_dir.name, e)
                 totals["failed_projects"] += 1
             except Exception:
@@ -645,7 +645,6 @@ class ProjectManager:
             "metadata": {
                 "created_at": datetime.now(UTC).isoformat(),
                 "updated_at": datetime.now(UTC).isoformat(),
-                "total_scenes": 0,
                 "estimated_duration_seconds": 0,
                 "status": "draft",
             },
@@ -752,7 +751,7 @@ class ProjectManager:
             # 都被当作不存在过滤掉，metadata 重算一并排除：否则 total_scenes 会多计、
             # estimated_duration_seconds 会被垃圾元素按 default 时长撑大，与各路径不一致。
             scene_items = [item for item in items if isinstance(item, dict)]
-            metadata["total_scenes"] = len(scene_items)
+            metadata.pop("total_scenes", None)
             # 总时长走 script_duration_total 单一真相源：脏值（None/bool/负数/字符串）按骨架
             # 兜底时长归一、不抛（见 lib/script_models.py）。与 StatusCalculator 读时计算、
             # ScriptGenerator 落盘估算共用同一兜底表与守卫，避免三处口径漂移。
@@ -1128,12 +1127,12 @@ class ProjectManager:
     # ==================== 数据结构标准化 ====================
 
     @staticmethod
-    def create_generated_assets(content_mode: str = "narration") -> dict:
+    def create_generated_assets(creation_type: str = "narration") -> dict:
         """
         创建标准的 generated_assets 结构
 
         Args:
-            content_mode: 内容模式（'narration' 或 'drama'）
+            creation_type: 内容模式（'narration' 或 'drama'）
 
         Returns:
             标准的 generated_assets 字典
@@ -1337,7 +1336,7 @@ class ProjectManager:
         # / 读取 helper 共用同一源——避免 `_script_items_shape` 那种 reference 模式落到 drama 兜底
         # 取 "scenes" 键、静默返回 [] 然后 KeyError 报"场景不存在"的根因被掩盖路径。
         with self.locked_script(project_name, script_filename, validate=False) as script:
-            content_mode = script.get("content_mode", "narration")
+            creation_type = script.get("creation_type", "narration")
             items, id_field, _kind = resolve_items(script)
 
             for item in items:
@@ -1351,7 +1350,7 @@ class ProjectManager:
                         assets = {}
                         item["generated_assets"] = assets
 
-                    assets_template = self.create_generated_assets(content_mode)
+                    assets_template = self.create_generated_assets(creation_type)
                     for key, default_value in assets_template.items():
                         if key not in assets:
                             assets[key] = default_value
@@ -1392,7 +1391,7 @@ class ProjectManager:
         # locked_script 在 with 体内抛异常时整体不写回（与 update_scene_asset 单个版本对齐）。
         # resolve_items 让 reference 模式 worker 也能正确按 unit_id 索引 video_units。
         with self.locked_script(project_name, script_filename, validate=False) as script:
-            content_mode = script.get("content_mode", "narration")
+            creation_type = script.get("creation_type", "narration")
             items, id_field, _kind = resolve_items(script)
 
             # 建立 scene_id → item 索引，避免 O(N*M) 查找。损坏脚本的非 dict 元素过滤掉
@@ -1411,7 +1410,7 @@ class ProjectManager:
                     assets = {}
                     item["generated_assets"] = assets
 
-                assets_template = self.create_generated_assets(content_mode)
+                assets_template = self.create_generated_assets(creation_type)
                 for key, default_value in assets_template.items():
                     if key not in assets:
                         assets[key] = default_value
@@ -1858,14 +1857,14 @@ class ProjectManager:
         project_name: str,
         title: str | None = None,
         style: str | None = None,
-        content_mode: str | None = "narration",
+        creation_type: str | None = "narration",
         aspect_ratio: str | None = "9:16",
         default_duration: int | None = None,
         style_template_id: str | None = None,
         extras: dict | None = None,
         target_duration: int | None = None,
         brief: str | None = None,
-        source_kind: str | None = None,
+        source_file_type: str | None = None,
     ) -> dict:
         """
         创建新的项目元数据文件
@@ -1875,18 +1874,18 @@ class ProjectManager:
         本方法只按字面写入 extras 中已有的键——退役的单字段 image_backend 不在写入范围
         （解析链不再读取、写边界已拒绝），调用方不应再传入。
 
-        `target_duration` / `brief` 仅 content_mode=ad 可用；ad 项目不持有
+        `target_duration` / `brief` 仅 creation_type=ad 可用；ad 项目不持有
         `default_duration`，且 episodes 恒为第 1 集单条。
 
-        `source_kind` 为源文件性质（novel / screenplay），缺省 novel，创建即定、之后不可变
-        （可变性守卫在路由 PATCH 层，与 content_mode 同性质）。
+        `source_file_type` 为源文件性质（novel / screenplay），缺省 novel，创建即定、之后不可变
+        （可变性守卫在路由 PATCH 层，与 creation_type 同性质）。
         """
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
-        resolved_mode = content_mode or "narration"
-        resolved_source_kind = DEFAULT_SOURCE_KIND if source_kind is None else source_kind
-        if resolved_source_kind not in VALID_SOURCE_KINDS:
-            raise ValueError(f"source_kind 值无效: {source_kind!r}，必须是 {sorted(VALID_SOURCE_KINDS)}")
+        resolved_mode = creation_type or "narration"
+        resolved_source_kind = DEFAULT_SOURCE_FILE_TYPE if source_file_type is None else source_file_type
+        if resolved_source_kind not in VALID_SOURCE_FILE_TYPES:
+            raise ValueError(f"source_file_type 值无效: {source_file_type!r}，必须是 {sorted(VALID_SOURCE_FILE_TYPES)}")
 
         # 数据层守卫：模式专属字段互斥。路由层已返回 400，这里再兜一道防非路由调用方。
         if resolved_mode == "ad":
@@ -1900,9 +1899,9 @@ class ProjectManager:
                 raise ValueError(f"brief 必须是字符串，当前为 {brief!r}")
         else:
             if target_duration is not None:
-                raise ValueError("target_duration 仅广告/短片项目（content_mode=ad）可用")
+                raise ValueError("target_duration 仅广告/短片项目（creation_type=ad）可用")
             if brief is not None:
-                raise ValueError("brief 仅广告/短片项目（content_mode=ad）可用")
+                raise ValueError("brief 仅广告/短片项目（creation_type=ad）可用")
 
         # schema_version 与 CURRENT_SCHEMA_VERSION 对齐：新项目即最新形态，
         # 避免被启动迁移误处理（如 v0→v1 在"未含 clues 字段"时误清空 scenes/props）。
@@ -1913,8 +1912,8 @@ class ProjectManager:
             # 允许空字符串:前端会以 i18n「未命名项目」兜底显示,避免把 slug
             # 风格的 project_name 固化为用户可见的标题。
             "title": project_title,
-            "content_mode": resolved_mode,
-            "source_kind": resolved_source_kind,
+            "creation_type": resolved_mode,
+            "source_file_type": resolved_source_kind,
             "aspect_ratio": aspect_ratio or "9:16",
             "style": style or "",
             "episodes": [],
@@ -2890,16 +2889,18 @@ class ProjectManager:
         # 创建 TextGenerator（自动追踪用量）
         generator = await TextGenerator.create(TextTaskType.OVERVIEW, project_name)
 
-        # 调用 TextGenerator（Structured Outputs）。source_kind=screenplay 时翻为「提取优先」：
+        # 调用 TextGenerator（Structured Outputs）。source_file_type=screenplay 时翻为「提取优先」：
         # 作者写下的创作方案前言优先照用，缺失才退回从正文归纳（novel 行为不变）。
         project_data = self.load_project(project_name)
-        source_kind = resolve_source_kind(project_data)
+        source_file_type = resolve_source_file_type(project_data)
         # source_language 来自 project.json，可能是非字符串脏数据；非字符串或空串回退默认语言
         raw_source_language = project_data.get("source_language")
         target_language = (
             raw_source_language if isinstance(raw_source_language, str) and raw_source_language.strip() else "中文"
         )
-        prompt = build_overview_prompt(source_content, source_kind=source_kind, target_language=target_language)
+        prompt = build_overview_prompt(
+            source_content, source_file_type=source_file_type, target_language=target_language
+        )
 
         result = await generator.generate(
             TextGenerationRequest(

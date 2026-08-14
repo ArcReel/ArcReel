@@ -20,11 +20,11 @@ _DEFAULT_SOURCE_LANGUAGE = "中文"
 def build_step1_basis(source_content: object, *, project: Mapping[str, object]) -> ArtifactBasis:
     """Describe the formal source inputs consumed by one episode's step1 artifact."""
 
-    content_mode, generation_mode = _content_axes(project)
-    raw_source_kind = project.get("source_kind")
-    source_kind = "novel" if raw_source_kind is None else raw_source_kind
-    if not isinstance(source_kind, str) or source_kind not in _SOURCE_KINDS:
-        raise ValueError(f"unsupported source_kind: {source_kind!r}")
+    creation_type, generation_mode = _content_axes(project)
+    raw_source_kind = project.get("source_file_type")
+    source_file_type = "novel" if raw_source_kind is None else raw_source_kind
+    if not isinstance(source_file_type, str) or source_file_type not in _SOURCE_KINDS:
+        raise ValueError(f"unsupported source_file_type: {source_file_type!r}")
     raw_source_language = project.get("source_language")
     source_language = raw_source_language or _DEFAULT_SOURCE_LANGUAGE
     if not isinstance(source_language, str):
@@ -33,10 +33,10 @@ def build_step1_basis(source_content: object, *, project: Mapping[str, object]) 
         "structured-content/step1",
         kind_version=1,
         inputs={
-            "content_mode": content_mode,
+            "creation_type": creation_type,
             "generation_mode": generation_mode,
             "source_content": source_content,
-            "source_kind": source_kind,
+            "source_file_type": source_file_type,
             "source_language": source_language,
         },
     )
@@ -45,12 +45,12 @@ def build_step1_basis(source_content: object, *, project: Mapping[str, object]) 
 def build_episode_script_basis(step1_content: object, *, project: Mapping[str, object]) -> ArtifactBasis:
     """Describe the formal step1 input consumed by one episode's script artifact."""
 
-    content_mode, generation_mode = _content_axes(project)
+    creation_type, generation_mode = _content_axes(project)
     return ArtifactBasis.build(
         "structured-content/episode-script",
         kind_version=1,
         inputs={
-            "content_mode": content_mode,
+            "creation_type": creation_type,
             "generation_mode": generation_mode,
             "step1_content": step1_content,
         },
@@ -58,10 +58,10 @@ def build_episode_script_basis(step1_content: object, *, project: Mapping[str, o
 
 
 def _content_axes(project: Mapping[str, object]) -> tuple[str, str]:
-    content_mode = project.get("content_mode")
-    if not isinstance(content_mode, str) or content_mode not in _STRUCTURED_CONTENT_MODES:
-        raise ValueError(f"structured content basis does not support content_mode: {content_mode!r}")
+    creation_type = project.get("creation_type")
+    if not isinstance(creation_type, str) or creation_type not in _STRUCTURED_CONTENT_MODES:
+        raise ValueError(f"structured content basis does not support creation_type: {creation_type!r}")
     generation_mode = project.get("generation_mode")
     if not isinstance(generation_mode, str) or generation_mode not in _GENERATION_MODES:
         raise ValueError(f"unsupported generation_mode: {generation_mode!r}")
-    return content_mode, generation_mode
+    return creation_type, generation_mode
