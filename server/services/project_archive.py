@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -8,7 +9,7 @@ import shutil
 import stat
 import tempfile
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -20,6 +21,8 @@ from lib.artifact_activation import (
     rebase_preserved_artifact_entries,
 )
 from lib.artifact_manifest import (
+    ArtifactKey,
+    ArtifactManifestEntry,
     ArtifactManifestError,
     ProjectArtifactManifestAdapter,
     decode_artifact_manifest_payload,
@@ -48,6 +51,7 @@ ARCHIVE_FORMAT_VERSION = 2
 ARCHIVE_SCRIPT_SCHEMA_VERSION = 2
 DEFAULT_IMPORT_FILENAME = "imported-project.zip"
 _ARTIFACT_ACTIVATION_ERRORS = (ArtifactManifestError, OSError, UnicodeError, ValueError)
+_EXPORT_SNAPSHOT_ATTEMPTS = 3
 
 
 def _resolve_existing_asset(name: str, candidates: set[str]) -> str:
@@ -432,7 +436,7 @@ class ProjectArchiveService:
         source_dir = self.project_manager.get_project_path(project_name)
         temp_dir = tempfile.TemporaryDirectory(prefix="arcreel-export-")
         snapshot_dir = Path(temp_dir.name) / project_name
-        self._copy_visible_tree(source_dir, snapshot_dir)
+        source_manifest_entries = self._capture_stable_visible_tree(source_dir, snapshot_dir)
 
         diagnostics = self._repair_project_tree(snapshot_dir)
         diagnostics.extend_validation(self.validator.validate_project_tree(snapshot_dir))
@@ -450,10 +454,12 @@ class ProjectArchiveService:
         snapshot_project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE)
         artifact_manifest = None
         if isinstance(snapshot_project, dict) and snapshot_project.get("schema_version") == TARGET_SCHEMA_VERSION:
+            if source_manifest_entries is None:
+                raise ArtifactManifestError("schema-v8 archive snapshot has no matching Artifact Manifest state")
             artifact_manifest = encode_artifact_manifest_payload(
                 rebase_preserved_artifact_entries(
                     snapshot_dir,
-                    ProjectArtifactManifestAdapter(source_dir).snapshot_entries(),
+                    source_manifest_entries,
                 )
             )
         manifest = self._build_archive_manifest(
@@ -630,11 +636,55 @@ class ProjectArchiveService:
                 selected.add(path.as_posix())
         return frozenset(selected)
 
-    def _copy_visible_tree(self, source_dir: Path, target_dir: Path) -> None:
-        target_dir.mkdir(parents=True, exist_ok=True)
-        for current_dir, dirnames, filenames in os.walk(source_dir):
+    def _capture_stable_visible_tree(
+        self,
+        source_dir: Path,
+        target_dir: Path,
+    ) -> dict[ArtifactKey, ArtifactManifestEntry] | None:
+        """Copy one visible tree whose bytes and Manifest stayed unchanged.
+
+        Export cannot atomically snapshot a directory with ordinary filesystem
+        primitives.  Compare complete content signatures and the whole Manifest
+        on both sides of the copy, discarding a mixed attempt instead of pairing
+        old formal bytes with a newer claim (or the reverse).
+        """
+
+        for _attempt in range(_EXPORT_SNAPSHOT_ATTEMPTS):
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+            manifest_before = self._source_manifest_entries(source_dir)
+            copied = self._copy_visible_tree(source_dir, target_dir)
+            source_after = self._visible_tree_signature(source_dir)
+            manifest_after = self._source_manifest_entries(source_dir)
+            if manifest_before == manifest_after and source_after == copied:
+                return manifest_before
+        raise ArtifactManifestError("project changed repeatedly while creating an archive snapshot")
+
+    def _source_manifest_entries(
+        self,
+        source_dir: Path,
+    ) -> dict[ArtifactKey, ArtifactManifestEntry] | None:
+        project = self._load_json_file(source_dir / self.project_manager.PROJECT_FILE)
+        if not isinstance(project, dict) or project.get("schema_version") != TARGET_SCHEMA_VERSION:
+            return None
+        return dict(ProjectArtifactManifestAdapter(source_dir).snapshot_entries())
+
+    def _visible_tree_signature(self, root: Path) -> tuple[tuple[str, str], ...]:
+        signature: list[tuple[str, str]] = []
+        for current_path, relative_dir, filenames in self._iter_visible_tree(root):
+            if relative_dir != Path("."):
+                signature.append((f"{relative_dir.as_posix()}/", "directory"))
+            for filename in filenames:
+                path = current_path / filename
+                with path.open("rb") as handle:
+                    digest = hashlib.file_digest(handle, "sha256").hexdigest()
+                signature.append(((relative_dir / filename).as_posix(), digest))
+        return tuple(signature)
+
+    def _iter_visible_tree(self, root: Path) -> Iterator[tuple[Path, Path, tuple[str, ...]]]:
+        for current_dir, dirnames, filenames in os.walk(root):
             current_path = Path(current_dir)
-            is_root = current_path == source_dir
+            is_root = current_path == root
             dirnames[:] = [
                 name
                 for name in sorted(dirnames)
@@ -643,21 +693,37 @@ class ProjectArchiveService:
                 and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
                 and not (is_root and name not in self._ROOT_VISIBLE_ENTRIES)
             ]
-            relative_dir = current_path.relative_to(source_dir)
+            visible_files = tuple(
+                name
+                for name in sorted(filenames)
+                if not name.startswith(".")
+                and not (current_path / name).is_symlink()
+                and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
+                and not (is_root and name not in self._ROOT_VISIBLE_ENTRIES)
+            )
+            yield current_path, current_path.relative_to(root), visible_files
+
+    def _copy_visible_tree(self, source_dir: Path, target_dir: Path) -> tuple[tuple[str, str], ...]:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        copied: list[tuple[str, str]] = []
+        for current_path, relative_dir, filenames in self._iter_visible_tree(source_dir):
             destination_dir = target_dir / relative_dir
             destination_dir.mkdir(parents=True, exist_ok=True)
+            if relative_dir != Path("."):
+                copied.append((f"{relative_dir.as_posix()}/", "directory"))
 
-            for filename in sorted(filenames):
+            for filename in filenames:
                 source_path = current_path / filename
-                if filename.startswith(".") or source_path.is_symlink():
-                    continue
-                if is_root and filename in self._AGENT_RUNTIME_EXCLUDES:
-                    continue
-                if is_root and filename not in self._ROOT_VISIBLE_ENTRIES:
-                    continue
                 destination_path = destination_dir / filename
                 destination_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source_path, destination_path)
+                digest = hashlib.sha256()
+                with source_path.open("rb") as source, destination_path.open("wb") as destination:
+                    while chunk := source.read(1024 * 1024):
+                        digest.update(chunk)
+                        destination.write(chunk)
+                shutil.copystat(source_path, destination_path, follow_symlinks=False)
+                copied.append(((relative_dir / filename).as_posix(), digest.hexdigest()))
+        return tuple(copied)
 
     def _repair_project_tree(self, project_dir: Path) -> ArchiveDiagnostics:
         diagnostics = ArchiveDiagnostics()

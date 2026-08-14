@@ -414,6 +414,50 @@ class TestProjectArchiveService:
         )
 
     @pytest.mark.unit
+    def test_export_retries_when_formal_bytes_and_manifest_change_during_snapshot(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        migrate_v7_to_v8(project_dir)
+
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        artifact_path = project_dir / "characters" / "Hero.png"
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        service = ProjectArchiveService(pm)
+        original_copy = service._copy_visible_tree
+        copy_count = 0
+
+        def _copy_then_commit(source_dir: Path, target_dir: Path) -> tuple[tuple[str, str], ...]:
+            nonlocal copy_count
+            copy_count += 1
+            copied = original_copy(source_dir, target_dir)
+            if copy_count == 1:
+                artifact_path.write_bytes(b"new-formal-bytes")
+                adapter.put_entry(
+                    key,
+                    ArtifactManifestEntry(
+                        artifact_path="characters/Hero.png",
+                        basis_digest=f"sha256-v1:{'f' * 64}",
+                    ),
+                )
+            return copied
+
+        monkeypatch.setattr(service, "_copy_visible_tree", _copy_then_commit)
+
+        archive_path, _ = service.export_project("demo")
+
+        assert copy_count == 2
+        with zipfile.ZipFile(archive_path) as archive:
+            assert archive.read("demo/characters/Hero.png") == b"new-formal-bytes"
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+        assert archive_manifest["artifact_manifest"]["entries"][key.encode()] == {
+            "artifact_path": "characters/Hero.png",
+            "basis_digest": f"sha256-v1:{'f' * 64}",
+        }
+
+    @pytest.mark.unit
     def test_official_round_trip_rekeys_claims_to_repaired_formal_paths(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
