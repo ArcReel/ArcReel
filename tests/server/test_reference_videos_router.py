@@ -1974,7 +1974,7 @@ def test_a_duplicate_marker_never_shadows_a_real_unit_id(client: TestClient, mon
     assert enqueued == []
     unit_ids = [item["unit_id"] for item in body["units"]]
     assert len(unit_ids) == len(set(unit_ids)), unit_ids
-    assert f"{first}#1*" in unit_ids
+    assert set(unit_ids) == {first, f"{first}#1", f"{first}#1*"}
     codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
     assert codes[first] == ["generation_batch_admission_withheld"]
 
