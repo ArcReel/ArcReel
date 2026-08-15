@@ -810,7 +810,10 @@ describe("ReferenceVideoCanvas", () => {
 
     fireEvent.click(batch);
     await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
-    expect(batchSpy).toHaveBeenCalledWith("proj", 1, { unit_ids: ["E1U2"] });
+    expect(batchSpy).toHaveBeenCalledWith("proj", 1, {
+      unit_ids: ["E1U2"],
+      narration_delivery: "post_production",
+    });
   });
 
   it("批量入口一次请求走服务端准入，admitted 时提示已入队", async () => {
@@ -828,7 +831,10 @@ describe("ReferenceVideoCanvas", () => {
     fireEvent.click(batch);
 
     await waitFor(() =>
-      expect(batchSpy).toHaveBeenCalledWith("proj", 1, { unit_ids: ["E1U1", "E1U2"] }),
+      expect(batchSpy).toHaveBeenCalledWith("proj", 1, {
+        unit_ids: ["E1U1", "E1U2"],
+        narration_delivery: "post_production",
+      }),
     );
     // 不再逐个串行入队
     expect(unitSpy).not.toHaveBeenCalled();
@@ -838,7 +844,9 @@ describe("ReferenceVideoCanvas", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("批量入口保持后期制作默认值，不继承单元 TTS 选择", async () => {
+  // 交付方式是本次请求的一部分，批量与单元入口读同一个画布选择：批量不带上它，
+  // 整批会按服务端默认的「后期配音」准入，用户选的「使用当前 TTS」被静默丢弃。
+  it("批量入口带上本次的旁白交付选择", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     const batchSpy = vi
       .spyOn(API, "generateReferenceVideoBatch")
@@ -852,7 +860,24 @@ describe("ReferenceVideoCanvas", () => {
     expect(batchSpy).toHaveBeenCalledWith(
       "proj",
       1,
-      expect.not.objectContaining({ narration_delivery: "use_tts" }),
+      expect.objectContaining({ narration_delivery: "use_tts" }),
+    );
+  });
+
+  it("批量入口未改选择时按后期配音提交", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    const batchSpy = vi
+      .spyOn(API, "generateReferenceVideoBatch")
+      .mockResolvedValue(mkAdmission());
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ }));
+
+    await waitFor(() => expect(batchSpy).toHaveBeenCalled());
+    expect(batchSpy).toHaveBeenCalledWith(
+      "proj",
+      1,
+      expect.objectContaining({ narration_delivery: "post_production" }),
     );
   });
 
@@ -906,7 +931,10 @@ describe("ReferenceVideoCanvas", () => {
 
     fireEvent.click(batch);
     await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
-    expect(batchSpy).toHaveBeenCalledWith("proj", 1, { unit_ids: ["E1U2"] });
+    expect(batchSpy).toHaveBeenCalledWith("proj", 1, {
+      unit_ids: ["E1U2"],
+      narration_delivery: "post_production",
+    });
   });
 
   // 时长取档确认：模型只接受离散档位，请求时长基准落在档位之间时按能装下它的最小档位生成，
@@ -1168,6 +1196,7 @@ describe("ReferenceVideoCanvas", () => {
       await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(2));
       expect(batchSpy).toHaveBeenLastCalledWith("proj", 1, {
         unit_ids: ["E1U1", "E1U2", "E1U3"],
+        narration_delivery: "post_production",
         confirmed_request_durations: { E1U1: 8, E1U2: 8, E1U3: 4 },
       });
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -1223,6 +1252,7 @@ describe("ReferenceVideoCanvas", () => {
       await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(2));
       expect(batchSpy).toHaveBeenLastCalledWith("proj", 1, {
         unit_ids: ["E1U2"],
+        narration_delivery: "post_production",
         confirmed_request_durations: { E1U2: 4 },
       });
     });
@@ -1237,13 +1267,15 @@ describe("ReferenceVideoCanvas", () => {
           task_ids: [],
           skipped_unit_ids: [],
           units: [
+            // action 用 GenerationAction 的取值：服务端已把各上游模块的动作词归一到该集合，
+            // 界面的下一步文案按这套词汇取键。
             {
               unit_id: "E1U1",
               admitted: false,
               problems: [
                 {
                   code: "reference_asset_missing",
-                  action: "repair_reference_assets",
+                  action: "generate_dependency",
                   message: "引用的角色图缺失",
                   params: {},
                 },
@@ -1252,6 +1284,8 @@ describe("ReferenceVideoCanvas", () => {
             {
               unit_id: "E1U2",
               admitted: false,
+              current_duration_seconds: 5,
+              request_duration_seconds: 12,
               problems: [
                 {
                   code: "needs_replan",
@@ -1267,7 +1301,7 @@ describe("ReferenceVideoCanvas", () => {
               problems: [
                 {
                   code: "generation_batch_admission_withheld",
-                  action: null,
+                  action: "retry",
                   message: "其他单元受阻，本单元一并未提交",
                   params: { blocked_unit_ids: ["E1U1", "E1U2"] },
                 },
@@ -1286,6 +1320,8 @@ describe("ReferenceVideoCanvas", () => {
       expect(dialog.getByText("该单元需要重新规划")).toBeInTheDocument();
       expect(dialog.getByText(/补齐或替换缺失的引用资产|add or replace the missing reference/)).toBeInTheDocument();
       expect(dialog.getByText(/重新规划该单元|replan this unit/)).toBeInTheDocument();
+      // 当前/所需档位与缺口同列，用户才看得出差多少
+      expect(dialog.getByText(/当前 5 秒 → 申请 12 秒|Current 5s → requested 12s/)).toBeInTheDocument();
       // 被连带扣下的单元单列，说明它自身没问题
       expect(dialog.getByText(/本身没有问题|no issue of (its|their) own/)).toBeInTheDocument();
       for (const unitId of ["E1U1", "E1U2", "E1U3"]) {

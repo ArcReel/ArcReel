@@ -196,9 +196,12 @@ export interface ReferenceBatchUnitOutcome {
   projection?: unknown;
 }
 
-/** 按申请档位分组的确认项；`cost_amount` 为 null 表示该档报价不全，不展示合计。 */
+/**
+ * 按申请档位分组的确认项；`cost_amount` 为 null 表示该档报价不全，不展示合计。
+ * `request_duration_seconds` 为 null 表示该组档位未解析出来，界面按「档位待定」陈述。
+ */
 export interface ReferenceBatchConfirmationTier {
-  request_duration_seconds: number;
+  request_duration_seconds: number | null;
   unit_count: number;
   unit_ids: string[];
   cost_amount?: number | null;

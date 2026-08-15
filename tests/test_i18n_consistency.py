@@ -138,3 +138,34 @@ def test_format_placeholders_consistent():
             assert base_placeholders == locale_placeholders, (
                 f"Key '{key}': {base_locale} uses {base_placeholders} but {locale} uses {locale_placeholders}"
             )
+
+
+def test_batch_admission_problem_codes_are_translated():
+    """Every problem code a batch admission can surface must read as prose.
+
+    The admission envelope localizes each problem by looking its code up as a
+    message key, and an unresolved key falls back to the key itself — so a
+    missing entry reaches the user as a bare identifier instead of a reason.
+    Execution-time codes are excluded: they are reported from the persisted task
+    failure envelope, not from admission.
+    """
+
+    from lib.generation_result import GenerationProblemCode
+    from lib.reference_video.request_projection import _PROBLEM_PRESENTATION
+    from lib.speech_composition import SpeechProblemCode
+
+    execution_only = {
+        GenerationProblemCode.ENQUEUE_FAILED,
+        GenerationProblemCode.TASK_FAILED,
+        GenerationProblemCode.TASK_CANCELLED,
+        GenerationProblemCode.TASK_INTERRUPTED,
+        GenerationProblemCode.POST_PROCESSING_FAILED,
+    }
+    codes = (
+        set(_PROBLEM_PRESENTATION)
+        | {code.value for code in SpeechProblemCode}
+        | {code.value for code in GenerationProblemCode if code not in execution_only}
+    )
+    for code in sorted(codes):
+        for locale in SUPPORTED_LOCALES:
+            assert code in MESSAGES[locale], f"problem code '{code}' has no {locale} message"

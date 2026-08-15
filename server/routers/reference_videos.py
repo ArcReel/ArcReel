@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +86,7 @@ from server.services.upload_finalize import (
 from server.services.video_batch_admission import (
     admit_reference_video_batch,
     reference_unit_task_spec,
+    request_options_for_unit,
     resolve_reference_batch_targets,
 )
 from server.services.video_caps import project_video_caps
@@ -783,10 +783,12 @@ async def generate_units_batch(
     for spec in specs:
         spec.source = "webui"
         # 确认过的档位按 unit 记进请求事实：它是本次请求的一部分，而不是全批共用的一个值。
-        confirmed = body.confirmed_request_durations.get(spec.resource_id)
-        options = body.projection_options()
-        if confirmed is not None:
-            options = replace(options, confirmed_request_duration_seconds=confirmed)
+        # 复用准入用的那份推导，两处各算一遍才是口径分叉的来源。
+        options = request_options_for_unit(
+            body.projection_options(),
+            spec.resource_id,
+            body.confirmed_request_durations,
+        )
         spec.payload = {
             **(spec.payload or {}),
             "reference_request_options": options.to_payload(),

@@ -22,7 +22,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol
 
 from lib.generation_result import (
     GenerationAction,
@@ -43,17 +42,6 @@ class BatchAdmissionDecision(StrEnum):
     ADMITTED = "admitted"
     CONFIRMATION_REQUIRED = "confirmation_required"
     BLOCKED = "blocked"
-
-
-class AdmissionProblem(Protocol):
-    """The problem shape both request-planning modules already publish."""
-
-    code: str
-    blocking: bool
-
-    def parameters(self) -> dict[str, object]: ...
-
-    def to_payload(self, *, unit_id: str) -> dict[str, object]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +136,25 @@ class BatchAdmission:
     def refused_tickets(self) -> tuple[UnitAdmissionTicket, ...]:
         return tuple(ticket for ticket in self.tickets if not ticket.admitted)
 
+    @property
+    def holding_unit_ids(self) -> tuple[str, ...]:
+        """The units whose own problems kept the whole batch from being created."""
+
+        return tuple(ticket.unit_id for ticket in self.refused_tickets)
+
+    def withheld_problem_for(self, ticket: UnitAdmissionTicket) -> GenerationProblem | None:
+        """The reason this ticket has none of its own, or ``None`` if it does.
+
+        Both the result contract and the serialized envelope ask the same
+        question of the same ticket, so they ask it here once — a unit that
+        passed on its own is never described two different ways.
+        """
+
+        holding = self.holding_unit_ids
+        if not holding or not ticket.admitted:
+            return None
+        return _withheld_problem(holding)
+
     def confirmation_tiers(self) -> tuple[BatchConfirmationTier, ...]:
         """Group the units awaiting consent by the tier they would be billed at."""
 
@@ -193,9 +200,11 @@ class BatchAdmission:
 
         if self.admitted:
             raise ValueError("record_refusal requires a refused admission")
-        holding = [ticket.unit_id for ticket in self.refused_tickets]
         for ticket in self.tickets:
-            problem = ticket.problems[0] if ticket.problems else _withheld_problem(holding)
+            withheld = self.withheld_problem_for(ticket)
+            problem = ticket.problems[0] if ticket.problems else withheld
+            if problem is None:
+                raise RuntimeError("a refused batch leaves no ticket without a reason")
             if len(ticket.problems) > 1:
                 problem = problem.model_copy(
                     update={
@@ -224,14 +233,13 @@ class BatchAdmission:
         someone else".
         """
 
-        holding = [ticket.unit_id for ticket in self.refused_tickets]
         units: list[dict[str, object]] = []
         for ticket in self.tickets:
             payload = ticket.to_payload()
-            withheld = bool(holding) and ticket.admitted
-            payload["withheld"] = withheld
-            if withheld:
-                payload["problems"] = [_withheld_problem(holding).model_dump(mode="json")]
+            withheld = self.withheld_problem_for(ticket)
+            payload["withheld"] = withheld is not None
+            if withheld is not None:
+                payload["problems"] = [withheld.model_dump(mode="json")]
             units.append(payload)
         return {
             "decision": self.decision.value,
@@ -294,7 +302,6 @@ def refused_ticket(
 
 __all__ = [
     "DURATION_CONFIRMATION_CODE",
-    "AdmissionProblem",
     "BatchAdmission",
     "BatchAdmissionDecision",
     "BatchConfirmationTier",

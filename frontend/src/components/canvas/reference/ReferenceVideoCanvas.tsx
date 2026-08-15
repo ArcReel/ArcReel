@@ -534,6 +534,9 @@ export function ReferenceVideoCanvas({
       try {
         const admission = await enqueueReferenceVideoBatch(projectName, episode, {
           unit_ids: unitIds,
+          // 旁白交付方式随请求走，与单元入口同一个选择：不带上它，整批会按服务端
+          // 默认的「后期配音」准入，用户在画布上选的「使用当前 TTS」被静默丢弃。
+          narration_delivery: narrationDelivery,
           ...(confirmedDurations ? { confirmed_request_durations: confirmedDurations } : {}),
         });
         setBatchAdmission(admission.decision === "admitted" ? null : admission);
@@ -542,7 +545,7 @@ export function ReferenceVideoCanvas({
         toastError(e, (msg) => t("reference_batch_request_failed", { error: msg }));
       }
     },
-    [projectName, episode, t],
+    [projectName, episode, narrationDelivery, t],
   );
 
   const handleBatchGenerate = useCallback(async () => {
@@ -573,6 +576,9 @@ export function ReferenceVideoCanvas({
     if (!admission || tiers.length === 0) return;
     const durationByUnit = new Map<string, number>();
     for (const tier of tiers) {
+      // 档位没解析出来的组没有可确认的值：略过后重发，服务端会照旧把它算成缺口，
+      // 而不是收到一个空档位当成用户已拍板。
+      if (tier.request_duration_seconds == null) continue;
       for (const unitId of tier.unit_ids) durationByUnit.set(unitId, tier.request_duration_seconds);
     }
     const targets = Array.from(

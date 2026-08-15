@@ -32,9 +32,23 @@ function UnitTag({ unitId }: { unitId: string }) {
   );
 }
 
-/** 一行缺口：单元 + 已本地化的说明 + 下一步。 */
+/** 一行缺口：单元 + 已本地化的说明 + 当前/所需档位 + 下一步。 */
 function ProblemRow({ unit }: { unit: ReferenceBatchUnitOutcome }) {
   const { t } = useTranslation("dashboard");
+  // 档位是用户判断该去修什么的主要依据之一，与说明同列：光看「时长超上限」看不出差多少。
+  const tiers =
+    unit.current_duration_seconds != null || unit.request_duration_seconds != null
+      ? t("reference_batch_unit_tiers", {
+          current:
+            unit.current_duration_seconds != null
+              ? t("reference_duration_seconds", { value: unit.current_duration_seconds })
+              : t("reference_batch_tier_unknown"),
+          request:
+            unit.request_duration_seconds != null
+              ? t("reference_duration_seconds", { value: unit.request_duration_seconds })
+              : t("reference_batch_tier_unknown"),
+        })
+      : "";
   return (
     <li className="flex flex-col gap-0.5">
       <span className="flex flex-wrap items-baseline gap-x-2">
@@ -43,6 +57,11 @@ function ProblemRow({ unit }: { unit: ReferenceBatchUnitOutcome }) {
           {unit.problems.map((problem) => problem.message ?? problem.detail ?? problem.code).join(" · ")}
         </span>
       </span>
+      {tiers && (
+        <span className="tabular-nums text-[11.5px]" style={{ color: "var(--color-text-3)" }}>
+          {tiers}
+        </span>
+      )}
       {unit.problems.map((problem, index) => {
         const hint = problem.action
           ? t(`reference_batch_action_${problem.action}`, { defaultValue: "" })
@@ -81,7 +100,8 @@ export function ReferenceBatchAdmissionDialog({ admission, onConfirm, onClose }:
   const open = admission !== null && admission.decision !== "admitted";
   const blocked = admission?.decision === "blocked";
   const tiers = admission?.confirmation?.tiers ?? [];
-  const seconds = (value: number) => t("reference_duration_seconds", { value });
+  const seconds = (value: number | null) =>
+    value == null ? t("reference_batch_tier_unknown") : t("reference_duration_seconds", { value });
 
   const failing = (admission?.units ?? []).filter(
     (unit) => !unit.admitted && unit.problems.some((problem) => problem.code !== WITHHELD_CODE),
@@ -158,7 +178,7 @@ export function ReferenceBatchAdmissionDialog({ admission, onConfirm, onClose }:
                   <p>{t("reference_batch_confirm_intro", { count: confirmingUnitCount })}</p>
                   <ul className="max-h-56 space-y-2 overflow-y-auto">
                     {tiers.map((tier) => (
-                      <li key={tier.request_duration_seconds} className="space-y-1">
+                      <li key={tier.request_duration_seconds ?? "unknown"} className="space-y-1">
                         <span className="flex flex-wrap items-baseline gap-x-2">
                           <span
                             className="tabular-nums font-medium"

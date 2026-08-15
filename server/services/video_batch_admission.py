@@ -270,12 +270,17 @@ async def _active_conflicts(
     return {str(task["resource_id"]): task for task in active if task.get("resource_id")}
 
 
-def _options_for(
+def request_options_for_unit(
     options: ReferenceRequestOptions,
     unit_id: str,
     confirmed: Mapping[str, int] | None,
 ) -> ReferenceRequestOptions:
-    """Apply this request's per-unit tier consent, if the entry collected any."""
+    """Apply this request's per-unit tier consent, if the entry collected any.
+
+    Admission and the task spec that follows it must read the same options, so
+    both sides call this rather than re-deriving the consent from the request
+    body — a second derivation is where the two can silently diverge.
+    """
 
     if not confirmed or unit_id not in confirmed:
         return options
@@ -351,7 +356,7 @@ async def admit_reference_video_batch(
             tickets.append(UnitAdmissionTicket(unit_id=unit_id, problems=tuple(problems)))
             continue
 
-        unit_options = _options_for(request_options, unit_id, confirmed_request_durations)
+        unit_options = request_options_for_unit(request_options, unit_id, confirmed_request_durations)
         current_options = await prepare_current_reference_video_request_options(
             project=project,
             script=script,
@@ -490,7 +495,7 @@ async def admit_storyboard_video_batch(
         if request_options.narration_delivery != USE_TTS:
             tickets.append(UnitAdmissionTicket(unit_id=resource_id))
             continue
-        unit_options = _options_for(request_options, resource_id, confirmed_request_durations)
+        unit_options = request_options_for_unit(request_options, resource_id, confirmed_request_durations)
         planned = item.get("duration_seconds")
         preparation = await prepare_current_storyboard_narrated_video_duration(
             project_name=project_name,
@@ -562,6 +567,7 @@ __all__ = [
     "admit_reference_video_batch",
     "admit_storyboard_video_batch",
     "reference_unit_task_spec",
+    "request_options_for_unit",
     "resolve_reference_batch_targets",
     "video_target_states",
 ]
