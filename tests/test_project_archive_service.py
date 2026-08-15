@@ -413,7 +413,7 @@ class TestProjectArchiveService:
             service.import_project_archive(tampered_path, uploaded_filename="tampered.zip")
 
         assert any(item.code == "artifact_activation_failed" for item in exc_info.value.diagnostics.blocking)
-        assert not pm.project_exists("demo")
+        assert not (pm.projects_root / "demo").exists()
 
     @pytest.mark.unit
     def test_official_round_trip_preserves_a_stale_asset_claim(self, tmp_path):

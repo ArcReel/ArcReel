@@ -23,7 +23,14 @@ def project_grid_image_prompt(image_prompt: object) -> str | dict[str, object]:
         raise ValueError("grid image_prompt.composition must be an object")
     if any(not isinstance(key, str) for key in raw_composition):
         raise ValueError("grid image_prompt.composition keys must be strings")
-    composition = {key: str(raw_composition[key]) for key in sorted(raw_composition) if raw_composition[key]}
+    composition: dict[str, str] = {}
+    for key in sorted(raw_composition):
+        raw_value = raw_composition[key]
+        if raw_value is None:
+            continue
+        value = str(raw_value)
+        if value:
+            composition[key] = value
     return {"scene": scene, "composition": composition}
 
 

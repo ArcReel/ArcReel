@@ -1935,6 +1935,8 @@ def decode_artifact_manifest_payload(payload: object) -> ArtifactManifestArchive
 
     try:
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    except RecursionError as exc:
+        raise ArtifactManifestError("archive artifact manifest payload exceeds the JSON nesting limit") from exc
     except (TypeError, ValueError, UnicodeError) as exc:
         raise ArtifactManifestError(f"artifact manifest payload is not JSON: {exc}") from exc
     try:

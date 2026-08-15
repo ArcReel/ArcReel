@@ -15,9 +15,20 @@ from lib.artifact_manifest import (
     ArtifactManifestError,
     ArtifactStatus,
     InMemoryArtifactManifestAdapter,
+    decode_artifact_manifest_payload,
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_archive_manifest_payload_wraps_serialization_recursion(monkeypatch) -> None:
+    def _raise_recursion(*_args, **_kwargs):
+        raise RecursionError("nested payload")
+
+    monkeypatch.setattr("lib.artifact_manifest.json.dumps", _raise_recursion)
+
+    with pytest.raises(ArtifactManifestError, match="nesting limit"):
+        decode_artifact_manifest_payload({})
 
 
 def test_legacy_formal_input_selection_retains_identity_for_later_activation() -> None:
