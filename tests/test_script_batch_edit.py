@@ -59,6 +59,9 @@ def editor(tmp_path: Path) -> tuple[ProjectManager, ScriptBatchEditor, Path]:
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.save_script("demo", _script(), "episode_1.json")
     project_dir = pm.get_project_path("demo")
+    source = project_dir / "source" / "episode_1.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("风吹过旷野。", encoding="utf-8")
     step1 = project_dir / "drafts" / "episode_1" / "step1_segments.json"
     step1.parent.mkdir(parents=True, exist_ok=True)
     step1.write_text(json.dumps({"segments": [{"segment_id": "E1S01"}]}), encoding="utf-8")

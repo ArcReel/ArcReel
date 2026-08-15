@@ -422,6 +422,7 @@ class TestProjectArchiveService:
         project = pm.load_project("demo")
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
+        _write_text(project_dir / "source" / "episode_1.txt", "原文")
         step1_path = project_dir / "drafts" / "episode_1" / "step1_segments.json"
         _write_json(step1_path, {"segments": [{"segment_id": "E1S01", "text": "原文"}]})
         migrate_v7_to_v8(project_dir)

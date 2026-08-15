@@ -473,6 +473,7 @@ class _Planner:
             return None
         step1_raw = self._read_dependency(step1_rel, "formal step1")
         step1_content = self._parse_json(step1_raw, f"formal step1 {step1_rel}")
+        step1_key = ArtifactKey.episode_step1(binding.episode)
         source_rel = f"source/episode_{binding.episode}.txt"
         source_observation = self.adapter.inspect_artifact(source_rel)
         if source_observation.blocker is None and source_observation.present:
@@ -490,7 +491,9 @@ class _Planner:
             except (TypeError, ValueError):
                 pass
             else:
-                self._add_if_present(ArtifactKey.episode_step1(binding.episode), step1_rel, step1_basis)
+                self._add_if_present(step1_key, step1_rel, step1_basis)
+        if step1_key not in self.entries:
+            return None
         return _FormalStep1State(artifact_path=step1_rel, content=step1_content)
 
     def _plan_storyboards(self) -> None:

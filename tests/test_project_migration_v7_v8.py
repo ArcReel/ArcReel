@@ -810,6 +810,17 @@ def test_v7_activation_backfills_formal_step1_before_final_script_exists(tmp_pat
     assert step1 == _read_json(project_dir / "drafts" / "episode_1" / "step1_segments.json")
 
 
+def test_v7_activation_does_not_backfill_script_from_an_unclaimed_step1(tmp_path: Path) -> None:
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    (project_dir / "source" / "episode_1.txt").unlink()
+
+    migrate_v7_to_v8(project_dir)
+
+    entries = _stored_entries(project_dir)
+    assert ArtifactKey.episode_step1(1).encode() not in entries
+    assert ArtifactKey.episode_script(1).encode() not in entries
+
+
 def test_v7_activation_does_not_use_unowned_same_name_storyboard_as_previous_input(tmp_path: Path) -> None:
     project_dir, _project_data, _step1, script = _project(tmp_path)
     script["segments"][0]["generated_assets"] = {}
