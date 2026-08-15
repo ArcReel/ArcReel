@@ -1,5 +1,6 @@
 """Tests for generation_queue_client async functions."""
 
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -633,9 +634,10 @@ class TestEnqueueBatchAtomically:
         cancelled: list[str] = []
 
         class _Queue:
-            async def cancel_task(self, task_id: str) -> dict[str, list[str]]:
+            async def cancel_task(self, task_id: str) -> dict[str, Any]:
                 cancelled.append(task_id)
-                return {"cancelled": [task_id], "cancelling": []}
+                # 队列对 queued 任务返回整行任务字典，对 running 任务才返回裸 ID。
+                return {"cancelled": [{"task_id": task_id, "status": "cancelled"}], "cancelling": []}
 
         mock_queue.return_value = _Queue()
         specs = [
@@ -650,6 +652,32 @@ class TestEnqueueBatchAtomically:
         assert aborted.value.rolled_back == ("t1",)
         assert aborted.value.orphaned == ()
         assert cancelled == ["t1"]
+
+    @patch("lib.generation_queue_client.get_generation_queue")
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    async def test_running_task_reported_as_rolled_back_from_bare_id(self, mock_enqueue, mock_queue):
+        """已在跑的任务以裸 ID 落在 cancelling 里，同样算撤销生效。"""
+
+        mock_enqueue.side_effect = [
+            {"task_id": "t1", "deduped": False},
+            RuntimeError("queue unavailable"),
+        ]
+
+        class _Queue:
+            async def cancel_task(self, task_id: str) -> dict[str, Any]:
+                return {"cancelled": [], "cancelling": [task_id]}
+
+        mock_queue.return_value = _Queue()
+        specs = [
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U1"),
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U2"),
+        ]
+
+        with pytest.raises(BatchEnqueueAborted) as aborted:
+            await enqueue_batch_atomically(project_name="demo", specs=specs)
+
+        assert aborted.value.rolled_back == ("t1",)
+        assert aborted.value.orphaned == ()
 
     @patch("lib.generation_queue_client.get_generation_queue")
     @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)

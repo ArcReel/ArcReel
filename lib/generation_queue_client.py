@@ -531,10 +531,26 @@ async def _rollback_enqueued(created: Mapping[str, str]) -> tuple[tuple[str, ...
 
 
 def _cancel_took_effect(outcome: object, task_id: str) -> bool:
+    """Decide whether *task_id* is among what this cancel call actually affected.
+
+    ``cancel_task`` reports the two transitions in different shapes: a task that
+    was still queued comes back under ``cancelled`` as its full row, while one
+    that was already running comes back under ``cancelling`` as a bare id. A
+    queued task is exactly what a rollback cancels, so comparing raw entries
+    against the id would report the ordinary case as orphaned.
+    """
+
     if isinstance(outcome, Mapping):
-        affected = [*(outcome.get("cancelled") or []), *(outcome.get("cancelling") or [])]
-        return task_id in affected
+        entries = [*(outcome.get("cancelled") or []), *(outcome.get("cancelling") or [])]
+        return task_id in {_cancelled_entry_id(entry) for entry in entries}
     return bool(outcome)
+
+
+def _cancelled_entry_id(entry: object) -> str | None:
+    if isinstance(entry, Mapping):
+        raw = entry.get("task_id")
+        return raw if isinstance(raw, str) else None
+    return entry if isinstance(entry, str) else None
 
 
 @dataclass(frozen=True, slots=True)
