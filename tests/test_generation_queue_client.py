@@ -655,8 +655,8 @@ class TestEnqueueBatchAtomically:
 
     @patch("lib.generation_queue_client.get_generation_queue")
     @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
-    async def test_running_task_reported_as_rolled_back_from_bare_id(self, mock_enqueue, mock_queue):
-        """已在跑的任务以裸 ID 落在 cancelling 里，同样算撤销生效。"""
+    async def test_running_task_pending_cancellation_is_reported_as_orphaned(self, mock_enqueue, mock_queue):
+        """已在跑的任务只拿到 cancelling：撤销尚未落地，任务可能已提交给供应商并计费。"""
 
         mock_enqueue.side_effect = [
             {"task_id": "t1", "deduped": False},
@@ -676,8 +676,8 @@ class TestEnqueueBatchAtomically:
         with pytest.raises(BatchEnqueueAborted) as aborted:
             await enqueue_batch_atomically(project_name="demo", specs=specs)
 
-        assert aborted.value.rolled_back == ("t1",)
-        assert aborted.value.orphaned == ()
+        assert aborted.value.rolled_back == ()
+        assert aborted.value.orphaned == ("t1",)
 
     @patch("lib.generation_queue_client.get_generation_queue")
     @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)

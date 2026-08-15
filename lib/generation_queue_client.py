@@ -535,13 +535,15 @@ def _cancel_took_effect(outcome: object, task_id: str) -> bool:
 
     ``cancel_task`` reports the two transitions in different shapes: a task that
     was still queued comes back under ``cancelled`` as its full row, while one
-    that was already running comes back under ``cancelling`` as a bare id. A
-    queued task is exactly what a rollback cancels, so comparing raw entries
-    against the id would report the ordinary case as orphaned.
+    that was already running comes back under ``cancelling`` as a bare id.
+    比较原始条目与 id 会把队列中被撤销这一常态误报成 orphaned，所以取条目里的 task_id 比较。
+
+    只有终态的 ``cancelled`` 算回滚成功：``cancelling`` 是一个尚未落地的撤销请求，任务
+    可能已经提交给供应商、仍在跑、仍会计费，把它算作已回滚会让调用方以为整批干净收场。
     """
 
     if isinstance(outcome, Mapping):
-        entries = [*(outcome.get("cancelled") or []), *(outcome.get("cancelling") or [])]
+        entries = outcome.get("cancelled") or []
         return task_id in {_cancelled_entry_id(entry) for entry in entries}
     return bool(outcome)
 
