@@ -34,9 +34,11 @@ _KEY_PREFIX = "artifact-key-v1:"
 MANIFEST_FILENAME = ".arcreel_artifacts.json"
 LOCK_FILENAME = ".artifact_manifest.lock"
 MANIFEST_SCHEMA_VERSION = 1
+ARCHIVE_MANIFEST_SCHEMA_VERSION = 2
 HASH_ALGORITHM = "sha256-v1"
 LOCK_TIMEOUT_SECONDS = 10.0
 _DIGEST_RE = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
+_CONTENT_DIGEST_RE = re.compile(r"[0-9a-f]{64}\Z")
 _RESERVED_ARTIFACT_PATHS = frozenset({MANIFEST_FILENAME, LOCK_FILENAME})
 _WINDOWS_RESERVED_ARTIFACT_PATHS = frozenset(path.casefold() for path in _RESERVED_ARTIFACT_PATHS)
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
@@ -95,6 +97,14 @@ class ArtifactComparison:
 class ArtifactManifestEntry:
     artifact_path: str
     basis_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactManifestArchiveSnapshot:
+    """Complete portable claims bound to the exported formal artifact bytes."""
+
+    entries: Mapping[ArtifactKey, ArtifactManifestEntry]
+    content_digests: Mapping[ArtifactKey, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1892,26 +1902,96 @@ def _assert_unique_artifact_paths(entries: Mapping[str, ArtifactManifestEntry]) 
 
 
 def encode_artifact_manifest_payload(
-    entries: Mapping[ArtifactKey, ArtifactManifestEntry],
+    snapshot: ArtifactManifestArchiveSnapshot,
 ) -> dict[str, object]:
-    """Encode a complete Manifest snapshot for a visible transport envelope."""
+    """Encode complete claims and their formal-byte evidence for an archive."""
 
-    encoded = _encode_target_entries(entries)
-    payload = json.loads(_serialize_manifest(encoded).decode("utf-8"))
-    if not isinstance(payload, dict):
-        raise ArtifactManifestError("encoded artifact manifest payload is not an object")
-    return cast(dict[str, object], payload)
+    encoded = _encode_target_entries(snapshot.entries)
+    content_digests: dict[str, str] = {}
+    for key, digest in snapshot.content_digests.items():
+        if not isinstance(key, ArtifactKey):
+            raise TypeError("archive artifact content digest keys must be ArtifactKey values")
+        if not isinstance(digest, str) or _CONTENT_DIGEST_RE.fullmatch(digest) is None:
+            raise ValueError("archive artifact content digest must be a lowercase SHA-256 digest")
+        content_digests[key.encode()] = digest
+    if set(content_digests) != set(encoded):
+        raise ValueError("archive artifact content digests must cover the complete Manifest snapshot")
+    return {
+        "entries": {
+            key: {
+                "artifact_path": entry.artifact_path,
+                "basis_digest": entry.basis_digest,
+                "content_digest": content_digests[key],
+            }
+            for key, entry in sorted(encoded.items())
+        },
+        "hash_algorithm": HASH_ALGORITHM,
+        "schema_version": ARCHIVE_MANIFEST_SCHEMA_VERSION,
+    }
 
 
-def decode_artifact_manifest_payload(payload: object) -> Mapping[ArtifactKey, ArtifactManifestEntry]:
-    """Strictly decode a complete Manifest snapshot from a transport envelope."""
+def decode_artifact_manifest_payload(payload: object) -> ArtifactManifestArchiveSnapshot:
+    """Strictly decode claims and formal-byte evidence from an archive envelope."""
 
     try:
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
     except (TypeError, ValueError, UnicodeError) as exc:
         raise ArtifactManifestError(f"artifact manifest payload is not JSON: {exc}") from exc
-    encoded = _parse_manifest(raw)
-    return {ArtifactKey.decode(key): entry for key, entry in encoded.items()}
+    try:
+        decoded = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ArtifactManifestError(f"archive artifact manifest is not valid UTF-8 JSON: {exc}") from exc
+    except RecursionError as exc:
+        raise ArtifactManifestError("archive artifact manifest exceeds the JSON nesting limit") from exc
+    if not isinstance(decoded, dict) or set(decoded) != {"entries", "hash_algorithm", "schema_version"}:
+        raise ArtifactManifestError("archive artifact manifest has an invalid top-level schema")
+    if type(decoded["schema_version"]) is not int or decoded["schema_version"] != ARCHIVE_MANIFEST_SCHEMA_VERSION:
+        raise ArtifactManifestError(
+            f"unsupported archive artifact manifest schema_version: {decoded['schema_version']!r}"
+        )
+    if decoded["hash_algorithm"] != HASH_ALGORITHM:
+        raise ArtifactManifestError(
+            f"unsupported archive artifact manifest hash_algorithm: {decoded['hash_algorithm']!r}"
+        )
+    raw_entries = decoded["entries"]
+    if not isinstance(raw_entries, dict):
+        raise ArtifactManifestError("archive artifact manifest entries must be an object")
+
+    entries: dict[ArtifactKey, ArtifactManifestEntry] = {}
+    content_digests: dict[ArtifactKey, str] = {}
+    encoded_entries: dict[str, ArtifactManifestEntry] = {}
+    for encoded_key, raw_entry in raw_entries.items():
+        if not isinstance(encoded_key, str):
+            raise ArtifactManifestError("archive artifact manifest entry keys must be strings")
+        try:
+            key = ArtifactKey.decode(encoded_key)
+        except ValueError as exc:
+            raise ArtifactManifestError(f"archive artifact manifest contains an invalid key: {encoded_key!r}") from exc
+        if not isinstance(raw_entry, dict) or set(raw_entry) != {
+            "artifact_path",
+            "basis_digest",
+            "content_digest",
+        }:
+            raise ArtifactManifestError(f"archive artifact manifest entry has an invalid schema: {encoded_key}")
+        artifact_path = raw_entry["artifact_path"]
+        basis_digest = raw_entry["basis_digest"]
+        content_digest = raw_entry["content_digest"]
+        try:
+            normalized_path = _normalize_relative_path(artifact_path)
+        except (TypeError, ValueError) as exc:
+            raise ArtifactManifestError(f"archive artifact manifest entry has an invalid path: {encoded_key}") from exc
+        if normalized_path != artifact_path:
+            raise ArtifactManifestError(f"archive artifact manifest entry path is not canonical: {encoded_key}")
+        if not isinstance(basis_digest, str) or _DIGEST_RE.fullmatch(basis_digest) is None:
+            raise ArtifactManifestError(f"archive artifact manifest entry has an invalid basis digest: {encoded_key}")
+        if not isinstance(content_digest, str) or _CONTENT_DIGEST_RE.fullmatch(content_digest) is None:
+            raise ArtifactManifestError(f"archive artifact manifest entry has an invalid content digest: {encoded_key}")
+        entry = ArtifactManifestEntry(artifact_path=normalized_path, basis_digest=basis_digest)
+        entries[key] = entry
+        content_digests[key] = content_digest
+        encoded_entries[encoded_key] = entry
+    _assert_unique_artifact_paths(encoded_entries)
+    return ArtifactManifestArchiveSnapshot(entries=entries, content_digests=content_digests)
 
 
 def _parse_manifest(raw: bytes, *, validate_path_ownership: bool = True) -> dict[str, ArtifactManifestEntry]:

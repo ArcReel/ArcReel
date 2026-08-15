@@ -18,7 +18,7 @@ from typing import Any
 from lib.artifact_activation import (
     TARGET_SCHEMA_VERSION,
     ensure_imported_artifact_target_state,
-    rebase_preserved_artifact_entries,
+    snapshot_preserved_artifact_manifest,
 )
 from lib.artifact_manifest import (
     ArtifactKey,
@@ -375,14 +375,14 @@ class ProjectArchiveService:
                     # claim snapshot 放进 visible archive envelope；旧的手工归档没有该字段，
                     # 仍走 self-proving reconstruction。两条路径均在 staging 一次性提交。
                     try:
-                        preserved_entries = (
+                        preserved_manifest = (
                             decode_artifact_manifest_payload(manifest["artifact_manifest"])
                             if isinstance(manifest, dict) and "artifact_manifest" in manifest
                             else None
                         )
                         ensure_imported_artifact_target_state(
                             staging_dir,
-                            preserved_entries=preserved_entries,
+                            preserved_manifest=preserved_manifest,
                         )
                     except _ARTIFACT_ACTIVATION_ERRORS as exc:
                         self._raise_artifact_activation_validation_error(diagnostics, exc)
@@ -458,7 +458,7 @@ class ProjectArchiveService:
             if source_manifest_entries is None:
                 raise ArtifactManifestError("schema-v8 archive snapshot has no matching Artifact Manifest state")
             artifact_manifest = encode_artifact_manifest_payload(
-                rebase_preserved_artifact_entries(
+                snapshot_preserved_artifact_manifest(
                     snapshot_dir,
                     source_manifest_entries,
                 )

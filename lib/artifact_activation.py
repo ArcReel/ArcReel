@@ -27,6 +27,7 @@ from lib.artifact_manifest import (
     ArtifactKind,
     ArtifactManifest,
     ArtifactManifestAdapter,
+    ArtifactManifestArchiveSnapshot,
     ArtifactManifestEntry,
     ArtifactManifestError,
     ArtifactStatus,
@@ -1461,15 +1462,15 @@ def activate_artifact_target_state(project_dir: Path, *, bump_schema: bool) -> b
 def ensure_imported_artifact_target_state(
     project_dir: Path,
     *,
-    preserved_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
+    preserved_manifest: ArtifactManifestArchiveSnapshot | None = None,
 ) -> bool:
     """Eagerly materialize the v8 sidecar at the archive staging boundary.
 
     Official exports carry the complete source Manifest in their visible archive
-    envelope.  Its digests are immutable generation evidence: validate every key
-    and formal path against the imported canonical target plan, then restore that
-    whole snapshot in one commit.  Legacy archives without the envelope retain
-    the self-proving reconstruction path.
+    envelope.  Its basis digests are immutable generation evidence and its content
+    digests bind those claims to the exported formal bytes.  Validate both against
+    the imported canonical target plan, then restore that whole snapshot in one
+    commit.  Legacy archives without the envelope retain the self-proving path.
     """
 
     raw = (project_dir / "project.json").read_bytes()
@@ -1479,15 +1480,49 @@ def ensure_imported_artifact_target_state(
         raise ValueError("project.json is not valid UTF-8 JSON") from exc
     if not isinstance(project, Mapping) or project.get("schema_version") != TARGET_SCHEMA_VERSION:
         raise ValueError("archive activation requires a schema-v8 project")
-    if preserved_entries is not None:
+    if preserved_manifest is not None:
+        preserved_entries = dict(preserved_manifest.entries)
+        preserved_content_digests = dict(preserved_manifest.content_digests)
+        if set(preserved_entries) != set(preserved_content_digests):
+            raise ValueError("archive Artifact Manifest content evidence does not cover every formal claim")
+        with project_metadata_lock(project_dir):
+            plan = _plan_preserved_artifact_target_state(project_dir)
+            rebased = _rebase_preserved_artifact_entries(plan, preserved_entries)
+            invalid = [key.encode() for key, archived in preserved_entries.items() if rebased[key] != archived]
+            if invalid:
+                raise ValueError(f"archive Artifact Manifest contains unprovable formal claims: {sorted(invalid)}")
+            _assert_preflight_unchanged(project_dir, plan)
+            adapter = ProjectArtifactManifestAdapter(project_dir)
+            replaced = [
+                key.encode()
+                for key, entry in preserved_entries.items()
+                if _artifact_content_digest(adapter, entry.artifact_path) != preserved_content_digests[key]
+            ]
+            if replaced:
+                raise ValueError(
+                    f"archive Artifact Manifest formal artifact content does not match its claims: {sorted(replaced)}"
+                )
+            _assert_preflight_unchanged(project_dir, plan)
+            return adapter.replace_entries_atomically(preserved_entries)
+    return activate_artifact_target_state(project_dir, bump_schema=False)
+
+
+def snapshot_preserved_artifact_manifest(
+    project_dir: Path,
+    preserved_entries: Mapping[ArtifactKey, ArtifactManifestEntry],
+) -> ArtifactManifestArchiveSnapshot:
+    """Rebase preserved claims and bind them to one stable formal-byte snapshot."""
+
+    with project_metadata_lock(project_dir):
         plan = _plan_preserved_artifact_target_state(project_dir)
         rebased = _rebase_preserved_artifact_entries(plan, preserved_entries)
-        invalid = [key.encode() for key, archived in preserved_entries.items() if rebased[key] != archived]
-        if invalid:
-            raise ValueError(f"archive Artifact Manifest contains unprovable formal claims: {sorted(invalid)}")
         _assert_preflight_unchanged(project_dir, plan)
-        return ProjectArtifactManifestAdapter(project_dir).replace_entries_atomically(dict(preserved_entries))
-    return activate_artifact_target_state(project_dir, bump_schema=False)
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        content_digests = {
+            key: _artifact_content_digest(adapter, entry.artifact_path) for key, entry in rebased.items()
+        }
+        _assert_preflight_unchanged(project_dir, plan)
+    return ArtifactManifestArchiveSnapshot(entries=rebased, content_digests=content_digests)
 
 
 def rebase_preserved_artifact_entries(
@@ -2646,5 +2681,6 @@ __all__ = [
     "resolve_usable_episode_script_input",
     "resolve_usable_artifact_input_claim",
     "resolve_usable_storyboard_video_inputs",
+    "snapshot_preserved_artifact_manifest",
     "snapshot_usable_artifact_input_claim",
 ]

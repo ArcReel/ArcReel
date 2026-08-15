@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 import shutil
@@ -382,6 +383,39 @@ class TestProjectArchiveService:
         assert imported_manifest == startup_manifest
 
     @pytest.mark.unit
+    def test_import_rejects_official_manifest_claim_when_formal_bytes_were_replaced(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        migrate_v7_to_v8(project_dir)
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+        tampered_path = tmp_path / "tampered.zip"
+        with (
+            zipfile.ZipFile(archive_path) as source,
+            zipfile.ZipFile(
+                tampered_path,
+                "w",
+                compression=zipfile.ZIP_DEFLATED,
+            ) as target,
+        ):
+            for member in source.infolist():
+                content = source.read(member)
+                if member.filename == "demo/characters/Hero.png":
+                    content = b"replaced-formal-bytes"
+                target.writestr(member, content)
+        shutil.rmtree(project_dir)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(tampered_path, uploaded_filename="tampered.zip")
+
+        assert any(item.code == "artifact_activation_failed" for item in exc_info.value.diagnostics.blocking)
+        assert not pm.project_exists("demo")
+
+    @pytest.mark.unit
     def test_official_round_trip_preserves_a_stale_asset_claim(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
@@ -439,14 +473,15 @@ class TestProjectArchiveService:
             ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="scripts/episode_1.json").status
             is ArtifactStatus.STALE
         )
-
         archive_path, _ = ProjectArchiveService(pm).export_project("demo")
         with zipfile.ZipFile(archive_path) as archive:
             archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
             entry = archive_manifest["artifact_manifest"]["entries"][key.encode()]
+            content_digest = hashlib.sha256(archive.read(f"demo/{before.artifact_path}")).hexdigest()
             assert entry == {
                 "artifact_path": before.artifact_path,
                 "basis_digest": before.basis_digest,
+                "content_digest": content_digest,
             }
         shutil.rmtree(project_dir)
 
@@ -499,6 +534,7 @@ class TestProjectArchiveService:
         assert archive_manifest["artifact_manifest"]["entries"][key.encode()] == {
             "artifact_path": before.artifact_path,
             "basis_digest": before.basis_digest,
+            "content_digest": hashlib.sha256(b"grid-image").hexdigest(),
         }
 
     @pytest.mark.unit
@@ -543,6 +579,7 @@ class TestProjectArchiveService:
         assert archive_manifest["artifact_manifest"]["entries"][key.encode()] == {
             "artifact_path": "characters/Hero.png",
             "basis_digest": f"sha256-v1:{'f' * 64}",
+            "content_digest": hashlib.sha256(b"new-formal-bytes").hexdigest(),
         }
 
     @pytest.mark.unit
@@ -617,6 +654,7 @@ class TestProjectArchiveService:
         assert archive_manifest["artifact_manifest"]["entries"][key.encode()] == {
             "artifact_path": "characters/Hero.png",
             "basis_digest": f"sha256-v1:{'f' * 64}",
+            "content_digest": hashlib.sha256(b"new-formal-bytes").hexdigest(),
         }
 
     @pytest.mark.unit
@@ -714,9 +752,11 @@ class TestProjectArchiveService:
         with zipfile.ZipFile(archive_path) as archive:
             archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
             archived_entry = archive_manifest["artifact_manifest"]["entries"][key.encode()]
+            content_digest = hashlib.sha256(archive.read("demo/characters/Hero.png")).hexdigest()
             assert archived_entry == {
                 "artifact_path": "characters/Hero.png",
                 "basis_digest": before.basis_digest,
+                "content_digest": content_digest,
             }
         shutil.rmtree(project_dir)
 
