@@ -7,12 +7,19 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from lib.video_backends.base import (
+    TERMINAL_PROVIDER_STATUSES,
     AmbiguousSubmitError,
     ProviderJobIdPersistenceMixin,
+    ProviderJobStatus,
     ResumeExpiredError,
     VideoGenerationRequest,
     VideoGenerationResult,
+    _dig,
+    extract_provider_error_message,
+    first_mapping_by_paths,
+    first_str_by_paths,
     is_retryable_http_status,
+    normalize_provider_status,
     persist_api_call_id,
     persist_provider_job_id,
     poll_with_retry,
@@ -240,6 +247,105 @@ class TestPollWithRetry:
 
         assert result == "done"
         assert poll_fn.await_count == 2
+
+
+class TestNormalizeProviderStatus:
+    """跨厂商状态串归一：OpenAI 兼容代理会把底层厂商的状态串原样透传。"""
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("completed", ProviderJobStatus.SUCCEEDED),
+            ("succeeded", ProviderJobStatus.SUCCEEDED),
+            ("succeed", ProviderJobStatus.SUCCEEDED),
+            ("success", ProviderJobStatus.SUCCEEDED),
+            ("SUCCEEDED", ProviderJobStatus.SUCCEEDED),
+            ("  succeeded  ", ProviderJobStatus.SUCCEEDED),
+            ("failed", ProviderJobStatus.FAILED),
+            ("fail", ProviderJobStatus.FAILED),
+            ("error", ProviderJobStatus.FAILED),
+            ("FAILED", ProviderJobStatus.FAILED),
+            ("canceled", ProviderJobStatus.FAILED),
+            ("cancelled", ProviderJobStatus.FAILED),
+            ("in_progress", ProviderJobStatus.RUNNING),
+            ("Processing", ProviderJobStatus.RUNNING),
+            ("generating", ProviderJobStatus.RUNNING),
+            ("PENDING", ProviderJobStatus.QUEUED),
+            ("submitted", ProviderJobStatus.QUEUED),
+            # 未知 / 非字符串 → 当 running 继续轮询（保守：不对未就绪任务触发下载）
+            ("NOT_START", ProviderJobStatus.RUNNING),
+            ("weird-status", ProviderJobStatus.RUNNING),
+            (None, ProviderJobStatus.RUNNING),
+            (99, ProviderJobStatus.RUNNING),
+        ],
+    )
+    def test_normalize(self, raw, expected):
+        assert normalize_provider_status(raw) is expected
+
+    @pytest.mark.parametrize("raw", ["expired", "EXPIRED", " Expired "])
+    def test_expired_is_its_own_bucket(self, raw):
+        """expired 不得折进 failed：caller 据其按 generate / resume 分流抛不同异常。"""
+        assert normalize_provider_status(raw) is ProviderJobStatus.EXPIRED
+
+    def test_terminal_set(self):
+        assert TERMINAL_PROVIDER_STATUSES == frozenset(
+            {ProviderJobStatus.SUCCEEDED, ProviderJobStatus.FAILED, ProviderJobStatus.EXPIRED}
+        )
+        assert ProviderJobStatus.RUNNING not in TERMINAL_PROVIDER_STATUSES
+        assert ProviderJobStatus.QUEUED not in TERMINAL_PROVIDER_STATUSES
+
+
+class TestDigAndFirstStrByPaths:
+    def test_walks_dict_and_list_index(self):
+        payload = {"data": {"videos": [{"url": "u0"}, {"url": "u1"}]}}
+        assert _dig(payload, ("data", "videos", 1, "url")) == "u1"
+
+    def test_missing_segment_returns_none(self):
+        assert _dig({"a": 1}, ("a", "b")) is None
+
+    def test_first_str_by_paths_priority(self):
+        paths = (("url",), ("data", "result_url"))
+        assert first_str_by_paths({"url": "a", "data": {"result_url": "b"}}, paths) == "a"
+        assert first_str_by_paths({"data": {"result_url": "b"}}, paths) == "b"
+        assert first_str_by_paths({"url": "   ", "data": {"result_url": "b"}}, paths) == "b"
+        assert first_str_by_paths({"foo": "bar"}, paths) is None
+
+    def test_first_mapping_by_paths_priority(self):
+        paths = (("metadata",), ("data", "metadata"))
+        assert first_mapping_by_paths({"metadata": {"seed": 1}, "data": {"metadata": {"seed": 2}}}, paths) == {
+            "seed": 1
+        }
+        assert first_mapping_by_paths({"data": {"metadata": {"seed": 2}}}, paths) == {"seed": 2}
+        assert first_mapping_by_paths({"metadata": "not-a-mapping", "data": {"metadata": {"seed": 2}}}, paths) == {
+            "seed": 2
+        }
+        assert first_mapping_by_paths({"foo": "bar"}, paths) is None
+
+
+class TestExtractProviderErrorMessage:
+    def test_dict_error_message(self):
+        assert extract_provider_error_message({"error": {"code": 500, "message": "upstream down"}}) == "upstream down"
+
+    def test_dict_error_name_fallback(self):
+        assert extract_provider_error_message({"error": {"name": "moderation"}}) == "moderation"
+
+    def test_blank_message_falls_back_to_name(self):
+        assert extract_provider_error_message({"error": {"message": "   ", "name": "moderation"}}) == "moderation"
+
+    def test_non_string_message_falls_back_to_name(self):
+        assert (
+            extract_provider_error_message({"error": {"message": {"detail": "x"}, "name": "moderation"}})
+            == "moderation"
+        )
+
+    def test_string_error(self):
+        assert extract_provider_error_message({"error": " boom "}) == "boom"
+
+    def test_wrapped_error(self):
+        assert extract_provider_error_message({"data": {"error": {"message": "nested"}}}) == "nested"
+
+    def test_missing_error_is_unknown(self):
+        assert extract_provider_error_message({"status": "failed"}) == "unknown"
 
 
 class TestIsRetryableHttpStatus:
