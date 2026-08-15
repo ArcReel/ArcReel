@@ -578,7 +578,9 @@ def _storyboard_item_aliases(item: dict[str, Any], id_field: str) -> set[str]:
     点名都要指到同一个条目，否则同一个名字在不同入口指向不同条目。
     """
 
-    aliases = {item.get(id_field), item.get("scene_id")}
+    # 先按类型过滤再进集合：脏剧本里的 list / dict 别名不可哈希，直接建集合会抛 TypeError，
+    # 逐目标的拒绝契约就塌成一句通用报错。
+    aliases = (item.get(id_field), item.get("scene_id"))
     return {alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()}
 
 
@@ -606,6 +608,7 @@ def _screen_storyboard_items(
     clean: list[dict[str, Any]] = []
     tickets: list[UnitAdmissionTicket] = []
     seen: set[str] = set()
+    addressable: list[tuple[dict[str, Any], str]] = []
     taken = {
         str(_storyboard_item_id(item, id_field)).strip()
         for item in items
@@ -652,8 +655,8 @@ def _screen_storyboard_items(
                     )
                 )
             continue
-        if named is not None and item_id not in named and str(item.get(id_field) or "") not in named:
-            clean.append(item)
+        if named is not None:
+            addressable.append((item, item_id))
             continue
         if item_id in seen:
             tickets.append(
@@ -669,26 +672,33 @@ def _screen_storyboard_items(
         clean.append(item)
     if named is None:
         return clean, tickets
-    # 点名可以用 ``scene_id`` 别名，而规范 ID 的去重看不见它：同一个别名落在两个条目上时，
-    # 各入口按各自的查法分别选中头一个或末一个，同一次点名在不同入口指向不同条目。
-    holders: dict[str, list[dict[str, Any]]] = {}
-    for item in clean:
-        for alias in _storyboard_item_aliases(item, id_field) & named:
-            holders.setdefault(alias, []).append(item)
-    ambiguous = {id(item) for alias, owners in holders.items() if len(owners) > 1 for item in owners}
-    if not ambiguous:
-        return clean, tickets
-    tickets.extend(
-        refused_ticket(
-            alias,
-            code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-            detail=f"ID {alias} 在剧本中指向多个条目",
-            action=GenerationAction.FIX_INPUT,
+
+    # 点名可以用规范 ID，也可以用 ``scene_id`` 别名，两者在剧本里可以不同；执行期按规范 ID
+    # 定位目标。因此一个名字指到几个条目，要把「直接被它寻址的条目」连同「与之共用规范 ID
+    # 的兄弟」一起数：只按名字数会漏掉别名不同、规范 ID 相同的那种，各入口按各自的查法分别
+    # 选中头一个或末一个，同一次点名在不同入口做的是不同条目。
+    by_canonical: dict[str, list[dict[str, Any]]] = {}
+    for item, item_id in addressable:
+        by_canonical.setdefault(item_id, []).append(item)
+    ambiguous: set[int] = set()
+    for name in sorted(named):
+        owners = {id(item) for item, _ in addressable if name in _storyboard_item_aliases(item, id_field)}
+        targets = {
+            id(sibling) for item, item_id in addressable if id(item) in owners for sibling in by_canonical[item_id]
+        }
+        if len(targets) <= 1:
+            continue
+        ambiguous |= targets
+        tickets.append(
+            refused_ticket(
+                name,
+                code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                detail=f"ID {name} 在剧本中指向多个条目",
+                action=GenerationAction.FIX_INPUT,
+            )
         )
-        for alias, owners in holders.items()
-        if len(owners) > 1
-    )
-    return [item for item in clean if id(item) not in ambiguous], tickets
+    clean.extend(item for item, _ in addressable if id(item) not in ambiguous)
+    return clean, tickets
 
 
 def _build_video_specs(
@@ -1825,9 +1835,10 @@ def generate_video_selected_tool(ctx: ToolContext):
 
             items_by_id: dict[str, dict[str, Any]] = {}
             for item in items:
-                items_by_id[item.get(id_field, "")] = item
-                if "scene_id" in item:
-                    items_by_id[item["scene_id"]] = item
+                # 按同一份「能寻址到它的写法」建索引：直接拿原值当键，脏剧本里的 list / dict
+                # 别名会抛 TypeError，逐目标的结论就塌成一句通用报错。
+                for alias in _storyboard_item_aliases(item, id_field):
+                    items_by_id[alias] = item
 
             builder = GenerationResultBuilder(_SELECTED_OPERATION, GenerationSelectionMode.EXPLICIT)
             selected: list[dict[str, Any]] = []

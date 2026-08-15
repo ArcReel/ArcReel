@@ -494,6 +494,50 @@ class TestStoryboardGateEntersAdmission:
         }
         assert codes["SC1"] == ["generation_unit_request_invalid"]
 
+    async def test_a_non_scalar_alias_does_not_break_addressing(self, tmp_path, monkeypatch):
+        """脏剧本把 scene_id 写成数组：按名字寻址前先判类型，该条目仍能按规范 ID 点名。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments[0]["scene_id"] = ["E1S01"]
+
+        tool_obj = mod.generate_video_selected_tool(ctx)
+        out = await tool_obj.handler({"script": "episode_1.json", "scene_ids": ["E1S01"]})
+
+        # 别名不可用不影响按规范 ID 寻址：不崩、不塌成一句通用报错，该目标照常进入这批。
+        assert out.get("is_error") is not True, out
+        assert [spec.resource_id for spec in enqueue.await_args.kwargs["specs"]] == ["E1S01"]
+
+    async def test_two_aliases_over_one_canonical_id_are_refused(self, tmp_path, monkeypatch):
+        """两个条目共用规范 ID、别名各不相同：按别名点名同样无从判定要做哪一条。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments[0]["scene_id"] = "A"
+        segments.append({**segments[0], "scene_id": "B"})
+
+        tool_obj = mod.generate_video_selected_tool(ctx)
+        out = await tool_obj.handler({"script": "episode_1.json", "scene_ids": ["B"]})
+
+        enqueue.assert_not_awaited()
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes["B"] == ["generation_unit_request_invalid"]
+
     async def test_generate_all_keeps_an_id_less_item_in_the_verdict(self, tmp_path, monkeypatch):
         """缺 ID 的条目进不了目标集合，但它属于这次请求：健康的兄弟条目不会独自入队计费。"""
 
@@ -540,4 +584,5 @@ class TestStoryboardGateEntersAdmission:
             unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
             for unit in out["batch_admission"]["units"]
         }
-        assert codes["E1S01#1"] == ["generation_unit_request_invalid"]
+        # 结论记在用户点的那个名字上：他要的是 E1S01，得到的是「这个名字指向多个条目」。
+        assert codes["E1S01"] == ["generation_unit_request_invalid"]
