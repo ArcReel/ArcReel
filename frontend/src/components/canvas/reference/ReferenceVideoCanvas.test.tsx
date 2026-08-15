@@ -787,11 +787,11 @@ describe("ReferenceVideoCanvas", () => {
     expect(genSpy).not.toHaveBeenCalled();
   });
 
-  // 批量入口的保护对象是「全部待生成 unit」：占用的 unit 静默跳过（逐个报错只会刷屏），
-  // 没有待生成 unit 时按钮直接禁用——此前禁用条件只看当前选中 unit，与保护对象无关。
-  it("批量生成不把提交时刻已被占用的 unit 列进目标集合", async () => {
+  // 批量入口的作用对象是「全部尚无成片的 unit」。在途任务与 needs_replan 是服务端准入要逐条
+  // 报告、并据此让整批零任务入队的缺口：在浏览器里先摘掉，服务端只会看到健康子集并照常建任务。
+  it("批量生成把在途与 needs_replan 的 unit 一并提交给服务端准入", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
-      units: [mkUnit("E1U1"), mkUnit("E1U2")],
+      units: [mkUnit("E1U1"), mkUnit("E1U2"), { ...mkUnit("E1U3"), needs_replan: true }],
     });
     const batchSpy = vi
       .spyOn(API, "generateReferenceVideoBatch")
@@ -803,7 +803,7 @@ describe("ReferenceVideoCanvas", () => {
     const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
     await waitFor(() => expect(batch).not.toBeDisabled());
 
-    // 渲染之后、点击之前，E1U1 已被别的入口占用；E1U2 仍空闲
+    // 渲染之后、点击之前，E1U1 已被别的入口占用
     act(() => {
       useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
     });
@@ -811,7 +811,7 @@ describe("ReferenceVideoCanvas", () => {
     fireEvent.click(batch);
     await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
     expect(batchSpy).toHaveBeenCalledWith("proj", 1, {
-      unit_ids: ["E1U2"],
+      unit_ids: ["E1U1", "E1U2", "E1U3"],
       narration_delivery: "post_production",
     });
   });
@@ -935,6 +935,28 @@ describe("ReferenceVideoCanvas", () => {
       unit_ids: ["E1U2"],
       narration_delivery: "post_production",
     });
+  });
+
+  // 复核把目标清空时界面必须说一句：两条提交路径都以裸 return 结束的话，用户看到的是
+  // 「点了没反应」，会以为任务已经提交。
+  it("复核后没有可提交的目标时给出提示", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    vi.spyOn(API, "uploadReferenceUnitVideo").mockReturnValue(new Promise(() => {}) as never);
+    const batchSpy = vi.spyOn(API, "generateReferenceVideoBatch");
+    vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
+    vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
+
+    const { container } = render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
+    await waitFor(() => expect(batch).not.toBeDisabled());
+
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(input!, { target: { files: [new File(["x"], "clip.mp4", { type: "video/mp4" })] } });
+
+    fireEvent.click(batch);
+
+    await waitFor(() => expect(useAppStore.getState().toast?.text).toBeTruthy());
+    expect(batchSpy).not.toHaveBeenCalled();
   });
 
   // 时长取档确认：模型只接受离散档位，请求时长基准落在档位之间时按能装下它的最小档位生成，

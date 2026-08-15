@@ -353,21 +353,32 @@ export function ReferenceVideoCanvas({
   );
 
   /**
-   * 批量入口的复核：占用之外还要求尚无成片——批量的作用对象就是「还没有成片的单元」。
+   * 批量入口的复核：只问「这个 unit 还缺成片吗」。
    *
-   * 任务完成后该 unit 不再 busy，而队列去重只看 queued/running/cancelling，确认弹窗停留
-   * 期间完成的单元若原样提交，会再跑一次生成、重复计费并覆盖刚出的成片。实时读 store
-   * 而非渲染期 units 快照。
+   * needs_replan、在途任务这类问题不在这里过滤——它们正是服务端准入要逐条报告、并据此
+   * 让整批零任务入队的缺口；在浏览器里先摘掉，服务端看到的就只剩健康子集，会照常建任务，
+   * 用户既看不到缺口也失去了全有或全无的保证。
+   *
+   * 已有成片的单元不同：它已经不是「缺成片」的目标。任务完成后该 unit 不再 busy，而队列
+   * 去重只看 queued/running/cancelling，确认弹窗停留期间完成的单元若原样提交，会再跑一次
+   * 生成、重复计费并覆盖刚出的成片。实时读 store 而非渲染期 units 快照。
+   *
+   * 本地写入（成片上传、版本恢复、时长保存）服务端看不见，也即将改写该 unit，同样排除。
    */
   const canEnqueueBatchUnit = useCallback(
     (unitId: string) => {
-      if (isUnitLocked(unitId)) return false;
+      // 只排除本画布自己的写入（服务端看不到它们）：生成占用与 needs_replan 交给准入去报告。
+      const hasLocalWrite =
+        uploading.ref.current.has(unitId) ||
+        restoring.ref.current.has(unitId) ||
+        durationSaving.ref.current.has(unitId);
+      if (hasLocalWrite) return false;
       const fresh = useReferenceVideoStore
         .getState()
         .unitsByEpisode[referenceVideoCacheKey(projectName, episode)]?.find((u) => u.unit_id === unitId);
-      return !fresh?.generated_assets?.video_clip && !fresh?.needs_replan;
+      return !fresh?.generated_assets?.video_clip;
     },
-    [isUnitLocked, projectName, episode],
+    [projectName, episode, uploading.ref, restoring.ref, durationSaving.ref],
   );
 
   const durationGate = useReferenceDurationGate({
@@ -517,11 +528,11 @@ export function ReferenceVideoCanvas({
     [handleGenerateNarration],
   );
 
-  // 批量生成的作用对象：全部待生成 unit。按钮禁用须与它同一口径——只看当前选中
-  // unit 是否在跑、与作用对象无关的判定会脱节：选中项空闲时按钮会在没有任何待生成
-  // unit 的情况下仍可点击，选中项在跑时又会挡住其余 unit 的批量生成。
+  // 批量生成的作用对象：全部尚无成片的 unit（含 needs_replan、在途、失败重试）。按钮禁用须与
+  // 它同一口径——只看当前选中 unit 是否在跑、与作用对象无关的判定会脱节：选中项空闲时按钮会在
+  // 没有任何待生成 unit 的情况下仍可点击，选中项在跑时又会挡住其余 unit 的批量生成。
   const batchTargets = useMemo(
-    () => units.filter((u) => statusMap[u.unit_id] === "pending" && !u.needs_replan),
+    () => units.filter((u) => statusMap[u.unit_id] !== "ready"),
     [units, statusMap],
   );
 
@@ -558,7 +569,10 @@ export function ReferenceVideoCanvas({
     // 同一 unit。命中即跳过，不当作错误提示——批量入口的语义是「把还能生成的都排上」，
     // 逐个报错只会刷屏。
     const targets = batchTargets.map((u) => u.unit_id).filter(canEnqueueBatchUnit);
-    if (targets.length === 0) return;
+    if (targets.length === 0) {
+      useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
+      return;
+    }
     await runBatch(targets);
   }, [batchTargets, canEnqueueBatchUnit, runBatch, t]);
 
@@ -584,14 +598,18 @@ export function ReferenceVideoCanvas({
     const targets = Array.from(
       new Set([...admission.units.map((u) => u.unit_id), ...durationByUnit.keys()]),
     ).filter(canEnqueueBatchUnit);
-    if (targets.length === 0) return;
+    if (targets.length === 0) {
+      // 弹窗此刻已关闭，不给反馈的话界面只是静静地什么也没发生。
+      useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
+      return;
+    }
     const confirmed: Record<string, number> = {};
     for (const unitId of targets) {
       const duration = durationByUnit.get(unitId);
       if (duration != null) confirmed[unitId] = duration;
     }
     void runBatch(targets, confirmed);
-  }, [batchAdmission, canEnqueueBatchUnit, runBatch]);
+  }, [batchAdmission, canEnqueueBatchUnit, runBatch, t]);
 
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
 

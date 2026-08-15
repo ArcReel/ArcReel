@@ -203,7 +203,11 @@ class _EpisodePM:
 
     def __init__(self, project_dir: Path, *, with_storyboard: bool) -> None:
         self._project_dir = project_dir
-        item: dict[str, Any] = {"segment_id": "E1S01", "video_prompt": "镜头平移"}
+        item: dict[str, Any] = {
+            "segment_id": "E1S01",
+            "novel_text": "镜头缓缓扫过原野。",
+            "video_prompt": "镜头平移",
+        }
         if with_storyboard:
             item["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
         self.script_payload: dict[str, Any] = {"content_mode": "narration", "episode": 1, "segments": [item]}

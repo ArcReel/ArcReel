@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -61,13 +61,13 @@ from lib.reference_video.request_projection import (
     ReferenceRequestOptions,
 )
 from lib.script_models import get_generated_assets, resolve_content_mode
-from lib.script_skeleton import ensure_route_skeleton, resolve_script_kind
+from lib.script_skeleton import ensure_route_skeleton, resolve_declared_kind
 from lib.speech_composition import (
     SpeechAdmissionError,
     require_script_unit_admitted,
     video_unit_replan_problems,
 )
-from lib.storyboard_sequence import get_storyboard_items
+from lib.storyboard_sequence import StoryboardImageUnavailable, get_storyboard_items
 from lib.version_manager import VersionManager
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
@@ -89,6 +89,15 @@ _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY = {
     "description": (
         "用户明确接受的本次视频请求秒数档位；仅在预检返回跨档费用提示后填写。"
         "它不冻结正文、引用、供应商或 TTS，当前投影改到其它档位时必须重新确认。"
+    ),
+}
+
+_CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY = {
+    "type": "object",
+    "additionalProperties": {"type": "integer", "minimum": 1},
+    "description": (
+        '按 unit_id 记的档位确认（{"E1U1": 8}）；一次请求里多个 unit 档位不同时用它，'
+        "让原目标集合仍作为一批重发。与 confirmed_request_duration_seconds 同时给出时，本字段按 unit 覆盖。"
     ),
 }
 
@@ -204,6 +213,27 @@ def _reference_request_options(args: dict[str, Any]) -> ReferenceRequestOptions:
     )
 
 
+def _confirmed_request_durations(args: dict[str, Any]) -> dict[str, int]:
+    """取按 unit 记的档位确认。
+
+    整批只有一个档位时标量入参就够用；档位不止一个时必须按 unit 记，否则调用方只能
+    拆成几次调用，而拆开之后先入队的那一档已经花掉了钱，原目标集合再也无法作为一批
+    重新评估。
+    """
+
+    raw = args.get("confirmed_request_durations")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"confirmed_request_durations 必须是 unit_id 到秒数档位的对象，收到 {type(raw).__name__}")
+    confirmed: dict[str, int] = {}
+    for unit_id, seconds in raw.items():
+        if not isinstance(seconds, int) or isinstance(seconds, bool) or seconds <= 0:
+            raise ValueError(f"confirmed_request_durations[{unit_id!r}] 必须是大于 0 的整数秒档位，收到 {seconds!r}")
+        confirmed[str(unit_id)] = seconds
+    return confirmed
+
+
 def _speech_admission_error(name: str, exc: SpeechAdmissionError, log: list[str] | None = None) -> dict[str, Any]:
     payload = exc.admission.to_dict()
     text = f"{name} 失败: unit {exc.admission.unit_id} 发声准入未通过；请按 problems 的 action 修复"
@@ -234,7 +264,12 @@ class BatchAdmissionRefused:
 def _confirmation_lines(admission: BatchAdmission) -> list[str]:
     lines = ["以下 unit 将改用不同的视频时长档位，需先向用户确认，本次未入队任何任务："]
     for tier in admission.confirmation_tiers():
-        headline = f"- {tier.request_duration_seconds}s 档位 × {tier.unit_count}：{'、'.join(tier.unit_ids)}"
+        # 档位解析不出来时该组没有可确认的秒数，照实说明；插值出 "None s 档位" 会让调用方
+        # 以为存在一个叫 None 的档位。
+        tier_label = (
+            f"{tier.request_duration_seconds}s 档位" if tier.request_duration_seconds is not None else "档位待定"
+        )
+        headline = f"- {tier_label} × {tier.unit_count}：{'、'.join(tier.unit_ids)}"
         if tier.cost_amount is not None:
             headline += f"；合计 {tier.cost_amount} {tier.cost_currency}"
         lines.append(headline)
@@ -252,13 +287,16 @@ def _confirmation_lines(admission: BatchAdmission) -> list[str]:
         if isinstance(baseline, int) and isinstance(requested, int) and requested != baseline:
             direction = "更长" if requested > baseline else "更短"
             delta = f"（成片{direction} {abs(requested - baseline)}s）"
+        requested_label = f"{requested}s" if isinstance(requested, int) else "档位待定"
         lines.append(
-            f"  · {ticket.unit_id}：{tier_basis}，将申请 {requested}s{delta}，时长基准 {params.get('duration_input')}s"
+            f"  · {ticket.unit_id}：{tier_basis}，将申请 {requested_label}{delta}，"
+            f"时长基准 {params.get('duration_input')}s"
         )
     lines.append(
-        "视频费用按上述申请档位计算，确认仅对本次请求有效。用户同意某个申请档位后，带 "
-        "confirmed_request_duration_seconds=<request_duration> 再次调用；若多个 unit 档位不同，"
-        "请按档位分组调用。"
+        "视频费用按上述申请档位计算，确认仅对本次请求有效。用户同意后，带 "
+        "confirmed_request_durations={<unit_id>: <request_duration>} 把原来这一批目标一次性重发；"
+        "整批只有一个档位时也可以用 confirmed_request_duration_seconds=<request_duration>。"
+        "不要按档位拆成多次调用——先入队的那一档已经花了钱，这批目标就不再是一次全有或全无的请求。"
     )
     return lines
 
@@ -326,6 +364,7 @@ async def _admit_storyboard_specs(
     id_field: str,
     specs: list[TaskSpec],
     request_options: ReferenceRequestOptions,
+    confirmed_request_durations: Mapping[str, int],
     operation: str,
     selection: GenerationSelectionMode,
     extra_tickets: list[UnitAdmissionTicket],
@@ -354,6 +393,7 @@ async def _admit_storyboard_specs(
         script_file=script_filename,
         items=targets,
         request_options=request_options,
+        confirmed_request_durations=confirmed_request_durations,
         operation=operation,
         selection=selection,
         extra_tickets=extra_tickets,
@@ -503,14 +543,21 @@ def _build_video_specs(
 ) -> tuple[list[TaskSpec], dict[str, int], list[UnitAdmissionTicket]]:
     """Build the storyboard-route specs, refusing each unit that cannot be requested.
 
-    A unit whose inputs or prompt are unusable is refused with its own code and
-    next action instead of being dropped into a log line, so one bad unit never
+    A unit whose speech, inputs or prompt are unusable is refused with its own code
+    and next action instead of being dropped into a log line, so one bad unit never
     silently shrinks the batch — and, because the refusal is a ticket rather than a
     recorded block, it can hold the whole batch back before any task exists.
+
+    发声准入在这里执行，与参考路线由 ``reference_unit_task_spec`` 承担的位置对应：
+    构造 TaskSpec 的这一步是「这个 unit 能不能被请求」的唯一口径，四个 storyboard 入口
+    （整集 / 全部 / 点名 / 单条）都经由它，混合发声与 needs_replan 因此在任何入口都会
+    在建任务之前扣住整批。
     """
 
     item_type = "片段" if content_mode == "narration" else "场景"
     skip_set = set(skip_ids or [])
+    # 本构造器只服务分镜路线，骨架种类由内容模式定：narration→segments、drama→scenes、ad→shots。
+    skeleton_kind = resolve_declared_kind(content_mode, "storyboard")
 
     specs: list[TaskSpec] = []
     order_map: dict[str, int] = {}
@@ -524,6 +571,14 @@ def _build_video_specs(
             continue
 
         try:
+            require_script_unit_admitted(skeleton_kind, item)
+        except SpeechAdmissionError as exc:
+            # 逐 ID 契约与既有 speech_admission 载荷并存：前者说「这个 ID 没做成、
+            # 下一步做什么」，后者带着准入自己的完整定位信息。
+            refused.append(_speech_admission_ticket(str(item_id), exc))
+            continue
+
+        try:
             resolve_usable_storyboard_video_inputs(
                 project_path=project_dir,
                 project=project,
@@ -534,11 +589,13 @@ def _build_video_specs(
                 allow_legacy_same_name=False,
             )
         except (OSError, ValueError) as exc:
+            # 分镜图本身不可用是最常见的一种，给出下一步该跑什么，而不是只报路径。
+            advice = "，请先运行 generate_storyboards" if isinstance(exc, StoryboardImageUnavailable) else ""
             refused.append(
                 refused_ticket(
                     str(item_id),
                     code=GenerationProblemCode.UNIT_INPUT_UNUSABLE,
-                    detail=f"{item_type} {item_id} 的视频输入不可用: {exc}",
+                    detail=f"{item_type} {item_id} 的视频输入不可用: {exc}{advice}",
                     action=GenerationAction.GENERATE_DEPENDENCY,
                 )
             )
@@ -725,6 +782,7 @@ async def _generate_reference_units(
     script: dict[str, Any],
     script_filename: str,
     request_options: ReferenceRequestOptions,
+    confirmed_request_durations: Mapping[str, int],
     reuse_existing: Callable[[dict[str, Any]], bool],
     operation: str,
     selection: GenerationSelectionMode,
@@ -820,6 +878,7 @@ async def _generate_reference_units(
         script_file=script_filename,
         units=targets,
         request_options=request_options,
+        confirmed_request_durations=confirmed_request_durations,
         operation=operation,
         selection=selection,
         extra_tickets=[*refused, *spec_refused],
@@ -866,6 +925,7 @@ async def _run_reference_episode(
     script_filename: str,
     resume: bool,
     request_options: ReferenceRequestOptions,
+    confirmed_request_durations: Mapping[str, int],
     log: list[str],
     operation: str,
 ) -> dict[str, Any]:
@@ -908,6 +968,7 @@ async def _run_reference_episode(
         script=script,
         script_filename=script_filename,
         request_options=request_options,
+        confirmed_request_durations=confirmed_request_durations,
         operation=operation,
         selection=GenerationSelectionMode.MISSING_ONLY,
         reuse_existing=lambda unit: _batch_video_is_reusable(
@@ -960,6 +1021,7 @@ async def _run_reference_units(
     script_filename: str,
     unit_ids: list[str],
     request_options: ReferenceRequestOptions,
+    confirmed_request_durations: Mapping[str, int],
     log: list[str],
     operation: str,
 ) -> dict[str, Any]:
@@ -1005,6 +1067,7 @@ async def _run_reference_units(
         script=script,
         script_filename=script_filename,
         request_options=request_options,
+        confirmed_request_durations=confirmed_request_durations,
         operation=operation,
         selection=GenerationSelectionMode.EXPLICIT,
         extra_tickets=unmatched_tickets,
@@ -1036,6 +1099,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                 },
                 "resume": {"type": "boolean", "description": "是否从上次中断处继续"},
                 "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
+                "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
                 "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
             },
             "required": ["script"],
@@ -1047,6 +1111,7 @@ def generate_video_episode_tool(ctx: ToolContext):
             script_filename = validate_script_filename(args["script"])
             resume = bool(args.get("resume"))
             request_options = _reference_request_options(args)
+            confirmed_request_durations = _confirmed_request_durations(args)
 
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
@@ -1059,6 +1124,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                     script_filename=script_filename,
                     resume=resume,
                     request_options=request_options,
+                    confirmed_request_durations=confirmed_request_durations,
                     log=log,
                     operation=_EPISODE_OPERATION,
                 )
@@ -1160,6 +1226,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                 id_field=id_field,
                 specs=specs,
                 request_options=request_options,
+                confirmed_request_durations=confirmed_request_durations,
                 operation=_EPISODE_OPERATION,
                 selection=GenerationSelectionMode.MISSING_ONLY,
                 extra_tickets=refused,
@@ -1218,6 +1285,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                     "description": "场景或片段 ID；reference_video 项目传 video_unit 的 unit_id（如 E1U2）",
                 },
                 "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
+                "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
                 "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
             },
             "required": ["script", "scene_id"],
@@ -1229,6 +1297,7 @@ def generate_video_scene_tool(ctx: ToolContext):
             script_filename = validate_script_filename(args["script"])
             scene_id = args["scene_id"]
             request_options = _reference_request_options(args)
+            confirmed_request_durations = _confirmed_request_durations(args)
 
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
@@ -1240,6 +1309,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                     script_filename=script_filename,
                     unit_ids=[scene_id],
                     request_options=request_options,
+                    confirmed_request_durations=confirmed_request_durations,
                     log=log,
                     operation=_SCENE_OPERATION,
                 )
@@ -1257,11 +1327,6 @@ def generate_video_scene_tool(ctx: ToolContext):
                     ),
                 )
                 return generation_result_response(builder.build(), log)
-            # 调用方可能用 ``scene_id`` 别名命中条目，但入队 / 文件名 / fallback
-            # 必须用脚本里的规范 ``id_field`` 值，否则下游 generate_video_all 和
-            # checkpoint 扫描会找不到产物。
-            item_id = str(item[id_field])
-
             project = ctx.pm.load_project(ctx.project_name)
             episode = (
                 resolve_artifact_episode(
@@ -1274,41 +1339,22 @@ def generate_video_scene_tool(ctx: ToolContext):
             currency = active_artifact_currency_resolver(project_dir, project)
             states = video_target_states([item], id_field, episode=episode, resolver=currency)
 
-            refused: list[UnitAdmissionTicket] = []
-            try:
-                require_script_unit_admitted(resolve_script_kind(script), item)
-            except SpeechAdmissionError as exc:
-                # 逐 ID 契约与既有 speech_admission 载荷并存：前者说「这个 ID 没做成、
-                # 下一步做什么」，后者带着准入自己的完整定位信息。
-                refused.append(_speech_admission_ticket(item_id, exc))
-
-            if not refused and not get_generated_assets(item).get("storyboard_image"):
-                refused.append(
-                    refused_ticket(
-                        item_id,
-                        code=GenerationProblemCode.UNIT_INPUT_UNUSABLE,
-                        detail=f"场景/片段 '{item_id}' 没有分镜图，请先运行 generate_storyboards",
-                        action=GenerationAction.GENERATE_DEPENDENCY,
-                    )
-                )
-
+            # 发声准入与输入可用性都由 _build_video_specs 判定，点名单条与整批走同一条缝：
+            # 两处各判一次，口径就会随其中一处的改动分叉。
             content_mode = resolve_content_mode(script, project)
             voice_characters = await _resolve_voice_context(ctx, content_mode)
-            specs: list[TaskSpec] = []
-            if not refused:
-                specs, _order_map, spec_refused = _build_video_specs(
-                    items=[item],
-                    id_field=id_field,
-                    content_mode=content_mode,
-                    script_filename=script_filename,
-                    project_dir=project_dir,
-                    project=project,
-                    episode=episode,
-                    resolver=currency,
-                    skip_ids=None,
-                    voice_characters=voice_characters,
-                )
-                refused.extend(spec_refused)
+            specs, _order_map, refused = _build_video_specs(
+                items=[item],
+                id_field=id_field,
+                content_mode=content_mode,
+                script_filename=script_filename,
+                project_dir=project_dir,
+                project=project,
+                episode=episode,
+                resolver=currency,
+                skip_ids=None,
+                voice_characters=voice_characters,
+            )
             if not specs and not refused:
                 return generation_result_response(builder.build(), log)
 
@@ -1321,6 +1367,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                 id_field=id_field,
                 specs=specs,
                 request_options=request_options,
+                confirmed_request_durations=confirmed_request_durations,
                 operation=_SCENE_OPERATION,
                 selection=GenerationSelectionMode.EXPLICIT,
                 extra_tickets=refused,
@@ -1361,6 +1408,7 @@ def generate_video_all_tool(ctx: ToolContext):
                     "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
                 },
                 "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
+                "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
                 "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
             },
             "required": ["script"],
@@ -1371,6 +1419,7 @@ def generate_video_all_tool(ctx: ToolContext):
         try:
             script_filename = validate_script_filename(args["script"])
             request_options = _reference_request_options(args)
+            confirmed_request_durations = _confirmed_request_durations(args)
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
@@ -1382,6 +1431,7 @@ def generate_video_all_tool(ctx: ToolContext):
                     script_filename=script_filename,
                     resume=False,
                     request_options=request_options,
+                    confirmed_request_durations=confirmed_request_durations,
                     log=log,
                     operation=_ALL_OPERATION,
                 )
@@ -1449,6 +1499,7 @@ def generate_video_all_tool(ctx: ToolContext):
                 id_field=id_field,
                 specs=specs,
                 request_options=request_options,
+                confirmed_request_durations=confirmed_request_durations,
                 operation=_ALL_OPERATION,
                 selection=GenerationSelectionMode.MISSING_ONLY,
                 extra_tickets=refused,
@@ -1500,6 +1551,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                     "description": "是否从上次中断处继续；reference_video 项目的点名重新生成会忽略此参数",
                 },
                 "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
+                "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
                 "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
             },
             "required": ["script", "scene_ids"],
@@ -1514,6 +1566,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             scene_ids: list[str] = normalize_requested_ids(args["scene_ids"], field="scene_ids") or []
             resume = bool(args.get("resume"))
             request_options = _reference_request_options(args)
+            confirmed_request_durations = _confirmed_request_durations(args)
 
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
@@ -1529,6 +1582,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                     script_filename=script_filename,
                     unit_ids=scene_ids,
                     request_options=request_options,
+                    confirmed_request_durations=confirmed_request_durations,
                     log=log,
                     operation=_SELECTED_OPERATION,
                 )
@@ -1632,6 +1686,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                 id_field=id_field,
                 specs=specs,
                 request_options=request_options,
+                confirmed_request_durations=confirmed_request_durations,
                 operation=_SELECTED_OPERATION,
                 selection=GenerationSelectionMode.EXPLICIT,
                 extra_tickets=refused,

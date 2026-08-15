@@ -2895,9 +2895,15 @@ async def test_generate_video_episode_non_dict_generated_assets_does_not_abort_b
     project_dir = fake_ctx.pm.get_project_path("demo")
     (project_dir / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
     fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
-        {"segment_id": "E1S01", "video_prompt": "脏数据", "generated_assets": ["bad"]},
+        {
+            "segment_id": "E1S01",
+            "novel_text": "第一段旁白。",
+            "video_prompt": "脏数据",
+            "generated_assets": ["bad"],
+        },
         {
             "segment_id": "E1S02",
+            "novel_text": "第二段旁白。",
             "video_prompt": "合法条目",
             "generated_assets": {"storyboard_image": "storyboards/scene_E1S02.png"},
         },
@@ -3251,6 +3257,113 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
 
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in enqueued] == ["E1U1"]
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_confirms_two_tiers_in_one_batch(fake_ctx: ToolContext, monkeypatch) -> None:
+    """一批里档位不止一个时按 unit 确认，原目标集合仍作为一批重发，不必拆成几次调用。"""
+    from lib.generation_queue_client import BatchTaskResult
+    from lib.reference_video.duration_slots import UP, DurationSlot
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    _use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = _reference_video_script(  # type: ignore[attr-defined]
+        video_units=[
+            {
+                "unit_id": "E1U1",
+                "shots": [{"text": "@张三 推门"}],
+                "references": [{"type": "character", "name": "张三"}],
+                "duration_seconds": 5,
+            },
+            {
+                "unit_id": "E1U2",
+                "shots": [{"text": "@张三 回头"}],
+                "references": [{"type": "character", "name": "张三"}],
+                "duration_seconds": 6,
+            },
+        ]
+    )
+    tiers = {"E1U1": 8, "E1U2": 12}
+
+    def fake_precheck(_ctx, unit):
+        seconds = tiers[str(unit.get("unit_id"))]
+        return DurationSlot(seconds=seconds, total_seconds=5, adjustment=UP)
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
+        for spec in specs:
+            enqueued.append(spec)
+            if on_success:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id=f"t-{spec.resource_id}",
+                        status="succeeded",
+                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(
+        "server.services.video_batch_admission.project_reference_unit_request",
+        _fake_reference_projection(fake_precheck),
+    )
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    tool_obj = generate_video_episode_tool(fake_ctx)
+
+    # 未确认：两个档位都在结论里，零任务入队。
+    unconfirmed = await _call(tool_obj, {"script": "episode_1.json"})
+    assert enqueued == []
+    listed = {
+        tier["request_duration_seconds"]: tier["unit_ids"]
+        for tier in unconfirmed["batch_admission"]["confirmation"]["tiers"]
+    }
+    assert listed == {8: ["E1U1"], 12: ["E1U2"]}
+
+    out = await _call(
+        tool_obj,
+        {"script": "episode_1.json", "confirmed_request_durations": {"E1U1": 8, "E1U2": 12}},
+    )
+
+    assert out.get("is_error") is not True, out
+    assert sorted(spec.resource_id for spec in enqueued) == ["E1U1", "E1U2"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "invalid",
+    [0, -1, 9.5, True, "12"],
+    ids=["zero", "negative", "fraction", "boolean", "string"],
+)
+def test_confirmed_request_durations_rejects_non_positive_int(invalid: object) -> None:
+    """按 unit 记的档位与标量档位同一口径：非正整数在入口就拒绝。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _confirmed_request_durations
+
+    with pytest.raises(ValueError, match="必须是大于 0 的整数秒档位"):
+        _confirmed_request_durations({"confirmed_request_durations": {"E1U1": invalid}})
+
+
+@pytest.mark.unit
+def test_confirmed_request_durations_rejects_non_mapping() -> None:
+    from server.agent_runtime.sdk_tools.enqueue_videos import _confirmed_request_durations
+
+    with pytest.raises(ValueError, match="必须是 unit_id 到秒数档位的对象"):
+        _confirmed_request_durations({"confirmed_request_durations": [8]})
+
+
+@pytest.mark.unit
+def test_every_video_agent_tool_exposes_per_unit_confirmations(fake_ctx: ToolContext) -> None:
+    """四个入口都能按 unit 确认档位：少一个，那个入口就只能拆成几次调用。"""
+
+    for tool_obj in (
+        generate_video_episode_tool(fake_ctx),
+        generate_video_all_tool(fake_ctx),
+        generate_video_selected_tool(fake_ctx),
+        generate_video_scene_tool(fake_ctx),
+    ):
+        properties = tool_obj.input_schema["properties"]  # type: ignore[index]
+        assert properties["confirmed_request_durations"]["additionalProperties"] == {"type": "integer", "minimum": 1}
 
 
 @pytest.mark.integration
@@ -4093,6 +4206,53 @@ async def test_generate_video_scene_accepts_legacy_narration_string_prompt(fake_
 
 
 @pytest.mark.unit
+async def test_generate_video_episode_storyboard_batch_blocks_on_mixed_speech(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """分镜路线的整批入口同样过发声准入：一个混合发声条目扣下整批，零任务入队。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    project_dir = fake_ctx.pm.get_project_path("demo")
+    for segment_id in ("E1S01", "E1S02"):
+        (project_dir / "storyboards" / f"scene_{segment_id}.png").write_bytes(b"png")
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {
+            "segment_id": "E1S01",
+            "novel_text": "风吹过旷野。",
+            # 旁白与角色台词同时出现：需要重规划，不是可以直接下单的条目。
+            "video_prompt": {"dialogue": [{"speaker": "阿离", "line": "快走。"}]},
+            "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+        },
+        {
+            "segment_id": "E1S02",
+            "novel_text": "他停下脚步。",
+            "video_prompt": "第二镜",
+            "generated_assets": {"storyboard_image": "storyboards/scene_E1S02.png"},
+        },
+    ]
+
+    enqueued: list[str] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
+        enqueued.extend(spec.resource_id for spec in specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    monkeypatch.setattr(
+        "server.services.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
+    )
+
+    out = await _call(generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert enqueued == []
+    assert out["is_error"] is True
+    result = _generation_result(out)
+    codes = {item.unit_id: item.problem.code for item in result.items if item.problem is not None}
+    assert codes["E1S01"] == "mixed_speech"
+    assert codes["E1S02"] == "generation_batch_admission_withheld"
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("case", SPEECH_CONTRACT_CASES, ids=lambda case: case.route_id)
 async def test_six_route_agent_single_video_generation_returns_structured_admission_without_enqueuing(
     fake_ctx: ToolContext,
@@ -4310,6 +4470,7 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
     items = [
         {
             "segment_id": "S01",
+            "novel_text": "他在旷野上奔跑。",
             "video_prompt": "一个奔跑的镜头",
             "duration_seconds": 7,  # 不属于任何典型 supported_durations
             "generated_assets": {"storyboard_image": "storyboards/scene_S01.png"},
@@ -4360,11 +4521,13 @@ def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch
     items = [
         {
             "segment_id": "S01",
+            "novel_text": "第一段旁白。",
             "video_prompt": "非法引用",
             "generated_assets": {"storyboard_image": storyboard_value},
         },
         {
             "segment_id": "S02",
+            "novel_text": "第二段旁白。",
             "video_prompt": "合法引用",
             "generated_assets": {"storyboard_image": "storyboards/scene_S02.png"},
         },
@@ -4390,9 +4553,15 @@ def test_build_video_specs_skips_non_dict_generated_assets_without_aborting_batc
     (tmp_path / "storyboards").mkdir()
     (tmp_path / "storyboards" / "scene_S02.png").write_bytes(b"png")
     items = [
-        {"segment_id": "S01", "video_prompt": "脏数据", "generated_assets": ["bad"]},
+        {
+            "segment_id": "S01",
+            "novel_text": "第一段旁白。",
+            "video_prompt": "脏数据",
+            "generated_assets": ["bad"],
+        },
         {
             "segment_id": "S02",
+            "novel_text": "第二段旁白。",
             "video_prompt": "合法引用",
             "generated_assets": {"storyboard_image": "storyboards/scene_S02.png"},
         },
@@ -4417,7 +4586,7 @@ async def test_generate_video_scene_generated_assets_non_dict_readable_rejection
     tool_obj = generate_video_scene_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1S01"})
     assert out.get("is_error") is True
-    assert "没有分镜图" in out["content"][0]["text"]
+    assert "请先运行 generate_storyboards" in out["content"][0]["text"]
 
 
 @pytest.mark.unit
@@ -8134,8 +8303,8 @@ async def test_generate_video_episode_batch_is_all_or_nothing_when_a_unit_is_occ
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
-        {"segment_id": "E1S01", "video_prompt": "第一镜"},
-        {"segment_id": "E1S02", "video_prompt": "第二镜"},
+        {"segment_id": "E1S01", "novel_text": "第一段旁白。", "video_prompt": "第一镜"},
+        {"segment_id": "E1S02", "novel_text": "第二段旁白。", "video_prompt": "第二镜"},
     ]
     project_dir = fake_ctx.pm.get_project_path("demo")
     for segment_id in ("E1S01", "E1S02"):
