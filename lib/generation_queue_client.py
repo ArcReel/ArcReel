@@ -484,28 +484,59 @@ async def batch_enqueue_and_wait(
     """
     if not specs:
         return [], []
-    # Phase 1 — Sequential enqueue (dependency resolution requires order)
+    # Phase 1 — Sequential enqueue (dependency resolution requires order). A
+    # raised ``enqueue_task_only`` used to abort this loop outright: earlier
+    # members were already queued (and possibly billed) but the caller never
+    # learned their fate, and later members never got a queue attempt at all
+    # — both silently missing from the promised per-ID result. Each spec's
+    # enqueue failure is instead captured here as its own ``BatchTaskResult``
+    # (``task_id=""`` marks "never queued", distinct from a queued task that
+    # later failed) so the batch keeps going and every requested ID ends up
+    # in exactly one of the two returned lists.
     task_ids: dict[str, str] = {}
+    enqueue_failures: list[BatchTaskResult] = []
+    failed_resource_ids: set[str] = set()
     for spec in specs:
+        if spec.dependency_resource_id and spec.dependency_resource_id in failed_resource_ids:
+            enqueue_failures.append(
+                BatchTaskResult(
+                    resource_id=spec.resource_id,
+                    task_id="",
+                    status="failed",
+                    error=f"dependency {spec.dependency_resource_id} failed to enqueue",
+                )
+            )
+            failed_resource_ids.add(spec.resource_id)
+            continue
         dep_task_id: str | None = None
         if spec.dependency_resource_id:
             dep_task_id = task_ids.get(spec.dependency_resource_id)
 
-        enqueue_result = await enqueue_task_only(
-            project_name=project_name,
-            task_type=spec.task_type,
-            media_type=spec.media_type,
-            resource_id=spec.resource_id,
-            payload=spec.payload,
-            script_file=spec.script_file,
-            source=spec.source,
-            dependency_task_id=dep_task_id,
-            dependency_group=spec.dependency_group,
-            dependency_index=spec.dependency_index,
-        )
+        try:
+            enqueue_result = await enqueue_task_only(
+                project_name=project_name,
+                task_type=spec.task_type,
+                media_type=spec.media_type,
+                resource_id=spec.resource_id,
+                payload=spec.payload,
+                script_file=spec.script_file,
+                source=spec.source,
+                dependency_task_id=dep_task_id,
+                dependency_group=spec.dependency_group,
+                dependency_index=spec.dependency_index,
+            )
+        except Exception as exc:  # noqa: BLE001
+            enqueue_failures.append(
+                BatchTaskResult(resource_id=spec.resource_id, task_id="", status="failed", error=str(exc))
+            )
+            failed_resource_ids.add(spec.resource_id)
+            continue
         task_ids[spec.resource_id] = enqueue_result["task_id"]
 
-    # Phase 2 — Parallel wait via asyncio.gather (single event loop)
+    # Phase 2 — Parallel wait via asyncio.gather (single event loop), only for
+    # specs that actually reached the queue.
+    enqueued_specs = [spec for spec in specs if spec.resource_id in task_ids]
+
     async def _wait_one(spec: TaskSpec) -> BatchTaskResult:
         tid = task_ids[spec.resource_id]
         try:
@@ -519,7 +550,7 @@ async def batch_enqueue_and_wait(
                 error=str(exc),
             )
 
-    results = await asyncio.gather(*[_wait_one(s) for s in specs])
+    results = await asyncio.gather(*[_wait_one(s) for s in enqueued_specs])
 
     successes: list[BatchTaskResult] = []
     failures: list[BatchTaskResult] = []
@@ -532,6 +563,11 @@ async def batch_enqueue_and_wait(
             failures.append(br)
             if on_failure:
                 on_failure(br)
+
+    for br in enqueue_failures:
+        failures.append(br)
+        if on_failure:
+            on_failure(br)
 
     return successes, failures
 

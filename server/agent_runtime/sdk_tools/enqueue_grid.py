@@ -9,7 +9,7 @@ an individual cell.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Iterable
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -67,7 +67,7 @@ def _scene_artifact_key(episode: int, scene_id: str, resolver: ArtifactCurrencyR
 
 def _fail_scenes(
     builder: GenerationResultBuilder,
-    scene_ids: Sequence[str],
+    scene_ids: Iterable[str],
     *,
     problem: GenerationProblem,
     episode: int,
@@ -206,7 +206,11 @@ def generate_grid_tool(ctx: ToolContext):
                 GenerationSelectionMode.EXPLICIT if explicit else GenerationSelectionMode.MISSING_ONLY,
             )
             log: list[str] = []
-            selected_groups: list[list[dict[str, Any]]] = []
+            # 每个已选分组连同它的缺口 ID 集合一起记录：整组仍要一起生成（联合图靠
+            # 相邻分镜连续性），但只有缺口 ID 才是这次调用实际请求生成的目标——组内
+            # 已复用（``builder.skip`` 已记账）的场景不能进这里，否则宫格结果落盘会
+            # 覆盖它们，且成功/失败回填时会撞上"重复记账"。
+            selected_groups: list[tuple[list[dict[str, Any]], frozenset[str]]] = []
 
             if explicit:
                 wanted = list(scene_ids or [])
@@ -221,7 +225,12 @@ def generate_grid_tool(ctx: ToolContext):
                                 action=GenerationAction.FIX_INPUT,
                             ),
                         )
-                selected_groups = [g for g in groups if any(str(item.get(id_field)) in set(wanted) for item in g)]
+                wanted_set = set(wanted)
+                selected_groups = [
+                    (g, frozenset(str(item.get(id_field)) for item in g if str(item.get(id_field)) in wanted_set))
+                    for g in groups
+                    if any(str(item.get(id_field)) in wanted_set for item in g)
+                ]
             else:
                 for group in groups:
                     # 分组的缺口按成员分镜图判定：整组分镜图都还可用（含 stale）时
@@ -244,10 +253,27 @@ def generate_grid_tool(ctx: ToolContext):
                         resolver=resolver,
                     )
                     if selection.unavailable:
+                        unavailable_ids = {state.unit_id for state in selection.unavailable}
                         for state in selection.unavailable:
                             builder.block(
                                 state.unit_id,
                                 problem=artifact_state_problem(state),
+                                artifact_key=state.artifact_key,
+                                artifact_path=state.artifact_path,
+                                artifact_status=state.status,
+                            )
+                        # 宫格整组共用一张联合图：同组任一格状态不可读就无法安全出图，
+                        # 组内其余场景同样被阻塞，逐场景给结论而不是留空让调用方猜。
+                        for state in (*selection.targets, *selection.skipped):
+                            if state.unit_id in unavailable_ids:
+                                continue
+                            builder.block(
+                                state.unit_id,
+                                problem=GenerationProblem(
+                                    code=GenerationProblemCode.ARTIFACT_STATE_UNAVAILABLE,
+                                    detail=f"同组场景 {sorted(unavailable_ids)} 的产物状态不可读，整张宫格无法生成",
+                                    action=GenerationAction.REPAIR_ARTIFACT_STATE,
+                                ),
                                 artifact_key=state.artifact_key,
                                 artifact_path=state.artifact_path,
                                 artifact_status=state.status,
@@ -258,12 +284,17 @@ def generate_grid_tool(ctx: ToolContext):
                         for state in selection.skipped:
                             builder.skip(state)
                         continue
-                    selected_groups.append(group)
+                    # 组内混有缺口与可复用成员：可复用的先记复用，联合图仍带整组重绘
+                    # 以保连续性，但落格与结果只投影到真正缺口的 ID——可复用成员的
+                    # 旧图不被这次调用悄悄覆盖或重复计费。
+                    for state in selection.skipped:
+                        builder.skip(state)
+                    selected_groups.append((group, frozenset(selection.target_ids)))
 
             gm = GridManager(project_path)
-            pending: list[tuple[GridGeneration, str]] = []
+            pending: list[tuple[GridGeneration, str, list[str]]] = []
 
-            for group in selected_groups:
+            for group, target_ids in selected_groups:
                 # 超上限分组切为多张宫格逐张入队：每张的场景数与画格数一致
                 # （末张不足一档时落小档 + 占位格），与预览、费用估算同源。
                 # 空分组（``plan_grid_chunks`` 的唯一空产出）自然跳过循环体。
@@ -275,6 +306,14 @@ def generate_grid_tool(ctx: ToolContext):
                     gm.cleanup_superseded(script_filename, episode, {item[id_field] for item in group})
                 for chunk, layout in plans:
                     chunk_ids = [item[id_field] for item in chunk]
+                    # 该张宫格覆盖的场景里，只有落在缺口集合内的才是这次要落格/报告
+                    # 的目标；组内混入的可复用成员已在选择阶段记过 skip，这里绝不能
+                    # 再碰它们（落格会覆盖旧图，重复记账会撞上 builder 的去重断言）。
+                    report_ids = [cid for cid in chunk_ids if cid in target_ids]
+                    if not report_ids:
+                        # 超上限分组切成多张宫格时，某一张可能整张都落在已复用成员上
+                        # （缺口全在另一张里）：没有要报告的目标，不必为它生成宫格。
+                        continue
                     prompt = build_grid_prompt(
                         scenes=chunk,
                         id_field=id_field,
@@ -324,7 +363,7 @@ def generate_grid_tool(ctx: ToolContext):
                         gm.delete(grid.id)
                         _fail_scenes(
                             builder,
-                            chunk_ids,
+                            report_ids,
                             problem=GenerationProblem(
                                 code=GenerationProblemCode.ENQUEUE_FAILED,
                                 detail=f"{chunk_ids[0]}..{chunk_ids[-1]} 的宫格入队失败: {exc}",
@@ -336,21 +375,20 @@ def generate_grid_tool(ctx: ToolContext):
                             task_state=GenerationTaskState.NOT_QUEUED,
                         )
                         continue
-                    pending.append((grid, enqueue_result["task_id"]))
+                    pending.append((grid, enqueue_result["task_id"], report_ids))
 
             if pending:
                 # Wait for all queued grids concurrently — image worker channel can run
                 # multiple in parallel, so serial wait_for_task would mask that throughput.
                 results = await asyncio.gather(
-                    *(wait_for_task(task_id) for _, task_id in pending),
+                    *(wait_for_task(task_id) for _, task_id, _ in pending),
                     return_exceptions=True,
                 )
-                for (grid, task_id), result in zip(pending, results, strict=True):
-                    chunk_ids = [str(sid) for sid in grid.scene_ids]
+                for (grid, task_id, report_ids), result in zip(pending, results, strict=True):
                     if isinstance(result, BaseException):
                         _fail_scenes(
                             builder,
-                            chunk_ids,
+                            report_ids,
                             problem=problem_from_task_failure(str(result)),
                             episode=episode,
                             resolver=resolver,
@@ -361,7 +399,7 @@ def generate_grid_tool(ctx: ToolContext):
                     if status_value != "succeeded":
                         _fail_scenes(
                             builder,
-                            chunk_ids,
+                            report_ids,
                             problem=problem_from_task_failure(
                                 result.get("error_message"),
                                 cancelled=status_value == "cancelled",
@@ -379,19 +417,23 @@ def generate_grid_tool(ctx: ToolContext):
                         continue
                     # 生成任务只产出联合图；分镜格落盘由编排方在此显式调用切分补上，
                     # 端到端语义（分镜格齐备）不变。重载记录取 worker 回填的最新状态。
+                    # ``only_scene_ids`` 把落格限定在这次调用的缺口目标：组内混入的
+                    # 可复用成员即便也在联合图里，也不被这次切分覆写。
                     try:
                         reloaded = gm.get(grid.id)
                         if reloaded is None:
                             raise RuntimeError(f"grid record missing after generation: {grid.id}")
                         with project_change_source("worker"):
-                            split_result = await apply_grid_split(ctx.project_name, reloaded)
+                            split_result = await apply_grid_split(
+                                ctx.project_name, reloaded, only_scene_ids=frozenset(report_ids)
+                            )
                     except Exception as exc:  # noqa: BLE001
                         # 联合图已生成成功，仅落格失败：独立问题码把它与生成失败区分开，
                         # 可在 WebUI 宫格面板重试切分（无需重新生成、不重复计费）。
                         # 钱已花在联合图上，所以每格都是 failed + task_state=succeeded。
                         _fail_scenes(
                             builder,
-                            chunk_ids,
+                            report_ids,
                             problem=GenerationProblem(
                                 code=GenerationProblemCode.POST_PROCESSING_FAILED,
                                 detail=f"联合图已生成，但切分落格失败（可在宫格面板重试切分）: {exc}",
@@ -408,7 +450,7 @@ def generate_grid_tool(ctx: ToolContext):
                     # 逐格投影：落到盘上的格才算这一场景成功；联合图成功但某格没落盘
                     # （该分镜已不在剧本里）是这一个场景自己的失败，不牵连同组其他场景。
                     cut = set(split_result.updated_scene_ids)
-                    for scene_id in chunk_ids:
+                    for scene_id in report_ids:
                         scene_key = _scene_artifact_key(episode, scene_id, resolver)
                         if scene_id not in cut:
                             builder.fail(

@@ -17,7 +17,7 @@ description: >-
 - 用户只需在 project.json 中维护 `description`；最终交给图像 backend 的完整 prompt
   （含布局 / 防崩短语 / 反向提示词）由 `lib/prompt_builders.py` 在 server 端拼好，
   WebUI 与 Skill 走同一份真相源。
-- Pending 判定：对应资产的 `*_sheet` 字段为空或文件不存在。
+- Pending 判定：Artifact Manifest 中该资产设计图状态为 `missing`；`stale` 产物复用，不计入待生成。
 
 ---
 
@@ -84,13 +84,14 @@ description: >-
 | 生成指定多个 | `mcp__arcreel__generate_assets({"type": "prop", "names": ["玉佩", "密信"]})` |
 | 生成单个 | `mcp__arcreel__generate_assets({"type": "scene", "names": ["村口老槐树"]})` |
 
-结果按 `requested / succeeded / failed / blocked` 逐 ID 返回，ID 形如 `character/张三`；
+结果按 `requested / succeeded / failed / blocked / skipped` 逐 ID 返回，ID 形如 `character/张三`；
+已失效但可复用的旧图进入 `skipped`，不会自动重生；
 按每一项自带的 `problem.code` 与 `problem.action` 决定下一步，不要解析文本。
 结构详见 `.claude/references/generation-results.md`。
 
 ## 工作流程
 
-1. **加载项目元数据** — 从 project.json 找出缺少对应 `*_sheet` 的资产
+1. **加载项目元数据** — 从 Artifact Manifest 找出设计图状态为 `missing` 的资产
 2. **入队生成任务** — description 直接作为 prompt 提交；server 端 `lib.prompt_builders` 注入布局 / 防崩 / 反向
 3. **审核检查点** — 展示每张设计图，用户可批准、要求重新生成，或要求编辑
 4. **更新 project.json** — 更新 `character_sheet` / `scene_sheet` / `prop_sheet` 路径

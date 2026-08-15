@@ -143,6 +143,8 @@ class TestReferenceRouteGate:
             skip_ids={"E1U4"},
             spec_for=_unit_spec,
             request_options=mod.ReferenceRequestOptions(),
+            builder=mod.GenerationResultBuilder("generate_video", mod.GenerationSelectionMode.MISSING_ONLY),
+            states={},
         )
         assert seen == ["r2v", "r2v", "i2v"]
 
@@ -166,6 +168,8 @@ class TestReferenceRouteGate:
             skip_ids=set(),
             spec_for=_reject,
             request_options=mod.ReferenceRequestOptions(),
+            builder=mod.GenerationResultBuilder("generate_video", mod.GenerationSelectionMode.MISSING_ONLY),
+            states={},
         )
         assert called is False
 

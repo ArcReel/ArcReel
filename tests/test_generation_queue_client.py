@@ -406,6 +406,74 @@ class TestBatchEnqueueAndWaitSync:
 
     @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
     @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    def test_enqueue_itself_raising_does_not_abort_the_batch(self, mock_enqueue, mock_wait):
+        """A spec whose enqueue call raises must not orphan the specs after it.
+
+        Before the fix, an exception raised inside the sequential Phase-1 enqueue
+        loop propagated out of ``batch_enqueue_and_wait`` entirely — the caller's
+        ``await`` raised, so no result was returned and every spec in the batch
+        (including ones enqueued before the failure, and every one after it)
+        silently never got a task row, a builder entry, or a caller-visible
+        failure. This asserts the failing spec is instead captured as a
+        never-queued failure while its siblings still get enqueued and awaited.
+        """
+        mock_enqueue.side_effect = [
+            {"task_id": "t1"},
+            RuntimeError("queue backend unavailable"),
+            {"task_id": "t3"},
+        ]
+        mock_wait.side_effect = [
+            {"status": "succeeded", "result": {"file_path": "a.png"}},
+            {"status": "succeeded", "result": {"file_path": "c.png"}},
+        ]
+
+        specs = [
+            TaskSpec(task_type="clue", media_type="image", resource_id="玉佩"),
+            TaskSpec(task_type="clue", media_type="image", resource_id="老槐树"),
+            TaskSpec(task_type="clue", media_type="image", resource_id="铜镜"),
+        ]
+        successes, failures = batch_enqueue_and_wait_sync(
+            project_name="demo",
+            specs=specs,
+        )
+
+        assert {s.resource_id for s in successes} == {"玉佩", "铜镜"}
+        assert len(failures) == 1
+        assert failures[0].resource_id == "老槐树"
+        assert failures[0].task_id == ""
+        assert failures[0].status == "failed"
+        assert "queue backend unavailable" in (failures[0].error or "")
+        # The spec after the failing one is still enqueued and awaited.
+        assert mock_enqueue.call_count == 3
+        assert mock_wait.call_count == 2
+
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    def test_dependent_spec_skipped_when_its_dependency_fails_to_enqueue(self, mock_enqueue, mock_wait):
+        """A dependency chain must not enqueue a follower onto a never-queued task."""
+        mock_enqueue.side_effect = [RuntimeError("queue backend unavailable")]
+
+        specs = [
+            TaskSpec(task_type="storyboard", media_type="image", resource_id="S01"),
+            TaskSpec(
+                task_type="storyboard",
+                media_type="image",
+                resource_id="S02",
+                dependency_resource_id="S01",
+                dependency_group="ep1:group:1",
+                dependency_index=1,
+            ),
+        ]
+        successes, failures = batch_enqueue_and_wait_sync(project_name="demo", specs=specs)
+
+        assert successes == []
+        assert {f.resource_id for f in failures} == {"S01", "S02"}
+        # S02 never attempts an enqueue call once its dependency failed.
+        assert mock_enqueue.call_count == 1
+        assert mock_wait.call_count == 0
+
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_wait_exception_becomes_failure(self, mock_enqueue, mock_wait):
         mock_enqueue.return_value = {"task_id": "t1"}
         mock_wait.side_effect = RuntimeError("connection lost")

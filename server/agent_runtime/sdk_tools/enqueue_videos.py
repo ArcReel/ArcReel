@@ -37,6 +37,7 @@ from lib.generation_result import (
     GenerationResultBuilder,
     GenerationSelectionMode,
     GenerationTargetState,
+    artifact_is_reusable,
     normalize_requested_ids,
     observe_artifact_status,
     record_batch_outcomes,
@@ -169,6 +170,29 @@ def _video_target_states(
 
 def _state_for(states: dict[str, GenerationTargetState], unit_id: str) -> GenerationTargetState:
     return states.get(unit_id) or GenerationTargetState(candidate=GenerationCandidate(unit_id=unit_id))
+
+
+def _currency_reusable_ids(
+    states: dict[str, GenerationTargetState],
+    already_done: list[str],
+    *,
+    manifest_active: bool,
+) -> list[str]:
+    """Missing-only ids that active currency already reports current/stale.
+
+    The checkpoint's ``completed_scenes`` only tracks what *this* batch (or a
+    previous resumed attempt) has submitted — a fresh ``resume=false`` call
+    always starts it empty. Without this, missing-only would regenerate every
+    scene on a plain (non-resume) episode call even when its video_clip is
+    already current, billing for a full re-run of a request that named no ID.
+    """
+
+    done = set(already_done)
+    return [
+        unit_id
+        for unit_id, state in states.items()
+        if unit_id not in done and artifact_is_reusable(state, manifest_active=manifest_active)
+    ]
 
 
 def _block_unit(
@@ -360,15 +384,25 @@ async def _reference_projection_preflight(
     skip_ids: set[str],
     spec_for: Callable[[Any], TaskSpec],
     request_options: ReferenceRequestOptions,
+    builder: GenerationResultBuilder,
+    states: dict[str, GenerationTargetState],
     project_name: str | None = None,
     script_filename: str | None = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, object]]]:
-    """用公共投影一次性完成 Agent 入口的资产、能力、音频与时长预检。"""
+) -> tuple[list[dict[str, Any]], list[dict[str, object]], set[str]]:
+    """用公共投影一次性完成 Agent 入口的资产、能力、音频与时长预检。
+
+    发声准入失败的 unit 在此就近记入 ``builder``（返回的第三项 ``admission_blocked``
+    供调用方从后续 ``build_specs`` 中排除，避免重复记账）——不能让它随一次
+    ``continue`` 消失：批内若还有其它 unit 触发时长确认，早退回
+    ``DurationConfirmationPending`` 会跳过后面才做记账的 ``build_specs``，
+    该 unit 就会从 ``requested = succeeded ∪ failed ∪ blocked`` 的账目里静默失踪。
+    """
 
     if request_options.narration_delivery == USE_TTS and project_name is None:
         raise ValueError("use_tts reference projection requires project_name")
     items: list[dict[str, Any]] = []
     projections: list[dict[str, object]] = []
+    admission_blocked: set[str] = set()
     target_ids = [str(unit.get("unit_id") or "") for unit in units if isinstance(unit, dict) and unit.get("unit_id")]
     active_tts = (
         await active_tts_resource_ids(
@@ -387,6 +421,10 @@ async def _reference_projection_preflight(
             continue
         try:
             spec_for(unit)
+        except SpeechAdmissionError as exc:
+            _block_unit(builder, states, unit_id, **_speech_admission_block(exc))
+            admission_blocked.add(unit_id)
+            continue
         except ValueError:
             continue
         current_options = await prepare_current_reference_video_request_options(
@@ -464,7 +502,7 @@ async def _reference_projection_preflight(
                     ),
                 }
             )
-    return items, projections
+    return items, projections, admission_blocked
 
 
 async def _prepare_storyboard_delivery_for_item(
@@ -1046,7 +1084,7 @@ async def _generate_reference_units(
         elif unit_id in completed:
             completed.remove(unit_id)
 
-    pending, projections = await _reference_projection_preflight(
+    pending, projections, admission_blocked = await _reference_projection_preflight(
         project=project,
         project_path=project_dir,
         script=script,
@@ -1054,13 +1092,15 @@ async def _generate_reference_units(
         skip_ids=set(already_done),
         spec_for=spec_for,
         request_options=request_options,
+        builder=builder,
+        states=states,
         project_name=ctx.project_name,
         script_filename=script_filename,
     )
     if pending:
         return DurationConfirmationPending(items=pending, projections=projections)
 
-    specs, order_map = build_specs(units, already_done)
+    specs, order_map = build_specs(units, [*already_done, *admission_blocked])
     for spec in specs:
         spec.payload = {**(spec.payload or {}), "reference_request_options": request_options.to_payload()}
     if specs:
@@ -1359,7 +1399,14 @@ def generate_video_episode_tool(ctx: ToolContext):
             states = _video_target_states(items, id_field, episode=episode, resolver=currency)
             # 整集生成始终复用仍可用的旧片段（含 stale），从不强制重生——所以
             # 无论是否 resume，选择模式如实报告为 missing-only；点名重做走
-            # generate_video_scene / generate_selected_videos。
+            # generate_video_scene / generate_selected_videos。checkpoint 的
+            # completed_scenes 只认得本批次（或此前 resume）提交过的 ID，非
+            # resume 调用永远从空表起步；不并入当前 currency 观测到的
+            # current/stale，就会把整集当作缺失重新生成一遍。
+            already_done = [
+                *already_done,
+                *_currency_reusable_ids(states, already_done, manifest_active=currency is not None),
+            ]
             builder = GenerationResultBuilder(_EPISODE_OPERATION, GenerationSelectionMode.MISSING_ONLY)
             for done_id in already_done:
                 state = _state_for(states, str(done_id))
@@ -1629,7 +1676,15 @@ def generate_video_all_tool(ctx: ToolContext):
             if not selection.targets:
                 return generation_result_response(builder.build(), log)
 
-            pending = [item for item in items if str(item.get(id_field) or "") in set(selection.target_ids)]
+            # 与 ``_video_target_states`` 用同一套 ID 回退规则：条目若缺 ``id_field``
+            # 但带 ``scene_id``/``segment_id``，selection 已按回退 ID 记为 target，
+            # 这里若只认 ``id_field`` 会把它筛没——进了 requested 却永远不入队。
+            target_id_set = set(selection.target_ids)
+            pending = [
+                item
+                for item in items
+                if str(item.get(id_field) or item.get("scene_id") or item.get("segment_id") or "") in target_id_set
+            ]
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, _order_map = _build_video_specs(
                 items=pending,

@@ -744,13 +744,22 @@ def record_batch_outcomes(
     for br in failures:
         unit_id = unit_id_of(br.resource_id) if unit_id_of else br.resource_id
         state = _state(unit_id)
+        # An empty ``task_id`` marks a spec whose enqueue itself raised — it never
+        # reached the queue, so ``NOT_QUEUED`` (not ``FAILED``) reflects that no
+        # money was spent and there is no task row to look up.
+        if not br.task_id:
+            task_state = GenerationTaskState.NOT_QUEUED
+        elif br.status == "cancelled":
+            task_state = GenerationTaskState.CANCELLED
+        else:
+            task_state = GenerationTaskState.FAILED
         builder.fail(
             unit_id,
             problem=problem_from_task_failure(br.error, cancelled=br.status == "cancelled"),
             artifact_key=state.artifact_key,
             artifact_path=state.artifact_path,
-            task_id=br.task_id,
-            task_state=(GenerationTaskState.CANCELLED if br.status == "cancelled" else GenerationTaskState.FAILED),
+            task_id=br.task_id or None,
+            task_state=task_state,
             artifact_status=state.status,
             provider_checkpoint=provider_checkpoint_from_task(br.task),
         )

@@ -7,6 +7,7 @@ per-ID result contract requires globally unique IDs within one batch.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -74,11 +75,24 @@ def _asset_candidates(
     project: dict[str, Any],
     asset_type: str,
     resolver: ArtifactCurrencyResolver | None,
+    project_path: Path,
 ) -> list[GenerationCandidate]:
+    """Missing-only candidates for one asset type.
+
+    Legacy (pre-Manifest) reusability only asks whether ``sheet`` is a
+    non-empty string — the file itself is never re-verified on disk, unlike
+    the active-Manifest branch where ``resolver`` does that check. Without
+    filtering here, a legacy project whose sheet file was deleted or moved
+    would report that asset as ``skipped`` and never be able to regenerate
+    it via missing-only again.
+    """
+
     spec = ASSET_SPECS[asset_type]
     candidates: list[GenerationCandidate] = []
     for name, entry in (project.get(spec.bucket_key) or {}).items():
         sheet = entry.get(spec.sheet_field) if isinstance(entry, dict) else None
+        if resolver is None and isinstance(sheet, str) and sheet and not (project_path / sheet).exists():
+            sheet = None
         candidates.append(
             GenerationCandidate(
                 unit_id=asset_unit_id(asset_type, name),
@@ -220,7 +234,7 @@ def generate_assets_tool(ctx: ToolContext):
             for t in types:
                 spec = ASSET_SPECS[t]
                 selection = select_generation_targets(
-                    candidates=_asset_candidates(project, t, resolver),
+                    candidates=_asset_candidates(project, t, resolver, ctx.project_path),
                     requested_ids=_requested_unit_ids(project, t, names),
                     resolver=resolver,
                 )

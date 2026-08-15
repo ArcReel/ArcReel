@@ -471,6 +471,50 @@ async def test_generate_assets_happy(fake_ctx: ToolContext, monkeypatch) -> None
     assert out.get("is_error") is True
 
 
+@pytest.mark.integration
+async def test_generate_assets_legacy_project_reverifies_sheet_file_on_disk(fake_ctx: ToolContext, monkeypatch) -> None:
+    """预激活 Manifest 的旧项目：metadata 记了 sheet 路径但文件已被删/挪走时，
+    missing-only 不能只信 metadata 就把它当复用，否则永远生不出真正缺失的设计图。"""
+    from server.agent_runtime.sdk_tools import enqueue_assets as mod
+
+    # 未设置 schema_version 8：resolver 走 legacy 分支（没有 active Manifest）。
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["characters"]["李四"]["character_sheet"] = "characters/lisi.png"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["characters"]["李四"]["description"] = "配角"  # type: ignore[attr-defined]
+    # 只有张三的文件真的落盘；李四的 sheet 路径是失效元数据。
+    sheet_path = fake_ctx.project_path / "characters" / "zhangsan.png"
+    sheet_path.parent.mkdir(parents=True, exist_ok=True)
+    sheet_path.write_bytes(b"fake-png")
+
+    enqueued: list[str] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+
+        enqueued.extend(s.resource_id for s in specs)
+        succ = [
+            BatchTaskResult(
+                resource_id=s.resource_id,
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": f"characters/{s.resource_id}.png", "version": 1},
+            )
+            for s in specs
+        ]
+        return succ, []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    out = await _call(generate_assets_tool(fake_ctx), {"type": "character"})
+
+    result = _generation_result(out)
+    # 张三：文件真实存在，missing-only 复用旧图，不重新生成。
+    assert "张三" not in enqueued
+    assert [entry.unit_id for entry in result.skipped] == ["character/张三"]
+    # 李四：metadata 指向的文件已经不存在，必须被当作缺口重新生成，而不是静默复用。
+    assert enqueued == ["李四"]
+    assert result.succeeded == ["character/李四"]
+
+
 @pytest.mark.unit
 async def test_generate_assets_rejects_an_explicitly_empty_name_list(fake_ctx: ToolContext, monkeypatch) -> None:
     """``names: []`` 是调用方错误，绝不能被当成「全部缺图资产」去扫全库付费。"""
@@ -1408,6 +1452,82 @@ async def test_edit_images_active_asset_without_a_manifest_claim_is_not_enqueued
     enqueue.assert_not_awaited()
 
 
+@pytest.mark.integration
+async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch(
+    fake_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """一条编辑的产物状态读取 fail-loud，不该把同批其它编辑的已算结果一起吞掉。
+
+    ``resolve_usable_image_edit_source`` 在 Manifest 判定该条产物状态时抛
+    ``ArtifactManifestError`` 是设计内行为（对应 BLOCKED），此前只捕获 ``KeyError``，
+    这类异常会逃出 ``_build_specs`` 的 per-edit 循环，被 handler 级 ``except`` 接住变成
+    整批不可读的纯文本错误——张三之外，李四这条本可正常入队的编辑也一起丢了结论。
+    """
+    from lib.artifact_manifest import ArtifactManifestError
+    from server.services.image_edit_tasks import _ImageEditSource
+
+    project_path = fake_ctx.project_path
+    (project_path / "characters").mkdir()
+    (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
+    (project_path / "characters" / "lisi.png").write_bytes(b"png")
+    fake_ctx.pm.project_payload["schema_version"] = 8  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["characters"]["李四"]["character_sheet"] = "characters/lisi.png"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["characters"]["李四"]["description"] = "配角"  # type: ignore[attr-defined]
+
+    async def fake_i2i(_project):
+        return True
+
+    async def fake_batch(*, project_name, specs):
+        from lib.generation_queue_client import BatchTaskResult
+
+        succ = [
+            BatchTaskResult(
+                resource_id=s.resource_id,
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": f"characters/{s.resource_id}.png", "version": 2},
+            )
+            for s in specs
+        ]
+        return succ, []
+
+    def fake_resolve_source(*, project, project_path, resource_type, resource_id, script, artifact_episode, resolver):
+        if resource_id == "张三":
+            raise ArtifactManifestError("manifest sidecar unreadable")
+        return _ImageEditSource(resource_id=resource_id, artifact_path="characters/lisi.png", formal_claims=())
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_image_edits._i2i_provider_available", fake_i2i)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_image_edits.batch_enqueue_and_wait", fake_batch)
+    monkeypatch.setattr(
+        "server.agent_runtime.sdk_tools.enqueue_image_edits.active_artifact_currency_resolver",
+        lambda *_args: object(),
+    )
+    monkeypatch.setattr(
+        "server.agent_runtime.sdk_tools.enqueue_image_edits.resolve_usable_image_edit_source",
+        fake_resolve_source,
+    )
+
+    out = await _call(
+        edit_images_tool(fake_ctx),
+        {
+            "resource_type": "character",
+            "edits": [
+                {"id": "张三", "instruction": "换发色"},
+                {"id": "李四", "instruction": "换衣服"},
+            ],
+        },
+    )
+
+    result = _generation_result(out)
+    assert result.succeeded == ["李四"]
+    assert result.blocked == ["张三"]
+    blocked_item = next(entry for entry in result.items if entry.unit_id == "张三")
+    assert blocked_item.problem is not None
+    assert blocked_item.problem.code == "generation_artifact_state_unavailable"
+
+
 @pytest.mark.unit
 async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
@@ -1751,7 +1871,7 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(
     async def fake_wait(_task_id: str) -> dict[str, Any]:
         return {"status": "succeeded"}
 
-    async def fake_split(project_name: str, grid: Any) -> Any:
+    async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
         from server.services.grid_split import GridSplitResult
 
         return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
@@ -1789,7 +1909,7 @@ async def test_generate_grid_split_failure_keeps_the_paid_image_and_fails_the_id
     async def fake_wait(_task_id: str) -> dict[str, Any]:
         return {"status": "succeeded", "provider_id": "openai", "provider_job_id": "job-1"}
 
-    async def failing_split(project_name: str, grid: Any) -> Any:
+    async def failing_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
         raise RuntimeError("cannot write the split cells")
 
     monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
@@ -1835,7 +1955,7 @@ async def test_generate_grid_reports_each_scene_of_a_shared_grid(
     async def fake_wait(_task_id: str) -> dict[str, Any]:
         return {"status": "succeeded", "provider_id": "openai", "provider_job_id": "job-1"}
 
-    async def partial_split(project_name: str, grid: Any) -> Any:
+    async def partial_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
         from server.services.grid_split import GridSplitResult
 
         # 最后一格对应的分镜已不在剧本里，切分时被跳过。
@@ -1863,6 +1983,70 @@ async def test_generate_grid_reports_each_scene_of_a_shared_grid(
     assert dropped.problem.code == "generation_post_processing_failed"
     # 联合图这一次是花了钱的，所以未落格的那一格也带着成功的任务与供应商提交。
     assert dropped.task_state.value == "succeeded"
+
+
+@pytest.mark.integration
+async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unreadable(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """宫格整组共用一张联合图：组里一格产物状态不可读，其余格不能悄悄留空。
+
+    此前只有状态不可读的那一格记 ``blocked``，同组其余目标格既不入 ``blocked``，
+    也不进 ``succeeded``/``failed``——调用方拿不到结论，只能靠 ``requested`` 减去
+    已知集合去猜，违反 AC1 的 ``requested = succeeded ∪ failed ∪ blocked`` 不变式。
+    """
+    from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+
+    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+        {
+            "schema_version": 8,
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        }
+    )
+    fake_ctx.pm.script_payload["episode"] = 1  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
+    ]
+    # E1S02 已有一张旧联合图，但其 Manifest 状态读取会炸——组内其它三格都还没图。
+    fake_ctx.pm.script_payload["segments"][1]["generated_assets"] = {  # type: ignore[attr-defined]
+        "storyboard_image": "storyboards/scene_E1S02.png"
+    }
+
+    class _Resolver:
+        def compare(self, key, *, artifact_path):
+            if artifact_path == "storyboards/scene_E1S02.png":
+                raise RuntimeError("manifest sidecar unreadable")
+            return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
+
+    async def _gate(_project: dict) -> bool:
+        return False
+
+    enqueued: list[str] = []
+
+    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+        enqueued.append(resource_id)
+        return {"task_id": "t1"}
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr(
+        "server.agent_runtime.sdk_tools.enqueue_grid.active_artifact_currency_resolver",
+        lambda *_args: _Resolver(),
+    )
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
+
+    out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json"})
+
+    result = _generation_result(out)
+    assert enqueued == []
+    assert sorted(result.blocked) == ["E1S01", "E1S02", "E1S03", "E1S04"]
+    assert result.succeeded == []
+    assert result.failed == []
+    for unit_id in ("E1S01", "E1S03", "E1S04"):
+        item = next(entry for entry in result.items if entry.unit_id == unit_id)
+        assert item.problem is not None
+        assert item.problem.code == "generation_artifact_state_unavailable"
 
 
 @pytest.mark.unit
@@ -1903,7 +2087,7 @@ async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext, mo
     async def fake_wait(_task_id: str) -> dict[str, Any]:
         return {"status": "succeeded"}
 
-    async def fake_split(project_name: str, grid: Any) -> Any:
+    async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
         from server.services.grid_split import GridSplitResult
 
         return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
@@ -2005,7 +2189,7 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(
     # 生成成功后工具会对每张宫格显式调用切分；此处替换为假实现，单独锁定入队分块行为
     split_calls: list[str] = []
 
-    async def fake_split(project_name: str, grid: Any) -> Any:
+    async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
         from server.services.grid_split import GridSplitResult
 
         split_calls.append(grid.id)
@@ -2236,6 +2420,59 @@ async def test_generate_video_episode_declares_the_missing_only_selection_it_per
     result = _generation_result(out)
     assert result.selection.value == "missing_only"
     assert result.succeeded == ["E1S01"]
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_skips_current_clip_without_resume(fake_ctx: ToolContext, monkeypatch) -> None:
+    """非 resume 的整集调用也要复用仍是 current 的旧片段，不能因 checkpoint 是空表就整集重生。"""
+    from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
+    project.update(
+        {
+            "schema_version": 8,
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        }
+    )
+    fake_ctx.pm.script_payload["episode"] = 1  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {  # type: ignore[attr-defined]
+        "storyboard_image": "storyboards/scene_E1S01.png",
+        "video_clip": "videos/scene_E1S01.mp4",
+    }
+
+    class _CurrentCurrency:
+        def compare(self, key, *, artifact_path):
+            return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=artifact_path)
+
+        def resolve_usable_entry(self, key, *, artifact_path):
+            from lib.artifact_manifest import ArtifactManifestEntry
+
+            return ArtifactManifestEntry(artifact_path=artifact_path, basis_digest="selected")
+
+        def compare_frozen_entry(self, key, entry):
+            return self.compare(key, artifact_path=entry.artifact_path)
+
+        def artifact_content_digest(self, artifact_path):
+            return "0" * 64
+
+    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _CurrentCurrency())
+    enqueued: list[str] = []
+
+    async def _batch(*, project_name, specs, on_success=None, on_failure=None):
+        enqueued.extend(spec.resource_id for spec in specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
+
+    out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    result = _generation_result(out)
+    assert enqueued == []
+    assert result.succeeded == []
+    assert [entry.unit_id for entry in result.skipped] == ["E1S01"]
 
 
 @pytest.mark.integration

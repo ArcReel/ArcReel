@@ -18,6 +18,7 @@ from lib.artifact_activation import (
     active_artifact_currency_resolver,
     resolve_artifact_episode,
 )
+from lib.artifact_manifest import ArtifactManifestError
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation_queue_client import TaskSpec, batch_enqueue_and_wait
@@ -126,6 +127,18 @@ def _build_specs(
                     code=GenerationProblemCode.UNIT_NOT_FOUND,
                     detail=f"{label} '{resource_id}' 不存在",
                     action=GenerationAction.FIX_INPUT,
+                ),
+            )
+            continue
+        except ArtifactManifestError as exc:
+            # Manifest 判定本条编辑的产物状态时 fail-loud：这是单条编辑自己的问题，
+            # 不该把整批已经算出的其它 ID 结果一起吞进 handler 级文本错误。
+            builder.block(
+                resource_id,
+                problem=GenerationProblem(
+                    code=GenerationProblemCode.ARTIFACT_STATE_UNAVAILABLE,
+                    detail=str(exc),
+                    action=GenerationAction.REPAIR_ARTIFACT_STATE,
                 ),
             )
             continue
