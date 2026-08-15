@@ -7,16 +7,23 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import BinaryIO, Literal
 
+from lib.artifact_activation import (
+    forget_current_resource_artifact,
+)
+from lib.async_thread import run_noninterruptible_sync
+from lib.formal_write import formal_write_transaction
 from lib.thumbnail import extract_video_thumbnail
-from lib.version_manager import VersionManager
-from server.services.generation_tasks import get_project_manager
+from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+from server.services.generation_tasks import _storyboard_formal_image_callback, get_project_manager
 
 # 版本记录里标记「用户手动上传」的 source 值；前端按此显示翻译文案
-UPLOAD_VERSION_SOURCE = "manual_upload"
+UPLOAD_VERSION_SOURCE = MANUAL_UPLOAD_VERSION_SOURCE
 
 # 上传策略（shot_uploads 与 reference_videos 两个路由共用，避免口径漂移）。
 # 视频宽松校验：只看扩展名与大小上限，宽高比/时长不阻塞——用户自主上传即自己负责。
@@ -104,6 +111,18 @@ async def save_uploaded_video_stream(src: BinaryIO, target: Path, *, max_bytes: 
         raise
 
 
+async def stage_uploaded_video_stream(src: BinaryIO, target: Path, *, max_bytes: int) -> Path:
+    """把上传视频写入 canonical 同目录的唯一 staging 路径，尚不改变正式选择。"""
+
+    staged_file = _upload_tmp_path(target)
+    try:
+        await save_uploaded_video_stream(src, staged_file, max_bytes=max_bytes)
+        return staged_file
+    except BaseException:
+        await asyncio.to_thread(staged_file.unlink, missing_ok=True)
+        raise
+
+
 def write_bytes_atomic(content: bytes, target: Path) -> None:
     """同步版本：把内存中的内容原子写入 target（同 dot-tmp + replace + 失败清理）。
 
@@ -120,72 +139,179 @@ def write_bytes_atomic(content: bytes, target: Path) -> None:
         raise
 
 
+def stage_uploaded_bytes(content: bytes, target: Path) -> Path:
+    """Write normalized upload bytes beside the canonical target without selecting them."""
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staged_file = _upload_tmp_path(target)
+    try:
+        staged_file.write_bytes(content)
+        return staged_file
+    except BaseException:
+        staged_file.unlink(missing_ok=True)
+        raise
+
+
 async def save_uploaded_bytes(content: bytes, target: Path) -> None:
     """把内存中的上传内容原子写入 target（同 dot-tmp + replace + 失败清理）。"""
     await asyncio.to_thread(write_bytes_atomic, content, target)
 
 
-def record_upload_version(
+async def commit_manual_storyboard_upload(
     *,
+    project_name: str,
+    script_file: str,
+    shot_id: str,
+    asset_path: str,
+    staged_image: Path,
+    current_image: Path,
     versions: VersionManager,
-    resource_type: str,
-    resource_id: str,
-    current_file: Path,
     original_filename: str | None,
 ) -> int:
-    """把刚写入 canonical 路径的上传文件登记为新版本，返回版本号。
+    """Atomically select an uploaded storyboard with its metadata, version, and claim."""
 
-    调用方须在覆写 canonical 文件**之前**先调 ``ensure_current_tracked``
-    补登旧文件（镜像 MediaGenerator 的版本顺序），否则旧版本字节会丢失。
-    """
     metadata: dict[str, str] = {"source": UPLOAD_VERSION_SOURCE}
     if original_filename:
         metadata["original_filename"] = original_filename
-    return versions.add_version(
-        resource_type=resource_type,
-        resource_id=resource_id,
-        prompt="",
-        source_file=current_file,
-        **metadata,
-    )
-
-
-async def finalize_shot_storyboard_upload(
-    *, project_name: str, script_file: str, shot_id: str, asset_path: str
-) -> None:
-    """分镜图上传后的剧本元数据回写（status 由 update_scene_status 自动推导）。"""
-    await asyncio.to_thread(
-        get_project_manager().update_scene_asset,
+    outcomes = []
+    commit = _storyboard_formal_image_callback(
         project_name=project_name,
-        script_filename=script_file,
-        scene_id=shot_id,
-        asset_type="storyboard_image",
-        asset_path=asset_path,
+        script_file=script_file,
+        resource_id=shot_id,
+        artifact_path=asset_path,
+        prompt="",
+        versions=versions,
+        task_id=None,
+        basis=None,
+        outcome_box=outcomes,
+        project_manager=get_project_manager(),
     )
+
+    def _commit() -> int:
+        version = commit(staged_image, current_image, metadata)
+        if len(outcomes) != 1 or outcomes[0].version != version:
+            raise RuntimeError("manual storyboard upload skipped formal image activation")
+        return version
+
+    try:
+        return await run_noninterruptible_sync(_commit)
+    finally:
+        await asyncio.to_thread(staged_image.unlink, missing_ok=True)
+
+
+ManualVideoMetadataCommit = Callable[[str | None, Callable[[Path], None]], None]
+
+
+async def commit_manual_video_upload(
+    *,
+    project_path: Path,
+    versions: VersionManager,
+    resource_type: Literal["videos", "reference_videos"],
+    resource_id: str,
+    script_file: str,
+    staged_video: Path,
+    current_video: Path,
+    thumbnail_file: Path,
+    thumbnail_rel: str,
+    original_filename: str | None,
+    commit_metadata: ManualVideoMetadataCommit,
+) -> int:
+    """把手动视频、版本选择、缩略图、剧本元数据与 claim 清理作为一个正式提交。
+
+    缩略图先从不可见的 staging 视频生成。正式提交随后复用 ProjectManager 的剧本/项目
+    事务、VersionManager 的 staged activation 与 Manifest 自身的事务补偿；任一步失败
+    都会逐层恢复旧选择。同步提交一旦开始便不可被请求取消打断。
+    """
+
+    staged_thumbnail = _upload_tmp_path(thumbnail_file)
+    try:
+        extracted = await extract_video_thumbnail(staged_video, staged_thumbnail)
+        selected_thumbnail = thumbnail_rel if extracted is not None and staged_thumbnail.is_file() else None
+
+        def _commit() -> int:
+            committed_version: int | None = None
+
+            def _activate(_script_path: Path) -> None:
+                nonlocal committed_version
+
+                def _forget_claim() -> None:
+                    # Manual uploads have no self-verifying paid-request facts, so an older
+                    # current-basis claim cannot survive their formal replacement.
+                    forget_current_resource_artifact(
+                        project_path,
+                        resource_type=resource_type,
+                        resource_id=resource_id,
+                        script_file=script_file,
+                    )
+
+                with formal_write_transaction(thumbnail_file):
+                    if selected_thumbnail is None:
+                        thumbnail_file.unlink(missing_ok=True)
+                    else:
+                        thumbnail_file.parent.mkdir(parents=True, exist_ok=True)
+                        os.replace(staged_thumbnail, thumbnail_file)
+
+                    metadata: dict[str, str] = {"source": UPLOAD_VERSION_SOURCE}
+                    if original_filename:
+                        metadata["original_filename"] = original_filename
+                    committed_version = versions.commit_staged_version(
+                        resource_type,
+                        resource_id,
+                        "",
+                        staged_file=staged_video,
+                        current_file=current_video,
+                        on_commit=_forget_claim,
+                        **metadata,
+                    )
+
+            commit_metadata(selected_thumbnail, _activate)
+            if committed_version is None:
+                raise RuntimeError("manual video metadata commit skipped staged activation")
+            return committed_version
+
+        return await run_noninterruptible_sync(_commit)
+    finally:
+        await asyncio.gather(
+            asyncio.to_thread(staged_video.unlink, missing_ok=True),
+            asyncio.to_thread(staged_thumbnail.unlink, missing_ok=True),
+        )
 
 
 async def finalize_shot_video_upload(
-    *, project_name: str, script_file: str, shot_id: str, project_path: Path, video_rel: str
-) -> None:
-    """镜头视频上传后的 finalize：抽缩略图 + 单次锁内回写 video_clip / video_uri / video_thumbnail。
+    *,
+    project_name: str,
+    script_file: str,
+    shot_id: str,
+    project_path: Path,
+    video_rel: str,
+    staged_video: Path,
+    versions: VersionManager,
+    original_filename: str | None,
+) -> int:
+    """通过共享正式写入 seam 提交镜头视频及其所有 sidecar。"""
 
-    旧 video_uri 指向上一次生成的 provider 端产物，与本地新文件不再对应，必须清空。
-    """
-    video_file = project_path / video_rel
-    thumbnail_file = project_path / "thumbnails" / f"scene_{shot_id}.jpg"
-    if await extract_video_thumbnail(video_file, thumbnail_file):
-        thumb_rel: str | None = f"thumbnails/scene_{shot_id}.jpg"
-    else:
-        thumbnail_file.unlink(missing_ok=True)
-        thumb_rel = None
+    def _commit_metadata(thumb_rel: str | None, on_commit: Callable[[Path], None]) -> None:
+        get_project_manager().batch_update_scene_assets(
+            project_name=project_name,
+            script_filename=script_file,
+            updates=[
+                (shot_id, "video_clip", video_rel),
+                (shot_id, "video_uri", None),
+                (shot_id, "video_thumbnail", thumb_rel),
+            ],
+            on_commit=on_commit,
+        )
 
-    await asyncio.to_thread(
-        get_project_manager().batch_update_scene_assets,
-        project_name=project_name,
-        script_filename=script_file,
-        updates=[
-            (shot_id, "video_clip", video_rel),
-            (shot_id, "video_uri", None),
-            (shot_id, "video_thumbnail", thumb_rel),
-        ],
+    return await commit_manual_video_upload(
+        project_path=project_path,
+        versions=versions,
+        resource_type="videos",
+        resource_id=shot_id,
+        script_file=script_file,
+        staged_video=staged_video,
+        current_video=project_path / video_rel,
+        thumbnail_file=project_path / "thumbnails" / f"scene_{shot_id}.jpg",
+        thumbnail_rel=f"thumbnails/scene_{shot_id}.jpg",
+        original_filename=original_filename,
+        commit_metadata=_commit_metadata,
     )

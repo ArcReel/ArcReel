@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from lib.artifact_manifest import ArtifactBasis
 from lib.asset_types import ASSET_TYPES, normalize_asset_name
-from lib.prompt_utils import normalize_style
+from lib.grid.prompt_builder import project_grid_image_prompt
+from lib.prompt_utils import normalize_style, project_storyboard_image_prompt
 from lib.reference_video.request_projection import ResolvedReferenceAsset
 from lib.reference_video.shot_parser import match_dialogue_line, match_voiceover_line, strip_shot_header
 
@@ -33,6 +34,7 @@ class VisualReference:
     logical_type: str | None = None
     logical_id: str | None = None
     kind: str | None = None
+    content_digest: str | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.path, Path):
@@ -46,13 +48,15 @@ class VisualReference:
             object.__setattr__(self, "logical_id", normalize_asset_name(logical_id))
         if self.kind is not None:
             _require_non_empty("visual reference kind", self.kind)
+        if self.content_digest is not None:
+            _require_sha256("visual reference content_digest", self.content_digest)
 
     def evidence(self) -> dict[str, object]:
         """Return path-independent, content-addressed manifest evidence."""
 
         evidence: dict[str, object] = {
             "role": self.role,
-            "sha256": _file_digest(self.path),
+            "sha256": self.content_digest or visual_file_digest(self.path),
         }
         if self.logical_type is not None:
             evidence["logical_identity"] = {
@@ -74,6 +78,38 @@ class GridStoryboardVisual:
 
     def __post_init__(self) -> None:
         _require_non_empty("grid member resource_id", self.resource_id)
+
+
+def snapshot_visual_references(references: Sequence[VisualReference]) -> tuple[VisualReference, ...]:
+    """Freeze the observed bytes behind logical visual references.
+
+    Callers that separate input selection from formal registration can retain
+    one content-addressed observation even if a canonical path is atomically
+    replaced while the operation is in flight.
+    """
+
+    return tuple(
+        replace(
+            reference,
+            content_digest=reference.content_digest or visual_file_digest(reference.path),
+        )
+        for reference in references
+    )
+
+
+def visual_references_match_snapshot(references: Sequence[VisualReference]) -> bool:
+    """Verify that every selected reference still has its frozen content digest."""
+
+    for reference in references:
+        if not isinstance(reference, VisualReference) or reference.content_digest is None:
+            raise ValueError("visual reference comparison requires frozen snapshots")
+        try:
+            current_digest = visual_file_digest(reference.path)
+        except OSError:
+            return False
+        if current_digest != reference.content_digest:
+            return False
+    return True
 
 
 def build_asset_sheet_visual_basis(
@@ -123,21 +159,25 @@ def build_storyboard_image_visual_basis(
     image_prompt: object,
     style: str,
     aspect_ratio: str,
+    style_description: str = "",
     references: Sequence[VisualReference] = (),
 ) -> ArtifactBasis:
     """Describe one ordinary storyboard image and its actual ordered image inputs."""
 
     identity = _require_non_empty("resource_id", resource_id)
     _require_string("style", style)
-    prompt, style_input = _project_storyboard_image_prompt(image_prompt, style)
+    _require_string("style_description", style_description)
+    prompt, style_input = project_storyboard_image_prompt(image_prompt, style)
     inputs: dict[str, object] = {
         "resource_id": identity,
         "image_prompt": prompt,
         "canvas": {"aspect_ratio": _require_non_empty("aspect_ratio", aspect_ratio)},
         "references": _reference_evidence(references),
     }
-    if style_input is not None:
+    if style_input or not isinstance(prompt, str):
         inputs["style"] = style_input
+    if normalized_description := style_description.strip():
+        inputs["style_description"] = normalized_description
     return ArtifactBasis.build(
         "artifact-visual/storyboard-image",
         kind_version=1,
@@ -187,6 +227,7 @@ def build_grid_member_storyboard_visual_basis(
     style: str,
     member_aspect_ratio: str,
     references: Sequence[VisualReference] = (),
+    source_composite_digest: str | None = None,
 ) -> ArtifactBasis:
     """Describe one split cell while preserving grid dependency locality.
 
@@ -213,7 +254,51 @@ def build_grid_member_storyboard_visual_basis(
             },
             "style": style,
             "references": _reference_evidence(references),
-            "source_composite": {"sha256": _file_digest(composite_image)},
+            "source_composite": _composite_evidence(composite_image, source_composite_digest),
+        },
+    )
+
+
+def build_stale_grid_member_storyboard_visual_basis(
+    *,
+    group_id: str,
+    resource_id: str,
+    cell_index: int,
+    composite_image: Path,
+    rows: int,
+    columns: int,
+    member_aspect_ratio: str,
+    source_grid_basis_digest: str,
+    source_composite_digest: str | None = None,
+) -> ArtifactBasis:
+    """Describe a cell derived from a claimed but stale grid composite.
+
+    The old grid inputs cannot be reconstructed from current project state, but
+    its frozen claim remains strict source evidence. Committing that claim, the
+    selected cell identity, and the actual composite bytes preserves usable
+    stale lineage without manufacturing a current storyboard claim.
+    """
+
+    if type(rows) is not int or rows < 1 or type(columns) is not int or columns < 1:
+        raise ValueError("grid dimensions must be positive integers")
+    if type(cell_index) is not int or not 0 <= cell_index < rows * columns:
+        raise ValueError("cell_index must identify a grid cell")
+    return ArtifactBasis.build(
+        "artifact-visual/stale-grid-member",
+        kind_version=1,
+        inputs={
+            "group_id": _require_non_empty("group_id", group_id),
+            "resource_id": _require_non_empty("resource_id", resource_id),
+            "cell_index": cell_index,
+            "layout": {
+                "rows": rows,
+                "columns": columns,
+                "member_aspect_ratio": _require_non_empty("member_aspect_ratio", member_aspect_ratio),
+            },
+            "source_grid_claim": {
+                "basis_digest": _require_non_empty("source_grid_basis_digest", source_grid_basis_digest),
+            },
+            "source_composite": _composite_evidence(composite_image, source_composite_digest),
         },
     )
 
@@ -248,9 +333,9 @@ def build_storyboard_video_artifact_visual_basis(
         }
     else:
         raise ValueError("visual_prompt must be a string or structured object")
-    frame_evidence: list[dict[str, object]] = [{"role": "storyboard", "sha256": _file_digest(storyboard_image)}]
+    frame_evidence: list[dict[str, object]] = [{"role": "storyboard", "sha256": visual_file_digest(storyboard_image)}]
     if end_frame_image is not None:
-        frame_evidence.append({"role": "end_frame", "sha256": _file_digest(end_frame_image)})
+        frame_evidence.append({"role": "end_frame", "sha256": visual_file_digest(end_frame_image)})
     return ArtifactBasis.build(
         "artifact-visual/video-storyboard",
         kind_version=1,
@@ -336,32 +421,6 @@ def _reference_visual_lines(text: str) -> list[str]:
     return lines
 
 
-def _project_storyboard_image_prompt(image_prompt: object, style: str) -> tuple[object, str | None]:
-    if isinstance(image_prompt, str):
-        prompt = image_prompt.strip()
-        if not prompt:
-            raise ValueError("image_prompt must not be empty")
-        return prompt, None
-    if not isinstance(image_prompt, Mapping):
-        raise ValueError("image_prompt must be a string or object")
-    scene = image_prompt.get("scene")
-    if not isinstance(scene, str) or not scene.strip():
-        raise ValueError("image_prompt.scene must be a non-empty string")
-    raw_composition = image_prompt.get("composition")
-    composition = raw_composition if isinstance(raw_composition, Mapping) else {}
-    return (
-        {
-            "scene": scene.strip(),
-            "composition": {
-                "shot_type": str(composition.get("shot_type") or "Medium Shot"),
-                "lighting": str(composition.get("lighting") or ""),
-                "ambiance": str(composition.get("ambiance") or ""),
-            },
-        },
-        normalize_style(style),
-    )
-
-
 def _validate_grid_members(
     members: Sequence[GridStoryboardVisual],
     *,
@@ -397,36 +456,11 @@ def _project_grid_cells(members: Sequence[GridStoryboardVisual]) -> list[dict[st
             {
                 "cell_index": index,
                 "resource_id": member.resource_id,
-                "image_prompt": _project_grid_image_prompt(member.image_prompt),
+                "image_prompt": project_grid_image_prompt(member.image_prompt),
                 "transition": transition,
             }
         )
     return cells
-
-
-def _project_grid_image_prompt(image_prompt: object) -> object:
-    if not isinstance(image_prompt, Mapping):
-        return str(image_prompt)
-    scene = image_prompt.get("scene")
-    if scene is None:
-        scene = ""
-    if not isinstance(scene, str):
-        raise ValueError("grid image_prompt.scene must be a string")
-    raw_composition = image_prompt.get("composition")
-    if raw_composition is None:
-        raw_composition = {}
-    if not isinstance(raw_composition, Mapping):
-        raise ValueError("grid image_prompt.composition must be an object")
-    projected_composition: dict[str, str] = {}
-    for key, value in raw_composition.items():
-        if not isinstance(key, str):
-            raise ValueError("grid image_prompt.composition keys must be strings")
-        if value:
-            projected_composition[key] = str(value)
-    return {
-        "scene": scene,
-        "composition": projected_composition,
-    }
 
 
 def _project_grid_action(video_prompt: object) -> str:
@@ -441,7 +475,21 @@ def _reference_evidence(references: Sequence[VisualReference]) -> list[dict[str,
     return [reference.evidence() for reference in references]
 
 
-def _file_digest(path: Path) -> str:
+def _composite_evidence(composite_image: Path, source_composite_digest: str | None) -> dict[str, object]:
+    """Project one composite source through the same supplied-or-observed digest rule."""
+
+    return {
+        "sha256": (
+            _require_sha256("source_composite_digest", source_composite_digest)
+            if source_composite_digest is not None
+            else visual_file_digest(composite_image)
+        )
+    }
+
+
+def visual_file_digest(path: Path) -> str:
+    """Hash one visual input without loading the whole file into memory."""
+
     if not path.is_file():
         raise FileNotFoundError(path)
     digest = hashlib.sha256()
@@ -449,6 +497,14 @@ def _file_digest(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _require_sha256(field: str, value: object) -> str:
+    if not isinstance(value, str) or len(value) != 64:
+        raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+    if any(character not in "0123456789abcdef" for character in value):
+        raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+    return value
 
 
 def _require_non_empty(field: str, value: object) -> str:
@@ -469,7 +525,11 @@ __all__ = [
     "build_asset_sheet_visual_basis",
     "build_grid_composite_visual_basis",
     "build_grid_member_storyboard_visual_basis",
+    "build_stale_grid_member_storyboard_visual_basis",
     "build_reference_video_artifact_visual_basis",
     "build_storyboard_image_visual_basis",
     "build_storyboard_video_artifact_visual_basis",
+    "snapshot_visual_references",
+    "visual_references_match_snapshot",
+    "visual_file_digest",
 ]

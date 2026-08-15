@@ -5,6 +5,7 @@ import logging
 
 import pytest
 
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
 from lib.script_skeleton import (
@@ -290,6 +291,105 @@ class TestProjectEventService:
             assert any(episode["episode"] == 2 for episode in pm.load_project("demo")["episodes"])
 
         await service.shutdown()
+
+    @pytest.mark.unit
+    def test_script_index_sync_reconciles_only_the_authoritative_duplicate(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        def _script(resource_id: str) -> dict:
+            return {
+                "episode": 1,
+                "title": "Episode 1",
+                "content_mode": "narration",
+                "segments": [{"segment_id": resource_id, "duration_seconds": 4}],
+            }
+
+        current_path = project_dir / "scripts" / "z-current.json"
+        pm.save_script("demo", _script("E1S02"), current_path.name, validate=False)
+        (project_dir / "scripts" / "a-old.json").write_text(
+            json.dumps(_script("E1S01")),
+            encoding="utf-8",
+        )
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        current_keys = ArtifactKey.episode_resource_artifacts(1, "E1S02")
+        for index, key in enumerate(current_keys):
+            adapter.put_entry(
+                key,
+                ArtifactManifestEntry(
+                    artifact_path=f"formal/current-{index}.bin",
+                    basis_digest=f"sha256-v1:{index:064x}",
+                ),
+            )
+
+        ProjectEventService(tmp_path)._ensure_script_index_synced("demo")
+
+        assert pm.load_project("demo")["episodes"][0]["script_file"] == "scripts/z-current.json"
+        assert all(adapter.get_entry(key) is not None for key in current_keys)
+
+    @pytest.mark.unit
+    def test_script_index_sync_revalidates_a_candidate_before_skipping_it(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        script = {
+            "episode": 1,
+            "title": "Original",
+            "content_mode": "narration",
+            "segments": [],
+        }
+        pm.save_script("demo", script, "episode_1.json", validate=False)
+        service = ProjectEventService(tmp_path)
+        original_load = service.pm.load_script
+        load_count = 0
+
+        def _load_then_change(project_name: str, filename: str) -> dict:
+            nonlocal load_count
+            loaded = original_load(project_name, filename)
+            load_count += 1
+            if load_count == 1:
+                changed = dict(loaded)
+                changed["title"] = "Changed after discovery"
+                (project_dir / "scripts" / filename).write_text(json.dumps(changed), encoding="utf-8")
+            return loaded
+
+        monkeypatch.setattr(service.pm, "load_script", _load_then_change)
+
+        service._ensure_script_index_synced("demo")
+
+        assert pm.load_project("demo")["episodes"][0]["title"] == "Changed after discovery"
+
+    @pytest.mark.unit
+    def test_script_index_sync_skips_a_filename_episode_mismatch_without_writes(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        script = {
+            "episode": 1,
+            "title": "Episode 1",
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
+        }
+        pm.save_script("demo", script, "episode_1.json", validate=False)
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        key = ArtifactKey.episode_video(1, "E1S01")
+        adapter.put_entry(
+            key,
+            ArtifactManifestEntry(
+                artifact_path="formal/current.mp4",
+                basis_digest=f"sha256-v1:{'a' * 64}",
+            ),
+        )
+        (project_dir / "scripts" / "episode_2.json").write_text(json.dumps(script), encoding="utf-8")
+        project_before = (project_dir / "project.json").read_bytes()
+        manifest_before = (project_dir / ".arcreel_artifacts.json").read_bytes()
+
+        ProjectEventService(tmp_path)._ensure_script_index_synced("demo")
+
+        assert (project_dir / "project.json").read_bytes() == project_before
+        assert (project_dir / ".arcreel_artifacts.json").read_bytes() == manifest_before
+        assert adapter.get_entry(key) is not None
 
     @pytest.mark.unit
     @pytest.mark.asyncio

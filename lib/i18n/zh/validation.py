@@ -170,6 +170,7 @@ MESSAGES = {
     "arch_invalid_conflict_policy": "无效的冲突策略",
     "arch_conflict_policy_unsupported": "conflict_policy 仅支持 prompt、rename 或 overwrite，收到: {value}",
     "arch_import_validation_failed": "导入包校验失败",
+    "arch_artifact_activation_failed": "导入项目的产物状态不一致",
     "arch_not_a_zip": "上传文件不是有效的 ZIP 归档",
     "arch_zip_encrypted_entry": "ZIP 包含加密条目，无法导入: {name}",
     "arch_zip_absolute_path_entry": "ZIP 包含绝对路径条目: {name}",

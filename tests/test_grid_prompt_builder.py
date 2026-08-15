@@ -2,7 +2,13 @@
 
 import pytest
 
-from lib.grid.prompt_builder import _compute_panel_aspect, _extract_action, _extract_image_desc, build_grid_prompt
+from lib.grid.prompt_builder import (
+    _compute_panel_aspect,
+    _extract_action,
+    _extract_image_desc,
+    build_grid_prompt,
+    project_grid_image_prompt,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -20,6 +26,19 @@ class TestExtractImageDesc:
         assert "a hero stands" in result
         assert "medium" in result
         assert "natural" in result
+
+    def test_composition_key_order_is_a_semantic_noop(self):
+        first = self._scene_dict("a hero stands", {"shot_type": "medium", "lighting": "natural"})
+        reordered = self._scene_dict("a hero stands", {"lighting": "natural", "shot_type": "medium"})
+
+        assert _extract_image_desc(reordered) == _extract_image_desc(first)
+
+    @pytest.mark.parametrize(("raw_value", "expected"), [(0, "0"), (False, "False")])
+    def test_composition_preserves_falsy_scalar_values(self, raw_value, expected):
+        assert project_grid_image_prompt({"scene": "a hero stands", "composition": {"value": raw_value}}) == {
+            "scene": "a hero stands",
+            "composition": {"value": expected},
+        }
 
     def test_string_prompt_returns_as_is(self):
         scene = {"scene_id": "S1", "image_prompt": "plain text prompt"}

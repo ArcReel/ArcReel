@@ -10,6 +10,7 @@ from lib.artifact_manifest import (
     ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
+    ArtifactManifestError,
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
@@ -27,7 +28,7 @@ def _descriptor(label: str) -> ArtifactBasisDescriptor:
     )
 
 
-def _currency(label: str, *, parent_version: int) -> VideoArtifactCurrencyFacts:
+def _currency(label: str, *, parent_version: int, episode: int = 1) -> VideoArtifactCurrencyFacts:
     visual = ArtifactBasis.build(
         "artifact-visual/video-storyboard",
         kind_version=1,
@@ -41,7 +42,7 @@ def _currency(label: str, *, parent_version: int) -> VideoArtifactCurrencyFacts:
     speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
     duration = build_video_duration_basis(8)
     return VideoArtifactCurrencyFacts(
-        episode=1,
+        episode=episode,
         request_duration_seconds=8,
         visual_basis=visual,
         speech_basis=speech,
@@ -229,6 +230,49 @@ def test_manifest_failure_restores_old_selection_but_keeps_paid_history(
     restored = ProjectArtifactManifestAdapter(project).get_entry(key)
     assert restored is not None
     assert restored.basis_digest == old_basis.digest
+
+
+def test_cross_episode_path_collision_restores_the_first_owner_and_archives_paid_history(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    versions = VersionManager(project)
+    current, old_version = _seed_current(project, versions)
+    first_key = ArtifactKey.episode_video(1, "E1S01")
+    first_basis = _descriptor("episode-one")
+    from lib.artifact_manifest import ArtifactManifest
+
+    adapter = ProjectArtifactManifestAdapter(project)
+    ArtifactManifest(adapter).register_descriptor(
+        first_key,
+        artifact_path="videos/scene_E1S01.mp4",
+        basis=first_basis,
+    )
+    staged = current.with_name(".scene_E1S01.episode-two.mp4")
+    staged.write_bytes(b"episode-two-paid")
+    currency = _currency("episode-two", parent_version=old_version, episode=2)
+
+    with pytest.raises(ArtifactManifestError, match="formal artifact path.*multiple keys"):
+        commit_paid_video_artifact(
+            project_path=project,
+            versions=versions,
+            resource_type="videos",
+            resource_id="E1S01",
+            prompt="episode two",
+            staged_file=staged,
+            current_file=current,
+            duration_seconds=8,
+            version_metadata={"artifact_video_currency": currency.to_dict()},
+            resolve_current_basis=lambda _metadata: currency.video_descriptor,
+        )
+
+    assert current.read_bytes() == b"old-current"
+    restored = adapter.get_entry(first_key)
+    assert restored is not None
+    assert restored.basis_digest == first_basis.digest
+    assert adapter.get_entry(ArtifactKey.episode_video(2, "E1S01")) is None
+    history = versions.get_versions("videos", "E1S01")
+    assert history["current_version"] == old_version
+    assert (project / history["versions"][-1]["file"]).read_bytes() == b"episode-two-paid"
 
 
 def test_selection_guard_failure_still_archives_the_paid_video(tmp_path: Path) -> None:

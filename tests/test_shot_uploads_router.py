@@ -16,6 +16,7 @@ from lib.version_manager import VersionManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import reference_videos, shot_uploads
+from server.routers import versions as versions_router
 from server.services import generation_tasks, reference_video_tasks, upload_finalize
 from tests.auth_deps import AUTH_DEPENDENCIES
 
@@ -44,6 +45,13 @@ def _seed_shot_project(tmp_path) -> ProjectManager:
                     "segment_id": "E1S01",
                     "novel_text": "t",
                     "duration_seconds": 5,
+                    "characters_in_segment": [],
+                    "scenes": [],
+                    "props": [],
+                    "image_prompt": {
+                        "scene": "A quiet room",
+                        "composition": {"shot_type": "Medium Shot", "lighting": "soft", "ambiance": "calm"},
+                    },
                     "generated_assets": {
                         "storyboard_image": None,
                         "video_clip": None,
@@ -67,11 +75,13 @@ def _client(monkeypatch, tmp_path):
     monkeypatch.setattr(shot_uploads, "get_project_manager", lambda: pm)
     monkeypatch.setattr(upload_finalize, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
 
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(shot_uploads.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    app.include_router(versions_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app), pm
 
 
@@ -83,6 +93,32 @@ def _upload(client, kind: str, filename: str, content: bytes, shot_id="E1S01", s
 
 
 class TestShotStoryboardUpload:
+    def test_registration_failure_restores_storyboard_bytes_version_and_metadata(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        project_path = pm.get_project_path("demo")
+        target = project_path / "storyboards" / "scene_E1S01.png"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"old-canonical-storyboard")
+        script_path = project_path / "scripts" / "episode_1.json"
+        versions_path = project_path / "versions.json"
+        manifest_path = project_path / ".arcreel_artifacts.json"
+        before_script = script_path.read_bytes()
+        before_manifest = manifest_path.read_bytes() if manifest_path.exists() else None
+
+        def _fail_registration(*_args, **_kwargs):
+            raise RuntimeError("injected registration failure")
+
+        monkeypatch.setattr(generation_tasks, "register_formal_task_artifact", _fail_registration)
+
+        with client:
+            response = _upload(client, "storyboard", "replacement.png", _img_bytes("PNG"))
+
+        assert response.status_code == 500
+        assert target.read_bytes() == b"old-canonical-storyboard"
+        assert script_path.read_bytes() == before_script
+        assert not versions_path.exists()
+        assert (manifest_path.read_bytes() if manifest_path.exists() else None) == before_manifest
+
     def test_upload_updates_metadata_versions_and_fingerprints(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
@@ -111,6 +147,31 @@ class TestShotStoryboardUpload:
         assert info["versions"][0]["source"] == "manual_upload"
         assert info["versions"][0]["prompt"] == ""
         assert info["versions"][0]["original_filename"] == "board.jpg"
+
+    def test_restoring_a_manual_upload_preserves_its_manifest_claim(self, tmp_path, monkeypatch):
+        from lib.artifact_activation import ArtifactCurrencyResolver
+        from lib.artifact_manifest import ArtifactKey, ArtifactStatus
+
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            first = _upload(client, "storyboard", "first.png", _img_bytes("PNG"))
+            second = _upload(client, "storyboard", "second.png", _img_bytes("PNG", size=(16, 16)))
+            assert first.status_code == 200, first.text
+            assert second.status_code == 200, second.text
+
+            first_record = VersionManager(pm.get_project_path("demo")).get_versions("storyboards", "E1S01")["versions"][
+                0
+            ]
+            assert "artifact_image_basis" in first_record, first_record
+
+            restored = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
+            assert restored.status_code == 200, restored.text
+
+        comparison = ArtifactCurrencyResolver(pm.get_project_path("demo")).compare(
+            ArtifactKey.episode_storyboard(1, "E1S01"),
+            artifact_path="storyboards/scene_E1S01.png",
+        )
+        assert comparison.status is ArtifactStatus.CURRENT
 
     def test_upload_backfills_untracked_existing_file(self, tmp_path, monkeypatch):
         """磁盘已有旧分镜但无版本记录：上传前补登旧文件，旧字节不丢失。"""
@@ -234,6 +295,58 @@ class TestShotStoryboardUpload:
 
 
 class TestShotVideoUpload:
+    def test_claim_removal_failure_restores_every_formal_video_file(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        project_path = pm.get_project_path("demo")
+        video = project_path / "videos" / "scene_E1S01.mp4"
+        video.parent.mkdir(parents=True, exist_ok=True)
+        video.write_bytes(b"old-video")
+        thumbnail = project_path / "thumbnails" / "scene_E1S01.jpg"
+        thumbnail.parent.mkdir(parents=True, exist_ok=True)
+        thumbnail.write_bytes(b"old-thumbnail")
+        pm.batch_update_scene_assets(
+            "demo",
+            "episode_1.json",
+            [
+                ("E1S01", "video_clip", "videos/scene_E1S01.mp4"),
+                ("E1S01", "video_thumbnail", "thumbnails/scene_E1S01.jpg"),
+            ],
+        )
+        manager = VersionManager(project_path)
+        script_path = project_path / "scripts" / "episode_1.json"
+        project_file = project_path / "project.json"
+        before = {
+            video: video.read_bytes(),
+            thumbnail: thumbnail.read_bytes(),
+            script_path: script_path.read_bytes(),
+            project_file: project_file.read_bytes(),
+            manager.versions_file: None,
+        }
+        before_version_copies: dict[str, bytes] = {}
+
+        async def _new_thumbnail(_video_path: Path, thumbnail_path: Path):
+            thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
+            thumbnail_path.write_bytes(b"new-thumbnail")
+            return thumbnail_path
+
+        monkeypatch.setattr(upload_finalize, "extract_video_thumbnail", _new_thumbnail)
+        monkeypatch.setattr(
+            upload_finalize,
+            "forget_current_resource_artifact",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("claim removal failed")),
+        )
+
+        with client:
+            response = _upload(client, "video", "clip.mp4", b"new-video")
+
+        assert response.status_code == 500
+        assert all((path.read_bytes() if path.is_file() else None) == content for path, content in before.items())
+        assert {
+            path.name: path.read_bytes() for path in (project_path / "versions" / "videos").glob("*") if path.is_file()
+        } == before_version_copies
+        assert not list(video.parent.glob(".*.tmp*"))
+        assert not list(thumbnail.parent.glob(".*.tmp*"))
+
     def test_upload_finalizes_and_clears_stale_video_uri(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         pm.update_scene_asset("demo", "episode_1.json", "E1S01", "video_uri", "https://stale-provider-uri")
@@ -371,7 +484,7 @@ def _ref_client(monkeypatch, tmp_path):
         thumbnail_path.write_bytes(b"jpg")
         return thumbnail_path
 
-    monkeypatch.setattr(reference_video_tasks, "extract_video_thumbnail", _fake_thumbnail)
+    monkeypatch.setattr(upload_finalize, "extract_video_thumbnail", _fake_thumbnail)
 
     app = FastAPI()
     register_error_handlers(app)
@@ -388,6 +501,52 @@ def _upload_unit(client, unit_id="E1U1", filename="clip.mp4", content=b"\x00" * 
 
 
 class TestReferenceUnitVideoUpload:
+    def test_claim_removal_failure_restores_every_formal_video_file(self, tmp_path, monkeypatch):
+        client, pm = _ref_client(monkeypatch, tmp_path)
+        project_path = pm.get_project_path("demo")
+        video = project_path / "reference_videos" / "E1U1.mp4"
+        video.parent.mkdir(parents=True, exist_ok=True)
+        video.write_bytes(b"old-video")
+        thumbnail = project_path / "reference_videos" / "thumbnails" / "E1U1.jpg"
+        thumbnail.parent.mkdir(parents=True, exist_ok=True)
+        thumbnail.write_bytes(b"old-thumbnail")
+        with pm.locked_script("demo", "episode_1.json", validate=False) as script:
+            reference_video_tasks.apply_unit_video_assets(
+                script,
+                "E1U1",
+                video_uri=None,
+                thumb_rel="reference_videos/thumbnails/E1U1.jpg",
+            )
+        manager = VersionManager(project_path)
+        manager.add_version("reference_videos", "E1U1", "old", source_file=video)
+        script_path = project_path / "scripts" / "episode_1.json"
+        project_file = project_path / "project.json"
+        before = {
+            video: video.read_bytes(),
+            thumbnail: thumbnail.read_bytes(),
+            script_path: script_path.read_bytes(),
+            project_file: project_file.read_bytes(),
+            manager.versions_file: manager.versions_file.read_bytes(),
+        }
+        version_dir = project_path / "versions" / "reference_videos"
+        before_version_copies = {path.name: path.read_bytes() for path in version_dir.glob("*") if path.is_file()}
+
+        def _fail_claim_removal(*_args, **_kwargs):
+            raise RuntimeError("claim removal failed")
+
+        monkeypatch.setattr(upload_finalize, "forget_current_resource_artifact", _fail_claim_removal)
+
+        with client:
+            response = _upload_unit(client, content=b"new-video")
+
+        assert response.status_code == 500
+        assert all(path.read_bytes() == content for path, content in before.items())
+        assert {
+            path.name: path.read_bytes() for path in version_dir.glob("*") if path.is_file()
+        } == before_version_copies
+        assert not list(video.parent.glob(".*.tmp*"))
+        assert not list(thumbnail.parent.glob(".*.tmp*"))
+
     def test_upload_finalizes_unit(self, tmp_path, monkeypatch):
         client, pm = _ref_client(monkeypatch, tmp_path)
         with client:

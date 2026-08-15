@@ -6,7 +6,13 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lib.image_backends.base import ImageCapability, ImageGenerationResult
-from lib.media_generator import MediaGenerator, cleanup_staged_video_output, segment_id_for, task_video_staging_path
+from lib.media_generator import (
+    MediaGenerator,
+    cleanup_staged_video_output,
+    segment_id_for,
+    task_image_staging_path,
+    task_video_staging_path,
+)
 from lib.version_manager import PaidVersionCommit
 from tests.fakes import select_formal_video
 
@@ -209,6 +215,100 @@ class TestMediaGenerator:
         assert gen._get_output_path("reference_videos", "E1U1").name == "E1U1.mp4"
         with pytest.raises(ValueError):
             gen._get_output_path("bad", "x")
+
+    @pytest.mark.unit
+    async def test_cancelled_formal_image_generation_never_replaces_the_canonical_file(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        backend_written = asyncio.Event()
+        keep_running = asyncio.Event()
+
+        class _BlockingImageBackend(_FakeImageBackend):
+            async def generate(self, request) -> ImageGenerationResult:
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"new-image")
+                backend_written.set()
+                await keep_running.wait()
+                return ImageGenerationResult(
+                    image_path=request.output_path,
+                    provider=self.name,
+                    model=self.model,
+                    usage_tokens=8,
+                )
+
+        gen._image_backend = _BlockingImageBackend()
+        canonical = gen._get_output_path("storyboards", "E1S01")
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        canonical.write_bytes(b"old-image")
+        committed: list[Path] = []
+
+        task = asyncio.create_task(
+            gen.generate_image_async(
+                prompt="p",
+                resource_type="storyboards",
+                resource_id="E1S01",
+                formal_output=True,
+                task_id="image-task",
+                commit_formal_output=lambda staged, _current, _metadata: committed.append(staged) or 1,
+            )
+        )
+        await backend_written.wait()
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert canonical.read_bytes() == b"old-image"
+        assert committed == []
+        assert gen.versions.add_calls == []
+        assert not any(canonical.parent.glob(".*.task-output.png"))
+
+    @pytest.mark.unit
+    async def test_image_before_submit_runs_at_the_backend_boundary(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        backend = _FakeImageBackend()
+        gen._image_backend = backend
+        events: list[str] = []
+        original_generate = backend.generate
+
+        async def _generate(request):
+            events.append("provider")
+            return await original_generate(request)
+
+        async def _before_submit() -> None:
+            events.append("admission")
+
+        backend.generate = _generate
+
+        await gen.generate_image_async(
+            prompt="p",
+            resource_type="storyboards",
+            resource_id="E1S01",
+            before_submit=_before_submit,
+        )
+
+        assert events == ["admission", "provider"]
+
+    @pytest.mark.unit
+    async def test_invalid_formal_image_call_preserves_a_previous_staged_output(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        backend = _FakeImageBackend()
+        gen._image_backend = backend
+        canonical = gen._get_output_path("storyboards", "E1S01")
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        staged = task_image_staging_path(canonical, "image-task")
+        staged.write_bytes(b"recoverable-output")
+
+        with pytest.raises(ValueError, match="artifact commit callback"):
+            await gen.generate_image_async(
+                prompt="p",
+                resource_type="storyboards",
+                resource_id="E1S01",
+                formal_output=True,
+                task_id="image-task",
+            )
+
+        assert staged.read_bytes() == b"recoverable-output"
+        assert backend.calls == []
 
     @pytest.mark.unit
     def test_generate_image_success_and_failure(self, tmp_path):

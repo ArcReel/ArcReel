@@ -594,17 +594,46 @@ class ProjectEventService:
                 "script_file": str(ep.get("script_file") or ""),
             }
 
-        for script_path in sorted(scripts_dir.glob("*.json")):
+        def _load_candidate(script_path: Path) -> tuple[int, str] | None:
             try:
                 script = self.pm.load_script(project_name, script_path.name)
             except Exception:
                 logger.warning("跳过无法读取的剧本文件 project=%s file=%s", project_name, script_path.name)
-                continue
+                return None
 
             episode = script.get("episode")
             if not isinstance(episode, int):
-                continue
+                return None
             title = str(script.get("title") or "")
+            try:
+                self.pm.require_filename_episode_consistency(script, script_path.name)
+            except ValueError as exc:
+                logger.warning(
+                    "剧集集号不一致，跳过同步 project=%s file=%s reason=%s",
+                    project_name,
+                    script_path.name,
+                    exc,
+                )
+                return None
+            return episode, title
+
+        candidates: dict[int, Path] = {}
+        for script_path in sorted(scripts_dir.glob("*.json")):
+            candidate = _load_candidate(script_path)
+            if candidate is None:
+                continue
+            episode, _title = candidate
+            # sorted() + overwrite preserves the watcher's established final
+            # winner while ensuring each episode is reconciled at most once.
+            candidates[episode] = script_path
+
+        for episode, script_path in sorted(candidates.items()):
+            boundary_candidate = _load_candidate(script_path)
+            if boundary_candidate is None:
+                continue
+            boundary_episode, title = boundary_candidate
+            if boundary_episode != episode:
+                continue
             expected_script_file = f"scripts/{script_path.name}"
             existing = current_episodes.get(episode)
             if existing and existing["title"] == title and existing["script_file"] == expected_script_file:
@@ -614,8 +643,8 @@ class ProjectEventService:
                 with project_change_source("filesystem"):
                     self.pm.sync_episode_from_script(project_name, script_path.name)
             except ValueError as exc:
-                # filename 与脚本内 episode 字段不一致：跳过同步避免污染 project.json，
-                # 同时避免 SSE 扫描循环无限重试导致 metadata.updated_at 抖动。
+                # 文件可能在候选快照后被外部改写；同步边界再次校验并 fail-safe 跳过，
+                # 避免污染 project.json 或让 SSE 扫描循环持续抖动 metadata.updated_at。
                 logger.warning(
                     "剧集集号不一致，跳过同步 project=%s file=%s reason=%s",
                     project_name,

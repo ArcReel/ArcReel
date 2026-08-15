@@ -93,7 +93,7 @@ class TestGroupBySegmentBreak:
     def test_groups(self, project_with_script):
         from server.services.generation_tasks import _group_scenes_by_segment_break
 
-        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         items = script["segments"]
         groups = _group_scenes_by_segment_break(items, "segment_id")
         # E1S03 has segment_break=True, so groups: [E1S01,E1S02] and [E1S03,E1S04,E1S05,E1S06]
@@ -141,13 +141,13 @@ class TestCollectGridReferenceImages:
         from server.services.generation_tasks import _collect_grid_reference_images
 
         # Add a character with a sheet
-        project_data = json.loads((project_with_script / "project.json").read_text())
+        project_data = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
         project_data["characters"]["hero"] = {"character_sheet": "characters/hero.png"}
         (project_with_script / "project.json").write_text(json.dumps(project_data))
         (project_with_script / "characters" / "hero.png").write_bytes(b"fake-image")
 
         # Update script to reference the character
-        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         script["segments"][0]["characters_in_segment"] = ["hero"]
         (project_with_script / "scripts" / "episode_1.json").write_text(json.dumps(script))
 
@@ -166,13 +166,13 @@ class TestCollectGridReferenceImages:
     def test_deduplicates_references(self, project_with_script):
         from server.services.generation_tasks import _collect_grid_reference_images
 
-        project_data = json.loads((project_with_script / "project.json").read_text())
+        project_data = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
         project_data["characters"]["hero"] = {"character_sheet": "characters/hero.png"}
         (project_with_script / "project.json").write_text(json.dumps(project_data))
         (project_with_script / "characters" / "hero.png").write_bytes(b"fake-image")
 
         # Both segments reference same character
-        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         script["segments"][0]["characters_in_segment"] = ["hero"]
         script["segments"][1]["characters_in_segment"] = ["hero"]
         (project_with_script / "scripts" / "episode_1.json").write_text(json.dumps(script))
@@ -233,9 +233,11 @@ class TestExecuteGridTask:
         ):
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
-            mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
             mock_pm.load_script.return_value = json.loads(
-                (project_with_script / "scripts" / "episode_1.json").read_text()
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
             )
             mock_pm.update_scene_asset.return_value = {}
             mock_pm_fn.return_value = mock_pm
@@ -255,11 +257,348 @@ class TestExecuteGridTask:
         # Verify grid status was updated
         import json as json_mod
 
-        updated_grid_data = json_mod.loads((project_with_script / "grids" / f"{grid.id}.json").read_text())
+        updated_grid_data = json_mod.loads(
+            (project_with_script / "grids" / f"{grid.id}.json").read_text(encoding="utf-8")
+        )
         assert updated_grid_data["status"] == "completed"
         assert updated_grid_data["grid_image_path"] == f"grids/{grid.id}.png"
         # 联合图内容更新后落格状态复位，等待显式切分
         assert updated_grid_data["split_at"] is None
+
+    async def test_schema8_grid_rejects_an_unclaimed_bound_script_before_provider(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from server.services.generation_tasks import execute_grid_task
+
+        project_file = project_with_script / "project.json"
+        project = json.loads(project_file.read_text(encoding="utf-8"))
+        project["schema_version"] = 8
+        project["episodes"] = [{"episode": 1, "script_file": "scripts/episode_1.json"}]
+        project_file.write_text(json.dumps(project), encoding="utf-8")
+        script_file = project_with_script / "scripts" / "episode_1.json"
+        script = json.loads(script_file.read_text(encoding="utf-8"))
+        script["episode"] = 1
+        script_file.write_text(json.dumps(script), encoding="utf-8")
+
+        mock_generator = MagicMock()
+        mock_generator.generate_image_async = AsyncMock(side_effect=AssertionError("provider must remain unreachable"))
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = project
+            mock_pm.load_script.return_value = script
+            mock_pm_fn.return_value = mock_pm
+
+            with pytest.raises(ValueError, match="episode script is not registered"):
+                await execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                )
+
+        mock_generator.generate_image_async.assert_not_awaited()
+
+    async def test_grid_registers_generation_frozen_basis_when_script_changes_in_flight(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from lib.grid.layout import grid_aspect_ratio_for
+        from lib.visual_artifact_provenance import GridStoryboardVisual, build_grid_composite_visual_basis
+        from server.services.generation_tasks import execute_grid_task
+
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        project = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
+        captured = []
+
+        class _Generator:
+            versions = MagicMock()
+
+            async def generate_image_async(self, **_kwargs):
+                script["segments"][0]["image_prompt"] = "latest prompt"
+                return project_with_script / "grids" / f"{grid_json.id}.png", 1
+
+        def _register(*_args, **kwargs):
+            captured.append(kwargs["basis"])
+            return None
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(_Generator()),
+            ),
+            patch("server.services.generation_tasks.register_formal_task_artifact", side_effect=_register),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = project
+            mock_pm.load_script.return_value = script
+            mock_pm_fn.return_value = mock_pm
+
+            await execute_grid_task(
+                "test-project",
+                grid_json.id,
+                {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+        members = tuple(
+            GridStoryboardVisual(
+                resource_id=f"E1S0{i}",
+                image_prompt={
+                    "scene": f"scene{i}",
+                    "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+                },
+                video_prompt={
+                    "action": f"action{i}",
+                    "camera_motion": "static",
+                    "ambiance_audio": "quiet",
+                    "dialogue": [],
+                },
+            )
+            for i in range(1, 4)
+        )
+        expected = build_grid_composite_visual_basis(
+            group_id=grid_json.id,
+            members=members,
+            rows=2,
+            columns=2,
+            style="realistic",
+            grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
+        )
+        assert captured == [expected]
+
+    async def test_grid_provider_prompt_is_rebuilt_from_the_same_live_inputs_as_its_basis(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from lib.grid.layout import grid_aspect_ratio_for
+        from lib.grid.prompt_builder import build_grid_prompt
+        from lib.grid_manager import GridManager
+        from lib.visual_artifact_provenance import GridStoryboardVisual, build_grid_composite_visual_basis
+        from server.services.generation_tasks import execute_grid_task
+
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        project = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
+        script["segments"][0]["image_prompt"]["scene"] = "live scene prompt"
+        (project_with_script / "scripts" / "episode_1.json").write_text(
+            json.dumps(script, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        captured_prompt: list[str] = []
+        captured_basis = []
+
+        class _Generator:
+            versions = MagicMock()
+
+            async def generate_image_async(self, **kwargs):
+                captured_prompt.append(kwargs["prompt"])
+                return project_with_script / "grids" / f"{grid_json.id}.png", 1
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(_Generator()),
+            ),
+            patch(
+                "server.services.generation_tasks.register_formal_task_artifact",
+                side_effect=lambda *_args, **kwargs: captured_basis.append(kwargs["basis"]),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = project
+            mock_pm.load_script.return_value = script
+            mock_pm_fn.return_value = mock_pm
+
+            await execute_grid_task(
+                "test-project",
+                grid_json.id,
+                {"prompt": "stale queued prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+        scenes_by_id = {scene["segment_id"]: scene for scene in script["segments"]}
+        expected = build_grid_prompt(
+            scenes=[scenes_by_id[scene_id] for scene_id in grid_json.scene_ids],
+            id_field="segment_id",
+            rows=2,
+            cols=2,
+            style="realistic",
+            aspect_ratio="9:16",
+            grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
+        )
+        assert captured_prompt == [expected]
+        assert GridManager(project_with_script).get(grid_json.id).prompt == expected
+        expected_basis = build_grid_composite_visual_basis(
+            group_id=grid_json.id,
+            members=tuple(
+                GridStoryboardVisual(
+                    resource_id=scene_id,
+                    image_prompt=scenes_by_id[scene_id]["image_prompt"],
+                    video_prompt=scenes_by_id[scene_id]["video_prompt"],
+                )
+                for scene_id in grid_json.scene_ids
+            ),
+            rows=2,
+            columns=2,
+            style="realistic",
+            grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
+        )
+        assert captured_basis == [expected_basis]
+
+    async def test_manifest_failure_rejects_selected_grid_before_marking_failed(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from PIL import Image
+
+        from server.services.generation_tasks import execute_grid_task
+
+        grid_image_path = project_with_script / "grids" / f"{grid_json.id}.png"
+        Image.new("RGB", (400, 400), color=(128, 200, 100)).save(grid_image_path, format="PNG")
+        mock_generator = MagicMock()
+        mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 2))
+
+        def _reject_before_failure(*_args, **_kwargs):
+            current_grid = json.loads(
+                (project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8")
+            )
+            assert current_grid["status"] != "failed"
+            return True
+
+        mock_generator.versions.reject_current_version.side_effect = _reject_before_failure
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator),
+            ),
+            patch(
+                "server.services.generation_tasks.register_formal_task_artifact",
+                side_effect=RuntimeError("manifest commit failed"),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
+            mock_pm.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+            )
+            mock_pm_fn.return_value = mock_pm
+
+            with pytest.raises(RuntimeError, match="manifest commit failed"):
+                await execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                )
+
+        mock_generator.versions.reject_current_version.assert_called_once_with(
+            "grids",
+            grid_json.id,
+            rejected_version=2,
+            current_file=grid_image_path,
+        )
+        updated_grid_data = json.loads(
+            (project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8")
+        )
+        assert updated_grid_data["status"] == "failed"
+        assert updated_grid_data["grid_image_path"] is None
+
+    async def test_terminal_cancellation_restores_grid_selection_and_preserves_later_edits(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from lib.generation_queue import CompensableGenerationResult
+        from lib.grid_manager import GridManager
+        from lib.version_manager import VersionManager
+        from server.services.generation_tasks import execute_grid_task
+
+        grid_id = grid_json.id
+        current = project_with_script / "grids" / f"{grid_id}.png"
+        current.write_bytes(b"old-grid")
+        versions = VersionManager(project_with_script)
+        old_version = versions.add_version("grids", grid_id, "old", source_file=current)
+
+        class _Generator:
+            def __init__(self):
+                self.versions = versions
+
+            async def generate_image_async(self, **_kwargs):
+                current.write_bytes(b"cancelled-grid")
+                selected = self.versions.add_version("grids", grid_id, "new", source_file=current)
+                return current, selected
+
+        compensated: list[str] = []
+
+        class _ManifestReceipt:
+            def compensate_cancelled(self) -> None:
+                compensated.append("manifest")
+
+        generator = _Generator()
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(generator),
+            ),
+            patch(
+                "server.services.generation_tasks.register_formal_task_artifact",
+                return_value=_ManifestReceipt(),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
+            mock_pm.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+            )
+            mock_pm_fn.return_value = mock_pm
+
+            result = await execute_grid_task(
+                "test-project",
+                grid_id,
+                {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+                task_id="grid-task",
+            )
+
+        assert isinstance(result, CompensableGenerationResult)
+        GridManager(project_with_script).update(grid_id, lambda grid: setattr(grid, "provider", "later-provider"))
+
+        result.compensate_cancelled()
+
+        restored = GridManager(project_with_script).get(grid_id)
+        assert restored is not None
+        assert restored.status == "pending"
+        assert restored.grid_image_path is None
+        assert restored.reference_images is None
+        assert restored.provider == "later-provider"
+        assert versions.get_current_version("grids", grid_id) == old_version
+        assert current.read_bytes() == b"old-grid"
+        assert compensated == ["manifest"]
 
     async def test_execute_grid_task_does_not_touch_storyboards(self, project_with_script, grid_json):
         """生成任务只产出联合图：不写任何分镜格文件、不回写剧本、不登记分镜版本——
@@ -291,9 +630,11 @@ class TestExecuteGridTask:
         ):
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
-            mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
             mock_pm.load_script.return_value = json.loads(
-                (project_with_script / "scripts" / "episode_1.json").read_text()
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
             )
             mock_pm_fn.return_value = mock_pm
 
@@ -399,9 +740,11 @@ class TestGridMetadataT2II2ISlotSelection:
         ):
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
-            mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
             mock_pm.load_script.return_value = json.loads(
-                (project_with_script / "scripts" / "episode_1.json").read_text()
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
             )
             mock_pm.update_scene_asset.return_value = {}
             mock_pm_fn.return_value = mock_pm
@@ -420,19 +763,19 @@ class TestGridMetadataT2II2ISlotSelection:
 
         await self._run_grid_task(project_with_script, grid, payload)
 
-        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text())
+        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text(encoding="utf-8"))
         assert updated["provider"] == "openai"
         assert updated["model"] == "gpt-image-t2i"
 
     async def test_uses_i2i_slot_when_reference_images_present(self, project_with_script, grid_with_empty_metadata):
         """有 character sheet 且 segment 引用了角色 → reference_images 非空 → 写 I2I 槽配置"""
         # 给 project + script 注入 character sheet，让 _collect_grid_reference_images 返回非空
-        project_data = json.loads((project_with_script / "project.json").read_text())
+        project_data = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
         project_data["characters"]["hero"] = {"character_sheet": "characters/hero.png"}
         (project_with_script / "project.json").write_text(json.dumps(project_data))
         (project_with_script / "characters" / "hero.png").write_bytes(b"fake-image")
 
-        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         script["segments"][0]["characters_in_segment"] = ["hero"]
         (project_with_script / "scripts" / "episode_1.json").write_text(json.dumps(script))
 
@@ -446,7 +789,7 @@ class TestGridMetadataT2II2ISlotSelection:
 
         await self._run_grid_task(project_with_script, grid, payload)
 
-        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text())
+        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text(encoding="utf-8"))
         assert updated["provider"] == "openai"
         assert updated["model"] == "gpt-image-i2i"
 
@@ -465,6 +808,6 @@ class TestGridMetadataT2II2ISlotSelection:
             resolve_override=lambda gen: _image_ctx(gen, provider="custom-1", model="m-dead", backend_model="m-live"),
         )
 
-        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text())
+        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text(encoding="utf-8"))
         assert updated["provider"] == "custom-1"
         assert updated["model"] == "m-live"

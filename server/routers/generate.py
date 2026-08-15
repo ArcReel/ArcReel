@@ -17,11 +17,19 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.artifact_activation import (
+    active_artifact_currency_resolver,
+    artifact_is_usable,
+    resolve_artifact_episode,
+    resolve_usable_storyboard_video_inputs,
+)
+from lib.artifact_manifest import ArtifactKey
 from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec
 from lib.i18n import Translator
+from lib.json_io import domain_error_on_value_error
 from lib.narration_delivery import (
     POST_PRODUCTION,
     USE_TTS,
@@ -42,15 +50,16 @@ from lib.script_models import get_generated_assets
 from lib.script_skeleton import resolve_script_kind
 from lib.speech_composition import SpeechMode, admit_script_unit
 from lib.storyboard_sequence import (
+    EndFrameImageUnavailable,
+    StoryboardImageUnavailable,
     find_storyboard_item,
     get_storyboard_items,
-    resolve_storyboard_image_ref,
 )
 from server.auth import CurrentUser
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
 from server.services.cost_estimation import quote_video_request
 from server.services.generation_context import AudioLaneRequest, resolve_generation_context
-from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
+from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
 from server.services.narration_delivery_tasks import (
     active_narrated_video_resource_ids,
     prepare_current_storyboard_narrated_video_duration,
@@ -59,6 +68,22 @@ from server.services.narration_delivery_tasks import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _resolve_request_artifact_episode(
+    project: dict,
+    script: dict,
+    script_file: str,
+) -> int | None:
+    """Validate the submitted script's live project binding before enqueue."""
+
+    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=script_file)):
+        return resolve_artifact_episode(
+            project=project,
+            script=script,
+            script_filename=script_file,
+        )
+
 
 # ==================== 请求模型 ====================
 
@@ -165,8 +190,10 @@ async def generate_storyboard(
     """
 
     def _sync():
-        get_project_manager().load_project(project_name)
-        script = get_project_manager().load_script(project_name, req.script_file)
+        pm_local = get_project_manager()
+        project = pm_local.load_project(project_name)
+        script = pm_local.load_script(project_name, req.script_file)
+        _resolve_request_artifact_episode(project, script, req.script_file)
         items, id_field, _, _, _ = get_storyboard_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
@@ -235,13 +262,15 @@ async def generate_video(
         if is_reference_video_project(project):
             raise ConflictError("video_route_is_reference_video")
 
-        # 与 worker 一致：优先读取 generated_assets.storyboard_image，回退默认路径。
-        # 旧宫格项目 storyboard_image 指向 scene_{id}_first.png，仍可正常解析。
+        # 与 worker 一致：优先读取 generated_assets.storyboard_image；Manifest 激活前
+        # 保留默认路径兼容，激活后要求显式绑定。旧宫格项目指向 scene_{id}_first.png
+        # 时仍可正常解析。
         # 脚本缺失（FileNotFoundError）/ 脏脚本（分镜数组键损坏，ScriptEditError）均
         # fail-fast：不能 silently 降级走 default 路径——default 文件恰好存在时会让请求
         # 「先返回提交成功、worker 解析脚本时再确定失败」，撕裂用户预期。两者均由 app 级
         # handler 统一映射为脱敏响应（404 / 400）。
         script = pm_local.load_script(project_name, req.script_file)
+        artifact_episode = _resolve_request_artifact_episode(project, script, req.script_file)
         items, id_field, _, _, _ = get_storyboard_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
@@ -254,19 +283,22 @@ async def generate_video(
             admission = admit_script_unit(script_kind, {**resolved[0], "video_prompt": req.prompt})
         if not admission.allowed:
             raise HTTPException(status_code=409, detail=admission.to_dict())
-        storyboard_rel = get_generated_assets(resolved[0]).get("storyboard_image")
-
-        # 字段值来自磁盘剧本 JSON，不可信任：非字符串脏数据会让下面的路径拼接抛未处理
-        # TypeError 变成通用 500；越界 / 绝对路径引用会把项目外任意文件当分镜图使用。
-        # 校验口径与 execute_video_task / SDK 工具入队预检共用同一份（resolve_storyboard_image_ref）。
+        # 字段值来自磁盘剧本 JSON，不可信任；路径校验和 schema 激活后的显式绑定要求
+        # 与 worker / 当前基线重建共用同一解析器。
         try:
-            storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
+            resolve_usable_storyboard_video_inputs(
+                project_path=project_path,
+                project=project,
+                episode=artifact_episode,
+                resource_id=segment_id,
+                item=resolved[0],
+            )
+        except EndFrameImageUnavailable:
+            raise BadRequestError("invalid_end_frame_image_path", segment_id=segment_id) from None
+        except StoryboardImageUnavailable:
+            raise BadRequestError("generate_storyboard_first", segment_id=segment_id) from None
         except ValueError:
             raise BadRequestError("invalid_storyboard_image_path", segment_id=segment_id) from None
-        if storyboard_file is None:
-            storyboard_file = project_path / "storyboards" / f"scene_{segment_id}.png"
-        if not storyboard_file.is_file():
-            raise BadRequestError("generate_storyboard_first", segment_id=segment_id)
         return project, project_path, script, resolved[0]
 
     project, project_path, script, item = await asyncio.to_thread(_sync)
@@ -421,6 +453,7 @@ async def generate_tts(
         pm_local = get_project_manager()
         _project = pm_local.load_project(project_name)
         script = pm_local.load_script(project_name, req.script_file)
+        _resolve_request_artifact_episode(_project, script, req.script_file)
         items, id_field, kind = resolve_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
@@ -478,6 +511,10 @@ async def generate_tts_batch(
         _project = pm_local.load_project(project_name)
         script = pm_local.load_script(project_name, req.script_file)
         items, id_field, kind = resolve_items(script)
+        episode = _resolve_request_artifact_episode(_project, script, req.script_file)
+        currency = active_artifact_currency_resolver(pm_local.get_project_path(project_name), _project)
+        if currency is not None and episode is None:
+            raise ValueError("script episode must be a positive integer")
         missing: list[str] = []
         for item in items:
             admission = admit_script_unit(kind, item)
@@ -485,10 +522,14 @@ async def generate_tts_batch(
                 continue
             if not canonical_narration_text(admission.preparation):
                 continue
-            if get_generated_assets(item).get("narration_audio"):
-                continue
             seg_id = item.get(id_field)
-            if seg_id:
+            if seg_id and not artifact_is_usable(
+                currency,
+                ArtifactKey.episode_audio(episode, str(seg_id))
+                if currency is not None and episode is not None
+                else None,
+                get_generated_assets(item).get("narration_audio"),
+            ):
                 missing.append(str(seg_id))
         return _project, missing
 
@@ -899,13 +940,24 @@ async def edit_image(
         project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
         script = pm_local.load_script(project_name, str(script_file)) if is_storyboard else None
+        artifact_episode = None
+        if script is not None:
+            artifact_episode = _resolve_request_artifact_episode(project, script, str(script_file))
         try:
-            current_rel = resolve_current_image_rel(project, req.resource_type, req.resource_id, script)
+            source = resolve_usable_image_edit_source(
+                project=project,
+                project_path=project_path,
+                resource_type=req.resource_type,
+                resource_id=req.resource_id,
+                script=script,
+                artifact_episode=artifact_episode,
+                resolver=active_artifact_currency_resolver(project_path, project),
+            )
         except KeyError:
             if is_storyboard:
                 raise NotFoundError("segment_not_found", id=req.resource_id)
             raise NotFoundError(_ASSET_GENERATE_I18N[req.resource_type]["not_found"], name=req.resource_id)
-        if not (current_rel and safe_exists(project_path, current_rel)):
+        if source is None:
             raise BadRequestError("image_edit_no_current_image", id=req.resource_id)
         return project
 

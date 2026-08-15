@@ -1,5 +1,8 @@
+import json
 import os
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -10,14 +13,22 @@ from fastapi.testclient import TestClient
 
 from lib.api_errors import BadRequestError
 from lib.artifact_manifest import (
+    HASH_ALGORITHM,
+    MANIFEST_FILENAME,
+    MANIFEST_SCHEMA_VERSION,
     ArtifactBasis,
     ArtifactBasisDescriptor,
+    ArtifactKey,
+    ArtifactManifest,
+    ArtifactManifestEntry,
+    ArtifactStatus,
+    ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
-from lib.script_editor import ScriptEditError
 from lib.speech_artifact_provenance import build_video_duration_basis
 from lib.version_manager import VersionManager
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.visual_artifact_provenance import build_asset_sheet_visual_basis, build_storyboard_image_visual_basis
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import versions
@@ -35,11 +46,23 @@ class _FakePM:
 
         return Path("/tmp") / project_name
 
-    def _update_asset_sheet(self, asset_type, *args):
+    def _update_asset_sheet(self, asset_type, *args, on_commit=None):
         self.updated.append((asset_type, args))
+        if on_commit is not None:
+            on_commit(self.get_project_path(args[0]) / "project.json")
 
     def update_scene_asset(self, *args, **kwargs):
         self.updated.append(("storyboard", args, kwargs))
+
+    def update_scene_asset_across_scripts(
+        self, project_name, script_filenames, scene_id, asset_type, asset_path, *, on_commit=None, on_miss=None
+    ):
+        for script_filename in script_filenames:
+            self.update_scene_asset(project_name, script_filename, scene_id, asset_type, asset_path)
+        if script_filenames and on_commit is not None:
+            on_commit()
+        if not script_filenames and on_miss is not None:
+            on_miss()
 
 
 class _FakeVM:
@@ -60,16 +83,70 @@ class _FakeVM:
     def get_version_metadata(self, resource_type, resource_id, version, key) -> str | None:
         raise AssertionError("version restore must not read legacy source_signature metadata")
 
-    def restore_version(self, resource_type, resource_id, version, current_file):
+    def restore_version(self, resource_type, resource_id, version, current_file, *, on_restore=None):
         if version == 404:
             raise FileNotFoundError("missing")
         if version == 400:
             raise ValueError("bad")
+        if on_restore is not None:
+            on_restore({"version": version})
         return {
             "restored_version": version,
             "current_version": version,
             "prompt": "p",
         }
+
+
+def test_non_typed_storyboard_restore_enters_version_commit_from_metadata_transaction(monkeypatch, tmp_path) -> None:
+    order: list[str] = []
+
+    class _OrderedPM(_FakePM):
+        def update_scene_asset_across_scripts(
+            self,
+            project_name,
+            script_filenames,
+            scene_id,
+            asset_type,
+            asset_path,
+            *,
+            on_commit=None,
+            on_miss=None,
+        ):
+            order.append("metadata")
+            assert on_commit is not None
+            on_commit()
+
+    class _OrderedVM(_FakeVM):
+        def restore_version(self, resource_type, resource_id, version, current_file, *, on_restore=None):
+            assert order == ["metadata"]
+            order.append("versions")
+            return super().restore_version(
+                resource_type,
+                resource_id,
+                version,
+                current_file,
+                on_restore=on_restore,
+            )
+
+    pm = _OrderedPM()
+    monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(versions, "register_current_resource_artifact", lambda *_args, **_kwargs: False)
+    project_path = tmp_path / "demo"
+    current_file = project_path / "storyboards" / "scene_E1S01.png"
+
+    result = versions._restore_non_typed_version(
+        versions=_OrderedVM(),
+        resource_type="storyboards",
+        project_name="demo",
+        resource_id="E1S01",
+        version=1,
+        current_file=current_file,
+        file_path="storyboards/scene_E1S01.png",
+        project_path=project_path,
+    )
+
+    assert result["restored_version"] == 1
+    assert order == ["metadata", "versions"]
 
 
 class _GridPM:
@@ -98,24 +175,6 @@ class _GridPM:
 
     def batch_update_scene_assets(self, *args, **kwargs):
         self.update_calls.append((args, kwargs))
-
-
-class _StoryboardSyncPM:
-    def __init__(self, project_path):
-        self.project_path = project_path
-        self.update_calls = []
-
-    def get_project_path(self, project_name):
-        return self.project_path
-
-    def update_scene_asset(self, project_name, script_filename, scene_id, asset_type, asset_path):
-        self.update_calls.append(script_filename)
-        if script_filename == "a.json":
-            # KeyError = 该集脚本不引用此 scene_id,正常跳过(非脏数据)
-            raise KeyError("missing scene")
-        if script_filename == "b.json":
-            # ScriptEditError = 该集脚本脏(分镜数组键损坏),路由层精确捕获 + warning 后跳过
-            raise ScriptEditError("segments 必须是列表，当前为 NoneType")
 
 
 def _typed_video_versions(project_path: Path, resource_type: str, resource_id: str) -> VersionManager:
@@ -241,6 +300,376 @@ def _client(monkeypatch):
 
 
 class TestVersionsRouter:
+    def test_storyboard_restore_registers_its_frozen_basis_instead_of_live_inputs(self, tmp_path, monkeypatch):
+        from lib.artifact_activation import ArtifactCurrencyResolver
+        from lib.project_manager import ProjectManager
+
+        pm = ProjectManager(tmp_path)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.add_episode("demo", 1, "E1", "scripts/episode_1.json")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "novel_text": "旁白",
+                        "image_prompt": "old prompt",
+                        "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+                    }
+                ],
+            },
+            "episode_1.json",
+            validate=False,
+        )
+        project_path = pm.get_project_path("demo")
+        current = project_path / "storyboards" / "scene_E1S01.png"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"old-image")
+        old_basis = build_storyboard_image_visual_basis(
+            resource_id="E1S01",
+            image_prompt="old prompt",
+            style="Anime",
+            aspect_ratio="9:16",
+        )
+        manager = VersionManager(project_path)
+        old_version = manager.add_version(
+            "storyboards",
+            "E1S01",
+            "old prompt",
+            source_file=current,
+            artifact_image_basis=old_basis.to_evidence_dict(),
+        )
+        current.write_bytes(b"new-image")
+        manager.add_version("storyboards", "E1S01", "new prompt", source_file=current)
+        script = pm.load_script("demo", "episode_1.json")
+        script["segments"][0]["image_prompt"] = "new prompt"
+        pm.save_script("demo", script, "episode_1.json", validate=False)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+
+        versions._restore_non_typed_version(
+            versions=manager,
+            resource_type="storyboards",
+            project_name="demo",
+            resource_id="E1S01",
+            version=old_version,
+            current_file=current,
+            file_path="storyboards/scene_E1S01.png",
+            project_path=project_path,
+        )
+
+        key = ArtifactKey.episode_storyboard(1, "E1S01")
+        entry = ProjectArtifactManifestAdapter(project_path).get_entry(key)
+        assert entry is not None
+        assert entry.basis_digest == old_basis.digest
+        assert (
+            ArtifactCurrencyResolver(project_path)
+            .compare(
+                key,
+                artifact_path="storyboards/scene_E1S01.png",
+            )
+            .status
+            is ArtifactStatus.STALE
+        )
+
+    def test_unverifiable_image_restore_removes_the_previous_claim(self, tmp_path, monkeypatch):
+        from lib.project_manager import ProjectManager
+
+        project_path = tmp_path / "demo"
+        (project_path / "characters").mkdir(parents=True)
+        project_path.joinpath("project.json").write_text(
+            '{"schema_version":8,"title":"Demo","content_mode":"narration",'
+            '"generation_mode":"storyboard","style":"Anime","style_description":"",'
+            '"aspect_ratio":"9:16","episodes":[],"characters":{"Alice":{'
+            '"description":"hero","character_sheet":"characters/Alice.png"}},'
+            '"scenes":{},"props":{},"products":{}}',
+            encoding="utf-8",
+        )
+        current = project_path / "characters" / "Alice.png"
+        current.write_bytes(b"legacy-old")
+        manager = VersionManager(project_path)
+        old_version = manager.add_version("characters", "Alice", "old", source_file=current)
+        current.write_bytes(b"new")
+        manager.add_version("characters", "Alice", "new", source_file=current)
+        key = ArtifactKey.asset_sheet("character", "Alice")
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            key,
+            artifact_path="characters/Alice.png",
+            basis=ArtifactBasis.build("artifact-visual/asset-sheet", kind_version=1, inputs={"new": True}),
+        )
+        pm = ProjectManager(tmp_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+
+        versions._restore_non_typed_version(
+            versions=manager,
+            resource_type="characters",
+            project_name="demo",
+            resource_id="Alice",
+            version=old_version,
+            current_file=current,
+            file_path="characters/Alice.png",
+            project_path=project_path,
+        )
+
+        assert ProjectArtifactManifestAdapter(project_path).get_entry(key) is None
+
+    def test_deleted_asset_restore_does_not_create_an_orphan_claim(self, tmp_path, monkeypatch):
+        from lib.project_manager import ProjectManager
+
+        project_path = tmp_path / "demo"
+        (project_path / "characters").mkdir(parents=True)
+        project_path.joinpath("project.json").write_text(
+            '{"schema_version":8,"title":"Demo","content_mode":"narration",'
+            '"generation_mode":"storyboard","style":"Anime","style_description":"",'
+            '"aspect_ratio":"9:16","episodes":[],"characters":{},'
+            '"scenes":{},"props":{},"products":{}}',
+            encoding="utf-8",
+        )
+        current = project_path / "characters" / "Alice.png"
+        current.write_bytes(b"deleted-asset-version")
+        basis = build_asset_sheet_visual_basis(
+            asset_type="character",
+            asset_id="Alice",
+            description="hero",
+            style="Anime",
+            style_description="",
+            aspect_ratio="9:16",
+        )
+        manager = VersionManager(project_path)
+        old_version = manager.add_version(
+            "characters",
+            "Alice",
+            "old",
+            source_file=current,
+            artifact_image_basis=basis.to_evidence_dict(),
+        )
+        current.write_bytes(b"new")
+        manager.add_version("characters", "Alice", "new", source_file=current)
+        pm = ProjectManager(tmp_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+
+        versions._restore_non_typed_version(
+            versions=manager,
+            resource_type="characters",
+            project_name="demo",
+            resource_id="Alice",
+            version=old_version,
+            current_file=current,
+            file_path="characters/Alice.png",
+            project_path=project_path,
+        )
+
+        key = ArtifactKey.asset_sheet("character", "Alice")
+        assert ProjectArtifactManifestAdapter(project_path).get_entry(key) is None
+
+    def test_non_typed_restore_rolls_back_media_pointer_and_metadata_when_manifest_commit_fails(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        from lib.project_manager import ProjectManager
+
+        project_path = tmp_path / "demo"
+        (project_path / "characters").mkdir(parents=True)
+        project_path.joinpath("project.json").write_text(
+            '{"schema_version":8,"title":"Demo","content_mode":"narration",'
+            '"generation_mode":"storyboard","style":"Anime","aspect_ratio":"9:16",'
+            '"episodes":[],"characters":{"Alice":{"description":"hero",'
+            '"character_sheet":"characters/Alice.png"}},"scenes":{},"props":{}}',
+            encoding="utf-8",
+        )
+        current = project_path / "characters" / "Alice.png"
+        current.write_bytes(b"old")
+        manager = VersionManager(project_path)
+        manager.add_version("characters", "Alice", "old", source_file=current)
+        current.write_bytes(b"new")
+        manager.add_version("characters", "Alice", "new", source_file=current)
+
+        project_before = (project_path / "project.json").read_bytes()
+        versions_before = manager.versions_file.read_bytes()
+        pm = ProjectManager(tmp_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(
+            versions,
+            "forget_current_resource_artifact",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("manifest commit failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="manifest commit failed"):
+            versions._restore_non_typed_version(
+                versions=manager,
+                resource_type="characters",
+                project_name="demo",
+                resource_id="Alice",
+                version=1,
+                current_file=current,
+                file_path="characters/Alice.png",
+                project_path=project_path,
+            )
+
+        assert current.read_bytes() == b"new"
+        assert manager.versions_file.read_bytes() == versions_before
+        assert manager.get_current_version("characters", "Alice") == 2
+        assert (project_path / "project.json").read_bytes() == project_before
+
+    def test_storyboard_restore_duplicate_identity_rolls_back_every_formal_file(self, tmp_path, monkeypatch):
+        from lib.project_manager import ProjectManager
+
+        project_path = tmp_path / "demo"
+        scripts_dir = project_path / "scripts"
+        storyboards_dir = project_path / "storyboards"
+        scripts_dir.mkdir(parents=True)
+        storyboards_dir.mkdir()
+        project = {
+            "schema_version": 8,
+            "title": "Demo",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "style": "Anime",
+            "aspect_ratio": "9:16",
+            "episodes": [
+                {"episode": 1, "script_file": "scripts/episode_1.json"},
+                {"episode": 2, "script_file": "scripts/episode_2.json"},
+            ],
+            "characters": {},
+            "scenes": {},
+            "props": {},
+        }
+        (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
+        for episode in (1, 2):
+            script = {
+                "episode": episode,
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "DUP",
+                        "novel_text": "旁白",
+                        "image_prompt": "画面",
+                        "generated_assets": {"storyboard_image": f"storyboards/old-{episode}.png"},
+                    }
+                ],
+            }
+            (scripts_dir / f"episode_{episode}.json").write_text(json.dumps(script), encoding="utf-8")
+
+        current = storyboards_dir / "scene_DUP.png"
+        current.write_bytes(b"old")
+        manager = VersionManager(project_path)
+        manager.add_version("storyboards", "DUP", "old", source_file=current)
+        current.write_bytes(b"new")
+        manager.add_version("storyboards", "DUP", "new", source_file=current)
+        snapshots = {
+            path: path.read_bytes()
+            for path in (project_path / "project.json", *sorted(scripts_dir.glob("*.json")), manager.versions_file)
+        }
+        pm = ProjectManager(tmp_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+
+        with pytest.raises(ValueError, match="exactly one episode binding"):
+            versions._restore_non_typed_version(
+                versions=manager,
+                resource_type="storyboards",
+                project_name="demo",
+                resource_id="DUP",
+                version=1,
+                current_file=current,
+                file_path="storyboards/scene_DUP.png",
+                project_path=project_path,
+            )
+
+        assert current.read_bytes() == b"new"
+        assert manager.get_current_version("storyboards", "DUP") == 2
+        assert all(path.read_bytes() == content for path, content in snapshots.items())
+        assert not (project_path / MANIFEST_FILENAME).exists()
+
+    def test_storyboard_restore_rollback_holds_script_lock_against_concurrent_edit(self, tmp_path, monkeypatch):
+        from lib.project_manager import ProjectManager
+
+        pm = ProjectManager(tmp_path)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "novel_text": "旁白",
+                        "image_prompt": "画面",
+                        "generated_assets": {
+                            "storyboard_image": "storyboards/old.png",
+                            "video_clip": None,
+                        },
+                    }
+                ],
+            },
+            "episode_1.json",
+            validate=False,
+        )
+        project_path = pm.get_project_path("demo")
+        current = project_path / "storyboards" / "scene_E1S01.png"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"old")
+        manager = VersionManager(project_path)
+        old_version = manager.add_version("storyboards", "E1S01", "old", source_file=current)
+        current.write_bytes(b"new")
+        manager.add_version("storyboards", "E1S01", "new", source_file=current)
+        registration_started = threading.Event()
+        release_registration = threading.Event()
+        edit_started = threading.Event()
+        edit_finished = threading.Event()
+
+        def _fail_registration(*_args, **_kwargs):
+            registration_started.set()
+            assert release_registration.wait(timeout=5)
+            raise RuntimeError("manifest commit failed")
+
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(versions, "forget_current_resource_artifact", _fail_registration)
+
+        def _restore() -> None:
+            versions._restore_non_typed_version(
+                versions=manager,
+                resource_type="storyboards",
+                project_name="demo",
+                resource_id="E1S01",
+                version=old_version,
+                current_file=current,
+                file_path="storyboards/scene_E1S01.png",
+                project_path=project_path,
+            )
+
+        def _concurrent_edit() -> None:
+            edit_started.set()
+            pm.update_scene_asset(
+                "demo",
+                "episode_1.json",
+                "E1S01",
+                "video_clip",
+                "videos/concurrent.mp4",
+            )
+            edit_finished.set()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            restore_future = pool.submit(_restore)
+            assert registration_started.wait(timeout=5)
+            edit_future = pool.submit(_concurrent_edit)
+            assert edit_started.wait(timeout=5)
+            assert not edit_finished.wait(timeout=0.1)
+            release_registration.set()
+            with pytest.raises(RuntimeError, match="manifest commit failed"):
+                restore_future.result(timeout=5)
+            edit_future.result(timeout=5)
+
+        script = pm.load_script("demo", "episode_1.json")
+        assets = script["segments"][0]["generated_assets"]
+        assert assets["storyboard_image"] == "storyboards/old.png"
+        assert assets["video_clip"] == "videos/concurrent.mp4"
+
     def test_get_versions_and_restore(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         with client:
@@ -491,6 +920,79 @@ class TestVersionsRouter:
         assert saved.video_aspect_ratio == "16:9"
         # 不做分镜侧元数据同步
         assert fake_pm.update_calls == []
+
+    @pytest.mark.parametrize("record_bytes", [None, b"{broken"])
+    def test_grid_restore_clears_orphan_claims_when_the_grid_record_is_missing_or_corrupt(
+        self,
+        tmp_path,
+        monkeypatch,
+        record_bytes,
+    ):
+        grid_id = "grid_000000000000"
+        project = {
+            "schema_version": 8,
+            "title": "Demo",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "style": "Anime",
+            "aspect_ratio": "9:16",
+            "episodes": [],
+            "characters": {},
+            "scenes": {},
+            "props": {},
+        }
+        (tmp_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
+        grids_dir = tmp_path / "grids"
+        grids_dir.mkdir()
+        image_path = grids_dir / f"{grid_id}.png"
+        image_path.write_bytes(b"historical-grid")
+        if record_bytes is not None:
+            (grids_dir / f"{grid_id}.json").write_bytes(record_bytes)
+        # Seed a historical invalid sidecar directly. Normal Manifest writers reject
+        # two keys owning one formal path, while restore must still repair old data.
+        entries = {}
+        for episode in (1, 2):
+            entries[ArtifactKey.episode_grid(episode, grid_id).encode()] = {
+                "artifact_path": f"grids/{grid_id}.png",
+                "basis_digest": f"sha256-v1:{episode:064x}",
+            }
+        unrelated_key = ArtifactKey.episode_script(3)
+        unrelated_entry = ArtifactManifestEntry(
+            artifact_path="scripts/episode_3.json",
+            basis_digest=f"sha256-v1:{3:064x}",
+        )
+        entries[unrelated_key.encode()] = {
+            "artifact_path": unrelated_entry.artifact_path,
+            "basis_digest": unrelated_entry.basis_digest,
+        }
+        (tmp_path / MANIFEST_FILENAME).write_text(
+            json.dumps(
+                {
+                    "entries": entries,
+                    "hash_algorithm": HASH_ALGORITHM,
+                    "schema_version": MANIFEST_SCHEMA_VERSION,
+                }
+            ),
+            encoding="utf-8",
+        )
+        adapter = ProjectArtifactManifestAdapter(tmp_path)
+        fake_pm = _GridPM(tmp_path)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post(f"/api/v1/projects/demo/versions/grids/{grid_id}/restore/1")
+
+        assert response.status_code == 200, response.text
+        assert response.json()["file_path"] == f"grids/{grid_id}.png"
+        for episode in (1, 2):
+            assert adapter.get_entry(ArtifactKey.episode_grid(episode, grid_id)) is None
+        assert adapter.get_entry(unrelated_key) == unrelated_entry
 
     @pytest.mark.parametrize(
         "project,expected_detail",
@@ -787,14 +1289,36 @@ class TestVersionsRouter:
         assert current_file == expected
 
     def test_storyboard_restore_syncs_scripts_with_error_tolerance(self, tmp_path, monkeypatch):
-        project_path = tmp_path / "demo"
-        scripts_dir = project_path / "scripts"
-        scripts_dir.mkdir(parents=True)
-        for name in ("a.json", "b.json", "c.json"):
-            (scripts_dir / name).write_text("{}", encoding="utf-8")
+        from lib.project_manager import ProjectManager
 
-        fake_pm = _StoryboardSyncPM(project_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        pm = ProjectManager(tmp_path)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        project["episodes"] = [
+            {"episode": episode, "script_file": f"scripts/episode_{episode}.json"} for episode in (1, 2, 3)
+        ]
+        pm.save_project("demo", project)
+        project_path = pm.get_project_path("demo")
+        scripts_dir = project_path / "scripts"
+        scripts = {
+            "episode_1.json": {
+                "episode": 1,
+                "content_mode": "narration",
+                "segments": [{"segment_id": "OTHER", "generated_assets": {"storyboard_image": None}}],
+            },
+            "episode_2.json": {"episode": 2, "content_mode": "narration", "segments": None},
+            "episode_3.json": {
+                "episode": 3,
+                "content_mode": "narration",
+                "segments": [{"segment_id": "E1S01", "generated_assets": {"storyboard_image": None}}],
+            },
+        }
+        for name, payload in scripts.items():
+            (scripts_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
         app = FastAPI()
@@ -806,7 +1330,12 @@ class TestVersionsRouter:
             assert resp.status_code == 200
             assert resp.json()["file_path"] == "storyboards/scene_E1S01.png"
 
-        assert sorted(fake_pm.update_calls) == ["a.json", "b.json", "c.json"]
+        untouched = json.loads((scripts_dir / "episode_1.json").read_text(encoding="utf-8"))
+        malformed = json.loads((scripts_dir / "episode_2.json").read_text(encoding="utf-8"))
+        updated = pm.load_script("demo", "episode_3.json")
+        assert untouched["segments"][0]["generated_assets"]["storyboard_image"] is None
+        assert malformed["segments"] is None
+        assert updated["segments"][0]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S01.png"
 
     def test_storyboard_restore_unexpected_error_surfaces_as_5xx(self, tmp_path, monkeypatch):
         """跨集同步遇未预期异常时不再被 except Exception 吞掉，让 router 层 5xx 暴露问题。"""
@@ -822,7 +1351,7 @@ class TestVersionsRouter:
             def get_project_path(self, project_name):
                 return self.project_path
 
-            def update_scene_asset(self, *args, **kwargs):
+            def update_scene_asset_across_scripts(self, *args, **kwargs):
                 raise RuntimeError("unexpected crash")
 
         fake_pm = _CrashingPM(project_path)
@@ -837,33 +1366,130 @@ class TestVersionsRouter:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
             assert resp.status_code == 500
 
+    def test_orphaned_storyboard_version_restore_succeeds_without_a_script_binding(self, tmp_path, monkeypatch):
+        from lib.project_manager import ProjectManager
+
+        pm = ProjectManager(tmp_path)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        project_path = pm.get_project_path("demo")
+        orphan = project_path / "storyboards" / "scene_ORPHAN.png"
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_bytes(b"orphan")
+        key = ArtifactKey.episode_storyboard(1, "ORPHAN")
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            key,
+            artifact_path="storyboards/scene_ORPHAN.png",
+            basis=ArtifactBasis.build("test/orphan-storyboard", kind_version=1, inputs={}),
+        )
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post("/api/v1/projects/demo/versions/storyboards/ORPHAN/restore/1")
+
+        assert response.status_code == 200, response.text
+        assert response.json()["file_path"] == "storyboards/scene_ORPHAN.png"
+        assert ProjectArtifactManifestAdapter(project_path).get_entry(key) is None
+
+    def test_storyboard_restore_does_not_swallow_script_write_oserror(self, tmp_path, monkeypatch):
+        from lib.project_manager import ProjectManager
+
+        class _WriteFailPM(ProjectManager):
+            fail_writes = False
+
+            def _write_script_unlocked(self, *args, **kwargs):
+                if self.fail_writes:
+                    raise OSError("disk full")
+                return super()._write_script_unlocked(*args, **kwargs)
+
+        pm = _WriteFailPM(tmp_path)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "novel_text": "旁白",
+                        "generated_assets": {"storyboard_image": "storyboards/old.png"},
+                    }
+                ],
+            },
+            "episode_1.json",
+            validate=False,
+        )
+        project_path = pm.get_project_path("demo")
+        script_path = project_path / "scripts" / "episode_1.json"
+        before = script_path.read_bytes()
+        pm.fail_writes = True
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+
+        with pytest.raises(OSError, match="disk full"):
+            versions._restore_non_typed_version(
+                versions=VersionManager(project_path),
+                resource_type="storyboards",
+                project_name="demo",
+                resource_id="E1S01",
+                version=1,
+                current_file=project_path / "storyboards" / "scene_E1S01.png",
+                file_path="storyboards/scene_E1S01.png",
+                project_path=project_path,
+            )
+
+        assert script_path.read_bytes() == before
+
     def test_storyboard_restore_transient_oserror_does_not_5xx(self, tmp_path, monkeypatch):
         """跨集同步 sibling 集遇到 transient IO 错误(OSError)不应让主集 restore 5xx——
         restore 主集已成功,housekeeping 性质的 sibling 同步应降级跳过 + warning。
         """
-        project_path = tmp_path / "demo"
-        scripts_dir = project_path / "scripts"
-        scripts_dir.mkdir(parents=True)
-        for name in ("a.json", "b.json"):
-            (scripts_dir / name).write_text("{}", encoding="utf-8")
+        from lib.project_manager import ProjectManager
 
-        class _TransientIOFailPM:
-            """模拟 sibling 集 IO 失败(flock 超时 / EBUSY 等),主集 a.json 同步正常。"""
+        class _TransientIOFailPM(ProjectManager):
+            """只在 sibling 集读取边界注入 transient IO failure。"""
 
-            def __init__(self, path):
-                self.project_path = path
+            def __init__(self, projects_root):
+                super().__init__(projects_root)
                 self.calls: list[str] = []
 
-            def get_project_path(self, project_name):
-                return self.project_path
-
-            def update_scene_asset(self, project_name, script_filename, scene_id, asset_type, asset_path):
-                self.calls.append(script_filename)
-                if script_filename == "b.json":
+            def _read_script_unlocked(self, project_name, filename):
+                normalized = self.normalize_script_filename(filename)
+                self.calls.append(normalized)
+                if normalized == "episode_2.json":
                     raise OSError("transient flock timeout")
+                return super()._read_script_unlocked(project_name, normalized)
 
-        fake_pm = _TransientIOFailPM(project_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        pm = _TransientIOFailPM(tmp_path)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        project["episodes"] = [
+            {"episode": episode, "script_file": f"scripts/episode_{episode}.json"} for episode in (1, 2)
+        ]
+        pm.save_project("demo", project)
+        scripts_dir = pm.get_project_path("demo") / "scripts"
+        for episode in (1, 2):
+            payload = {
+                "episode": episode,
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01" if episode == 1 else "E2S01",
+                        "generated_assets": {"storyboard_image": None},
+                    }
+                ],
+            }
+            (scripts_dir / f"episode_{episode}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
         app = FastAPI()
@@ -875,8 +1501,9 @@ class TestVersionsRouter:
             # transient IO 降级 + warning,主集 restore 仍 200
             assert resp.status_code == 200
             assert resp.json()["file_path"] == "storyboards/scene_E1S01.png"
-        # 两个 sibling 集都被尝试过(b.json 抛 OSError 后 continue,不阻塞)
-        assert sorted(fake_pm.calls) == ["a.json", "b.json"]
+        assert set(pm.calls) == {"episode_1.json", "episode_2.json"}
+        updated = pm.load_script("demo", "episode_1.json")
+        assert updated["segments"][0]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S01.png"
 
     def test_restore_returns_asset_fingerprints(self, monkeypatch, tmp_path):
         """版本还原应返回受影响文件的 fingerprint"""

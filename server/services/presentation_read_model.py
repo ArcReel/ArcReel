@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +40,7 @@ from lib.speech_presentation import (
     SpeechPresentation,
     materialize_raw_video_presentation,
     materialize_speech_presentation,
+    presentation_artifact_paths,
 )
 from lib.version_manager import VersionManager
 from server.services.artifact_version_restore import (
@@ -284,6 +284,8 @@ class PresentationReadModelService:
                 content_digest=audio_content_digest,
             )
 
+        transition = item.get("transition_to_next")
+        transition_to_next = transition if isinstance(transition, str) else "cut"
         try:
             presentation = materialize_speech_presentation(
                 admission.preparation,
@@ -291,15 +293,15 @@ class PresentationReadModelService:
                 video=video_media,
                 narration_audio=audio_media,
                 provider_audio_enabled=provider_audio_enabled,
+                transition_to_next=transition_to_next,
             )
         except (TypeError, ValueError) as exc:
             raise PresentationUnavailableError("selected media cannot form the requested presentation") from exc
-        transition = item.get("transition_to_next")
         result = MaterializedPresentation(
             episode=selected_video.target.episode,
             resource_type=resource_type,
             script_file=script_file,
-            transition_to_next=transition if isinstance(transition, str) else "cut",
+            transition_to_next=transition_to_next,
             presentation=presentation,
             subtitle_artifact_path=None,
             presentation_artifact_path=None,
@@ -896,20 +898,6 @@ class PresentationReadModelService:
                 ) from rollback_error
             raise
         return committed
-
-
-def presentation_artifact_paths(episode: int, resource_id: str, variant: RenditionVariant) -> tuple[str, str]:
-    if type(episode) is not int or episode <= 0:
-        raise ValueError("episode must be a positive integer")
-    if not isinstance(resource_id, str) or not resource_id:
-        raise ValueError("resource_id must be a non-empty string")
-    if variant not in {POST_PRODUCTION, USE_TTS}:
-        raise ValueError(f"unsupported rendition variant: {variant!r}")
-    token = base64.urlsafe_b64encode(resource_id.encode("utf-8")).decode("ascii").rstrip("=")
-    return (
-        f"subtitles/episode_{episode}/{token}.{variant}.json",
-        f"presentations/episode_{episode}/{token}.{variant}.json",
-    )
 
 
 def is_presentation_version_available(resource_type: str, record: Mapping[str, Any]) -> bool:

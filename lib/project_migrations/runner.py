@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from lib.path_safety import try_safe_join
 from lib.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_v1_to_v2
 from lib.project_migrations.v2_to_v3_episode_ledger import migrate_v2_to_v3
@@ -19,12 +20,15 @@ from lib.project_migrations.v3_to_v4_text_tiers import migrate_v3_to_v4
 from lib.project_migrations.v4_to_v5_generation_route import migrate_v4_to_v5
 from lib.project_migrations.v5_to_v6_asset_namespace import migrate_v5_to_v6
 from lib.project_migrations.v6_to_v7_ad_reference_video_units import migrate_v6_to_v7
+from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
 
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
+_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7})
 
 
 def _versioned_backup_name(base_name: str, from_version: int, ts: int) -> str:
@@ -32,9 +36,37 @@ def _versioned_backup_name(base_name: str, from_version: int, ts: int) -> str:
     return f"{base_name}.bak.v{from_version}-{ts}"
 
 
-def _backup_glob_pattern(base_name: str) -> str:
-    """生成 cleanup 用 glob，例如 project.json → project.json.bak.v*-*。"""
-    return f"{base_name}.bak.v*-*"
+def _numeric_backup_candidates(source: Path, versions: tuple[int, ...]) -> list[Path]:
+    """Enumerate only backup names emitted for one migration-owned source."""
+
+    candidates: list[Path] = []
+    for version in versions:
+        prefix = f"{source.name}.bak.v{version}-"
+        for candidate in source.parent.glob(f"{prefix}*"):
+            if candidate.name.removeprefix(prefix).isdigit():
+                candidates.append(candidate)
+    return candidates
+
+
+def _bound_script_sources(project_dir: Path) -> tuple[Path, ...]:
+    """Resolve the exact script paths that v6/v7 migrations were allowed to back up."""
+
+    try:
+        project = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return ()
+    episodes = project.get("episodes") if isinstance(project, dict) else None
+    if not isinstance(episodes, list):
+        return ()
+    sources: list[Path] = []
+    for episode in episodes:
+        script_file = episode.get("script_file") if isinstance(episode, dict) else None
+        if not isinstance(script_file, str) or not script_file:
+            continue
+        source = try_safe_join(project_dir, script_file)
+        if source is not None:
+            sources.append(source)
+    return tuple(sources)
 
 
 @dataclass
@@ -50,15 +82,9 @@ def _load_schema_version(project_dir: Path) -> int:
         return -1  # 跳过非项目目录
     try:
         data = json.loads(pj.read_text(encoding="utf-8"))
-        raw_version = data.get("schema_version")
-        if raw_version is None:
-            return 0  # 仅字段缺失或显式 null 视为旧项目（v0）
-        if isinstance(raw_version, bool):
-            # bool 是 int 子类：int(True) == 1 会把损坏值静默当 v1
-            raise ValueError(f"schema_version 不可解析: {raw_version!r}")
-        # int 解析留在 try 内：其余不可解析值（空串/非数字串）与 JSON 损坏
-        # 同口径跳过——不当 v0 重跑迁移，也不让单个损坏项目中断整个迁移循环
-        return int(raw_version)
+        if not isinstance(data, dict):
+            raise ValueError("project.json 必须包含对象")
+        return parse_project_schema_version(data)
     except Exception as exc:
         logger.warning("project.json 损坏或 schema_version 不可解析，跳过：%s（%s）", project_dir, exc)
         return -1
@@ -110,7 +136,11 @@ def migrate_project_dir(project_dir: Path) -> bool:
     if version < 0 or version >= CURRENT_SCHEMA_VERSION:
         return False
     while version < CURRENT_SCHEMA_VERSION:
-        _backup_project_json(project_dir, version)
+        # Activation migrations must finish their complete read-only preflight
+        # before creating any backup.  Their commit boundary owns the backup so
+        # the runner cannot leave writes behind when preflight rejects a project.
+        if version not in _MIGRATORS_WITH_OWNED_BACKUP:
+            _backup_project_json(project_dir, version)
         if version == 0:
             _hardlink_backup_clues(project_dir, version)
         migrator = MIGRATORS.get(version)
@@ -158,21 +188,37 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
 
 
 def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
-    """删除超过 max_age_days 的 .bak.v*- 备份文件与 clues.bak.v*-/ 目录。"""
+    """删除超过 max_age_days、且可归属到迁移输入的版本化备份。"""
     if not projects_root.exists():
         return
     cutoff = time.time() - max_age_days * 86400
     for project_dir in projects_root.iterdir():
         if not project_dir.is_dir():
             continue
-        for bak in project_dir.glob(_backup_glob_pattern("project.json")):
-            try:
-                if bak.stat().st_mtime < cutoff:
-                    bak.unlink()
-            except OSError:
-                logger.warning("无法删除备份：%s", bak)
-        for bak_dir in project_dir.glob(_backup_glob_pattern("clues")):
-            if not bak_dir.is_dir():
+        retain_v7_recovery = _load_schema_version(project_dir) < CURRENT_SCHEMA_VERSION
+        project_backup_versions = tuple(
+            version
+            for version in range(CURRENT_SCHEMA_VERSION)
+            if not (retain_v7_recovery and version == CURRENT_SCHEMA_VERSION - 1)
+        )
+        activation_backup_versions = () if retain_v7_recovery else (CURRENT_SCHEMA_VERSION - 1,)
+        script_backup_versions = (6,) if retain_v7_recovery else (6, CURRENT_SCHEMA_VERSION - 1)
+        sources = (
+            (project_dir / "project.json", project_backup_versions),
+            (project_dir / ".arcreel_artifacts.json", activation_backup_versions),
+            *((source, script_backup_versions) for source in _bound_script_sources(project_dir)),
+        )
+        for source, versions in sources:
+            for bak in _numeric_backup_candidates(source, versions):
+                if bak.is_symlink() or not bak.is_file():
+                    continue
+                try:
+                    if bak.stat().st_mtime < cutoff:
+                        bak.unlink()
+                except OSError:
+                    logger.warning("无法删除备份：%s", bak)
+        for bak_dir in _numeric_backup_candidates(project_dir / "clues", (0,)):
+            if bak_dir.is_symlink() or not bak_dir.is_dir():
                 continue
             try:
                 if bak_dir.stat().st_mtime < cutoff:
@@ -189,3 +235,4 @@ MIGRATORS[3] = migrate_v3_to_v4
 MIGRATORS[4] = migrate_v4_to_v5
 MIGRATORS[5] = migrate_v5_to_v6
 MIGRATORS[6] = migrate_v6_to_v7
+MIGRATORS[7] = migrate_v7_to_v8

@@ -13,12 +13,16 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.artifact_activation import (
+    ArtifactCurrencyResolver,
+    active_artifact_currency_resolver,
+    resolve_artifact_episode,
+)
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation_queue_client import TaskSpec, batch_enqueue_and_wait
-from lib.path_safety import safe_exists
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
-from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
+from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
 
 # Display label for tool output only; storyboard isn't an ASSET_SPECS member so this
 # can't reuse that dict directly (mirrors enqueue_assets._EMOJI's separate table).
@@ -44,12 +48,15 @@ async def _i2i_provider_available(project: dict[str, Any]) -> bool:
 
 
 def _build_specs(
+    *,
     project: dict[str, Any],
     project_path: Any,
     resource_type: str,
     edits: list[Any],
     script: dict[str, Any] | None,
     script_filename: str | None,
+    artifact_episode: int | None,
+    resolver: ArtifactCurrencyResolver | None,
     warnings: list[str],
 ) -> list[TaskSpec]:
     label = _LABEL_ZH[resource_type]
@@ -72,11 +79,19 @@ def _build_specs(
             warnings.append(f"⚠️  {label} '{resource_id}' 缺少编辑指令，跳过")
             continue
         try:
-            current_rel = resolve_current_image_rel(project, resource_type, resource_id, script)
+            source = resolve_usable_image_edit_source(
+                project=project,
+                project_path=project_path,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                script=script,
+                artifact_episode=artifact_episode,
+                resolver=resolver,
+            )
         except KeyError:
             warnings.append(f"⚠️  {label} '{resource_id}' 不存在，跳过")
             continue
-        if not (current_rel and safe_exists(project_path, current_rel)):
+        if source is None:
             warnings.append(f"⚠️  {label} '{resource_id}' 没有可编辑的当前图，跳过")
             continue
         specs.append(
@@ -168,6 +183,14 @@ def edit_images_tool(ctx: ToolContext):
 
             project = ctx.pm.load_project(ctx.project_name)
             project_path = ctx.project_path
+            artifact_episode = None
+            if script is not None and script_filename is not None:
+                artifact_episode = resolve_artifact_episode(
+                    project=project,
+                    script=script,
+                    script_filename=script_filename,
+                )
+            resolver = active_artifact_currency_resolver(project_path, project)
 
             if not await _i2i_provider_available(project):
                 return {
@@ -182,7 +205,17 @@ def edit_images_tool(ctx: ToolContext):
                 }
 
             warnings: list[str] = []
-            specs = _build_specs(project, project_path, resource_type, edits, script, script_filename, warnings)
+            specs = _build_specs(
+                project=project,
+                project_path=project_path,
+                resource_type=resource_type,
+                edits=edits,
+                script=script,
+                script_filename=script_filename,
+                artifact_episode=artifact_episode,
+                resolver=resolver,
+                warnings=warnings,
+            )
             if not specs:
                 return {
                     "content": [{"type": "text", "text": "\n".join([*warnings, "没有可执行的编辑任务"])}],

@@ -7,6 +7,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.artifact_activation import resolve_artifact_episode
 from lib.generation_queue_client import enqueue_task_only, wait_for_task
 from lib.grid.layout import GridLayout, plan_grid_chunks, video_aspect_ratio_of
 from lib.grid.models import GridGeneration, build_grid_task_payload
@@ -116,7 +117,13 @@ def generate_grid_tool(ctx: ToolContext):
                 lines = _list_groups(project, script, scene_ids, allow_large_grid=allow_large_grid)
                 return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
-            episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+            episode = resolve_artifact_episode(
+                project=project,
+                script=script,
+                script_filename=script_filename,
+            )
+            if episode is None:
+                episode = ProjectManager.resolve_episode_from_script(script, script_filename)
             project_path = ctx.project_path
             items, id_field, _, _, _ = get_storyboard_items(script)
             aspect_ratio = video_aspect_ratio_of(project)

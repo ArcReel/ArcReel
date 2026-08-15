@@ -8,11 +8,14 @@ import pytest
 
 from lib.artifact_manifest import (
     ArtifactKey,
+    ArtifactManifestEntry,
     ArtifactManifestError,
     ArtifactObservation,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifact_provenance import build_episode_script_basis
+from lib.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis
+from lib.grid.models import GridGeneration
+from lib.grid_manager import GridManager
 from lib.project_manager import ProjectManager
 from lib.script_batch_edit import (
     ScriptBatchEditCommand,
@@ -56,6 +59,9 @@ def editor(tmp_path: Path) -> tuple[ProjectManager, ScriptBatchEditor, Path]:
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.save_script("demo", _script(), "episode_1.json")
     project_dir = pm.get_project_path("demo")
+    source = project_dir / "source" / "episode_1.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("风吹过旷野。", encoding="utf-8")
     step1 = project_dir / "drafts" / "episode_1" / "step1_segments.json"
     step1.parent.mkdir(parents=True, exist_ok=True)
     step1.write_text(json.dumps({"segments": [{"segment_id": "E1S01"}]}), encoding="utf-8")
@@ -71,6 +77,20 @@ def _command(pm: ProjectManager, operations: list[dict[str, Any]]) -> ScriptBatc
             "operations": operations,
         }
     )
+
+
+def _item_claims(resource_id: str) -> dict[ArtifactKey, ArtifactManifestEntry]:
+    digest = f"sha256-v1:{'a' * 64}"
+    paths = {
+        ArtifactKey.episode_storyboard(1, resource_id): f"storyboards/scene_{resource_id}.png",
+        ArtifactKey.episode_video(1, resource_id): f"videos/scene_{resource_id}.mp4",
+        ArtifactKey.episode_audio(1, resource_id): f"audio/segment_{resource_id}.wav",
+        ArtifactKey.episode_subtitle(1, resource_id, "post_production"): f"subtitles/{resource_id}.json",
+        ArtifactKey.episode_subtitle(1, resource_id, "use_tts"): f"subtitles/{resource_id}-tts.json",
+        ArtifactKey.episode_presentation(1, resource_id, "post_production"): f"output/{resource_id}.json",
+        ArtifactKey.episode_presentation(1, resource_id, "use_tts"): f"output/{resource_id}-tts.json",
+    }
+    return {key: ArtifactManifestEntry(artifact_path=path, basis_digest=digest) for key, path in paths.items()}
 
 
 def test_multi_operation_commit_updates_manifest_and_returns_revision(
@@ -107,6 +127,156 @@ def test_multi_operation_commit_updates_manifest_and_returns_revision(
     project = pm.load_project("demo")
     assert entry.basis_digest == build_episode_script_basis(step1, project=project).digest
     assert entry.artifact_path == "scripts/episode_1.json"
+
+
+def test_permanent_remove_forgets_all_item_claims_in_one_manifest_commit(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, service, project_dir = editor
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    removed_claims = _item_claims("E1S02")
+    unrelated_claim = _item_claims("E1S03")[ArtifactKey.episode_video(1, "E1S03")]
+    for key, entry in removed_claims.items():
+        adapter.put_entry(key, entry)
+    adapter.put_entry(ArtifactKey.episode_video(1, "E1S03"), unrelated_claim)
+
+    result = service.execute("demo", _command(pm, [{"op": "remove", "id": "E1S02"}]))
+
+    assert result.success is True
+    snapshot = adapter.snapshot_entries()
+    assert not removed_claims.keys() & snapshot.keys()
+    assert snapshot[ArtifactKey.episode_video(1, "E1S03")] == unrelated_claim
+    assert ArtifactKey.episode_script(1) in snapshot
+
+
+def test_permanent_remove_forgets_grids_that_reference_removed_items(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, service, project_dir = editor
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+
+    def _completed_grid(scene_ids: list[str]) -> tuple[ArtifactKey, ArtifactManifestEntry]:
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=scene_ids,
+            rows=1,
+            cols=2,
+            grid_size="2K",
+            provider="openai",
+            model="gpt-image-2",
+            video_aspect_ratio="9:16",
+        )
+        grid.status = "completed"
+        grid.grid_image_path = f"grids/{grid.id}.png"
+        (project_dir / grid.grid_image_path).write_bytes(b"grid")
+        GridManager(project_dir).save(grid)
+        key = ArtifactKey.episode_grid(1, grid.id)
+        entry = ArtifactManifestEntry(
+            artifact_path=grid.grid_image_path,
+            basis_digest=f"sha256-v1:{'a' * 64}",
+        )
+        adapter.put_entry(key, entry)
+        return key, entry
+
+    orphaned_key, _orphaned_entry = _completed_grid(["E1S01", "E1S02"])
+    retained_key, retained_entry = _completed_grid(["E1S01", "E1S03"])
+
+    result = service.execute("demo", _command(pm, [{"op": "remove", "id": "E1S02"}]))
+
+    assert result.success is True
+    assert adapter.get_entry(orphaned_key) is None
+    assert adapter.get_entry(retained_key) == retained_entry
+
+
+def test_complete_script_replacement_forgets_claims_for_removed_items(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, _service, project_dir = editor
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    removed_claims = _item_claims("E1S02")
+    retained_claim = _item_claims("E1S03")[ArtifactKey.episode_video(1, "E1S03")]
+    for key, entry in removed_claims.items():
+        adapter.put_entry(key, entry)
+    adapter.put_entry(ArtifactKey.episode_video(1, "E1S03"), retained_claim)
+    replacement = _script()
+    replacement["segments"] = [replacement["segments"][0], replacement["segments"][2]]
+
+    pm.save_script("demo", replacement, "episode_1.json")
+
+    snapshot = adapter.snapshot_entries()
+    assert not removed_claims.keys() & snapshot.keys()
+    assert snapshot[ArtifactKey.episode_video(1, "E1S03")] == retained_claim
+    assert ArtifactKey.episode_script(1) in snapshot
+
+
+def test_ad_batch_edit_registers_shared_canonical_script_basis(tmp_path: Path) -> None:
+    pm = ProjectManager(str(tmp_path))
+    pm.create_project("demo", content_mode="ad")
+    pm.create_project_metadata("demo", "Demo", "Live action", "ad")
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            {
+                "generation_mode": "storyboard",
+                "target_duration": 30,
+                "brief": "突出便携卖点",
+                "overview": {"synopsis": "产品短片"},
+                "aspect_ratio": "9:16",
+            }
+        ),
+    )
+    script = {
+        "episode": 1,
+        "title": "产品短片",
+        "content_mode": "ad",
+        "shots": [
+            {
+                "shot_id": "E1S01",
+                "section": "hook",
+                "duration_seconds": 4,
+                "voiceover_text": "轻装出发。",
+                "characters_in_shot": [],
+                "scenes": [],
+                "props": [],
+                "products_in_shot": [],
+                "image_prompt": {
+                    "scene": "产品特写",
+                    "composition": {"shot_type": "Close-up", "lighting": "柔光", "ambiance": "清爽"},
+                },
+                "video_prompt": {"action": "缓慢旋转", "camera_motion": "Static", "ambiance_audio": "环境声"},
+                "generated_assets": {},
+            }
+        ],
+    }
+    pm.save_script("demo", script, "episode_1.json")
+    project_dir = pm.get_project_path("demo")
+    (project_dir / ".arcreel_artifacts.json").unlink(missing_ok=True)
+    service = ScriptBatchEditor(pm)
+
+    result = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1S01", "fields": {"note": "保留"}}]),
+    )
+
+    assert result.success is True
+    entry = ProjectArtifactManifestAdapter(project_dir).get_entry(ArtifactKey.episode_script(1))
+    assert entry is not None
+    assert entry.basis_digest == build_ad_episode_script_basis(1, project=pm.load_project("demo")).digest
+
+
+def test_schema7_batch_edit_does_not_activate_manifest(editor: tuple[ProjectManager, ScriptBatchEditor, Path]) -> None:
+    pm, service, project_dir = editor
+    pm.update_project("demo", lambda project: project.update({"schema_version": 7}))
+    (project_dir / ".arcreel_artifacts.json").unlink(missing_ok=True)
+
+    result = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1S01", "fields": {"note": "legacy"}}]),
+    )
+
+    assert result.success is True
+    assert not (project_dir / ".arcreel_artifacts.json").exists()
 
 
 @pytest.mark.parametrize("failure_index", [0, 1, 2])
@@ -345,11 +515,20 @@ class _FailingManifestAdapter:
     def get_entry(self, key: ArtifactKey):
         return self._delegate.get_entry(key)
 
+    def snapshot_entries(self):
+        return self._delegate.snapshot_entries()
+
     def put_entry(self, key: ArtifactKey, entry) -> bool:
         raise ArtifactManifestError("injected manifest write failure")
 
     def delete_entry(self, key: ArtifactKey) -> bool:
         return self._delegate.delete_entry(key)
+
+    def replace_entries_if_matches_atomically(self, *, expected, replacements) -> bool:
+        raise ArtifactManifestError("injected manifest write failure")
+
+    def replace_entries_atomically(self, entries) -> bool:
+        return self._delegate.replace_entries_atomically(entries)
 
 
 class _WriteThenFailManifestAdapter(_FailingManifestAdapter):
@@ -363,6 +542,35 @@ class _WriteThenFailManifestAdapter(_FailingManifestAdapter):
             self._failed = True
             raise ArtifactManifestError("injected failure after manifest replacement")
         return changed
+
+    def replace_entries_if_matches_atomically(self, *, expected, replacements) -> bool:
+        changed = self._delegate.replace_entries_if_matches_atomically(
+            expected=expected,
+            replacements=replacements,
+        )
+        if not self._failed:
+            self._failed = True
+            raise ArtifactManifestError("injected failure after manifest replacement")
+        return changed
+
+
+class _ConcurrentItemClaimAdapter(_FailingManifestAdapter):
+    def __init__(self, project_dir: Path):
+        super().__init__(project_dir)
+        self._injected = False
+
+    def inspect_artifact(self, artifact_path: str) -> ArtifactObservation:
+        if not self._injected:
+            self._injected = True
+            claim = _item_claims("E1S02")[ArtifactKey.episode_audio(1, "E1S02")]
+            self._delegate.put_entry(ArtifactKey.episode_audio(1, "E1S02"), claim)
+        return self._delegate.inspect_artifact(artifact_path)
+
+    def replace_entries_if_matches_atomically(self, *, expected, replacements) -> bool:
+        return self._delegate.replace_entries_if_matches_atomically(
+            expected=expected,
+            replacements=replacements,
+        )
 
 
 def test_manifest_write_failure_restores_script_and_project_bytes(
@@ -407,6 +615,52 @@ def test_manifest_post_replace_failure_restores_all_three_stores(
     assert script_path.read_bytes() == before_script
     assert project_path.read_bytes() == before_project
     assert not (project_dir / ".arcreel_artifacts.json").exists()
+
+
+def test_removed_claim_batch_post_replace_failure_restores_all_three_stores(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, _service, project_dir = editor
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    for key, entry in _item_claims("E1S02").items():
+        adapter.put_entry(key, entry)
+    service = ScriptBatchEditor(pm, manifest_adapter_factory=_WriteThenFailManifestAdapter)
+    script_path = project_dir / "scripts" / "episode_1.json"
+    project_path = project_dir / "project.json"
+    manifest_path = project_dir / ".arcreel_artifacts.json"
+    before = {
+        "script": script_path.read_bytes(),
+        "project": project_path.read_bytes(),
+        "manifest": manifest_path.read_bytes(),
+    }
+
+    result = service.execute("demo", _command(pm, [{"op": "remove", "id": "E1S02"}]))
+
+    assert result.success is False
+    assert result.problems[0].code == "commit_failed"
+    assert script_path.read_bytes() == before["script"]
+    assert project_path.read_bytes() == before["project"]
+    assert manifest_path.read_bytes() == before["manifest"]
+
+
+def test_concurrent_item_claim_aborts_remove_without_overwriting_the_claim(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, _service, project_dir = editor
+    service = ScriptBatchEditor(pm, manifest_adapter_factory=_ConcurrentItemClaimAdapter)
+    script_path = project_dir / "scripts" / "episode_1.json"
+    project_path = project_dir / "project.json"
+    before_script = script_path.read_bytes()
+    before_project = project_path.read_bytes()
+    key = ArtifactKey.episode_audio(1, "E1S02")
+
+    result = service.execute("demo", _command(pm, [{"op": "remove", "id": "E1S02"}]))
+
+    assert result.success is False
+    assert result.problems[0].code == "commit_failed"
+    assert script_path.read_bytes() == before_script
+    assert project_path.read_bytes() == before_project
+    assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) == _item_claims("E1S02")[key]
 
 
 def test_corrupt_manifest_is_rejected_during_preflight_without_writes(
@@ -585,7 +839,11 @@ def test_malformed_video_unit_shots_returns_structured_failure_without_writes(tm
 def test_remove_then_reinsert_same_id_preserves_anchor_media(
     editor: tuple[ProjectManager, ScriptBatchEditor, Path],
 ) -> None:
-    pm, service, _project_dir = editor
+    pm, service, project_dir = editor
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    anchor_claims = _item_claims("E1S01")
+    for key, entry in anchor_claims.items():
+        adapter.put_entry(key, entry)
     with pm.locked_script("demo", "episode_1.json", validate=False) as script:
         script["segments"][0]["generated_assets"] = {
             "video_clip": "videos/E1S01.mp4",
@@ -612,6 +870,8 @@ def test_remove_then_reinsert_same_id_preserves_anchor_media(
         "status": "completed",
     }
     assert anchor["end_frame_image"] == "end_frames/E1S01.png"
+    snapshot = adapter.snapshot_entries()
+    assert {key: snapshot[key] for key in anchor_claims} == anchor_claims
 
 
 def test_structural_edit_preserves_existing_paid_media(

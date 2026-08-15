@@ -9,6 +9,13 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.artifact_activation import (
+    ArtifactCurrencyResolver,
+    active_artifact_currency_resolver,
+    artifact_is_usable,
+    resolve_artifact_episode,
+)
+from lib.artifact_manifest import ArtifactKey
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
@@ -23,13 +30,33 @@ from lib.speech_composition import SpeechMode, admit_script_unit
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 
 
-def _select_items(items: list[dict[str, Any]], id_field: str, segment_ids: list[str] | None) -> list[dict[str, Any]]:
+def _select_items(
+    items: list[dict[str, Any]],
+    id_field: str,
+    segment_ids: list[str] | None,
+    *,
+    episode: int,
+    resolver: ArtifactCurrencyResolver | None,
+) -> list[dict[str, Any]]:
     # ``None`` 和 ``[]`` 含义不同：``None`` = "不传过滤，默认扫所有缺旁白音频项"；
     # ``[]`` = "显式空选择，应当返回空列表交由 handler 报错"。
     if segment_ids is not None:
         wanted = {str(s) for s in segment_ids}
         return [item for item in items if str(item.get(id_field)) in wanted]
-    return [item for item in items if not get_generated_assets(item).get("narration_audio")]
+    selected: list[dict[str, Any]] = []
+    for item in items:
+        resource_id = item.get(id_field)
+        if (
+            not isinstance(resource_id, str)
+            or not resource_id
+            or not artifact_is_usable(
+                resolver,
+                ArtifactKey.episode_audio(episode, resource_id) if resolver is not None else None,
+                get_generated_assets(item).get("narration_audio"),
+            )
+        ):
+            selected.append(item)
+    return selected
 
 
 def generate_narration_audio_tool(ctx: ToolContext):
@@ -70,9 +97,24 @@ def generate_narration_audio_tool(ctx: ToolContext):
             items, id_field, kind = resolve_items(script)
             if not items:
                 raise ValueError("剧本没有可配音的单元")
+            resolver = active_artifact_currency_resolver(ctx.project_path, project)
+            episode = (
+                resolve_artifact_episode(
+                    project=project,
+                    script=script,
+                    script_filename=script_filename,
+                )
+                or 1
+            )
 
             explicit = segment_ids is not None
-            selected = _select_items(items, id_field, segment_ids)
+            selected = _select_items(
+                items,
+                id_field,
+                segment_ids,
+                episode=episode,
+                resolver=resolver,
+            )
             unmatched: list[str] = []
             if explicit:
                 found = {str(item.get(id_field)) for item in selected}

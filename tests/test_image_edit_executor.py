@@ -8,10 +8,22 @@ from pathlib import Path
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from lib.artifact_manifest import (
+    ArtifactBasis,
+    ArtifactBlocker,
+    ArtifactComparison,
+    ArtifactKey,
+    ArtifactManifest,
+    ArtifactManifestEntry,
+    ArtifactManifestError,
+    ArtifactStatus,
+    ProjectArtifactManifestAdapter,
+)
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.db.base import Base
 from lib.project_manager import ProjectManager
-from server.services import generation_context, image_edit_tasks
+from lib.version_manager import VersionManager
+from server.services import generation_context, generation_tasks, image_edit_tasks
 from server.services.generation_context import (
     GenerationContext,
     ImageLaneRequest,
@@ -47,12 +59,14 @@ class _FakeGenerator:
     def __init__(self, *, fail: bool = False):
         self.fail = fail
         self.image_calls = []
+        self.reference_bytes = []
         self.tracked = []
         self.versions = self
 
     async def generate_image_async(self, **kwargs):
         if self.fail:
             raise RuntimeError("backend boom")
+        self.reference_bytes = [Path(reference).read_bytes() for reference in kwargs["reference_images"]]
         self.image_calls.append(kwargs)
         return Path(tempfile.gettempdir()) / "image.png", 2
 
@@ -95,10 +109,15 @@ class _FakePM:
         return self.script
 
     def update_scene_asset(self, **kwargs):
+        on_commit = kwargs.pop("on_commit", None)
         self.scene_asset_updates.append(kwargs)
+        if on_commit is not None:
+            on_commit(self.project_path / "scripts" / kwargs["script_filename"])
 
-    def _update_asset_sheet(self, asset_type, project_name, name, sheet_path):
+    def _update_asset_sheet(self, asset_type, project_name, name, sheet_path, *, on_commit=None):
         self.sheet_updates.append((asset_type, name, sheet_path))
+        if on_commit is not None:
+            on_commit(self.project_path / "project.json")
 
 
 def _prepare_files(tmp_path: Path) -> Path:
@@ -158,11 +177,552 @@ class TestResolveCurrentImageRel:
         }
         assert resolve_current_image_rel({}, "storyboard", "E1S01", script) == "storyboards/scene_E1S01_first.png"
         assert resolve_current_image_rel({}, "storyboard", "E1S02", script) == "storyboards/scene_E1S02.png"
+        assert resolve_current_image_rel({"schema_version": 8}, "storyboard", "E1S02", script) is None
         with pytest.raises(KeyError):
             resolve_current_image_rel({}, "storyboard", "E9S99", script)
 
 
 class TestExecuteImageEditTask:
+    async def test_active_edit_rejects_same_claim_with_replaced_source_bytes_before_submit(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.add_character("demo", "Alice", "hero")
+        project_path = pm.get_project_path("demo")
+        current = project_path / "characters" / "Alice.png"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"selected-image")
+        pm.update_project_character_sheet("demo", "Alice", "characters/Alice.png")
+        pm.update_project(
+            "demo",
+            lambda project: project.update(
+                {
+                    "schema_version": 8,
+                    "generation_mode": "storyboard",
+                    "source_kind": "novel",
+                    "source_language": "中文",
+                    "aspect_ratio": "9:16",
+                    "episodes": [],
+                }
+            ),
+        )
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            ArtifactKey.asset_sheet("character", "Alice"),
+            artifact_path="characters/Alice.png",
+            basis=ArtifactBasis.build("test/asset-sheet", kind_version=1, inputs={}),
+        )
+        provider_reached = False
+
+        class _ReplacingGenerator(_FakeGenerator):
+            async def generate_image_async(self, **kwargs):
+                nonlocal provider_reached
+                current.write_bytes(b"same-basis-replacement")
+                await kwargs["before_submit"]()
+                provider_reached = True
+                raise AssertionError("provider must not receive a replaced formal input")
+
+        generator = _ReplacingGenerator()
+        monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: pm)
+
+        async def _resolve(*_args, **_kwargs):
+            lane = ImageLaneResult(
+                provider_model=ProviderModel("gemini-aistudio", "gemini-image"),
+                backend_name="gemini-aistudio",
+                backend_model="gemini-image",
+                resolution=None,
+            )
+            return GenerationContext(generator=generator, image_lane=lane)
+
+        monkeypatch.setattr(image_edit_tasks, "resolve_generation_context", _resolve)
+
+        with pytest.raises(ValueError, match="changed since it was selected"):
+            await execute_image_edit_task(
+                "demo",
+                "Alice",
+                {"resource_type": "character", "prompt": "red hair"},
+            )
+
+        assert provider_reached is False
+
+    async def test_legacy_asset_rechecks_manifest_admission_after_schema_activation(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.add_character("demo", "Alice", "")
+        project_path = pm.get_project_path("demo")
+        current = project_path / "characters" / "Alice.png"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"legacy-sheet")
+        pm.update_project_character_sheet("demo", "Alice", "characters/Alice.png")
+        pm.update_project("demo", lambda project: project.__setitem__("schema_version", 7))
+        submitted = False
+
+        class _Generator(_FakeGenerator):
+            async def generate_image_async(self, **kwargs):
+                nonlocal submitted
+                await kwargs["before_submit"]()
+                submitted = True
+                return await super().generate_image_async(**kwargs)
+
+        generator = _Generator()
+        monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: pm)
+
+        async def _activate_before_provider(*_args, **_kwargs):
+            pm.update_project("demo", lambda project: project.__setitem__("schema_version", 8))
+            lane = ImageLaneResult(
+                provider_model=ProviderModel("gemini-aistudio", "gemini-image"),
+                backend_name="gemini-aistudio",
+                backend_model="gemini-image",
+                resolution=None,
+            )
+            return GenerationContext(generator=generator, image_lane=lane)
+
+        monkeypatch.setattr(image_edit_tasks, "resolve_generation_context", _activate_before_provider)
+
+        with pytest.raises(ValueError, match="no longer available"):
+            await execute_image_edit_task(
+                "demo",
+                "Alice",
+                {"resource_type": "character", "prompt": "red hair"},
+            )
+
+        assert submitted is False
+        assert generator.image_calls == []
+
+    async def test_registration_failure_never_exposes_an_edited_image(self, tmp_path, monkeypatch):
+        from lib.artifact_activation import register_current_artifact
+        from lib.media_generator import task_image_staging_path
+
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.add_character("demo", "Alice", "hero")
+        project_path = pm.get_project_path("demo")
+        current = project_path / "characters" / "Alice.png"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"old-image")
+        pm.update_project_character_sheet("demo", "Alice", "characters/Alice.png")
+        register_current_artifact(project_path, ArtifactKey.asset_sheet("character", "Alice"))
+        versions = VersionManager(project_path)
+
+        class _Generator:
+            def __init__(self):
+                self.versions = versions
+
+            async def generate_image_async(self, **kwargs):
+                assert kwargs["formal_output"] is True
+                staged = task_image_staging_path(current, kwargs["task_id"])
+                staged.write_bytes(b"edited-image")
+                version = kwargs["commit_formal_output"](
+                    staged,
+                    current,
+                    {"aspect_ratio": "16:9", "source": kwargs["source"]},
+                )
+                return current, version
+
+        _patch_common(monkeypatch, pm, _Generator())
+        monkeypatch.setattr(
+            generation_tasks,
+            "register_task_current_resource_artifact",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("manifest commit failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="manifest commit failed"):
+            await execute_image_edit_task(
+                "demo",
+                "Alice",
+                {"resource_type": "character", "prompt": "red hair"},
+                task_id="image-edit-task",
+            )
+
+        assert current.read_bytes() == b"old-image"
+        assert versions.get_current_version("characters", "Alice") == 1
+        assert pm.load_project("demo")["characters"]["Alice"]["character_sheet"] == "characters/Alice.png"
+
+    @pytest.mark.parametrize("resource_type", ["character", "storyboard"])
+    async def test_edit_persists_the_basis_and_source_bytes_used_by_the_provider(
+        self,
+        resource_type: str,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from lib.artifact_activation import ArtifactCurrencyResolver, register_current_artifact
+        from lib.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
+        from lib.artifact_version_provenance import parse_image_version_basis
+        from lib.media_generator import task_image_staging_path
+        from lib.visual_artifact_provenance import (
+            VisualReference,
+            build_asset_sheet_visual_basis,
+            build_storyboard_image_visual_basis,
+        )
+        from server.routers import versions as versions_router
+
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata(
+            "demo",
+            "Demo",
+            "Anime",
+            "narration",
+            extras={"generation_mode": "storyboard"},
+        )
+        if resource_type == "character":
+            resource_id = "Alice"
+            version_resource_type = "characters"
+            current_rel = "characters/Alice.png"
+            script_file = None
+            pm.add_character("demo", resource_id, "hero")
+            pm.update_project_character_sheet("demo", resource_id, current_rel)
+        else:
+            resource_id = "E1S01"
+            version_resource_type = "storyboards"
+            current_rel = "storyboards/scene_E1S01.png"
+            script_file = "episode_1.json"
+            pm.add_episode("demo", 1, "Episode 1", "scripts/episode_1.json")
+            pm.save_script(
+                "demo",
+                {
+                    "episode": 1,
+                    "content_mode": "narration",
+                    "segments": [
+                        {
+                            "segment_id": resource_id,
+                            "novel_text": "雨夜",
+                            "image_prompt": "old prompt",
+                            "video_prompt": "镜头前推",
+                            "characters_in_segment": [],
+                            "scenes": [],
+                            "props": [],
+                            "generated_assets": {"storyboard_image": current_rel},
+                        }
+                    ],
+                },
+                script_file,
+                validate=False,
+            )
+
+        project_path = pm.get_project_path("demo")
+        current = project_path / current_rel
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"source-before-await")
+        source_key = (
+            ArtifactKey.episode_storyboard(1, resource_id)
+            if resource_type == "storyboard"
+            else ArtifactKey.asset_sheet(resource_type, resource_id)
+        )
+        register_current_artifact(project_path, source_key)
+        instruction = "turn the coat red"
+        reference = VisualReference(
+            path=current,
+            role="edit_source",
+            logical_type=resource_type,
+            logical_id=resource_id,
+            kind="current",
+        )
+        expected_basis = (
+            build_storyboard_image_visual_basis(
+                resource_id=resource_id,
+                image_prompt=instruction,
+                style="",
+                aspect_ratio="9:16",
+                references=(reference,),
+            )
+            if resource_type == "storyboard"
+            else build_asset_sheet_visual_basis(
+                asset_type=resource_type,
+                asset_id=resource_id,
+                description=instruction,
+                style="",
+                style_description="",
+                aspect_ratio="16:9",
+                references=(reference,),
+            )
+        )
+        manager = VersionManager(project_path)
+        provider_reference: Path | None = None
+
+        class _Generator:
+            def __init__(self) -> None:
+                self.versions = manager
+
+            async def generate_image_async(self, **kwargs):
+                nonlocal provider_reference
+                current.write_bytes(b"source-changed-during-await")
+                provider_reference = Path(kwargs["reference_images"][0])
+                assert provider_reference.read_bytes() == b"source-before-await"
+
+                def _mutate(project):
+                    project["style"] = "style-changed-during-await"
+                    if resource_type == "character":
+                        project["characters"][resource_id]["description"] = "description changed"
+
+                pm.update_project("demo", _mutate)
+                if resource_type == "storyboard":
+                    script = pm.load_script("demo", script_file)
+                    script["segments"][0]["image_prompt"] = "prompt changed"
+                    pm.save_script("demo", script, script_file, validate=False)
+
+                staged = task_image_staging_path(current, kwargs["task_id"])
+                staged.write_bytes(b"edited-image")
+                version = kwargs["commit_formal_output"](
+                    staged,
+                    current,
+                    {"aspect_ratio": kwargs["aspect_ratio"], "source": kwargs["source"]},
+                )
+                return current, version
+
+        _patch_common(monkeypatch, pm, _Generator())
+        result = await execute_image_edit_task(
+            "demo",
+            resource_id,
+            {
+                "resource_type": resource_type,
+                "prompt": instruction,
+                **({"script_file": script_file} if script_file is not None else {}),
+            },
+        )
+
+        records = manager.get_versions(version_resource_type, resource_id)["versions"]
+        edited_record = next(record for record in records if record["version"] == result["version"])
+        assert parse_image_version_basis(version_resource_type, resource_id, edited_record) == expected_basis
+        adapter = ProjectArtifactManifestAdapter(project_path)
+        assert adapter.get_entry(source_key).basis_digest == expected_basis.digest
+        assert (
+            ArtifactCurrencyResolver(project_path).compare(source_key, artifact_path=current_rel).status
+            is ArtifactStatus.STALE
+        )
+        assert current.read_bytes() == b"edited-image"
+        assert provider_reference is not None and not provider_reference.exists()
+
+        adapter.delete_entry(source_key)
+        monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
+        versions_router._restore_non_typed_version(
+            versions=manager,
+            resource_type=version_resource_type,
+            project_name="demo",
+            resource_id=resource_id,
+            version=result["version"],
+            current_file=current,
+            file_path=current_rel,
+            project_path=project_path,
+        )
+        assert adapter.get_entry(source_key).basis_digest == expected_basis.digest
+
+    async def test_active_storyboard_rejects_an_unbound_script_before_provider(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["schema_version"] = 8
+        fake_pm.script["episode"] = 1
+        fake_generator = _FakeGenerator()
+        _patch_common(monkeypatch, fake_pm, fake_generator)
+
+        with pytest.raises(ValueError, match="not bound"):
+            await execute_image_edit_task(
+                "demo",
+                "E1S01",
+                {
+                    "resource_type": "storyboard",
+                    "prompt": "去掉背景里的路人",
+                    "script_file": "episode_1.json",
+                },
+            )
+
+        assert fake_generator.tracked == []
+        assert fake_generator.image_calls == []
+
+    @pytest.mark.parametrize("resource_type", ["character", "storyboard"])
+    @pytest.mark.parametrize(
+        ("claim_status", "error_type", "error_match"),
+        [
+            (ArtifactStatus.MISSING, ValueError, "no current image"),
+            (ArtifactStatus.BLOCKED, ArtifactManifestError, "source claim is blocked"),
+        ],
+    )
+    async def test_active_edit_rejects_an_unusable_source_claim_before_provider(
+        self,
+        resource_type,
+        claim_status,
+        error_type,
+        error_match,
+        tmp_path,
+        monkeypatch,
+    ):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project.update(
+            {
+                "schema_version": 8,
+                "generation_mode": "storyboard",
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        )
+        fake_pm.script["episode"] = 1
+        fake_generator = _FakeGenerator()
+        _patch_common(monkeypatch, fake_pm, fake_generator)
+        resource_id = "Alice" if resource_type == "character" else "E1S01"
+        artifact_path = "characters/Alice.png" if resource_type == "character" else "storyboards/scene_E1S01_first.png"
+        expected_key = (
+            ArtifactKey.asset_sheet("character", resource_id)
+            if resource_type == "character"
+            else ArtifactKey.episode_storyboard(1, resource_id)
+        )
+        comparisons: list[tuple[ArtifactKey, str]] = []
+
+        class _Currency:
+            def compare(self, key, *, artifact_path):
+                comparisons.append((key, artifact_path))
+                blocker = (
+                    ArtifactBlocker(
+                        code="manifest_unreadable",
+                        path=artifact_path,
+                        detail="source claim is blocked",
+                    )
+                    if claim_status is ArtifactStatus.BLOCKED
+                    else None
+                )
+                return ArtifactComparison(status=claim_status, artifact_path=artifact_path, blocker=blocker)
+
+            def resolve_usable_entry(self, key, *, artifact_path):
+                comparison = self.compare(key, artifact_path=artifact_path)
+                if comparison.status is ArtifactStatus.BLOCKED:
+                    assert comparison.blocker is not None
+                    raise ArtifactManifestError(comparison.blocker.detail)
+                if comparison.status not in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}:
+                    return None
+                return ArtifactManifestEntry(artifact_path=artifact_path, basis_digest="selected")
+
+        monkeypatch.setattr(
+            image_edit_tasks,
+            "active_artifact_currency_resolver",
+            lambda *_args: _Currency(),
+            raising=False,
+        )
+        monkeypatch.setattr(
+            generation_tasks,
+            "active_artifact_currency_resolver",
+            lambda *_args: _Currency(),
+        )
+        payload = {
+            "resource_type": resource_type,
+            "prompt": "局部调整",
+            **({"script_file": "episode_1.json"} if resource_type == "storyboard" else {}),
+        }
+
+        with pytest.raises(error_type, match=error_match):
+            await execute_image_edit_task("demo", resource_id, payload)
+
+        assert comparisons == [(expected_key, artifact_path)]
+        assert fake_generator.tracked == []
+        assert fake_generator.image_calls == []
+
+    @pytest.mark.parametrize("resource_type", ["character", "storyboard"])
+    @pytest.mark.parametrize("successful_rechecks", [0, 1])
+    @pytest.mark.parametrize(
+        ("claim_status", "error_type", "error_match"),
+        [
+            (ArtifactStatus.MISSING, ValueError, "no longer registered"),
+            (ArtifactStatus.BLOCKED, ArtifactManifestError, "source claim changed to blocked"),
+        ],
+    )
+    async def test_active_edit_rechecks_the_selected_source_before_provider_submission(
+        self,
+        resource_type,
+        successful_rechecks,
+        claim_status,
+        error_type,
+        error_match,
+        tmp_path,
+        monkeypatch,
+    ):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project.update(
+            {
+                "schema_version": 8,
+                "generation_mode": "storyboard",
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        )
+        fake_pm.script["episode"] = 1
+        fake_generator = _FakeGenerator()
+        _patch_common(monkeypatch, fake_pm, fake_generator)
+        resource_id = "Alice" if resource_type == "character" else "E1S01"
+        expected_key = (
+            ArtifactKey.asset_sheet("character", resource_id)
+            if resource_type == "character"
+            else ArtifactKey.episode_storyboard(1, resource_id)
+        )
+        statuses = [ArtifactStatus.CURRENT, *([ArtifactStatus.CURRENT] * successful_rechecks), claim_status]
+        comparisons: list[tuple[ArtifactKey, str, ArtifactStatus]] = []
+
+        class _Currency:
+            def __init__(self, status):
+                self.status = status
+
+            def compare(self, key, *, artifact_path):
+                comparisons.append((key, artifact_path, self.status))
+                blocker = (
+                    ArtifactBlocker(
+                        code="manifest_unreadable",
+                        path=artifact_path,
+                        detail="source claim changed to blocked",
+                    )
+                    if self.status is ArtifactStatus.BLOCKED
+                    else None
+                )
+                return ArtifactComparison(status=self.status, artifact_path=artifact_path, blocker=blocker)
+
+            def resolve_usable_entry(self, key, *, artifact_path):
+                comparison = self.compare(key, artifact_path=artifact_path)
+                if comparison.status is ArtifactStatus.BLOCKED:
+                    assert comparison.blocker is not None
+                    raise ArtifactManifestError(comparison.blocker.detail)
+                if comparison.status not in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}:
+                    return None
+                return ArtifactManifestEntry(artifact_path=artifact_path, basis_digest="selected")
+
+            def compare_frozen_entry(self, key, entry):
+                return self.compare(key, artifact_path=entry.artifact_path)
+
+            def artifact_content_digest(self, artifact_path):
+                return "0" * 64
+
+        def _resolver(*_args):
+            return _Currency(statuses.pop(0))
+
+        monkeypatch.setattr(image_edit_tasks, "active_artifact_currency_resolver", _resolver, raising=False)
+        monkeypatch.setattr("lib.artifact_activation.active_artifact_currency_resolver", _resolver)
+        payload = {
+            "resource_type": resource_type,
+            "prompt": "局部调整",
+            **({"script_file": "episode_1.json"} if resource_type == "storyboard" else {}),
+        }
+
+        with pytest.raises(error_type, match=error_match):
+            await execute_image_edit_task("demo", resource_id, payload)
+
+        assert [key for key, _path, _status in comparisons] == [expected_key] * (3 + successful_rechecks)
+        assert statuses == []
+        if successful_rechecks:
+            assert fake_generator.tracked == [
+                {
+                    "resource_type": "characters" if resource_type == "character" else "storyboards",
+                    "resource_id": resource_id,
+                    "prompt": "",
+                }
+            ]
+        else:
+            assert fake_generator.tracked == []
+        assert fake_generator.image_calls == []
+
     async def test_character_edit_uses_current_image_as_sole_reference(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -177,7 +737,10 @@ class TestExecuteImageEditTask:
 
         call = fake_generator.image_calls[0]
         # 参考图仅当前图一张；prompt 仅编辑指令（不拼原 image_prompt）
-        assert call["reference_images"] == [project_path / "characters/Alice.png"]
+        assert len(call["reference_images"]) == 1
+        assert Path(call["reference_images"][0]).name.endswith("Alice.png")
+        assert fake_generator.reference_bytes == [b"png"]
+        assert not Path(call["reference_images"][0]).exists()
         assert call["prompt"] == "把头发改成红色"
         assert "原始角色 prompt" not in call["prompt"]
         # 新版本带编辑标记 metadata
@@ -208,7 +771,10 @@ class TestExecuteImageEditTask:
 
         call = fake_generator.image_calls[0]
         # 底图取 generated_assets 指针（旧宫格项目路径），新图写回 canonical
-        assert call["reference_images"] == [project_path / "storyboards/scene_E1S01_first.png"]
+        assert len(call["reference_images"]) == 1
+        assert Path(call["reference_images"][0]).name.endswith("scene_E1S01_first.png")
+        assert fake_generator.reference_bytes == [b"png"]
+        assert not Path(call["reference_images"][0]).exists()
         assert call["resource_type"] == "storyboards"
         assert fake_pm.scene_asset_updates == [
             {

@@ -7,6 +7,7 @@ media probing, browser playback, and editor serialization remain adapters.
 
 from __future__ import annotations
 
+import base64
 import math
 import re
 from dataclasses import dataclass
@@ -33,6 +34,22 @@ _CONTENT_DIGEST_PATTERN = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
 
 class PresentationBoundaryError(ValueError):
     """A requested narration track cannot fit inside its video unit."""
+
+
+def presentation_artifact_paths(episode: int, resource_id: str, variant: RenditionVariant) -> tuple[str, str]:
+    """Return the canonical persisted subtitle and presentation paths."""
+
+    if type(episode) is not int or episode <= 0:
+        raise ValueError("episode must be a positive integer")
+    if not isinstance(resource_id, str) or not resource_id:
+        raise ValueError("resource_id must be a non-empty string")
+    if variant not in {POST_PRODUCTION, USE_TTS}:
+        raise ValueError(f"unsupported rendition variant: {variant!r}")
+    token = base64.urlsafe_b64encode(resource_id.encode("utf-8")).decode("ascii").rstrip("=")
+    return (
+        f"subtitles/episode_{episode}/{token}.{variant}.json",
+        f"presentations/episode_{episode}/{token}.{variant}.json",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -372,6 +389,7 @@ def materialize_speech_presentation(
     video: PresentationMedia,
     provider_audio_enabled: bool,
     narration_audio: PresentationMedia | None = None,
+    transition_to_next: str = "cut",
     timing: SubtitleTimingPolicy | None = None,
 ) -> SpeechPresentation:
     """Materialize one validated presentation from selected real media."""
@@ -384,6 +402,8 @@ def materialize_speech_presentation(
         raise TypeError("video must be PresentationMedia")
     if not isinstance(provider_audio_enabled, bool):
         raise TypeError("provider_audio_enabled must be a boolean")
+    if not isinstance(transition_to_next, str):
+        raise TypeError("transition_to_next must be a string")
     if narration_audio is not None and not isinstance(narration_audio, PresentationMedia):
         raise TypeError("narration_audio must be PresentationMedia or null")
     if variant == USE_TTS and preparation.mode is not SpeechMode.NARRATOR_VOICEOVER:
@@ -420,6 +440,7 @@ def materialize_speech_presentation(
         subtitle=subtitle_basis,
         narration_audio=narration_audio.evidence if narration_audio is not None else None,
         provider_audio_enabled=provider_audio_enabled,
+        transition_to_next=transition_to_next,
     )
     sources = (video,) if narration_audio is None else (video, narration_audio)
     selection: MediaSelection = "history" if any(source.selection == "history" for source in sources) else "current"
@@ -519,4 +540,5 @@ __all__ = [
     "materialize_speech_presentation",
     "materialize_raw_video_presentation",
     "subtitles_webvtt",
+    "presentation_artifact_paths",
 ]

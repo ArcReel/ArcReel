@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from lib.artifact_activation import assert_current_artifact_input_claims_usable, resolve_usable_episode_script_input
 from lib.artifact_manifest import compose_video_artifact_basis
 from lib.config.resolver import (
     ConfigResolver,
@@ -28,7 +29,7 @@ from lib.generation_queue import (
 )
 from lib.narration_delivery import USE_TTS
 from lib.path_safety import safe_join
-from lib.project_manager import ProjectManager
+from lib.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.errors import MissingReferenceError
 from lib.reference_video.execution_checkpoint import (
@@ -47,7 +48,6 @@ from lib.reference_video.prompt_render import (
     resolve_reference_audio_paths,
 )
 from lib.reference_video.request_projection import (
-    FilesystemReferenceAssets,
     ProviderProjectionCandidate,
     ReferenceProjectionBlockedError,
     ReferenceRequestOptions,
@@ -129,7 +129,7 @@ def _resolve_unit_reference_entries(
     unit = {"references": references}
     declared = canonicalize_references(references)
     candidates = resolve_reference_assets(project, project_path, unit)
-    availability = FilesystemReferenceAssets(project_path)
+    availability = CurrentReferenceAssets(project_path, project)
     entries = [entry for entry in candidates if availability.is_available(entry)]
     available_keys = {(entry.reference.type, entry.reference.name) for entry in entries}
     missing: list[tuple[str, str | None]] = [
@@ -471,19 +471,26 @@ async def execute_reference_video_task(
         project = pm.load_project(project_name)
         project_path = pm.get_project_path(project_name)
         script = pm.load_script(project_name, script_file)
+        script_input = resolve_usable_episode_script_input(
+            project_path=project_path,
+            project=project,
+            script=script,
+            script_filename=script_file,
+            legacy_episode_fallback=1,
+        )
         units = script.get("video_units") or []
         unit = next((u for u in units if isinstance(u, dict) and u.get("unit_id") == resource_id), None)
         if unit is None:
             raise ValueError(f"unit not found: {resource_id}")
         if video_unit_replan_problems(unit):
             raise ValueError(f"unit needs replanning: {resource_id}")
-        return project, project_path, script, unit
+        return project, project_path, script, unit, script_input
 
-    project, project_path, script, unit = await asyncio.to_thread(_load)
+    project, project_path, script, unit, script_input = await asyncio.to_thread(_load)
 
     declared_references = canonicalize_references(unit.get("references"))
     resolved_assets = resolve_reference_assets(project, project_path, unit)
-    asset_availability = FilesystemReferenceAssets(project_path)
+    asset_availability = CurrentReferenceAssets(project_path, project)
     hydration = hydrate_reference_assets(declared_references, resolved_assets, asset_availability)
 
     # 2. 单次解析生成上下文（声明 video lane）：构造 generator 并按实际 backend 身份
@@ -593,6 +600,12 @@ async def execute_reference_video_task(
         raise ValueError("reference request projection has no duration tier")
 
     constrained_entries = list(projection.request_assets)
+    formal_input_claims = (script_input.claim,)
+    if task_id is None:
+        formal_input_claims = (
+            script_input.claim,
+            *asset_availability.snapshot_selected_claims(constrained_entries),
+        )
     constrained_refs = [entry.path for entry in constrained_entries]
     aspect_ratio = resolve_video_aspect_ratio(project)
     candidate = projection.provider_candidate
@@ -688,7 +701,7 @@ async def execute_reference_video_task(
     staged_media: tuple[StagedProviderMedia, ...] = ()
     checkpoint_hook: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = None
     if task_id is not None:
-        artifact_episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
+        artifact_episode = script_input.episode
         artifact_speech_preparation = admit_script_unit("video_units", unit).preparation
         artifact_duration_basis = build_video_duration_basis(effective_duration)
         image_inputs = tuple(
@@ -739,6 +752,16 @@ async def execute_reference_video_task(
         audio_targets_tuple = tuple(reference_audio_targets) if reference_audio_targets is not None else None
         staged_media = await _stage_provider_media_for_task(project_path, task_id, image_inputs + audio_inputs)
         try:
+            staged_reference_digests = {
+                media.source_locator: media.sha256 for media in staged_media if media.role == "reference_image"
+            }
+            formal_input_claims = (
+                script_input.claim,
+                *asset_availability.snapshot_selected_claims(
+                    constrained_entries,
+                    staged_content_digests=staged_reference_digests,
+                ),
+            )
             provider_refs = [
                 safe_join(project_path, media.staged_locator, require_file=True)
                 for media in staged_media
@@ -824,6 +847,11 @@ async def execute_reference_video_task(
                 )
 
             async def _checkpoint_before_submit(api_call_id: int) -> Mapping[str, object]:
+                await asyncio.to_thread(
+                    assert_current_artifact_input_claims_usable,
+                    project_path,
+                    formal_input_claims,
+                )
                 checkpoint = _build_checkpoint(api_call_id)
                 await get_generation_queue().persist_execution_checkpoint(
                     task_id,
@@ -855,6 +883,11 @@ async def execute_reference_video_task(
         else None
     )
     try:
+        await asyncio.to_thread(
+            assert_current_artifact_input_claims_usable,
+            project_path,
+            formal_input_claims,
+        )
         # MediaGenerator compresses only transient derivatives of the immutable staged images. A 413 retry keeps
         # the same high-level media identities and cannot rewrite the once-only checkpoint.
         output_path, version, _, video_uri = await generator.generate_video_async(

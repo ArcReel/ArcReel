@@ -7,6 +7,7 @@ Single-file fakes stay in their respective test modules.
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -17,6 +18,64 @@ if TYPE_CHECKING:
     from lib.media_generator import MediaGenerator
     from lib.reference_video.voice_settings import VoiceRenderSettings
     from lib.version_manager import PaidVersionCommit
+
+
+class FakeProjectAssetMutationMixin:
+    """Share production-shaped asset mutation contracts across router fakes."""
+
+    expected_delete_asset_table: str | None = None
+
+    def load_project(self, project_name: str) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def update_project(self, project_name: str, mutate_fn: Callable[[dict], None]) -> Any:
+        raise NotImplementedError
+
+    def update_asset_entry(
+        self,
+        asset_type: str,
+        project_name: str,
+        name: str,
+        mutate_fn: Callable[[dict], None],
+    ) -> dict[str, Any]:
+        from lib.asset_types import ASSET_SPECS, resolve_asset_key
+
+        spec = ASSET_SPECS[asset_type]
+        result: dict[str, Any] = {}
+
+        def _mutate(project: dict) -> None:
+            bucket = project.get(spec.bucket_key) or {}
+            key = resolve_asset_key(bucket, name)
+            if key is None:
+                raise KeyError(name)
+            entry = bucket[key]
+            mutate_fn(entry)
+            result.update(entry)
+
+        self.update_project(project_name, _mutate)
+        return result
+
+    def delete_asset(self, project_name: str, table: str, name: str) -> dict[str, Any]:
+        from lib.asset_types import resolve_asset_key
+
+        if self.expected_delete_asset_table is not None:
+            assert table == self.expected_delete_asset_table
+        project = self.load_project(project_name)
+        bucket = project.get(table) or {}
+        key = resolve_asset_key(bucket, name)
+        if key is None:
+            raise KeyError(name)
+        del bucket[key]
+        return project
+
+
+def persist_fake_script(project_path: Path, script_file: object, script: object) -> None:
+    """Mirror an in-memory fake script through the production scripts directory."""
+
+    normalized = str(script_file).replace("\\", "/").removeprefix("scripts/")
+    target = project_path / "scripts" / normalized
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
 
 def select_formal_video(

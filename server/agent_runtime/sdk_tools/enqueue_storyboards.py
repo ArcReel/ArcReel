@@ -10,12 +10,19 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.artifact_activation import (
+    ArtifactCurrencyResolver,
+    active_artifact_currency_resolver,
+    artifact_is_usable,
+    resolve_artifact_episode,
+)
+from lib.artifact_manifest import ArtifactKey
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
     batch_enqueue_and_wait,
 )
-from lib.prompt_utils import image_prompt_to_yaml, is_structured_image_prompt, normalize_style
+from lib.prompt_builders import build_storyboard_prompt
 from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import (
@@ -70,32 +77,36 @@ def _build_prompt(
     image_prompt = segment.get("image_prompt", "")
     if not image_prompt:
         raise ValueError(f"片段/场景 {segment[id_field]} 缺少 image_prompt 字段")
-
-    style = normalize_style(style)
-    structured = is_structured_image_prompt(image_prompt)
-
-    style_parts: list[str] = []
-    # 结构化 prompt 的 style 已写入 YAML 的 Style 字段（见 image_prompt_to_yaml），前缀不再重复加
-    # Style:，避免 Style 双重注入；非结构化（纯字符串）prompt 不含 Style，前缀补上。
-    if style and not structured:
-        style_parts.append(f"Style: {style}")
-    if style_description:
-        style_parts.append(f"Visual style: {style_description}")
-    style_prefix = "\n".join(style_parts) + "\n\n" if style_parts else ""
-
-    if structured:
-        yaml_prompt = image_prompt_to_yaml(image_prompt, style)
-        return f"{style_prefix}{yaml_prompt}"
-    return f"{style_prefix}{image_prompt}"
+    return build_storyboard_prompt(image_prompt, style, style_description)
 
 
-def _select_items(items: list[dict[str, Any]], id_field: str, segment_ids: list[str] | None) -> list[dict[str, Any]]:
+def _select_items(
+    items: list[dict[str, Any]],
+    id_field: str,
+    segment_ids: list[str] | None,
+    *,
+    episode: int,
+    resolver: ArtifactCurrencyResolver | None,
+) -> list[dict[str, Any]]:
     # ``None`` 和 ``[]`` 含义不同：``None`` = "不传过滤，默认扫所有缺图项"；
     # ``[]`` = "显式空选择，应当返回空列表交由 handler 报错"。
     if segment_ids is not None:
         wanted = {str(s) for s in segment_ids}
         return [item for item in items if str(item.get(id_field)) in wanted]
-    return [item for item in items if not get_generated_assets(item).get("storyboard_image")]
+    selected: list[dict[str, Any]] = []
+    for item in items:
+        resource_id = item.get(id_field)
+        if (
+            not isinstance(resource_id, str)
+            or not resource_id
+            or not artifact_is_usable(
+                resolver,
+                ArtifactKey.episode_storyboard(episode, resource_id) if resolver is not None else None,
+                get_generated_assets(item).get("storyboard_image"),
+            )
+        ):
+            selected.append(item)
+    return selected
 
 
 def _build_specs(
@@ -109,13 +120,14 @@ def _build_specs(
     specs: list[TaskSpec] = []
     for plan in plans:
         item = items_by_id[plan.resource_id]
-        prompt = _build_prompt(item, style, style_description, id_field)
+        image_prompt = item.get("image_prompt")
+        _build_prompt(item, style, style_description, id_field)
         specs.append(
             TaskSpec.from_request(
                 task_type="storyboard",
                 media_type="image",
                 resource_id=plan.resource_id,
-                prompt=prompt,
+                prompt=image_prompt,
                 script_file=script_filename,
                 dependency_resource_id=plan.dependency_resource_id,
                 dependency_group=plan.dependency_group,
@@ -171,7 +183,22 @@ def generate_storyboards_tool(ctx: ToolContext):
                 )
 
             items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
-            selected = _select_items(items, id_field, segment_ids)
+            resolver = active_artifact_currency_resolver(project_dir, project_data)
+            episode = (
+                resolve_artifact_episode(
+                    project=project_data,
+                    script=script,
+                    script_filename=script_filename,
+                )
+                or 1
+            )
+            selected = _select_items(
+                items,
+                id_field,
+                segment_ids,
+                episode=episode,
+                resolver=resolver,
+            )
             if not selected:
                 # 区分两种零结果：调用方显式传了 segment_ids（None vs []，None 即
                 # "未传"，[] 与不命中等价都按错误处理）vs 全部已生成（真无事可做）。

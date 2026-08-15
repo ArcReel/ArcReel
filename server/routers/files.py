@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
+from lib import script_review
 from lib.api_errors import NotFoundError
+from lib.artifact_activation import register_current_resource_artifact
 from lib.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
 from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
@@ -37,6 +39,7 @@ from lib.episode_paths import (
 )
 from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
+from lib.json_io import atomic_write_bytes
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager, get_project_manager
@@ -186,6 +189,8 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
         host_not_found_key="product_not_found",
     ),
 }
+
+_FORMAL_SHEET_UPLOAD_TYPES = frozenset(ASSET_SPECS)
 
 # 允许的文件类型（前端 frontend/src/utils/source-files.ts 镜像了 source 一项）
 ALLOWED_EXTENSIONS = {upload_type: list(spec.allowed_exts) for upload_type, spec in UPLOAD_SPECS.items()}
@@ -374,21 +379,42 @@ async def upload_file(
                 except KeyError:
                     raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
             else:
-                with open(target_path, "wb") as f:
-                    f.write(content)
+                if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
+                    asset_spec = ASSET_SPECS[upload_type]
+                    asset_name = name
 
-                # 更新元数据
-                if spec.metadata_setter is not None and name:
-                    try:
-                        with project_change_source("webui"):
-                            spec.metadata_setter(manager, project_name, name, relative_path)
-                    except KeyError:
-                        if spec.host_bucket is not None:
-                            # 入口已校验宿主存在；并发删除导致的窗口期竞态按 404 处理，
-                            # 已落盘的文件一并清理避免孤儿
-                            target_path.unlink(missing_ok=True)
-                            raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
-                        # 单图类型：资产不存在时忽略，文件路径确定，资产后建仍可引用
+                    def _register(_target: Path) -> None:
+                        register_current_resource_artifact(
+                            project_dir,
+                            resource_type=asset_spec.bucket_key,
+                            resource_id=asset_name,
+                        )
+
+                    with project_change_source("webui"):
+                        manager.install_asset_sheet_bytes(
+                            upload_type,
+                            project_name,
+                            asset_name,
+                            relative_path,
+                            content,
+                            on_commit=_register,
+                        )
+                else:
+                    with open(target_path, "wb") as f:
+                        f.write(content)
+
+                    # 更新元数据
+                    if spec.metadata_setter is not None and name:
+                        try:
+                            with project_change_source("webui"):
+                                spec.metadata_setter(manager, project_name, name, relative_path)
+                        except KeyError:
+                            if spec.host_bucket is not None:
+                                # 入口已校验宿主存在；并发删除导致的窗口期竞态按 404 处理，
+                                # 已落盘的文件一并清理避免孤儿
+                                target_path.unlink(missing_ok=True)
+                                raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
+                            # 单图类型：资产不存在时忽略，文件路径确定，资产后建仍可引用
 
             return {
                 "success": True,
@@ -836,7 +862,7 @@ async def update_draft_content(
             except ScriptReviewError as exc:
                 raise_review_error(exc, episode, _t)
         else:
-            is_new = await asyncio.to_thread(_write_plain_draft, draft_path, content, _t)
+            is_new = await asyncio.to_thread(_write_plain_draft, project_dir, episode, draft_path, content, _t)
 
         # 发射 draft 事件通知前端
         action = "created" if is_new else "updated"
@@ -864,7 +890,13 @@ async def update_draft_content(
         raise NotFoundError("project_not_found", name=project_name) from exc
 
 
-def _write_plain_draft(draft_path: Path, content: str, _t: Translator) -> bool:
+def _write_plain_draft(
+    project_dir: Path,
+    episode: int,
+    draft_path: Path,
+    content: str,
+    _t: Translator,
+) -> bool:
     """非参考生视频 step1 的草稿落盘（同步主体），返回是否为新建文件。
 
     drama step1 落结构化 .json：写入前与 _load_drama_step1_content 的读取契约同口径校验
@@ -895,7 +927,8 @@ def _write_plain_draft(draft_path: Path, content: str, _t: Translator) -> bool:
     pm = get_project_manager()
     with pm.file_lock(draft_path):
         is_new = not draft_path.exists()
-        draft_path.write_text(content, encoding="utf-8")
+        with script_review.formal_step1_write_transaction(project_dir, episode, draft_path):
+            atomic_write_bytes(draft_path, content.encode("utf-8"))
     return is_new
 
 
@@ -915,11 +948,9 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _t: Trans
             drafts_dir = episode_drafts_dir(project_dir, episode)
             draft_path = _resolve_step1_path(drafts_dir, step_num, drafts_dir / step_files[step_num])
 
-            if draft_path.exists():
-                draft_path.unlink()
+            if script_review.delete_step1_file(project_dir, episode, draft_path):
                 return {"success": True}
-            else:
-                raise HTTPException(status_code=404, detail=_t("draft_file_not_found"))
+            raise HTTPException(status_code=404, detail=_t("draft_file_not_found"))
 
         return await asyncio.to_thread(_sync)
 

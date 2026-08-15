@@ -4,17 +4,45 @@ import unicodedata
 
 import pytest
 
+from lib.artifact_activation import artifact_input_is_usable
 from lib.artifact_manifest import (
     ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactKind,
     ArtifactManifest,
+    ArtifactManifestEntry,
+    ArtifactManifestError,
     ArtifactStatus,
     InMemoryArtifactManifestAdapter,
+    decode_artifact_manifest_payload,
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_archive_manifest_payload_wraps_serialization_recursion(monkeypatch) -> None:
+    def _raise_recursion(*_args, **_kwargs):
+        raise RecursionError("nested payload")
+
+    monkeypatch.setattr("lib.artifact_manifest.json.dumps", _raise_recursion)
+
+    with pytest.raises(ArtifactManifestError, match="nesting limit"):
+        decode_artifact_manifest_payload({})
+
+
+def test_legacy_formal_input_selection_retains_identity_for_later_activation() -> None:
+    key = ArtifactKey.episode_script(1)
+    claims = []
+
+    assert artifact_input_is_usable(
+        resolver=None,
+        key=key,
+        artifact_path="scripts/episode_1.json",
+        claims=claims,
+    )
+
+    assert [(claim.key, claim.artifact_path) for claim in claims] == [(key, "scripts/episode_1.json")]
 
 
 @pytest.mark.parametrize(
@@ -59,11 +87,20 @@ def test_asset_sheet_key_uses_the_asset_name_equality_coordinate() -> None:
     canonical = ArtifactKey.asset_sheet("character", nfc_name)
     from_nfd_factory = ArtifactKey.asset_sheet("character", nfd_name)
     from_nfd_constructor = ArtifactKey(ArtifactKind.ASSET_SHEET, ("character", nfd_name))
+    from_whitespace_factory = ArtifactKey.asset_sheet("character", f" {nfc_name} ")
+    from_whitespace_constructor = ArtifactKey(ArtifactKind.ASSET_SHEET, ("character", f" {nfd_name} "))
 
     assert nfc_name != nfd_name
     assert from_nfd_factory == canonical
     assert from_nfd_constructor == canonical
+    assert from_whitespace_factory == canonical
+    assert from_whitespace_constructor == canonical
     assert ArtifactKey.decode(canonical.encode()) == canonical
+
+
+def test_asset_sheet_key_rejects_an_identity_empty_after_normalization() -> None:
+    with pytest.raises(ValueError, match="components"):
+        ArtifactKey.asset_sheet("character", " \t ")
 
 
 def test_manifest_compares_registered_basis_without_mutating_the_artifact() -> None:
@@ -94,6 +131,167 @@ def test_manifest_compares_registered_basis_without_mutating_the_artifact() -> N
     assert blocked.blocker is not None
     assert blocked.blocker.code == "artifact_symlink"
     assert not blocked.usable
+
+
+def test_manifest_compares_a_resolved_target_entry_without_reconstructing_basis() -> None:
+    path = "videos/scene_E1S01.mp4"
+    adapter = InMemoryArtifactManifestAdapter(artifacts={path})
+    manifest = ArtifactManifest(adapter)
+    key = ArtifactKey.episode_video(1, "E1S01")
+    recorded = ArtifactBasis.build("test/video", kind_version=1, inputs={"prompt": "old"})
+    manifest.register(key, artifact_path=path, basis=recorded)
+
+    current = manifest.compare_entry(
+        key,
+        artifact_path=path,
+        expected=ArtifactManifestEntry(artifact_path=path, basis_digest=recorded.digest),
+    )
+    unprovable = manifest.compare_entry(key, artifact_path=path, expected=None)
+
+    assert current.status is ArtifactStatus.CURRENT
+    assert unprovable.status is ArtifactStatus.STALE
+    assert unprovable.usable
+
+
+def test_manifest_does_not_apply_an_old_path_claim_to_a_new_pointer() -> None:
+    old_path = "storyboards/scene_E1S01.png"
+    new_path = "storyboards/scene_E1S01_first.png"
+    adapter = InMemoryArtifactManifestAdapter(artifacts={old_path, new_path})
+    manifest = ArtifactManifest(adapter)
+    key = ArtifactKey.episode_storyboard(1, "E1S01")
+    basis = ArtifactBasis.build("test/storyboard", kind_version=1, inputs={"prompt": "rain"})
+    manifest.register(key, artifact_path=old_path, basis=basis)
+
+    comparison = manifest.compare_entry(
+        key,
+        artifact_path=new_path,
+        expected=ArtifactManifestEntry(artifact_path=new_path, basis_digest=basis.digest),
+    )
+
+    assert comparison.status is ArtifactStatus.MISSING
+    assert not comparison.usable
+
+
+def test_manifest_rekey_plan_moves_one_claim_atomically_and_can_compensate() -> None:
+    old_key = ArtifactKey.asset_sheet("character", "角色A")
+    new_key = ArtifactKey.asset_sheet("character", "主角甲")
+    unrelated_key = ArtifactKey.episode_script(1)
+    old_entry = ArtifactManifestEntry("characters/角色A.png", "sha256-v1:" + "a" * 64)
+    unrelated_entry = ArtifactManifestEntry("scripts/episode_1.json", "sha256-v1:" + "b" * 64)
+    adapter = InMemoryArtifactManifestAdapter()
+    adapter.put_entry(old_key, old_entry)
+    adapter.put_entry(unrelated_key, unrelated_entry)
+
+    plan = ArtifactManifest(adapter).plan_entry_rekey(
+        old_key,
+        new_key,
+        artifact_path_rewrites={"characters/角色A.png": "characters/主角甲.png"},
+    )
+
+    assert adapter.get_entry(old_key) == old_entry
+    receipt = plan.commit()
+    assert adapter.get_entry(old_key) is None
+    assert adapter.get_entry(new_key) == ArtifactManifestEntry(
+        "characters/主角甲.png",
+        old_entry.basis_digest,
+    )
+    assert adapter.get_entry(unrelated_key) == unrelated_entry
+
+    assert receipt.compensate()
+    assert adapter.get_entry(old_key) == old_entry
+    assert adapter.get_entry(new_key) is None
+    assert adapter.get_entry(unrelated_key) == unrelated_entry
+
+
+def test_manifest_rekey_plan_rejects_a_target_claim_without_mutating_either_key() -> None:
+    old_key = ArtifactKey.asset_sheet("character", "角色A")
+    new_key = ArtifactKey.asset_sheet("character", "主角甲")
+    old_entry = ArtifactManifestEntry("characters/角色A.png", "sha256-v1:" + "a" * 64)
+    target_entry = ArtifactManifestEntry("characters/主角甲.png", "sha256-v1:" + "b" * 64)
+    adapter = InMemoryArtifactManifestAdapter()
+    adapter.put_entry(old_key, old_entry)
+    adapter.put_entry(new_key, target_entry)
+
+    with pytest.raises(ArtifactManifestError, match="target key"):
+        ArtifactManifest(adapter).plan_entry_rekey(old_key, new_key)
+
+    assert adapter.get_entry(old_key) == old_entry
+    assert adapter.get_entry(new_key) == target_entry
+
+
+def test_complete_snapshot_cas_does_not_overwrite_an_unexpected_claim() -> None:
+    first_key = ArtifactKey.episode_script(1)
+    second_key = ArtifactKey.episode_script(2)
+    first_entry = ArtifactManifestEntry("scripts/episode_1.json", "sha256-v1:" + "a" * 64)
+    second_entry = ArtifactManifestEntry("scripts/episode_2.json", "sha256-v1:" + "b" * 64)
+    adapter = InMemoryArtifactManifestAdapter()
+    adapter.put_entry(first_key, first_entry)
+    expected = adapter.snapshot_entries()
+    adapter.put_entry(second_key, second_entry)
+
+    assert not adapter.replace_snapshot_if_matches_atomically(expected=expected, replacement={})
+    assert adapter.snapshot_entries() == {
+        first_key: first_entry,
+        second_key: second_entry,
+    }
+    assert adapter.replace_snapshot_if_matches_atomically(
+        expected=adapter.snapshot_entries(),
+        replacement=expected,
+    )
+    assert adapter.snapshot_entries() == expected
+
+
+@pytest.mark.parametrize(
+    ("first_path", "second_path"),
+    [
+        ("reference_videos/E1U01.mp4", "reference_videos/e1u01.mp4"),
+        ("reference_videos/é.mp4", "reference_videos/e\u0301.mp4"),
+    ],
+)
+def test_manifest_rejects_formal_paths_that_alias_on_portable_filesystems(
+    first_path: str,
+    second_path: str,
+) -> None:
+    adapter = InMemoryArtifactManifestAdapter()
+    adapter.put_entry(
+        ArtifactKey.episode_video(1, "E1U01"),
+        ArtifactManifestEntry(first_path, "sha256-v1:" + "a" * 64),
+    )
+
+    with pytest.raises(ArtifactManifestError, match="claimed by multiple keys"):
+        adapter.put_entry(
+            ArtifactKey.episode_video(1, "e1u01"),
+            ArtifactManifestEntry(second_path, "sha256-v1:" + "b" * 64),
+        )
+
+    assert set(adapter.snapshot_entries()) == {ArtifactKey.episode_video(1, "E1U01")}
+
+
+def test_manifest_rekey_plan_restores_both_keys_after_a_write_then_failure(monkeypatch) -> None:
+    old_key = ArtifactKey.asset_sheet("character", "角色A")
+    new_key = ArtifactKey.asset_sheet("character", "主角甲")
+    old_entry = ArtifactManifestEntry("characters/角色A.png", "sha256-v1:" + "a" * 64)
+    adapter = InMemoryArtifactManifestAdapter()
+    adapter.put_entry(old_key, old_entry)
+    plan = ArtifactManifest(adapter).plan_entry_rekey(old_key, new_key)
+    original_replace = adapter.replace_entries_if_matches_atomically
+    calls = 0
+
+    def _write_then_fail(*, expected, replacements):
+        nonlocal calls
+        calls += 1
+        changed = original_replace(expected=expected, replacements=replacements)
+        if calls == 1:
+            raise OSError("manifest write failed")
+        return changed
+
+    monkeypatch.setattr(adapter, "replace_entries_if_matches_atomically", _write_then_fail)
+
+    with pytest.raises(OSError, match="manifest write failed"):
+        plan.commit()
+
+    assert adapter.get_entry(old_key) == old_entry
+    assert adapter.get_entry(new_key) is None
 
 
 def test_manifest_registers_a_strict_frozen_basis_descriptor_after_artifact_exists() -> None:

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import math
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,6 +15,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from lib.artifact_activation import activate_artifact_target_state
 from lib.artifact_manifest import (
     ArtifactKey,
     ArtifactManifest,
@@ -28,6 +30,7 @@ from lib.speech_composition import admit_script_unit
 from lib.version_manager import PaidVersionCommit
 from server.services import generation_context, generation_tasks
 from server.services.generation_context import AudioLaneResult, GenerationContext
+from tests.fakes import persist_fake_script
 
 pytestmark = pytest.mark.unit
 
@@ -67,6 +70,7 @@ class _FakePM:
         self.project_path = project_path
         self.project: dict[str, Any] = {"name": "demo", "content_mode": "narration"}
         self.script = {
+            "episode": 1,
             "content_mode": "narration",
             "segments": [
                 {
@@ -88,6 +92,7 @@ class _FakePM:
         return self.project_path
 
     def load_script(self, project_name, script_file):
+        persist_fake_script(self.project_path, script_file, self.script)
         return self.script
 
     def update_scene_asset(self, **kwargs):
@@ -129,6 +134,8 @@ class _FakeAudioGenerator:
         self.current_version = 0
 
     async def generate_audio_async(self, **kwargs):
+        if before_submit := kwargs.get("before_submit"):
+            await before_submit()
         self.audio_calls.append(kwargs)
         output = self.project_path / "audio" / f"segment_{kwargs['resource_id']}.wav"
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -239,6 +246,22 @@ class _FakeAudioGenerator:
 def tts_env(monkeypatch, tmp_path):
     pm = _FakePM(tmp_path / "projects" / "demo")
     pm.project_path.mkdir(parents=True)
+    pm.project.update(
+        {
+            "schema_version": 7,
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        }
+    )
+    (pm.project_path / "project.json").write_text(
+        json.dumps(pm.project, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (pm.project_path / "scripts").mkdir()
+    (pm.project_path / "scripts" / "episode_1.json").write_text(
+        json.dumps(pm.script, ensure_ascii=False),
+        encoding="utf-8",
+    )
     gen = _FakeAudioGenerator(pm.project_path)
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "resolve_generation_context", _audio_ctx(gen))
@@ -256,6 +279,106 @@ def tts_env(monkeypatch, tmp_path):
 
 
 class TestExecuteTtsTask:
+    async def test_active_manifest_without_script_claim_blocks_tts_before_provider(self, tts_env):
+        pm, gen = tts_env
+        assert activate_artifact_target_state(pm.project_path, bump_schema=True) is True
+        pm.project["schema_version"] = 8
+        assert ProjectArtifactManifestAdapter(pm.project_path).get_entry(ArtifactKey.episode_script(1)) is None
+
+        with pytest.raises(ValueError, match="episode script is not registered"):
+            await generation_tasks.execute_tts_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json"},
+            )
+
+        assert gen.audio_calls == []
+
+    async def test_activation_without_script_claim_blocks_tts_before_provider(self, tts_env, monkeypatch):
+        pm, gen = tts_env
+        original_generate = gen.generate_audio_async
+        provider_submissions: list[str] = []
+
+        async def _activate_before_submit(**kwargs):
+            before_submit = kwargs["before_submit"]
+
+            async def _activate_then_admit() -> None:
+                assert activate_artifact_target_state(pm.project_path, bump_schema=True) is True
+                assert ProjectArtifactManifestAdapter(pm.project_path).get_entry(ArtifactKey.episode_script(1)) is None
+                await before_submit()
+                provider_submissions.append("submitted")
+
+            return await original_generate(**{**kwargs, "before_submit": _activate_then_admit})
+
+        monkeypatch.setattr(gen, "generate_audio_async", _activate_before_submit)
+
+        with pytest.raises(ValueError, match="no longer registered"):
+            await generation_tasks.execute_tts_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json"},
+            )
+
+        assert provider_submissions == []
+        assert gen.audio_calls == []
+
+    async def test_legacy_script_bytes_replaced_before_provider_are_rejected(self, tts_env, monkeypatch):
+        pm, gen = tts_env
+        original_generate = gen.generate_audio_async
+        provider_submissions: list[str] = []
+
+        async def _replace_script_before_submit(**kwargs):
+            before_submit = kwargs["before_submit"]
+
+            async def _replace_then_admit() -> None:
+                replacement = copy.deepcopy(pm.script)
+                replacement["segments"][0]["novel_text"] = "并发保存后的另一版旁白。"
+                (pm.project_path / "scripts" / "episode_1.json").write_text(
+                    json.dumps(replacement, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                await before_submit()
+                provider_submissions.append("submitted")
+
+            return await original_generate(**{**kwargs, "before_submit": _replace_then_admit})
+
+        monkeypatch.setattr(gen, "generate_audio_async", _replace_script_before_submit)
+
+        with pytest.raises(ValueError, match="changed since it was selected"):
+            await generation_tasks.execute_tts_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json"},
+            )
+
+        assert provider_submissions == []
+        assert gen.audio_calls == []
+
+    async def test_script_replaced_after_parse_before_claim_is_rejected(self, tts_env):
+        pm, gen = tts_env
+        original_load = pm.load_script
+
+        def _load_then_replace(project_name, script_file):
+            selected = copy.deepcopy(original_load(project_name, script_file))
+            replacement = copy.deepcopy(selected)
+            replacement["segments"][0]["novel_text"] = "正式剧本已被另一位写入者替换。"
+            (pm.project_path / "scripts" / "episode_1.json").write_text(
+                json.dumps(replacement, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            return selected
+
+        pm.load_script = _load_then_replace
+
+        with pytest.raises(ValueError, match="changed while it was selected"):
+            await generation_tasks.execute_tts_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json"},
+            )
+
+        assert gen.audio_calls == []
+
     async def test_active_use_tts_video_blocks_regeneration_before_provider_call(self, tts_env, monkeypatch):
         from lib.api_errors import ConflictError
 

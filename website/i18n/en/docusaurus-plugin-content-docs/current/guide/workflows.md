@@ -337,6 +337,17 @@ Before starting, confirm:
 - Failure retry strategy;
 - Disk space.
 
+#### Current, Stale, Missing, and Blocked Artifacts {#artifact-currency}
+
+ArcReel determines an artifact's state from the direct inputs used to generate it:
+
+- **Current**: The formal artifact matches the current project, script, and selected version;
+- **Stale**: The formal artifact still exists and can be previewed or exported, but a related input changed after it was generated;
+- **Missing**: No usable formal artifact exists, so one must be generated;
+- **Blocked**: A project reference or artifact record is damaged and must be repaired first. ArcReel will not treat it as missing and automatically pay to regenerate it.
+
+By default, batch generation fills only missing items; both current and stale artifacts are preserved. After changing a prompt, character, narration, or another input, explicitly regenerate the affected shots if you want to refresh existing results. A same-named file in the project directory is not, by itself, a formal artifact. The project must retain either the artifact reference in its script or a verifiable version record.
+
 ### Stage 6: Quality Control and Export {#stage-qa-and-export}
 
 Check:

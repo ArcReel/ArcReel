@@ -6,21 +6,29 @@
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter
 
 logger = logging.getLogger(__name__)
 
 from lib.api_errors import BadRequestError, ConflictError
+from lib.artifact_activation import (
+    forget_current_resource_artifact,
+    forget_unbound_grid_artifacts,
+    forget_unbound_storyboard_artifacts,
+    register_current_resource_artifact,
+)
+from lib.artifact_version_provenance import parse_image_version_basis
 from lib.async_thread import run_noninterruptible_sync
+from lib.formal_write import project_metadata_lock
 from lib.generation_admission import generation_admission_lock
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager
 from lib.resource_paths import resource_relative_path
-from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
 from server.services.artifact_version_restore import (
     TypedMediaRestoreTarget,
@@ -66,52 +74,13 @@ def _resolve_resource_path(
     return current_file, relative
 
 
-def _sync_scripts_best_effort(project_path: Path, apply: Callable[[str], None]) -> None:
-    """对项目内每集剧本执行 apply（入参为脚本文件名），逐集降级而非整体失败。
-
-    - KeyError：该集脚本不引用此资源，跳过同步是正常情况而非脏数据。
-    - ScriptEditError：脏脚本（结构键损坏）降级跳过，warning 标出集名 + 原因。
-    - OSError：transient IO 错误（单文件权限 / EBUSY / flock 超时 / 损坏 inode 等）。
-      跨集同步是 best-effort housekeeping，主集恢复在调用本函数前已成功，不应让
-      sibling 集的临时 IO 失败把整个 restore 操作 5xx。真正未预期的异常
-      （RuntimeError / ImportError / ...）仍让它冒到 router 5xx 暴露。
-    """
-    scripts_dir = project_path / "scripts"
-    if not scripts_dir.exists():
-        return
-    for script_file in scripts_dir.glob("*.json"):
-        try:
-            with project_change_source("webui"):
-                apply(script_file.name)
-        except KeyError:
-            continue
-        except ScriptEditError as exc:
-            logger.warning("跨集同步元数据跳过脏脚本 %s: %s", script_file.name, exc)
-            continue
-        except OSError as exc:
-            logger.warning("跨集同步元数据 sibling 集 %s IO 失败: %s", script_file.name, exc)
-            continue
-
-
-def _sync_storyboard_metadata(
-    project_name: str,
-    resource_id: str,
-    file_path: str,
+def _sync_grid_record(
     project_path: Path,
+    resource_id: str,
+    *,
+    on_commit: Callable[[], None] | None = None,
+    on_miss: Callable[[], None] | None = None,
 ) -> None:
-    def _apply(script_name: str) -> None:
-        get_project_manager().update_scene_asset(
-            project_name=project_name,
-            script_filename=script_name,
-            scene_id=resource_id,
-            asset_type="storyboard_image",
-            asset_path=file_path,
-        )
-
-    _sync_scripts_best_effort(project_path, _apply)
-
-
-def _sync_grid_record(project_path: Path, resource_id: str) -> None:
     """还原联合图后复位宫格记录：内容已换回历史版本，旧的落格结果不再对应当前图。
 
     只动宫格记录自身（split_at / 失败态），不同步剧本或分镜——落格由切分端点显式执行；
@@ -123,14 +92,13 @@ def _sync_grid_record(project_path: Path, resource_id: str) -> None:
     from lib.grid_manager import GridManager
 
     manager = GridManager(project_path)
-    try:
-        grid = manager.get(resource_id)
-    except Exception:
-        grid = None
-    if grid is None:
-        return
-    grid.mark_composite_replaced()
-    manager.save(grid)
+    manager.update_formal(
+        resource_id,
+        lambda grid: grid.mark_composite_replaced(),
+        on_commit=on_commit,
+        on_miss=on_miss,
+        ignore_invalid=True,
+    )
 
 
 # resource_type（复数，URL 段）→ asset_type（单数，ASSET_SPECS 键）
@@ -142,25 +110,132 @@ _RESOURCE_TO_ASSET_TYPE: dict[str, str] = {
 }
 
 
-def _sync_metadata(
+def _commit_non_typed_restore_claim(
+    *,
     resource_type: str,
-    project_name: str,
     resource_id: str,
     file_path: str,
     project_path: Path,
+    record: Mapping[str, Any] | None,
+    owner_present: bool,
 ) -> None:
-    """还原非 typed 资源后同步元数据，确保引用指向统一文件路径。"""
-    asset_type = _RESOURCE_TO_ASSET_TYPE.get(resource_type)
-    if asset_type is not None:
+    """Apply the claim half of a non-typed restore inside its metadata locks."""
+
+    if not owner_present:
+        if resource_type == "storyboards":
+            forget_unbound_storyboard_artifacts(project_path, resource_id)
+        elif resource_type == "grids":
+            forget_unbound_grid_artifacts(project_path, resource_id)
+        else:
+            forget_current_resource_artifact(
+                project_path,
+                resource_type=resource_type,
+                resource_id=resource_id,
+            )
+        return
+
+    try:
+        basis = parse_image_version_basis(resource_type, resource_id, record or {})
+    except (TypeError, ValueError):
+        basis = None
+    if basis is None:
+        forget_current_resource_artifact(
+            project_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+        return
+    register_current_resource_artifact(
+        project_path,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        artifact_path=file_path,
+        basis=basis,
+    )
+
+
+def _restore_non_typed_version(
+    *,
+    versions: VersionManager,
+    resource_type: str,
+    project_name: str,
+    resource_id: str,
+    version: int,
+    current_file: Path,
+    file_path: str,
+    project_path: Path,
+) -> dict[str, Any]:
+    """Restore metadata → version bytes/pointer → claim in canonical lock order.
+
+    Asset rename, grid split, formal generation, and typed restore all acquire
+    script/file/project locks before the versions lock. Non-typed restore enters
+    the same metadata transaction first so none of those paths can form an ABBA
+    cycle while their nested rollback scopes remain intact.
+    """
+
+    restored: list[dict[str, Any]] = []
+
+    def _restore(*, owner_present: bool) -> None:
+        def _commit_claim(record: dict[str, Any]) -> None:
+            _commit_non_typed_restore_claim(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                file_path=file_path,
+                project_path=project_path,
+                record=record,
+                owner_present=owner_present,
+            )
+
+        restored.append(
+            versions.restore_version(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                version=version,
+                current_file=current_file,
+                on_restore=_commit_claim,
+            )
+        )
+
+    if resource_type == "storyboards":
+        scripts_dir = project_path / "scripts"
+        script_names = [path.name for path in sorted(scripts_dir.glob("*.json"))] if scripts_dir.exists() else []
+        with project_change_source("webui"):
+            get_project_manager().update_scene_asset_across_scripts(
+                project_name,
+                script_names,
+                resource_id,
+                "storyboard_image",
+                file_path,
+                on_commit=lambda: _restore(owner_present=True),
+                on_miss=lambda: _restore(owner_present=False),
+            )
+    elif (asset_type := _RESOURCE_TO_ASSET_TYPE.get(resource_type)) is not None:
         try:
             with project_change_source("webui"):
-                get_project_manager()._update_asset_sheet(asset_type, project_name, resource_id, file_path)
+                get_project_manager()._update_asset_sheet(
+                    asset_type,
+                    project_name,
+                    resource_id,
+                    file_path,
+                    on_commit=lambda _project_file: _restore(owner_present=True),
+                )
         except KeyError:
-            pass  # 资产条目可能已从 project.json 删除，跳过元数据同步
-    elif resource_type == "storyboards":
-        _sync_storyboard_metadata(project_name, resource_id, file_path, project_path)
+            with project_metadata_lock(project_path):
+                _restore(owner_present=False)
     elif resource_type == "grids":
-        _sync_grid_record(project_path, resource_id)
+        _sync_grid_record(
+            project_path,
+            resource_id,
+            on_commit=lambda: _restore(owner_present=True),
+            on_miss=lambda: _restore(owner_present=False),
+        )
+    else:
+        with project_metadata_lock(project_path):
+            _restore(owner_present=True)
+
+    if len(restored) != 1:
+        raise RuntimeError("non-typed restore metadata transaction skipped version selection")
+    return restored[0]
 
 
 # ==================== 版本查询 ====================
@@ -254,20 +329,15 @@ async def restore_version(
                     artifact_path=file_path,
                 )
             else:
-                result = vm.restore_version(
+                result = _restore_non_typed_version(
+                    versions=vm,
                     resource_type=resource_type,
+                    project_name=project_name,
                     resource_id=resource_id,
                     version=version,
                     current_file=current_file,
-                )
-
-            if not is_typed_media_restore_resource(resource_type):
-                _sync_metadata(
-                    resource_type,
-                    project_name,
-                    resource_id,
-                    file_path,
-                    project_path,
+                    file_path=file_path,
+                    project_path=project_path,
                 )
 
             # 计算还原后文件的 fingerprint；视频还原时同步删除缩略图（内容已失效）

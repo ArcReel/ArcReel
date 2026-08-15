@@ -12,6 +12,14 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.artifact_activation import (
+    ArtifactCurrencyResolver,
+    active_artifact_currency_resolver,
+    artifact_is_usable,
+    resolve_artifact_episode,
+    resolve_usable_storyboard_video_inputs,
+)
+from lib.artifact_manifest import ArtifactKey
 from lib.config.resolver import video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.generation_queue_client import (
@@ -50,7 +58,8 @@ from lib.speech_composition import (
     require_script_unit_admitted,
     video_unit_replan_problems,
 )
-from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
+from lib.storyboard_sequence import get_storyboard_items
+from lib.version_manager import VersionManager
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
     tool_error,
@@ -78,6 +87,28 @@ _NARRATION_DELIVERY_SCHEMA_PROPERTY = {
     "enum": [POST_PRODUCTION, USE_TTS],
     "description": "本次旁白交付方式；use_tts 只使用当前 fresh TTS 的实际媒体时长。",
 }
+
+
+def _batch_video_is_reusable(
+    *,
+    currency: ArtifactCurrencyResolver | None,
+    versions: VersionManager,
+    episode: int,
+    resource_type: str,
+    resource_id: str,
+    artifact_path: object,
+) -> bool:
+    """Admit a batch skip from either verified currency or one exact raw upload."""
+
+    return artifact_is_usable(
+        currency,
+        ArtifactKey.episode_video(episode, resource_id) if currency is not None else None,
+        artifact_path,
+    ) or versions.selected_manual_upload_matches_current_file(
+        resource_type,
+        resource_id,
+        artifact_path,
+    )
 
 
 def _reference_request_options(args: dict[str, Any]) -> ReferenceRequestOptions:
@@ -587,6 +618,9 @@ def _build_video_specs(
     project_dir: Path,
     skip_ids: list[str] | None,
     log: list[str],
+    project: dict[str, Any] | None = None,
+    episode: int = 1,
+    resolver: ArtifactCurrencyResolver | None = None,
     voice_characters: dict[str, Any] | None = None,
 ) -> tuple[list[TaskSpec], dict[str, int]]:
     item_type = "片段" if content_mode == "narration" else "场景"
@@ -594,25 +628,26 @@ def _build_video_specs(
 
     specs: list[TaskSpec] = []
     order_map: dict[str, int] = {}
+    project = project or {}
+    if resolver is None:
+        resolver = active_artifact_currency_resolver(project_dir, project)
     for idx, item in enumerate(items):
         item_id = item.get(id_field) or item.get("scene_id") or item.get("segment_id") or f"item_{idx}"
         if item_id in skip_set:
             continue
 
-        storyboard_image = get_generated_assets(item).get("storyboard_image")
-        # 字段值来自磁盘剧本 JSON，不可信任：非字符串脏数据/越界/绝对路径引用统一交给
-        # resolve_storyboard_image_ref 校验（与路由入队预检、执行层读盘点共用同一份），
-        # 批量场景下单个条目非法只跳过并记日志，不中断整批。
         try:
-            storyboard_path = resolve_storyboard_image_ref(project_dir, storyboard_image)
-        except ValueError as exc:
-            log.append(f"⚠️  {item_type} {item_id} 的分镜图引用无效，跳过: {exc}")
-            continue
-        if storyboard_path is None:
-            log.append(f"⚠️  {item_type} {item_id} 没有分镜图，跳过")
-            continue
-        if not storyboard_path.is_file():
-            log.append(f"⚠️  分镜图不存在: {storyboard_path}，跳过")
+            resolve_usable_storyboard_video_inputs(
+                project_path=project_dir,
+                project=project,
+                episode=episode,
+                resource_id=str(item_id),
+                item=item,
+                resolver=resolver,
+                allow_legacy_same_name=False,
+            )
+        except (OSError, ValueError) as exc:
+            log.append(f"⚠️  {item_type} {item_id} 的视频输入不可用，跳过: {exc}")
             continue
 
         try:
@@ -703,16 +738,24 @@ def _scan_completed_items(
     id_field: str,
     completed_scenes: list[str],
     videos_dir: Path,
+    *,
+    episode: int,
+    resolver: ArtifactCurrencyResolver | None,
 ) -> tuple[list[Path | None], list[str], list[str]]:
-    """Pure scan: reconcile checkpoint claims against on-disk videos.
+    """Reconcile checkpoint claims against canonical videos and active currency.
 
     Returns ``(ordered_paths, already_done, completed_filtered)``:
     - ``ordered_paths[i]`` is the existing mp4 path for items[i] iff the
-      checkpoint claimed it AND the file is on disk; else ``None``.
+      checkpoint claimed it and it is reusable: legacy projects require the
+      file on disk, while active projects require its exact formal path to be
+      usable under the Manifest (which also rejects absent files); else ``None``.
     - ``already_done`` is the subset of items the caller can skip enqueueing.
-    - ``completed_filtered`` drops ids the checkpoint claimed but whose file
-      is missing — caller should write this back instead of mutating its
-      checkpoint list in place.
+    - ``completed_filtered`` drops ids whose checkpoint output is missing or
+      no longer admitted — caller should write this back instead of mutating
+      its checkpoint list in place.
+
+    A blocked Manifest comparison propagates so checkpoint resume fails loud;
+    silently regenerating a paid artifact would discard the corruption signal.
     """
     ordered_paths: list[Path | None] = [None] * len(items)
     already_done: list[str] = []
@@ -722,7 +765,17 @@ def _scan_completed_items(
         if item_id not in completed_scenes:
             continue
         video_output = videos_dir / f"scene_{item_id}.mp4"
-        if video_output.exists():
+        artifact_path = video_output.relative_to(videos_dir.parent).as_posix()
+        reusable = (
+            video_output.exists()
+            if resolver is None
+            else artifact_is_usable(
+                resolver,
+                ArtifactKey.episode_video(episode, str(item_id)),
+                artifact_path,
+            )
+        )
+        if reusable:
             ordered_paths[idx] = video_output
             already_done.append(item_id)
         else:
@@ -911,7 +964,14 @@ async def _run_reference_episode(
     when ``_resolve_reference_route`` reports the episode branch; this captures
     the shared tail (resolve episode → generate units → header + log).
     """
-    episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+    project = ctx.pm.load_project(ctx.project_name)
+    episode = resolve_artifact_episode(
+        project=project,
+        script=script,
+        script_filename=script_filename,
+    )
+    if episode is None:
+        episode = ProjectManager.resolve_episode_from_script(script, script_filename)
     units = script.get("video_units")
     if "video_units" in script and not isinstance(units, list):
         # 路线闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
@@ -919,7 +979,8 @@ async def _run_reference_episode(
         raise ValueError(f"第 {episode} 集 video_units 必须是数组，当前为 {type(units).__name__}：{script_filename}")
     if not units:
         raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
-    project = ctx.pm.load_project(ctx.project_name)
+    currency = active_artifact_currency_resolver(ctx.project_path, project)
+    versions = VersionManager(ctx.project_path)
     result = await _generate_reference_units(
         ctx=ctx,
         units=units,
@@ -935,8 +996,13 @@ async def _run_reference_episode(
         script=script,
         script_filename=script_filename,
         request_options=request_options,
-        reuse_existing=lambda unit: (
-            get_generated_assets(unit).get("video_clip") == _reference_fallback_relpath(str(unit.get("unit_id") or ""))
+        reuse_existing=lambda unit: _batch_video_is_reusable(
+            currency=currency,
+            versions=versions,
+            episode=episode,
+            resource_type="reference_videos",
+            resource_id=str(unit.get("unit_id") or ""),
+            artifact_path=get_generated_assets(unit).get("video_clip"),
         ),
     )
     if isinstance(result, DurationConfirmationPending):
@@ -1019,7 +1085,13 @@ async def _run_reference_units(
     """对点名的参考生视频 unit 强制重新生成成片。"""
     project = ctx.pm.load_project(ctx.project_name)
     script = ctx.pm.load_script(ctx.project_name, script_filename)
-    episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+    episode = resolve_artifact_episode(
+        project=project,
+        script=script,
+        script_filename=script_filename,
+    )
+    if episode is None:
+        episode = ProjectManager.resolve_episode_from_script(script, script_filename)
 
     selected = _select_reference_units(script, unit_ids, log)
     # 结构校验先于在途任务探测：结构不合法的 unit 等在途任务跑完也依然生成不了，
@@ -1096,9 +1168,16 @@ def generate_video_episode_tool(ctx: ToolContext):
                     request_options=request_options,
                     log=log,
                 )
-            episode = ProjectManager.resolve_episode_from_script(script, script_filename)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             project = ctx.pm.load_project(ctx.project_name)
+            episode = (
+                resolve_artifact_episode(
+                    project=project,
+                    script=script,
+                    script_filename=script_filename,
+                )
+                or 1
+            )
             content_mode = resolve_content_mode(script, project)
             if not items:
                 raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
@@ -1114,7 +1193,15 @@ def generate_video_episode_tool(ctx: ToolContext):
 
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
-            ordered_paths, already_done, completed = _scan_completed_items(items, id_field, completed, videos_dir)
+            currency = active_artifact_currency_resolver(project_dir, project)
+            ordered_paths, already_done, completed = _scan_completed_items(
+                items,
+                id_field,
+                completed,
+                videos_dir,
+                episode=episode,
+                resolver=currency,
+            )
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=items,
@@ -1122,6 +1209,9 @@ def generate_video_episode_tool(ctx: ToolContext):
                 content_mode=content_mode,
                 script_filename=script_filename,
                 project_dir=project_dir,
+                project=project,
+                episode=episode,
+                resolver=currency,
                 skip_ids=already_done,
                 log=log,
                 voice_characters=voice_characters,
@@ -1211,17 +1301,25 @@ def generate_video_scene_tool(ctx: ToolContext):
             item_id = str(item[id_field])
             require_script_unit_admitted(resolve_script_kind(script), item)
 
-            storyboard_image = get_generated_assets(item).get("storyboard_image")
-            # 字段值来自磁盘剧本 JSON，不可信任：resolve_storyboard_image_ref 统一做类型检查 +
-            # 越界 / 绝对路径拒绝（与路由入队预检、执行层读盘点共用同一份），异常经外层
-            # except 转为可读的 tool_error，不再让非字符串脏数据抛未处理 TypeError。
-            storyboard_path = resolve_storyboard_image_ref(project_dir, storyboard_image)
-            if storyboard_path is None:
-                raise ValueError(f"场景/片段 '{item_id}' 没有分镜图，请先运行 generate_storyboards")
-            if not storyboard_path.is_file():
-                raise FileNotFoundError(f"分镜图不存在: {storyboard_path}")
-
             project = ctx.pm.load_project(ctx.project_name)
+            episode = (
+                resolve_artifact_episode(
+                    project=project,
+                    script=script,
+                    script_filename=script_filename,
+                )
+                or 1
+            )
+            if not get_generated_assets(item).get("storyboard_image"):
+                raise ValueError(f"场景/片段 '{item_id}' 没有分镜图，请先运行 generate_storyboards")
+            resolve_usable_storyboard_video_inputs(
+                project_path=project_dir,
+                project=project,
+                episode=episode,
+                resource_id=item_id,
+                item=item,
+                allow_legacy_same_name=False,
+            )
             content_mode = resolve_content_mode(script, project)
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
@@ -1315,7 +1413,32 @@ def generate_video_all_tool(ctx: ToolContext):
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             project = ctx.pm.load_project(ctx.project_name)
             content_mode = resolve_content_mode(script, project)
-            pending = [it for it in items if not get_generated_assets(it).get("video_clip")]
+            currency = active_artifact_currency_resolver(project_dir, project)
+            versions = VersionManager(project_dir)
+            episode = (
+                resolve_artifact_episode(
+                    project=project,
+                    script=script,
+                    script_filename=script_filename,
+                )
+                or 1
+            )
+            pending: list[dict[str, Any]] = []
+            for item in items:
+                resource_id = item.get(id_field)
+                if (
+                    not isinstance(resource_id, str)
+                    or not resource_id
+                    or not _batch_video_is_reusable(
+                        currency=currency,
+                        versions=versions,
+                        episode=episode,
+                        resource_type="videos",
+                        resource_id=resource_id,
+                        artifact_path=get_generated_assets(item).get("video_clip"),
+                    )
+                ):
+                    pending.append(item)
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
 
@@ -1326,6 +1449,9 @@ def generate_video_all_tool(ctx: ToolContext):
                 content_mode=content_mode,
                 script_filename=script_filename,
                 project_dir=project_dir,
+                project=project,
+                episode=episode,
+                resolver=currency,
                 skip_ids=None,
                 log=log,
                 voice_characters=voice_characters,
@@ -1413,6 +1539,14 @@ def generate_video_selected_tool(ctx: ToolContext):
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             project = ctx.pm.load_project(ctx.project_name)
             content_mode = resolve_content_mode(script, project)
+            episode = (
+                resolve_artifact_episode(
+                    project=project,
+                    script=script,
+                    script_filename=script_filename,
+                )
+                or 1
+            )
 
             items_by_id: dict[str, dict[str, Any]] = {}
             for item in items:
@@ -1455,7 +1589,15 @@ def generate_video_selected_tool(ctx: ToolContext):
 
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
-            ordered_paths, already_done, completed = _scan_completed_items(selected, id_field, completed, videos_dir)
+            currency = active_artifact_currency_resolver(project_dir, project)
+            ordered_paths, already_done, completed = _scan_completed_items(
+                selected,
+                id_field,
+                completed,
+                videos_dir,
+                episode=episode,
+                resolver=currency,
+            )
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=selected,
@@ -1463,6 +1605,9 @@ def generate_video_selected_tool(ctx: ToolContext):
                 content_mode=content_mode,
                 script_filename=script_filename,
                 project_dir=project_dir,
+                project=project,
+                episode=episode,
+                resolver=currency,
                 skip_ids=already_done,
                 log=log,
                 voice_characters=voice_characters,

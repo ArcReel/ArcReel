@@ -32,7 +32,6 @@ from lib.asset_types import (
     ASSET_SPECS,
     ProjectAssetNameConflictError,
     localize_asset_type,
-    resolve_asset_key,
     validate_asset_name,
 )
 from lib.i18n import Translator
@@ -218,14 +217,8 @@ def build_asset_router(
 
             def _sync():
                 manager = pm_getter()
-                result: dict[str, Any] = {}
 
-                def _mutate(project):
-                    bucket = project.get(spec.bucket_key) or {}
-                    key = resolve_asset_key(bucket, entry_name)
-                    if key is None:
-                        raise KeyError(entry_name)
-                    entry = bucket[key]
+                def _mutate(entry: dict) -> None:
                     for field in (*update_fields, *update_list_fields):
                         if req.get(field) is not None:
                             # voice_notice_dismissed_at 语义是「已确认到的声音版本」，必须原样
@@ -239,10 +232,9 @@ def build_asset_router(
                             if field == "reference_audio" and req[field] != entry.get("reference_audio"):
                                 entry["voice_updated_at"] = datetime.now(UTC).isoformat()
                             entry[field] = req[field]
-                    result.update(entry)
 
                 with project_change_source("webui"):
-                    manager.update_project(project_name, _mutate)
+                    result = manager.update_asset_entry(asset_type, project_name, entry_name, _mutate)
                 return {"success": True, result_key: result}
 
             return await asyncio.to_thread(_sync)
@@ -325,15 +317,8 @@ def build_asset_router(
             def _sync():
                 manager = pm_getter()
 
-                def _mutate(project):
-                    bucket = project.get(spec.bucket_key) or {}
-                    key = resolve_asset_key(bucket, entry_name)
-                    if key is None:
-                        raise KeyError(entry_name)
-                    del bucket[key]
-
                 with project_change_source("webui"):
-                    manager.update_project(project_name, _mutate)
+                    manager.delete_asset(project_name, spec.bucket_key, entry_name)
                 return {"success": True, "message": _t(keys["deleted"], name=entry_name)}
 
             return await asyncio.to_thread(_sync)

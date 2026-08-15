@@ -63,6 +63,7 @@ MESSAGES = {
     "generate_storyboard_first": "Please generate storyboard scene_{segment_id}.png first",
     "video_route_is_reference_video": "This project uses the reference-video route, which has no storyboard-to-video step; generate by video unit in the reference video editor",
     "invalid_storyboard_image_path": "Segment '{segment_id}' has an invalid storyboard image reference; please regenerate the storyboard",
+    "invalid_end_frame_image_path": "Segment '{segment_id}' has an invalid end-frame image reference; please capture the end frame again",
     "video_audio_switch_not_supported": "{provider}/{model} always produces audio and cannot be muted; turn the audio switch back on in settings and try again",
     "reference_declaration_invalid": "The reference declaration is malformed ({count} item(s)); repair references and try again",
     "reference_asset_missing": "Reference assets are missing or unavailable: {missing_text}",

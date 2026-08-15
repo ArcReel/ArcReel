@@ -44,11 +44,11 @@ from lib.version_manager import PaidVersionCommit, VersionManager
 logger = logging.getLogger(__name__)
 
 
-def task_video_staging_path(output_path: Path, task_id: str) -> Path:
+def task_media_staging_path(output_path: Path, task_id: str) -> Path:
     """Return the bounded, deterministic formal-output path owned by one task."""
 
     if not isinstance(task_id, str) or not task_id:
-        raise ValueError("formal video output requires a task_id")
+        raise ValueError("formal media output requires a task_id")
     token = hashlib.sha256(task_id.encode("utf-8")).hexdigest()
     return output_path.with_name(f".{token}.task-output{output_path.suffix}")
 
@@ -58,7 +58,19 @@ def _is_junction(path: Path) -> bool:
     return bool(isjunction is not None and isjunction(path))
 
 
-def _remove_task_video_staging_path(path: Path) -> None:
+def task_video_staging_path(output_path: Path, task_id: str) -> Path:
+    """Compatibility name for video task staging."""
+
+    return task_media_staging_path(output_path, task_id)
+
+
+def task_image_staging_path(output_path: Path, task_id: str) -> Path:
+    """Return the bounded staging path for one formal image task."""
+
+    return task_media_staging_path(output_path, task_id)
+
+
+def _remove_task_staging_path(path: Path) -> None:
     """Remove a task-owned staging entry without traversing links or arbitrary directories."""
 
     if path.is_symlink():
@@ -67,8 +79,11 @@ def _remove_task_video_staging_path(path: Path) -> None:
         path.rmdir()
     elif os.path.lexists(path):
         if not path.is_file():
-            raise ValueError("formal video staging path is not a regular file")
+            raise ValueError("formal media staging path is not a regular file")
         path.unlink()
+
+
+_remove_task_video_staging_path = _remove_task_staging_path
 
 
 def cleanup_staged_video_output(
@@ -213,6 +228,23 @@ class MediaGenerator:
         # A process can die after the backend starts writing. Reusing one task-addressable path bounds crash residue
         # and removes the prior attempt before normal generation or resume writes the same provider result again.
         _remove_task_video_staging_path(staged_output_path)
+        return staged_output_path, staged_output_path
+
+    @staticmethod
+    def _prepare_image_output(
+        output_path: Path,
+        *,
+        formal_output: bool,
+        task_id: str | None,
+    ) -> tuple[Path | None, Path]:
+        """Return the task staging path that the image backend may write."""
+
+        if not formal_output:
+            return None, output_path
+        if task_id is None:
+            raise ValueError("formal image output requires a task_id")
+        staged_output_path = task_image_staging_path(output_path, task_id)
+        _remove_task_staging_path(staged_output_path)
         return staged_output_path, staged_output_path
 
     def _commit_video_output_version_sync(
@@ -450,6 +482,10 @@ class MediaGenerator:
         reference_images=None,
         aspect_ratio: str = "9:16",
         image_size: str | None = None,
+        formal_output: bool = False,
+        task_id: str | None = None,
+        commit_formal_output: Callable[[Path, Path, Mapping[str, Any]], int] | None = None,
+        before_submit: Callable[[], Awaitable[None]] | None = None,
         **version_metadata,
     ) -> tuple[Path, int]:
         """
@@ -475,6 +511,10 @@ class MediaGenerator:
                 reference_images=reference_images,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
+                formal_output=formal_output,
+                task_id=task_id,
+                commit_formal_output=commit_formal_output,
+                before_submit=before_submit,
                 **version_metadata,
             )
         )
@@ -487,6 +527,10 @@ class MediaGenerator:
         reference_images=None,
         aspect_ratio: str = "9:16",
         image_size: str | None = None,
+        formal_output: bool = False,
+        task_id: str | None = None,
+        commit_formal_output: Callable[[Path, Path, Mapping[str, Any]], int] | None = None,
+        before_submit: Callable[[], Awaitable[None]] | None = None,
         **version_metadata,
     ) -> tuple[Path, int]:
         """
@@ -508,9 +552,16 @@ class MediaGenerator:
 
         output_path = self._get_output_path(resource_type, resource_id)
         self._ensure_parent_dir(output_path)
+        if formal_output and commit_formal_output is None:
+            raise ValueError("formal image output requires an artifact commit callback")
+        staged_output_path, backend_output_path = self._prepare_image_output(
+            output_path,
+            formal_output=formal_output,
+            task_id=task_id,
+        )
 
         # 1. 若已存在，确保旧文件被记录
-        if output_path.exists():
+        if staged_output_path is None and output_path.exists():
             self.versions.ensure_current_tracked(
                 resource_type=resource_type,
                 resource_id=resource_id,
@@ -557,53 +608,68 @@ class MediaGenerator:
 
         # 2. 记账括号：进入落 pending，成功以 call.success(result) 递交 backend 结果对象，
         #    Exception 自动翻 failed 后重抛，CancelledError 穿透留 pending。
-        async with self.ledger.record(
-            project_name=self.project_name,
-            call_type="image",
-            model=self._image_backend.model,
-            prompt=prompt,
-            resolution=image_size,
-            aspect_ratio=aspect_ratio,
-            # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
-            provider=cast(str, self._image_provider_id),
-            user_id=self._user_id,
-            segment_id=segment_id_for("image", resource_type, resource_id),
-            output_path=str(output_path),
-        ) as call:
-            from lib.reference_compression import ReferenceSpec, RefRole
+        async with _remove_staged_output_on_error(staged_output_path):
+            async with self.ledger.record(
+                project_name=self.project_name,
+                call_type="image",
+                model=self._image_backend.model,
+                prompt=prompt,
+                resolution=image_size,
+                aspect_ratio=aspect_ratio,
+                # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
+                provider=cast(str, self._image_provider_id),
+                user_id=self._user_id,
+                segment_id=segment_id_for("image", resource_type, resource_id),
+                output_path=str(output_path),
+            ) as call:
+                from lib.reference_compression import ReferenceSpec, RefRole
 
-            image_backend = self._image_backend
-            # 所有图像参考图都走数组角色（完整基线 + 降档梯子 + 字节预算）。
-            specs = [ReferenceSpec(source=Path(r.path), label=r.label, role=RefRole.ARRAY) for r in ref_images]
+                image_backend = self._image_backend
+                # 所有图像参考图都走数组角色（完整基线 + 降档梯子 + 字节预算）。
+                specs = [ReferenceSpec(source=Path(r.path), label=r.label, role=RefRole.ARRAY) for r in ref_images]
 
-            def _call_image(compressed: "list[CompressedRef]"):
-                return image_backend.generate(
-                    ImageGenerationRequest(
-                        prompt=prompt,
-                        output_path=output_path,
-                        reference_images=[ReferenceImage(path=str(c.path), label=c.label) for c in compressed],
-                        aspect_ratio=aspect_ratio,
-                        image_size=image_size,
-                        project_name=self.project_name,
+                def _call_image(compressed: "list[CompressedRef]"):
+                    return image_backend.generate(
+                        ImageGenerationRequest(
+                            prompt=prompt,
+                            output_path=backend_output_path,
+                            reference_images=[ReferenceImage(path=str(c.path), label=c.label) for c in compressed],
+                            aspect_ratio=aspect_ratio,
+                            image_size=image_size,
+                            project_name=self.project_name,
+                        )
                     )
+
+                result = await self._run_with_reference_compression(
+                    specs=specs,
+                    provider_id=self._image_provider_id,
+                    build_and_call=_call_image,
+                    before_submit=before_submit,
                 )
+                call.success(result)
 
-            result = await self._run_with_reference_compression(
-                specs=specs,
-                provider_id=self._image_provider_id,
-                build_and_call=_call_image,
-            )
-            call.success(result)
-
-        # 5. 记录新版本
-        new_version = self.versions.add_version(
-            resource_type=resource_type,
-            resource_id=resource_id,
-            prompt=prompt,
-            source_file=output_path,
-            aspect_ratio=aspect_ratio,
-            **version_metadata,
-        )
+            metadata: dict[str, Any] = {"aspect_ratio": aspect_ratio, **version_metadata}
+            if staged_output_path is None:
+                new_version = self.versions.add_version(
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    prompt=prompt,
+                    source_file=output_path,
+                    **metadata,
+                )
+            else:
+                if not staged_output_path.is_file():
+                    raise RuntimeError("image backend completed without a regular staged output file")
+                assert commit_formal_output is not None
+                new_version = await run_noninterruptible_sync(
+                    commit_formal_output,
+                    staged_output_path,
+                    output_path,
+                    metadata,
+                )
+                if type(new_version) is not int or new_version < 1:
+                    raise RuntimeError("formal image commit did not return a positive version")
+                staged_output_path.unlink(missing_ok=True)
 
         return output_path, new_version
 
@@ -614,6 +680,7 @@ class MediaGenerator:
         voice: str,
         language_type: str = "Chinese",
         speed: float | None = None,
+        before_submit: Callable[[], Awaitable[None]] | None = None,
         before_commit: Callable[[Path], Awaitable[None]] | None = None,
         commit_staged: Callable[[Path, Path], int | PaidVersionCommit] | None = None,
         **version_metadata,
@@ -629,6 +696,7 @@ class MediaGenerator:
             voice: 音色（如 Cherry）
             language_type: 语种，默认 Chinese
             speed: 语速预留（同步模型忽略）
+            before_submit: 首次 provider 提交紧前执行一次的异步准入钩子
             **version_metadata: 额外元数据
 
         Returns:
@@ -675,6 +743,8 @@ class MediaGenerator:
                     language_type=language_type,
                     speed=speed,
                 )
+                if before_submit is not None:
+                    await before_submit()
                 result = await self._audio_backend.synthesize(request)
                 if not staged_path.is_file():
                     raise RuntimeError("audio backend completed without a regular output file")

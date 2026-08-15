@@ -12,7 +12,7 @@ import shutil
 import sys
 import tempfile
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,13 +20,15 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lib.api_errors import BadRequestError, NotFoundError
+from lib.artifact_manifest import ArtifactManifestError, ProjectArtifactManifestAdapter
 from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.resource_paths import RESOURCE_TYPES as _RESOURCE_TYPES
-from lib.resource_paths import resource_extension
+from lib.resource_paths import resource_extension, resource_relative_path
 
 _LOCKS_GUARD = threading.Lock()
 _LOCKS_BY_VERSIONS_FILE: dict[str, threading.RLock] = {}
 _PREVIOUS_CURRENT_VERSION = "_previous_current_version"
+MANUAL_UPLOAD_VERSION_SOURCE = "manual_upload"
 logger = logging.getLogger(__name__)
 
 
@@ -36,6 +38,18 @@ class PaidVersionCommit:
 
     version: int
     selected: bool
+
+
+@dataclass(frozen=True, slots=True)
+class StagedVersionCommit:
+    """One media selection participating in a multi-resource version commit."""
+
+    resource_type: str
+    resource_id: str
+    prompt: str
+    staged_file: Path
+    current_file: Path
+    metadata: Mapping[str, Any]
 
 
 def _get_versions_file_lock(versions_file: Path) -> threading.RLock:
@@ -122,6 +136,22 @@ class VersionManager:
         for resource_type in self.RESOURCE_TYPES:
             (self.versions_dir / resource_type).mkdir(exist_ok=True)
 
+    @classmethod
+    def is_managed_snapshot_path(cls, resource_type: str, relative_path: object) -> bool:
+        """Whether a record points to a canonical file in its typed history bucket."""
+
+        if resource_type not in cls.RESOURCE_TYPES or not isinstance(relative_path, str) or "\\" in relative_path:
+            return False
+        path = PurePosixPath(relative_path)
+        return (
+            relative_path == path.as_posix()
+            and not path.is_absolute()
+            and len(path.parts) == 3
+            and path.parts[:2] == ("versions", resource_type)
+            and path.name not in {"", ".", ".."}
+            and path.suffix == cls.EXTENSIONS[resource_type]
+        )
+
     def _load_versions(self) -> dict:
         """加载版本元数据"""
         if not self.versions_file.exists():
@@ -194,6 +224,68 @@ class VersionManager:
 
         with self._lock:
             yield self.get_versions(resource_type, resource_id)
+
+    def selected_manual_upload_matches_current_file(
+        self,
+        resource_type: str,
+        resource_id: str,
+        artifact_path: object,
+    ) -> bool:
+        """Whether the canonical video is the exact selected manual-upload snapshot.
+
+        Manual videos deliberately carry no paid-generation basis and therefore
+        have no Artifact Manifest claim.  Batch reuse still needs stronger proof
+        than a script pointer or same-named file: the selected version record must
+        be a manual upload and its managed snapshot must byte-match the canonical
+        formal file while the version selection is locked.
+        """
+
+        if resource_type not in {"videos", "reference_videos"}:
+            return False
+        try:
+            canonical_rel = resource_relative_path(resource_type, resource_id)
+        except (TypeError, ValueError):
+            return False
+        if artifact_path != canonical_rel:
+            return False
+
+        with self._lock:
+            history = self.get_versions(resource_type, resource_id)
+            selected_version = history.get("current_version")
+            if type(selected_version) is not int or selected_version <= 0:
+                return False
+            records = history.get("versions")
+            if not isinstance(records, list):
+                return False
+            selected = next(
+                (
+                    record
+                    for record in records
+                    if isinstance(record, Mapping)
+                    and record.get("version") == selected_version
+                    and record.get("is_current") is True
+                ),
+                None,
+            )
+            if selected is None or selected.get("source") != MANUAL_UPLOAD_VERSION_SOURCE:
+                return False
+            snapshot_rel = selected.get("file")
+            if not isinstance(snapshot_rel, str) or not self.is_managed_snapshot_path(resource_type, snapshot_rel):
+                return False
+            try:
+                adapter = ProjectArtifactManifestAdapter(self.project_path)
+                canonical = adapter.inspect_artifact_content(canonical_rel)
+                snapshot = adapter.inspect_artifact_content(snapshot_rel)
+            except ArtifactManifestError:
+                return False
+            if (
+                canonical.blocker is not None
+                or snapshot.blocker is not None
+                or not canonical.present
+                or not snapshot.present
+            ):
+                return False
+            return canonical.content_digest == snapshot.content_digest
 
     def add_version(
         self, resource_type: str, resource_id: str, prompt: str, source_file: Path | None = None, **metadata
@@ -374,6 +466,155 @@ class VersionManager:
             finally:
                 if activation_succeeded:
                     _report_cleanup_failures(_unlink_paths(current_backup), active_failure=sys.exception())
+
+    def commit_staged_versions(
+        self,
+        commits: Sequence[StagedVersionCommit],
+        *,
+        on_commit: Callable[[], None] | None = None,
+    ) -> dict[tuple[str, str], int]:
+        """Atomically select a batch of staged media files and version pointers.
+
+        The complete ``versions.json`` plus every canonical file is restored if
+        any activation or the final sidecar hook fails. Resource identities and
+        canonical paths must be unique so rollback has one unambiguous owner.
+        """
+
+        batch = tuple(commits)
+        if not batch:
+            return {}
+        identities: set[tuple[str, str]] = set()
+        current_paths: set[Path] = set()
+        for commit in batch:
+            if commit.resource_type not in self.RESOURCE_TYPES:
+                raise ValueError(f"不支持的资源类型: {commit.resource_type}")
+            identity = (commit.resource_type, commit.resource_id)
+            if identity in identities:
+                raise ValueError(f"duplicate staged version identity: {identity!r}")
+            identities.add(identity)
+            staged_file = Path(commit.staged_file)
+            current_file = Path(commit.current_file)
+            if not staged_file.is_file():
+                raise FileNotFoundError(f"staged version file does not exist: {staged_file}")
+            normalized_current = current_file.resolve(strict=False)
+            if normalized_current in current_paths:
+                raise ValueError(f"duplicate staged version target: {current_file}")
+            current_paths.add(normalized_current)
+
+        with self._lock:
+            versions_existed = self.versions_file.is_file()
+            versions_snapshot = self.versions_file.read_bytes() if versions_existed else None
+            data = self._load_versions()
+            created_snapshots: list[Path] = []
+            current_states: list[tuple[Path, bool, Path | None]] = []
+            result: dict[tuple[str, str], int] = {}
+            activation_succeeded = False
+
+            def _append_version(
+                *,
+                commit: StagedVersionCommit,
+                resource_data: dict[str, Any],
+                source: Path,
+                prompt: str,
+                metadata: Mapping[str, Any],
+            ) -> int:
+                records = resource_data.setdefault("versions", [])
+                previous = resource_data.get("current_version", 0)
+                if not isinstance(previous, int) or isinstance(previous, bool) or previous < 0:
+                    previous = 0
+                version = max((item.get("version", 0) for item in records), default=0) + 1
+                timestamp = self._generate_timestamp()
+                ext = self.EXTENSIONS.get(commit.resource_type, ".png")
+                filename = f"{commit.resource_id}_v{version}_{timestamp}{ext}"
+                rel_path = f"versions/{commit.resource_type}/{filename}"
+                abs_path = self.project_path / rel_path
+                self._ensure_dirs()
+                shutil.copy2(source, abs_path)
+                created_snapshots.append(abs_path)
+                records.append(
+                    {
+                        "version": version,
+                        "file": rel_path,
+                        "prompt": prompt,
+                        "created_at": self._generate_iso_timestamp(),
+                        **dict(metadata),
+                        _PREVIOUS_CURRENT_VERSION: previous,
+                    }
+                )
+                resource_data["current_version"] = version
+                return version
+
+            try:
+                for commit in batch:
+                    staged_file = Path(commit.staged_file)
+                    current_file = Path(commit.current_file)
+                    current_file.parent.mkdir(parents=True, exist_ok=True)
+                    bucket = data.setdefault(commit.resource_type, {})
+                    resource_data = bucket.setdefault(
+                        commit.resource_id,
+                        {"current_version": 0, "versions": []},
+                    )
+                    current_existed = current_file.is_file()
+                    backup = _create_rollback_backup(current_file) if current_existed else None
+                    current_states.append((current_file, current_existed, backup))
+                    if current_existed and not resource_data.get("current_version"):
+                        _append_version(
+                            commit=commit,
+                            resource_data=resource_data,
+                            source=current_file,
+                            prompt="",
+                            metadata={},
+                        )
+                    version = _append_version(
+                        commit=commit,
+                        resource_data=resource_data,
+                        source=staged_file,
+                        prompt=commit.prompt,
+                        metadata=commit.metadata,
+                    )
+                    os.replace(staged_file, current_file)
+                    result[(commit.resource_type, commit.resource_id)] = version
+
+                self._save_versions(data)
+                if on_commit is not None:
+                    on_commit()
+                activation_succeeded = True
+                return result
+            except BaseException as failure:
+                rollback_errors: list[OSError] = []
+                for current_file, current_existed, backup in reversed(current_states):
+                    try:
+                        if backup is None:
+                            if not current_existed:
+                                current_file.unlink(missing_ok=True)
+                        else:
+                            os.replace(backup, current_file)
+                    except OSError as exc:
+                        rollback_errors.append(exc)
+                try:
+                    if versions_snapshot is None:
+                        self.versions_file.unlink(missing_ok=True)
+                    else:
+                        atomic_write_bytes(self.versions_file, versions_snapshot)
+                except OSError as exc:
+                    rollback_errors.append(exc)
+                for path in created_snapshots:
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError as exc:
+                        rollback_errors.append(exc)
+                if rollback_errors:
+                    rollback_errors[0].__cause__ = failure
+                    raise RuntimeError(
+                        "batch version activation failed and durable rollback was incomplete"
+                    ) from rollback_errors[0]
+                raise
+            finally:
+                if activation_succeeded:
+                    _report_cleanup_failures(
+                        _unlink_paths(*(backup for _path, _existed, backup in current_states)),
+                        active_failure=sys.exception(),
+                    )
 
     def commit_staged_paid_version(
         self,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import subprocess
@@ -78,6 +79,111 @@ def test_project_adapter_persists_deterministic_utf8_and_skips_unchanged_write(t
     }
     reloaded = ArtifactManifest(ProjectArtifactManifestAdapter(project))
     assert reloaded.compare(key, artifact_path="scripts/第一集.json", basis=basis).status is ArtifactStatus.CURRENT
+
+
+def test_project_adapter_replaces_the_complete_target_state_atomically(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    (project / "characters").mkdir(parents=True)
+    (project / "characters" / "Alice.png").write_bytes(b"alice")
+    (project / "scenes").mkdir()
+    (project / "scenes" / "Cafe.png").write_bytes(b"cafe")
+    adapter = ProjectArtifactManifestAdapter(project)
+    old_key = ArtifactKey.asset_sheet("character", "Alice")
+    adapter.put_entry(
+        old_key,
+        ArtifactManifestEntry(
+            artifact_path="characters/Alice.png",
+            basis_digest=ArtifactBasis.build("old", kind_version=1, inputs={}).digest,
+        ),
+    )
+    target_key = ArtifactKey.asset_sheet("scene", "Cafe")
+    target_entry = ArtifactManifestEntry(
+        artifact_path="scenes/Cafe.png",
+        basis_digest=ArtifactBasis.build("new", kind_version=1, inputs={}).digest,
+    )
+
+    assert adapter.replace_entries_atomically({target_key: target_entry}) is True
+    assert adapter.get_entry(old_key) is None
+    assert adapter.get_entry(target_key) == target_entry
+
+    manifest_path = project / MANIFEST_FILENAME
+    before = (manifest_path.read_bytes(), manifest_path.stat().st_mtime_ns)
+    assert adapter.replace_entries_atomically({target_key: target_entry}) is False
+    assert (manifest_path.read_bytes(), manifest_path.stat().st_mtime_ns) == before
+
+
+def test_project_adapter_rejects_a_second_key_claiming_an_existing_formal_path(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    artifact = project / "videos" / "scene_E1S01.mp4"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"episode-one")
+    adapter = ProjectArtifactManifestAdapter(project)
+    first_key = ArtifactKey.episode_video(1, "E1S01")
+    second_key = ArtifactKey.episode_video(2, "E1S01")
+    first_entry = ArtifactManifestEntry(
+        artifact_path="videos/scene_E1S01.mp4",
+        basis_digest=ArtifactBasis.build("video", kind_version=1, inputs={"episode": 1}).digest,
+    )
+    second_entry = ArtifactManifestEntry(
+        artifact_path="videos/scene_E1S01.mp4",
+        basis_digest=ArtifactBasis.build("video", kind_version=1, inputs={"episode": 2}).digest,
+    )
+    assert adapter.put_entry(first_key, first_entry)
+    manifest_before = (project / MANIFEST_FILENAME).read_bytes()
+
+    with pytest.raises(ArtifactManifestError, match="formal artifact path.*multiple keys"):
+        adapter.put_entry(second_key, second_entry)
+
+    assert (project / MANIFEST_FILENAME).read_bytes() == manifest_before
+    assert adapter.snapshot_entries() == {first_key: first_entry}
+
+
+@pytest.mark.parametrize(
+    ("first_path", "second_path"),
+    [
+        ("videos/scene_E1S01.mp4", "videos/scene_E1S01.mp4"),
+        ("videos/scene_E1S01.mp4", "videos/scene_e1s01.mp4"),
+        ("videos/é.mp4", "videos/e\u0301.mp4"),
+    ],
+    ids=("identical", "case-alias", "unicode-alias"),
+)
+def test_project_adapter_rejects_manifest_snapshot_with_duplicate_path_ownership(
+    tmp_path: Path,
+    first_path: str,
+    second_path: str,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    first_key = ArtifactKey.episode_video(1, "E1S01")
+    second_key = ArtifactKey.episode_video(2, "E1S01")
+    malformed = json.dumps(
+        {
+            "entries": {
+                first_key.encode(): {
+                    "artifact_path": first_path,
+                    "basis_digest": ArtifactBasis.build("video", kind_version=1, inputs={"episode": 1}).digest,
+                },
+                second_key.encode(): {
+                    "artifact_path": second_path,
+                    "basis_digest": ArtifactBasis.build("video", kind_version=1, inputs={"episode": 2}).digest,
+                },
+            },
+            "hash_algorithm": HASH_ALGORITHM,
+            "schema_version": 1,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    manifest_path = project / MANIFEST_FILENAME
+    manifest_path.write_bytes(malformed)
+    adapter = ProjectArtifactManifestAdapter(project)
+
+    with pytest.raises(ArtifactManifestError, match="formal artifact path.*multiple keys"):
+        adapter.get_entry(first_key)
+    with pytest.raises(ArtifactManifestError, match="formal artifact path.*multiple keys"):
+        adapter.snapshot_entries()
+
+    assert manifest_path.read_bytes() == malformed
 
 
 def test_stale_comparison_preserves_paid_artifact_and_manifest(tmp_path: Path) -> None:
@@ -402,6 +508,59 @@ def test_project_adapter_reports_missing_posix_artifact_components(tmp_path: Pat
 
     assert not adapter.inspect_artifact("missing/episode.json").present
     assert not adapter.inspect_artifact("episode.json").present
+
+
+def test_project_adapter_hashes_content_only_through_the_explicit_snapshot_seam(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    content = b"formal-provider-input"
+    (project / "episode.json").write_bytes(content)
+    adapter = ProjectArtifactManifestAdapter(project)
+
+    ordinary = adapter.inspect_artifact("episode.json")
+    snapshot = adapter.inspect_artifact_content("episode.json")
+
+    assert ordinary.present and ordinary.content_digest is None
+    assert snapshot.present and snapshot.content_digest == hashlib.sha256(content).hexdigest()
+
+
+@pytest.mark.parametrize("inspection_path", ["posix", "portable"])
+def test_project_adapter_rejects_in_place_write_during_content_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    inspection_path: str,
+) -> None:
+    if inspection_path == "posix" and os.name != "posix":
+        pytest.skip("descriptor traversal is the POSIX artifact inspection path")
+    project = tmp_path / "project"
+    project.mkdir()
+    artifact = project / "episode.json"
+    artifact.write_bytes(b"formal-provider-input")
+    original_identity = (artifact.stat().st_dev, artifact.stat().st_ino)
+    adapter = ProjectArtifactManifestAdapter(project)
+    original_read = os.read
+    mutated = False
+
+    def mutate_after_first_read(fd: int, length: int) -> bytes:
+        nonlocal mutated
+        chunk = original_read(fd, length)
+        if chunk and not mutated:
+            with artifact.open("ab") as handle:
+                handle.write(b"-concurrent-update")
+            mutated = True
+        return chunk
+
+    monkeypatch.setattr("lib.artifact_manifest.os.read", mutate_after_first_read)
+
+    if inspection_path == "posix":
+        observation = adapter._inspect_artifact_posix("episode.json", include_content_digest=True)
+    else:
+        observation = adapter._inspect_artifact_portable("episode.json", include_content_digest=True)
+
+    assert mutated
+    assert (artifact.stat().st_dev, artifact.stat().st_ino) == original_identity
+    assert not observation.present
+    assert observation.blocker is not None and observation.blocker.code == "artifact_unreadable"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="descriptor reads are the POSIX artifact inspection path")

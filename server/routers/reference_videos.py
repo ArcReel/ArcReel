@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -59,14 +60,14 @@ from server.services.narration_delivery_tasks import (
     tts_task_in_progress,
 )
 from server.services.reference_video_tasks import (
-    _finalize_reference_video_unit,
+    apply_unit_video_assets,
     default_unit_duration,
     resolve_project_duration_context,
 )
 from server.services.upload_finalize import (
     UploadValidationError,
-    record_upload_version,
-    save_uploaded_video_stream,
+    commit_manual_video_upload,
+    stage_uploaded_video_stream,
     validate_upload,
 )
 from server.services.video_caps import project_video_caps
@@ -688,36 +689,43 @@ async def upload_unit_video(
         target = project_path / relative_path
 
         with project_change_source("webui"):
-            await asyncio.to_thread(versions.ensure_current_tracked, "reference_videos", unit_id, target, "")
-            await save_uploaded_video_stream(file.file, target, max_bytes=max_bytes)
+            staged_video = await stage_uploaded_video_stream(file.file, target, max_bytes=max_bytes)
 
             # 上传流可达数百 MB、耗时数秒，期间 episode→script 绑定可能被并发重绑
-            # （PATCH / agent 同步剧本）。落盘后重解析绑定，确保元数据写进当前生效的剧本。
+            # （PATCH / agent 同步剧本）。staging 后重解析绑定，确保元数据写进当前生效的剧本。
             def _recheck_binding() -> str:
                 project2, script2, script_file2 = _load_episode_script(project_name, episode, _t)
                 _find_unit_for_project(project2, script2, unit_id, _t)
                 return script_file2
 
-            script_file = await asyncio.to_thread(_recheck_binding)
+            try:
+                script_file = await asyncio.to_thread(_recheck_binding)
 
-            version = await asyncio.to_thread(
-                record_upload_version,
-                versions=versions,
-                resource_type="reference_videos",
-                resource_id=unit_id,
-                current_file=target,
-                original_filename=file.filename,
-            )
-            await _finalize_reference_video_unit(
-                project_name=project_name,
-                script_file=script_file,
-                project_path=project_path,
-                resource_id=unit_id,
-                output_path=target,
-                version=version,
-                video_uri=None,
-                versions=versions,
-            )
+                def _commit_metadata(thumb_rel: str | None, on_commit: Callable[[Path], None]) -> None:
+                    pm = get_project_manager()
+                    with pm.locked_script(
+                        project_name,
+                        script_file,
+                        validate=False,
+                        on_commit=on_commit,
+                    ) as script:
+                        apply_unit_video_assets(script, unit_id, video_uri=None, thumb_rel=thumb_rel)
+
+                version = await commit_manual_video_upload(
+                    project_path=project_path,
+                    versions=versions,
+                    resource_type="reference_videos",
+                    resource_id=unit_id,
+                    script_file=script_file,
+                    staged_video=staged_video,
+                    current_video=target,
+                    thumbnail_file=project_path / "reference_videos" / "thumbnails" / f"{unit_id}.jpg",
+                    thumbnail_rel=f"reference_videos/thumbnails/{unit_id}.jpg",
+                    original_filename=file.filename,
+                    commit_metadata=_commit_metadata,
+                )
+            finally:
+                await asyncio.to_thread(staged_video.unlink, missing_ok=True)
             # emit 内部会读剧本解析 episode 并计算指纹，放线程池避免阻塞事件循环；
             # 返回的指纹直接复用进响应体，免二次计算
             fingerprints = await asyncio.to_thread(

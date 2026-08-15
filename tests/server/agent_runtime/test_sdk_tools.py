@@ -9,6 +9,7 @@ behavior without hitting the real queue or providers.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -18,6 +19,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lib import script_review
+from lib.project_manager import ProjectManager
 from lib.reference_video.draft_validation import DraftViolation
 from lib.reference_video.quarantine import (
     QUARANTINE_KIND_STEP1,
@@ -26,6 +28,8 @@ from lib.reference_video.quarantine import (
     write_quarantine,
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
+from lib.resource_paths import resource_relative_path
+from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.enqueue_assets import (
@@ -64,6 +68,12 @@ class _FakePM:
         self._project_name = project_name
         self._project_dir = project_dir
         self.project_payload: dict[str, Any] = {
+            "content_mode": "drama",
+            "generation_mode": "storyboard",
+            "source_kind": "novel",
+            "source_language": "中文",
+            "overview": {},
+            "episodes": [],
             "characters": {"张三": {"description": "主角"}, "李四": {"description": ""}},
             "scenes": {"村口": {"description": "黄昏的村口"}},
             "props": {},
@@ -127,6 +137,27 @@ def fake_ctx(tmp_path: Path) -> ToolContext:
         projects_root=tmp_path,
         pm=_FakePM("demo", project_dir),  # type: ignore[arg-type]
     )
+
+
+def _select_manual_video(
+    project_path: Path,
+    *,
+    resource_type: str,
+    resource_id: str,
+    content: bytes,
+) -> str:
+    artifact_path = resource_relative_path(resource_type, resource_id)
+    staged = project_path / f".{resource_type}-{resource_id}.upload.mp4"
+    staged.write_bytes(content)
+    VersionManager(project_path).commit_staged_version(
+        resource_type,
+        resource_id,
+        "",
+        staged_file=staged,
+        current_file=project_path / artifact_path,
+        source=MANUAL_UPLOAD_VERSION_SOURCE,
+    )
+    return artifact_path
 
 
 @pytest.fixture(autouse=True)
@@ -218,6 +249,19 @@ async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
     return await tool_obj.handler(args)
 
 
+def _activate_unbound_project(fake_ctx: ToolContext, *, generation_mode: str = "storyboard") -> None:
+    project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
+    project.update(
+        {
+            "schema_version": 8,
+            "content_mode": "narration",
+            "generation_mode": generation_mode,
+            "episodes": [],
+        }
+    )
+    (fake_ctx.project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # build_arcreel_mcp_server
 # ---------------------------------------------------------------------------
@@ -295,6 +339,36 @@ async def test_list_pending_assets_happy(fake_ctx: ToolContext) -> None:
     assert "张三" in text
     assert "村口" in text
     assert "保温杯" in text
+
+
+@pytest.mark.unit
+async def test_pending_asset_tools_include_an_unclaimed_schema8_sheet(tmp_path: Path, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_assets as mod
+
+    projects_root = tmp_path / "projects"
+    pm = ProjectManager(projects_root)
+    project_dir = pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo")
+    pm.add_project_scene("demo", "客厅", "宽敞的客厅")
+    pm.update_scene_sheet("demo", "客厅", "scenes/客厅.png")
+    (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
+    ctx = ToolContext(project_name="demo", projects_root=projects_root, pm=pm)
+
+    listed = await _call(list_pending_assets_tool(ctx), {"type": "scene"})
+
+    assert "客厅" in listed["content"][0]["text"]
+
+    enqueued: list[str] = []
+
+    async def _capture_batch(*, project_name, specs, on_success=None, on_failure=None):
+        enqueued.extend(spec.resource_id for spec in specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _capture_batch)
+
+    await _call(generate_assets_tool(ctx), {"type": "scene"})
+
+    assert enqueued == ["客厅"]
 
 
 @pytest.mark.unit
@@ -405,6 +479,76 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
     text = out["content"][0]["text"]
     assert "1 succeeded" in text
     assert "audio/segment_E1S01.wav" in text
+
+
+@pytest.mark.integration
+async def test_generate_narration_audio_rejects_unbound_active_script_before_enqueue(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+
+    _activate_unbound_project(fake_ctx)
+    fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
+    enqueued = False
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        nonlocal enqueued
+        enqueued = True
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    out = await _call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is True
+    assert "not bound" in out["content"][0]["text"]
+    assert enqueued is False
+
+
+@pytest.mark.unit
+async def test_generate_narration_audio_uses_canonical_filename_when_episode_field_is_absent(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+
+    script = _narration_audio_script()
+    script.pop("episode")
+    script["segments"] = script["segments"][:1]
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+        {
+            "schema_version": 8,
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 2, "script_file": "scripts/episode_2.json"}],
+        }
+    )
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps(fake_ctx.pm.project_payload),  # type: ignore[attr-defined]
+        encoding="utf-8",
+    )
+    captured: list[Any] = []
+    selected_episodes: list[int] = []
+    select_items = mod._select_items
+
+    def _capture_episode(*args, **kwargs):
+        selected_episodes.append(kwargs["episode"])
+        return select_items(*args, **kwargs)
+
+    async def _batch(*, project_name, specs, on_success=None, on_failure=None):
+        captured.extend(specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "_select_items", _capture_episode)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
+
+    out = await _call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_2.json"})
+
+    assert out.get("is_error") is not True, out
+    assert [spec.resource_id for spec in captured] == ["E1S01"]
+    assert selected_episodes == [2]
 
 
 @pytest.mark.unit
@@ -801,9 +945,12 @@ async def test_generate_narration_audio_rejects_path_in_script_arg(fake_ctx: Too
 async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
 
+    captured: list[Any] = []
+
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         from lib.generation_queue_client import BatchTaskResult
 
+        captured.extend(specs)
         succ = [
             BatchTaskResult(
                 resource_id=s.resource_id,
@@ -818,9 +965,40 @@ async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) ->
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     # Strip storyboard_image to force selection
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}  # type: ignore[attr-defined]
+    semantic_prompt = {
+        "scene": "村口黄昏",
+        "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+    }
+    fake_ctx.pm.script_payload["segments"][0]["image_prompt"] = semantic_prompt  # type: ignore[attr-defined]
     tool_obj = generate_storyboards_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
+    assert captured[0].payload["prompt"] == semantic_prompt
+
+
+@pytest.mark.integration
+async def test_generate_storyboards_rejects_unbound_active_script_before_enqueue(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
+
+    _activate_unbound_project(fake_ctx)
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}  # type: ignore[attr-defined]
+    enqueued = False
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        nonlocal enqueued
+        enqueued = True
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    out = await _call(mod.generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is True
+    assert "not bound" in out["content"][0]["text"]
+    assert enqueued is False
 
 
 @pytest.mark.unit
@@ -952,6 +1130,48 @@ async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext, monkeypatch) -
 
 
 @pytest.mark.unit
+async def test_edit_images_active_asset_without_a_manifest_claim_is_not_enqueued(
+    fake_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    project_path = fake_ctx.project_path
+    (project_path / "characters").mkdir()
+    (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
+    fake_ctx.pm.project_payload["schema_version"] = 8  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
+    comparisons = []
+
+    class _Currency:
+        def compare(self, key, *, artifact_path):
+            comparisons.append((key, artifact_path))
+            return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
+
+        def resolve_usable_entry(self, key, *, artifact_path):
+            self.compare(key, artifact_path=artifact_path)
+            return None
+
+    async def fake_i2i(_project):
+        return True
+
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _Currency())
+    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await _call(
+        edit_images_tool(fake_ctx),
+        {"resource_type": "character", "edits": [{"id": "张三", "instruction": "换发色"}]},
+    )
+
+    assert out.get("is_error") is True
+    assert comparisons == [(ArtifactKey.asset_sheet("character", "张三"), "characters/zhangsan.png")]
+    enqueue.assert_not_awaited()
+
+
+@pytest.mark.unit
 async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
 
@@ -963,6 +1183,35 @@ async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext
     out = await _call(tool_obj, {"resource_type": "storyboard", "edits": [{"id": "E1S01", "instruction": "去杂物"}]})
     assert out.get("is_error") is True
     assert "script_file" in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    fake_ctx.pm.project_payload["schema_version"] = 8  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["episodes"] = []  # type: ignore[attr-defined]
+    provider_gate = AsyncMock(return_value=True)
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "_i2i_provider_available", provider_gate)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await _call(
+        edit_images_tool(fake_ctx),
+        {
+            "resource_type": "storyboard",
+            "script_file": "episode_1.json",
+            "edits": [{"id": "E1S01", "instruction": "去掉背景杂物"}],
+        },
+    )
+
+    assert out.get("is_error") is True
+    assert "not bound" in out["content"][0]["text"]
+    provider_gate.assert_not_awaited()
+    enqueue.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -1452,6 +1701,29 @@ async def test_generate_grid_rejected_on_reference_video_route(fake_ctx: ToolCon
     assert out.get("is_error") is True
 
 
+@pytest.mark.unit
+async def test_generate_grid_legacy_unresolvable_episode_fails_before_enqueue(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_grid as mod
+
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
+    ]
+    enqueue = AsyncMock(side_effect=AssertionError("must not enqueue"))
+    monkeypatch.setattr(mod, "enqueue_task_only", enqueue)
+
+    out = await _call(mod.generate_grid_tool(fake_ctx), {"script": "draft.json"})
+
+    assert out.get("is_error") is True
+    assert "无法确定集号" in out["content"][0]["text"]
+    enqueue.assert_not_awaited()
+
+
 # ---------------------------------------------------------------------------
 # enqueue_videos
 # ---------------------------------------------------------------------------
@@ -1479,6 +1751,204 @@ async def test_generate_video_episode_happy(fake_ctx: ToolContext, monkeypatch) 
     tool_obj = generate_video_episode_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("selection", ["episode", "selected"])
+@pytest.mark.parametrize("claim_state", ["missing", "blocked"])
+async def test_storyboard_resume_requires_usable_manifest_video_claim(
+    fake_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+    selection: str,
+    claim_state: str,
+) -> None:
+    """A checkpoint can reuse only the exact canonical video admitted by active currency."""
+    from lib.artifact_manifest import (
+        ArtifactBlocker,
+        ArtifactComparison,
+        ArtifactKey,
+        ArtifactManifestEntry,
+        ArtifactManifestError,
+        ArtifactStatus,
+    )
+    from lib.generation_queue_client import BatchTaskResult
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
+    project.update(
+        {
+            "schema_version": 8,
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        }
+    )
+    fake_ctx.pm.script_payload["episode"] = 1  # type: ignore[attr-defined]
+
+    candidate = fake_ctx.project_path / "videos/scene_E1S01.mp4"
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_bytes(b"unclaimed-checkpoint-output")
+    if selection == "episode":
+        checkpoint = mod._episode_checkpoint_path(fake_ctx.project_path, 1)
+        args = {"script": "episode_1.json", "resume": True}
+        tool_obj = mod.generate_video_episode_tool(fake_ctx)
+    else:
+        scenes_hash = hashlib.md5(b"E1S01").hexdigest()[:8]
+        checkpoint = mod._selected_checkpoint_path(fake_ctx.project_path, scenes_hash)
+        args = {"script": "episode_1.json", "scene_ids": ["E1S01"], "resume": True}
+        tool_obj = mod.generate_video_selected_tool(fake_ctx)
+    mod._save_checkpoint_at(checkpoint, ["E1S01"], "2026-01-01T00:00:00+00:00")
+
+    checked_video_paths: list[str] = []
+
+    class _Currency:
+        def compare(self, key, *, artifact_path):
+            if key == ArtifactKey.episode_video(1, "E1S01"):
+                checked_video_paths.append(artifact_path)
+                if claim_state == "blocked":
+                    return ArtifactComparison(
+                        status=ArtifactStatus.BLOCKED,
+                        artifact_path=artifact_path,
+                        blocker=ArtifactBlocker(
+                            code="manifest_unreadable",
+                            path=artifact_path,
+                            detail="checkpoint video claim is blocked",
+                        ),
+                    )
+                return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
+            return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=artifact_path)
+
+        def resolve_usable_entry(self, key, *, artifact_path):
+            comparison = self.compare(key, artifact_path=artifact_path)
+            if comparison.status is ArtifactStatus.BLOCKED:
+                assert comparison.blocker is not None
+                raise ArtifactManifestError(comparison.blocker.detail)
+            if comparison.status not in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}:
+                return None
+            return ArtifactManifestEntry(artifact_path=artifact_path, basis_digest="selected")
+
+        def compare_frozen_entry(self, key, entry):
+            return self.compare(key, artifact_path=entry.artifact_path)
+
+        def artifact_content_digest(self, artifact_path):
+            return "0" * 64
+
+    currency = _Currency()
+
+    enqueued: list[str] = []
+
+    async def _batch(*, project_name, specs, on_success=None, on_failure=None):
+        for spec in specs:
+            enqueued.append(spec.resource_id)
+            if on_success is not None:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"videos/scene_{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: currency)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
+
+    out = await _call(tool_obj, args)
+
+    assert checked_video_paths == ["videos/scene_E1S01.mp4"]
+    if claim_state == "blocked":
+        assert out.get("is_error") is True
+        assert "checkpoint video claim is blocked" in out["content"][0]["text"]
+        assert enqueued == []
+    else:
+        assert out.get("is_error") is not True, out
+        assert enqueued == ["E1S01"]
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_rejects_unbound_active_script_before_enqueue(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from lib.generation_queue_client import TaskSpec
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    _activate_unbound_project(fake_ctx)
+    submitted = False
+    spec = TaskSpec.from_request(
+        task_type="video",
+        media_type="video",
+        resource_id="E1S01",
+        prompt="test",
+        script_file="episode_1.json",
+    )
+
+    def fake_build_specs(**_kwargs):
+        return [spec], {"E1S01": 0}
+
+    async def fake_submit(**_kwargs):
+        nonlocal submitted
+        submitted = True
+        return []
+
+    monkeypatch.setattr(mod, "_build_video_specs", fake_build_specs)
+    monkeypatch.setattr(mod, "_submit_with_checkpoint", fake_submit)
+
+    out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is True
+    assert "not bound" in out["content"][0]["text"]
+    assert submitted is False
+
+
+@pytest.mark.unit
+async def test_generate_video_episode_resolves_episode_from_canonical_filename(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    """A schema-8 script may rely on its canonical filename for the episode identity."""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+        {
+            "schema_version": 8,
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 2, "script_file": "scripts/episode_2.json"}],
+        }
+    )
+    captured: dict[str, int] = {}
+    build_video_specs = mod._build_video_specs
+
+    def _capture_episode(**kwargs):
+        captured["episode"] = kwargs["episode"]
+        return build_video_specs(**{**kwargs, "project": {}})
+
+    async def _batch(*, project_name, specs, on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+
+        for spec in specs:
+            if on_success is not None:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"videos/scene_{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "_build_video_specs", _capture_episode)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
+    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: None)
+
+    out = await _call(generate_video_episode_tool(fake_ctx), {"script": "episode_2.json"})
+
+    assert out.get("is_error") is not True, out
+    assert captured == {"episode": 2}
 
 
 @pytest.mark.integration
@@ -1542,6 +2012,51 @@ def _reference_video_script(**overrides: Any) -> dict[str, Any]:
 def _use_reference_route(fake_ctx: ToolContext) -> None:
     """把 fake 项目切到参考生视频路线——路线是项目级事实，剧本不携带戳。"""
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
+
+
+@pytest.mark.integration
+async def test_generate_reference_video_rejects_unbound_active_script_before_generation(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    _activate_unbound_project(fake_ctx, generation_mode="reference_video")
+    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+    generated = False
+
+    async def fake_generate(**_kwargs):
+        nonlocal generated
+        generated = True
+        return mod.ReferenceGenerationComplete(paths=[], projections=[])
+
+    monkeypatch.setattr(mod, "_generate_reference_units", fake_generate)
+
+    out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is True
+    assert "not bound" in out["content"][0]["text"]
+    assert generated is False
+
+
+@pytest.mark.integration
+async def test_generate_reference_video_legacy_unresolvable_episode_fails_before_generation(
+    fake_ctx: ToolContext,
+    monkeypatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    _use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
+    generate = AsyncMock(return_value=mod.ReferenceGenerationComplete(paths=[], projections=[]))
+    monkeypatch.setattr(mod, "_generate_reference_units", generate)
+
+    out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "draft.json"})
+
+    assert out.get("is_error") is True
+    assert "无法确定集号" in out["content"][0]["text"]
+    generate.assert_not_awaited()
 
 
 @pytest.mark.integration
@@ -2654,6 +3169,48 @@ async def test_generate_video_all_happy(fake_ctx: ToolContext, monkeypatch) -> N
     assert out.get("is_error") is not True
 
 
+@pytest.mark.integration
+async def test_generate_video_all_preserves_the_selected_manual_upload(
+    fake_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lib.generation_queue_client import TaskSpec
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    project_path = fake_ctx.project_path
+    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+        {
+            "schema_version": 8,
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        }
+    )
+    artifact_path = _select_manual_video(
+        project_path,
+        resource_type="videos",
+        resource_id="E1S01",
+        content=b"manual-video",
+    )
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"]["video_clip"] = artifact_path  # type: ignore[attr-defined]
+    enqueue = AsyncMock(return_value=([], []))
+    spec = TaskSpec.from_request(
+        task_type="video",
+        media_type="video",
+        resource_id="E1S01",
+        prompt="manual upload must not be replaced",
+        script_file="episode_1.json",
+    )
+    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: object())
+    monkeypatch.setattr(mod, "artifact_is_usable", lambda *_args: False)
+    monkeypatch.setattr(mod, "_build_video_specs", lambda **_kwargs: ([spec], {"E1S01": 0}))
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await _call(generate_video_all_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert "所有场景/片段的视频都已生成" in out["content"][0]["text"]
+    enqueue.assert_not_awaited()
+
+
 @pytest.mark.unit
 async def test_generate_video_all_error(fake_ctx: ToolContext) -> None:
     def boom(*a, **kw):
@@ -3460,6 +4017,75 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch
     assert "DRY RUN" in out["content"][0]["text"]
 
 
+@pytest.mark.parametrize(
+    ("tool_factory", "content_mode", "generation_mode"),
+    [
+        (normalize_drama_script_tool, "narration", "storyboard"),
+        (split_narration_segments_tool, "drama", "storyboard"),
+        (split_reference_video_units_tool, "drama", "storyboard"),
+    ],
+    ids=("normalize", "narration-split", "reference-split"),
+)
+@pytest.mark.unit
+async def test_step1_tools_reject_incompatible_project_axes_before_capability_lookup(
+    fake_ctx: ToolContext,
+    monkeypatch,
+    tool_factory,
+    content_mode: str,
+    generation_mode: str,
+) -> None:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+        content_mode=content_mode,
+        generation_mode=generation_mode,
+    )
+    source_dir = fake_ctx.project_path / "source"
+    source_dir.mkdir(parents=True)
+    (source_dir / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
+
+    async def unexpected_caps(*_args, **_kwargs):
+        pytest.fail("incompatible step1 tool must reject before capability lookup")
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", unexpected_caps)
+    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", unexpected_caps)
+
+    result = await _call(tool_factory(fake_ctx), {"episode": 1, "dry_run": True})
+
+    assert result.get("is_error") is True
+    message = result["content"][0]["text"]
+    assert content_mode in message
+    assert generation_mode in message
+
+
+@pytest.mark.unit
+async def test_normalize_drama_script_projects_durable_inputs_once(fake_ctx: ToolContext, monkeypatch) -> None:
+    from lib import artifact_provenance
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    source_dir = fake_ctx.project_path / "source"
+    source_dir.mkdir(parents=True)
+    (source_dir / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
+    calls = 0
+    original = artifact_provenance.project_step1_prompt_inputs
+
+    def counted_projection(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    async def fake_caps(_project, _episode=None):
+        return 4, [4, 6, 8]
+
+    monkeypatch.setattr(artifact_provenance, "project_step1_prompt_inputs", counted_projection)
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+
+    result = await _call(normalize_drama_script_tool(fake_ctx), {"episode": 1, "dry_run": True})
+
+    assert result.get("is_error") is not True, result
+    assert calls == 1
+
+
 @pytest.mark.unit
 async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContext, monkeypatch) -> None:
     """normalize 把项目 source_language 透传为 build_normalize_prompt 的 target_language——
@@ -3637,6 +4263,163 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
 
 
 @pytest.mark.unit
+async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+    from lib.artifact_provenance import build_step1_basis
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project = {
+        **fake_ctx.pm.project_payload,  # type: ignore[attr-defined]
+        "schema_version": 8,
+        "content_mode": "drama",
+        "generation_mode": "storyboard",
+        "source_kind": "novel",
+        "source_language": "中文",
+    }
+    fake_ctx.pm.project_payload = project  # type: ignore[attr-defined]
+    project_file = fake_ctx.project_path / "project.json"
+    project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    source_path = fake_ctx.project_path / "source" / "selected.txt"
+    source_path.parent.mkdir(parents=True)
+    frozen_source = "被显式选中的生成原文"
+    source_path.write_text(frozen_source, encoding="utf-8")
+    expected = build_step1_basis(frozen_source, episode=1, project=project)
+
+    async def fake_caps(_project, _episode=None):
+        return 4, [4, 6, 8]
+
+    class _Generator:
+        async def generate(self, _request, project_name=None):
+            source_path.write_text("等待供应商期间改过的原文", encoding="utf-8")
+            latest = {**project, "source_language": "English"}
+            fake_ctx.pm.project_payload = latest  # type: ignore[attr-defined]
+            project_file.write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
+            return type(
+                "_Result",
+                (),
+                {
+                    "text": json.dumps(
+                        {
+                            "title": "第一集",
+                            "scenes": [
+                                {
+                                    "scene_id": "E1S01",
+                                    "duration_seconds": 4,
+                                    "segment_break": False,
+                                    "characters_in_scene": [],
+                                    "scenes": [],
+                                    "props": [],
+                                    "scene_description": "山中清晨",
+                                    "utterances": [],
+                                    "source_text": frozen_source,
+                                }
+                            ],
+                        },
+                        ensure_ascii=False,
+                    )
+                },
+            )()
+
+    async def fake_create(_task_type, project_name=None):
+        return _Generator()
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+
+    result = await _call(
+        normalize_drama_script_tool(fake_ctx),
+        {"episode": 1, "source": "source/selected.txt"},
+    )
+
+    assert result.get("is_error") is not True, result
+    entry = ProjectArtifactManifestAdapter(fake_ctx.project_path).get_entry(ArtifactKey.episode_step1(1))
+    assert entry is not None
+    assert entry.basis_digest == expected.digest
+
+
+@pytest.mark.unit
+async def test_normalize_drama_script_preserves_legacy_request_basis_when_manifest_activates(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+    from lib.artifact_provenance import build_step1_basis
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project = {
+        **fake_ctx.pm.project_payload,  # type: ignore[attr-defined]
+        "schema_version": 7,
+        "title": "项目",
+        "content_mode": "drama",
+        "generation_mode": "storyboard",
+        "source_kind": "novel",
+        "source_language": "中文",
+        "overview": {},
+        "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+    }
+    fake_ctx.pm.project_payload = project  # type: ignore[attr-defined]
+    project_file = fake_ctx.project_path / "project.json"
+    project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    source_dir = fake_ctx.project_path / "source"
+    source_dir.mkdir(parents=True)
+    selected_source = source_dir / "selected.txt"
+    selected_source.write_text("实际发送给供应商的原文", encoding="utf-8")
+    (source_dir / "episode_1.txt").write_text("激活器可重建的另一份原文", encoding="utf-8")
+    expected = build_step1_basis("实际发送给供应商的原文", episode=1, project=project)
+
+    async def fake_caps(_project, _episode=None):
+        return 4, [4, 6, 8]
+
+    class _Generator:
+        async def generate(self, _request, project_name=None):
+            activated = {**project, "schema_version": 8}
+            fake_ctx.pm.project_payload = activated  # type: ignore[attr-defined]
+            project_file.write_text(json.dumps(activated, ensure_ascii=False), encoding="utf-8")
+            return type(
+                "_Result",
+                (),
+                {
+                    "text": json.dumps(
+                        {
+                            "title": "第一集",
+                            "scenes": [
+                                {
+                                    "scene_id": "E1S01",
+                                    "duration_seconds": 4,
+                                    "segment_break": False,
+                                    "characters_in_scene": [],
+                                    "scenes": [],
+                                    "props": [],
+                                    "scene_description": "山中清晨",
+                                    "utterances": [],
+                                    "source_text": "实际发送给供应商的原文",
+                                }
+                            ],
+                        },
+                        ensure_ascii=False,
+                    )
+                },
+            )()
+
+    async def fake_create(_task_type, project_name=None):
+        return _Generator()
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+
+    result = await _call(
+        normalize_drama_script_tool(fake_ctx),
+        {"episode": 1, "source": "source/selected.txt"},
+    )
+
+    assert result.get("is_error") is not True, result
+    entry = ProjectArtifactManifestAdapter(fake_ctx.project_path).get_entry(ArtifactKey.episode_step1(1))
+    assert entry is not None
+    assert entry.basis_digest == expected.digest
+
+
+@pytest.mark.unit
 async def test_normalize_drama_script_marks_mixed_machine_candidate_before_review(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -3739,7 +4522,8 @@ class TestBuildPrompt:
         assert out.count("Style:") == 1
         assert "画风：" not in out
         assert out.startswith("Style: 真人电视剧风格")
-        assert out.endswith("村口黄昏的长镜头")
+        assert "\n\n村口黄昏的长镜头\n\n" in out
+        assert out.endswith("画面避免：水印、多余文字、Logo。")
 
 
 # ---------------------------------------------------------------------------
@@ -4245,6 +5029,36 @@ async def test_generate_video_episode_ad_reference_does_not_claim_orphan_file(
 
     assert out.get("is_error") is not True, out
     assert [spec.resource_id for spec in enqueued] == ["E1U1"]
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_ad_reference_preserves_the_selected_manual_upload(
+    ad_reference_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    project_path = ad_reference_ctx.project_path
+    ad_reference_ctx.pm.project_payload["schema_version"] = 8  # type: ignore[attr-defined]
+    artifact_path = _select_manual_video(
+        project_path,
+        resource_type="reference_videos",
+        resource_id="E1U1",
+        content=b"manual-reference-video",
+    )
+    ad_reference_ctx.pm.script_payload["video_units"][0]["generated_assets"] = {  # type: ignore[attr-defined]
+        "video_clip": artifact_path
+    }
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: object())
+    monkeypatch.setattr(mod, "artifact_is_usable", lambda *_args: False)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await _call(generate_video_all_tool(ad_reference_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert "参考视频生成完成，共 1 个 unit" in out["content"][0]["text"]
+    enqueue.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -5693,6 +6507,17 @@ def _nr_caps(default=4, durations=(4, 6, 8)):
     return fake_caps
 
 
+def _nr_project(fake_ctx: ToolContext) -> None:
+    _rv_project(fake_ctx, generation_mode="storyboard")
+
+
+def _nr_source(fake_ctx: ToolContext) -> None:
+    _nr_project(fake_ctx)
+    src = fake_ctx.project_path / "source"
+    src.mkdir(parents=True)
+    (src / "episode_1.txt").write_text(_RV_NOVEL, encoding="utf-8")
+
+
 def _nr_generator_returning(segments: list[dict], captured: dict[str, Any] | None = None):
     """构造返回指定 segments JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
 
@@ -5733,7 +6558,7 @@ def _nr_segment(segment_id="E1S01", duration=4, novel_text="张三走向村口�
 async def test_split_narration_segments_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
 
     tool_obj = split_narration_segments_tool(fake_ctx)
@@ -5754,7 +6579,7 @@ async def test_split_narration_segments_injects_instructions(fake_ctx: ToolConte
     """instructions 原样进 prompt 末尾的中性「用户意见」分节，不附加强度措辞。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
 
     tool_obj = split_narration_segments_tool(fake_ctx)
@@ -5771,7 +6596,7 @@ async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolC
     """instructions 超长 / 非字符串按参数错误拒绝；空白 strip 后视同未传（校验为四个生成工具共享）。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     tool_obj = split_narration_segments_tool(fake_ctx)
 
@@ -5880,6 +6705,7 @@ async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch
     """happy path：结构化片段 step1 落盘；模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
+    _nr_project(fake_ctx)
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("张三走向村口。他停下脚步，久久凝望。", encoding="utf-8")
@@ -5907,11 +6733,72 @@ async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch
 
 
 @pytest.mark.unit
+async def test_split_narration_segments_registers_the_frozen_combined_source_basis(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+    from lib.artifact_provenance import build_step1_basis
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project = {
+        **fake_ctx.pm.project_payload,  # type: ignore[attr-defined]
+        "schema_version": 8,
+        "content_mode": "narration",
+        "generation_mode": "storyboard",
+        "source_kind": "novel",
+        "source_language": "中文",
+    }
+    fake_ctx.pm.project_payload = project  # type: ignore[attr-defined]
+    project_file = fake_ctx.project_path / "project.json"
+    project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    source_dir = fake_ctx.project_path / "source"
+    source_dir.mkdir(parents=True)
+    first_source = source_dir / "episode_1.txt"
+    second_source = source_dir / "episode_2.txt"
+    first_source.write_text("第一段原文。", encoding="utf-8")
+    second_source.write_text("第二段原文。", encoding="utf-8")
+    frozen_source = "第一段原文。\n\n第二段原文。"
+    expected = build_step1_basis(frozen_source, episode=1, project=project)
+
+    async def fake_caps(_project, _episode=None):
+        return 4, [4, 6, 8]
+
+    class _Generator:
+        async def generate(self, _request, project_name=None):
+            second_source.write_text("等待供应商期间改过的第二段。", encoding="utf-8")
+            latest = {**project, "source_language": "English"}
+            fake_ctx.pm.project_payload = latest  # type: ignore[attr-defined]
+            project_file.write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
+            return type(
+                "_Result",
+                (),
+                {
+                    "text": json.dumps(
+                        {"episode": 1, "segments": [_nr_segment(novel_text=frozen_source)]}, ensure_ascii=False
+                    )
+                },
+            )()
+
+    async def fake_create(_task_type, project_name=None):
+        return _Generator()
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+
+    result = await _call(split_narration_segments_tool(fake_ctx), {"episode": 1})
+
+    assert result.get("is_error") is not True, result
+    entry = ProjectArtifactManifestAdapter(fake_ctx.project_path).get_entry(ArtifactKey.episode_step1(1))
+    assert entry is not None
+    assert entry.basis_digest == expected.digest
+
+
+@pytest.mark.unit
 async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:
     """静态片段 schema 的 duration 是开区间，超出 supported_durations 的时长由工具后校验拦截，不落盘。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 5)]
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
@@ -5927,7 +6814,7 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: T
 async def test_split_narration_segments_rejects_duplicate_segment_ids(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 4), _nr_segment("E1S01", 6)]
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
@@ -5944,7 +6831,7 @@ async def test_split_narration_segments_rejects_blank_novel_text(fake_ctx: ToolC
     """novel_text 为纯空白（如单个空格）满足 schema min_length=1 却无实际旁白内容，须被后校验拦截，不落盘。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 4, "张三在村口等人"), _nr_segment("E1S02", 4, novel_text=" ")]
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
@@ -5961,7 +6848,7 @@ async def test_split_narration_segments_rejects_blank_novel_text(fake_ctx: ToolC
 async def test_split_narration_segments_rejects_empty_segments(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning([]))
 
@@ -5976,7 +6863,7 @@ async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolCont
     """缺资产字段（characters_in_segment 等）由既有片段 schema（NarrationStep1Segment strict）拦截。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     bad = {"segment_id": "E1S01", "novel_text": "缺字段", "duration_seconds": 4, "segment_break": False}
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning([bad]))
@@ -5995,7 +6882,7 @@ async def test_split_narration_segments_rejects_unregistered_asset_reference(
     """characters_in_segment / scenes / props 引用了 project.json 未登记的名称须被拦截，不落盘。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    _rv_source(fake_ctx)
+    _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=["王五"])]
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
@@ -6011,6 +6898,7 @@ async def test_split_narration_segments_rejects_unregistered_asset_reference(
 async def _nr_source_and_call(fake_ctx: ToolContext, monkeypatch, source_text: str, segments: list[dict]):
     from server.agent_runtime.sdk_tools import text_generation as mod
 
+    _nr_project(fake_ctx)
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text(source_text, encoding="utf-8")
@@ -6137,6 +7025,7 @@ async def test_split_narration_segments_rejects_dropped_space_after_punctuation(
 
 @pytest.mark.unit
 async def test_split_narration_segments_no_source(fake_ctx: ToolContext) -> None:
+    _nr_project(fake_ctx)
     tool_obj = split_narration_segments_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True

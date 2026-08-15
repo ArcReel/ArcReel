@@ -8,18 +8,37 @@ import asyncio
 import copy
 import logging
 import math
+import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from lib.api_errors import ConflictError
+from lib.artifact_activation import (
+    ArtifactCurrencyResolver,
+    ArtifactInputClaim,
+    ArtifactRegistrationReceipt,
+    active_artifact_currency_resolver,
+    artifact_input_is_usable,
+    assert_current_artifact_input_claims_usable,
+    bind_artifact_input_claims_to_content_digests,
+    bind_artifact_input_claims_to_frozen_visuals,
+    register_current_resource_artifact,
+    register_task_current_resource_artifact,
+    resolve_current_resource_artifact_basis,
+    resolve_usable_episode_script_input,
+    resolve_usable_storyboard_video_inputs,
+)
 from lib.artifact_manifest import (
+    ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifestEntry,
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
+from lib.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
 from lib.asset_types import (
     ASSET_SPECS,
     normalize_asset_bucket,
@@ -44,6 +63,7 @@ from lib.generation_queue import (
     get_generation_queue,
     without_video_execution_identity,
 )
+from lib.image_reference_snapshot import FrozenImageReferences, freeze_image_references
 from lib.narration_delivery import (
     USE_TTS,
     NarratedVideoDurationBlockedError,
@@ -70,12 +90,11 @@ from lib.prompt_builders import (
     build_product_prompt,
     build_prop_prompt,
     build_scene_prompt,
+    build_storyboard_prompt,
 )
 from lib.prompt_utils import (
     build_drama_video_prompt,
     build_drama_video_prompt_from_legacy_dialogue,
-    image_prompt_to_yaml,
-    is_structured_image_prompt,
     strip_voice_profiles,
 )
 from lib.prompt_utils import (
@@ -108,19 +127,31 @@ from lib.version_manager import PaidVersionCommit
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_backends.base import VideoCapabilityError
 from lib.video_visual_provenance import build_storyboard_video_visual_basis, resolve_video_aspect_ratio
-from lib.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
+from lib.visual_artifact_provenance import (
+    GridStoryboardVisual,
+    VisualReference,
+    build_asset_sheet_visual_basis,
+    build_grid_composite_visual_basis,
+    build_storyboard_image_visual_basis,
+    build_storyboard_video_artifact_visual_basis,
+)
 from server.services.generation_context import (
     AudioLaneRequest,
     ImageLaneRequest,
     VideoLaneRequest,
     resolve_generation_context,
 )
+from server.services.image_artifact_currency import (
+    OptimisticMappingMemberPatch,
+    OptimisticMappingPatch,
+    SelectedImageArtifactReceipt,
+    reject_failed_image_selection,
+)
 from server.services.narration_delivery_tasks import (
     CurrentTtsSettingsResolver,
     ResolvedTtsSettingsResolver,
     active_narrated_video_resource_ids,
     current_selected_video_tier,
-    resolve_storyboard_video_inputs,
     reuse_current_video_for_tier,
     tts_task_in_progress,
 )
@@ -133,6 +164,76 @@ from server.services.video_artifact_currency import (
 logger = logging.getLogger(__name__)
 
 
+class _CancellationReceipt(Protocol):
+    def compensate_cancelled(self) -> None:
+        pass
+
+
+def register_formal_task_artifact(
+    project_path: Path,
+    *,
+    resource_type: str,
+    resource_id: str,
+    script_file: str | None,
+    task_id: str | None,
+    artifact_path: str | None = None,
+    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
+) -> ArtifactRegistrationReceipt | None:
+    """Use the task-aware registration seam only when a terminal gate exists."""
+
+    if task_id is None:
+        register_current_resource_artifact(
+            project_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            script_file=script_file,
+            artifact_path=artifact_path,
+            basis=basis,
+        )
+        return None
+    return register_task_current_resource_artifact(
+        project_path,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        script_file=script_file,
+        artifact_path=artifact_path,
+        basis=basis,
+    )
+
+
+async def run_formal_task_finalizer[T](
+    finalize: Callable[[], T],
+    *,
+    task_id: str | None,
+    compensate_failure: Callable[[], None] | None = None,
+) -> T:
+    """Finish a task's formal-write transaction so cancellation can compensate it."""
+
+    def _finalize_with_compensation() -> T:
+        try:
+            return finalize()
+        except BaseException as failure:
+            if compensate_failure is not None:
+                try:
+                    compensate_failure()
+                except BaseException as compensation_failure:
+                    failure.add_note(f"formal image selection compensation also failed: {compensation_failure}")
+            raise
+
+    # A synchronous formal-write thread cannot be stopped after cancellation.
+    # Always await its durable outcome before the caller leaves this boundary.
+    return await run_noninterruptible_sync(_finalize_with_compensation)
+
+
+def compensable_formal_task_result(
+    result: dict[str, Any],
+    receipt: _CancellationReceipt | None,
+) -> dict[str, Any]:
+    if receipt is None:
+        return result
+    return CompensableGenerationResult(result, cancel_compensation=receipt.compensate_cancelled)
+
+
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
     if resource_type == "characters":
         # 角色采用四视图横版
@@ -143,36 +244,144 @@ def get_aspect_ratio(project: dict, resource_type: str) -> str:
     return resolve_video_aspect_ratio(project, resource_type)
 
 
-def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
-    """归一化分镜图 prompt 并在末尾追加统一文本化的反向提示词。"""
-    from lib.prompt_builders import append_image_negative_tail
+@dataclass(frozen=True, slots=True)
+class _FormalImageCommitOutcome:
+    """Durable result produced inside the shared image activation seam."""
 
-    if isinstance(prompt, str):
-        if not prompt.strip():
-            raise ValueError("prompt must not be empty")
-        return append_image_negative_tail(prompt)
+    version: int
+    created_at: str
+    receipt: _CancellationReceipt | None
 
-    if not isinstance(prompt, dict):
-        raise ValueError("prompt must be a string or object")
 
-    if not is_structured_image_prompt(prompt):
-        raise ValueError("prompt must be a string or include scene/composition")
+def _formal_image_task_token(task_id: str | None) -> str:
+    """Give direct invocations an isolated staging identity without inventing a queue identity."""
 
-    scene_text = str(prompt.get("scene", "")).strip()
-    if not scene_text:
-        raise ValueError("prompt.scene must not be empty")
+    return task_id or f"inline-{uuid.uuid4().hex}"
 
-    composition_raw = prompt.get("composition")
-    composition: dict = composition_raw if isinstance(composition_raw, dict) else {}
-    normalized_prompt = {
-        "scene": scene_text,
-        "composition": {
-            "shot_type": str(composition.get("shot_type") or "Medium Shot"),
-            "lighting": str(composition.get("lighting", "") or ""),
-            "ambiance": str(composition.get("ambiance", "") or ""),
-        },
-    }
-    return append_image_negative_tail(image_prompt_to_yaml(normalized_prompt, style))
+
+def _created_at_for_version(versions: Any, resource_type: str, resource_id: str, version: int) -> str:
+    records = versions.get_versions(resource_type, resource_id).get("versions", [])
+    for record in records:
+        if record.get("version") == version:
+            created_at = record.get("created_at")
+            if isinstance(created_at, str) and created_at:
+                return created_at
+    raise RuntimeError("formal image version metadata is missing its creation timestamp")
+
+
+def _commit_staged_formal_image(
+    *,
+    versions: Any,
+    project_path: Path,
+    resource_type: str,
+    resource_id: str,
+    script_file: str | None,
+    artifact_path: str,
+    prompt: str,
+    staged_file: Path,
+    current_file: Path,
+    version_metadata: Mapping[str, Any],
+    task_id: str | None,
+    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
+    commit_metadata: Callable[
+        [Callable[[], None]],
+        Callable[[Callable[[], None]], None] | None,
+    ],
+) -> _FormalImageCommitOutcome:
+    """Commit metadata → selected bytes/version → Manifest through one nested transaction.
+
+    Every formal image entry point supplies only its metadata mutation.  Version
+    activation and registration stay centralized so no caller can publish a
+    canonical file before all dependent state is ready to commit.
+    """
+
+    manifest_box: list[ArtifactRegistrationReceipt | None] = []
+    version_box: list[int] = []
+    created_at_box: list[str] = []
+    registered_version_box: list[int] = []
+    resolved_basis_box: list[ArtifactBasis | ArtifactBasisDescriptor | None] = []
+
+    def _register() -> None:
+        registered_version = versions.get_current_version(resource_type, resource_id)
+        if type(registered_version) is not int or registered_version < 1:
+            raise RuntimeError("formal image staged activation has no selected version")
+        registered_version_box.append(registered_version)
+        created_at_box.append(_created_at_for_version(versions, resource_type, resource_id, registered_version))
+        manifest_box.append(
+            register_formal_task_artifact(
+                project_path,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                script_file=script_file,
+                task_id=task_id,
+                artifact_path=artifact_path,
+                basis=resolved_basis_box[0],
+            )
+        )
+
+    def _activate() -> None:
+        resolved_basis = basis
+        if resolved_basis is None:
+            resolved_basis = resolve_current_resource_artifact_basis(
+                project_path,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                script_file=script_file,
+            )
+        resolved_basis_box.append(resolved_basis)
+        committed_metadata = dict(version_metadata)
+        if IMAGE_ARTIFACT_BASIS_FIELD in committed_metadata:
+            raise ValueError(f"{IMAGE_ARTIFACT_BASIS_FIELD} is reserved for formal image activation")
+        if isinstance(resolved_basis, ArtifactBasis):
+            committed_metadata[IMAGE_ARTIFACT_BASIS_FIELD] = resolved_basis.to_evidence_dict()
+        version_box.append(
+            versions.commit_staged_version(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                prompt=prompt,
+                staged_file=staged_file,
+                current_file=current_file,
+                on_commit=_register,
+                **committed_metadata,
+            )
+        )
+
+    compensate_metadata = commit_metadata(_activate)
+    if (
+        len(version_box) != 1
+        or len(registered_version_box) != 1
+        or version_box != registered_version_box
+        or len(created_at_box) != 1
+        or len(manifest_box) != 1
+        or len(resolved_basis_box) != 1
+    ):
+        raise RuntimeError("formal image metadata commit skipped staged activation")
+    version = version_box[0]
+    manifest = manifest_box[0]
+    receipt: _CancellationReceipt | None = None
+    if task_id is not None:
+        if manifest is None or compensate_metadata is None:
+            raise RuntimeError("task-aware formal image commit did not return compensation state")
+        receipt = SelectedImageArtifactReceipt(
+            versions=versions,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            version=version,
+            current_file=current_file,
+            manifest=manifest,
+            compensate_metadata=compensate_metadata,
+        )
+    return _FormalImageCommitOutcome(
+        version=version,
+        created_at=created_at_box[0],
+        receipt=receipt,
+    )
+
+
+def _normalize_storyboard_prompt(prompt: object, style: str, style_description: str = "") -> str:
+    """Render one semantic storyboard prompt through the shared provider projection."""
+
+    return build_storyboard_prompt(prompt, style, style_description)
 
 
 def _get_model_default_duration(provider_name: str, model_name: str | None) -> int:
@@ -226,6 +435,9 @@ def _collect_sheet_references(
     scene_field: str,
     prop_field: str,
     max_count: int = 0,
+    visual_references: list[VisualReference] | None = None,
+    currency_resolver: ArtifactCurrencyResolver | None = None,
+    formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> tuple[list[dict], set[str]]:
     """Collect character_sheet, scene_sheet and prop_sheet references from scene/segment items.
 
@@ -244,45 +456,67 @@ def _collect_sheet_references(
     seen: set[str] = set()
     refs: list[dict] = []
 
-    characters = normalize_asset_bucket(project.get("characters"))
-    project_scenes = normalize_asset_bucket(project.get("scenes"))
-    project_props = normalize_asset_bucket(project.get("props"))
+    sources = (
+        (
+            "character",
+            char_field,
+            normalize_asset_bucket(project.get("characters")),
+            "character_sheet",
+        ),
+        (
+            "scene",
+            scene_field,
+            normalize_asset_bucket(project.get("scenes")),
+            "scene_sheet",
+        ),
+        (
+            "prop",
+            prop_field,
+            normalize_asset_bucket(project.get("props")),
+            "prop_sheet",
+        ),
+    )
 
     for item in items:
-        for char_name in item.get(char_field) or []:
-            if not isinstance(char_name, str):
-                continue
-            char_data = characters.get(normalize_asset_name(char_name))
-            sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
-            if isinstance(sheet, str) and sheet and sheet not in seen:
+        for asset_type, field, bucket, sheet_field in sources:
+            for name in item.get(field) or []:
+                if not isinstance(name, str):
+                    continue
+                canonical_name = normalize_asset_name(name)
+                data = bucket.get(canonical_name)
+                sheet = data.get(sheet_field) if isinstance(data, dict) else None
+                if not isinstance(sheet, str) or not sheet or sheet in seen:
+                    continue
                 path = project_path / sheet
-                if path.exists():
-                    refs.append({"image": path, "label": char_name})
+                if not path.exists():
+                    continue
+                if max_count and len(refs) >= max_count:
                     seen.add(sheet)
-        for scene_name in item.get(scene_field) or []:
-            if not isinstance(scene_name, str):
-                continue
-            scene_data = project_scenes.get(normalize_asset_name(scene_name))
-            sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
-            if isinstance(sheet, str) and sheet and sheet not in seen:
-                path = project_path / sheet
-                if path.exists():
-                    refs.append({"image": path, "label": scene_name})
-                    seen.add(sheet)
-        for prop_name in item.get(prop_field) or []:
-            if not isinstance(prop_name, str):
-                continue
-            prop_data = project_props.get(normalize_asset_name(prop_name))
-            sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
-            if isinstance(sheet, str) and sheet and sheet not in seen:
-                path = project_path / sheet
-                if path.exists():
-                    refs.append({"image": path, "label": prop_name})
-                    seen.add(sheet)
+                    continue
+                key = ArtifactKey.asset_sheet(asset_type, canonical_name)
+                if not artifact_input_is_usable(
+                    resolver=currency_resolver,
+                    key=key,
+                    artifact_path=sheet,
+                    claims=formal_claims,
+                ):
+                    continue
+                refs.append({"image": path, "label": name})
+                if visual_references is not None:
+                    visual_references.append(
+                        VisualReference(
+                            path=path,
+                            role="asset_sheet",
+                            logical_type=asset_type,
+                            logical_id=name,
+                            kind="sheet",
+                        )
+                    )
+                seen.add(sheet)
         if max_count and len(refs) >= max_count:
             break
 
-    return (refs[:max_count] if max_count else refs), seen
+    return refs, seen
 
 
 def _collect_reference_images(
@@ -295,9 +529,22 @@ def _collect_reference_images(
     prop_field: str,
     extra_reference_images: list[str] | None = None,
     previous_storyboard_path: Path | None = None,
+    previous_storyboard_id: str | None = None,
+    visual_references: list[VisualReference] | None = None,
+    artifact_episode: int | None = None,
+    currency_resolver: ArtifactCurrencyResolver | None = None,
+    formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[object] | None:
     sheet_refs, _ = _collect_sheet_references(
-        project, project_path, [target_item], char_field=char_field, scene_field=scene_field, prop_field=prop_field
+        project,
+        project_path,
+        [target_item],
+        char_field=char_field,
+        scene_field=scene_field,
+        prop_field=prop_field,
+        visual_references=visual_references,
+        currency_resolver=currency_resolver,
+        formal_claims=formal_claims,
     )
     reference_images: list[object] = list(sheet_refs)
 
@@ -307,14 +554,49 @@ def _collect_reference_images(
             extra_path = project_path / extra_path
         if extra_path.exists():
             reference_images.append(extra_path)
+            if visual_references is not None:
+                visual_references.append(VisualReference(path=extra_path, role="extra_reference"))
 
     if previous_storyboard_path and previous_storyboard_path.exists():
+        if not previous_storyboard_id:
+            raise ValueError("previous_storyboard_id is required for storyboard basis evidence")
+        if currency_resolver is not None and artifact_episode is None:
+            raise ValueError("artifact_episode is required for active storyboard references")
+        previous_artifact_path = previous_storyboard_path.relative_to(project_path).as_posix()
+        previous_key = (
+            ArtifactKey.episode_storyboard(artifact_episode, previous_storyboard_id)
+            if artifact_episode is not None
+            else ArtifactKey.episode_storyboard(1, previous_storyboard_id)
+        )
+        if not artifact_input_is_usable(
+            resolver=currency_resolver,
+            key=previous_key,
+            artifact_path=previous_artifact_path,
+            claims=formal_claims,
+        ):
+            return reference_images or None
         reference_images.append(build_previous_storyboard_reference(previous_storyboard_path))
+        if visual_references is not None:
+            visual_references.append(
+                VisualReference(
+                    path=previous_storyboard_path,
+                    role="previous_storyboard",
+                    logical_type="storyboard",
+                    logical_id=previous_storyboard_id,
+                )
+            )
 
     return reference_images or None
 
 
-def _collect_shot_product_references(project: dict, project_path: Path, item: dict) -> list[dict]:
+def _collect_shot_product_references(
+    project: dict,
+    project_path: Path,
+    item: dict,
+    *,
+    currency_resolver: ArtifactCurrencyResolver | None = None,
+    formal_claims: list[ArtifactInputClaim] | None = None,
+) -> list[dict]:
     """产品镜头（``products_in_shot`` 非空）的产品参考集，用于分镜图生成。
 
     每个产品：有 product sheet 时注入集为「sheet 多角度 + 原图压阵」（sheet 在前、
@@ -333,13 +615,22 @@ def _collect_shot_product_references(project: dict, project_path: Path, item: di
                 type(raw_products_in_shot).__name__,
             )
         return []
-    return collect_product_references_for_names(project, project_path, raw_products_in_shot)
+    return collect_product_references_for_names(
+        project,
+        project_path,
+        raw_products_in_shot,
+        currency_resolver=currency_resolver,
+        formal_claims=formal_claims,
+    )
 
 
 def collect_product_references_for_names(
     project: dict,
     project_path: Path,
     names: Sequence[str],
+    *,
+    currency_resolver: ArtifactCurrencyResolver | None = None,
+    formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[dict]:
     """按产品名列表收集产品参考集（注入二元规则的装配核心，条目语义见
     ``_collect_shot_product_references``）。分镜图按镜头注入与 ad 参考直出
@@ -363,7 +654,16 @@ def collect_product_references_for_names(
             continue
         before = len(references)
         sheet = entry.get(spec.sheet_field)
-        if sheet and safe_exists(project_path, sheet):
+        if (
+            isinstance(sheet, str)
+            and safe_exists(project_path, sheet)
+            and artifact_input_is_usable(
+                resolver=currency_resolver,
+                key=ArtifactKey.asset_sheet("product", canonical),
+                artifact_path=sheet,
+                claims=formal_claims,
+            )
+        ):
             references.append(
                 {
                     "image": project_path / sheet,
@@ -389,6 +689,427 @@ def collect_product_references_for_names(
 def _product_names_in_references(product_references: list[dict]) -> list[str]:
     """从产品参考集提取去重保序的产品名——高保真指令只点名实际注入了参考的产品。"""
     return list(dict.fromkeys(ref["name"] for ref in product_references))
+
+
+def _product_visual_references(product_references: Sequence[Mapping[str, object]]) -> list[VisualReference]:
+    """Project provider-facing product refs into canonical generation evidence."""
+
+    evidence: list[VisualReference] = []
+    for reference in product_references:
+        path = reference.get("image")
+        name = reference.get("name")
+        kind = reference.get("kind")
+        if not isinstance(path, Path) or not isinstance(name, str) or kind not in {"sheet", "original"}:
+            raise ValueError("product reference metadata is incomplete")
+        evidence.append(
+            VisualReference(
+                path=path,
+                role="asset_sheet" if kind == "sheet" else "source",
+                logical_type="product",
+                logical_id=name,
+                kind=str(kind),
+            )
+        )
+    return evidence
+
+
+def _asset_sheet_formal_image_callback(
+    *,
+    asset_type: str,
+    project_name: str,
+    resource_id: str,
+    sheet_path: str,
+    prompt: str,
+    versions: Any,
+    task_id: str | None,
+    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
+    outcome_box: list[_FormalImageCommitOutcome],
+    project_manager: ProjectManager | None = None,
+) -> Callable[[Path, Path, Mapping[str, Any]], int]:
+    """Build the shared staged activation callback for every asset-sheet task."""
+
+    spec = ASSET_SPECS[asset_type]
+    pm = project_manager or get_project_manager()
+    project_path = pm.get_project_path(project_name)
+
+    def _commit(staged_file: Path, current_file: Path, version_metadata: Mapping[str, Any]) -> int:
+        def _commit_metadata(
+            activate: Callable[[], None],
+        ) -> Callable[[Callable[[], None]], None] | None:
+            mutation_box: list[OptimisticMappingPatch] = []
+
+            def _mutate(project: dict[str, Any]) -> None:
+                bucket = project.get(spec.bucket_key)
+                key = resolve_asset_key(bucket, resource_id)
+                if not isinstance(bucket, dict) or key is None:
+                    raise KeyError(f"{spec.label_zh} '{resource_id}' 不存在")
+                entry = bucket[key]
+                if not isinstance(entry, dict):
+                    raise ValueError(f"{spec.label_zh} '{resource_id}' metadata must be an object")
+                before = copy.deepcopy(entry)
+                entry[spec.sheet_field] = sheet_path
+                mutation_box.append(OptimisticMappingPatch.capture(before, entry))
+
+            def _activate(_project_file: Path) -> None:
+                activate()
+
+            pm.update_project(project_name, _mutate, on_commit=_activate)
+            if task_id is None:
+                return None
+            mutation = mutation_box[0]
+
+            def _compensate_metadata(reject: Callable[[], None]) -> None:
+                def _restore(project: dict[str, Any]) -> None:
+                    bucket = project.get(spec.bucket_key)
+                    key = resolve_asset_key(bucket, resource_id)
+                    if isinstance(bucket, dict) and key is not None and isinstance(bucket[key], dict):
+                        mutation.restore(bucket[key])
+
+                def _reject(_project_file: Path) -> None:
+                    reject()
+
+                pm.update_project(project_name, _restore, on_commit=_reject)
+
+            return _compensate_metadata
+
+        outcome = _commit_staged_formal_image(
+            versions=versions,
+            project_path=project_path,
+            resource_type=spec.bucket_key,
+            resource_id=resource_id,
+            script_file=None,
+            artifact_path=sheet_path,
+            prompt=prompt,
+            staged_file=staged_file,
+            current_file=current_file,
+            version_metadata=version_metadata,
+            task_id=task_id,
+            basis=basis,
+            commit_metadata=_commit_metadata,
+        )
+        outcome_box.append(outcome)
+        return outcome.version
+
+    return _commit
+
+
+async def _finalize_asset_sheet_task(
+    *,
+    asset_type: str,
+    project_name: str,
+    resource_id: str,
+    sheet_path: str,
+    generator: Any,
+    version: int,
+    task_id: str | None,
+    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
+    project_manager: ProjectManager | None = None,
+) -> tuple[str, _CancellationReceipt | None]:
+    """Commit one asset sheet and span the task terminal-cancellation window."""
+
+    spec = ASSET_SPECS[asset_type]
+    pm = project_manager or get_project_manager()
+    project_path = pm.get_project_path(project_name)
+
+    def _finalize() -> tuple[str, _CancellationReceipt | None]:
+        created_at = generator.versions.get_versions(spec.bucket_key, resource_id)["versions"][-1]["created_at"]
+        if task_id is None:
+
+            def _register_current(_project_file: Path) -> None:
+                register_formal_task_artifact(
+                    project_path,
+                    resource_type=spec.bucket_key,
+                    resource_id=resource_id,
+                    script_file=None,
+                    task_id=None,
+                    artifact_path=sheet_path,
+                    basis=basis,
+                )
+
+            pm._update_asset_sheet(
+                asset_type,
+                project_name,
+                resource_id,
+                sheet_path,
+                on_commit=_register_current,
+            )
+            return created_at, None
+
+        manifest_box: list[ArtifactRegistrationReceipt] = []
+        mutation_box: list[OptimisticMappingPatch] = []
+
+        def _mutate(project: dict[str, Any]) -> None:
+            bucket = project.get(spec.bucket_key)
+            key = resolve_asset_key(bucket, resource_id)
+            if not isinstance(bucket, dict) or key is None:
+                raise KeyError(f"{spec.label_zh} '{resource_id}' 不存在")
+            entry = bucket[key]
+            if not isinstance(entry, dict):
+                raise ValueError(f"{spec.label_zh} '{resource_id}' metadata must be an object")
+            before = copy.deepcopy(entry)
+            entry[spec.sheet_field] = sheet_path
+            mutation_box.append(OptimisticMappingPatch.capture(before, entry))
+
+        def _register(_project_file: Path) -> None:
+            receipt = register_formal_task_artifact(
+                project_path,
+                resource_type=spec.bucket_key,
+                resource_id=resource_id,
+                script_file=None,
+                task_id=task_id,
+                artifact_path=sheet_path,
+                basis=basis,
+            )
+            if receipt is None:
+                raise RuntimeError("task-aware asset registration did not return a receipt")
+            manifest_box.append(receipt)
+
+        pm.update_project(project_name, _mutate, on_commit=_register)
+        manifest = manifest_box[0]
+        mutation = mutation_box[0]
+
+        def _compensate_metadata(reject: Callable[[], None]) -> None:
+            def _restore(project: dict[str, Any]) -> None:
+                bucket = project.get(spec.bucket_key)
+                key = resolve_asset_key(bucket, resource_id)
+                if isinstance(bucket, dict) and key is not None and isinstance(bucket[key], dict):
+                    mutation.restore(bucket[key])
+
+            def _reject(_project_file: Path) -> None:
+                reject()
+
+            pm.update_project(project_name, _restore, on_commit=_reject)
+
+        receipt = SelectedImageArtifactReceipt(
+            versions=generator.versions,
+            resource_type=spec.bucket_key,
+            resource_id=resource_id,
+            version=version,
+            current_file=project_path / sheet_path,
+            manifest=manifest,
+            compensate_metadata=_compensate_metadata,
+        )
+        return created_at, receipt
+
+    def _compensate_failed_selection() -> None:
+        reject_failed_image_selection(
+            versions=generator.versions,
+            resource_type=spec.bucket_key,
+            resource_id=resource_id,
+            version=version,
+            current_file=project_path / sheet_path,
+        )
+
+    return await run_formal_task_finalizer(
+        _finalize,
+        task_id=task_id,
+        compensate_failure=_compensate_failed_selection,
+    )
+
+
+def _storyboard_formal_image_callback(
+    *,
+    project_name: str,
+    script_file: str,
+    resource_id: str,
+    artifact_path: str,
+    prompt: str,
+    versions: Any,
+    task_id: str | None,
+    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
+    outcome_box: list[_FormalImageCommitOutcome],
+    project_manager: ProjectManager | None = None,
+) -> Callable[[Path, Path, Mapping[str, Any]], int]:
+    """Build a staged storyboard activation using the shared formal image seam."""
+
+    pm = project_manager or get_project_manager()
+    project_path = pm.get_project_path(project_name)
+
+    def _commit(staged_file: Path, current_file: Path, version_metadata: Mapping[str, Any]) -> int:
+        def _commit_metadata(
+            activate: Callable[[], None],
+        ) -> Callable[[Callable[[], None]], None] | None:
+            mutation_box: list[OptimisticMappingMemberPatch] = []
+
+            def _activate(_script_path: Path) -> None:
+                activate()
+
+            with pm.locked_script(project_name, script_file, validate=False, on_commit=_activate) as script:
+                items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
+                resolved = find_storyboard_item(items, id_field, resource_id)
+                if resolved is None:
+                    raise KeyError(f"场景 '{resource_id}' 不存在")
+                item, _index = resolved
+                before = copy.deepcopy(item)
+                pm._set_scene_asset_in_script(script, resource_id, "storyboard_image", artifact_path)
+                selected_assets = item.get("generated_assets")
+                if not isinstance(selected_assets, Mapping):
+                    raise RuntimeError("storyboard metadata commit did not produce generated_assets")
+                mutation_box.append(OptimisticMappingMemberPatch.capture(before, "generated_assets", selected_assets))
+
+            if task_id is None:
+                return None
+            mutation = mutation_box[0]
+
+            def _compensate_metadata(reject: Callable[[], None]) -> None:
+                def _reject(_script_path: Path) -> None:
+                    reject()
+
+                try:
+                    with pm.locked_script(
+                        project_name,
+                        script_file,
+                        validate=False,
+                        on_commit=_reject,
+                    ) as script:
+                        items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
+                        resolved = find_storyboard_item(items, id_field, resource_id)
+                        if resolved is not None:
+                            mutation.restore(resolved[0])
+                except (FileNotFoundError, KeyError):
+                    reject()
+
+            return _compensate_metadata
+
+        outcome = _commit_staged_formal_image(
+            versions=versions,
+            project_path=project_path,
+            resource_type="storyboards",
+            resource_id=resource_id,
+            script_file=script_file,
+            artifact_path=artifact_path,
+            prompt=prompt,
+            staged_file=staged_file,
+            current_file=current_file,
+            version_metadata=version_metadata,
+            task_id=task_id,
+            basis=basis,
+            commit_metadata=_commit_metadata,
+        )
+        outcome_box.append(outcome)
+        return outcome.version
+
+    return _commit
+
+
+async def _finalize_storyboard_image_task(
+    *,
+    project_name: str,
+    script_file: str,
+    resource_id: str,
+    artifact_path: str,
+    generator: Any,
+    version: int,
+    task_id: str | None,
+    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
+    project_manager: ProjectManager | None = None,
+) -> tuple[str, _CancellationReceipt | None]:
+    """Commit storyboard metadata and image selection through one shared seam."""
+
+    pm = project_manager or get_project_manager()
+    project_path = pm.get_project_path(project_name)
+
+    def _finalize() -> tuple[str, _CancellationReceipt | None]:
+        created_at = generator.versions.get_versions("storyboards", resource_id)["versions"][-1]["created_at"]
+        if task_id is None:
+
+            def _register_current(_script_path: Path) -> None:
+                register_formal_task_artifact(
+                    project_path,
+                    resource_type="storyboards",
+                    resource_id=resource_id,
+                    script_file=script_file,
+                    task_id=None,
+                    artifact_path=artifact_path,
+                    basis=basis,
+                )
+
+            pm.update_scene_asset(
+                project_name=project_name,
+                script_filename=script_file,
+                scene_id=resource_id,
+                asset_type="storyboard_image",
+                asset_path=artifact_path,
+                on_commit=_register_current,
+            )
+            return created_at, None
+
+        manifest_box: list[ArtifactRegistrationReceipt] = []
+        mutation_box: list[OptimisticMappingMemberPatch] = []
+
+        def _register(_script_path: Path) -> None:
+            receipt = register_formal_task_artifact(
+                project_path,
+                resource_type="storyboards",
+                resource_id=resource_id,
+                script_file=script_file,
+                task_id=task_id,
+                artifact_path=artifact_path,
+                basis=basis,
+            )
+            if receipt is None:
+                raise RuntimeError("task-aware storyboard registration did not return a receipt")
+            manifest_box.append(receipt)
+
+        with pm.locked_script(project_name, script_file, validate=False, on_commit=_register) as script:
+            items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
+            resolved = find_storyboard_item(items, id_field, resource_id)
+            if resolved is None:
+                raise KeyError(f"场景 '{resource_id}' 不存在")
+            item, _index = resolved
+            before = copy.deepcopy(item)
+            pm._set_scene_asset_in_script(script, resource_id, "storyboard_image", artifact_path)
+            selected_assets = item.get("generated_assets")
+            if not isinstance(selected_assets, Mapping):
+                raise RuntimeError("storyboard metadata commit did not produce generated_assets")
+            mutation_box.append(OptimisticMappingMemberPatch.capture(before, "generated_assets", selected_assets))
+
+        manifest = manifest_box[0]
+        mutation = mutation_box[0]
+
+        def _compensate_metadata(reject: Callable[[], None]) -> None:
+            def _reject(_script_path: Path) -> None:
+                reject()
+
+            try:
+                with pm.locked_script(
+                    project_name,
+                    script_file,
+                    validate=False,
+                    on_commit=_reject,
+                ) as script:
+                    items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
+                    resolved = find_storyboard_item(items, id_field, resource_id)
+                    if resolved is not None:
+                        mutation.restore(resolved[0])
+            except (FileNotFoundError, KeyError):
+                reject()
+
+        receipt = SelectedImageArtifactReceipt(
+            versions=generator.versions,
+            resource_type="storyboards",
+            resource_id=resource_id,
+            version=version,
+            current_file=project_path / artifact_path,
+            manifest=manifest,
+            compensate_metadata=_compensate_metadata,
+        )
+        return created_at, receipt
+
+    def _compensate_failed_selection() -> None:
+        reject_failed_image_selection(
+            versions=generator.versions,
+            resource_type="storyboards",
+            resource_id=resource_id,
+            version=version,
+            current_file=project_path / artifact_path,
+        )
+
+    return await run_formal_task_finalizer(
+        _finalize,
+        task_id=task_id,
+        compensate_failure=_compensate_failed_selection,
+    )
 
 
 def _episode_from_script(script: dict[str, Any] | None) -> int | None:
@@ -642,23 +1363,42 @@ async def execute_storyboard_task(
     if not script_file:
         raise ValueError("script_file is required for storyboard task")
 
-    prompt = payload.get("prompt")
-    if prompt is None:
+    if payload.get("prompt") is None:
         raise ValueError("prompt is required for storyboard task")
 
     def _prepare():
         _project = get_project_manager().load_project(project_name)
         _project_path = get_project_manager().get_project_path(project_name)
         _script = get_project_manager().load_script(project_name, script_file)
+        _script_input = resolve_usable_episode_script_input(
+            project_path=_project_path,
+            project=_project,
+            script=_script,
+            script_filename=str(script_file),
+        )
+        _artifact_episode = _script_input.episode
+        _currency_resolver = active_artifact_currency_resolver(_project_path, _project)
+        _formal_claims: list[ArtifactInputClaim] = [_script_input.claim]
         _items, _id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(_script)
 
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
         if _resolved is None:
             raise ValueError(f"scene/segment not found: {resource_id}")
-        _target_item, _ = _resolved
+        _target_item, _target_index = _resolved
+        _semantic_prompt = _target_item.get("image_prompt")
 
-        _prev_path = resolve_previous_storyboard_path(_project_path, _items, _id_field, resource_id)
-        _prompt_text = _normalize_storyboard_prompt(prompt, _project.get("style", ""))
+        _prev_path = resolve_previous_storyboard_path(_project_path, _project, _items, _id_field, resource_id)
+        _previous_id = (
+            str(_items[_target_index - 1].get(_id_field) or "")
+            if _prev_path is not None and _target_index > 0
+            else None
+        )
+        _style = _project.get("style", "")
+        _style_description = _project.get("style_description", "")
+        if not isinstance(_style, str) or not isinstance(_style_description, str):
+            raise ValueError("storyboard style and style description must be strings")
+        _prompt_text = _normalize_storyboard_prompt(_semantic_prompt, _style, _style_description)
+        _visual_references: list[VisualReference] = []
         _ref_images = _collect_reference_images(
             _project,
             _project_path,
@@ -668,57 +1408,127 @@ async def execute_storyboard_task(
             prop_field=_prop_field,
             extra_reference_images=payload.get("extra_reference_images") or [],
             previous_storyboard_path=_prev_path,
+            previous_storyboard_id=_previous_id,
+            visual_references=_visual_references,
+            artifact_episode=_artifact_episode,
+            currency_resolver=_currency_resolver,
+            formal_claims=_formal_claims,
         )
         # 产品镜头：产品参考全量注入且排序绝对优先（先于角色/场景/道具 sheet），
         # 并附高保真还原指令；氛围镜头零产品图，既有装配不变。
-        _product_refs = _collect_shot_product_references(_project, _project_path, _target_item)
+        _product_refs = _collect_shot_product_references(
+            _project,
+            _project_path,
+            _target_item,
+            currency_resolver=_currency_resolver,
+            formal_claims=_formal_claims,
+        )
         if _product_refs:
             _ref_images = _product_refs + (_ref_images or [])
+            _visual_references = _product_visual_references(_product_refs) + _visual_references
             _prompt_text = append_product_fidelity_tail(_prompt_text, _product_names_in_references(_product_refs))
-        return _project, _project_path, _prompt_text, _ref_images
+        _frozen = freeze_image_references(_ref_images, _visual_references)
+        try:
+            _formal_claims = list(
+                bind_artifact_input_claims_to_frozen_visuals(
+                    project_path=_project_path,
+                    resolver=_currency_resolver,
+                    claims=_formal_claims,
+                    source_references=_visual_references,
+                    frozen_references=_frozen.visual_references,
+                )
+            )
+            _basis = build_storyboard_image_visual_basis(
+                resource_id=resource_id,
+                image_prompt=_semantic_prompt,
+                style=_style,
+                style_description=_style_description,
+                aspect_ratio=get_aspect_ratio(_project, "storyboards"),
+                references=_frozen.visual_references,
+            )
+        except BaseException:
+            _frozen.cleanup()
+            raise
+        return _project, _project_path, _prompt_text, _frozen, _basis, tuple(_formal_claims)
 
-    project, project_path, prompt_text, reference_images = await asyncio.to_thread(_prepare)
+    project, project_path, prompt_text, frozen_references, storyboard_basis, formal_claims = await asyncio.to_thread(
+        _prepare
+    )
+    reference_images = frozen_references.reference_images
     _needs_i2i = bool(reference_images)
 
-    ctx = await resolve_generation_context(
-        project_name,
-        payload,
-        project=project,
-        user_id=user_id,
-        image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
-    )
-    generator = ctx.generator
     aspect_ratio = get_aspect_ratio(project, "storyboards")
-    image_size = ctx.image.resolution
+    artifact_path = f"storyboards/scene_{resource_id}.png"
+    formal_outcomes: list[_FormalImageCommitOutcome] = []
 
-    _, version = await generator.generate_image_async(
-        prompt=prompt_text,
-        resource_type="storyboards",
-        resource_id=resource_id,
-        reference_images=reference_images,
-        aspect_ratio=aspect_ratio,
-        image_size=image_size,
-    )
-
-    def _finalize():
-        get_project_manager().update_scene_asset(
-            project_name=project_name,
-            script_filename=script_file,
-            scene_id=resource_id,
-            asset_type="storyboard_image",
-            asset_path=f"storyboards/scene_{resource_id}.png",
+    async def _submit() -> tuple[Any, tuple[Path, int]]:
+        ctx = await resolve_generation_context(
+            project_name,
+            payload,
+            project=project,
+            user_id=user_id,
+            image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
         )
-        return generator.versions.get_versions("storyboards", resource_id)["versions"][-1]["created_at"]
+        await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
 
-    created_at = await asyncio.to_thread(_finalize)
+        async def _before_submit() -> None:
+            await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
 
-    return {
-        "version": version,
-        "file_path": f"storyboards/scene_{resource_id}.png",
-        "created_at": created_at,
-        "resource_type": "storyboards",
-        "resource_id": resource_id,
-    }
+        generator = ctx.generator
+        generated = await generator.generate_image_async(
+            prompt=prompt_text,
+            resource_type="storyboards",
+            resource_id=resource_id,
+            reference_images=reference_images,
+            aspect_ratio=aspect_ratio,
+            image_size=ctx.image.resolution,
+            before_submit=_before_submit,
+            formal_output=True,
+            task_id=_formal_image_task_token(task_id),
+            commit_formal_output=_storyboard_formal_image_callback(
+                project_name=project_name,
+                script_file=str(script_file),
+                resource_id=resource_id,
+                artifact_path=artifact_path,
+                prompt=prompt_text,
+                versions=generator.versions,
+                task_id=task_id,
+                basis=storyboard_basis,
+                outcome_box=formal_outcomes,
+            ),
+        )
+        return generator, generated
+
+    try:
+        generator, (_generated_path, version) = await _submit()
+    finally:
+        await run_noninterruptible_sync(frozen_references.cleanup)
+
+    if formal_outcomes:
+        outcome = formal_outcomes[0]
+        version, created_at, receipt = outcome.version, outcome.created_at, outcome.receipt
+    else:
+        created_at, receipt = await _finalize_storyboard_image_task(
+            project_name=project_name,
+            script_file=str(script_file),
+            resource_id=resource_id,
+            artifact_path=artifact_path,
+            generator=generator,
+            version=version,
+            task_id=task_id,
+            basis=storyboard_basis,
+        )
+
+    return compensable_formal_task_result(
+        {
+            "version": version,
+            "file_path": artifact_path,
+            "created_at": created_at,
+            "resource_type": "storyboards",
+            "resource_id": resource_id,
+        },
+        receipt,
+    )
 
 
 def _resolve_tts_task_items(
@@ -744,13 +1554,20 @@ async def execute_tts_task(
     """为一个 narrator-owned script unit 合成独立旁白音频。"""
     script_file = payload.get("script_file")
 
-    def _prepare() -> tuple[dict, Path, str, Any | None, int | None, bool]:
+    def _prepare() -> tuple[dict, Path, str, Any | None, int | None, bool, tuple[ArtifactInputClaim, ...]]:
         pm = get_project_manager()
         current_project = pm.load_project(project_name)
         reference_video_route = is_reference_video_project(current_project)
         project_path = pm.get_project_path(project_name)
         if script_file:
             script = pm.load_script(project_name, script_file)
+            script_input = resolve_usable_episode_script_input(
+                project_path=project_path,
+                project=current_project,
+                script=script,
+                script_filename=str(script_file),
+            )
+            episode = script_input.episode
             items, id_field, kind = _resolve_tts_task_items(
                 script,
                 reference_video_route=reference_video_route,
@@ -773,15 +1590,30 @@ async def execute_tts_task(
                 raise SpeechAdmissionError(admission)
             if not text:
                 raise ValueError(f"segment {resource_id} 无可合成的旁白文本")
-            episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
-            return current_project, project_path, text, admission.preparation, episode, reference_video_route
+            return (
+                current_project,
+                project_path,
+                text,
+                admission.preparation,
+                episode,
+                reference_video_route,
+                (script_input.claim,),
+            )
 
         legacy_text = payload.get("text") or payload.get("prompt")
         if not isinstance(legacy_text, str) or not legacy_text.strip():
             raise ValueError("tts task 需要 payload.text 或 payload.script_file 之一")
-        return current_project, project_path, legacy_text.strip(), None, None, reference_video_route
+        return current_project, project_path, legacy_text.strip(), None, None, reference_video_route, ()
 
-    project, project_path, text, preparation, episode, reference_video_route = await asyncio.to_thread(_prepare)
+    (
+        project,
+        project_path,
+        text,
+        preparation,
+        episode,
+        reference_video_route,
+        formal_input_claims,
+    ) = await asyncio.to_thread(_prepare)
 
     if isinstance(script_file, str) and resource_id in await active_narrated_video_resource_ids(
         project_name=project_name,
@@ -997,11 +1829,19 @@ async def execute_tts_task(
         selected_current = committed_outcome.selected
         return committed_outcome
 
+    async def _before_submit() -> None:
+        await asyncio.to_thread(
+            assert_current_artifact_input_claims_usable,
+            project_path,
+            formal_input_claims,
+        )
+
     output_path, version = await generator.generate_audio_async(
         text=text,
         resource_id=resource_id,
         voice=voice,
         speed=speed,
+        before_submit=_before_submit,
         before_commit=_measure_staged,
         commit_staged=_commit_staged,
         tts_provider_id=settings.provider_id,
@@ -1256,6 +2096,13 @@ async def execute_video_task(
         _project = _pm.load_project(project_name)
         _project_path = _pm.get_project_path(project_name)
         _script = _pm.load_script(project_name, script_file)
+        _script_input = resolve_usable_episode_script_input(
+            project_path=_project_path,
+            project=_project,
+            script=_script,
+            script_filename=script_file,
+            legacy_episode_fallback=1,
+        )
         _items, _id_field, _, _, _ = get_storyboard_items(_script)
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
         _item = _resolved[0] if _resolved else {}
@@ -1266,9 +2113,10 @@ async def execute_video_task(
             resolve_content_mode(_script, _project),
             resolve_script_kind(_script),
             _script,
+            _script_input,
         )
 
-    project, project_path, item, content_mode, script_kind, script = await asyncio.to_thread(_load)
+    project, project_path, item, content_mode, script_kind, script, script_input = await asyncio.to_thread(_load)
     # Queue execution re-materializes mutable visual intent from the current script unit. Direct/internal callers
     # without a task row retain the request-prompt fallback for compatibility with synchronous service tests.
     current_prompt = item.get("video_prompt") if isinstance(item, dict) else None
@@ -1299,10 +2147,17 @@ async def execute_video_task(
     supported_durations: list[int] = list(ctx.video.supported_durations)
     resolution = ctx.video.resolution
 
-    storyboard_file, end_image = resolve_storyboard_video_inputs(
+    artifact_episode = script_input.episode
+    formal_input_claims: list[ArtifactInputClaim] = [script_input.claim]
+    currency_resolver = active_artifact_currency_resolver(project_path, project)
+    storyboard_file, end_image = resolve_usable_storyboard_video_inputs(
         project_path=project_path,
+        project=project,
+        episode=artifact_episode,
         resource_id=resource_id,
         item=item,
+        resolver=currency_resolver,
+        claims=formal_input_claims,
     )
     aspect_ratio = get_aspect_ratio(project, "videos")
     seed = payload.get("seed")
@@ -1379,7 +2234,9 @@ async def execute_video_task(
 
     delivery_projection = None
     if delivery_options.narration_delivery == USE_TTS:
-        episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
+        episode = artifact_episode
+        if episode is None:
+            episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
         current_planned_duration = item.get("duration_seconds") if isinstance(item, dict) else None
         if (
             not isinstance(current_planned_duration, int)
@@ -1478,10 +2335,14 @@ async def execute_video_task(
 
     provider_start_image = storyboard_file
     provider_end_image = end_image
-    checkpoint_hook: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = None
+
+    async def _admit_before_submit(_api_call_id: int) -> Mapping[str, object] | None:
+        await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
+        return None
+
+    checkpoint_hook: Callable[[int], Awaitable[Mapping[str, object] | None]] | None = _admit_before_submit
     staged_media: tuple[StagedProviderMedia, ...] = ()
     if task_id is not None:
-        artifact_episode = ProjectManager.resolve_episode_from_script(script, str(script_file))
         artifact_speech_preparation = admit_script_unit(script_kind, item).preparation
         artifact_speech = freeze_video_speech_facts(
             artifact_speech_preparation,
@@ -1523,6 +2384,13 @@ async def execute_video_task(
             )
         staged_media = await stage_provider_media_for_task(project_path, task_id, tuple(media_inputs))
         try:
+            formal_input_claims = list(
+                bind_artifact_input_claims_to_content_digests(
+                    resolver=currency_resolver,
+                    claims=formal_input_claims,
+                    content_digests={media.source_locator: media.sha256 for media in staged_media},
+                )
+            )
             provider_start_image = safe_join(
                 project_path,
                 next(media.staged_locator for media in staged_media if media.role == "start_image"),
@@ -1579,6 +2447,7 @@ async def execute_video_task(
             )
 
             async def _checkpoint_before_submit(api_call_id: int) -> Mapping[str, object]:
+                await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
                 artifact_currency = VideoArtifactCurrencyFacts(
                     episode=artifact_episode,
                     request_duration_seconds=duration_seconds,
@@ -1641,6 +2510,7 @@ async def execute_video_task(
         else None
     )
     try:
+        await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
         output_path, version, _, video_uri = await generator.generate_video_async(
             prompt=prompt_text,
             resource_type="videos",
@@ -1775,52 +2645,102 @@ async def execute_character_task(
             _full_ref = _project_path / _ref_path
             if _full_ref.exists():
                 _ref_images = [_full_ref]
-        return _project, _full_prompt, _ref_images
+        _visual_references = tuple(
+            VisualReference(
+                path=path,
+                role="source",
+                logical_type="character",
+                logical_id=resource_id,
+                kind="original",
+            )
+            for path in (_ref_images or [])
+        )
+        _frozen = freeze_image_references(_ref_images, _visual_references)
+        try:
+            _basis = build_asset_sheet_visual_basis(
+                asset_type="character",
+                asset_id=resource_id,
+                description=prompt,
+                style=str(_style or ""),
+                style_description=str(_style_desc or ""),
+                aspect_ratio="16:9",
+                references=_frozen.visual_references,
+            )
+        except BaseException:
+            _frozen.cleanup()
+            raise
+        return _project, _full_prompt, _frozen, _basis
 
-    project, full_prompt, reference_images = await asyncio.to_thread(_prepare_char)
+    project, full_prompt, frozen_references, basis = await asyncio.to_thread(_prepare_char)
+    reference_images = frozen_references.reference_images
     _needs_i2i = bool(reference_images)
 
-    ctx = await resolve_generation_context(
-        project_name,
-        payload,
-        project=project,
-        user_id=user_id,
-        image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
-    )
-    generator = ctx.generator
     aspect_ratio = get_aspect_ratio(project, "characters")
-    image_size = ctx.image.resolution
-
-    _, version = await generator.generate_image_async(
-        prompt=full_prompt,
-        resource_type="characters",
-        resource_id=resource_id,
-        reference_images=reference_images,
-        aspect_ratio=aspect_ratio,
-        image_size=image_size,
-    )
-
     sheet_path = f"characters/{resource_id}.png"
+    formal_outcomes: list[_FormalImageCommitOutcome] = []
 
-    def _finalize_char():
-        def _set_character_sheet(p: dict) -> None:
-            key = resolve_asset_key(p.get("characters"), resource_id)
-            if key is None:
-                raise KeyError(f"角色 '{resource_id}' 不存在")
-            p["characters"][key]["character_sheet"] = sheet_path
+    async def _submit() -> tuple[Any, tuple[Path, int]]:
+        ctx = await resolve_generation_context(
+            project_name,
+            payload,
+            project=project,
+            user_id=user_id,
+            image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
+        )
+        generator = ctx.generator
+        generated = await generator.generate_image_async(
+            prompt=full_prompt,
+            resource_type="characters",
+            resource_id=resource_id,
+            reference_images=reference_images,
+            aspect_ratio=aspect_ratio,
+            image_size=ctx.image.resolution,
+            formal_output=True,
+            task_id=_formal_image_task_token(task_id),
+            commit_formal_output=_asset_sheet_formal_image_callback(
+                asset_type="character",
+                project_name=project_name,
+                resource_id=resource_id,
+                sheet_path=sheet_path,
+                prompt=full_prompt,
+                versions=generator.versions,
+                task_id=task_id,
+                basis=basis,
+                outcome_box=formal_outcomes,
+            ),
+        )
+        return generator, generated
 
-        get_project_manager().update_project(project_name, _set_character_sheet)
-        return generator.versions.get_versions("characters", resource_id)["versions"][-1]["created_at"]
+    try:
+        generator, (_, version) = await _submit()
+    finally:
+        await run_noninterruptible_sync(frozen_references.cleanup)
 
-    created_at = await asyncio.to_thread(_finalize_char)
+    if formal_outcomes:
+        outcome = formal_outcomes[0]
+        version, created_at, receipt = outcome.version, outcome.created_at, outcome.receipt
+    else:
+        created_at, receipt = await _finalize_asset_sheet_task(
+            asset_type="character",
+            project_name=project_name,
+            resource_id=resource_id,
+            sheet_path=sheet_path,
+            generator=generator,
+            version=version,
+            task_id=task_id,
+            basis=basis,
+        )
 
-    return {
-        "version": version,
-        "file_path": f"characters/{resource_id}.png",
-        "created_at": created_at,
-        "resource_type": "characters",
-        "resource_id": resource_id,
-    }
+    return compensable_formal_task_result(
+        {
+            "version": version,
+            "file_path": f"characters/{resource_id}.png",
+            "created_at": created_at,
+            "resource_type": "characters",
+            "resource_id": resource_id,
+        },
+        receipt,
+    )
 
 
 # 仅保留 design 任务的「prompt 构造器」差异；bucket_key 与 sheet 写入由 ASSET_SPECS 与
@@ -1862,6 +2782,7 @@ async def execute_design_task(
     payload: dict[str, Any],
     *,
     user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     """合并 execute_scene_task / execute_prop_task / execute_product_task：按 kind 查表派发。"""
     spec = ASSET_SPECS[kind]
@@ -1882,46 +2803,102 @@ async def execute_design_task(
         style_desc = project.get("style_description", "")
         full_prompt = prompt_builder(resource_id, prompt, style, style_desc)
         refs = reference_collector(project, project_path, resource_id) if reference_collector else None
-        return project, full_prompt, refs
+        visual_references = tuple(
+            VisualReference(
+                path=path,
+                role="source",
+                logical_type=kind,
+                logical_id=resource_id,
+                kind="original",
+            )
+            for path in (refs or [])
+        )
+        frozen = freeze_image_references(refs, visual_references)
+        try:
+            basis = build_asset_sheet_visual_basis(
+                asset_type=kind,
+                asset_id=resource_id,
+                description=prompt,
+                style=str(style or ""),
+                style_description=str(style_desc or ""),
+                aspect_ratio="16:9",
+                references=frozen.visual_references,
+            )
+        except BaseException:
+            frozen.cleanup()
+            raise
+        return project, full_prompt, frozen, basis
 
-    project, full_prompt, reference_images = await asyncio.to_thread(_prepare)
+    project, full_prompt, frozen_references, basis = await asyncio.to_thread(_prepare)
+    reference_images = frozen_references.reference_images
     needs_i2i = bool(reference_images)
 
-    ctx = await resolve_generation_context(
-        project_name,
-        payload,
-        project=project,
-        user_id=user_id,
-        image=ImageLaneRequest(capability="i2i" if needs_i2i else "t2i"),
-    )
-    generator = ctx.generator
     aspect_ratio = get_aspect_ratio(project, bucket_key)
-    image_size = ctx.image.resolution
-
-    _, version = await generator.generate_image_async(
-        prompt=full_prompt,
-        resource_type=bucket_key,
-        resource_id=resource_id,
-        reference_images=reference_images,
-        aspect_ratio=aspect_ratio,
-        image_size=image_size,
-    )
-
     sheet_path = f"{bucket_key}/{resource_id}.png"
+    formal_outcomes: list[_FormalImageCommitOutcome] = []
 
-    def _finalize():
-        get_project_manager()._update_asset_sheet(kind, project_name, resource_id, sheet_path)
-        return generator.versions.get_versions(bucket_key, resource_id)["versions"][-1]["created_at"]
+    async def _submit() -> tuple[Any, tuple[Path, int]]:
+        ctx = await resolve_generation_context(
+            project_name,
+            payload,
+            project=project,
+            user_id=user_id,
+            image=ImageLaneRequest(capability="i2i" if needs_i2i else "t2i"),
+        )
+        generator = ctx.generator
+        generated = await generator.generate_image_async(
+            prompt=full_prompt,
+            resource_type=bucket_key,
+            resource_id=resource_id,
+            reference_images=reference_images,
+            aspect_ratio=aspect_ratio,
+            image_size=ctx.image.resolution,
+            formal_output=True,
+            task_id=_formal_image_task_token(task_id),
+            commit_formal_output=_asset_sheet_formal_image_callback(
+                asset_type=kind,
+                project_name=project_name,
+                resource_id=resource_id,
+                sheet_path=sheet_path,
+                prompt=full_prompt,
+                versions=generator.versions,
+                task_id=task_id,
+                basis=basis,
+                outcome_box=formal_outcomes,
+            ),
+        )
+        return generator, generated
 
-    created_at = await asyncio.to_thread(_finalize)
+    try:
+        generator, (_, version) = await _submit()
+    finally:
+        await run_noninterruptible_sync(frozen_references.cleanup)
 
-    return {
-        "version": version,
-        "file_path": sheet_path,
-        "created_at": created_at,
-        "resource_type": bucket_key,
-        "resource_id": resource_id,
-    }
+    if formal_outcomes:
+        outcome = formal_outcomes[0]
+        version, created_at, receipt = outcome.version, outcome.created_at, outcome.receipt
+    else:
+        created_at, receipt = await _finalize_asset_sheet_task(
+            asset_type=kind,
+            project_name=project_name,
+            resource_id=resource_id,
+            sheet_path=sheet_path,
+            generator=generator,
+            version=version,
+            task_id=task_id,
+            basis=basis,
+        )
+
+    return compensable_formal_task_result(
+        {
+            "version": version,
+            "file_path": sheet_path,
+            "created_at": created_at,
+            "resource_type": bucket_key,
+            "resource_id": resource_id,
+        },
+        receipt,
+    )
 
 
 async def execute_scene_task(
@@ -1932,7 +2909,7 @@ async def execute_scene_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    return await execute_design_task("scene", project_name, resource_id, payload, user_id=user_id)
+    return await execute_design_task("scene", project_name, resource_id, payload, user_id=user_id, task_id=task_id)
 
 
 async def execute_prop_task(
@@ -1943,7 +2920,7 @@ async def execute_prop_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    return await execute_design_task("prop", project_name, resource_id, payload, user_id=user_id)
+    return await execute_design_task("prop", project_name, resource_id, payload, user_id=user_id, task_id=task_id)
 
 
 async def execute_product_task(
@@ -1954,7 +2931,7 @@ async def execute_product_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    return await execute_design_task("product", project_name, resource_id, payload, user_id=user_id)
+    return await execute_design_task("product", project_name, resource_id, payload, user_id=user_id, task_id=task_id)
 
 
 def _group_scenes_by_segment_break(items: list[dict], id_field: str) -> list[list[dict]]:
@@ -1969,6 +2946,12 @@ def _collect_grid_reference_images(
     project_path: Path,
     payload: dict[str, Any],
     scene_ids: list[str],
+    *,
+    project: dict[str, Any] | None = None,
+    script: dict[str, Any] | None = None,
+    currency_resolver: ArtifactCurrencyResolver | None = None,
+    formal_claims: list[ArtifactInputClaim] | None = None,
+    visual_references: list[VisualReference] | None = None,
 ) -> tuple[list[object] | None, list[dict]]:
     """Collect character/scene/prop sheet images referenced by grid scenes.
 
@@ -1977,76 +2960,130 @@ def _collect_grid_reference_images(
     - *metadata*: list of dicts ``{path, name, ref_type}`` for persisting in
       :class:`~lib.grid.models.GridGeneration`.
     """
-    project_json = project_path / "project.json"
-    if not project_json.exists():
-        return None, []
+    if project is None:
+        project_json = project_path / "project.json"
+        if not project_json.exists():
+            return None, []
+        import json
 
-    import json
-
-    project = json.loads(project_json.read_text(encoding="utf-8"))
+        loaded_project = json.loads(project_json.read_text(encoding="utf-8"))
+        if not isinstance(loaded_project, dict):
+            return None, []
+        project = loaded_project
 
     script_file = payload.get("script_file")
     if not script_file:
         return None, []
 
-    script_path = project_path / "scripts" / script_file
-    if not script_path.exists():
-        return None, []
+    if script is None:
+        script_path = project_path / "scripts" / script_file
+        if not script_path.exists():
+            return None, []
+        import json
 
-    script = json.loads(script_path.read_text(encoding="utf-8"))
+        loaded_script = json.loads(script_path.read_text(encoding="utf-8"))
+        if not isinstance(loaded_script, dict):
+            return None, []
+        script = loaded_script
 
     items, id_field, char_field, scene_field, prop_field = get_storyboard_items(script)
 
     scene_id_set = set(scene_ids)
     matched_items = [item for item in items if str(item.get(id_field, "")) in scene_id_set]
+    selected_visuals: list[VisualReference] = []
+    references, _seen = _collect_sheet_references(
+        project,
+        project_path,
+        matched_items,
+        char_field=char_field,
+        scene_field=scene_field,
+        prop_field=prop_field,
+        max_count=6,
+        visual_references=selected_visuals,
+        currency_resolver=currency_resolver,
+        formal_claims=formal_claims,
+    )
+    if visual_references is not None:
+        visual_references.extend(selected_visuals)
+    metadata = [
+        {
+            "path": reference.path.relative_to(project_path).as_posix(),
+            "name": provider["label"],
+            "ref_type": reference.logical_type,
+        }
+        for provider, reference in zip(references, selected_visuals, strict=True)
+    ]
+    return [reference["image"] for reference in references] or None, metadata
 
-    characters = normalize_asset_bucket(project.get("characters"))
-    project_scenes = normalize_asset_bucket(project.get("scenes"))
-    project_props = normalize_asset_bucket(project.get("props"))
 
-    seen: set[str] = set()
-    paths: list[Path] = []
-    metadata: list[dict] = []
-    max_count = 6
+def _grid_formal_image_callback(
+    *,
+    project_path: Path,
+    grid_manager: Any,
+    grid: Any,
+    initial_grid: Mapping[str, Any],
+    resource_id: str,
+    prompt: str,
+    versions: Any,
+    task_id: str | None,
+    basis: ArtifactBasis | ArtifactBasisDescriptor,
+    outcome_box: list[_FormalImageCommitOutcome],
+) -> Callable[[Path, Path, Mapping[str, Any]], int]:
+    """Build a staged grid-composite activation through the shared image seam."""
 
-    for item in matched_items:
-        for char_name in item.get(char_field) or []:
-            if not isinstance(char_name, str):
-                continue
-            char_data = characters.get(normalize_asset_name(char_name))
-            sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
-            if isinstance(sheet, str) and sheet and sheet not in seen:
-                p = project_path / sheet
-                if p.exists():
-                    paths.append(p)
-                    seen.add(sheet)
-                    metadata.append({"path": sheet, "name": char_name, "ref_type": "character"})
-        for scene_name in item.get(scene_field) or []:
-            if not isinstance(scene_name, str):
-                continue
-            scene_data = project_scenes.get(normalize_asset_name(scene_name))
-            sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
-            if isinstance(sheet, str) and sheet and sheet not in seen:
-                p = project_path / sheet
-                if p.exists():
-                    paths.append(p)
-                    seen.add(sheet)
-                    metadata.append({"path": sheet, "name": scene_name, "ref_type": "scene"})
-        for prop_name in item.get(prop_field) or []:
-            if not isinstance(prop_name, str):
-                continue
-            prop_data = project_props.get(normalize_asset_name(prop_name))
-            sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
-            if isinstance(sheet, str) and sheet and sheet not in seen:
-                p = project_path / sheet
-                if p.exists():
-                    paths.append(p)
-                    seen.add(sheet)
-                    metadata.append({"path": sheet, "name": prop_name, "ref_type": "prop"})
-        if len(paths) >= max_count:
-            break
+    artifact_path = f"grids/{resource_id}.png"
 
-    return list(paths[:max_count]) or None, metadata[:max_count]
+    def _commit(staged_file: Path, current_file: Path, version_metadata: Mapping[str, Any]) -> int:
+        def _commit_metadata(
+            activate: Callable[[], None],
+        ) -> Callable[[Callable[[], None]], None] | None:
+            def _complete(current_grid: Any) -> None:
+                current_grid.grid_image_path = artifact_path
+                current_grid.status = "completed"
+                current_grid.split_at = None
+
+            committed_grid = grid_manager.update_formal(resource_id, _complete, on_commit=activate)
+            if committed_grid is None:
+                raise ValueError(f"grid not found: {resource_id}")
+            grid.grid_image_path = committed_grid.grid_image_path
+            grid.status = committed_grid.status
+            grid.split_at = committed_grid.split_at
+            if task_id is None:
+                return None
+            mutation = OptimisticMappingPatch.capture(initial_grid, committed_grid.to_dict())
+
+            def _compensate_metadata(reject: Callable[[], None]) -> None:
+                def _restore(current: Any) -> None:
+                    current_data = current.to_dict()
+                    mutation.restore(current_data)
+                    restored = type(current).from_dict(current_data)
+                    current.__dict__.update(restored.__dict__)
+
+                restored = grid_manager.update(resource_id, _restore, on_commit=reject)
+                if restored is None:
+                    reject()
+
+            return _compensate_metadata
+
+        outcome = _commit_staged_formal_image(
+            versions=versions,
+            project_path=project_path,
+            resource_type="grids",
+            resource_id=resource_id,
+            script_file=None,
+            artifact_path=artifact_path,
+            prompt=prompt,
+            staged_file=staged_file,
+            current_file=current_file,
+            version_metadata=version_metadata,
+            task_id=task_id,
+            basis=basis,
+            commit_metadata=_commit_metadata,
+        )
+        outcome_box.append(outcome)
+        return outcome.version
+
+    return _commit
 
 
 async def execute_grid_task(
@@ -2067,7 +3104,8 @@ async def execute_grid_task(
     只产出联合图，不触碰任何分镜格；落格由独立的切分操作
     （server.services.grid_split.apply_grid_split）显式执行。
     """
-    from lib.grid.layout import GRID_FALLBACK_RESOLUTION
+    from lib.grid.layout import GRID_FALLBACK_RESOLUTION, grid_aspect_ratio_for
+    from lib.grid.prompt_builder import build_grid_prompt
     from lib.grid_manager import GridManager
 
     project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
@@ -2077,7 +3115,24 @@ async def execute_grid_task(
     grid = grid_manager.get(resource_id)
     if grid is None:
         raise ValueError(f"grid not found: {resource_id}")
+    project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+    script = await asyncio.to_thread(get_project_manager().load_script, project_name, grid.script_file)
+    script_input = await asyncio.to_thread(
+        resolve_usable_episode_script_input,
+        project_path=project_path,
+        project=project,
+        script=script,
+        script_filename=grid.script_file,
+        legacy_episode_fallback=grid.episode,
+    )
+    artifact_episode = script_input.episode
+    if artifact_episode != grid.episode:
+        raise ValueError(f"grid episode {grid.episode} does not match bound script episode {artifact_episode}")
+    initial_grid = copy.deepcopy(grid.to_dict())
 
+    version: int | None = None
+    generator: Any = None
+    frozen_references: FrozenImageReferences | None = None
     try:
         # b) Set status to generating
         grid.status = "generating"
@@ -2087,19 +3142,76 @@ async def execute_grid_task(
         # c) Build reference images + metadata
         from lib.grid.models import ReferenceImage
 
+        currency_resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)
+        formal_claims: list[ArtifactInputClaim] = [script_input.claim]
+        visual_references: list[VisualReference] = []
         reference_images, ref_metadata = await asyncio.to_thread(
-            _collect_grid_reference_images, project_path, payload, grid.scene_ids
+            _collect_grid_reference_images,
+            project_path,
+            payload,
+            grid.scene_ids,
+            project=project,
+            script=script,
+            currency_resolver=currency_resolver,
+            formal_claims=formal_claims,
+            visual_references=visual_references,
         )
+        frozen_references = await asyncio.to_thread(
+            freeze_image_references,
+            reference_images,
+            visual_references,
+        )
+        formal_claims = list(
+            await asyncio.to_thread(
+                bind_artifact_input_claims_to_frozen_visuals,
+                project_path=project_path,
+                resolver=currency_resolver,
+                claims=formal_claims,
+                source_references=visual_references,
+                frozen_references=frozen_references.visual_references,
+            )
+        )
+        reference_images = frozen_references.reference_images
         grid.reference_images = [ReferenceImage.from_dict(m) for m in ref_metadata] if ref_metadata else []
         grid_manager.save(grid)
 
         # d) Generate grid image
-        prompt_text = payload.get("prompt") or grid.prompt
-        if not prompt_text:
-            raise ValueError("prompt is required for grid task")
-
         _needs_i2i = bool(reference_images)
-        project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+        items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
+        item_by_id = {str(item.get(id_field)): item for item in items if isinstance(item, Mapping)}
+        if len(set(grid.scene_ids)) != len(grid.scene_ids):
+            raise ValueError("grid scene identities must be unique")
+        missing_members = [scene_id for scene_id in grid.scene_ids if scene_id not in item_by_id]
+        if missing_members:
+            raise ValueError(f"grid scenes are no longer present in the bound script: {missing_members}")
+        members = tuple(
+            GridStoryboardVisual(
+                resource_id=scene_id,
+                image_prompt=item_by_id[scene_id].get("image_prompt"),
+                video_prompt=item_by_id[scene_id].get("video_prompt"),
+            )
+            for scene_id in grid.scene_ids
+        )
+        member_aspect_ratio = grid.video_aspect_ratio or get_aspect_ratio(project, "storyboards")
+        grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, member_aspect_ratio)
+        prompt_text = build_grid_prompt(
+            scenes=[item_by_id[scene_id] for scene_id in grid.scene_ids],
+            id_field=id_field,
+            rows=grid.rows,
+            cols=grid.cols,
+            style=str(project.get("style") or ""),
+            aspect_ratio=member_aspect_ratio,
+            grid_aspect_ratio=grid_aspect_ratio,
+        )
+        grid_basis = build_grid_composite_visual_basis(
+            group_id=grid.id,
+            members=members,
+            rows=grid.rows,
+            columns=grid.cols,
+            style=str(project.get("style") or ""),
+            grid_aspect_ratio=grid_aspect_ratio,
+            references=frozen_references.visual_references,
+        )
         ctx = await resolve_generation_context(
             project_name,
             payload,
@@ -2108,17 +3220,24 @@ async def execute_grid_task(
             image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
         )
         generator = ctx.generator
-        aspect_ratio = payload.get("grid_aspect_ratio") or get_aspect_ratio(project, "storyboards")
+        aspect_ratio = grid_aspect_ratio
 
         # 回填 grid metadata：route 层创建/重建时无法预知 needs_i2i，由此处补齐。
         # provider 记 registry 身份（供后续重解析定位供应商），model 记 backend 实际身份
         # （自定义供应商目标 model 被禁用回退时，实际调用的 model 与解析出的 model_id 不同）。
         grid.provider = ctx.image.provider_model.provider_id
         grid.model = ctx.image.backend_model
+        grid.prompt = prompt_text
         grid_manager.save(grid)
         # 保底档与档位门控（``large_grid_allowed``）取同一常量，避免门控按 2K 判定、
         # 渲染却按别的档位下发
         image_size = ctx.image.resolution or GRID_FALLBACK_RESOLUTION
+        formal_outcomes: list[_FormalImageCommitOutcome] = []
+
+        await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
+
+        async def _before_submit() -> None:
+            await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
 
         _image_path, version = await generator.generate_image_async(
             prompt=prompt_text,
@@ -2127,32 +3246,130 @@ async def execute_grid_task(
             reference_images=reference_images,
             aspect_ratio=aspect_ratio,
             image_size=image_size,
+            before_submit=_before_submit,
+            formal_output=True,
+            task_id=_formal_image_task_token(task_id),
+            commit_formal_output=_grid_formal_image_callback(
+                project_path=project_path,
+                grid_manager=grid_manager,
+                grid=grid,
+                initial_grid=initial_grid,
+                resource_id=resource_id,
+                prompt=str(prompt_text),
+                versions=generator.versions,
+                task_id=task_id,
+                basis=grid_basis,
+                outcome_box=formal_outcomes,
+            ),
         )
 
         # e) Mark joint image ready；联合图内容已更新，旧的落格结果不再对应当前图，
         # split_at 清空表示「待显式切分」。
-        grid.grid_image_path = f"grids/{resource_id}.png"
-        grid.status = "completed"
-        grid.split_at = None
-        grid_manager.save(grid)
+        def _commit_grid() -> _CancellationReceipt | None:
+            assert grid is not None
+            manifest_box: list[ArtifactRegistrationReceipt | None] = []
 
-    except Exception:
+            def _complete(current_grid) -> None:
+                current_grid.grid_image_path = f"grids/{resource_id}.png"
+                current_grid.status = "completed"
+                current_grid.split_at = None
+
+            def _register() -> None:
+                manifest_box.append(
+                    register_formal_task_artifact(
+                        project_path,
+                        resource_type="grids",
+                        resource_id=resource_id,
+                        script_file=None,
+                        task_id=task_id,
+                        artifact_path=f"grids/{resource_id}.png",
+                        basis=grid_basis,
+                    )
+                )
+
+            committed_grid = grid_manager.update_formal(resource_id, _complete, on_commit=_register)
+            if committed_grid is None:
+                raise ValueError(f"grid not found: {resource_id}")
+            grid.grid_image_path = committed_grid.grid_image_path
+            grid.status = committed_grid.status
+            grid.split_at = committed_grid.split_at
+            manifest = manifest_box[0]
+            if task_id is None:
+                return manifest
+            if manifest is None:
+                raise RuntimeError("task-aware grid registration did not return a receipt")
+            if version is None:
+                raise RuntimeError("grid generation did not return a selected version")
+            mutation = OptimisticMappingPatch.capture(initial_grid, grid.to_dict())
+
+            def _compensate_metadata(reject: Callable[[], None]) -> None:
+                def _restore(current) -> None:
+                    current_data = current.to_dict()
+                    mutation.restore(current_data)
+                    restored = type(current).from_dict(current_data)
+                    current.__dict__.update(restored.__dict__)
+
+                restored = grid_manager.update(resource_id, _restore, on_commit=reject)
+                if restored is None:
+                    reject()
+
+            return SelectedImageArtifactReceipt(
+                versions=generator.versions,
+                resource_type="grids",
+                resource_id=resource_id,
+                version=version,
+                current_file=project_path / "grids" / f"{resource_id}.png",
+                manifest=manifest,
+                compensate_metadata=_compensate_metadata,
+            )
+
+        if formal_outcomes:
+            outcome = formal_outcomes[0]
+            version, receipt = outcome.version, outcome.receipt
+        else:
+            receipt = await run_formal_task_finalizer(_commit_grid, task_id=task_id)
+
+    except Exception as failure:
+        if version is not None and generator is not None:
+            try:
+                rejected = await asyncio.to_thread(
+                    generator.versions.reject_current_version,
+                    "grids",
+                    resource_id,
+                    rejected_version=version,
+                    current_file=project_path / "grids" / f"{resource_id}.png",
+                )
+                if not rejected:
+                    failure.add_note("generated grid version changed before formal-write compensation")
+            except Exception as compensation_failure:  # noqa: BLE001
+                failure.add_note(f"generated grid compensation also failed: {compensation_failure}")
+        # The formal-write transaction restored the durable grid record, but
+        # ``grid`` still carries the rejected completion fields in memory.
+        # Reload before recording failure so the metadata pointer continues to
+        # describe whichever version compensation left selected.
+        grid = grid_manager.get(resource_id) or grid
         grid.status = "failed"
         import traceback
 
         grid.error_message = traceback.format_exc()
         grid_manager.save(grid)
         raise
+    finally:
+        if frozen_references is not None:
+            await run_noninterruptible_sync(frozen_references.cleanup)
 
     created_at = grid.created_at
 
-    return {
-        "version": version,
-        "file_path": f"grids/{resource_id}.png",
-        "created_at": created_at,
-        "resource_type": "grids",
-        "resource_id": resource_id,
-    }
+    return compensable_formal_task_result(
+        {
+            "version": version,
+            "file_path": f"grids/{resource_id}.png",
+            "created_at": created_at,
+            "resource_type": "grids",
+            "resource_id": resource_id,
+        },
+        receipt,
+    )
 
 
 async def _execute_reference_video_task_proxy(

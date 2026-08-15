@@ -304,6 +304,7 @@ def build_presentation_basis(
     subtitle: ArtifactBasis | ArtifactBasisDescriptor,
     narration_audio: SelectedMediaEvidence | None = None,
     provider_audio_enabled: bool = True,
+    transition_to_next: str = "cut",
     mix_policy: Mapping[str, object] = _DEFAULT_PRESENTATION_MIX_POLICY,
 ) -> ArtifactBasis:
     """Describe a final-presentation variant without performing media mixing."""
@@ -316,6 +317,8 @@ def build_presentation_basis(
         raise TypeError("narration_audio must be SelectedMediaEvidence or null")
     if not isinstance(provider_audio_enabled, bool):
         raise TypeError("provider_audio_enabled must be a boolean")
+    if not isinstance(transition_to_next, str):
+        raise TypeError("transition_to_next must be a string")
     if not isinstance(mix_policy, Mapping):
         raise TypeError("mix_policy must be a mapping")
     if normalized_variant == USE_TTS and narration_audio is None:
@@ -325,9 +328,10 @@ def build_presentation_basis(
 
     return ArtifactBasis.build(
         "artifact-speech/presentation",
-        kind_version=1,
+        kind_version=2,
         inputs={
             "variant": normalized_variant,
+            "transition_to_next": transition_to_next,
             "video": video.basis_input(),
             "subtitle": subtitle_descriptor.to_dict(),
             "narration_audio": narration_audio.basis_input() if narration_audio is not None else None,

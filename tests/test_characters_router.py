@@ -1,16 +1,23 @@
+from io import BytesIO
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from PIL import Image
 
+from lib.artifact_activation import register_current_resource_artifact
+from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import characters
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import FakeProjectAssetMutationMixin
 
 pytestmark = pytest.mark.unit
 
 
-class _FakePM:
+class _FakePM(FakeProjectAssetMutationMixin):
     def __init__(self):
         self.projects = {
             "demo": {
@@ -58,6 +65,49 @@ def _client(monkeypatch, fake_pm):
 
 
 class TestCharactersRouter:
+    def test_clearing_character_sheet_forgets_its_formal_claim(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.add_character("demo", "Alice", "lead")
+        project_dir = pm.get_project_path("demo")
+        buffer = BytesIO()
+        Image.new("RGB", (8, 8), color=(10, 20, 30)).save(buffer, format="PNG")
+
+        def _register_sheet(_target) -> None:
+            register_current_resource_artifact(
+                project_dir,
+                resource_type="characters",
+                resource_id="Alice",
+            )
+
+        pm.install_asset_sheet_bytes(
+            "character",
+            "demo",
+            "Alice",
+            "characters/Alice.png",
+            buffer.getvalue(),
+            on_commit=_register_sheet,
+        )
+        key = ArtifactKey.asset_sheet("character", "Alice")
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        assert adapter.get_entry(key) is not None
+
+        def _keep_legacy_bucket_key(project: dict) -> None:
+            project["characters"][" Alice "] = project["characters"].pop("Alice")
+
+        pm.update_project("demo", _keep_legacy_bucket_key)
+
+        with _client(monkeypatch, pm) as client:
+            response = client.patch(
+                "/api/v1/projects/demo/characters/%20Alice%20",
+                json={"character_sheet": ""},
+            )
+
+        assert response.status_code == 200, response.text
+        assert pm.load_project("demo")["characters"][" Alice "]["character_sheet"] == ""
+        assert adapter.get_entry(key) is None
+
     def test_add_update_delete_character(self, monkeypatch):
         fake_pm = _FakePM()
         with _client(monkeypatch, fake_pm) as client:

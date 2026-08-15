@@ -32,6 +32,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from lib.artifact_manifest import (
+    ArtifactKey,
+    ArtifactManifestEntry,
+    ArtifactManifestError,
+    ProjectArtifactManifestAdapter,
+)
 from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     discover_episode_file_aliases,
@@ -42,7 +48,9 @@ from lib.episode_ledger import (
     parse_episode_num,
     parse_source_range,
 )
+from lib.formal_write import formal_write_transaction
 from lib.project_manager import ProjectManager
+from lib.project_schema import project_schema_is_current
 
 logger = logging.getLogger(__name__)
 
@@ -201,21 +209,32 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, from_episode: int = 
     return _ResetPlan(episode_nums=episode_nums, consumed=consumed, deletes=deletes, archives=archives)
 
 
-def _apply_files(project_dir: Path, plan: _ResetPlan) -> tuple[list[str], list[tuple[str, str]]]:
+def _assert_source_directory_safe(project_dir: Path) -> None:
+    """Reject a source directory whose children could resolve outside the project."""
+
+    source_dir = project_dir / "source"
+    if source_dir.is_symlink() or source_dir.is_junction():
+        raise EpisodeResetError("source/ 不能是符号链接或目录联接，拒绝处置派生集文件")
+
+
+def _apply_files(
+    project_dir: Path,
+    plan: _ResetPlan,
+    *,
+    archive_targets: Mapping[Path, Path] | None = None,
+) -> tuple[list[str], list[tuple[str, str]]]:
     """落盘文件处置：删派生集文件、留底非派生集文件、清理余文文件。
 
     失败一律抛错中止提交（账本写回随之回滚）：残留的集文件会被孤儿条目登记重新认领
     成账本条目，「重置后账本为空」的承诺会被悄悄推翻，宁可整体失败让调用方重试。重置本身
     幂等，重跑即可自愈已完成的部分。
     """
-    source_dir = project_dir / "source"
     # source/ 是符号链接或（Windows 原生）目录联接时拒绝处置：这类 reparse point 会让
     # source_dir 之下的路径解析穿透到项目外目录，unlink/rename 因此可能作用到外部文件；
     # is_junction() 3.12+ 可用、POSIX 上恒为 False，与 EpisodePlanner._reconcile_derived_files
     # 的同类校验保持一致。派生集文件自身是符号链接则不受影响——unlink/rename 操作的是链接
     # 条目本身、不跟随最终一段的链接目标，悬空链接同样能被安全清理
-    if source_dir.is_symlink() or source_dir.is_junction():
-        raise EpisodeResetError("source/ 不能是符号链接或目录联接，拒绝处置派生集文件")
+    _assert_source_directory_safe(project_dir)
     deleted: list[str] = []
     archived: list[tuple[str, str]] = []
     for path in plan.deletes:
@@ -225,7 +244,7 @@ def _apply_files(project_dir: Path, plan: _ResetPlan) -> tuple[list[str], list[t
             raise EpisodeResetError(f"派生集文件删除失败，重置已中止：{path.name}: {exc}") from exc
         deleted.append(_rel(project_dir, path))
     for path in plan.archives:
-        target = _archive_path(path)
+        target = archive_targets[path] if archive_targets is not None else _archive_path(path)
         try:
             path.rename(target)
         except OSError as exc:
@@ -451,9 +470,13 @@ def reset_episode_planning(
 
     # 结果只能在锁内（按锁内复扫的实际处置）拼出，用闭包变量带回锁外
     committed: EpisodeResetResult | None = None
+    commit_plan: _ResetPlan | None = None
+    manifest_expected: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
+    manifest_removals: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
+    recover_unreadable_manifest = False
 
     def _commit(p: dict[str, Any]) -> None:
-        nonlocal committed
+        nonlocal commit_plan, manifest_expected, manifest_removals, recover_unreadable_manifest
         # 锁内重新校验/重新扫描：确认清单与前置校验都是锁外读取时刻的快照，期间源文件
         # 可能被外部改动、也可能出现清单之外的新消费集
         cursor = _resolve_partial_reset_cursor(project_dir, p, from_episode=from_episode) if from_episode > 1 else None
@@ -473,15 +496,60 @@ def reset_episode_planning(
             p["episodes"] = []
             p["planning_cursor"] = None
             p.pop(SOURCE_FINGERPRINTS_KEY, None)
-        deleted, archived = _apply_files(project_dir, current)
+        if project_schema_is_current(p):
+            try:
+                snapshot = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
+            except ArtifactManifestError:
+                if from_episode != 1:
+                    raise
+                # Full planning reset is the zero-precondition recovery path.
+                # An unreadable Manifest proves no current claim, so replace its
+                # complete state with an empty valid snapshot during commit.
+                recover_unreadable_manifest = True
+            else:
+                manifest_expected = {
+                    key: entry
+                    for key, entry in snapshot.items()
+                    if key.episode_number is not None and (from_episode == 1 or key.episode_number >= from_episode)
+                }
+                manifest_removals = dict.fromkeys(manifest_expected)
+        commit_plan = current
+
+    def _commit_side_effects(_project_file: Path) -> None:
+        nonlocal committed
+        if commit_plan is None:  # pragma: no cover - update_project calls mutate before on_commit
+            raise EpisodeResetError("重置未执行：文件处置计划未生成")
+        _assert_source_directory_safe(project_dir)
+        archive_targets = {path: _archive_path(path) for path in commit_plan.archives}
+        remaining = project_dir / "source" / "_remaining.txt"
+        transaction_paths = [*commit_plan.deletes, remaining]
+        for source, target in archive_targets.items():
+            transaction_paths.extend((source, target))
+
+        from lib.artifact_activation import register_artifact_entries_atomically
+
+        with formal_write_transaction(*transaction_paths):
+            deleted, archived = _apply_files(
+                project_dir,
+                commit_plan,
+                archive_targets=archive_targets,
+            )
+            if manifest_removals:
+                register_artifact_entries_atomically(
+                    project_dir,
+                    manifest_removals,
+                    expected_entries=manifest_expected,
+                )
+            elif recover_unreadable_manifest:
+                ProjectArtifactManifestAdapter(project_dir).replace_unreadable_entries_atomically({})
         committed = EpisodeResetResult(
-            removed_episodes=current.episode_nums,
+            removed_episodes=commit_plan.episode_nums,
             deleted_files=deleted,
             archived_files=archived,
-            consumed_episodes=current.consumed,
+            consumed_episodes=commit_plan.consumed,
         )
 
-    pm.update_project(project_name, _commit)
+    pm.update_project(project_name, _commit, on_commit=_commit_side_effects)
     if committed is None:  # pragma: no cover - update_project 必然调用 mutate_fn
         raise EpisodeResetError("重置未执行：账本更新回调未被调用")
     logger.info(
