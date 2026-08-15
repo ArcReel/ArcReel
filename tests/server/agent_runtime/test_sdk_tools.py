@@ -8487,3 +8487,30 @@ async def test_generate_video_all_reports_an_all_unreadable_selection_as_blocked
         unit["unit_id"]: [problem["code"] for problem in unit["problems"]] for unit in out["batch_admission"]["units"]
     }
     assert codes == {"E1S01": ["generation_artifact_state_unavailable"]}
+
+
+@pytest.mark.integration
+async def test_generate_reference_units_refuses_a_duplicated_named_unit(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """点名的 unit 在剧本里有两份：无从判定要做哪一条，整批停在建任务之前。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    _use_reference_route(fake_ctx)
+    script = _reference_video_script()
+    script["video_units"] = [*script["video_units"], {**script["video_units"][0]}]
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    duplicated_id = script["video_units"][0]["unit_id"]
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await _call(
+        mod.generate_video_selected_tool(fake_ctx),
+        {"script": "episode_1.json", "scene_ids": [duplicated_id]},
+    )
+
+    enqueue.assert_not_awaited()
+    codes = {
+        unit["unit_id"]: [problem["code"] for problem in unit["problems"]] for unit in out["batch_admission"]["units"]
+    }
+    assert codes == {duplicated_id: ["generation_unit_request_invalid"]}

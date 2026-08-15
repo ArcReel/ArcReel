@@ -1123,28 +1123,38 @@ async def _run_reference_episode(
     )
 
 
-def _select_reference_units(script: dict[str, Any], unit_ids: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
-    """按 unit_id 从 ``video_units`` 点名取 unit，重复 ID 只取一次。
+def _select_reference_units(
+    script: dict[str, Any], unit_ids: list[str]
+) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+    """按 unit_id 从 ``video_units`` 点名取 unit。
 
-    返回 ``(selected, unmatched_ids)``——不存在的 ID 由调用方作为 blocked 逐项报告，
-    不在此静默丢弃，也不因此中断其余 unit。
+    返回 ``(selected, unmatched_ids, duplicated_ids)``——不存在的 ID 由调用方作为 blocked
+    逐项报告，不在此静默丢弃，也不因此中断其余 unit；点到的 ID 在剧本里有多份时无从判定
+    要做哪一条，它不进目标集合、交调用方拒收整批，而不是默默拿第一份去入队计费。
     """
     indexed = script.get("video_units")
     by_id: dict[str, dict[str, Any]] = {}
+    duplicated: set[str] = set()
     if isinstance(indexed, list):
         for unit in indexed:
             if isinstance(unit, dict) and isinstance(unit.get("unit_id"), str) and unit["unit_id"]:
-                by_id.setdefault(unit["unit_id"], unit)
+                if unit["unit_id"] in by_id:
+                    duplicated.add(unit["unit_id"])
+                    continue
+                by_id[unit["unit_id"]] = unit
 
     selected: list[dict[str, Any]] = []
     unmatched: list[str] = []
-    for unit_id in dict.fromkeys(unit_ids):
+    named = list(dict.fromkeys(unit_ids))
+    for unit_id in named:
+        if unit_id in duplicated:
+            continue
         unit = by_id.get(unit_id)
         if unit is None:
             unmatched.append(unit_id)
             continue
         selected.append(unit)
-    return selected, unmatched
+    return selected, unmatched, [unit_id for unit_id in named if unit_id in duplicated]
 
 
 async def _run_reference_units(
@@ -1168,7 +1178,7 @@ async def _run_reference_units(
     if episode is None:
         episode = ProjectManager.resolve_episode_from_script(script, script_filename)
 
-    selected, unmatched = _select_reference_units(script, unit_ids)
+    selected, unmatched, duplicated = _select_reference_units(script, unit_ids)
     if selected:
         log.append(f"重新生成 {len(selected)} 个 unit（已有成片一律覆盖）：{', '.join(u['unit_id'] for u in selected)}")
 
@@ -1183,6 +1193,15 @@ async def _run_reference_units(
             action=GenerationAction.FIX_INPUT,
         )
         for unit_id in unmatched
+    ]
+    unmatched_tickets += [
+        refused_ticket(
+            unit_id,
+            code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+            detail=f"unit {unit_id} 在剧本中重复出现",
+            action=GenerationAction.FIX_INPUT,
+        )
+        for unit_id in duplicated
     ]
 
     result = await _generate_reference_units(

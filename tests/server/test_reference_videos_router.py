@@ -1916,3 +1916,31 @@ def test_generate_unit_rejects_a_path_like_unit_id(client: TestClient, tmp_path:
 
     resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/a%5Cb/generate")
     assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.integration
+def test_generate_batch_reports_a_falsy_video_units_container(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """video_units 是假值（如 false）时同样报成结构问题，不被当作空批次报成通过。"""
+
+    from lib.project_manager import ProjectManager
+    from server.routers import reference_videos as router_mod
+
+    _seed_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    pm: ProjectManager = router_mod.get_project_manager()
+    script = pm.load_script("demo", "scripts/episode_1.json")
+    script["video_units"] = False
+    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    resp = client.post(BATCH_ENDPOINT, json={})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "blocked"
+    assert enqueued == []
+    codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
+    assert codes["video_units"] == ["generation_unit_request_invalid"]

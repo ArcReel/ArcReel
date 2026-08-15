@@ -734,7 +734,9 @@ async def generate_units_batch(
 
     project, script, script_file = _load_episode_script(project_name, episode, _t)
     body = req or GenerateUnitsBatchRequest()
-    entries = script.get("video_units") or []
+    # 容器原样交给校验：`or []` 会把假值（false / 0 / ""）变成合法的空数组，那次请求就会
+    # 报成「通过且零任务」，而不是如实说剧本的 video_units 坏了。
+    entries = script.get("video_units", [])
     units = [unit for unit in entries if isinstance(unit, dict)] if isinstance(entries, list) else []
     try:
         requested_ids = normalize_requested_ids(body.unit_ids, field="unit_ids")
