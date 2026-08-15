@@ -435,7 +435,7 @@ class BatchTaskResult:
 
     resource_id: str
     task_id: str
-    status: str  # "succeeded" | "failed" | "cancelled"
+    status: str  # "succeeded" | "failed" | "cancelled" | "interrupted"
     result: dict[str, Any] | None = None
     error: str | None = None
     task: dict[str, Any] | None = None
@@ -542,6 +542,17 @@ async def batch_enqueue_and_wait(
         try:
             task = await wait_for_task(tid)
             return _task_result_from_finished(task, spec.resource_id, tid)
+        except (TaskWaitTimeoutError, WorkerOfflineError) as exc:
+            # wait_for_task 抛出前刚确认过 task 仍非终态（未 succeeded/failed/cancelled）——
+            # 这是等待被打断，不是 provider 判定的失败，用独立 status 区分，让
+            # record_batch_outcomes 能报告 INTERRUPTED 而不是 FAILED，避免下游对一个
+            # 仍可能正常落地的任务盲目 retry 造成重复付费提交。
+            return BatchTaskResult(
+                resource_id=spec.resource_id,
+                task_id=tid,
+                status="interrupted",
+                error=str(exc),
+            )
         except Exception as exc:
             return BatchTaskResult(
                 resource_id=spec.resource_id,

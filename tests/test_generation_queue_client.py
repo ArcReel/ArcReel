@@ -563,3 +563,36 @@ class TestBatchEnqueueAndWaitSync:
 
         assert len(success_ids) == 1
         assert len(failure_ids) == 1
+
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    def test_wait_timeout_is_reported_as_interrupted_not_failed(self, mock_enqueue, mock_wait):
+        """A cut-short wait (task still non-terminal on the worker side) must not
+        be indistinguishable from a provider-judged failure — that would tell a
+        caller to retry a task that may still complete, risking a duplicate paid
+        submission."""
+
+        mock_enqueue.side_effect = [{"task_id": "t1"}]
+        mock_wait.side_effect = [TaskWaitTimeoutError("timed out waiting for task 't1' after 3600.0s")]
+
+        specs = [TaskSpec(task_type="clue", media_type="image", resource_id="玉佩")]
+        successes, failures = batch_enqueue_and_wait_sync(project_name="demo", specs=specs)
+
+        assert successes == []
+        assert len(failures) == 1
+        assert failures[0].resource_id == "玉佩"
+        assert failures[0].task_id == "t1"
+        assert failures[0].status == "interrupted"
+        assert "timed out" in (failures[0].error or "")
+
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    def test_worker_offline_during_wait_is_reported_as_interrupted_not_failed(self, mock_enqueue, mock_wait):
+        mock_enqueue.side_effect = [{"task_id": "t1"}]
+        mock_wait.side_effect = [WorkerOfflineError("queue worker offline while waiting for task 't1'")]
+
+        specs = [TaskSpec(task_type="clue", media_type="image", resource_id="玉佩")]
+        _successes, failures = batch_enqueue_and_wait_sync(project_name="demo", specs=specs)
+
+        assert len(failures) == 1
+        assert failures[0].status == "interrupted"

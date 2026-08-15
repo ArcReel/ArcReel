@@ -59,6 +59,11 @@ class GenerationTaskState(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    INTERRUPTED = "interrupted"
+    """Wait was cut short (timeout / worker offline) while the task row was still
+    non-terminal on the queue side. Distinct from ``FAILED``: no provider verdict
+    landed, so blind retry risks a duplicate paid submission over one that may
+    still complete."""
 
 
 class GenerationProblemCode(StrEnum):
@@ -76,6 +81,7 @@ class GenerationProblemCode(StrEnum):
     ENQUEUE_FAILED = "generation_enqueue_failed"
     TASK_FAILED = "generation_task_failed"
     TASK_CANCELLED = "generation_task_cancelled"
+    TASK_INTERRUPTED = "generation_task_interrupted"
     POST_PROCESSING_FAILED = "generation_post_processing_failed"
 
 
@@ -464,7 +470,9 @@ def select_generation_targets(
 # --- problems --------------------------------------------------------------
 
 
-def problem_from_task_failure(error_message: str | None, *, cancelled: bool = False) -> GenerationProblem:
+def problem_from_task_failure(
+    error_message: str | None, *, cancelled: bool = False, interrupted: bool = False
+) -> GenerationProblem:
     """Lift a persisted task failure into the contract's problem shape.
 
     A registered structured reason keeps its own stable code and parameters;
@@ -477,6 +485,15 @@ def problem_from_task_failure(error_message: str | None, *, cancelled: bool = Fa
             code=GenerationProblemCode.TASK_CANCELLED,
             detail=error_message or "task cancelled",
             action=GenerationAction.RETRY,
+        )
+    if interrupted:
+        # 等待被打断时任务在 worker 侧仍非终态（wait_for_task 抛出前刚确认过），不是
+        # provider 判定的失败——action 给 WAIT_FOR_TASK 而非 RETRY，避免调用方对一个
+        # 可能仍在跑、还会正常落地的任务盲目重提交造成重复付费。
+        return GenerationProblem(
+            code=GenerationProblemCode.TASK_INTERRUPTED,
+            detail=error_message or "wait for task was interrupted before it reached a terminal state",
+            action=GenerationAction.WAIT_FOR_TASK,
         )
     parsed = parse_failure(error_message)
     if parsed is None:
@@ -751,11 +768,15 @@ def record_batch_outcomes(
             task_state = GenerationTaskState.NOT_QUEUED
         elif br.status == "cancelled":
             task_state = GenerationTaskState.CANCELLED
+        elif br.status == "interrupted":
+            task_state = GenerationTaskState.INTERRUPTED
         else:
             task_state = GenerationTaskState.FAILED
         builder.fail(
             unit_id,
-            problem=problem_from_task_failure(br.error, cancelled=br.status == "cancelled"),
+            problem=problem_from_task_failure(
+                br.error, cancelled=br.status == "cancelled", interrupted=br.status == "interrupted"
+            ),
             artifact_key=state.artifact_key,
             artifact_path=state.artifact_path,
             task_id=br.task_id or None,

@@ -19,7 +19,7 @@ from lib.artifact_activation import (
     resolve_artifact_episode,
     resolve_usable_storyboard_video_inputs,
 )
-from lib.artifact_manifest import ArtifactKey
+from lib.artifact_manifest import ArtifactKey, ArtifactStatus
 from lib.config.resolver import video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.generation_queue_client import (
@@ -1412,6 +1412,27 @@ def generate_video_episode_tool(ctx: ToolContext):
                 state = _state_for(states, str(done_id))
                 builder.skip(state)
 
+            # currency 之外的第三态：Manifest 读不出该片段的产物状态（BLOCKED），既不能
+            # 判定为可复用（进 already_done）也不能安全当作缺失去入队——不可读不等于没有，
+            # 花钱重生可能覆盖一份实际仍然可用的片段。generate_video_all 走
+            # select_generation_targets 已经把这一态折进 selection.unavailable，这里是
+            # 同一场判定手写的另一条腿，必须同步处理。
+            already_done_set = set(already_done)
+            blocked_ids = [
+                unit_id
+                for unit_id, state in states.items()
+                if unit_id not in already_done_set and state.status == ArtifactStatus.BLOCKED
+            ]
+            for blocked_id in blocked_ids:
+                _block_unit(
+                    builder,
+                    states,
+                    blocked_id,
+                    code=GenerationProblemCode.ARTIFACT_STATE_UNAVAILABLE,
+                    detail=f"片段 {blocked_id} 的产物状态不可读，跳过自动重生",
+                    action=GenerationAction.REPAIR_ARTIFACT_STATE,
+                )
+
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=items,
@@ -1422,7 +1443,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                 project=project,
                 episode=episode,
                 resolver=currency,
-                skip_ids=already_done,
+                skip_ids=[*already_done, *blocked_ids],
                 builder=builder,
                 states=states,
                 voice_characters=voice_characters,

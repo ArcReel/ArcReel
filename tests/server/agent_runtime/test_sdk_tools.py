@@ -2476,6 +2476,65 @@ async def test_generate_video_episode_skips_current_clip_without_resume(fake_ctx
 
 
 @pytest.mark.integration
+async def test_generate_video_episode_blocks_a_clip_whose_manifest_state_is_unreadable(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """整集调用里某片段的 Manifest 比对抛错（BLOCKED）时必须报 blocked，不能落入
+    「既不可复用也不算 blocked」的空档而被当作缺失去付费重生——不可读不等于没有。"""
+    from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
+    project.update(
+        {
+            "schema_version": 8,
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        }
+    )
+    fake_ctx.pm.script_payload["episode"] = 1  # type: ignore[attr-defined]
+    segments = fake_ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+    segments[0]["generated_assets"] = {
+        "storyboard_image": "storyboards/scene_E1S01.png",
+        "video_clip": "videos/scene_E1S01.mp4",
+    }
+
+    class _Resolver:
+        def compare(self, key, *, artifact_path):
+            if artifact_path == "videos/scene_E1S01.mp4":
+                raise RuntimeError("manifest sidecar unreadable")
+            return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
+
+        def resolve_usable_entry(self, key, *, artifact_path):
+            raise RuntimeError("manifest sidecar unreadable")
+
+        def compare_frozen_entry(self, key, entry):
+            return self.compare(key, artifact_path=entry.artifact_path)
+
+        def artifact_content_digest(self, artifact_path):
+            return "0" * 64
+
+    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _Resolver())
+    enqueued: list[str] = []
+
+    async def _batch(*, project_name, specs, on_success=None, on_failure=None):
+        enqueued.extend(spec.resource_id for spec in specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
+
+    out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
+
+    result = _generation_result(out)
+    assert enqueued == []
+    assert result.succeeded == []
+    assert result.blocked == ["E1S01"]
+    blocked_item = next(item for item in result.items if item.unit_id == "E1S01")
+    assert blocked_item.problem is not None
+    assert blocked_item.problem.code == "generation_artifact_state_unavailable"
+
+
+@pytest.mark.integration
 async def test_generate_video_episode_rejects_unbound_active_script_before_enqueue(
     fake_ctx: ToolContext,
     monkeypatch,

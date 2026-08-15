@@ -415,6 +415,31 @@ def test_a_failed_batch_item_keeps_the_old_artifact_and_its_status() -> None:
     assert item.artifact_status is ArtifactStatus.STALE
 
 
+def test_a_wait_interrupted_batch_item_is_reported_distinctly_from_a_real_failure() -> None:
+    """等待被打断（超时/worker 离线）时任务在 worker 侧仍非终态——报告为
+    INTERRUPTED + WAIT_FOR_TASK，不是 FAILED + RETRY，否则调用方会对一个可能仍在跑、
+    还会正常落地的任务盲目重提交造成重复付费。"""
+
+    states = {
+        "A": GenerationTargetState(candidate=_candidate("A", path="videos/old.mp4"), status=ArtifactStatus.STALE),
+    }
+    builder = GenerationResultBuilder("probe", GenerationSelectionMode.EXPLICIT)
+
+    record_batch_outcomes(
+        builder,
+        successes=[],
+        failures=[_batch("A", status="interrupted", error="timed out waiting for task 't1' after 3600.0s")],
+        states=states,
+    )
+
+    item = builder.build().items[0]
+    assert item.state is GenerationItemState.FAILED
+    assert item.task_state is GenerationTaskState.INTERRUPTED
+    assert item.problem is not None
+    assert item.problem.code == GenerationProblemCode.TASK_INTERRUPTED
+    assert item.problem.action == GenerationAction.WAIT_FOR_TASK
+
+
 def test_recording_maps_queue_resource_ids_onto_contract_unit_ids() -> None:
     """队列侧 resource_id 与契约 unit ID 不同名时（如资产的 <type>/<name>）按映射记账。"""
 

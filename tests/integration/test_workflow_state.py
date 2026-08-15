@@ -352,6 +352,76 @@ def test_narration_progresses_through_storyboard_video_to_export(tmp_path: Path)
 
 
 @pytest.mark.integration
+def test_narration_audio_manifest_state_unreadable_does_not_block_export(tmp_path: Path, monkeypatch) -> None:
+    """旁白 TTS 只作为信息报告，不参与状态推进：即便 Manifest 判定该条 TTS 状态不可读
+    （BLOCKED），也不能让它借道共享 blockers 列表把工作流钉在 VIDEO——视频齐备时仍须
+    到达 EXPORT_READY，不可读事实只经 artifacts["audio"]["state"] 报告。用一个只对
+    narration_audio 键抛错的假 resolver 隔离验证，不牵扯 step1/script Manifest 激活的
+    全套前置状态。"""
+    import lib.workflow_state as workflow_state_mod
+    from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+
+    def _plan(project: dict) -> None:
+        project["episodes"] = [
+            {
+                "episode": 1,
+                "title": "第一集",
+                "script_file": "scripts/episode_1.json",
+                "ledger_status": "consumed",
+                "source_range": {"source_file": "source/novel.txt", "start": 0, "end": len(source_text)},
+            }
+        ]
+        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": len(source_text)}
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+        project["schema_version"] = 8
+
+    pm.update_project("demo", _plan)
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    atomic_write_json(draft_dir / "step1_segments.json", {"episode": 1, "segments": []})
+    script_path = project_path / "scripts" / "episode_1.json"
+    audio_path = "audio/E1S01.wav"
+    script = {
+        "episode": 1,
+        "title": "第一集",
+        "content_mode": "narration",
+        "segments": [
+            _valid_narration_segment(
+                generated_assets={
+                    "storyboard_image": "storyboards/E1S01.png",
+                    "video_clip": "videos/E1S01.mp4",
+                    "narration_audio": audio_path,
+                }
+            )
+        ],
+    }
+    _write_artifact(project_path, "storyboards/E1S01.png")
+    _write_artifact(project_path, "videos/E1S01.mp4")
+    _write_artifact(project_path, audio_path)
+    atomic_write_json(script_path, script)
+
+    class _AudioBlockedResolver:
+        """narration_audio 键 compare 抛错（BLOCKED），其余键一律 current。"""
+
+        def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
+            if key == ArtifactKey.episode_audio(1, "E1S01"):
+                raise RuntimeError("manifest sidecar unreadable")
+            return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=artifact_path)
+
+    monkeypatch.setattr(workflow_state_mod, "ArtifactCurrencyResolver", lambda _project_path: _AudioBlockedResolver())
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "EXPORT_READY"
+    assert status.artifacts["audio"]["state"] == "blocked"
+    assert not any(b.path == audio_path for b in status.blockers)
+
+
+@pytest.mark.integration
 def test_unplanned_source_with_legacy_episode_without_source_range_requires_full_reset(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"

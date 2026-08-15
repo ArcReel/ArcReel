@@ -179,10 +179,10 @@ async def apply_grid_split(
                     continue
 
                 resource_id = str(frame.next_scene_id)
+                if only_scene_ids is not None and resource_id not in only_scene_ids:
+                    continue
                 if resource_id not in valid_ids:
                     missing_ids.append(resource_id)
-                    continue
-                if only_scene_ids is not None and resource_id not in only_scene_ids:
                     continue
 
                 cell_rel = f"storyboards/scene_{resource_id}.png"
