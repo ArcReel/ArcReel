@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -15,10 +16,23 @@ from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from lib.api_errors import ApiError, BadRequestError, NotFoundError
+from lib.artifact_activation import resolve_artifact_episode
 from lib.asset_types import asset_name_comparison_key
+from lib.batch_admission import BatchAdmission, BatchAdmissionDecision, refused_ticket
 from lib.db import async_session_factory
 from lib.generation_queue import get_generation_queue
-from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
+from lib.generation_queue_client import (
+    BatchEnqueueAborted,
+    TaskSpec,
+    TaskSpecValidationError,
+    enqueue_batch_atomically,
+)
+from lib.generation_result import (
+    GenerationAction,
+    GenerationProblemCode,
+    GenerationSelectionMode,
+    normalize_requested_ids,
+)
 from lib.i18n import Translator
 from lib.narration_delivery import (
     POST_PRODUCTION,
@@ -70,6 +84,11 @@ from server.services.upload_finalize import (
     stage_uploaded_video_stream,
     validate_upload,
 )
+from server.services.video_batch_admission import (
+    admit_reference_video_batch,
+    reference_unit_task_spec,
+    resolve_reference_batch_targets,
+)
 from server.services.video_caps import project_video_caps
 
 logger = logging.getLogger(__name__)
@@ -108,6 +127,23 @@ class GenerateUnitRequest(BaseModel):
             narration_delivery=self.narration_delivery,
             confirmed_request_duration_seconds=self.confirmed_request_duration_seconds,
         )
+
+
+class GenerateUnitsBatchRequest(BaseModel):
+    """One batch video request: which units, how narration is delivered, what was agreed.
+
+    ``unit_ids`` omitted means missing-only; naming ids regenerates exactly those.
+    ``confirmed_request_durations`` carries the tiers the user accepted in the
+    aggregate confirmation, bound to this request's targets and options — it does
+    not freeze what the worker will read when execution starts.
+    """
+
+    unit_ids: list[str] | None = None
+    narration_delivery: NarrationDelivery = POST_PRODUCTION
+    confirmed_request_durations: dict[str, int] = Field(default_factory=dict)
+
+    def projection_options(self) -> ReferenceRequestOptions:
+        return ReferenceRequestOptions(narration_delivery=self.narration_delivery)
 
 
 # ============ 辅助 ============
@@ -654,6 +690,122 @@ async def generate_unit(
         "deduped": result.get("deduped", False),
         "projection": projection_payload,
     }
+
+
+def _admission_payload(admission: BatchAdmission, _t: Translator) -> dict[str, Any]:
+    """Localize the shared admission envelope for the browser.
+
+    Only the message strings are added: codes, actions, tiers and costs stay
+    exactly as the shared seam produced them, so Web and Agent never disagree
+    about what happened — only about what language it is read in.
+    """
+
+    payload = admission.to_payload()
+    units = payload.get("units")
+    if isinstance(units, list):
+        for unit in units:
+            problems = unit.get("problems") if isinstance(unit, dict) else None
+            if not isinstance(problems, list):
+                continue
+            for problem in problems:
+                if isinstance(problem, dict):
+                    params = problem.get("params")
+                    problem["message"] = _t(str(problem.get("code")), **(params if isinstance(params, dict) else {}))
+    return payload
+
+
+@router.post("/episodes/{episode}/units/generate-batch")
+async def generate_units_batch(
+    project_name: str,
+    episode: int,
+    user: CurrentUser,
+    _t: Translator,
+    req: GenerateUnitsBatchRequest | None = None,
+) -> dict[str, Any]:
+    """Admit a whole batch of reference units, then create every task or none.
+
+    The verdict is returned with HTTP 200 in all three outcomes: an evaluation
+    that refuses the request is a successful evaluation, and collapsing it into a
+    generic 4xx would hide every gap after the first one. Callers branch on
+    ``decision``.
+    """
+
+    project, script, script_file = _load_episode_script(project_name, episode, _t)
+    body = req or GenerateUnitsBatchRequest()
+    units = [unit for unit in (script.get("video_units") or []) if isinstance(unit, dict)]
+    try:
+        requested_ids = normalize_requested_ids(body.unit_ids, field="unit_ids")
+    except ValueError as exc:
+        raise BadRequestError("ref_batch_empty_selection") from exc
+
+    project_path = get_project_manager().get_project_path(project_name)
+    artifact_episode = resolve_artifact_episode(project=project, script=script, script_filename=script_file) or episode
+    targets, selection, _states = resolve_reference_batch_targets(
+        units=units,
+        requested_ids=requested_ids,
+        project=project,
+        project_path=project_path,
+        episode=artifact_episode,
+    )
+    unmatched = [
+        refused_ticket(
+            unit_id,
+            code=GenerationProblemCode.UNIT_NOT_FOUND,
+            detail=f"unit {unit_id} 不在 video_units 中",
+            action=GenerationAction.FIX_INPUT,
+        )
+        for unit_id in selection.unmatched_ids
+    ]
+    admission = await admit_reference_video_batch(
+        project_name=project_name,
+        project=project,
+        project_path=project_path,
+        script=script,
+        script_file=script_file,
+        units=targets,
+        request_options=body.projection_options(),
+        operation="generate_reference_videos_batch",
+        selection=(
+            GenerationSelectionMode.EXPLICIT if requested_ids is not None else GenerationSelectionMode.MISSING_ONLY
+        ),
+        confirmed_request_durations=body.confirmed_request_durations,
+        spec_check=lambda unit: reference_unit_task_spec(unit, script_file),
+        extra_tickets=unmatched,
+    )
+    payload = _admission_payload(admission, _t)
+    payload["skipped_unit_ids"] = sorted(state.unit_id for state in selection.skipped)
+    if admission.decision is not BatchAdmissionDecision.ADMITTED:
+        payload["task_ids"] = []
+        payload["deduped"] = False
+        return payload
+
+    specs = [reference_unit_task_spec(unit, script_file) for unit in targets]
+    for spec in specs:
+        spec.source = "webui"
+        # 确认过的档位按 unit 记进请求事实：它是本次请求的一部分，而不是全批共用的一个值。
+        confirmed = body.confirmed_request_durations.get(spec.resource_id)
+        options = body.projection_options()
+        if confirmed is not None:
+            options = replace(options, confirmed_request_duration_seconds=confirmed)
+        spec.payload = {
+            **(spec.payload or {}),
+            "reference_request_options": options.to_payload(),
+        }
+    try:
+        enqueued = await enqueue_batch_atomically(project_name=project_name, specs=specs, user_id=user.id)
+    except BatchEnqueueAborted as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "ref_batch_enqueue_aborted",
+                "message": _t("ref_batch_enqueue_aborted", unit_id=exc.resource_id),
+                "rolled_back": list(exc.rolled_back),
+                "orphaned": list(exc.orphaned),
+            },
+        ) from exc
+    payload["task_ids"] = [item.task_id for item in enqueued]
+    payload["deduped"] = bool(enqueued) and all(item.deduped for item in enqueued)
+    return payload
 
 
 @router.post("/episodes/{episode}/units/{unit_id}/upload-video")

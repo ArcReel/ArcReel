@@ -4,6 +4,7 @@ import json
 import unicodedata
 from dataclasses import replace
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -1347,3 +1348,338 @@ def test_script_preview_404_for_unknown_episode(client: TestClient, monkeypatch:
         json={"prompt": "镜头1：开场。"},
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# 批量准入：整批要么全建、要么零任务
+# ---------------------------------------------------------------------------
+
+BATCH_ENDPOINT = "/api/v1/projects/demo/reference-videos/episodes/1/units/generate-batch"
+
+
+def _seed_second_unit(client: TestClient) -> str:
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={
+            "prompt": "镜头1：@酒馆 全景",
+            "duration_seconds": 3,
+            "references": [{"type": "scene", "name": "酒馆"}],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["unit"]["unit_id"]
+
+
+def _patch_batch_admission(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    durations: list[int],
+    active_tasks: list[dict[str, object]] | None = None,
+    active_tts: frozenset[str] = frozenset(),
+    quote_amount: float | None = None,
+) -> list[dict[str, object]]:
+    """把批量准入的当前状态查询接到进程内替身，返回入队记录。
+
+    准入要读任务库、TTS 在途状态与报价；路由测试不带这些依赖，逐个注入替身。
+    """
+
+    from lib.reference_video.request_projection import ReferenceRequestOptions
+    from server.services import video_batch_admission as admission_mod
+    from server.services.cost_estimation import VideoRequestQuote
+
+    async def _no_active(**_kwargs):
+        return list(active_tasks or [])
+
+    async def _tts(**_kwargs):
+        return active_tts
+
+    async def _current_options(*, options: ReferenceRequestOptions, **_kwargs):
+        return options
+
+    async def _quote(facts, _session_factory):
+        if quote_amount is None:
+            return None
+        return VideoRequestQuote(
+            amount=quote_amount,
+            currency="USD",
+            provider_id=facts.provider_id,
+            model_id=facts.model_id,
+            request_duration_seconds=facts.duration_seconds,
+        )
+
+    monkeypatch.setattr(admission_mod, "project_reference_unit_request", _projection_with_durations(durations))
+    monkeypatch.setattr(admission_mod, "get_active_tasks_for_resources", _no_active)
+    monkeypatch.setattr(admission_mod, "active_tts_resource_ids", _tts)
+    monkeypatch.setattr(admission_mod, "prepare_current_reference_video_request_options", _current_options)
+    monkeypatch.setattr(admission_mod, "quote_video_request", _quote)
+
+    enqueued: list[dict[str, object]] = []
+
+    async def _enqueue_task_only(**kwargs):
+        enqueued.append(kwargs)
+        return {"task_id": f"task-{len(enqueued)}", "deduped": False}
+
+    monkeypatch.setattr("lib.generation_queue_client.enqueue_task_only", _enqueue_task_only)
+    return enqueued
+
+
+@pytest.mark.integration
+def test_generate_batch_creates_the_whole_task_set_in_one_admission(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = _seed_unit(client)
+    second = _seed_second_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    resp = client.post(BATCH_ENDPOINT, json={})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "admitted"
+    assert len(body["task_ids"]) == 2
+    assert [item["unit_id"] for item in body["units"]] == [first, second]
+    assert all(item["admitted"] for item in body["units"])
+    assert [call["resource_id"] for call in enqueued] == [first, second]
+    # 请求只落定位与本次选项：执行内容由 worker 起跑时重读最新剧本。
+    assert enqueued[0]["payload"] == {
+        "script_file": "scripts/episode_1.json",
+        "reference_request_options": {"narration_delivery": "post_production"},
+    }
+    assert enqueued[0]["source"] == "webui"
+
+
+@pytest.mark.integration
+def test_generate_batch_creates_zero_tasks_when_one_unit_is_blocked(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """一个单元有问题即整批不成立，另一个单元如实报告是被谁扣下的。"""
+
+    first = _seed_unit(client)
+    second = _seed_second_unit(client)
+    enqueued = _patch_batch_admission(
+        monkeypatch,
+        durations=[3, 6, 9],
+        active_tasks=[{"resource_id": second, "id": "task-running", "status": "running"}],
+    )
+
+    resp = client.post(BATCH_ENDPOINT, json={})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "blocked"
+    assert body["task_ids"] == []
+    assert enqueued == []
+    codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
+    assert codes[second] == ["generation_active_task_conflict"]
+    assert codes[first] == ["generation_batch_admission_withheld"]
+
+
+@pytest.mark.integration
+def test_generate_batch_reports_every_gap_not_only_the_first(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """UI 要一次看到全部缺口；只报第一个会让用户逐轮试错。"""
+
+    first = _seed_unit(client)
+    second = _seed_second_unit(client)
+    enqueued = _patch_batch_admission(
+        monkeypatch,
+        durations=[3, 6, 9],
+        active_tasks=[{"resource_id": second, "id": "task-running", "status": "running"}],
+    )
+
+    resp = client.post(BATCH_ENDPOINT, json={"unit_ids": [first, second, "E9U9"]})
+
+    body = resp.json()
+    assert body["decision"] == "blocked"
+    assert enqueued == []
+    codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
+    assert codes["E9U9"] == ["generation_unit_not_found"]
+    assert codes[second] == ["generation_active_task_conflict"]
+    assert codes[first] == ["generation_batch_admission_withheld"]
+    # 每条缺口都带已本地化的可读原因，调用方不必自己拼文案。
+    assert all(problem["message"] for item in body["units"] for problem in item["problems"])
+
+
+@pytest.mark.integration
+def test_generate_batch_aggregates_the_confirmation_by_tier_then_enqueues_on_consent(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = _seed_unit(client)
+    second = _seed_second_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[4, 8], quote_amount=0.8)
+
+    pending = client.post(BATCH_ENDPOINT, json={})
+
+    assert pending.status_code == 200, pending.text
+    body = pending.json()
+    assert body["decision"] == "confirmation_required"
+    assert body["task_ids"] == []
+    assert enqueued == []
+    tiers = body["confirmation"]["tiers"]
+    assert len(tiers) == 1
+    assert tiers[0]["request_duration_seconds"] == 4
+    assert tiers[0]["unit_count"] == 2
+    assert sorted(tiers[0]["unit_ids"]) == sorted([first, second])
+    assert tiers[0]["cost_amount"] == pytest.approx(1.6)
+    assert tiers[0]["cost_currency"] == "USD"
+
+    accepted = client.post(
+        BATCH_ENDPOINT,
+        json={"confirmed_request_durations": {first: 4, second: 4}},
+    )
+
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["decision"] == "admitted"
+    assert [call["resource_id"] for call in enqueued] == [first, second]
+    # 确认只对本次请求有效，不冻结执行内容。
+    options = cast(dict[str, Any], enqueued[0]["payload"])["reference_request_options"]
+    assert options == {
+        "narration_delivery": "post_production",
+        "confirmed_request_duration_seconds": 4,
+    }
+
+
+@pytest.mark.integration
+def test_generate_batch_partial_consent_still_creates_nothing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """只确认了一半的档位不算通过：剩下那个仍在等用户拍板。"""
+
+    first = _seed_unit(client)
+    second = _seed_second_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[4, 8], quote_amount=0.8)
+
+    resp = client.post(BATCH_ENDPOINT, json={"confirmed_request_durations": {first: 4}})
+
+    body = resp.json()
+    assert body["decision"] == "confirmation_required"
+    assert enqueued == []
+    assert body["confirmation"]["tiers"][0]["unit_ids"] == [second]
+
+
+@pytest.mark.integration
+def test_generate_batch_repeating_an_admitted_request_reports_dedup(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """重复提交不产生第二批任务：队列去重命中即如实报告。"""
+
+    _seed_unit(client)
+    _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+    created: list[str] = []
+
+    async def _enqueue_task_only(**kwargs):
+        deduped = bool(created)
+        created.append(str(kwargs["resource_id"]))
+        return {"task_id": "task-1", "deduped": deduped}
+
+    monkeypatch.setattr("lib.generation_queue_client.enqueue_task_only", _enqueue_task_only)
+
+    first = client.post(BATCH_ENDPOINT, json={})
+    second = client.post(BATCH_ENDPOINT, json={})
+
+    assert first.json()["deduped"] is False
+    assert second.json()["deduped"] is True
+    assert first.json()["task_ids"] == second.json()["task_ids"] == ["task-1"]
+
+
+@pytest.mark.integration
+def test_generate_batch_post_production_does_not_consult_tts(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """后期配音不以 TTS 为输入：未配置或过期都不该拦住这批。"""
+
+    _seed_unit(client)
+    _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+    probed: list[object] = []
+
+    from server.services import video_batch_admission as admission_mod
+
+    async def _tts(**kwargs):
+        probed.append(kwargs)
+        return frozenset()
+
+    monkeypatch.setattr(admission_mod, "active_tts_resource_ids", _tts)
+
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
+
+    assert resp.json()["decision"] == "admitted"
+    assert probed == []
+
+
+@pytest.mark.integration
+def test_generate_batch_use_tts_resolves_every_target_against_current_tts(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """选了「使用当前 TTS」就按当前 TTS 取档：整批一次探明在途 TTS，逐 unit 按该口径投影。"""
+
+    unit_id = _seed_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    from server.services import video_batch_admission as admission_mod
+
+    probed: list[list[str]] = []
+    deliveries: list[str] = []
+    base_projection = _projection_with_durations([3, 6, 9])
+
+    async def _tts(*, resource_ids, **_kwargs):
+        probed.append(list(resource_ids))
+        return frozenset()
+
+    async def _project(**kwargs):
+        deliveries.append(kwargs["options"].narration_delivery)
+        return await base_projection(**kwargs)
+
+    monkeypatch.setattr(admission_mod, "active_tts_resource_ids", _tts)
+    monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project)
+
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "use_tts"})
+
+    body = resp.json()
+    assert resp.status_code == 200, resp.text
+    assert body["narration_delivery"] == "use_tts"
+    assert probed == [[unit_id]]
+    assert deliveries == ["use_tts"]
+    options = cast(dict[str, Any], enqueued[0]["payload"])["reference_request_options"]
+    assert options["narration_delivery"] == "use_tts"
+
+
+@pytest.mark.unit
+def test_generate_batch_rejects_an_empty_selection(client: TestClient) -> None:
+    """空数组不是「全部」：它是一次没有目标的请求，静默按全集处理会超出用户本意。"""
+
+    resp = client.post(BATCH_ENDPOINT, json={"unit_ids": []})
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]
+
+
+@pytest.mark.integration
+def test_generate_batch_skips_units_that_already_have_a_clip(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """陈旧但可用的旧产物不自动重生：缺失即生成的语义里它本就不是目标。"""
+
+    first = _seed_unit(client)
+    second = _seed_second_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    from lib.project_manager import ProjectManager
+    from server.routers import reference_videos as router_mod
+
+    pm: ProjectManager = router_mod.get_project_manager()
+    script = pm.load_script("demo", "scripts/episode_1.json")
+    for unit in script["video_units"]:
+        if unit["unit_id"] == first:
+            unit["generated_assets"] = {"video_clip": f"reference_videos/{first}.mp4"}
+    pm.save_script("demo", script, "scripts/episode_1.json")
+    clip = pm.get_project_path("demo") / "reference_videos"
+    clip.mkdir(parents=True, exist_ok=True)
+    (clip / f"{first}.mp4").write_bytes(b"\x00")
+
+    resp = client.post(BATCH_ENDPOINT, json={})
+
+    body = resp.json()
+    assert body["decision"] == "admitted"
+    assert [item["unit_id"] for item in body["units"]] == [second]
+    assert [call["resource_id"] for call in enqueued] == [second]

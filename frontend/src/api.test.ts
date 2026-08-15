@@ -1286,6 +1286,29 @@ describe("API.referenceVideos", () => {
     });
   });
 
+  it("generateReferenceVideoBatch posts the batch admission payload", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ decision: "admitted", task_ids: ["t-1"], units: [], deduped: false }),
+        { status: 200 },
+      ),
+    );
+
+    const res = await API.generateReferenceVideoBatch("proj", 1, {
+      unit_ids: ["E1U1", "E1U2"],
+      confirmed_request_durations: { E1U1: 8 },
+    });
+
+    expect(fetchMock.mock.calls[0]![0]).toContain(
+      "/projects/proj/reference-videos/episodes/1/units/generate-batch",
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({
+      unit_ids: ["E1U1", "E1U2"],
+      confirmed_request_durations: { E1U1: 8 },
+    });
+    expect(res.decision).toBe("admitted");
+  });
+
   it("precheckReferenceVideoDuration sends narration projection options", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
 

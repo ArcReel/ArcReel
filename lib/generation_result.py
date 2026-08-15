@@ -79,6 +79,11 @@ class GenerationProblemCode(StrEnum):
     UNIT_REQUEST_INVALID = "generation_unit_request_invalid"
     ARTIFACT_STATE_UNAVAILABLE = "generation_artifact_state_unavailable"
     ENQUEUE_FAILED = "generation_enqueue_failed"
+    ACTIVE_TASK_CONFLICT = "generation_active_task_conflict"
+    BATCH_ADMISSION_WITHHELD = "generation_batch_admission_withheld"
+    """This unit itself passed admission, but a sibling in the same batch did
+    not. Batch video generation is all-or-nothing before any task is created, so
+    the whole target set is reported as blocked rather than half-submitted."""
     TASK_FAILED = "generation_task_failed"
     TASK_CANCELLED = "generation_task_cancelled"
     TASK_INTERRUPTED = "generation_task_interrupted"

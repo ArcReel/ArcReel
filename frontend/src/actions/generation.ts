@@ -17,7 +17,11 @@
 import { API } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
-import type { ReferenceGenerationRequestOptions } from "@/types";
+import type {
+  ReferenceBatchAdmission,
+  ReferenceBatchGenerateRequest,
+  ReferenceGenerationRequestOptions,
+} from "@/types";
 import {
   useTasksStore,
   type ImageEditResourceKind,
@@ -301,4 +305,34 @@ export async function enqueueReferenceVideoUnit(
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:reference_generate_queued"), "info");
   return { taskIds: [res.task_id], deduped: res.deduped };
+}
+
+/**
+ * 批量视频生成：一次请求走全有或全无准入，由服务端评估全部目标单元。
+ *
+ * 三种结局都是评估成功，只有 `admitted` 建了任务——`confirmation_required` 与
+ * `blocked` 一个任务也没建，故乐观占用标记随即整批回滚，由调用方按结论展示确认或缺口。
+ * 请求体省略 unit_ids 时（缺失即生成）目标集合由服务端决定，前端无从打标，此时不打标。
+ */
+export async function enqueueReferenceVideoBatch(
+  projectName: string,
+  episode: number,
+  payload: ReferenceBatchGenerateRequest = {},
+): Promise<ReferenceBatchAdmission> {
+  const marks = (payload.unit_ids ?? []).map((unitId) =>
+    markResource(projectName, "reference_video", unitId, "reference_video"),
+  );
+  const res = await submit(
+    marks,
+    () => API.generateReferenceVideoBatch(projectName, episode, payload),
+    (admission) => (admission.decision === "admitted" ? admission.task_ids : []),
+  );
+  if (res.decision === "admitted") {
+    notifyEnqueued(
+      res.deduped,
+      i18n.t("dashboard:reference_batch_queued", { count: res.task_ids.length }),
+      "info",
+    );
+  }
+  return res;
 }

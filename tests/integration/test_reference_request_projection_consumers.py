@@ -105,14 +105,20 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
     monkeypatch.setattr("server.services.cost_estimation.ConfigReferenceCapabilityProjection", lambda _r: capabilities)
     monkeypatch.setattr(reference_videos, "get_project_manager", lambda: pm)
     monkeypatch.setattr(reference_videos, "project_reference_unit_request", project_current_with_tts)
-    monkeypatch.setattr(enqueue_videos, "project_reference_unit_request", project_current_with_tts)
+    monkeypatch.setattr(
+        "server.services.video_batch_admission.project_reference_unit_request", project_current_with_tts
+    )
     monkeypatch.setattr(reference_videos, "prepare_current_reference_video_request_options", materialize_current_tts)
-    monkeypatch.setattr(enqueue_videos, "prepare_current_reference_video_request_options", materialize_current_tts)
+    monkeypatch.setattr(
+        "server.services.video_batch_admission.prepare_current_reference_video_request_options", materialize_current_tts
+    )
     monkeypatch.setattr(reference_videos, "tts_task_in_progress", AsyncMock(return_value=False))
-    monkeypatch.setattr(enqueue_videos, "get_active_tasks_for_resources", no_active_tasks)
-    monkeypatch.setattr(enqueue_videos, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
+    monkeypatch.setattr("server.services.video_batch_admission.get_active_tasks_for_resources", no_active_tasks)
+    monkeypatch.setattr(
+        "server.services.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
+    )
     monkeypatch.setattr(reference_videos, "quote_video_request", quote_current)
-    monkeypatch.setattr(enqueue_videos, "quote_video_request", quote_current)
+    monkeypatch.setattr("server.services.video_batch_admission.quote_video_request", quote_current)
     monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
     monkeypatch.setattr(
         "lib.reference_video.request_projection.project_reference_unit_request",
@@ -188,7 +194,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         ) == expected_facts
         precheck_detail = cast(dict[str, object], web_precheck_blocked.value.detail)
         generate_detail = cast(dict[str, object], web_generate_blocked.value.detail)
-        agent_projection = cast(dict[str, object], agent_response["request_projection"])
+        agent_projection = cast(dict[str, object], agent_response["request_projections"][0])
         for projection in (precheck_detail, generate_detail, agent_projection):
             assert (
                 projection["hydrated_capability"],
@@ -271,7 +277,7 @@ async def test_malformed_references_block_all_public_consumers_without_queue_or_
     monkeypatch.setattr("server.services.cost_estimation.ConfigReferenceCapabilityProjection", lambda _r: capabilities)
     monkeypatch.setattr(reference_videos, "get_project_manager", lambda: pm)
     monkeypatch.setattr(reference_videos, "project_reference_unit_request", project_current)
-    monkeypatch.setattr(enqueue_videos, "project_reference_unit_request", project_current)
+    monkeypatch.setattr("server.services.video_batch_admission.project_reference_unit_request", project_current)
     monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
     monkeypatch.setattr("lib.reference_video.request_projection.project_reference_unit_request", project_current)
 
@@ -308,7 +314,7 @@ async def test_malformed_references_block_all_public_consumers_without_queue_or_
     assert agent_response["is_error"] is True
     assert queue_projection is not None and queue_projection.blocking_problems
     web_codes = [problem["code"] for problem in cast(dict, web_blocked.value.detail)["problems"]]
-    agent_codes = [problem["code"] for problem in agent_response["request_projection"]["problems"]]
+    agent_codes = [problem["code"] for problem in agent_response["request_projections"][0]["problems"]]
     quote_projection = quote["episodes"][0]["segments"][0]["request_projection"]
     quote_codes = [problem["code"] for problem in quote_projection["problems"]]
     queue_codes = [problem.code for problem in queue_projection.problems]

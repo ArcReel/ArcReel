@@ -18,12 +18,17 @@ import { deriveUnitStatus } from "./unit-status";
 import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
+import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
 import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { ReferenceStep1PreviewPanel } from "@/components/canvas/reference/ReferenceStep1PreviewPanel";
 import { API } from "@/api";
-import { enqueueNarration, enqueueReferenceVideoUnit } from "@/actions/generation";
+import {
+  enqueueNarration,
+  enqueueReferenceVideoBatch,
+  enqueueReferenceVideoUnit,
+} from "@/actions/generation";
 import {
   useReferenceVideoStore,
   referenceVideoCacheKey,
@@ -46,6 +51,7 @@ import {
   splitScriptLines,
 } from "@/utils/reference-mentions";
 import type {
+  ReferenceBatchAdmission,
   ReferenceRequestOptions,
   ReferenceResource,
   ReferenceVideoUnit,
@@ -369,11 +375,8 @@ export function ReferenceVideoCanvas({
     episode,
     requestOptions: effectiveRequestOptions,
   });
-  const batchDurationGate = useReferenceDurationGate({
-    projectName,
-    episode,
-    requestOptions: {},
-  });
+  /** 批量准入的未决结论（需确认 / 受阻）；admitted 由 toast 反馈，不进这里。 */
+  const [batchAdmission, setBatchAdmission] = useState<ReferenceBatchAdmission | null>(null);
 
   const enqueue = useCallback(
     async (
@@ -412,6 +415,8 @@ export function ReferenceVideoCanvas({
    *
    * 每次 POST 前都用入口的判定复核一遍：循环里每个请求之间都是一段等待窗口，靠后的
    * 单元可能在此期间由别处生成完成，只在循环开始前过滤一次拦不住它。
+   *
+   * 单元入口专用：批量入口走服务端的全有或全无准入，一次请求评估全部目标。
    */
   const makeEnqueueSerially = useCallback(
     (canEnqueue: (unitId: string) => boolean, options: ReferenceRequestOptions) =>
@@ -520,6 +525,26 @@ export function ReferenceVideoCanvas({
     [units, statusMap],
   );
 
+  /**
+   * 一次请求走服务端的全有或全无准入。三种结局都是评估成功：admitted 已建任务（动作层
+   * 弹提示），另两种一个任务也没建，交给结论面板陈述档位或缺口。
+   */
+  const runBatch = useCallback(
+    async (unitIds: string[], confirmedDurations?: Record<string, number>) => {
+      try {
+        const admission = await enqueueReferenceVideoBatch(projectName, episode, {
+          unit_ids: unitIds,
+          ...(confirmedDurations ? { confirmed_request_durations: confirmedDurations } : {}),
+        });
+        setBatchAdmission(admission.decision === "admitted" ? null : admission);
+      } catch (e) {
+        setBatchAdmission(null);
+        toastError(e, (msg) => t("reference_batch_request_failed", { error: msg }));
+      }
+    },
+    [projectName, episode, t],
+  );
+
   const handleBatchGenerate = useCallback(async () => {
     if (batchTargets.length === 0) {
       useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
@@ -529,15 +554,38 @@ export function ReferenceVideoCanvas({
     // 实时复核而非用渲染期快照：其它入口（单元按钮、Agent 入队、SSE 落库）可能已占用
     // 同一 unit。命中即跳过，不当作错误提示——批量入口的语义是「把还能生成的都排上」，
     // 逐个报错只会刷屏。
-    const targets = batchTargets.map((u) => u.unit_id).filter((id) => !isUnitLocked(id));
+    const targets = batchTargets.map((u) => u.unit_id).filter(canEnqueueBatchUnit);
     if (targets.length === 0) return;
-    // 与单元入口共用同一条闸门：需确认的单元聚合成一次确认，否则批量按钮会成为绕过确认的旁路
-    await batchDurationGate.run(
-      targets,
-      makeEnqueueSerially(canEnqueueBatchUnit, {}),
-      canEnqueueBatchUnit,
-    );
-  }, [batchTargets, batchDurationGate, makeEnqueueSerially, isUnitLocked, canEnqueueBatchUnit, t]);
+    await runBatch(targets);
+  }, [batchTargets, canEnqueueBatchUnit, runBatch, t]);
+
+  /**
+   * 聚合确认后重发同一端点完成入队：档位按 tier 摊回各 unit，目标集合仍是本轮全部
+   * 目标（无需确认的单元也在其中，否则它们永远排不上）。
+   *
+   * 提交时刻再复核一次：弹窗停留期间（用户思考时长，可以很长）清单里的单元可能已被
+   * 别处生成完成——按冻结清单原样重发会重复计费并覆盖刚出的成片。
+   */
+  const handleBatchConfirm = useCallback(() => {
+    const admission = batchAdmission;
+    setBatchAdmission(null);
+    const tiers = admission?.confirmation?.tiers ?? [];
+    if (!admission || tiers.length === 0) return;
+    const durationByUnit = new Map<string, number>();
+    for (const tier of tiers) {
+      for (const unitId of tier.unit_ids) durationByUnit.set(unitId, tier.request_duration_seconds);
+    }
+    const targets = Array.from(
+      new Set([...admission.units.map((u) => u.unit_id), ...durationByUnit.keys()]),
+    ).filter(canEnqueueBatchUnit);
+    if (targets.length === 0) return;
+    const confirmed: Record<string, number> = {};
+    for (const unitId of targets) {
+      const duration = durationByUnit.get(unitId);
+      if (duration != null) confirmed[unitId] = duration;
+    }
+    void runBatch(targets, confirmed);
+  }, [batchAdmission, canEnqueueBatchUnit, runBatch]);
 
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
 
@@ -1394,7 +1442,11 @@ export function ReferenceVideoCanvas({
       )}
 
       <ReferenceDurationConfirmDialog {...durationGate.dialogProps} />
-      <ReferenceDurationConfirmDialog {...batchDurationGate.dialogProps} />
+      <ReferenceBatchAdmissionDialog
+        admission={batchAdmission}
+        onConfirm={handleBatchConfirm}
+        onClose={() => setBatchAdmission(null)}
+      />
     </div>
   );
 }

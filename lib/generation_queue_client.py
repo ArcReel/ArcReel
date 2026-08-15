@@ -8,8 +8,9 @@ Skill scripts that run outside the event loop should use asyncio.run().
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,6 +21,8 @@ from lib.generation_queue import (
     read_queue_poll_interval,
 )
 from lib.prompt_utils import is_structured_image_prompt, is_structured_video_prompt
+
+logger = logging.getLogger(__name__)
 
 
 class WorkerOfflineError(RuntimeError):
@@ -480,36 +483,99 @@ def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: 
     )
 
 
-async def batch_enqueue_and_wait(
+class BatchEnqueueAborted(RuntimeError):
+    """An all-or-nothing batch could not be created, and was rolled back.
+
+    ``rolled_back`` are the tasks this call created and then cancelled;
+    ``orphaned`` are the ones whose cancellation itself failed and therefore
+    still occupy the queue — the caller must surface them rather than claim a
+    clean refusal.
+    """
+
+    def __init__(
+        self,
+        *,
+        resource_id: str,
+        error: str,
+        rolled_back: Sequence[str] = (),
+        orphaned: Sequence[str] = (),
+    ) -> None:
+        self.resource_id = resource_id
+        self.error = error
+        self.rolled_back = tuple(rolled_back)
+        self.orphaned = tuple(orphaned)
+        super().__init__(f"batch enqueue aborted at '{resource_id}': {error}")
+
+
+async def _rollback_enqueued(created: Mapping[str, str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Cancel tasks this call created. Returns ``(rolled_back, orphaned)``."""
+
+    queue = get_generation_queue()
+    rolled_back: list[str] = []
+    orphaned: list[str] = []
+    for task_id in created.values():
+        try:
+            outcome = await queue.cancel_task(task_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("批量入队回滚失败 task_id=%s: %s", task_id, exc)
+            orphaned.append(task_id)
+            continue
+        # 任务可能已经越过可取消窗口。撤不掉的照实归入 orphaned：把它算作已回滚，
+        # 调用方就会以为整批干净收场，而那个任务仍在跑、仍会计费。
+        if _cancel_took_effect(outcome, task_id):
+            rolled_back.append(task_id)
+        else:
+            logger.warning("批量入队回滚未生效 task_id=%s", task_id)
+            orphaned.append(task_id)
+    return tuple(rolled_back), tuple(orphaned)
+
+
+def _cancel_took_effect(outcome: object, task_id: str) -> bool:
+    if isinstance(outcome, Mapping):
+        affected = [*(outcome.get("cancelled") or []), *(outcome.get("cancelling") or [])]
+        return task_id in affected
+    return bool(outcome)
+
+
+@dataclass(frozen=True, slots=True)
+class EnqueuedTask:
+    """One queued member of a batch, and whether this call is what created it."""
+
+    resource_id: str
+    task_id: str
+    deduped: bool
+
+
+async def _enqueue_sequentially(
     *,
     project_name: str,
     specs: list[TaskSpec],
-    on_success: Callable[[BatchTaskResult], None] | None = None,
-    on_failure: Callable[[BatchTaskResult], None] | None = None,
-) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
-    """Async: enqueue sequentially, then gather-wait all tasks.
+    atomic: bool,
+    user_id: str = DEFAULT_USER_ID,
+) -> tuple[list[EnqueuedTask], list[BatchTaskResult]]:
+    """Queue *specs* in order, resolving each dependency against its predecessor.
 
-    Runs entirely within a single event loop, so all asyncpg connections
-    are bound to the same loop — no cross-loop errors.
+    Without ``atomic``, one spec's enqueue failure must not abort the loop:
+    earlier members may already be queued (and billed) and later members still
+    need their own queue attempt — the promised per-ID result covers all of them
+    regardless. Each failure is captured as its own ``BatchTaskResult``
+    (``task_id=""`` marks "never queued", distinct from a queued task that later
+    failed) so every requested ID ends up accounted for.
 
-    Returns ``(successes, failures)`` — two lists of ``BatchTaskResult``.
+    With ``atomic``, the first failure cancels what this call created and raises
+    :class:`BatchEnqueueAborted` — a batch admitted as a whole never lands as a
+    half-submitted, half-billed set. Tasks the queue deduplicated onto an
+    already-active row are left alone: this call did not create them.
     """
-    if not specs:
-        return [], []
-    # Phase 1 — Sequential enqueue (dependency resolution requires order). One
-    # spec's enqueue failure must not abort the loop: earlier members may already
-    # be queued (and billed) and later members still need their own queue
-    # attempt — the promised per-ID result covers all of them regardless. Each
-    # failure is captured here as its own ``BatchTaskResult`` (``task_id=""``
-    # marks "never queued", distinct from a queued task that later failed) so
-    # the batch keeps going and every requested ID ends up in exactly one of
-    # the two returned lists.
+
+    enqueued: list[EnqueuedTask] = []
     task_ids: dict[str, str] = {}
-    enqueue_failures: list[BatchTaskResult] = []
+    created_task_ids: dict[str, str] = {}
+    failures: list[BatchTaskResult] = []
     failed_resource_ids: set[str] = set()
     for spec in specs:
         if spec.dependency_resource_id and spec.dependency_resource_id in failed_resource_ids:
-            enqueue_failures.append(
+            failures.append(
                 BatchTaskResult(
                     resource_id=spec.resource_id,
                     task_id="",
@@ -535,14 +601,79 @@ async def batch_enqueue_and_wait(
                 dependency_task_id=dep_task_id,
                 dependency_group=spec.dependency_group,
                 dependency_index=spec.dependency_index,
+                user_id=user_id,
             )
         except Exception as exc:  # noqa: BLE001
-            enqueue_failures.append(
-                BatchTaskResult(resource_id=spec.resource_id, task_id="", status="failed", error=str(exc))
-            )
+            if atomic:
+                rolled_back, orphaned = await _rollback_enqueued(created_task_ids)
+                raise BatchEnqueueAborted(
+                    resource_id=spec.resource_id,
+                    error=str(exc),
+                    rolled_back=rolled_back,
+                    orphaned=orphaned,
+                ) from exc
+            failures.append(BatchTaskResult(resource_id=spec.resource_id, task_id="", status="failed", error=str(exc)))
             failed_resource_ids.add(spec.resource_id)
             continue
+        deduped = bool(enqueue_result.get("deduped"))
         task_ids[spec.resource_id] = enqueue_result["task_id"]
+        if not deduped:
+            created_task_ids[spec.resource_id] = enqueue_result["task_id"]
+        enqueued.append(EnqueuedTask(resource_id=spec.resource_id, task_id=enqueue_result["task_id"], deduped=deduped))
+    return enqueued, failures
+
+
+async def enqueue_batch_atomically(
+    *,
+    project_name: str,
+    specs: list[TaskSpec],
+    user_id: str = DEFAULT_USER_ID,
+) -> list[EnqueuedTask]:
+    """Create the whole task set or none of it, without waiting for results.
+
+    The entry that already admitted the batch as a whole uses this so a queue
+    error mid-way cannot leave the first half of an approved batch running.
+    """
+
+    enqueued, _failures = await _enqueue_sequentially(
+        project_name=project_name,
+        specs=specs,
+        atomic=True,
+        user_id=user_id,
+    )
+    return enqueued
+
+
+async def batch_enqueue_and_wait(
+    *,
+    project_name: str,
+    specs: list[TaskSpec],
+    on_success: Callable[[BatchTaskResult], None] | None = None,
+    on_failure: Callable[[BatchTaskResult], None] | None = None,
+    atomic: bool = False,
+) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
+    """Async: enqueue sequentially, then gather-wait all tasks.
+
+    Runs entirely within a single event loop, so all asyncpg connections
+    are bound to the same loop — no cross-loop errors.
+
+    ``atomic`` turns the sequential enqueue into all-or-nothing: the first spec
+    that cannot be queued cancels the tasks this call already created and raises
+    :class:`BatchEnqueueAborted`, so a batch admitted as a whole never lands as a
+    half-submitted, half-billed set. Tasks the queue deduplicated onto an
+    already-active row are left alone — this call did not create them.
+
+    Returns ``(successes, failures)`` — two lists of ``BatchTaskResult``.
+    """
+    if not specs:
+        return [], []
+    # Phase 1 — Sequential enqueue (dependency resolution requires order).
+    enqueued, enqueue_failures = await _enqueue_sequentially(
+        project_name=project_name,
+        specs=specs,
+        atomic=atomic,
+    )
+    task_ids = {item.resource_id: item.task_id for item in enqueued}
 
     # Phase 2 — Parallel wait via asyncio.gather (single event loop), only for
     # specs that actually reached the queue.

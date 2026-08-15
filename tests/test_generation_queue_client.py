@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from lib.generation_queue_client import (
+    BatchEnqueueAborted,
     BatchTaskResult,
     TaskCancelledError,
     TaskSpec,
@@ -13,6 +14,7 @@ from lib.generation_queue_client import (
     WorkerOfflineError,
     batch_enqueue_and_wait_sync,
     enqueue_and_wait,
+    enqueue_batch_atomically,
     enqueue_task_only,
     wait_for_task,
 )
@@ -596,3 +598,110 @@ class TestBatchEnqueueAndWaitSync:
 
         assert len(failures) == 1
         assert failures[0].status == "interrupted"
+
+
+class TestEnqueueBatchAtomically:
+    """整批入队要么全建、要么一个不留。"""
+
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    async def test_creates_every_task_and_reports_dedup_per_resource(self, mock_enqueue):
+        mock_enqueue.side_effect = [
+            {"task_id": "t1", "deduped": False},
+            {"task_id": "t2", "deduped": True},
+        ]
+        specs = [
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U1"),
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U2"),
+        ]
+
+        enqueued = await enqueue_batch_atomically(project_name="demo", specs=specs)
+
+        assert [(item.resource_id, item.task_id, item.deduped) for item in enqueued] == [
+            ("E1U1", "t1", False),
+            ("E1U2", "t2", True),
+        ]
+
+    @patch("lib.generation_queue_client.get_generation_queue")
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    async def test_rolls_back_what_it_created_when_a_later_spec_fails(self, mock_enqueue, mock_queue):
+        """中途失败不留半批：已建任务撤销，调用方拿到中断位置。"""
+
+        mock_enqueue.side_effect = [
+            {"task_id": "t1", "deduped": False},
+            RuntimeError("queue unavailable"),
+        ]
+        cancelled: list[str] = []
+
+        class _Queue:
+            async def cancel_task(self, task_id: str) -> dict[str, list[str]]:
+                cancelled.append(task_id)
+                return {"cancelled": [task_id], "cancelling": []}
+
+        mock_queue.return_value = _Queue()
+        specs = [
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U1"),
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U2"),
+        ]
+
+        with pytest.raises(BatchEnqueueAborted) as aborted:
+            await enqueue_batch_atomically(project_name="demo", specs=specs)
+
+        assert aborted.value.resource_id == "E1U2"
+        assert aborted.value.rolled_back == ("t1",)
+        assert aborted.value.orphaned == ()
+        assert cancelled == ["t1"]
+
+    @patch("lib.generation_queue_client.get_generation_queue")
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    async def test_deduped_rows_are_left_alone_on_rollback(self, mock_enqueue, mock_queue):
+        """去重命中的任务不是本次创建的，回滚不得撤销别人的在途任务。"""
+
+        mock_enqueue.side_effect = [
+            {"task_id": "existing", "deduped": True},
+            RuntimeError("queue unavailable"),
+        ]
+        cancelled: list[str] = []
+
+        class _Queue:
+            async def cancel_task(self, task_id: str) -> dict[str, list[str]]:
+                cancelled.append(task_id)
+                return {"cancelled": [task_id], "cancelling": []}
+
+        mock_queue.return_value = _Queue()
+        specs = [
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U1"),
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U2"),
+        ]
+
+        with pytest.raises(BatchEnqueueAborted) as aborted:
+            await enqueue_batch_atomically(project_name="demo", specs=specs)
+
+        assert cancelled == []
+        assert aborted.value.rolled_back == ()
+
+    @patch("lib.generation_queue_client.get_generation_queue")
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    async def test_uncancellable_task_is_reported_as_orphaned(self, mock_enqueue, mock_queue):
+        """撤不掉的任务如实报告，不能装作整批已经干净收场。"""
+
+        mock_enqueue.side_effect = [
+            {"task_id": "t1", "deduped": False},
+            RuntimeError("queue unavailable"),
+        ]
+
+        class _Queue:
+            async def cancel_task(self, _task_id: str) -> dict[str, list[str]]:
+                # 任务已越过可取消窗口：队列什么也没改。
+                return {"cancelled": [], "cancelling": []}
+
+        mock_queue.return_value = _Queue()
+        specs = [
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U1"),
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U2"),
+        ]
+
+        with pytest.raises(BatchEnqueueAborted) as aborted:
+            await enqueue_batch_atomically(project_name="demo", specs=specs)
+
+        assert aborted.value.rolled_back == ()
+        assert aborted.value.orphaned == ("t1",)

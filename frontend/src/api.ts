@@ -56,6 +56,8 @@ import type {
   ReferenceProjectionAdmission,
   NarratedVideoDurationAdmission,
   ReferenceGenerationRequestOptions,
+  ReferenceBatchAdmission,
+  ReferenceBatchGenerateRequest,
   ReferenceRequestOptions,
   ScriptPreview,
   ScriptReviewState,
@@ -3019,6 +3021,23 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/generate`,
       { method: "POST", body: JSON.stringify(options) },
+    );
+  }
+
+  /**
+   * 批量生成的全有或全无准入：一次请求评估全部目标单元。
+   *
+   * 恒返回 200——`decision` 携带结局，只有 `admitted` 建了任务；
+   * `confirmation_required` 与 `blocked` 一个任务也没建，须按结论再决定下一步。
+   */
+  static async generateReferenceVideoBatch(
+    projectName: string,
+    episode: number,
+    payload: ReferenceBatchGenerateRequest = {},
+  ): Promise<ReferenceBatchAdmission> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/generate-batch`,
+      { method: "POST", body: JSON.stringify(payload) },
     );
   }
 

@@ -16,8 +16,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.config.service import ConfigService
 from lib.db.base import Base
 from lib.generation_queue_client import TaskSpec
+from lib.generation_result import GenerationSelectionMode
+from lib.reference_video.request_projection import ReferenceRequestOptions
 from server.agent_runtime.sdk_tools import enqueue_videos as mod
 from server.agent_runtime.sdk_tools._context import ToolContext
+from server.services import video_batch_admission as admission_mod
+from server.services.video_batch_admission import admit_reference_video_batch
 from server.services.video_caps import assert_audio_switch_supported
 
 _ALWAYS_AUDIBLE = "dashscope/wan2.7-i2v"
@@ -115,11 +119,27 @@ class TestStoryboardRouteGate:
 class TestReferenceRouteGate:
     """参考路线：按本批真正要入队的 unit 调用公共 request projection。"""
 
+    @staticmethod
+    def _stub_current_state(monkeypatch) -> None:
+        async def _no_active(**_kwargs):
+            return []
+
+        async def _passthrough_options(*, options, **_kwargs):
+            return options
+
+        monkeypatch.setattr(admission_mod, "get_active_tasks_for_resources", _no_active)
+        monkeypatch.setattr(admission_mod, "prepare_current_reference_video_request_options", _passthrough_options)
+
     async def test_projects_each_pending_unit_and_skips_done_units(self, tmp_path, monkeypatch):
         seen: list[str] = []
 
         class _Projection:
+            unit_id = "test"
             blocking_problems: tuple[object, ...] = ()
+            cost = None
+            planned_duration = 8
+            request_duration = None
+            current_visual_duration = None
 
             def to_advisory_payload(self):
                 return {"allowed": True, "unit_id": "test", "problems": []}
@@ -128,28 +148,29 @@ class TestReferenceRouteGate:
             seen.append("r2v" if unit.get("references") else "i2v")
             return _Projection()
 
-        monkeypatch.setattr(mod, "project_reference_unit_request", _record)
+        self._stub_current_state(monkeypatch)
+        monkeypatch.setattr(admission_mod, "project_reference_unit_request", _record)
         units = [
             {"unit_id": "E1U1", "references": [{"type": "character", "name": "张三"}]},
             {"unit_id": "E1U2", "references": [{"type": "character", "name": "李四"}]},
             {"unit_id": "E1U3", "references": []},
-            {"unit_id": "E1U4", "references": []},
         ]
-        await mod._reference_projection_preflight(
+        await admit_reference_video_batch(
+            project_name="demo",
             project={},
             project_path=tmp_path,
             script={"video_units": units},
+            script_file="episode_1.json",
             units=units,
-            skip_ids={"E1U4"},
-            spec_for=_unit_spec,
-            request_options=mod.ReferenceRequestOptions(),
-            builder=mod.GenerationResultBuilder("generate_video", mod.GenerationSelectionMode.MISSING_ONLY),
-            states={},
+            request_options=ReferenceRequestOptions(),
+            operation="generate_video",
+            selection=GenerationSelectionMode.MISSING_ONLY,
+            spec_check=_unit_spec,
         )
         assert seen == ["r2v", "r2v", "i2v"]
 
     async def test_units_that_cannot_be_enqueued_do_not_trigger_projection(self, tmp_path, monkeypatch):
-        """不可入队的 unit 不该触发解析：它本就不会被生成，为它拒绝整批是失实的。"""
+        """不可入队的 unit 不该触发解析：它本就不会被生成，判定停在更早的拒绝上。"""
         called = False
 
         async def _record(**_kwargs):
@@ -159,19 +180,22 @@ class TestReferenceRouteGate:
         def _reject(_unit):
             raise ValueError("没有 shots")
 
-        monkeypatch.setattr(mod, "project_reference_unit_request", _record)
-        await mod._reference_projection_preflight(
+        self._stub_current_state(monkeypatch)
+        monkeypatch.setattr(admission_mod, "project_reference_unit_request", _record)
+        admission = await admit_reference_video_batch(
+            project_name="demo",
             project={},
             project_path=tmp_path,
             script={"video_units": []},
+            script_file="episode_1.json",
             units=[{"unit_id": "E1U1", "references": []}],
-            skip_ids=set(),
-            spec_for=_reject,
-            request_options=mod.ReferenceRequestOptions(),
-            builder=mod.GenerationResultBuilder("generate_video", mod.GenerationSelectionMode.MISSING_ONLY),
-            states={},
+            request_options=ReferenceRequestOptions(),
+            operation="generate_video",
+            selection=GenerationSelectionMode.MISSING_ONLY,
+            spec_check=_reject,
         )
         assert called is False
+        assert not admission.admitted
 
 
 class _EpisodePM:
