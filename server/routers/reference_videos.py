@@ -757,18 +757,24 @@ async def generate_units_batch(
         )
         for unit_id in selection.unmatched_ids
     ]
-    # 没有可用 unit_id 的条目（外部编辑或 Agent 裸写产生）无法成为目标，但它属于这份剧本：
-    # 悄悄略过就等于让同批健康的 unit 独自入队计费。按诊断 id 记名，整批停下交由用户修剧本。
-    malformed = [
-        refused_ticket(
-            f"video_units[{index}]",
-            code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-            detail="该 unit 没有可用的 unit_id",
-            action=GenerationAction.FIX_INPUT,
-        )
-        for index, unit in enumerate(units)
-        if not str(unit.get("unit_id") or "")
-    ]
+    # 没有可用 unit_id 的条目（外部编辑或 Agent 裸写产生）无法成为目标，但在「缺失即生成」
+    # 的目标集合里它属于这次请求：悄悄略过就等于让同批健康的 unit 独自入队计费。按诊断 id
+    # 记名，整批停下交由用户修剧本。点名生成的目标集合由调用方给定，与之无关的坏条目不参与
+    # 判定，否则剧本里任何一处脏数据都会否决一次精确点名的重做。
+    malformed = (
+        [
+            refused_ticket(
+                f"video_units[{index}]",
+                code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                detail="该 unit 没有可用的 unit_id",
+                action=GenerationAction.FIX_INPUT,
+            )
+            for index, unit in enumerate(units)
+            if not str(unit.get("unit_id") or "")
+        ]
+        if requested_ids is None
+        else []
+    )
     admission = await admit_reference_video_batch(
         project_name=project_name,
         project=project,
@@ -783,7 +789,7 @@ async def generate_units_batch(
         ),
         confirmed_request_durations=body.confirmed_request_durations,
         spec_check=lambda unit: reference_unit_task_spec(unit, script_file),
-        # 产物状态不可读的 unit 被选目标环节排除在外，但它属于本次请求：不带进准入，
+        # 产物状态不可读的 unit 被选目标环节排除在外，但它属于这次请求：不带进准入，
         # 同批健康的 unit 会照常入队，剩下这一个被无声略过。
         extra_tickets=[*unmatched, *malformed, *artifact_state_tickets(selection.unavailable)],
     )

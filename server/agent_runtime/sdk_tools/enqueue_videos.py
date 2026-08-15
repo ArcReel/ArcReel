@@ -382,7 +382,7 @@ async def _admit_storyboard_specs(
     against the paid artifact, so the triples are built before the delivery payload
     is applied — the payload is a request fact, not part of the visual basis.
 
-    音频开关冲突是本次请求已知的配置缺口，在这里就折成逐目标的结论：留到提交前才检查，
+    音频开关冲突属于请求自身已知的配置缺口，在这里就折成逐目标的结论：留到提交前才检查，
     用户会先被问一遍跨档确认、同意之后才收到一句通用报错。
     """
 
@@ -1515,7 +1515,7 @@ def generate_video_all_tool(ctx: ToolContext):
                     candidate.artifact_path,
                 ),
             )
-            # 产物状态不可读的目标改由准入报告（折成准入票），结果契约里不再先记一遍：
+            # 产物状态不可读的目标由准入报告（折成准入票），结果契约里不重复记录：
             # 同一个 unit 记两次会让结果构造器 fail loud。
             unavailable_tickets = artifact_state_tickets(selection.unavailable)
             builder = GenerationResultBuilder.from_selection(_ALL_OPERATION, replace(selection, unavailable=()))
@@ -1545,7 +1545,7 @@ def generate_video_all_tool(ctx: ToolContext):
                 skip_ids=None,
                 voice_characters=voice_characters,
             )
-            # 产物状态不可读的场景被选目标环节排除在 targets 之外，但它属于本次请求：
+            # 产物状态不可读的场景被选目标环节排除在 targets 之外，但它属于这次请求：
             # 不带进准入，同批健康的场景会照常入队并计费，剩下这一个被无声略过。
             refused.extend(unavailable_tickets)
             if not specs and not refused:

@@ -106,8 +106,8 @@ def video_target_states(
 def artifact_state_tickets(states: Sequence[GenerationTargetState]) -> list[UnitAdmissionTicket]:
     """把产物状态不可读的目标折成准入票，让它们参加同一场全有或全无的判定。
 
-    这一态既不能判为可复用、也不能当作缺失去重生，各入口此前只把它记进结果契约，
-    同批健康的目标仍然入队并计费——那正是这道门要防的部分成批。
+    这一态既不能判为可复用、也不能当作缺失去重生。只记进结果契约而不带进准入的话，
+    同批健康的目标仍会入队并计费——那正是这道门要防的部分成批。
     """
 
     return [UnitAdmissionTicket(unit_id=state.unit_id, problems=(artifact_state_problem(state),)) for state in states]

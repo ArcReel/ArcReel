@@ -1701,7 +1701,7 @@ def test_generate_batch_skips_units_that_already_have_a_clip(
 def test_generate_batch_creates_zero_tasks_when_one_artifact_state_is_unreadable(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """产物状态读不出的 unit 属于本次请求：它没进准入，同批健康的 unit 就会照常计费。"""
+    """产物状态读不出的 unit 属于这次请求：它没进准入，同批健康的 unit 就会照常计费。"""
 
     from lib.artifact_manifest import ArtifactBlocker, ArtifactStatus
     from lib.generation_result import GenerationCandidate, GenerationTargetState
@@ -1788,3 +1788,30 @@ def test_generate_batch_reports_malformed_units_instead_of_shrinking_the_batch(
     ]
     assert len(invalid) == 3, codes
     assert codes[first] == ["generation_batch_admission_withheld"]
+
+
+@pytest.mark.integration
+def test_generate_batch_explicit_ids_ignore_unrelated_malformed_units(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """点名重做的目标集合由调用方给定：剧本别处的坏条目不参与判定，不否决这次点名。"""
+
+    from lib.project_manager import ProjectManager
+    from server.routers import reference_videos as router_mod
+
+    first = _seed_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    pm: ProjectManager = router_mod.get_project_manager()
+    script = pm.load_script("demo", "scripts/episode_1.json")
+    healthy = next(unit for unit in script["video_units"] if unit["unit_id"] == first)
+    script["video_units"] = [healthy, {**healthy, "unit_id": ""}]
+    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    resp = client.post(BATCH_ENDPOINT, json={"unit_ids": [first]})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "admitted"
+    assert [call["resource_id"] for call in enqueued] == [first]
