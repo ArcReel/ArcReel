@@ -1904,6 +1904,34 @@ def test_generate_batch_reports_a_duplicated_unit_id(client: TestClient, monkeyp
 
 
 @pytest.mark.integration
+def test_a_duplicate_marker_never_shadows_a_real_unit_id(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """重复条目按 `id#序号` 记名，剧本里恰好有同名 unit 时另起一个名字。"""
+
+    from lib.project_manager import ProjectManager
+    from server.routers import reference_videos as router_mod
+
+    first = _seed_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    pm: ProjectManager = router_mod.get_project_manager()
+    script = pm.load_script("demo", "scripts/episode_1.json")
+    healthy = next(unit for unit in script["video_units"] if unit["unit_id"] == first)
+    script["video_units"] = [healthy, {**healthy}, {**healthy, "unit_id": f"{first}#1"}]
+    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    resp = client.post(BATCH_ENDPOINT, json={})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "blocked"
+    assert enqueued == []
+    unit_ids = [item["unit_id"] for item in body["units"]]
+    assert len(unit_ids) == len(set(unit_ids)), unit_ids
+    assert f"{first}#1*" in unit_ids
+
+
+@pytest.mark.integration
 def test_generate_batch_refuses_a_path_like_unit_id_before_enqueue(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

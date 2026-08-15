@@ -595,7 +595,7 @@ def _screen_storyboard_items(
     tickets: list[UnitAdmissionTicket] = []
     seen: set[str] = set()
     taken = {
-        str(_storyboard_item_id(item, id_field) or "")
+        str(_storyboard_item_id(item, id_field) or "").strip()
         for item in items
         if isinstance(item, dict) and isinstance(_storyboard_item_id(item, id_field), str | int)
     }
@@ -642,7 +642,7 @@ def _screen_storyboard_items(
         if item_id in seen:
             tickets.append(
                 refused_ticket(
-                    f"{item_id}#{index}",
+                    diagnostic_unit_id(f"{item_id}#{index}", taken),
                     code=GenerationProblemCode.UNIT_REQUEST_INVALID,
                     detail=f"ID {item_id} 在剧本中重复出现",
                     action=GenerationAction.FIX_INPUT,

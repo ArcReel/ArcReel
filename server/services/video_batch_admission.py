@@ -160,7 +160,7 @@ def screen_script_entries(
     tickets: list[UnitAdmissionTicket] = []
     seen: set[str] = set()
     taken = {
-        str(entry.get("unit_id") or "")
+        str(entry.get("unit_id") or "").strip()
         for entry in entries
         if isinstance(entry, dict) and isinstance(entry.get("unit_id"), str | int)
     }
@@ -196,7 +196,7 @@ def screen_script_entries(
         if unit_id in seen:
             tickets.append(
                 refused_ticket(
-                    f"{unit_id}#{index}",
+                    diagnostic_unit_id(f"{unit_id}#{index}", taken),
                     code=GenerationProblemCode.UNIT_REQUEST_INVALID,
                     detail=f"unit {unit_id} 在剧本中重复出现",
                     action=GenerationAction.FIX_INPUT,
