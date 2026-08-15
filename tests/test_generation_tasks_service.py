@@ -554,16 +554,18 @@ class TestGenerationTasks:
         mode_items = get_storyboard_items({"content_mode": "drama", "scenes": []})
         assert mode_items[1] == "scene_id"
 
-        prompt = generation_tasks._normalize_storyboard_prompt("text", "Anime")
-        assert prompt == append_image_negative_tail("text")
-        assert generation_tasks._normalize_storyboard_prompt(prompt, "Anime") == prompt
+        prompt = generation_tasks._normalize_storyboard_prompt("text", "Anime", "cinematic")
+        assert prompt == append_image_negative_tail("Style: Anime\nVisual style: cinematic\n\ntext")
+        assert generation_tasks._normalize_storyboard_prompt(prompt, "Anime", "cinematic") == prompt
 
         structured_input = {
             "scene": "林清坐在窗边",
             "composition": {"shot_type": "Close-up", "lighting": "暖光", "ambiance": "薄雾"},
         }
-        structured = generation_tasks._normalize_storyboard_prompt(structured_input, "Anime")
-        assert structured == append_image_negative_tail(image_prompt_to_yaml(structured_input, "Anime"))
+        structured = generation_tasks._normalize_storyboard_prompt(structured_input, "Anime", "cinematic")
+        assert structured == append_image_negative_tail(
+            f"Visual style: cinematic\n\n{image_prompt_to_yaml(structured_input, 'Anime')}"
+        )
 
         with pytest.raises(ValueError):
             generation_tasks._normalize_storyboard_prompt({"scene": ""}, "Anime")
@@ -1056,6 +1058,7 @@ class TestGenerationTasks:
             resource_id="E1S02",
             image_prompt="direct prompt",
             style="Anime",
+            style_description="cinematic",
             aspect_ratio="9:16",
             references=(
                 VisualReference(
@@ -1184,7 +1187,12 @@ class TestGenerationTasks:
         await generation_tasks.execute_storyboard_task(
             "demo",
             "E1S01",
-            {"script_file": "episode_1.json", "prompt": "queued prompt"},
+            {
+                "script_file": "episode_1.json",
+                "prompt": "queued prompt",
+                "storyboard_style": "Anime",
+                "storyboard_style_description": "cinematic",
+            },
             task_id="storyboard-task",
         )
 
@@ -1192,6 +1200,7 @@ class TestGenerationTasks:
             resource_id="E1S01",
             image_prompt="queued prompt",
             style="Anime",
+            style_description="cinematic",
             aspect_ratio="9:16",
             references=(),
         )
@@ -1199,11 +1208,13 @@ class TestGenerationTasks:
             resource_id="E1S01",
             image_prompt="latest persisted prompt",
             style="Anime",
+            style_description="cinematic",
             aspect_ratio="9:16",
             references=(),
         )
         assert captured == [expected]
         assert captured[0].digest != latest.digest
+        assert fake_generator.image_calls[0]["prompt"].startswith("Style: Anime\nVisual style: cinematic")
 
     @pytest.mark.unit
     async def test_asset_sheet_registers_generation_frozen_basis_when_definition_changes_in_flight(
@@ -3747,7 +3758,8 @@ class TestAdProductFidelityStoryboard:
         assert all(isinstance(r, dict) and "保温杯" in r["label"] for r in refs[:2])
         # 附高保真还原指令
         prompt = generator.image_calls[0]["prompt"]
-        assert prompt.startswith("产品特写")
+        assert prompt.startswith("Style: Anime\nVisual style: cinematic")
+        assert "\n\n产品特写\n\n" in prompt
         assert "「保温杯」" in prompt
 
     @pytest.mark.unit
@@ -3812,7 +3824,8 @@ class TestAdProductFidelityStoryboard:
         assert [reference["label"] for reference in refs] == ["Alice", "祠堂"]
         assert generator.image_reference_bytes[0] == [b"png", b"png"]
         prompt = generator.image_calls[0]["prompt"]
-        assert prompt.startswith("氛围开场")
+        assert prompt.startswith("Style: Anime\nVisual style: cinematic")
+        assert "\n\n氛围开场\n\n" in prompt
         assert "产品高保真还原" not in prompt
 
     @pytest.mark.unit

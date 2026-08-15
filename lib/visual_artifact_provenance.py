@@ -15,7 +15,7 @@ from pathlib import Path
 
 from lib.artifact_manifest import ArtifactBasis
 from lib.asset_types import ASSET_TYPES, normalize_asset_name
-from lib.prompt_utils import normalize_style
+from lib.prompt_utils import normalize_style, project_storyboard_image_prompt
 from lib.reference_video.request_projection import ResolvedReferenceAsset
 from lib.reference_video.shot_parser import match_dialogue_line, match_voiceover_line, strip_shot_header
 
@@ -158,21 +158,25 @@ def build_storyboard_image_visual_basis(
     image_prompt: object,
     style: str,
     aspect_ratio: str,
+    style_description: str = "",
     references: Sequence[VisualReference] = (),
 ) -> ArtifactBasis:
     """Describe one ordinary storyboard image and its actual ordered image inputs."""
 
     identity = _require_non_empty("resource_id", resource_id)
     _require_string("style", style)
-    prompt, style_input = _project_storyboard_image_prompt(image_prompt, style)
+    _require_string("style_description", style_description)
+    prompt, style_input = project_storyboard_image_prompt(image_prompt, style)
     inputs: dict[str, object] = {
         "resource_id": identity,
         "image_prompt": prompt,
         "canvas": {"aspect_ratio": _require_non_empty("aspect_ratio", aspect_ratio)},
         "references": _reference_evidence(references),
     }
-    if style_input is not None:
+    if style_input or not isinstance(prompt, str):
         inputs["style"] = style_input
+    if normalized_description := style_description.strip():
+        inputs["style_description"] = normalized_description
     return ArtifactBasis.build(
         "artifact-visual/storyboard-image",
         kind_version=1,
@@ -414,32 +418,6 @@ def _reference_visual_lines(text: str) -> list[str]:
             continue
         lines.append(line)
     return lines
-
-
-def _project_storyboard_image_prompt(image_prompt: object, style: str) -> tuple[object, str | None]:
-    if isinstance(image_prompt, str):
-        prompt = image_prompt.strip()
-        if not prompt:
-            raise ValueError("image_prompt must not be empty")
-        return prompt, None
-    if not isinstance(image_prompt, Mapping):
-        raise ValueError("image_prompt must be a string or object")
-    scene = image_prompt.get("scene")
-    if not isinstance(scene, str) or not scene.strip():
-        raise ValueError("image_prompt.scene must be a non-empty string")
-    raw_composition = image_prompt.get("composition")
-    composition = raw_composition if isinstance(raw_composition, Mapping) else {}
-    return (
-        {
-            "scene": scene.strip(),
-            "composition": {
-                "shot_type": str(composition.get("shot_type") or "Medium Shot"),
-                "lighting": str(composition.get("lighting") or ""),
-                "ambiance": str(composition.get("ambiance") or ""),
-            },
-        },
-        normalize_style(style),
-    )
 
 
 def _validate_grid_members(

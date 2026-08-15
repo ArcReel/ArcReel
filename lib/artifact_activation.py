@@ -503,9 +503,10 @@ class _Planner:
             self._planned.add("storyboards")
             return
         style = self.project.get("style", "")
+        style_description = self.project.get("style_description", "")
         aspect_ratio = self.project.get("aspect_ratio") or "9:16"
-        if not isinstance(style, str) or not isinstance(aspect_ratio, str):
-            raise ValueError("project storyboard style and aspect ratio must be strings")
+        if not isinstance(style, str) or not isinstance(style_description, str) or not isinstance(aspect_ratio, str):
+            raise ValueError("project storyboard style, style description, and aspect ratio must be strings")
         for episode in self.episodes:
             storyboard_items, id_field, char_field, scene_field, prop_field = get_storyboard_items(episode.script)
             grid_members = self._grid_members_by_resource(episode.episode)
@@ -557,6 +558,7 @@ class _Planner:
                         resource_id=resource_id,
                         image_prompt=item.get("image_prompt"),
                         style=style,
+                        style_description=style_description,
                         aspect_ratio=aspect_ratio,
                         references=references,
                     )

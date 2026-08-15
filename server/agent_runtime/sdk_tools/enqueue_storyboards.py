@@ -22,7 +22,7 @@ from lib.generation_queue_client import (
     TaskSpec,
     batch_enqueue_and_wait,
 )
-from lib.prompt_utils import image_prompt_to_yaml, is_structured_image_prompt, normalize_style
+from lib.prompt_builders import build_storyboard_prompt
 from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import (
@@ -77,23 +77,7 @@ def _build_prompt(
     image_prompt = segment.get("image_prompt", "")
     if not image_prompt:
         raise ValueError(f"片段/场景 {segment[id_field]} 缺少 image_prompt 字段")
-
-    style = normalize_style(style)
-    structured = is_structured_image_prompt(image_prompt)
-
-    style_parts: list[str] = []
-    # 结构化 prompt 的 style 已写入 YAML 的 Style 字段（见 image_prompt_to_yaml），前缀不再重复加
-    # Style:，避免 Style 双重注入；非结构化（纯字符串）prompt 不含 Style，前缀补上。
-    if style and not structured:
-        style_parts.append(f"Style: {style}")
-    if style_description:
-        style_parts.append(f"Visual style: {style_description}")
-    style_prefix = "\n".join(style_parts) + "\n\n" if style_parts else ""
-
-    if structured:
-        yaml_prompt = image_prompt_to_yaml(image_prompt, style)
-        return f"{style_prefix}{yaml_prompt}"
-    return f"{style_prefix}{image_prompt}"
+    return build_storyboard_prompt(image_prompt, style, style_description)
 
 
 def _select_items(
@@ -136,14 +120,19 @@ def _build_specs(
     specs: list[TaskSpec] = []
     for plan in plans:
         item = items_by_id[plan.resource_id]
-        prompt = _build_prompt(item, style, style_description, id_field)
+        image_prompt = item.get("image_prompt")
+        _build_prompt(item, style, style_description, id_field)
         specs.append(
             TaskSpec.from_request(
                 task_type="storyboard",
                 media_type="image",
                 resource_id=plan.resource_id,
-                prompt=prompt,
+                prompt=image_prompt,
                 script_file=script_filename,
+                extra_payload={
+                    "storyboard_style": style,
+                    "storyboard_style_description": style_description,
+                },
                 dependency_resource_id=plan.dependency_resource_id,
                 dependency_group=plan.dependency_group,
                 dependency_index=plan.dependency_index,

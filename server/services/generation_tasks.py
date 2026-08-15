@@ -90,12 +90,11 @@ from lib.prompt_builders import (
     build_product_prompt,
     build_prop_prompt,
     build_scene_prompt,
+    build_storyboard_prompt,
 )
 from lib.prompt_utils import (
     build_drama_video_prompt,
     build_drama_video_prompt_from_legacy_dialogue,
-    image_prompt_to_yaml,
-    is_structured_image_prompt,
     strip_voice_profiles,
 )
 from lib.prompt_utils import (
@@ -379,36 +378,10 @@ def _commit_staged_formal_image(
     )
 
 
-def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
-    """归一化分镜图 prompt 并在末尾追加统一文本化的反向提示词。"""
-    from lib.prompt_builders import append_image_negative_tail
+def _normalize_storyboard_prompt(prompt: str | dict, style: str, style_description: str = "") -> str:
+    """Render one semantic storyboard prompt through the shared provider projection."""
 
-    if isinstance(prompt, str):
-        if not prompt.strip():
-            raise ValueError("prompt must not be empty")
-        return append_image_negative_tail(prompt)
-
-    if not isinstance(prompt, dict):
-        raise ValueError("prompt must be a string or object")
-
-    if not is_structured_image_prompt(prompt):
-        raise ValueError("prompt must be a string or include scene/composition")
-
-    scene_text = str(prompt.get("scene", "")).strip()
-    if not scene_text:
-        raise ValueError("prompt.scene must not be empty")
-
-    composition_raw = prompt.get("composition")
-    composition: dict = composition_raw if isinstance(composition_raw, dict) else {}
-    normalized_prompt = {
-        "scene": scene_text,
-        "composition": {
-            "shot_type": str(composition.get("shot_type") or "Medium Shot"),
-            "lighting": str(composition.get("lighting", "") or ""),
-            "ambiance": str(composition.get("ambiance", "") or ""),
-        },
-    }
-    return append_image_negative_tail(image_prompt_to_yaml(normalized_prompt, style))
+    return build_storyboard_prompt(prompt, style, style_description)
 
 
 def _get_model_default_duration(provider_name: str, model_name: str | None) -> int:
@@ -1420,7 +1393,14 @@ async def execute_storyboard_task(
             if _prev_path is not None and _target_index > 0
             else None
         )
-        _prompt_text = _normalize_storyboard_prompt(prompt, _project.get("style", ""))
+        _style = payload.get("storyboard_style", _project.get("style", ""))
+        _style_description = payload.get(
+            "storyboard_style_description",
+            _project.get("style_description", ""),
+        )
+        if not isinstance(_style, str) or not isinstance(_style_description, str):
+            raise ValueError("storyboard style and style description must be strings")
+        _prompt_text = _normalize_storyboard_prompt(prompt, _style, _style_description)
         _visual_references: list[VisualReference] = []
         _ref_images = _collect_reference_images(
             _project,
@@ -1464,7 +1444,8 @@ async def execute_storyboard_task(
             _basis = build_storyboard_image_visual_basis(
                 resource_id=resource_id,
                 image_prompt=prompt,
-                style=str(_project.get("style") or ""),
+                style=_style,
+                style_description=_style_description,
                 aspect_ratio=get_aspect_ratio(_project, "storyboards"),
                 references=_frozen.visual_references,
             )

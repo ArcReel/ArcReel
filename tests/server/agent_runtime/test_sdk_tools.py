@@ -945,9 +945,12 @@ async def test_generate_narration_audio_rejects_path_in_script_arg(fake_ctx: Too
 async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
 
+    captured: list[Any] = []
+
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         from lib.generation_queue_client import BatchTaskResult
 
+        captured.extend(specs)
         succ = [
             BatchTaskResult(
                 resource_id=s.resource_id,
@@ -962,9 +965,15 @@ async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) ->
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     # Strip storyboard_image to force selection
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}  # type: ignore[attr-defined]
+    semantic_prompt = {
+        "scene": "村口黄昏",
+        "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+    }
+    fake_ctx.pm.script_payload["segments"][0]["image_prompt"] = semantic_prompt  # type: ignore[attr-defined]
     tool_obj = generate_storyboards_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
+    assert captured[0].payload["prompt"] == semantic_prompt
 
 
 @pytest.mark.integration
@@ -4513,7 +4522,8 @@ class TestBuildPrompt:
         assert out.count("Style:") == 1
         assert "画风：" not in out
         assert out.startswith("Style: 真人电视剧风格")
-        assert out.endswith("村口黄昏的长镜头")
+        assert "\n\n村口黄昏的长镜头\n\n" in out
+        assert out.endswith("画面避免：水印、多余文字、Logo。")
 
 
 # ---------------------------------------------------------------------------

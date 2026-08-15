@@ -199,7 +199,7 @@ def test_storyboard_image_basis_projects_content_canvas_and_actual_references(tm
     )
 
 
-def test_legacy_storyboard_text_ignores_style_that_is_not_sent_to_the_request(tmp_path: Path) -> None:
+def test_storyboard_text_basis_tracks_the_style_sent_to_the_request(tmp_path: Path) -> None:
     reference = tmp_path / "reference.png"
     reference.write_bytes(b"visual")
     kwargs = {
@@ -209,10 +209,12 @@ def test_legacy_storyboard_text_ignores_style_that_is_not_sent_to_the_request(tm
         "references": (VisualReference(path=reference, role="asset_sheet"),),
     }
 
-    first = build_storyboard_image_visual_basis(style="水墨", **kwargs)
-    changed_style = build_storyboard_image_visual_basis(style="写实", **kwargs)
+    first = build_storyboard_image_visual_basis(style="水墨", style_description="柔光", **kwargs)
+    changed_style = build_storyboard_image_visual_basis(style="写实", style_description="柔光", **kwargs)
+    changed_description = build_storyboard_image_visual_basis(style="水墨", style_description="硬光", **kwargs)
 
-    assert changed_style.digest == first.digest
+    assert changed_style.digest != first.digest
+    assert changed_description.digest != first.digest
 
 
 def _grid_members(*, second_image: str = "雨巷", first_action: str = "阿黎转身") -> tuple[GridStoryboardVisual, ...]:
