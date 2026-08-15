@@ -23,6 +23,7 @@ from lib.artifact_manifest import ArtifactKey
 from lib.batch_admission import (
     BatchAdmission,
     UnitAdmissionTicket,
+    refused_ticket,
 )
 from lib.config.resolver import video_bucket_for_generation_mode
 from lib.db import async_session_factory
@@ -349,10 +350,33 @@ async def admit_reference_video_batch(
     )
 
     tickets: list[UnitAdmissionTicket] = list(extra_tickets)
-    for unit in units:
+    seen_ids: set[str] = set()
+    for index, unit in enumerate(units):
         unit_id = str(unit.get("unit_id") or "")
+        # 脏数据（缺 unit_id、同一个 id 出现多次）不能被悄悄丢出目标集合：剩下的健康 unit
+        # 会独自入队并计费，正是这道门要防的部分成批。缺 id 的按诊断 id 记名报告，重复的
+        # 拒收副本，两者都让整批停在这里由用户去修剧本。
         if not unit_id:
+            tickets.append(
+                refused_ticket(
+                    f"video_units[{index}]",
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail="该 unit 没有可用的 unit_id",
+                    action=GenerationAction.FIX_INPUT,
+                )
+            )
             continue
+        if unit_id in seen_ids:
+            tickets.append(
+                refused_ticket(
+                    f"{unit_id}#{index}",
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail=f"unit_id {unit_id} 在剧本中重复出现",
+                    action=GenerationAction.FIX_INPUT,
+                )
+            )
+            continue
+        seen_ids.add(unit_id)
         problems: list[GenerationProblem] = []
         if unit_id in conflicts:
             problems.append(_active_task_problem(conflicts[unit_id]))
@@ -374,25 +398,38 @@ async def admit_reference_video_batch(
             continue
 
         unit_options = request_options_for_unit(request_options, unit_id, confirmed_request_durations)
-        current_options = await prepare_current_reference_video_request_options(
-            project=project,
-            script=script,
-            script_file=script_file,
-            unit=unit,
-            project_path=project_path,
-            options=unit_options,
-            project_name=project_name,
-            tts_in_progress=unit_id in active_tts,
-        )
-        projection = await project_reference_unit_request(
-            project=project,
-            script=script,
-            unit=unit,
-            project_path=project_path,
-            options=current_options,
-            tts_in_progress=unit_id in active_tts,
-            current_options_materialized=True,
-        )
+        try:
+            current_options = await prepare_current_reference_video_request_options(
+                project=project,
+                script=script,
+                script_file=script_file,
+                unit=unit,
+                project_path=project_path,
+                options=unit_options,
+                project_name=project_name,
+                tts_in_progress=unit_id in active_tts,
+            )
+            projection = await project_reference_unit_request(
+                project=project,
+                script=script,
+                unit=unit,
+                project_path=project_path,
+                options=current_options,
+                tts_in_progress=unit_id in active_tts,
+                current_options_materialized=True,
+            )
+        except ValueError as exc:
+            # 投影读的是剧本上的值（如 duration_seconds）：脏值在这里抛出去会让整个请求塌成
+            # 一句通用错误，其余 unit 的结论无从得知。按逐 unit 的可入队性问题如实报告。
+            tickets.append(
+                refused_ticket(
+                    unit_id,
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail=f"请求投影失败：{exc}",
+                    action=GenerationAction.FIX_INPUT,
+                )
+            )
+            continue
         tickets.append(
             await _reference_ticket(
                 projection=projection,

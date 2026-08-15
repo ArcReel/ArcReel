@@ -757,6 +757,18 @@ async def generate_units_batch(
         )
         for unit_id in selection.unmatched_ids
     ]
+    # 没有可用 unit_id 的条目（外部编辑或 Agent 裸写产生）无法成为目标，但它属于这份剧本：
+    # 悄悄略过就等于让同批健康的 unit 独自入队计费。按诊断 id 记名，整批停下交由用户修剧本。
+    malformed = [
+        refused_ticket(
+            f"video_units[{index}]",
+            code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+            detail="该 unit 没有可用的 unit_id",
+            action=GenerationAction.FIX_INPUT,
+        )
+        for index, unit in enumerate(units)
+        if not str(unit.get("unit_id") or "")
+    ]
     admission = await admit_reference_video_batch(
         project_name=project_name,
         project=project,
@@ -773,7 +785,7 @@ async def generate_units_batch(
         spec_check=lambda unit: reference_unit_task_spec(unit, script_file),
         # 产物状态不可读的 unit 被选目标环节排除在外，但它属于本次请求：不带进准入，
         # 同批健康的 unit 会照常入队，剩下这一个被无声略过。
-        extra_tickets=[*unmatched, *artifact_state_tickets(selection.unavailable)],
+        extra_tickets=[*unmatched, *malformed, *artifact_state_tickets(selection.unavailable)],
     )
     payload = _admission_payload(admission, _t)
     payload["skipped_unit_ids"] = sorted(state.unit_id for state in selection.skipped)

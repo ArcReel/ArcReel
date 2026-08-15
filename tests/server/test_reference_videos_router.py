@@ -1748,3 +1748,43 @@ def test_reference_unit_task_spec_rejects_a_non_list_shots() -> None:
 
     with pytest.raises(ValueError, match="shots 必须是数组"):
         reference_unit_task_spec({"unit_id": "E1U1", "shots": 42}, "scripts/episode_1.json")
+
+
+@pytest.mark.integration
+def test_generate_batch_reports_malformed_units_instead_of_shrinking_the_batch(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """缺 id、重复 id、脏 duration 的 unit 都进结论：把它们丢出目标集合，健康的 unit 会独自计费。"""
+
+    from lib.project_manager import ProjectManager
+    from server.routers import reference_videos as router_mod
+
+    first = _seed_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    pm: ProjectManager = router_mod.get_project_manager()
+    script = pm.load_script("demo", "scripts/episode_1.json")
+    healthy = next(unit for unit in script["video_units"] if unit["unit_id"] == first)
+    script["video_units"] = [
+        healthy,
+        {**healthy, "unit_id": ""},
+        {**healthy},
+        {**healthy, "unit_id": "E1U9", "duration_seconds": "abc"},
+    ]
+    # 直接写盘：脏数据是外部编辑或 Agent 裸写产生的，写入校验本就不会放它过去。
+    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    resp = client.post(BATCH_ENDPOINT, json={})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "blocked"
+    assert body["task_ids"] == []
+    assert enqueued == []
+    codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
+    invalid = [
+        unit_id for unit_id, problem_codes in codes.items() if problem_codes == ["generation_unit_request_invalid"]
+    ]
+    assert len(invalid) == 3, codes
+    assert codes[first] == ["generation_batch_admission_withheld"]
