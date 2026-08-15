@@ -165,6 +165,74 @@ export interface ReferenceDurationPrecheck {
 }
 
 /**
+ * 批量视频生成的准入结论——「全有或全无」：三种结局都是评估成功（HTTP 200），
+ * 只有 `admitted` 创建了任务；`confirmation_required` 与 `blocked` 一个任务也没建。
+ */
+export type ReferenceBatchDecision = "admitted" | "confirmation_required" | "blocked";
+
+/** 单个目标单元的准入缺口。`message` 已按用户语言本地化，可直接展示。 */
+export interface ReferenceBatchProblem {
+  code: string;
+  detail?: string | null;
+  action?: string | null;
+  params?: Record<string, unknown>;
+  message?: string | null;
+}
+
+/**
+ * 每个目标单元的结论。受阻时本身没有问题的单元也带一条
+ * `generation_batch_admission_withheld`，其 params.blocked_unit_ids 指出是谁拦下的。
+ */
+export interface ReferenceBatchUnitOutcome {
+  unit_id: string;
+  /** 该单元自身的判定；受阻批次里它仍可能为 true。 */
+  admitted: boolean;
+  /** 自身没问题、但被同批其它单元连带扣下。 */
+  withheld?: boolean;
+  request_duration_seconds?: number | null;
+  current_duration_seconds?: number | null;
+  request_cost?: VideoRequestCostQuote | null;
+  problems: ReferenceBatchProblem[];
+  projection?: unknown;
+}
+
+/**
+ * 按申请档位分组的确认项；`cost_amount` 为 null 表示该档报价不全，不展示合计。
+ * `request_duration_seconds` 为 null 表示该组档位未解析出来，界面按「档位待定」陈述。
+ */
+export interface ReferenceBatchConfirmationTier {
+  request_duration_seconds: number | null;
+  unit_count: number;
+  unit_ids: string[];
+  cost_amount?: number | null;
+  cost_currency?: string | null;
+}
+
+export interface ReferenceBatchAdmission {
+  decision: ReferenceBatchDecision;
+  operation: string;
+  selection: "explicit" | "missing_only";
+  narration_delivery: "post_production" | "use_tts";
+  units: ReferenceBatchUnitOutcome[];
+  confirmation?: { tiers: ReferenceBatchConfirmationTier[] } | null;
+  skipped_unit_ids: string[];
+  /** 仅 admitted 时非空 */
+  task_ids: string[];
+  /** 逐 unit 的任务行，供调用方各自兑现自己的乐观占用标记。 */
+  task_ids_by_unit: Record<string, string>;
+  deduped: boolean;
+}
+
+/** 批量端点请求体：省略 unit_ids 表示「缺失即生成」，空数组会被后端拒绝。 */
+export interface ReferenceBatchGenerateRequest {
+  unit_ids?: string[];
+  /** 必填：不声明就等于让这次批量绕过旁白交付方式的选择。 */
+  narration_delivery: "post_production" | "use_tts";
+  /** 用户已确认的申请档位，按 unit 给 */
+  confirmed_request_durations?: Record<string, number>;
+}
+
+/**
  * 分镜文稿的读时派生结果——编辑器解析预览面板的内容源。
  *
  * 文稿是唯一真相：shots / references / utterances 都是机械派生物，不落盘。

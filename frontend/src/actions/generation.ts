@@ -17,7 +17,11 @@
 import { API } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
-import type { ReferenceGenerationRequestOptions } from "@/types";
+import type {
+  ReferenceBatchAdmission,
+  ReferenceBatchGenerateRequest,
+  ReferenceGenerationRequestOptions,
+} from "@/types";
 import {
   useTasksStore,
   type ImageEditResourceKind,
@@ -75,12 +79,13 @@ function markScriptFile(projectName: string, taskType: string, scriptFile: strin
 async function submit<T>(
   marks: readonly OptimisticHandle[],
   request: () => Promise<T>,
-  taskIdsOf: (res: T) => string[],
+  taskIdsOf: (res: T, markIndex: number) => string[],
 ): Promise<T> {
   try {
     const res = await request();
-    const taskIds = taskIdsOf(res);
-    for (const m of marks) m.settle(taskIds);
+    // 逐标记取自己的任务行：标记要等它的 task_id 全部落库才让位，把整批清单发给每个标记
+    // 会让每个资源都等到全批出现，而任务列表快照只保留最新若干行，早的行可能再不出现。
+    marks.forEach((m, index) => m.settle(taskIdsOf(res, index)));
     return res;
   } catch (e) {
     for (const m of marks) m.rollback();
@@ -301,4 +306,39 @@ export async function enqueueReferenceVideoUnit(
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:reference_generate_queued"), "info");
   return { taskIds: [res.task_id], deduped: res.deduped };
+}
+
+/**
+ * 批量视频生成：一次请求走全有或全无准入，由服务端评估全部目标单元。
+ *
+ * 三种结局都是评估成功，只有 `admitted` 建了任务——`confirmation_required` 与
+ * `blocked` 一个任务也没建，故乐观占用标记随即整批回滚，由调用方按结论展示确认或缺口。
+ * 请求体省略 unit_ids 时（缺失即生成）目标集合由服务端决定，前端无从打标，此时不打标。
+ */
+export async function enqueueReferenceVideoBatch(
+  projectName: string,
+  episode: number,
+  payload: ReferenceBatchGenerateRequest,
+): Promise<ReferenceBatchAdmission> {
+  const unitIds = payload.unit_ids ?? [];
+  const marks = unitIds.map((unitId) =>
+    markResource(projectName, "reference_video", unitId, "reference_video"),
+  );
+  const res = await submit(
+    marks,
+    () => API.generateReferenceVideoBatch(projectName, episode, payload),
+    (admission, index) => {
+      if (admission.decision !== "admitted") return [];
+      const taskId = admission.task_ids_by_unit[unitIds[index]];
+      return taskId === undefined ? [] : [taskId];
+    },
+  );
+  if (res.decision === "admitted") {
+    notifyEnqueued(
+      res.deduped,
+      i18n.t("dashboard:reference_batch_queued", { count: res.task_ids.length }),
+      "info",
+    );
+  }
+  return res;
 }

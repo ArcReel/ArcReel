@@ -56,6 +56,8 @@ import type {
   ReferenceProjectionAdmission,
   NarratedVideoDurationAdmission,
   ReferenceGenerationRequestOptions,
+  ReferenceBatchAdmission,
+  ReferenceBatchGenerateRequest,
   ReferenceRequestOptions,
   ScriptPreview,
   ScriptReviewState,
@@ -453,6 +455,29 @@ function normalizeExportDiagnostics(value: unknown): ExportDiagnostics {
 const API_BASE = "/api/v1";
 
 /**
+ * 从后端 detail 中取一句可读的说明。
+ *
+ * 后端把 `{ code, message, ... }` 这样的信封当 detail 抛出的场合（如批量入队中途失败后的
+ * 撤销结果），只按字符串与数组取字会把已翻译的说明整段丢掉，用户只收到一句「请求失败」。
+ */
+function messageFromDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail || fallback;
+  if (Array.isArray(detail) && detail.length > 0) {
+    return (
+      detail
+        .map((e) => (typeof e === "string" ? e : (e as { msg?: string } | null)?.msg))
+        .filter(Boolean)
+        .join("; ") || fallback
+    );
+  }
+  if (detail && typeof detail === "object") {
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === "string" && message) return message;
+  }
+  return fallback;
+}
+
+/**
  * 检查 fetch 响应状态，抛出包含后端错误信息的 Error。
  * 用于不经过 API.request() 的自定义 fetch 调用。
  */
@@ -472,7 +497,7 @@ async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<vo
     if (isSpeechAdmission(detail)) {
       throw new SpeechAdmissionError(detail);
     }
-    throw new Error(typeof detail === "string" ? detail || fallbackMsg : fallbackMsg);
+    throw new Error(messageFromDetail(detail, fallbackMsg));
   }
 }
 
@@ -786,13 +811,7 @@ class API {
       if (isSpeechAdmission(error.detail)) {
         throw new SpeechAdmissionError(error.detail);
       }
-      let message = "请求失败";
-      if (typeof error.detail === "string") {
-        message = error.detail;
-      } else if (Array.isArray(error.detail) && error.detail.length > 0) {
-        message = error.detail.map((e) => (typeof e === "string" ? e : e?.msg)).filter(Boolean).join("; ") || message;
-      }
-      throw new Error(message);
+      throw new Error(messageFromDetail(error.detail, "请求失败"));
     }
 
     if (response.status === 204) {
@@ -3019,6 +3038,23 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/generate`,
       { method: "POST", body: JSON.stringify(options) },
+    );
+  }
+
+  /**
+   * 批量生成的全有或全无准入：一次请求评估全部目标单元。
+   *
+   * 恒返回 200——`decision` 携带结局，只有 `admitted` 建了任务；
+   * `confirmation_required` 与 `blocked` 一个任务也没建，须按结论再决定下一步。
+   */
+  static async generateReferenceVideoBatch(
+    projectName: string,
+    episode: number,
+    payload: ReferenceBatchGenerateRequest,
+  ): Promise<ReferenceBatchAdmission> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/generate-batch`,
+      { method: "POST", body: JSON.stringify(payload) },
     );
   }
 

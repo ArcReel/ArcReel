@@ -80,6 +80,28 @@ describe("API", () => {
       await expect(API.request("/projects")).rejects.toThrow("boom");
     });
 
+    it("keeps the backend message of a structured error envelope", async () => {
+      // 批量入队中途失败的信封带 code / rolled_back 等字段，只按字符串取字会把已翻译的
+      // 说明整段丢掉，用户只看到一句「请求失败」。
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({
+          ok: false,
+          jsonData: {
+            detail: {
+              code: "ref_batch_enqueue_aborted",
+              message: "E1U2 入队失败，本次已创建的任务已撤销",
+              rolled_back: ["t1"],
+              orphaned: ["t0"],
+            },
+          },
+          statusText: "Service Unavailable",
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(API.request("/projects")).rejects.toThrow("E1U2 入队失败，本次已创建的任务已撤销");
+    });
+
     it("falls back to statusText when error response is not JSON", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({
@@ -1284,6 +1306,31 @@ describe("API.referenceVideos", () => {
       narration_delivery: "use_tts",
       confirmed_request_duration_seconds: 12,
     });
+  });
+
+  it("generateReferenceVideoBatch posts the batch admission payload", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ decision: "admitted", task_ids: ["t-1"], units: [], deduped: false }),
+        { status: 200 },
+      ),
+    );
+
+    const res = await API.generateReferenceVideoBatch("proj", 1, {
+      narration_delivery: "post_production",
+      unit_ids: ["E1U1", "E1U2"],
+      confirmed_request_durations: { E1U1: 8 },
+    });
+
+    expect(fetchMock.mock.calls[0]![0]).toContain(
+      "/projects/proj/reference-videos/episodes/1/units/generate-batch",
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({
+      narration_delivery: "post_production",
+      unit_ids: ["E1U1", "E1U2"],
+      confirmed_request_durations: { E1U1: 8 },
+    });
+    expect(res.decision).toBe("admitted");
   });
 
   it("precheckReferenceVideoDuration sends narration projection options", async () => {

@@ -18,6 +18,22 @@ from server.services.cost_estimation import CostEstimationService, VideoRequestQ
 from tests.fakes import FakeReferenceCapabilityProjection, fake_reference_request_projector
 
 
+def _stub_batch_admission_queue(monkeypatch) -> None:
+    """Cut the batch admission's task-store lookups off the ambient database.
+
+    准入在评估每个 unit 之前先整批探在途任务与在途 TTS，两处都走全局引擎；
+    不打桩时这些用例会连上开发机上的 sqlite 文件，本地能过、干净环境报 no such table。
+    """
+
+    async def _no_active_tasks(**_kwargs):
+        return []
+
+    monkeypatch.setattr("server.services.video_batch_admission.get_active_tasks_for_resources", _no_active_tasks)
+    monkeypatch.setattr(
+        "server.services.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
+    )
+
+
 @pytest.mark.integration
 async def test_reference_projection_contract_stays_aligned_across_public_consumers(
     db_factory,
@@ -76,9 +92,6 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
     async def materialize_current_tts(**kwargs):
         return replace(kwargs["options"], current_tts_duration_seconds=9.5)
 
-    async def no_active_tasks(**_kwargs):
-        return []
-
     async def quote_current(facts, _session_factory):
         return VideoRequestQuote(
             amount=1.2,
@@ -105,14 +118,17 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
     monkeypatch.setattr("server.services.cost_estimation.ConfigReferenceCapabilityProjection", lambda _r: capabilities)
     monkeypatch.setattr(reference_videos, "get_project_manager", lambda: pm)
     monkeypatch.setattr(reference_videos, "project_reference_unit_request", project_current_with_tts)
-    monkeypatch.setattr(enqueue_videos, "project_reference_unit_request", project_current_with_tts)
+    monkeypatch.setattr(
+        "server.services.video_batch_admission.project_reference_unit_request", project_current_with_tts
+    )
     monkeypatch.setattr(reference_videos, "prepare_current_reference_video_request_options", materialize_current_tts)
-    monkeypatch.setattr(enqueue_videos, "prepare_current_reference_video_request_options", materialize_current_tts)
+    monkeypatch.setattr(
+        "server.services.video_batch_admission.prepare_current_reference_video_request_options", materialize_current_tts
+    )
     monkeypatch.setattr(reference_videos, "tts_task_in_progress", AsyncMock(return_value=False))
-    monkeypatch.setattr(enqueue_videos, "get_active_tasks_for_resources", no_active_tasks)
-    monkeypatch.setattr(enqueue_videos, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
+    _stub_batch_admission_queue(monkeypatch)
     monkeypatch.setattr(reference_videos, "quote_video_request", quote_current)
-    monkeypatch.setattr(enqueue_videos, "quote_video_request", quote_current)
+    monkeypatch.setattr("server.services.video_batch_admission.quote_video_request", quote_current)
     monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
     monkeypatch.setattr(
         "lib.reference_video.request_projection.project_reference_unit_request",
@@ -188,7 +204,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         ) == expected_facts
         precheck_detail = cast(dict[str, object], web_precheck_blocked.value.detail)
         generate_detail = cast(dict[str, object], web_generate_blocked.value.detail)
-        agent_projection = cast(dict[str, object], agent_response["request_projection"])
+        agent_projection = cast(dict[str, object], agent_response["request_projections"][0])
         for projection in (precheck_detail, generate_detail, agent_projection):
             assert (
                 projection["hydrated_capability"],
@@ -271,7 +287,8 @@ async def test_malformed_references_block_all_public_consumers_without_queue_or_
     monkeypatch.setattr("server.services.cost_estimation.ConfigReferenceCapabilityProjection", lambda _r: capabilities)
     monkeypatch.setattr(reference_videos, "get_project_manager", lambda: pm)
     monkeypatch.setattr(reference_videos, "project_reference_unit_request", project_current)
-    monkeypatch.setattr(enqueue_videos, "project_reference_unit_request", project_current)
+    monkeypatch.setattr("server.services.video_batch_admission.project_reference_unit_request", project_current)
+    _stub_batch_admission_queue(monkeypatch)
     monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
     monkeypatch.setattr("lib.reference_video.request_projection.project_reference_unit_request", project_current)
 
@@ -308,7 +325,7 @@ async def test_malformed_references_block_all_public_consumers_without_queue_or_
     assert agent_response["is_error"] is True
     assert queue_projection is not None and queue_projection.blocking_problems
     web_codes = [problem["code"] for problem in cast(dict, web_blocked.value.detail)["problems"]]
-    agent_codes = [problem["code"] for problem in agent_response["request_projection"]["problems"]]
+    agent_codes = [problem["code"] for problem in agent_response["request_projections"][0]["problems"]]
     quote_projection = quote["episodes"][0]["segments"][0]["request_projection"]
     quote_codes = [problem["code"] for problem in quote_projection["problems"]]
     queue_codes = [problem.code for problem in queue_projection.problems]

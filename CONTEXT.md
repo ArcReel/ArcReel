@@ -62,6 +62,10 @@ _Avoid_: 把「函数体内延迟导入」当作绕过方向约束的手段—�
 GenerationQueue 中的一条记录，承载一次媒体生成请求。状态机：`queued → running → succeeded | failed | cancelling → cancelled`。
 _Avoid_: job（无此概念）。
 
+**批量准入（batch admission）**：
+「生成全部 / 批量生成」在创建任何任务之前对本次请求全部目标做的一次性评估，Web 与 Agent 共用同一实现。三种结论：放行（同一次操作创建完整任务集合）、待确认（跨档费用按申请档位聚合，等用户拍板）、受阻（零任务创建）。任一目标不通过即整批零任务，逐目标给出稳定问题码与下一步；本身没问题的目标带 `generation_batch_admission_withheld` 并指名是谁拦下的。准入的原子性只管「这次请求该不该发生」，入队后的成败仍逐条独立、按 `requested / succeeded / failed / blocked` 契约报告，两者不互相顶替（见 `docs/adr/0061`）。
+_Avoid_: 把整批拒绝说成「批量失败」（没有任何执行发生）。
+
 **cancelling（取消中）**：
 中间状态，表示 cancel 信号已发出但 worker 内 asyncio task 尚未走完 finally 收尾。cancel API 把 DB 从 `running` 改成 `cancelling` 后立即返回；worker finally 在 mark 终态时只能从 `cancelling` 转 `cancelled`（不再走 succeeded/failed 分支）。这是状态机里唯一一个**从 `running` 出发、由 worker 之外的代码改写的非终态**——`queued` 由 enqueue API 写、`cancelled` 直接由 cancel queued 路径写都属于「外部写入」，但前者不从 running 出发、后者是终态。
 

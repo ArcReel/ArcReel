@@ -12,13 +12,26 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PositiveInt
 
 from lib.api_errors import ApiError, BadRequestError, NotFoundError
+from lib.artifact_activation import resolve_artifact_episode
 from lib.asset_types import asset_name_comparison_key
+from lib.batch_admission import BatchAdmission, BatchAdmissionDecision, refused_ticket
 from lib.db import async_session_factory
 from lib.generation_queue import get_generation_queue
-from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
+from lib.generation_queue_client import (
+    BatchEnqueueAborted,
+    TaskSpec,
+    TaskSpecValidationError,
+    enqueue_batch_atomically,
+)
+from lib.generation_result import (
+    GenerationAction,
+    GenerationProblemCode,
+    GenerationSelectionMode,
+    normalize_requested_ids,
+)
 from lib.i18n import Translator
 from lib.narration_delivery import (
     POST_PRODUCTION,
@@ -70,6 +83,14 @@ from server.services.upload_finalize import (
     stage_uploaded_video_stream,
     validate_upload,
 )
+from server.services.video_batch_admission import (
+    admit_reference_video_batch,
+    artifact_state_tickets,
+    reference_unit_task_spec,
+    request_options_for_unit,
+    resolve_reference_batch_targets,
+    screen_script_entries,
+)
 from server.services.video_caps import project_video_caps
 
 logger = logging.getLogger(__name__)
@@ -108,6 +129,25 @@ class GenerateUnitRequest(BaseModel):
             narration_delivery=self.narration_delivery,
             confirmed_request_duration_seconds=self.confirmed_request_duration_seconds,
         )
+
+
+class GenerateUnitsBatchRequest(BaseModel):
+    """One batch video request: which units, how narration is delivered, what was agreed.
+
+    ``unit_ids`` omitted means missing-only; naming ids regenerates exactly those.
+    ``confirmed_request_durations`` carries the tiers the user accepted in the
+    aggregate confirmation, bound to this request's targets and options — it does
+    not freeze what the worker will read when execution starts.
+    """
+
+    unit_ids: list[str] | None = None
+    # 交付方式必填：默认成后期配音会让一次没声明的请求跳过 use_tts 的 fresh / 可测校验，
+    # 整批按另一种交付方式准入，而调用方并不知道自己选过。
+    narration_delivery: NarrationDelivery
+    confirmed_request_durations: dict[str, PositiveInt] = Field(default_factory=dict)
+
+    def projection_options(self) -> ReferenceRequestOptions:
+        return ReferenceRequestOptions(narration_delivery=self.narration_delivery)
 
 
 # ============ 辅助 ============
@@ -654,6 +694,135 @@ async def generate_unit(
         "deduped": result.get("deduped", False),
         "projection": projection_payload,
     }
+
+
+def _admission_payload(admission: BatchAdmission, _t: Translator) -> dict[str, Any]:
+    """Localize the shared admission envelope for the browser.
+
+    Only the message strings are added: codes, actions, tiers and costs stay
+    exactly as the shared seam produced them, so Web and Agent never disagree
+    about what happened — only about what language it is read in.
+    """
+
+    payload = admission.to_payload()
+    units = payload.get("units")
+    if isinstance(units, list):
+        for unit in units:
+            problems = unit.get("problems") if isinstance(unit, dict) else None
+            if not isinstance(problems, list):
+                continue
+            for problem in problems:
+                if isinstance(problem, dict):
+                    params = problem.get("params")
+                    problem["message"] = _t(str(problem.get("code")), **(params if isinstance(params, dict) else {}))
+    return payload
+
+
+@router.post("/episodes/{episode}/units/generate-batch")
+async def generate_units_batch(
+    project_name: str,
+    episode: int,
+    user: CurrentUser,
+    _t: Translator,
+    req: GenerateUnitsBatchRequest,
+) -> dict[str, Any]:
+    """Admit a whole batch of reference units, then create every task or none.
+
+    The verdict is returned with HTTP 200 in all three outcomes: an evaluation
+    that refuses the request is a successful evaluation, and collapsing it into a
+    generic 4xx would hide every gap after the first one. Callers branch on
+    ``decision``.
+    """
+
+    project, script, script_file = _load_episode_script(project_name, episode, _t)
+    body = req
+    try:
+        requested_ids = normalize_requested_ids(body.unit_ids, field="unit_ids")
+    except ValueError as exc:
+        raise BadRequestError("ref_batch_empty_selection") from exc
+
+    # 容器原样交给筛查：`or []` 会把假值（false / 0 / ""）变成合法的空数组，那次请求就会
+    # 报成「通过且零任务」，而不是如实说剧本的 video_units 坏了。成不了目标的条目（非对象、
+    # 缺 unit_id、id 不是标量、id 重复，来自外部编辑或 Agent 裸写）在「缺失即生成」的目标
+    # 集合里属于这次请求：悄悄略过就等于让同批健康的 unit 独自入队计费。
+    units, malformed = screen_script_entries(script.get("video_units", []), requested_ids=requested_ids)
+
+    project_path = get_project_manager().get_project_path(project_name)
+    artifact_episode = resolve_artifact_episode(project=project, script=script, script_filename=script_file) or episode
+    targets, selection, _states = resolve_reference_batch_targets(
+        units=units,
+        requested_ids=requested_ids,
+        project=project,
+        project_path=project_path,
+        episode=artifact_episode,
+    )
+    unmatched = [
+        refused_ticket(
+            unit_id,
+            code=GenerationProblemCode.UNIT_NOT_FOUND,
+            detail=f"unit {unit_id} 不在 video_units 中",
+            action=GenerationAction.FIX_INPUT,
+        )
+        for unit_id in selection.unmatched_ids
+    ]
+    admission = await admit_reference_video_batch(
+        project_name=project_name,
+        project=project,
+        project_path=project_path,
+        script=script,
+        script_file=script_file,
+        units=targets,
+        request_options=body.projection_options(),
+        operation="generate_reference_videos_batch",
+        selection=(
+            GenerationSelectionMode.EXPLICIT if requested_ids is not None else GenerationSelectionMode.MISSING_ONLY
+        ),
+        confirmed_request_durations=body.confirmed_request_durations,
+        spec_check=lambda unit: reference_unit_task_spec(unit, script_file),
+        # 产物状态不可读的 unit 被选目标环节排除在外，但它属于这次请求：不带进准入，
+        # 同批健康的 unit 会照常入队，剩下这一个被无声略过。
+        extra_tickets=[*unmatched, *malformed, *artifact_state_tickets(selection.unavailable)],
+    )
+    payload = _admission_payload(admission, _t)
+    payload["skipped_unit_ids"] = sorted(state.unit_id for state in selection.skipped)
+    if admission.decision is not BatchAdmissionDecision.ADMITTED:
+        payload["task_ids"] = []
+        payload["task_ids_by_unit"] = {}
+        payload["deduped"] = False
+        return payload
+
+    specs = [reference_unit_task_spec(unit, script_file) for unit in targets]
+    for spec in specs:
+        spec.source = "webui"
+        # 确认过的档位按 unit 记进请求事实：它是本次请求的一部分，而不是全批共用的一个值。
+        # 复用准入用的那份推导，两处各算一遍才是口径分叉的来源。
+        options = request_options_for_unit(
+            body.projection_options(),
+            spec.resource_id,
+            body.confirmed_request_durations,
+        )
+        spec.payload = {
+            **(spec.payload or {}),
+            "reference_request_options": options.to_payload(),
+        }
+    try:
+        enqueued = await enqueue_batch_atomically(project_name=project_name, specs=specs, user_id=user.id)
+    except BatchEnqueueAborted as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "ref_batch_enqueue_aborted",
+                "message": _t("ref_batch_enqueue_aborted", unit_id=exc.resource_id),
+                "rolled_back": list(exc.rolled_back),
+                "orphaned": list(exc.orphaned),
+            },
+        ) from exc
+    payload["task_ids"] = [item.task_id for item in enqueued]
+    # 逐 unit 给出它自己的任务行：调用方的乐观占用标记要各等各的，拿整批清单会让每个 unit
+    # 都等到全批落库为止。
+    payload["task_ids_by_unit"] = {item.resource_id: item.task_id for item in enqueued}
+    payload["deduped"] = bool(enqueued) and all(item.deduped for item in enqueued)
+    return payload
 
 
 @router.post("/episodes/{episode}/units/{unit_id}/upload-video")
