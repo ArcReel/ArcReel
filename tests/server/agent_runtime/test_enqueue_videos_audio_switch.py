@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.config.service import ConfigService
 from lib.db.base import Base
 from lib.generation_queue_client import TaskSpec
-from lib.generation_result import GenerationSelectionMode
+from lib.generation_result import GenerationAction, GenerationSelectionMode
 from lib.reference_video.request_projection import ReferenceRequestOptions
 from server.agent_runtime.sdk_tools import enqueue_videos as mod
 from server.agent_runtime.sdk_tools._context import ToolContext
@@ -329,3 +329,65 @@ class TestStoryboardGateEntersAdmission:
             for unit in out["batch_admission"]["units"]
         }
         assert codes == {"E1S01": ["generation_unit_request_invalid"]}
+
+    async def test_a_duplicate_item_id_is_refused_before_admission(self, tmp_path, monkeypatch):
+        """同一个 id 在剧本里出现两次：副本被拒收，整批停在建任务之前。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments.append({**segments[0]})
+
+        tool_obj = mod.generate_video_episode_tool(ctx)
+        out = await tool_obj.handler({"script": "episode_1.json"})
+
+        enqueue.assert_not_awaited()
+        assert out["batch_admission"]["decision"] == "blocked"
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes["E1S01#1"] == ["generation_unit_request_invalid"]
+
+    async def test_the_audio_conflict_joins_the_other_problems_of_the_same_unit(self, tmp_path, monkeypatch):
+        """音频冲突与投影侧的缺口写进同一张票：用户一次看全，不必改一条撞一条。"""
+
+        from lib.batch_admission import BatchAdmission, refused_ticket
+
+        async def _reject(_project, _capability):
+            raise ValueError("成片恒有声，无法关闭音频")
+
+        async def _admit(**kwargs: Any) -> BatchAdmission:
+            return BatchAdmission(
+                operation=kwargs["operation"],
+                selection=kwargs["selection"],
+                narration_delivery=kwargs["request_options"].narration_delivery,
+                tickets=(
+                    refused_ticket(
+                        "E1S01",
+                        code="reference_tts_stale",
+                        detail="配音已过期",
+                        action=GenerationAction.GENERATE_DEPENDENCY,
+                    ),
+                ),
+            )
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(mod, "assert_audio_switch_supported", _reject)
+        monkeypatch.setattr(mod, "admit_storyboard_video_batch", _admit)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+        tool_obj = mod.generate_video_episode_tool(self._ctx(tmp_path))
+        out = await tool_obj.handler({"script": "episode_1.json"})
+
+        enqueue.assert_not_awaited()
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes == {"E1S01": ["reference_tts_stale", "video_audio_switch_not_supported"]}

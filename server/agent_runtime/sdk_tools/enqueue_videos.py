@@ -382,8 +382,8 @@ async def _admit_storyboard_specs(
     against the paid artifact, so the triples are built before the delivery payload
     is applied — the payload is a request fact, not part of the visual basis.
 
-    音频开关冲突属于请求自身已知的配置缺口，在这里就折成逐目标的结论：留到提交前才检查，
-    用户会先被问一遍跨档确认、同意之后才收到一句通用报错。
+    音频开关冲突属于请求自身已知的配置缺口，在这里与投影侧的缺口折进同一批逐目标结论：
+    留到提交前才检查，用户会先被问一遍跨档确认、同意之后才收到一句通用报错。
     """
 
     items_by_id = {
@@ -396,24 +396,6 @@ async def _admit_storyboard_specs(
             raise ValueError(f"找不到待生成条目: {spec.resource_id}")
         targets.append((spec.resource_id, item, (spec.payload or {}).get("prompt")))
     audio_conflict = await _audio_switch_conflict(ctx) if specs else None
-    if audio_conflict is not None:
-        return BatchAdmission(
-            operation=operation,
-            selection=selection,
-            narration_delivery=request_options.narration_delivery,
-            tickets=(
-                *extra_tickets,
-                *(
-                    refused_ticket(
-                        spec.resource_id,
-                        code="video_audio_switch_not_supported",
-                        detail=audio_conflict,
-                        action=GenerationAction.CONFIGURE_PROVIDER,
-                    )
-                    for spec in specs
-                ),
-            ),
-        )
     admission = await admit_storyboard_video_batch(
         project_name=ctx.project_name,
         project=project,
@@ -427,6 +409,23 @@ async def _admit_storyboard_specs(
         selection=selection,
         extra_tickets=extra_tickets,
     )
+    if audio_conflict is not None:
+        # 音频开关冲突与投影侧的缺口写进同一批票：短路返回只会报出这一条，用户改完配置
+        # 重试才撞见下一个已知缺口，正是这道门要免掉的逐条试探。
+        conflict = GenerationProblem(
+            code="video_audio_switch_not_supported",
+            detail=audio_conflict,
+            action=GenerationAction.CONFIGURE_PROVIDER,
+            params={},
+        )
+        target_ids = {spec.resource_id for spec in specs}
+        admission = replace(
+            admission,
+            tickets=tuple(
+                replace(ticket, problems=(*ticket.problems, conflict)) if ticket.unit_id in target_ids else ticket
+                for ticket in admission.tickets
+            ),
+        )
     if admission.admitted:
         _apply_delivery_payload(specs, request_options, confirmed_request_durations)
     return admission
@@ -603,10 +602,25 @@ def _build_video_specs(
     project = project or {}
     if resolver is None:
         resolver = active_artifact_currency_resolver(project_dir, project)
+    seen_ids: set[str] = set()
     for idx, item in enumerate(items):
         item_id = item.get(id_field) or item.get("scene_id") or item.get("segment_id") or f"item_{idx}"
         if item_id in skip_set:
             continue
+        # 同一个 id 出现多次（外部编辑或 Agent 裸写产生）时按 id 索引的每一步都会把副本折成
+        # 一条：确认档位与报价按副本个数虚高，整批入队后又只等到一个任务，结果回写还会撞上
+        # 重复记名。拒收副本让整批停在这里，由用户去修剧本。
+        if str(item_id) in seen_ids:
+            refused.append(
+                refused_ticket(
+                    f"{item_id}#{idx}",
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail=f"{item_type} {item_id} 在剧本中重复出现",
+                    action=GenerationAction.FIX_INPUT,
+                )
+            )
+            continue
+        seen_ids.add(str(item_id))
 
         try:
             require_script_unit_admitted(skeleton_kind, item)
