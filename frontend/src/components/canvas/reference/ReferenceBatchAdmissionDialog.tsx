@@ -103,13 +103,13 @@ export function ReferenceBatchAdmissionDialog({ admission, onConfirm, onClose }:
   const seconds = (value: number | null) =>
     value == null ? t("reference_batch_tier_unknown") : t("reference_duration_seconds", { value });
 
-  const failing = (admission?.units ?? []).filter(
-    (unit) => !unit.admitted && unit.problems.some((problem) => problem.code !== WITHHELD_CODE),
-  );
-  const withheld = (admission?.units ?? []).filter(
-    (unit) =>
-      !unit.admitted && unit.problems.length > 0 && unit.problems.every((p) => p.code === WITHHELD_CODE),
-  );
+  // 被同批别的 unit 连带扣下的单元自身是通过的，服务端记为 admitted + withheld 并把
+  // problems 换成 withheld 一条。两份清单按同一标记分流，不各自再推一遍判定。
+  const isWithheld = (unit: ReferenceBatchUnitOutcome) =>
+    unit.withheld === true || unit.problems.some((problem) => problem.code === WITHHELD_CODE);
+  const units = admission?.units ?? [];
+  const failing = units.filter((unit) => !unit.admitted && !isWithheld(unit));
+  const withheld = units.filter(isWithheld);
   const confirmingUnitCount = tiers.reduce((sum, tier) => sum + tier.unit_count, 0);
   const skipped = admission?.skipped_unit_ids ?? [];
 

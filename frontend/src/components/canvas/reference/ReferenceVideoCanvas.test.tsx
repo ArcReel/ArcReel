@@ -1318,8 +1318,11 @@ describe("ReferenceVideoCanvas", () => {
               ],
             },
             {
+              // 服务端对自身通过、被同批别的 unit 连带扣下的单元发的就是这个形状：
+              // admitted 保持它自己的判定，withheld 说明它为什么没被提交。
               unit_id: "E1U3",
-              admitted: false,
+              admitted: true,
+              withheld: true,
               problems: [
                 {
                   code: "generation_batch_admission_withheld",
