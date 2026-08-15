@@ -5,8 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
@@ -32,6 +33,7 @@ from lib.project_manager import ProjectManager
 from lib.script_models import get_generated_assets
 from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
+from lib.version_manager import VersionManager
 
 WorkflowStateName = Literal[
     "PROJECT_INPUT",
@@ -220,8 +222,22 @@ class WorkflowStateService:
         artifact_path: str,
         resource_id: str,
         blockers: list[WorkflowBlocker],
+        missing_fallback: Callable[[], bool] | None = None,
     ) -> None:
         state = cls._artifact_state(resolver, key, artifact_path, blockers)
+        if state == ArtifactStatus.MISSING.value and missing_fallback is not None:
+            try:
+                if missing_fallback():
+                    state = ArtifactStatus.CURRENT.value
+            except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                blockers.append(
+                    WorkflowBlocker(
+                        code="artifact_currency_unavailable",
+                        path=artifact_path,
+                        reason=str(exc),
+                    )
+                )
+                state = ArtifactStatus.BLOCKED.value
         if state == ArtifactStatus.BLOCKED.value:
             collection["state"] = "blocked"
         else:
@@ -468,6 +484,11 @@ class WorkflowStateService:
         resolver: ArtifactCurrencyResolver | None,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], str | None, dict[str, Any]]:
         path = target.script
+        state = ArtifactStatus.CURRENT.value
+        if resolver is not None:
+            state = self._artifact_state(resolver, ArtifactKey.episode_script(target.episode), path, blockers)
+            if state not in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value}:
+                return {"state": state, "path": path}, [], None, {}
         try:
             script: Any = self.pm.load_script_readonly(project_name, path)
         except FileNotFoundError:
@@ -568,11 +589,6 @@ class WorkflowStateService:
                 )
             )
             return {"state": "blocked", "path": path}, [], kind, script
-        state = (
-            self._artifact_state(resolver, ArtifactKey.episode_script(target.episode), path, blockers)
-            if resolver is not None
-            else ArtifactStatus.CURRENT.value
-        )
         return {"state": state, "path": path}, raw_items, kind, script
 
     @classmethod
@@ -586,6 +602,8 @@ class WorkflowStateService:
         episode: int,
         resolver: ArtifactCurrencyResolver | None,
         blockers: list[WorkflowBlocker],
+        manual_video_versions: VersionManager | None = None,
+        manual_video_resource_type: str | None = None,
     ) -> dict[str, Any]:
         collection: dict[str, Any] = _empty_collection()
         if kind is None:
@@ -600,6 +618,18 @@ class WorkflowStateService:
                 continue
             artifact_path = get_generated_assets(item).get(field)
             if resolver is not None and isinstance(artifact_path, str) and artifact_path:
+                missing_fallback: Callable[[], bool] | None = None
+                if (
+                    field == "video_clip"
+                    and manual_video_versions is not None
+                    and manual_video_resource_type is not None
+                ):
+                    missing_fallback = partial(
+                        manual_video_versions.selected_manual_upload_matches_current_file,
+                        manual_video_resource_type,
+                        resource_id,
+                        artifact_path,
+                    )
                 key = (
                     ArtifactKey.episode_storyboard(episode, resource_id)
                     if field == "storyboard_image"
@@ -614,6 +644,7 @@ class WorkflowStateService:
                     artifact_path=artifact_path,
                     resource_id=resource_id,
                     blockers=blockers,
+                    missing_fallback=missing_fallback,
                 )
             elif resolver is not None:
                 collection["missing_ids"].append(resource_id)
@@ -1005,6 +1036,10 @@ class WorkflowStateService:
                             episode=target.episode,
                             resolver=currency,
                             blockers=blockers,
+                            manual_video_versions=VersionManager(project_path) if currency is not None else None,
+                            manual_video_resource_type=(
+                                "reference_videos" if generation_mode == "reference_video" else "videos"
+                            ),
                         )
                         artifacts["audio"] = (
                             self._media_collection(

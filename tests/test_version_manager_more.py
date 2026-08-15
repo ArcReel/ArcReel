@@ -65,6 +65,21 @@ class TestVersionManagerMore:
             "videos/scene_E1S01.mp4",
         )
 
+        generated = project / "videos" / ".scene_E1S01.generated.mp4"
+        generated.write_bytes(b"generated-video")
+        vm.commit_staged_version(
+            "videos",
+            "E1S01",
+            "generated",
+            staged_file=generated,
+            current_file=current,
+        )
+        assert not vm.selected_manual_upload_matches_current_file(
+            "videos",
+            "E1S01",
+            "videos/scene_E1S01.mp4",
+        )
+
     def test_add_backup_restore_paths(self, tmp_path):
         project = tmp_path / "demo"
         vm = VersionManager(project)

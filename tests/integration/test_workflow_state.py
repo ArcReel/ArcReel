@@ -14,6 +14,7 @@ from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from lib.source_revision import SourceScope, compute_source_revision
+from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.workflow_state import WorkflowStateService
 
 
@@ -1029,6 +1030,56 @@ def test_schema8_ad_reference_video_does_not_treat_an_unregistered_file_as_curre
         "missing_ids": ["E1U1"],
         "stale_ids": [],
     }
+
+
+@pytest.mark.integration
+def test_schema8_workflow_accepts_the_exact_selected_manual_reference_video(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad", generation_mode="reference_video", activated=True)
+    video_path = "reference_videos/E1U1.mp4"
+    atomic_write_json(
+        project_path / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "title": "广告",
+            "content_mode": "ad",
+            "video_units": [_valid_video_unit(unit_id="E1U1", generated_assets={"video_clip": video_path})],
+        },
+    )
+    register_current_artifact(project_path, ArtifactKey.episode_script(1))
+    staged = project_path / "reference_videos" / ".E1U1.upload.mp4"
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    staged.write_bytes(b"manual-video")
+    VersionManager(project_path).commit_staged_version(
+        "reference_videos",
+        "E1U1",
+        "",
+        staged_file=staged,
+        current_file=project_path / video_path,
+        source=MANUAL_UPLOAD_VERSION_SOURCE,
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "EXPORT_READY"
+    assert status.artifacts["videos"] == {
+        "current_ids": ["E1U1"],
+        "missing_ids": [],
+        "stale_ids": [],
+    }
+    assert status.next_action.type == "export"
+
+
+@pytest.mark.integration
+def test_schema8_workflow_does_not_parse_an_unclaimed_malformed_script(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad", activated=True)
+    (project_path / "scripts" / "episode_1.json").write_text("{", encoding="utf-8")
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.state == "FINAL_SCRIPT"
+    assert status.artifacts["script"] == {"state": "missing", "path": "scripts/episode_1.json"}
+    assert status.blockers == []
+    assert status.next_action.type == "generate_script"
 
 
 @pytest.mark.integration

@@ -1717,6 +1717,12 @@ class ArtifactCurrencyResolver:
         return planner
 
     def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
+        # Admission precedes basis reconstruction.  An unclaimed or unsafe
+        # formal path is not an input to the planner, so malformed orphan files
+        # cannot block the workflow that is responsible for replacing them.
+        admission = self._manifest.compare_entry(key, artifact_path=artifact_path, expected=None)
+        if admission.status in {ArtifactStatus.MISSING, ArtifactStatus.BLOCKED}:
+            return admission
         expected = self._planner_for(key).resolve_key(key)
         return self._manifest.compare_entry(key, artifact_path=artifact_path, expected=expected)
 
