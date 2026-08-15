@@ -735,7 +735,7 @@ async def generate_units_batch(
     project, script, script_file = _load_episode_script(project_name, episode, _t)
     body = req or GenerateUnitsBatchRequest()
     entries = script.get("video_units") or []
-    units = [unit for unit in entries if isinstance(unit, dict)]
+    units = [unit for unit in entries if isinstance(unit, dict)] if isinstance(entries, list) else []
     try:
         requested_ids = normalize_requested_ids(body.unit_ids, field="unit_ids")
     except ValueError as exc:

@@ -113,15 +113,27 @@ def artifact_state_tickets(states: Sequence[GenerationTargetState]) -> list[Unit
     return [UnitAdmissionTicket(unit_id=state.unit_id, problems=(artifact_state_problem(state),)) for state in states]
 
 
-def unusable_script_entry_tickets(entries: Sequence[Any]) -> list[UnitAdmissionTicket]:
+def unusable_script_entry_tickets(entries: object) -> list[UnitAdmissionTicket]:
     """把剧本里根本成不了目标的条目折成准入票，按它在剧本中的位置记名。
 
     非对象条目与没有 unit_id 的条目都无法被点名，也就进不了目标集合。把它们悄悄滤掉
     等于让同批健康的 unit 独自入队计费——这道门要防的正是这种部分成批。缺失即生成的
     请求把整个剧本当作目标集合，因此由调用方在这一口径下取证。
+
+    容器本身不是数组时同样在这里记名：遍历它会把请求打成 500，而假值（如 ``false``）
+    会被当作空批次报成通过。
     """
 
     tickets: list[UnitAdmissionTicket] = []
+    if not isinstance(entries, list):
+        return [
+            refused_ticket(
+                "video_units",
+                code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                detail=f"video_units 必须是数组，当前为 {type(entries).__name__}",
+                action=GenerationAction.FIX_INPUT,
+            )
+        ]
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
             detail = f"该条目不是对象，当前为 {type(entry).__name__}"
