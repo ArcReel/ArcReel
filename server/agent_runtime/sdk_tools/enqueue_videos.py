@@ -79,6 +79,7 @@ from server.services.video_batch_admission import (
     admit_reference_video_batch,
     admit_storyboard_video_batch,
     reference_unit_task_spec,
+    request_options_for_unit,
     video_target_states,
 )
 from server.services.video_caps import assert_audio_switch_supported, resolve_project_is_silent
@@ -339,17 +340,22 @@ def _batch_admission_response(
     return response
 
 
-def _apply_delivery_payload(specs: list[TaskSpec], request_options: ReferenceRequestOptions) -> None:
+def _apply_delivery_payload(
+    specs: list[TaskSpec],
+    request_options: ReferenceRequestOptions,
+    confirmed_request_durations: Mapping[str, int],
+) -> None:
     """Attach this request's delivery choice to every admitted storyboard spec.
 
     TTS 的取档结果是当前状态投影，不是耐久请求事实。worker 起跑时会从最新剧本 unit、
     fresh TTS 与当前模型能力重投影；即使 TaskSpec 的旧构造器放入 duration_seconds，
-    这里也必须剥离。
+    这里也必须剥离。跨档确认按 unit 记入各自的请求事实——worker 重投影时读的是任务上的
+    这份选项，只写整批共用的那一份会让准入已接受的档位在执行期重新变成待确认。
     """
 
-    request_facts = request_options.to_payload()
     for spec in specs:
-        spec.payload = {**(spec.payload or {}), "narration_delivery_options": request_facts}
+        unit_options = request_options_for_unit(request_options, spec.resource_id, confirmed_request_durations)
+        spec.payload = {**(spec.payload or {}), "narration_delivery_options": unit_options.to_payload()}
         if request_options.narration_delivery == USE_TTS:
             spec.payload.pop("duration_seconds", None)
 
@@ -399,7 +405,7 @@ async def _admit_storyboard_specs(
         extra_tickets=extra_tickets,
     )
     if admission.admitted:
-        _apply_delivery_payload(specs, request_options)
+        _apply_delivery_payload(specs, request_options, confirmed_request_durations)
     return admission
 
 
@@ -888,7 +894,8 @@ async def _generate_reference_units(
     projections = admission.projections()
 
     for spec in specs:
-        spec.payload = {**(spec.payload or {}), "reference_request_options": request_options.to_payload()}
+        unit_options = request_options_for_unit(request_options, spec.resource_id, confirmed_request_durations)
+        spec.payload = {**(spec.payload or {}), "reference_request_options": unit_options.to_payload()}
     if specs:
         successes, failures = await _submit_with_checkpoint(
             project_name=ctx.project_name,

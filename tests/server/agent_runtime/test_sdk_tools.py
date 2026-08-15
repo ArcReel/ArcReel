@@ -3328,6 +3328,13 @@ async def test_generate_video_episode_confirms_two_tiers_in_one_batch(fake_ctx: 
 
     assert out.get("is_error") is not True, out
     assert sorted(spec.resource_id for spec in enqueued) == ["E1U1", "E1U2"]
+    # 各任务带的是自己那一档确认：worker 重投影时读任务上的这份选项，
+    # 只写整批共用的一份会让准入已接受的档位在执行期重新变成待确认。
+    confirmed = {
+        spec.resource_id: (spec.payload or {})["reference_request_options"]["confirmed_request_duration_seconds"]
+        for spec in enqueued
+    }
+    assert confirmed == {"E1U1": 8, "E1U2": 12}
 
 
 @pytest.mark.unit
