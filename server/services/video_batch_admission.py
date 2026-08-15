@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from lib.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver, artifact_is_usable
 from lib.artifact_manifest import ArtifactKey
@@ -126,20 +126,28 @@ def diagnostic_unit_id(base: str, taken: Collection[str]) -> str:
     return unit_id
 
 
-def unusable_script_entry_tickets(entries: object) -> list[UnitAdmissionTicket]:
-    """把剧本里根本成不了目标的条目折成准入票，按它在剧本中的位置记名。
+def screen_script_entries(
+    entries: object,
+    *,
+    requested_ids: Collection[str] | None,
+) -> tuple[list[dict[str, Any]], list[UnitAdmissionTicket]]:
+    """把 video_units 分成「能当目标的」与「成不了目标的」两份，后者按位置记名。
 
-    非对象条目与没有 unit_id 的条目都无法被点名，也就进不了目标集合。把它们悄悄滤掉
-    等于让同批健康的 unit 独自入队计费——这道门要防的正是这种部分成批。缺失即生成的
-    请求把整个剧本当作目标集合，因此由调用方在这一口径下取证。
+    非对象条目、unit_id 不是标量、unit_id 为空、以及同一个 unit_id 出现多次，都会让后面按
+    id 索引的每一步失手：条目被静默滤掉时同批健康的 unit 独自入队计费，撞上集合查询时又把
+    逐目标的拒绝契约打成一句通用报错。非标量 id 还能一路混过 ``str()`` 进队列，直到执行期
+    比对原值找不到 unit 才失败，那时兄弟条目可能已经在跑、已经计费。
 
-    容器本身不是数组时同样在这里记名：遍历它会把请求打成 500，而假值（如 ``false``）
-    会被当作空批次报成通过。
+    缺失即生成把整个剧本当作目标集合，剧本里任何一处脏条目都参与判定；点名生成的目标集合由
+    调用方给定，只有点到的 id 上的脏（同一个 id 的副本）才参与，否则别处的脏数据会否决一次
+    精确点名的重做。
+
+    容器本身不是数组时同样在这里记名：遍历它会把请求打成 500，而假值（如 ``false``）会被
+    当作空批次报成通过。记名用带方括号的位置写法，与合法 id 不共用命名空间。
     """
 
-    tickets: list[UnitAdmissionTicket] = []
     if not isinstance(entries, list):
-        return [
+        return [], [
             refused_ticket(
                 "video_units",
                 code=GenerationProblemCode.UNIT_REQUEST_INVALID,
@@ -147,23 +155,57 @@ def unusable_script_entry_tickets(entries: object) -> list[UnitAdmissionTicket]:
                 action=GenerationAction.FIX_INPUT,
             )
         ]
-    taken = {str(entry.get("unit_id") or "") for entry in entries if isinstance(entry, dict)}
+
+    clean: list[dict[str, Any]] = []
+    tickets: list[UnitAdmissionTicket] = []
+    seen: set[str] = set()
+    taken = {
+        str(entry.get("unit_id") or "")
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("unit_id"), str | int)
+    }
+    named = set(requested_ids) if requested_ids is not None else None
     for index, entry in enumerate(entries):
+        detail: str | None = None
+        unit_id = ""
         if not isinstance(entry, dict):
             detail = f"该条目不是对象，当前为 {type(entry).__name__}"
-        elif not str(entry.get("unit_id") or "").strip():
-            detail = "该 unit 没有可用的 unit_id"
         else:
+            raw_id = entry.get("unit_id")
+            if raw_id is not None and not isinstance(raw_id, str | int):
+                detail = f"该 unit 的 ID 不是标量，当前为 {type(raw_id).__name__}"
+            else:
+                unit_id = str(raw_id or "").strip()
+                if not unit_id:
+                    detail = "该 unit 没有可用的 unit_id"
+        if detail is not None:
+            if named is None:
+                tickets.append(
+                    refused_ticket(
+                        diagnostic_unit_id(f"video_units[{index}]", taken),
+                        code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                        detail=detail,
+                        action=GenerationAction.FIX_INPUT,
+                    )
+                )
             continue
-        tickets.append(
-            refused_ticket(
-                diagnostic_unit_id(f"video_units[{index}]", taken),
-                code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                detail=detail,
-                action=GenerationAction.FIX_INPUT,
+        entry_dict = cast("dict[str, Any]", entry)
+        if named is not None and unit_id not in named:
+            clean.append(entry_dict)
+            continue
+        if unit_id in seen:
+            tickets.append(
+                refused_ticket(
+                    f"{unit_id}#{index}",
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail=f"unit {unit_id} 在剧本中重复出现",
+                    action=GenerationAction.FIX_INPUT,
+                )
             )
-        )
-    return tickets
+            continue
+        seen.add(unit_id)
+        clean.append(entry_dict)
+    return clean, tickets
 
 
 def resolve_reference_batch_targets(

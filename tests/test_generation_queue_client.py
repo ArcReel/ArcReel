@@ -784,3 +784,47 @@ async def test_atomic_enqueue_rolls_back_when_the_caller_is_cancelled(monkeypatc
 
     assert created == ["S01"]
     assert cancelled == ["t-S01"]
+
+
+@pytest.mark.unit
+async def test_atomic_rollback_finishes_even_if_cancelled_midway(monkeypatch):
+    """普通失败触发回滚、回滚途中调用方被取消：撤销请求仍要跑完，否则前半批留在队列里计费。"""
+    import asyncio as _asyncio
+
+    from lib import generation_queue_client as mod
+
+    created: list[str] = []
+    cancelled: list[str] = []
+    rollback_started = _asyncio.Event()
+
+    async def fake_enqueue(**kwargs):
+        if kwargs["resource_id"] == "S02":
+            raise RuntimeError("供应商拒绝")
+        created.append(kwargs["resource_id"])
+        return {"task_id": f"t-{kwargs['resource_id']}", "deduped": False}
+
+    class _FakeQueue:
+        async def cancel_task(self, task_id: str):
+            rollback_started.set()
+            await _asyncio.sleep(0.05)
+            cancelled.append(task_id)
+            return {"cancelled": [{"task_id": task_id}], "cancelling": [], "skipped_terminal": []}
+
+    monkeypatch.setattr(mod, "enqueue_task_only", fake_enqueue)
+    monkeypatch.setattr(mod, "get_generation_queue", lambda: _FakeQueue())
+
+    specs = [
+        TaskSpec.from_request(task_type="video", media_type="video", resource_id=rid, prompt="跑")
+        for rid in ("S01", "S02")
+    ]
+
+    task = _asyncio.create_task(mod.enqueue_batch_atomically(project_name="demo", specs=specs))
+    await rollback_started.wait()
+    task.cancel()
+    with pytest.raises(_asyncio.CancelledError):
+        await task
+
+    # 取消穿透到等待处，但被 shield 保护的撤销请求自己跑完了。
+    await _asyncio.sleep(0.1)
+    assert created == ["S01"]
+    assert cancelled == ["t-S01"]

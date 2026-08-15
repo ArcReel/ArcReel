@@ -1848,6 +1848,62 @@ def test_generate_batch_reports_non_object_units_instead_of_dropping_them(
 
 
 @pytest.mark.integration
+def test_generate_batch_reports_a_non_scalar_unit_id(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """unit_id 是对象/数组时在入队前拒收：它能混过字符串化进队列，执行期比对原值才找不到 unit。"""
+
+    from lib.project_manager import ProjectManager
+    from server.routers import reference_videos as router_mod
+
+    first = _seed_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    pm: ProjectManager = router_mod.get_project_manager()
+    script = pm.load_script("demo", "scripts/episode_1.json")
+    healthy = next(unit for unit in script["video_units"] if unit["unit_id"] == first)
+    broken = {**healthy, "unit_id": {"id": "U9"}}
+    script["video_units"] = [broken, healthy]
+    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    resp = client.post(BATCH_ENDPOINT, json={})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "blocked"
+    assert enqueued == []
+    codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
+    assert codes["video_units[0]"] == ["generation_unit_request_invalid"]
+    assert codes[first] == ["generation_batch_admission_withheld"]
+
+
+@pytest.mark.integration
+def test_generate_batch_reports_a_duplicated_unit_id(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """同一个 unit_id 出现两次时无从判定要做哪一条：整批拒收，不默认拿第一份去计费。"""
+
+    from lib.project_manager import ProjectManager
+    from server.routers import reference_videos as router_mod
+
+    first = _seed_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    pm: ProjectManager = router_mod.get_project_manager()
+    script = pm.load_script("demo", "scripts/episode_1.json")
+    healthy = next(unit for unit in script["video_units"] if unit["unit_id"] == first)
+    script["video_units"] = [healthy, {**healthy}]
+    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    resp = client.post(BATCH_ENDPOINT, json={})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "blocked"
+    assert enqueued == []
+    codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
+    assert codes[f"{first}#1"] == ["generation_unit_request_invalid"]
+
+
+@pytest.mark.integration
 def test_generate_batch_refuses_a_path_like_unit_id_before_enqueue(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -637,7 +637,9 @@ async def _enqueue_sequentially(
             raise
         except Exception as exc:  # noqa: BLE001
             if atomic:
-                rolled_back, orphaned = await _rollback_enqueued(created_task_ids)
+                # 撤销请求同样在 shield 里跑完：回滚过程中被取消的话，撤不掉的前半批会留在
+                # 队列里执行并计费，而调用方只看到一次取消。
+                rolled_back, orphaned = await asyncio.shield(_rollback_enqueued(created_task_ids))
                 raise BatchEnqueueAborted(
                     resource_id=spec.resource_id,
                     error=str(exc),

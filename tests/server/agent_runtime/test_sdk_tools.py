@@ -4796,18 +4796,22 @@ def test_build_reference_specs_skips_mixed_speech_without_aborting_batch(tmp_pat
 
 
 @pytest.mark.unit
-def test_build_reference_specs_skips_bad_unit_id_without_aborting_batch(tmp_path) -> None:
-    """unit_id 为空或键缺失（Agent 裸写 JSON 可致）都跳过该 unit 而非中断整批：
-    空串经 from_request 抛 ValueError 被捕获，缺键经 .get 归一化为空串后同样被拒。"""
+def test_screening_keeps_bad_unit_ids_out_of_spec_building(tmp_path) -> None:
+    """unit_id 为空或键缺失（Agent 裸写 JSON 可致）在筛查处按位置记名拒收，健康的 unit 照常构造。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+    from server.services.video_batch_admission import screen_script_entries
 
-    units = [
+    entries = [
         {"unit_id": "", "shots": [{"text": "@张三 推门"}]},  # 空串
-        {"shots": [{"text": "@王五 起身"}]},  # 缺 unit_id 键 → 不应抛 KeyError
+        {"shots": [{"text": "@王五 起身"}]},  # 缺 unit_id 键
         {"unit_id": "E1U2", "shots": [{"text": "@李四 转身"}]},
     ]
+    units, tickets = screen_script_entries(entries, requested_ids=None)
+
+    assert [ticket.unit_id for ticket in tickets] == ["video_units[0]", "video_units[1]"]
     specs, _, refused = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None)
     assert [s.resource_id for s in specs] == ["E1U2"]
+    assert refused == []
 
 
 @pytest.mark.unit
@@ -6146,7 +6150,7 @@ async def test_generate_video_episode_reference_skips_malformed_unit_entries(
     # 脏 unit 逐条记为 blocked（没有 unit_id 可寻址时按位置编号），并拦住整批。
     assert enqueued == []
     result = _generation_result(out)
-    assert sorted(result.blocked) == ["E1U1", "unit_0", "unit_1"]
+    assert sorted(result.blocked) == ["E1U1", "video_units[0]", "video_units[1]"]
     codes = {item.unit_id: item.problem.code for item in result.items if item.problem is not None}
     assert codes["E1U1"] == "generation_batch_admission_withheld"
 
@@ -8487,6 +8491,31 @@ async def test_generate_video_all_reports_an_all_unreadable_selection_as_blocked
         unit["unit_id"]: [problem["code"] for problem in unit["problems"]] for unit in out["batch_admission"]["units"]
     }
     assert codes == {"E1S01": ["generation_artifact_state_unavailable"]}
+
+
+@pytest.mark.integration
+async def test_generate_reference_episode_refuses_a_non_scalar_unit_id(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """整集参考生成遇到非标量 unit_id：它按位置记名拒收，健康的兄弟条目不会独自入队计费。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    _use_reference_route(fake_ctx)
+    script = _reference_video_script()
+    healthy = script["video_units"][0]
+    script["video_units"] = [{**healthy, "unit_id": ["U9"]}, healthy]
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
+
+    enqueue.assert_not_awaited()
+    codes = {
+        unit["unit_id"]: [problem["code"] for problem in unit["problems"]] for unit in out["batch_admission"]["units"]
+    }
+    assert codes["video_units[0]"] == ["generation_unit_request_invalid"]
+    assert healthy["unit_id"] in codes
 
 
 @pytest.mark.integration

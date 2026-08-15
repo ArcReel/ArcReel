@@ -82,6 +82,7 @@ from server.services.video_batch_admission import (
     diagnostic_unit_id,
     reference_unit_task_spec,
     request_options_for_unit,
+    screen_script_entries,
     video_target_states,
 )
 from server.services.video_caps import assert_audio_switch_supported, resolve_project_is_silent
@@ -693,7 +694,7 @@ def _build_video_specs(
     if resolver is None:
         resolver = active_artifact_currency_resolver(project_dir, project)
     for idx, item in enumerate(items):
-        item_id = str(_storyboard_item_id(item, id_field) or f"item_{idx}")
+        item_id = str(_storyboard_item_id(item, id_field))
         if item_id in skip_set:
             continue
 
@@ -788,8 +789,9 @@ def _build_reference_specs(
     specs: list[TaskSpec] = []
     order_map: dict[str, int] = {}
     refused: list[UnitAdmissionTicket] = []
+    # 进到这里的 unit 已经过筛查 / 点名选取，unit_id 必为非空标量：不再为记名留兜底名字。
     for idx, unit in enumerate(units):
-        unit_id = str(unit.get("unit_id") or "") if isinstance(unit, dict) else ""
+        unit_id = str(unit["unit_id"])
         if unit_id in skip_set:
             continue
         # 任一 unit 不合法（没有 shots、空提示词、或 from_request 对空 resource_id 抛的
@@ -803,7 +805,7 @@ def _build_reference_specs(
         except ValueError as exc:
             refused.append(
                 refused_ticket(
-                    unit_id or f"unit_{idx}",
+                    unit_id,
                     code=GenerationProblemCode.UNIT_REQUEST_INVALID,
                     detail=f"入队校验未通过：{exc}",
                     action=GenerationAction.FIX_INPUT,
@@ -1091,6 +1093,7 @@ async def _run_reference_episode(
         raise ValueError(f"第 {episode} 集 video_units 必须是数组，当前为 {type(units).__name__}：{script_filename}")
     if not units:
         raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
+    units, malformed = screen_script_entries(units, requested_ids=None)
     currency = active_artifact_currency_resolver(ctx.project_path, project)
     versions = VersionManager(ctx.project_path)
     states = video_target_states(units, "unit_id", episode=episode, resolver=currency)
@@ -1112,6 +1115,7 @@ async def _run_reference_episode(
         confirmed_request_durations=confirmed_request_durations,
         operation=operation,
         selection=GenerationSelectionMode.MISSING_ONLY,
+        extra_tickets=malformed,
         reuse_existing=lambda unit: _batch_video_is_reusable(
             currency=currency,
             versions=versions,

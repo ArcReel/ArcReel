@@ -89,7 +89,7 @@ from server.services.video_batch_admission import (
     reference_unit_task_spec,
     request_options_for_unit,
     resolve_reference_batch_targets,
-    unusable_script_entry_tickets,
+    screen_script_entries,
 )
 from server.services.video_caps import project_video_caps
 
@@ -734,14 +734,16 @@ async def generate_units_batch(
 
     project, script, script_file = _load_episode_script(project_name, episode, _t)
     body = req or GenerateUnitsBatchRequest()
-    # 容器原样交给校验：`or []` 会把假值（false / 0 / ""）变成合法的空数组，那次请求就会
-    # 报成「通过且零任务」，而不是如实说剧本的 video_units 坏了。
-    entries = script.get("video_units", [])
-    units = [unit for unit in entries if isinstance(unit, dict)] if isinstance(entries, list) else []
     try:
         requested_ids = normalize_requested_ids(body.unit_ids, field="unit_ids")
     except ValueError as exc:
         raise BadRequestError("ref_batch_empty_selection") from exc
+
+    # 容器原样交给筛查：`or []` 会把假值（false / 0 / ""）变成合法的空数组，那次请求就会
+    # 报成「通过且零任务」，而不是如实说剧本的 video_units 坏了。成不了目标的条目（非对象、
+    # 缺 unit_id、id 不是标量、id 重复，来自外部编辑或 Agent 裸写）在「缺失即生成」的目标
+    # 集合里属于这次请求：悄悄略过就等于让同批健康的 unit 独自入队计费。
+    units, malformed = screen_script_entries(script.get("video_units", []), requested_ids=requested_ids)
 
     project_path = get_project_manager().get_project_path(project_name)
     artifact_episode = resolve_artifact_episode(project=project, script=script, script_filename=script_file) or episode
@@ -761,11 +763,6 @@ async def generate_units_batch(
         )
         for unit_id in selection.unmatched_ids
     ]
-    # 成不了目标的条目（非对象、缺 unit_id，来自外部编辑或 Agent 裸写）在「缺失即生成」的
-    # 目标集合里属于这次请求：悄悄略过就等于让同批健康的 unit 独自入队计费。点名生成的目标
-    # 集合由调用方给定，与之无关的坏条目不参与判定，否则剧本里任何一处脏数据都会否决一次
-    # 精确点名的重做。
-    malformed = unusable_script_entry_tickets(entries) if requested_ids is None else []
     admission = await admit_reference_video_batch(
         project_name=project_name,
         project=project,
