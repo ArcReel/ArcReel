@@ -83,6 +83,7 @@ from server.services.video_batch_admission import (
     reference_unit_task_spec,
     request_options_for_unit,
     screen_script_entries,
+    storyboard_item_id,
     video_target_states,
 )
 from server.services.video_caps import assert_audio_switch_supported, resolve_project_is_silent
@@ -388,9 +389,7 @@ async def _admit_storyboard_specs(
     留到提交前才检查，用户会先被问一遍跨档确认、同意之后才收到一句通用报错。
     """
 
-    items_by_id = {
-        str(item.get(id_field) or item.get("scene_id") or item.get("segment_id") or ""): item for item in items
-    }
+    items_by_id = {str(storyboard_item_id(item, id_field) or ""): item for item in items}
     targets: list[tuple[str, dict[str, Any], object]] = []
     for spec in specs:
         item = items_by_id.get(spec.resource_id)
@@ -565,12 +564,6 @@ def _clear_checkpoint_at(path: Path) -> None:
         path.unlink()
 
 
-def _storyboard_item_id(item: dict[str, Any], id_field: str) -> object:
-    """条目自报的 id，按各入口共用的回退顺序取。"""
-
-    return item.get(id_field) or item.get("scene_id") or item.get("segment_id")
-
-
 def _storyboard_item_aliases(item: dict[str, Any], id_field: str) -> set[str]:
     """点名时能寻址到这个条目的全部写法。
 
@@ -610,50 +603,54 @@ def _screen_storyboard_items(
     seen: set[str] = set()
     addressable: list[tuple[dict[str, Any], str]] = []
     taken = {
-        str(_storyboard_item_id(item, id_field)).strip()
+        str(storyboard_item_id(item, id_field)).strip()
         for item in items
-        if isinstance(item, dict) and isinstance(_storyboard_item_id(item, id_field), str)
+        if isinstance(item, dict) and isinstance(storyboard_item_id(item, id_field), str)
     }
     named = set(requested_ids) if requested_ids is not None else None
     if named is not None:
         # 点名的 ID 也占着记名空间：点到剧本里没有的名字时上游还会记一条「不存在」，
         # 诊断名与它同名会把两条并成一条。
         taken |= named
+    refused_names: set[str] = set()
     for index, item in enumerate(items):
+        detail: str | None = None
+        item_id = ""
         if not isinstance(item, dict):
+            detail = f"该条目不是对象，当前为 {type(item).__name__}"
+        else:
+            raw_id = storyboard_item_id(item, id_field)
+            if raw_id is not None and not isinstance(raw_id, str):
+                detail = f"该条目的 ID 不是字符串，当前为 {type(raw_id).__name__}"
+            else:
+                item_id = (raw_id or "").strip()
+                if not item_id:
+                    detail = "该条目没有可用的 ID"
+        if detail is not None:
             if named is None:
                 tickets.append(
                     refused_ticket(
                         diagnostic_unit_id(f"items[{index}]", taken),
                         code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                        detail=f"该条目不是对象，当前为 {type(item).__name__}",
+                        detail=detail,
                         action=GenerationAction.FIX_INPUT,
                     )
                 )
-            continue
-        raw_id = _storyboard_item_id(item, id_field)
-        if raw_id is not None and not isinstance(raw_id, str):
-            if named is None:
-                tickets.append(
-                    refused_ticket(
-                        diagnostic_unit_id(f"items[{index}]", taken),
-                        code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                        detail=f"该条目的 ID 不是字符串，当前为 {type(raw_id).__name__}",
-                        action=GenerationAction.FIX_INPUT,
+            elif isinstance(item, dict):
+                # 点名点中的正好是这个脏条目：按点名的写法给结论，否则调用方只收到一句
+                # 「不存在」，而这个名字在剧本里明明有条目。
+                for name in sorted(_storyboard_item_aliases(item, id_field) & named):
+                    if name in refused_names:
+                        continue
+                    refused_names.add(name)
+                    tickets.append(
+                        refused_ticket(
+                            name,
+                            code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                            detail=detail,
+                            action=GenerationAction.FIX_INPUT,
+                        )
                     )
-                )
-            continue
-        item_id = (raw_id or "").strip()
-        if not item_id:
-            if named is None:
-                tickets.append(
-                    refused_ticket(
-                        diagnostic_unit_id(f"items[{index}]", taken),
-                        code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                        detail="该条目没有可用的 ID",
-                        action=GenerationAction.FIX_INPUT,
-                    )
-                )
             continue
         if named is not None:
             addressable.append((item, item_id))
@@ -681,7 +678,7 @@ def _screen_storyboard_items(
     for item, item_id in addressable:
         by_canonical.setdefault(item_id, []).append(item)
     ambiguous: set[int] = set()
-    for name in sorted(named):
+    for name in sorted(named - refused_names):
         owners = {id(item) for item, _ in addressable if name in _storyboard_item_aliases(item, id_field)}
         targets = {
             id(sibling) for item, item_id in addressable if id(item) in owners for sibling in by_canonical[item_id]
@@ -741,7 +738,7 @@ def _build_video_specs(
     if resolver is None:
         resolver = active_artifact_currency_resolver(project_dir, project)
     for idx, item in enumerate(items):
-        item_id = str(_storyboard_item_id(item, id_field))
+        item_id = str(storyboard_item_id(item, id_field))
         if item_id in skip_set:
             continue
 
@@ -1695,11 +1692,7 @@ def generate_video_all_tool(ctx: ToolContext):
             # 但带 ``scene_id``/``segment_id``，selection 已按回退 ID 记为 target，
             # 这里若只认 ``id_field`` 会把它筛没——进了 requested 却永远不入队。
             target_id_set = set(selection.target_ids)
-            pending = [
-                item
-                for item in items
-                if str(item.get(id_field) or item.get("scene_id") or item.get("segment_id") or "") in target_id_set
-            ]
+            pending = [item for item in items if str(storyboard_item_id(item, id_field) or "") in target_id_set]
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, _order_map, refused = _build_video_specs(
                 items=pending,

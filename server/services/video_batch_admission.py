@@ -85,7 +85,7 @@ def video_target_states(
     for unit in units:
         if not isinstance(unit, dict):
             continue
-        unit_id = str(unit.get(id_field) or unit.get("scene_id") or unit.get("segment_id") or "")
+        unit_id = str(storyboard_item_id(unit, id_field) or "")
         if not unit_id or unit_id in states:
             continue
         artifact_path = get_generated_assets(unit).get("video_clip")
@@ -111,6 +111,19 @@ def artifact_state_tickets(states: Sequence[GenerationTargetState]) -> list[Unit
     """
 
     return [UnitAdmissionTicket(unit_id=state.unit_id, problems=(artifact_state_problem(state),)) for state in states]
+
+
+def storyboard_item_id(item: dict[str, Any], id_field: str) -> object:
+    """条目自报的 id，按各入口共用的回退顺序取。
+
+    只在规范字段缺失或写成空串时才退到别名：规范字段写成 ``0`` / ``[]`` 这类非字符串时也退，
+    等于让别名替它蒙混过筛查，条目按别名入队计费，而执行期只按规范字段定位，谁也做不出来。
+    """
+
+    canonical = item.get(id_field)
+    if canonical is None or (isinstance(canonical, str) and not canonical.strip()):
+        return item.get("scene_id") or item.get("segment_id")
+    return canonical
 
 
 def diagnostic_unit_id(base: str, taken: Collection[str]) -> str:
