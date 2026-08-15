@@ -767,20 +767,31 @@ def record_batch_outcomes(
         state = _state(unit_id)
         # An empty ``task_id`` marks a spec whose enqueue itself raised — it never
         # reached the queue, so ``NOT_QUEUED`` (not ``FAILED``) reflects that no
-        # money was spent and there is no task row to look up.
+        # money was spent and there is no task row to look up. The problem code
+        # follows the same split: a never-queued spec gets its own enqueue-failure
+        # code so downstream can tell "request never reached the queue" apart from
+        # "task executed and the provider failed it" — the two call for different
+        # follow-ups (retry the enqueue call vs. inspect the provider failure).
         if not br.task_id:
             task_state = GenerationTaskState.NOT_QUEUED
-        elif br.status == "cancelled":
-            task_state = GenerationTaskState.CANCELLED
-        elif br.status == "interrupted":
-            task_state = GenerationTaskState.INTERRUPTED
+            problem = GenerationProblem(
+                code=GenerationProblemCode.ENQUEUE_FAILED,
+                detail=br.error or "enqueue failed",
+                action=GenerationAction.RETRY,
+            )
         else:
-            task_state = GenerationTaskState.FAILED
+            if br.status == "cancelled":
+                task_state = GenerationTaskState.CANCELLED
+            elif br.status == "interrupted":
+                task_state = GenerationTaskState.INTERRUPTED
+            else:
+                task_state = GenerationTaskState.FAILED
+            problem = problem_from_task_failure(
+                br.error, cancelled=br.status == "cancelled", interrupted=br.status == "interrupted"
+            )
         builder.fail(
             unit_id,
-            problem=problem_from_task_failure(
-                br.error, cancelled=br.status == "cancelled", interrupted=br.status == "interrupted"
-            ),
+            problem=problem,
             artifact_key=state.artifact_key,
             artifact_path=state.artifact_path,
             task_id=br.task_id or None,

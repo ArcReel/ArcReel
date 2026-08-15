@@ -496,15 +496,14 @@ async def batch_enqueue_and_wait(
     """
     if not specs:
         return [], []
-    # Phase 1 — Sequential enqueue (dependency resolution requires order). A
-    # raised ``enqueue_task_only`` used to abort this loop outright: earlier
-    # members were already queued (and possibly billed) but the caller never
-    # learned their fate, and later members never got a queue attempt at all
-    # — both silently missing from the promised per-ID result. Each spec's
-    # enqueue failure is instead captured here as its own ``BatchTaskResult``
-    # (``task_id=""`` marks "never queued", distinct from a queued task that
-    # later failed) so the batch keeps going and every requested ID ends up
-    # in exactly one of the two returned lists.
+    # Phase 1 — Sequential enqueue (dependency resolution requires order). One
+    # spec's enqueue failure must not abort the loop: earlier members may already
+    # be queued (and billed) and later members still need their own queue
+    # attempt — the promised per-ID result covers all of them regardless. Each
+    # failure is captured here as its own ``BatchTaskResult`` (``task_id=""``
+    # marks "never queued", distinct from a queued task that later failed) so
+    # the batch keeps going and every requested ID ends up in exactly one of
+    # the two returned lists.
     task_ids: dict[str, str] = {}
     enqueue_failures: list[BatchTaskResult] = []
     failed_resource_ids: set[str] = set()

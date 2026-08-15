@@ -2124,6 +2124,68 @@ async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unre
         assert item.problem.code == "generation_artifact_state_unavailable"
 
 
+@pytest.mark.integration
+async def test_generate_grid_spares_an_already_reusable_sibling_when_one_scene_state_is_unreadable(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """同组一格状态不可读会挡住整张宫格的重生成，但不牵连已确认可用的旧图：
+    那些场景各自的产物状态是好的，只是恰好和坏的那格共享一张联合图。报它们
+    "产物状态不可读、需要修复"是错误结论，仍应按正常复用记为 skipped。"""
+    from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+
+    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+        {
+            "schema_version": 8,
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        }
+    )
+    fake_ctx.pm.script_payload["episode"] = 1  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
+    ]
+    # E1S02 状态读取会炸；E1S03 已有旧图且状态 CURRENT（可复用）；E1S01/E1S04 缺图。
+    fake_ctx.pm.script_payload["segments"][1]["generated_assets"] = {  # type: ignore[attr-defined]
+        "storyboard_image": "storyboards/scene_E1S02.png"
+    }
+    fake_ctx.pm.script_payload["segments"][2]["generated_assets"] = {  # type: ignore[attr-defined]
+        "storyboard_image": "storyboards/scene_E1S03.png"
+    }
+
+    class _Resolver:
+        def compare(self, key, *, artifact_path):
+            if artifact_path == "storyboards/scene_E1S02.png":
+                raise RuntimeError("manifest sidecar unreadable")
+            if artifact_path == "storyboards/scene_E1S03.png":
+                return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=artifact_path)
+            return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
+
+    async def _gate(_project: dict) -> bool:
+        return False
+
+    enqueued: list[str] = []
+
+    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+        enqueued.append(resource_id)
+        return {"task_id": "t1"}
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr(
+        "server.agent_runtime.sdk_tools.enqueue_grid.active_artifact_currency_resolver",
+        lambda *_args: _Resolver(),
+    )
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
+
+    out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json"})
+
+    result = _generation_result(out)
+    assert enqueued == []
+    assert sorted(result.blocked) == ["E1S01", "E1S02", "E1S04"]
+    assert "E1S03" not in result.requested
+    assert [s.unit_id for s in result.skipped] == ["E1S03"]
+
+
 @pytest.mark.unit
 async def test_generate_grid_rejects_an_explicitly_empty_scene_selection(fake_ctx: ToolContext) -> None:
     """显式空集合不是「全部」：拒绝请求，而不是静默扫全集。"""
@@ -2970,6 +3032,13 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
         ],
     }
     assert enqueued == []
+    # 待确认不是 prose-only 的死角：调用方能拿到机器可读结论，不必解析文本猜测。
+    result = _generation_result(out)
+    assert result.blocked == ["E1U1"]
+    item = result.items[0]
+    assert item.problem is not None
+    assert item.problem.code == "reference_duration_confirmation_required"
+    assert item.problem.action == "confirm_request_duration"
 
 
 @pytest.mark.integration

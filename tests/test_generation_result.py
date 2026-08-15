@@ -440,6 +440,26 @@ def test_a_wait_interrupted_batch_item_is_reported_distinctly_from_a_real_failur
     assert item.problem.action == GenerationAction.WAIT_FOR_TASK
 
 
+def test_a_never_queued_failure_gets_the_enqueue_failed_code_not_task_failed() -> None:
+    """``task_id=""`` 标记 enqueue 调用本身炸了、从未进队——task_state 已经区分为
+    NOT_QUEUED，problem code 也要跟着区分为 enqueue 专属码，不能落进
+    ``problem_from_task_failure`` 的默认 TASK_FAILED：下游分不清"请求从没进队"和
+    "任务跑了、供应商判失败"，给不出正确的重试路径（重触发 enqueue vs 排查供应商）。"""
+
+    builder = GenerationResultBuilder("probe", GenerationSelectionMode.EXPLICIT)
+
+    record_batch_outcomes(
+        builder,
+        successes=[],
+        failures=[BatchTaskResult(resource_id="A", task_id="", status="failed", error="queue is down")],
+    )
+
+    item = builder.build().items[0]
+    assert item.task_state is GenerationTaskState.NOT_QUEUED
+    assert item.problem is not None
+    assert item.problem.code == GenerationProblemCode.ENQUEUE_FAILED
+
+
 def test_recording_maps_queue_resource_ids_onto_contract_unit_ids() -> None:
     """队列侧 resource_id 与契约 unit ID 不同名时（如资产的 <type>/<name>）按映射记账。"""
 

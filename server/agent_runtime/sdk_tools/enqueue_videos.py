@@ -326,12 +326,32 @@ def _reference_projection_error(
     }
 
 
-def _duration_confirmation_response(pending: DurationConfirmationPending, log: list[str]) -> dict[str, Any]:
+def _duration_confirmation_response(
+    pending: DurationConfirmationPending, log: list[str], builder: GenerationResultBuilder
+) -> dict[str, Any]:
     """把待确认清单连同调用期间产生的 log 一并交给调用方转述。
 
     log 携带的是同样影响生成范围的事实（如 scene_id 被忽略转整集、ad 派生出的 unit 数），
     确认时一并呈现，用户才知道自己同意的是什么范围。
+
+    每个待确认 unit 同时记入 ``builder`` 为 blocked：这是入队前的正常拦截点，不是异常，
+    但仍是 requested/failed/blocked 契约覆盖的一种结果——遗漏它，调用方就拿不到这批
+    unit 的机器可读结论，只能解析 prose 猜测。复用与持久化任务失败同一个已登记码
+    （``reference_duration_confirmation_required``），与该码在失败路径上出现时的
+    action（``confirm_request_duration``）保持一致。
     """
+    for item in pending.items:
+        builder.block(
+            str(item["unit_id"]),
+            problem=GenerationProblem(
+                code="reference_duration_confirmation_required",
+                detail=(
+                    f"本次时长基准 {item['duration_input']}s 将按 {item['request_duration']}s 档位生成，请确认后重试"
+                ),
+                action=GenerationAction.CONFIRM_REQUEST_DURATION,
+                params={k: v for k, v in item.items() if k != "unit_id"},
+            ),
+        )
     lines = [*log, "以下 unit 将改用不同的视频时长档位，需先向用户确认，本次未入队任何任务："]
     for item in pending.items:
         duration_input = item["duration_input"]
@@ -365,8 +385,12 @@ def _duration_confirmation_response(pending: DurationConfirmationPending, log: l
         "confirmed_request_duration_seconds=<request_duration> 再次调用；若多个 unit 档位不同，"
         "请按档位分组调用。"
     )
+    result = builder.build()
     return {
+        # 待确认是入队前的正常拦截点，不是异常——is_error 不跟着 blocked 走，
+        # 这批 unit 仍等待用户决定，不代表请求失败。
         "content": [{"type": "text", "text": "\n".join(lines)}],
+        "generation_result": result.model_dump(mode="json"),
         "request_projections": pending.projections,
     }
 
@@ -1215,7 +1239,7 @@ async def _run_reference_episode(
         ),
     )
     if isinstance(result, DurationConfirmationPending):
-        return _duration_confirmation_response(result, log)
+        return _duration_confirmation_response(result, log, builder)
     batch = builder.build()
     return generation_result_response(
         batch,
@@ -1334,7 +1358,7 @@ async def _run_reference_units(
         reuse_existing=lambda _u: False,
     )
     if isinstance(result, DurationConfirmationPending):
-        return _duration_confirmation_response(result, log)
+        return _duration_confirmation_response(result, log, builder)
     batch = builder.build()
     return generation_result_response(
         batch,
@@ -1630,7 +1654,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                 request_options=request_options,
             )
             if delivery_pending is not None:
-                return _duration_confirmation_response(delivery_pending, log)
+                return _duration_confirmation_response(delivery_pending, log, builder)
 
             await _assert_audio_switch_for_storyboard(ctx)
             successes, failures = await batch_enqueue_and_wait(project_name=ctx.project_name, specs=specs)

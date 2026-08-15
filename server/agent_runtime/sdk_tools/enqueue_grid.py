@@ -284,8 +284,11 @@ def generate_grid_tool(ctx: ToolContext):
                                 artifact_status=state.status,
                             )
                         # 宫格整组共用一张联合图：同组任一格状态不可读就无法安全出图，
-                        # 组内其余场景同样被阻塞，逐场景给结论而不是留空让调用方猜。
-                        for state in (*selection.targets, *selection.skipped):
+                        # 组内仍缺分镜图的场景（targets）同样被阻塞，逐场景给结论而不是
+                        # 留空让调用方猜。已复用的场景（skipped）不受影响——它们各自的
+                        # 旧图已确认可用，这次调用本就不会碰它们，"产物状态不可读、需要
+                        # 修复"对它们是错误结论，仍按正常复用记账。
+                        for state in selection.targets:
                             if state.unit_id in unavailable_ids:
                                 continue
                             builder.block(
@@ -299,6 +302,8 @@ def generate_grid_tool(ctx: ToolContext):
                                 artifact_path=state.artifact_path,
                                 artifact_status=state.status,
                             )
+                        for state in selection.skipped:
+                            builder.skip(state)
                         continue
                     if not selection.targets:
                         # 整组分镜图都还可用：逐场景报告复用，宫格本身不进结果集。
