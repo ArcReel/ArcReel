@@ -166,13 +166,19 @@ def reference_unit_task_spec(unit: object, script_file: str) -> TaskSpec:
     unit_id = str(unit.get("unit_id") or "")
     if unit.get("needs_replan") is True:
         require_script_unit_admitted("video_units", unit)
-    if not unit.get("shots"):
+    shots = unit.get("shots")
+    if not shots:
         raise ValueError("没有 shots")
+    if not isinstance(shots, list):
+        # 容器校验落在入队校验这一处：脏值（导入 / Agent 裸写 script 产生的 dict、数字）
+        # 不拦就会在拼接镜头文本时抛出 TypeError，把整批打成 500，而不是让这个 unit
+        # 带着自己的问题码进入准入结论。
+        raise ValueError(f"shots 必须是数组，当前为 {type(shots).__name__}")
     spec = TaskSpec.from_request(
         task_type="reference_video",
         media_type="video",
         resource_id=unit_id,
-        prompt=assemble_shots_text(unit["shots"]),
+        prompt=assemble_shots_text(shots),
         script_file=script_file,
     )
     require_script_unit_admitted("video_units", unit)

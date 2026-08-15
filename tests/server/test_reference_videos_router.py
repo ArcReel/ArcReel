@@ -1738,3 +1738,13 @@ def test_generate_batch_creates_zero_tasks_when_one_artifact_state_is_unreadable
     codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
     assert codes[second] == ["generation_artifact_state_unavailable"]
     assert codes[first] == ["generation_batch_admission_withheld"]
+
+
+@pytest.mark.unit
+def test_reference_unit_task_spec_rejects_a_non_list_shots() -> None:
+    """脏值 shots 报可入队性问题，而不是在拼接镜头文本时把整批打成 500。"""
+
+    from server.services.video_batch_admission import reference_unit_task_spec
+
+    with pytest.raises(ValueError, match="shots 必须是数组"):
+        reference_unit_task_spec({"unit_id": "E1U1", "shots": 42}, "scripts/episode_1.json")
