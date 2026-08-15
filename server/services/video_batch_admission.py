@@ -35,6 +35,7 @@ from lib.generation_result import (
     GenerationSelection,
     GenerationSelectionMode,
     GenerationTargetState,
+    artifact_state_problem,
     observe_artifact_status,
     select_generation_targets,
 )
@@ -99,6 +100,16 @@ def video_target_states(
             blocker=blocker,
         )
     return states
+
+
+def artifact_state_tickets(states: Sequence[GenerationTargetState]) -> list[UnitAdmissionTicket]:
+    """把产物状态不可读的目标折成准入票，让它们参加同一场全有或全无的判定。
+
+    这一态既不能判为可复用、也不能当作缺失去重生，各入口此前只把它记进结果契约，
+    同批健康的目标仍然入队并计费——那正是这道门要防的部分成批。
+    """
+
+    return [UnitAdmissionTicket(unit_id=state.unit_id, problems=(artifact_state_problem(state),)) for state in states]
 
 
 def resolve_reference_batch_targets(
@@ -567,6 +578,7 @@ __all__ = [
     "admit_reference_video_batch",
     "admit_storyboard_video_batch",
     "reference_unit_task_spec",
+    "artifact_state_tickets",
     "request_options_for_unit",
     "resolve_reference_batch_targets",
     "video_target_states",

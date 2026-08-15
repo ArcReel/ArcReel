@@ -85,6 +85,7 @@ from server.services.upload_finalize import (
 )
 from server.services.video_batch_admission import (
     admit_reference_video_batch,
+    artifact_state_tickets,
     reference_unit_task_spec,
     request_options_for_unit,
     resolve_reference_batch_targets,
@@ -770,7 +771,9 @@ async def generate_units_batch(
         ),
         confirmed_request_durations=body.confirmed_request_durations,
         spec_check=lambda unit: reference_unit_task_spec(unit, script_file),
-        extra_tickets=unmatched,
+        # 产物状态不可读的 unit 被选目标环节排除在外，但它属于本次请求：不带进准入，
+        # 同批健康的 unit 会照常入队，剩下这一个被无声略过。
+        extra_tickets=[*unmatched, *artifact_state_tickets(selection.unavailable)],
     )
     payload = _admission_payload(admission, _t)
     payload["skipped_unit_ids"] = sorted(state.unit_id for state in selection.skipped)

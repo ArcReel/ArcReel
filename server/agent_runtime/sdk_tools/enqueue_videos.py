@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -78,6 +78,7 @@ from server.agent_runtime.sdk_tools._context import (
 from server.services.video_batch_admission import (
     admit_reference_video_batch,
     admit_storyboard_video_batch,
+    artifact_state_tickets,
     reference_unit_task_spec,
     request_options_for_unit,
     video_target_states,
@@ -1191,20 +1192,13 @@ def generate_video_episode_tool(ctx: ToolContext):
             # select_generation_targets 已经把这一态折进 selection.unavailable，这里是
             # 同一场判定手写的另一条腿，必须同步处理。
             already_done_set = set(already_done)
-            blocked_ids = [
-                unit_id
+            blocked_states = [
+                state
                 for unit_id, state in states.items()
                 if unit_id not in already_done_set and state.status == ArtifactStatus.BLOCKED
             ]
-            refused = [
-                refused_ticket(
-                    blocked_id,
-                    code=GenerationProblemCode.ARTIFACT_STATE_UNAVAILABLE,
-                    detail=f"片段 {blocked_id} 的产物状态不可读，跳过自动重生",
-                    action=GenerationAction.REPAIR_ARTIFACT_STATE,
-                )
-                for blocked_id in blocked_ids
-            ]
+            blocked_ids = [state.unit_id for state in blocked_states]
+            refused = artifact_state_tickets(blocked_states)
 
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, order_map, spec_refused = _build_video_specs(
@@ -1468,7 +1462,9 @@ def generate_video_all_tool(ctx: ToolContext):
                     candidate.artifact_path,
                 ),
             )
-            builder = GenerationResultBuilder.from_selection(_ALL_OPERATION, selection)
+            # 产物状态不可读的目标改由准入报告（下面折成准入票），结果契约里不再先记一遍：
+            # 同一个 unit 记两次会让结果构造器 fail loud。
+            builder = GenerationResultBuilder.from_selection(_ALL_OPERATION, replace(selection, unavailable=()))
             if not selection.targets:
                 return generation_result_response(builder.build(), log)
 
@@ -1494,6 +1490,9 @@ def generate_video_all_tool(ctx: ToolContext):
                 skip_ids=None,
                 voice_characters=voice_characters,
             )
+            # 产物状态不可读的场景被选目标环节排除在 targets 之外，但它属于本次请求：
+            # 不带进准入，同批健康的场景会照常入队并计费，剩下这一个被无声略过。
+            refused.extend(artifact_state_tickets(selection.unavailable))
             if not specs and not refused:
                 return generation_result_response(builder.build(), log)
 

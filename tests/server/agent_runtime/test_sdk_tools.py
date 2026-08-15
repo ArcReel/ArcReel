@@ -8342,3 +8342,58 @@ async def test_generate_video_episode_batch_is_all_or_nothing_when_a_unit_is_occ
     codes = {item.unit_id: item.problem.code for item in result.items if item.problem is not None}
     assert codes["E1S02"] == "generation_active_task_conflict"
     assert codes["E1S01"] == "generation_batch_admission_withheld"
+
+
+@pytest.mark.integration
+async def test_generate_video_all_creates_zero_tasks_when_one_artifact_state_is_unreadable(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """产物状态读不出的场景属于本次请求：它没进准入，同批健康的场景就会照常入队并计费。"""
+    from dataclasses import replace as dc_replace
+
+    from lib.artifact_manifest import ArtifactBlocker, ArtifactStatus
+    from lib.generation_result import GenerationCandidate, GenerationTargetState
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload["segments"].append(  # type: ignore[attr-defined]
+        {
+            "segment_id": "E1S02",
+            "image_prompt": "山道清晨",
+            "novel_text": "清晨的山道上落着薄雾。",
+            "video_prompt": {"action": "镜头推近", "camera_motion": "Push", "ambiance_audio": "鸟鸣"},
+            "duration_seconds": 4,
+            "generated_assets": {"storyboard_image": "storyboards/scene_E1S02.png"},
+        }
+    )
+    (fake_ctx.project_path / "storyboards").mkdir(parents=True, exist_ok=True)
+    (fake_ctx.project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"\x89PNG")
+
+    select_targets = mod.select_generation_targets
+
+    def _one_unavailable(**kwargs: Any):
+        selection = select_targets(**kwargs)
+        blocked = GenerationTargetState(
+            candidate=GenerationCandidate(unit_id="E1S02"),
+            status=ArtifactStatus.BLOCKED,
+            blocker=ArtifactBlocker(code="artifact_manifest_unreadable", path="", detail="侧车读不出"),
+        )
+        return dc_replace(
+            selection,
+            targets=tuple(state for state in selection.targets if state.unit_id != "E1S02"),
+            unavailable=(blocked,),
+        )
+
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "select_generation_targets", _one_unavailable)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await _call(generate_video_all_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("batch_admission") is not None, out
+    assert out["batch_admission"]["decision"] == "blocked"
+    enqueue.assert_not_awaited()
+    codes = {
+        unit["unit_id"]: [problem["code"] for problem in unit["problems"]] for unit in out["batch_admission"]["units"]
+    }
+    assert codes["E1S02"] == ["generation_artifact_state_unavailable"]
+    assert codes["E1S01"] == ["generation_batch_admission_withheld"]

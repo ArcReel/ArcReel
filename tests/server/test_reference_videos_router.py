@@ -1695,3 +1695,46 @@ def test_generate_batch_skips_units_that_already_have_a_clip(
     assert body["decision"] == "admitted"
     assert [item["unit_id"] for item in body["units"]] == [second]
     assert [call["resource_id"] for call in enqueued] == [second]
+
+
+@pytest.mark.integration
+def test_generate_batch_creates_zero_tasks_when_one_artifact_state_is_unreadable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """产物状态读不出的 unit 属于本次请求：它没进准入，同批健康的 unit 就会照常计费。"""
+
+    from lib.artifact_manifest import ArtifactBlocker, ArtifactStatus
+    from lib.generation_result import GenerationCandidate, GenerationTargetState
+    from server.routers import reference_videos as router_mod
+
+    first = _seed_unit(client)
+    second = _seed_second_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    resolve_targets = router_mod.resolve_reference_batch_targets
+
+    def _one_unavailable(**kwargs: Any):
+        targets, selection, states = resolve_targets(**kwargs)
+        blocked = GenerationTargetState(
+            candidate=GenerationCandidate(unit_id=second),
+            status=ArtifactStatus.BLOCKED,
+            blocker=ArtifactBlocker(code="artifact_manifest_unreadable", path="", detail="侧车读不出"),
+        )
+        return (
+            [unit for unit in targets if unit["unit_id"] != second],
+            replace(selection, targets=(states[first],), unavailable=(blocked,)),
+            states,
+        )
+
+    monkeypatch.setattr(router_mod, "resolve_reference_batch_targets", _one_unavailable)
+
+    resp = client.post(BATCH_ENDPOINT, json={})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "blocked"
+    assert body["task_ids"] == []
+    assert enqueued == []
+    codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
+    assert codes[second] == ["generation_artifact_state_unavailable"]
+    assert codes[first] == ["generation_batch_admission_withheld"]
