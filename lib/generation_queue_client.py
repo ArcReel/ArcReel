@@ -38,6 +38,18 @@ class TaskWaitTimeoutError(TimeoutError):
     """Raised when queued task does not finish before timeout."""
 
 
+def is_interrupted_wait_error(exc: BaseException) -> bool:
+    """True when *exc* means a task wait was cut short, not provider-judged failed.
+
+    Shared by every ``wait_for_task`` caller — the batch path below and any direct
+    per-task wait loop — so a queued/running task caught mid-flight by a timeout or
+    an offline worker is reported as interrupted rather than terminal-failed. Reporting
+    it failed would suggest a safe retry while the original submission may still land,
+    risking a duplicate paid generation.
+    """
+    return isinstance(exc, (TaskWaitTimeoutError, WorkerOfflineError))
+
+
 DEFAULT_TASK_WAIT_TIMEOUT_SEC: float | None = 3600.0
 DEFAULT_WORKER_OFFLINE_GRACE_SEC: float = max(20.0, float(TASK_WORKER_LEASE_TTL_SEC) * 2.0)
 
@@ -426,13 +438,19 @@ class TaskSpec:
 
 @dataclass
 class BatchTaskResult:
-    """Result of a single task after batch execution."""
+    """Result of a single task after batch execution.
+
+    ``task`` carries the finished task row so callers can report the provider
+    submission checkpoint separately from the queue status; it is ``None`` only
+    when the wait itself failed and no terminal row was ever read.
+    """
 
     resource_id: str
     task_id: str
-    status: str  # "succeeded" | "failed" | "cancelled"
+    status: str  # "succeeded" | "failed" | "cancelled" | "interrupted"
     result: dict[str, Any] | None = None
     error: str | None = None
+    task: dict[str, Any] | None = None
 
 
 def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: str) -> BatchTaskResult:
@@ -443,6 +461,7 @@ def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: 
             task_id=task_id,
             status="failed",
             error=task.get("error_message") or "task failed",
+            task=task,
         )
     if task.get("status") == "cancelled":
         return BatchTaskResult(
@@ -450,12 +469,14 @@ def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: 
             task_id=task_id,
             status="cancelled",
             error="task cancelled",
+            task=task,
         )
     return BatchTaskResult(
         resource_id=resource_id,
         task_id=task_id,
         status="succeeded",
         result=task.get("result") or {},
+        task=task,
     )
 
 
@@ -475,33 +496,74 @@ async def batch_enqueue_and_wait(
     """
     if not specs:
         return [], []
-    # Phase 1 — Sequential enqueue (dependency resolution requires order)
+    # Phase 1 — Sequential enqueue (dependency resolution requires order). One
+    # spec's enqueue failure must not abort the loop: earlier members may already
+    # be queued (and billed) and later members still need their own queue
+    # attempt — the promised per-ID result covers all of them regardless. Each
+    # failure is captured here as its own ``BatchTaskResult`` (``task_id=""``
+    # marks "never queued", distinct from a queued task that later failed) so
+    # the batch keeps going and every requested ID ends up in exactly one of
+    # the two returned lists.
     task_ids: dict[str, str] = {}
+    enqueue_failures: list[BatchTaskResult] = []
+    failed_resource_ids: set[str] = set()
     for spec in specs:
+        if spec.dependency_resource_id and spec.dependency_resource_id in failed_resource_ids:
+            enqueue_failures.append(
+                BatchTaskResult(
+                    resource_id=spec.resource_id,
+                    task_id="",
+                    status="failed",
+                    error=f"dependency {spec.dependency_resource_id} failed to enqueue",
+                )
+            )
+            failed_resource_ids.add(spec.resource_id)
+            continue
         dep_task_id: str | None = None
         if spec.dependency_resource_id:
             dep_task_id = task_ids.get(spec.dependency_resource_id)
 
-        enqueue_result = await enqueue_task_only(
-            project_name=project_name,
-            task_type=spec.task_type,
-            media_type=spec.media_type,
-            resource_id=spec.resource_id,
-            payload=spec.payload,
-            script_file=spec.script_file,
-            source=spec.source,
-            dependency_task_id=dep_task_id,
-            dependency_group=spec.dependency_group,
-            dependency_index=spec.dependency_index,
-        )
+        try:
+            enqueue_result = await enqueue_task_only(
+                project_name=project_name,
+                task_type=spec.task_type,
+                media_type=spec.media_type,
+                resource_id=spec.resource_id,
+                payload=spec.payload,
+                script_file=spec.script_file,
+                source=spec.source,
+                dependency_task_id=dep_task_id,
+                dependency_group=spec.dependency_group,
+                dependency_index=spec.dependency_index,
+            )
+        except Exception as exc:  # noqa: BLE001
+            enqueue_failures.append(
+                BatchTaskResult(resource_id=spec.resource_id, task_id="", status="failed", error=str(exc))
+            )
+            failed_resource_ids.add(spec.resource_id)
+            continue
         task_ids[spec.resource_id] = enqueue_result["task_id"]
 
-    # Phase 2 — Parallel wait via asyncio.gather (single event loop)
+    # Phase 2 — Parallel wait via asyncio.gather (single event loop), only for
+    # specs that actually reached the queue.
+    enqueued_specs = [spec for spec in specs if spec.resource_id in task_ids]
+
     async def _wait_one(spec: TaskSpec) -> BatchTaskResult:
         tid = task_ids[spec.resource_id]
         try:
             task = await wait_for_task(tid)
             return _task_result_from_finished(task, spec.resource_id, tid)
+        except (TaskWaitTimeoutError, WorkerOfflineError) as exc:
+            # wait_for_task 抛出前刚确认过 task 仍非终态（未 succeeded/failed/cancelled）——
+            # 这是等待被打断，不是 provider 判定的失败，用独立 status 区分，让
+            # record_batch_outcomes 能报告 INTERRUPTED 而不是 FAILED，避免下游对一个
+            # 仍可能正常落地的任务盲目 retry 造成重复付费提交。
+            return BatchTaskResult(
+                resource_id=spec.resource_id,
+                task_id=tid,
+                status="interrupted",
+                error=str(exc),
+            )
         except Exception as exc:
             return BatchTaskResult(
                 resource_id=spec.resource_id,
@@ -510,7 +572,7 @@ async def batch_enqueue_and_wait(
                 error=str(exc),
             )
 
-    results = await asyncio.gather(*[_wait_one(s) for s in specs])
+    results = await asyncio.gather(*[_wait_one(s) for s in enqueued_specs])
 
     successes: list[BatchTaskResult] = []
     failures: list[BatchTaskResult] = []
@@ -523,6 +585,11 @@ async def batch_enqueue_and_wait(
             failures.append(br)
             if on_failure:
                 on_failure(br)
+
+    for br in enqueue_failures:
+        failures.append(br)
+        if on_failure:
+            on_failure(br)
 
     return successes, failures
 

@@ -11,26 +11,40 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.artifact_activation import (
-    ArtifactCurrencyResolver,
     active_artifact_currency_resolver,
-    artifact_is_usable,
     resolve_artifact_episode,
 )
 from lib.artifact_manifest import ArtifactKey
 from lib.generation_queue_client import (
-    BatchTaskResult,
     TaskSpec,
     batch_enqueue_and_wait,
 )
+from lib.generation_result import (
+    GenerationAction,
+    GenerationCandidate,
+    GenerationProblem,
+    GenerationProblemCode,
+    GenerationResultBuilder,
+    normalize_requested_ids,
+    record_batch_outcomes,
+    select_generation_targets,
+)
 from lib.prompt_builders import build_storyboard_prompt
+from lib.resource_paths import resource_relative_path
 from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import (
-    StoryboardTaskPlan,
     build_storyboard_dependency_plan,
     get_storyboard_items,
 )
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
+from server.agent_runtime.sdk_tools._context import (
+    ToolContext,
+    generation_result_response,
+    tool_error,
+    validate_script_filename,
+)
+
+_OPERATION = "generate_storyboards"
 
 
 class _FailureRecorder:
@@ -80,68 +94,13 @@ def _build_prompt(
     return build_storyboard_prompt(image_prompt, style, style_description)
 
 
-def _select_items(
-    items: list[dict[str, Any]],
-    id_field: str,
-    segment_ids: list[str] | None,
-    *,
-    episode: int,
-    resolver: ArtifactCurrencyResolver | None,
-) -> list[dict[str, Any]]:
-    # ``None`` 和 ``[]`` 含义不同：``None`` = "不传过滤，默认扫所有缺图项"；
-    # ``[]`` = "显式空选择，应当返回空列表交由 handler 报错"。
-    if segment_ids is not None:
-        wanted = {str(s) for s in segment_ids}
-        return [item for item in items if str(item.get(id_field)) in wanted]
-    selected: list[dict[str, Any]] = []
-    for item in items:
-        resource_id = item.get(id_field)
-        if (
-            not isinstance(resource_id, str)
-            or not resource_id
-            or not artifact_is_usable(
-                resolver,
-                ArtifactKey.episode_storyboard(episode, resource_id) if resolver is not None else None,
-                get_generated_assets(item).get("storyboard_image"),
-            )
-        ):
-            selected.append(item)
-    return selected
-
-
-def _build_specs(
-    plans: list[StoryboardTaskPlan],
-    items_by_id: dict[str, dict[str, Any]],
-    style: str,
-    style_description: str,
-    id_field: str,
-    script_filename: str,
-) -> list[TaskSpec]:
-    specs: list[TaskSpec] = []
-    for plan in plans:
-        item = items_by_id[plan.resource_id]
-        image_prompt = item.get("image_prompt")
-        _build_prompt(item, style, style_description, id_field)
-        specs.append(
-            TaskSpec.from_request(
-                task_type="storyboard",
-                media_type="image",
-                resource_id=plan.resource_id,
-                prompt=image_prompt,
-                script_file=script_filename,
-                dependency_resource_id=plan.dependency_resource_id,
-                dependency_group=plan.dependency_group,
-                dependency_index=plan.dependency_index,
-            )
-        )
-    return specs
-
-
 def generate_storyboards_tool(ctx: ToolContext):
     @tool(
-        "generate_storyboards",
+        _OPERATION,
         "为 narration/drama 模式剧本生成分镜图。"
-        "script 为剧本文件名（如 episode_1.json）；segment_ids 指定要重生的片段/场景 ID 列表（不传则生成所有缺图项）。",
+        "script 为剧本文件名（如 episode_1.json）；segment_ids 指定要重生的片段/场景 ID 列表"
+        "（不传则只生成缺分镜图的项；已失效但可用的旧图不会被自动重生）。"
+        "返回 requested / succeeded / failed / blocked 的逐 ID 结果，每个失败项带稳定 code 与下一步动作。",
         {
             "type": "object",
             "properties": {
@@ -152,7 +111,7 @@ def generate_storyboards_tool(ctx: ToolContext):
                 "segment_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "片段或场景 ID 列表；不传则扫描所有缺分镜图的项",
+                    "description": "片段或场景 ID 列表；不传则只选缺分镜图的项",
                 },
             },
             "required": ["script"],
@@ -161,7 +120,7 @@ def generate_storyboards_tool(ctx: ToolContext):
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
             script_filename = validate_script_filename(args["script"])
-            segment_ids = args.get("segment_ids")
+            segment_ids = normalize_requested_ids(args.get("segment_ids"), field="segment_ids")
 
             script = ctx.pm.load_script(ctx.project_name, script_filename)
             project_dir = ctx.project_path
@@ -176,8 +135,8 @@ def generate_storyboards_tool(ctx: ToolContext):
 
             if project_data:
                 # 失配剧本在此被拒：按分镜路线该读的数组不在剧本里，继续走下去
-                # 会落进"✨ 所有片段的分镜图都已生成"的假成功，把成因埋掉。project.json 缺失
-                # 时无路线可依，沿用上面的降级放行。
+                # 会落进空结果的假成功，把成因埋掉。project.json 缺失时无路线可依，
+                # 沿用上面的降级放行。
                 ensure_route_skeleton(
                     script, resolve_content_mode(script, project_data), project_data.get("generation_mode")
                 )
@@ -192,77 +151,90 @@ def generate_storyboards_tool(ctx: ToolContext):
                 )
                 or 1
             )
-            selected = _select_items(
-                items,
-                id_field,
-                segment_ids,
-                episode=episode,
+            items_by_id = {str(item[id_field]): item for item in items if item.get(id_field)}
+            selection = select_generation_targets(
+                candidates=[
+                    GenerationCandidate(
+                        unit_id=unit_id,
+                        artifact_key=(
+                            ArtifactKey.episode_storyboard(episode, unit_id) if resolver is not None else None
+                        ),
+                        artifact_path=get_generated_assets(item).get("storyboard_image"),
+                    )
+                    for unit_id, item in items_by_id.items()
+                ],
+                requested_ids=segment_ids,
                 resolver=resolver,
             )
-            if not selected:
-                # 区分两种零结果：调用方显式传了 segment_ids（None vs []，None 即
-                # "未传"，[] 与不命中等价都按错误处理）vs 全部已生成（真无事可做）。
-                if segment_ids is not None:
-                    return {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": f"❌ 没有找到匹配的片段/场景：segment_ids={segment_ids}",
-                            }
-                        ],
-                        "is_error": True,
-                    }
-                return {"content": [{"type": "text", "text": "✨ 所有片段的分镜图都已生成"}]}
+            builder = GenerationResultBuilder.from_selection(_OPERATION, selection)
 
             style = project_data.get("style", "")
             style_description = project_data.get("style_description", "")
-            items_by_id = {str(item[id_field]): item for item in items if item.get(id_field)}
+            targets = []
+            for state in selection.targets:
+                try:
+                    _build_prompt(items_by_id[state.unit_id], style, style_description, id_field)
+                except (KeyError, TypeError, ValueError) as exc:
+                    builder.block(
+                        state.unit_id,
+                        problem=GenerationProblem(
+                            code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                            detail=str(exc),
+                            action=GenerationAction.FIX_INPUT,
+                        ),
+                        artifact_key=state.artifact_key,
+                        artifact_path=state.artifact_path,
+                        artifact_status=state.status,
+                    )
+                    continue
+                targets.append(state)
+
+            by_id = {state.unit_id: state for state in targets}
             plans = build_storyboard_dependency_plan(
                 items,
                 id_field,
-                [str(item[id_field]) for item in selected],
+                [state.unit_id for state in targets],
                 script_filename,
             )
-            specs = _build_specs(
-                plans,
-                items_by_id,
-                style,
-                style_description,
-                id_field,
-                script_filename,
-            )
+            specs = [
+                TaskSpec.from_request(
+                    task_type="storyboard",
+                    media_type="image",
+                    resource_id=plan.resource_id,
+                    prompt=items_by_id[plan.resource_id].get("image_prompt"),
+                    script_file=script_filename,
+                    dependency_resource_id=plan.dependency_resource_id,
+                    dependency_group=plan.dependency_group,
+                    dependency_index=plan.dependency_index,
+                )
+                for plan in plans
+            ]
 
-            recorder = _FailureRecorder(project_dir / "storyboards")
-            successes, failures = await batch_enqueue_and_wait(
-                project_name=ctx.project_name,
-                specs=specs,
-            )
-            # narration → segment_id / drama → scene_id：``id_field`` 是脚本里
-            # 的规范字段名，``"segment"`` / ``"scene"`` 是对应的资源类型。
-            resource_type = "segment" if id_field == "segment_id" else "scene"
-            for f in failures:
-                recorder.record(f.resource_id, resource_type, f.error or "unknown")
-            recorder.save()
+            if specs:
+                recorder = _FailureRecorder(project_dir / "storyboards")
+                successes, failures = await batch_enqueue_and_wait(
+                    project_name=ctx.project_name,
+                    specs=specs,
+                )
+                # narration → segment_id / drama → scene_id：``id_field`` 是脚本里
+                # 的规范字段名，``"segment"`` / ``"scene"`` 是对应的资源类型。
+                resource_type = "segment" if id_field == "segment_id" else "scene"
+                for br in failures:
+                    recorder.record(br.resource_id, resource_type, br.error or "unknown")
+                recorder.save()
 
-            details: list[str] = []
-            success_map = {s.resource_id: s for s in successes}
-            for plan in plans:
-                br: BatchTaskResult | None = success_map.get(plan.resource_id)
-                if br is None:
-                    continue
-                result = br.result or {}
-                rel = result.get("file_path") or f"storyboards/scene_{plan.resource_id}.png"
-                details.append(f"  ✓ {plan.resource_id} → {rel}")
-            for f in failures:
-                details.append(f"  ✗ {f.resource_id}: {f.error}")
+                record_batch_outcomes(
+                    builder,
+                    successes=successes,
+                    failures=failures,
+                    states=by_id,
+                    resolver=resolver,
+                    fallback_path=lambda rid: resource_relative_path("storyboards", rid),
+                )
 
-            header = f"generate_storyboards summary: {len(successes)} succeeded, {len(failures)} failed"
-            return {
-                "content": [{"type": "text", "text": "\n".join([header, *details])}],
-                "is_error": bool(failures),
-            }
+            return generation_result_response(builder.build())
         except Exception as exc:  # noqa: BLE001
-            return tool_error("generate_storyboards", exc)
+            return tool_error(_OPERATION, exc)
 
     return _handler
 

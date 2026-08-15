@@ -19,15 +19,29 @@ from lib.artifact_activation import (
     resolve_artifact_episode,
     resolve_usable_storyboard_video_inputs,
 )
-from lib.artifact_manifest import ArtifactKey
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
 from lib.config.resolver import video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
     batch_enqueue_and_wait,
-    enqueue_and_wait,
     get_active_tasks_for_resources,
+)
+from lib.generation_result import (
+    GenerationAction,
+    GenerationBatchResult,
+    GenerationCandidate,
+    GenerationProblem,
+    GenerationProblemCode,
+    GenerationResultBuilder,
+    GenerationSelectionMode,
+    GenerationTargetState,
+    artifact_is_reusable,
+    normalize_requested_ids,
+    observe_artifact_status,
+    record_batch_outcomes,
+    select_generation_targets,
 )
 from lib.narration_delivery import (
     NarratedVideoDurationPreparation,
@@ -62,6 +76,7 @@ from lib.storyboard_sequence import get_storyboard_items
 from lib.version_manager import VersionManager
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
+    generation_result_response,
     tool_error,
     validate_script_filename,
 )
@@ -89,6 +104,12 @@ _NARRATION_DELIVERY_SCHEMA_PROPERTY = {
 }
 
 
+_EPISODE_OPERATION = "generate_video_episode"
+_SCENE_OPERATION = "generate_video_scene"
+_ALL_OPERATION = "generate_video_all"
+_SELECTED_OPERATION = "generate_video_selected"
+
+
 def _batch_video_is_reusable(
     *,
     currency: ArtifactCurrencyResolver | None,
@@ -109,6 +130,124 @@ def _batch_video_is_reusable(
         resource_id,
         artifact_path,
     )
+
+
+def _video_target_states(
+    units: list[Any],
+    id_field: str,
+    *,
+    episode: int,
+    resolver: ArtifactCurrencyResolver | None,
+) -> dict[str, GenerationTargetState]:
+    """Observe each unit's video artifact standing once, for the whole request.
+
+    All four video tools report the artifact axis from this one observation, so
+    a task result and the artifact's current/stale standing never come from two
+    different reads.
+    """
+
+    states: dict[str, GenerationTargetState] = {}
+    for unit in units:
+        if not isinstance(unit, dict):
+            continue
+        unit_id = str(unit.get(id_field) or unit.get("scene_id") or unit.get("segment_id") or "")
+        if not unit_id or unit_id in states:
+            continue
+        artifact_path = get_generated_assets(unit).get("video_clip")
+        key = ArtifactKey.episode_video(episode, unit_id) if resolver is not None else None
+        status, blocker = observe_artifact_status(resolver=resolver, key=key, artifact_path=artifact_path)
+        states[unit_id] = GenerationTargetState(
+            candidate=GenerationCandidate(
+                unit_id=unit_id,
+                artifact_key=key,
+                artifact_path=artifact_path if isinstance(artifact_path, str) else None,
+            ),
+            status=status,
+            blocker=blocker,
+        )
+    return states
+
+
+def _state_for(states: dict[str, GenerationTargetState], unit_id: str) -> GenerationTargetState:
+    return states.get(unit_id) or GenerationTargetState(candidate=GenerationCandidate(unit_id=unit_id))
+
+
+def _currency_reusable_ids(
+    states: dict[str, GenerationTargetState],
+    already_done: list[str],
+    *,
+    manifest_active: bool,
+) -> list[str]:
+    """Missing-only ids that active currency already reports current/stale.
+
+    The checkpoint's ``completed_scenes`` only tracks what *this* batch (or a
+    previous resumed attempt) has submitted — a fresh ``resume=false`` call
+    always starts it empty. Without this, missing-only would regenerate every
+    scene on a plain (non-resume) episode call even when its video_clip is
+    already current, billing for a full re-run of a request that named no ID.
+    """
+
+    done = set(already_done)
+    return [
+        unit_id
+        for unit_id, state in states.items()
+        if unit_id not in done and artifact_is_reusable(state, manifest_active=manifest_active)
+    ]
+
+
+def _block_unit(
+    builder: GenerationResultBuilder,
+    states: dict[str, GenerationTargetState],
+    unit_id: str,
+    *,
+    code: str,
+    detail: str,
+    action: GenerationAction,
+    params: dict[str, Any] | None = None,
+) -> None:
+    state = _state_for(states, unit_id)
+    builder.block(
+        unit_id,
+        problem=GenerationProblem(code=code, detail=detail, action=action, params=params or {}),
+        artifact_key=state.artifact_key,
+        artifact_path=state.artifact_path,
+        artifact_status=state.status,
+    )
+
+
+def _speech_admission_block(exc: SpeechAdmissionError) -> dict[str, Any]:
+    """Map a speech admission rejection onto ``_block_unit`` arguments.
+
+    The admission's own problem code and action are carried through unchanged,
+    so a caller never has to read the rendered text to decide what to do next.
+    """
+
+    problem = exc.admission.problems[0]
+    return {
+        "code": problem.code.value,
+        "detail": f"发声准入未通过：{json.dumps(exc.admission.to_dict(), ensure_ascii=False)}",
+        "action": (
+            GenerationAction.REPLAN_UNIT if problem.action.value == "replan_unit" else GenerationAction.FIX_INPUT
+        ),
+        "params": {"speech_admission": exc.admission.to_dict()},
+    }
+
+
+def _sole_speech_admission(result: GenerationBatchResult) -> dict[str, Any]:
+    """整个请求只卡在一个单元的发声准入上时，把准入载荷原样带回响应顶层。
+
+    单元级的定位信息（哪一句台词、哪条路径）比逐 ID 契约细一层，点名单个单元的调用方
+    需要它才能一步定位到要改的地方；批量请求没有「这一个」单元可指，就不带。
+    """
+
+    admissions = [
+        item.problem.params["speech_admission"]
+        for item in result.items
+        if item.problem is not None and "speech_admission" in item.problem.params
+    ]
+    if len(result.requested) == 1 and len(admissions) == 1:
+        return {"speech_admission": admissions[0]}
+    return {}
 
 
 def _reference_request_options(args: dict[str, Any]) -> ReferenceRequestOptions:
@@ -187,12 +326,32 @@ def _reference_projection_error(
     }
 
 
-def _duration_confirmation_response(pending: DurationConfirmationPending, log: list[str]) -> dict[str, Any]:
+def _duration_confirmation_response(
+    pending: DurationConfirmationPending, log: list[str], builder: GenerationResultBuilder
+) -> dict[str, Any]:
     """把待确认清单连同调用期间产生的 log 一并交给调用方转述。
 
     log 携带的是同样影响生成范围的事实（如 scene_id 被忽略转整集、ad 派生出的 unit 数），
     确认时一并呈现，用户才知道自己同意的是什么范围。
+
+    每个待确认 unit 同时记入 ``builder`` 为 blocked：这是入队前的正常拦截点，不是异常，
+    但仍是 requested/failed/blocked 契约覆盖的一种结果——遗漏它，调用方就拿不到这批
+    unit 的机器可读结论，只能解析 prose 猜测。复用与持久化任务失败同一个已登记码
+    （``reference_duration_confirmation_required``），与该码在失败路径上出现时的
+    action（``confirm_request_duration``）保持一致。
     """
+    for item in pending.items:
+        builder.block(
+            str(item["unit_id"]),
+            problem=GenerationProblem(
+                code="reference_duration_confirmation_required",
+                detail=(
+                    f"本次时长基准 {item['duration_input']}s 将按 {item['request_duration']}s 档位生成，请确认后重试"
+                ),
+                action=GenerationAction.CONFIRM_REQUEST_DURATION,
+                params={k: v for k, v in item.items() if k != "unit_id"},
+            ),
+        )
     lines = [*log, "以下 unit 将改用不同的视频时长档位，需先向用户确认，本次未入队任何任务："]
     for item in pending.items:
         duration_input = item["duration_input"]
@@ -226,8 +385,12 @@ def _duration_confirmation_response(pending: DurationConfirmationPending, log: l
         "confirmed_request_duration_seconds=<request_duration> 再次调用；若多个 unit 档位不同，"
         "请按档位分组调用。"
     )
+    result = builder.build()
     return {
+        # 待确认是入队前的正常拦截点，不是异常——is_error 不跟着 blocked 走，
+        # 这批 unit 仍等待用户决定，不代表请求失败。
         "content": [{"type": "text", "text": "\n".join(lines)}],
+        "generation_result": result.model_dump(mode="json"),
         "request_projections": pending.projections,
     }
 
@@ -245,15 +408,25 @@ async def _reference_projection_preflight(
     skip_ids: set[str],
     spec_for: Callable[[Any], TaskSpec],
     request_options: ReferenceRequestOptions,
+    builder: GenerationResultBuilder,
+    states: dict[str, GenerationTargetState],
     project_name: str | None = None,
     script_filename: str | None = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, object]]]:
-    """用公共投影一次性完成 Agent 入口的资产、能力、音频与时长预检。"""
+) -> tuple[list[dict[str, Any]], list[dict[str, object]], set[str]]:
+    """用公共投影一次性完成 Agent 入口的资产、能力、音频与时长预检。
+
+    发声准入失败的 unit 在此就近记入 ``builder``（返回的第三项 ``admission_blocked``
+    供调用方从后续 ``build_specs`` 中排除，避免重复记账）——不能让它随一次
+    ``continue`` 消失：批内若还有其它 unit 触发时长确认，早退回
+    ``DurationConfirmationPending`` 会跳过后面才做记账的 ``build_specs``，
+    该 unit 就会从 ``requested = succeeded ∪ failed ∪ blocked`` 的账目里静默失踪。
+    """
 
     if request_options.narration_delivery == USE_TTS and project_name is None:
         raise ValueError("use_tts reference projection requires project_name")
     items: list[dict[str, Any]] = []
     projections: list[dict[str, object]] = []
+    admission_blocked: set[str] = set()
     target_ids = [str(unit.get("unit_id") or "") for unit in units if isinstance(unit, dict) and unit.get("unit_id")]
     active_tts = (
         await active_tts_resource_ids(
@@ -272,6 +445,10 @@ async def _reference_projection_preflight(
             continue
         try:
             spec_for(unit)
+        except SpeechAdmissionError as exc:
+            _block_unit(builder, states, unit_id, **_speech_admission_block(exc))
+            admission_blocked.add(unit_id)
+            continue
         except ValueError:
             continue
         current_options = await prepare_current_reference_video_request_options(
@@ -349,7 +526,7 @@ async def _reference_projection_preflight(
                     ),
                 }
             )
-    return items, projections
+    return items, projections, admission_blocked
 
 
 async def _prepare_storyboard_delivery_for_item(
@@ -617,12 +794,20 @@ def _build_video_specs(
     script_filename: str,
     project_dir: Path,
     skip_ids: list[str] | None,
-    log: list[str],
+    builder: GenerationResultBuilder,
+    states: dict[str, GenerationTargetState],
     project: dict[str, Any] | None = None,
     episode: int = 1,
     resolver: ArtifactCurrencyResolver | None = None,
     voice_characters: dict[str, Any] | None = None,
 ) -> tuple[list[TaskSpec], dict[str, int]]:
+    """Build the storyboard-route specs, blocking each unit that cannot be requested.
+
+    A unit whose inputs or prompt are unusable is reported with its own code and
+    next action instead of being dropped into a log line, so one bad unit never
+    silently shrinks the batch.
+    """
+
     item_type = "片段" if content_mode == "narration" else "场景"
     skip_set = set(skip_ids or [])
 
@@ -647,13 +832,27 @@ def _build_video_specs(
                 allow_legacy_same_name=False,
             )
         except (OSError, ValueError) as exc:
-            log.append(f"⚠️  {item_type} {item_id} 的视频输入不可用，跳过: {exc}")
+            _block_unit(
+                builder,
+                states,
+                str(item_id),
+                code=GenerationProblemCode.UNIT_INPUT_UNUSABLE,
+                detail=f"{item_type} {item_id} 的视频输入不可用: {exc}",
+                action=GenerationAction.GENERATE_DEPENDENCY,
+            )
             continue
 
         try:
             prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
         except Exception as exc:  # noqa: BLE001
-            log.append(f"⚠️  {item_type} {item_id} 的 video_prompt 无效，跳过: {exc}")
+            _block_unit(
+                builder,
+                states,
+                str(item_id),
+                code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                detail=f"{item_type} {item_id} 的 video_prompt 无效: {exc}",
+                action=GenerationAction.FIX_INPUT,
+            )
             continue
 
         # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
@@ -708,8 +907,11 @@ def _build_reference_specs(
     units: list[Any],
     script_filename: str,
     skip_ids: list[str] | None,
-    log: list[str],
+    builder: GenerationResultBuilder,
+    states: dict[str, GenerationTargetState],
 ) -> tuple[list[TaskSpec], dict[str, int]]:
+    """Build the reference-route specs, blocking each unit that cannot be requested."""
+
     skip_set = set(skip_ids or [])
     specs: list[TaskSpec] = []
     order_map: dict[str, int] = {}
@@ -718,15 +920,22 @@ def _build_reference_specs(
         if unit_id in skip_set:
             continue
         # 任一 unit 不合法（没有 shots、空提示词、或 from_request 对空 resource_id 抛的
-        # 裸 ValueError）都跳过并告警，不让一个坏 unit 中断整批。TaskSpecValidationError
+        # 裸 ValueError）都记为 blocked，不让一个坏 unit 中断整批。TaskSpecValidationError
         # 是 ValueError 子类，捕 ValueError 同时覆盖两者。
         try:
             spec = _reference_unit_spec(unit, script_filename)
         except SpeechAdmissionError as exc:
-            log.append(f"⚠️  {unit_id} 发声准入未通过，跳过：{json.dumps(exc.admission.to_dict(), ensure_ascii=False)}")
+            _block_unit(builder, states, unit_id or exc.admission.unit_id, **_speech_admission_block(exc))
             continue
         except ValueError as exc:
-            log.append(f"⚠️  {unit_id} 入队校验未通过，跳过：{exc}")
+            _block_unit(
+                builder,
+                states,
+                unit_id or f"unit_{idx}",
+                code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                detail=f"入队校验未通过：{exc}",
+                action=GenerationAction.FIX_INPUT,
+            )
             continue
         specs.append(spec)
         order_map[unit_id] = idx
@@ -802,9 +1011,8 @@ async def _submit_with_checkpoint(
     completed: list[str],
     fallback_relpath: Callable[[str], str],
     save_fn: Callable[[], None],
-    log: list[str],
-) -> list[BatchTaskResult]:
-    """Run a batch and update checkpoint per success. Returns failures.
+) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
+    """Run a batch and update checkpoint per success. Returns ``(successes, failures)``.
 
     ``fallback_relpath`` is called only when the queue result lacks
     ``file_path``; reference_video tasks need a different naming convention
@@ -814,22 +1022,15 @@ async def _submit_with_checkpoint(
     def on_success(br: BatchTaskResult) -> None:
         result = br.result or {}
         relative_path = result.get("file_path") or fallback_relpath(br.resource_id)
-        output_path = project_dir / relative_path
-        ordered_paths[order_map[br.resource_id]] = output_path
+        ordered_paths[order_map[br.resource_id]] = project_dir / relative_path
         completed.append(br.resource_id)
         save_fn()
-        log.append(f"    ✓ {output_path.name}")
 
-    def on_failure(br: BatchTaskResult) -> None:
-        log.append(f"    ✗ {br.resource_id}: {br.error}")
-
-    _, failures = await batch_enqueue_and_wait(
+    return await batch_enqueue_and_wait(
         project_name=project_name,
         specs=specs,
         on_success=on_success,
-        on_failure=on_failure,
     )
-    return failures
 
 
 async def _generate_reference_units(
@@ -838,9 +1039,11 @@ async def _generate_reference_units(
     units: list[Any],
     episode: int,
     resume: bool,
-    log: list[str],
+    builder: GenerationResultBuilder,
+    states: dict[str, GenerationTargetState],
+    resolver: ArtifactCurrencyResolver | None,
     checkpoint_path: Path | None,
-    build_specs: Callable[[list[Any], list[str], list[str]], tuple[list[TaskSpec], dict[str, int]]],
+    build_specs: Callable[[list[Any], list[str]], tuple[list[TaskSpec], dict[str, int]]],
     spec_for: Callable[[Any], TaskSpec],
     project: dict[str, Any],
     script: dict[str, Any],
@@ -883,6 +1086,7 @@ async def _generate_reference_units(
 
     ordered_paths: list[Path | None] = [None] * len(units)
     already_done: list[str] = []
+    manifest_blocked: list[str] = []
     for idx, unit in enumerate(units):
         if not isinstance(unit, dict):
             continue
@@ -890,33 +1094,61 @@ async def _generate_reference_units(
         if not unit_id:
             continue
         candidate = output_dir / f"{unit_id}.mp4"
-        if candidate.exists() and not video_unit_replan_problems(unit) and reuse_existing(unit):
+        reusable = False
+        if candidate.exists() and not video_unit_replan_problems(unit):
+            try:
+                reusable = reuse_existing(unit)
+            except ArtifactManifestError:
+                # 复用判定（点名强制路线传入的 ``reuse_existing`` 恒为 False，不会走到
+                # ``artifact_is_usable``；只有整集路线的复用判定会查 Manifest）对
+                # BLOCKED 状态 fail-loud：一张已存在的成片若比对读不出来，不能让它把
+                # 整批生成打成 tool_error，而是逐 unit 记 blocked，交回去修复侧车。
+                _block_unit(
+                    builder,
+                    states,
+                    unit_id,
+                    code=GenerationProblemCode.ARTIFACT_STATE_UNAVAILABLE,
+                    detail=f"unit {unit_id} 的产物状态不可读，跳过自动重生",
+                    action=GenerationAction.REPAIR_ARTIFACT_STATE,
+                )
+                manifest_blocked.append(unit_id)
+                continue
+        if reusable:
             ordered_paths[idx] = candidate
             already_done.append(unit_id)
+            state = _state_for(states, unit_id)
+            builder.skip_unit(
+                unit_id,
+                artifact_key=state.artifact_key,
+                artifact_path=state.artifact_path,
+                artifact_status=state.status,
+            )
             if unit_id not in completed:
                 completed.append(unit_id)
         elif unit_id in completed:
             completed.remove(unit_id)
 
-    pending, projections = await _reference_projection_preflight(
+    pending, projections, admission_blocked = await _reference_projection_preflight(
         project=project,
         project_path=project_dir,
         script=script,
         units=units,
-        skip_ids=set(already_done),
+        skip_ids={*already_done, *manifest_blocked},
         spec_for=spec_for,
         request_options=request_options,
+        builder=builder,
+        states=states,
         project_name=ctx.project_name,
         script_filename=script_filename,
     )
     if pending:
         return DurationConfirmationPending(items=pending, projections=projections)
 
-    specs, order_map = build_specs(units, already_done, log)
+    specs, order_map = build_specs(units, [*already_done, *admission_blocked, *manifest_blocked])
     for spec in specs:
         spec.payload = {**(spec.payload or {}), "reference_request_options": request_options.to_payload()}
     if specs:
-        failures = await _submit_with_checkpoint(
+        successes, failures = await _submit_with_checkpoint(
             project_name=ctx.project_name,
             project_dir=project_dir,
             specs=specs,
@@ -927,24 +1159,19 @@ async def _generate_reference_units(
             save_fn=lambda: (
                 None if ckpt_path is None else _save_checkpoint_at(ckpt_path, completed, started_at, episode=episode)
             ),
-            log=log,
         )
-        if failures:
-            raise RuntimeError(f"{len(failures)} 个 unit 生成失败")
+        record_batch_outcomes(
+            builder,
+            successes=successes,
+            failures=failures,
+            states=states,
+            resolver=resolver,
+            fallback_path=_reference_fallback_relpath,
+        )
 
     final = [p for p in ordered_paths if p is not None]
-    if not final:
-        # 批量路径保留「坏 unit 跳过、有效 sibling 继续」；若整批唯一结果是发声准入阻塞，
-        # 则把首个结构化原因还给调用方，避免降级成无法指导修复的通用空批错误。
-        for unit in units:
-            try:
-                spec_for(unit)
-            except SpeechAdmissionError:
-                raise
-            except (TypeError, ValueError):
-                continue
-        raise RuntimeError("没有生成任何 video_unit")
-    if ckpt_path is not None:
+    # 全部成功才清理批次进度：有失败时保留 checkpoint 供 resume 续传。
+    if ckpt_path is not None and not builder.has_failures:
         _clear_checkpoint_at(ckpt_path)
     return ReferenceGenerationComplete(paths=final, projections=projections)
 
@@ -957,6 +1184,7 @@ async def _run_reference_episode(
     resume: bool,
     request_options: ReferenceRequestOptions,
     log: list[str],
+    operation: str,
 ) -> dict[str, Any]:
     """Run reference_video-mode generation and format the tool response.
 
@@ -981,15 +1209,19 @@ async def _run_reference_episode(
         raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
     currency = active_artifact_currency_resolver(ctx.project_path, project)
     versions = VersionManager(ctx.project_path)
+    states = _video_target_states(units, "unit_id", episode=episode, resolver=currency)
+    builder = GenerationResultBuilder(operation, GenerationSelectionMode.MISSING_ONLY)
     result = await _generate_reference_units(
         ctx=ctx,
         units=units,
         episode=episode,
         resume=resume,
-        log=log,
+        builder=builder,
+        states=states,
+        resolver=currency,
         checkpoint_path=_episode_checkpoint_path(ctx.project_path, episode),
-        build_specs=lambda u, skip, lg: _build_reference_specs(
-            units=u, script_filename=script_filename, skip_ids=skip, log=lg
+        build_specs=lambda u, skip: _build_reference_specs(
+            units=u, script_filename=script_filename, skip_ids=skip, builder=builder, states=states
         ),
         spec_for=lambda u: _reference_unit_spec(u, script_filename),
         project=project,
@@ -1006,16 +1238,22 @@ async def _run_reference_episode(
         ),
     )
     if isinstance(result, DurationConfirmationPending):
-        return _duration_confirmation_response(result, log)
-    header = f"第 {episode} 集参考视频生成完成，共 {len(result.paths)} 个 unit"
-    return {
-        "content": [{"type": "text", "text": "\n".join([header, *log])}],
-        "request_projections": result.projections,
-    }
+        return _duration_confirmation_response(result, log, builder)
+    batch = builder.build()
+    return generation_result_response(
+        batch,
+        log,
+        request_projections=result.projections,
+        **_sole_speech_admission(batch),
+    )
 
 
-def _select_reference_units(script: dict[str, Any], unit_ids: list[str], log: list[str]) -> list[dict[str, Any]]:
-    """按 unit_id 从 ``video_units`` 点名取 unit，重复 ID 只取一次。"""
+def _select_reference_units(script: dict[str, Any], unit_ids: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
+    """按 unit_id 从 ``video_units`` 点名取 unit，重复 ID 只取一次。
+
+    返回 ``(selected, unmatched_ids)``——不存在的 ID 由调用方作为 blocked 逐项报告，
+    不在此静默丢弃，也不因此中断其余 unit。
+    """
     indexed = script.get("video_units")
     by_id: dict[str, dict[str, Any]] = {}
     if isinstance(indexed, list):
@@ -1024,32 +1262,14 @@ def _select_reference_units(script: dict[str, Any], unit_ids: list[str], log: li
                 by_id.setdefault(unit["unit_id"], unit)
 
     selected: list[dict[str, Any]] = []
+    unmatched: list[str] = []
     for unit_id in dict.fromkeys(unit_ids):
         unit = by_id.get(unit_id)
         if unit is None:
-            log.append(f"⚠️  unit {unit_id} 不在 video_units 中，跳过")
+            unmatched.append(unit_id)
             continue
         selected.append(unit)
-    if not selected:
-        known = "、".join(by_id) if by_id else "（video_units 为空）"
-        raise ValueError(f"没有匹配到任何 unit：{', '.join(unit_ids)}；现有 {known}")
-    return selected
-
-
-def _assert_reference_units_generatable(units: list[dict[str, Any]], script_filename: str) -> None:
-    """点名的 unit 逐个当场校验可入队性，不合法即抛错。
-
-    批量路径对坏 unit 是「跳过并告警」——一个坏 unit 不该中断整批；点名重新生成没有
-    批次可保全，沿用跳过会让调用以「没有生成任何 video_unit」收场，智能体转述不出原因。
-    校验走 ``_reference_unit_spec``，与真正入队时同一份构造，不另立判据。
-    """
-    for unit in units:
-        try:
-            _reference_unit_spec(unit, script_filename)
-        except SpeechAdmissionError:
-            raise
-        except ValueError as exc:
-            raise ValueError(f"unit {unit.get('unit_id')} 无法生成：{exc}") from exc
+    return selected, unmatched
 
 
 async def _assert_no_active_tasks(ctx: ToolContext, script_filename: str, units: list[dict[str, Any]]) -> None:
@@ -1081,6 +1301,7 @@ async def _run_reference_units(
     unit_ids: list[str],
     request_options: ReferenceRequestOptions,
     log: list[str],
+    operation: str,
 ) -> dict[str, Any]:
     """对点名的参考生视频 unit 强制重新生成成片。"""
     project = ctx.pm.load_project(ctx.project_name)
@@ -1093,25 +1314,39 @@ async def _run_reference_units(
     if episode is None:
         episode = ProjectManager.resolve_episode_from_script(script, script_filename)
 
-    selected = _select_reference_units(script, unit_ids, log)
-    # 结构校验先于在途任务探测：结构不合法的 unit 等在途任务跑完也依然生成不了，
-    # 先报「请等待」会把一个死结说成暂时性阻塞。顺带省掉一次注定要失败的库查询。
-    _assert_reference_units_generatable(selected, script_filename)
+    selected, unmatched = _select_reference_units(script, unit_ids)
     await _assert_no_active_tasks(ctx, script_filename, selected)
-    log.append(f"重新生成 {len(selected)} 个 unit（已有成片一律覆盖）：{', '.join(u['unit_id'] for u in selected)}")
+    if selected:
+        log.append(f"重新生成 {len(selected)} 个 unit（已有成片一律覆盖）：{', '.join(u['unit_id'] for u in selected)}")
+
+    currency = active_artifact_currency_resolver(ctx.project_path, project)
+    states = _video_target_states(selected, "unit_id", episode=episode, resolver=currency)
+    builder = GenerationResultBuilder(operation, GenerationSelectionMode.EXPLICIT)
+    for unit_id in unmatched:
+        builder.block(
+            unit_id,
+            problem=GenerationProblem(
+                code=GenerationProblemCode.UNIT_NOT_FOUND,
+                detail=f"unit {unit_id} 不在 video_units 中",
+                action=GenerationAction.FIX_INPUT,
+            ),
+        )
 
     result = await _generate_reference_units(
         ctx=ctx,
         units=selected,
         episode=episode,
         resume=False,
-        log=log,
+        builder=builder,
+        states=states,
+        resolver=currency,
         checkpoint_path=None,
-        build_specs=lambda u, skip, lg: _build_reference_specs(
+        build_specs=lambda u, skip: _build_reference_specs(
             units=u,
             script_filename=script_filename,
             skip_ids=skip,
-            log=lg,
+            builder=builder,
+            states=states,
         ),
         spec_for=lambda u: _reference_unit_spec(u, script_filename),
         project=project,
@@ -1122,12 +1357,14 @@ async def _run_reference_units(
         reuse_existing=lambda _u: False,
     )
     if isinstance(result, DurationConfirmationPending):
-        return _duration_confirmation_response(result, log)
-    header = f"参考生视频重新生成完成，共 {len(result.paths)} 个 unit"
-    return {
-        "content": [{"type": "text", "text": "\n".join([header, *log])}],
-        "request_projections": result.projections,
-    }
+        return _duration_confirmation_response(result, log, builder)
+    batch = builder.build()
+    return generation_result_response(
+        batch,
+        log,
+        request_projections=result.projections,
+        **_sole_speech_admission(batch),
+    )
 
 
 def generate_video_episode_tool(ctx: ToolContext):
@@ -1167,6 +1404,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                     resume=resume,
                     request_options=request_options,
                     log=log,
+                    operation=_EPISODE_OPERATION,
                 )
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             project = ctx.pm.load_project(ctx.project_name)
@@ -1202,6 +1440,43 @@ def generate_video_episode_tool(ctx: ToolContext):
                 episode=episode,
                 resolver=currency,
             )
+            states = _video_target_states(items, id_field, episode=episode, resolver=currency)
+            # 整集生成始终复用仍可用的旧片段（含 stale），从不强制重生——所以
+            # 无论是否 resume，选择模式如实报告为 missing-only；点名重做走
+            # generate_video_scene / generate_selected_videos。checkpoint 的
+            # completed_scenes 只认得本批次（或此前 resume）提交过的 ID，非
+            # resume 调用永远从空表起步；不并入当前 currency 观测到的
+            # current/stale，就会把整集当作缺失重新生成一遍。
+            already_done = [
+                *already_done,
+                *_currency_reusable_ids(states, already_done, manifest_active=currency is not None),
+            ]
+            builder = GenerationResultBuilder(_EPISODE_OPERATION, GenerationSelectionMode.MISSING_ONLY)
+            for done_id in already_done:
+                state = _state_for(states, str(done_id))
+                builder.skip(state)
+
+            # currency 之外的第三态：Manifest 读不出该片段的产物状态（BLOCKED），既不能
+            # 判定为可复用（进 already_done）也不能安全当作缺失去入队——不可读不等于没有，
+            # 花钱重生可能覆盖一份实际仍然可用的片段。generate_video_all 走
+            # select_generation_targets 已经把这一态折进 selection.unavailable，这里是
+            # 同一场判定手写的另一条腿，必须同步处理。
+            already_done_set = set(already_done)
+            blocked_ids = [
+                unit_id
+                for unit_id, state in states.items()
+                if unit_id not in already_done_set and state.status == ArtifactStatus.BLOCKED
+            ]
+            for blocked_id in blocked_ids:
+                _block_unit(
+                    builder,
+                    states,
+                    blocked_id,
+                    code=GenerationProblemCode.ARTIFACT_STATE_UNAVAILABLE,
+                    detail=f"片段 {blocked_id} 的产物状态不可读，跳过自动重生",
+                    action=GenerationAction.REPAIR_ARTIFACT_STATE,
+                )
+
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=items,
@@ -1212,17 +1487,18 @@ def generate_video_episode_tool(ctx: ToolContext):
                 project=project,
                 episode=episode,
                 resolver=currency,
-                skip_ids=already_done,
-                log=log,
+                skip_ids=[*already_done, *blocked_ids],
+                builder=builder,
+                states=states,
                 voice_characters=voice_characters,
             )
 
-            if not specs and not any(ordered_paths):
+            if not specs and not builder.recorded_ids and not any(ordered_paths):
                 raise RuntimeError("没有可生成的视频片段")
 
             if specs:
                 await _assert_audio_switch_for_storyboard(ctx)
-                failures = await _submit_with_checkpoint(
+                successes, failures = await _submit_with_checkpoint(
                     project_name=ctx.project_name,
                     project_dir=project_dir,
                     specs=specs,
@@ -1231,21 +1507,26 @@ def generate_video_episode_tool(ctx: ToolContext):
                     completed=completed,
                     fallback_relpath=_scene_fallback_relpath,
                     save_fn=lambda: _save_checkpoint_at(ckpt_path, completed, started_at, episode=episode),
-                    log=log,
                 )
-                if failures:
-                    raise RuntimeError(f"{len(failures)} 个视频生成失败（使用 resume=true 续传）")
+                record_batch_outcomes(
+                    builder,
+                    successes=successes,
+                    failures=failures,
+                    states=states,
+                    resolver=currency,
+                    fallback_path=_scene_fallback_relpath,
+                )
 
-            scene_videos = [p for p in ordered_paths if p is not None]
-            _clear_checkpoint_at(ckpt_path)
-            header = f"第 {episode} 集视频生成完成，共 {len(scene_videos)} 个片段"
-            return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
+            # checkpoint 只在整批无失败时清除，否则 resume=true 仍能接上断点。
+            if not builder.has_failures:
+                _clear_checkpoint_at(ckpt_path)
+            return generation_result_response(builder.build(), log)
         except ReferenceProjectionBlocked as exc:
-            return _reference_projection_error("generate_video_episode", exc, log)
+            return _reference_projection_error(_EPISODE_OPERATION, exc, log)
         except SpeechAdmissionError as exc:
-            return _speech_admission_error("generate_video_episode", exc, log)
+            return _speech_admission_error(_EPISODE_OPERATION, exc, log)
         except Exception as exc:  # noqa: BLE001
-            return tool_error("generate_video_episode", exc, log)
+            return tool_error(_EPISODE_OPERATION, exc, log)
 
     return _handler
 
@@ -1289,17 +1570,26 @@ def generate_video_scene_tool(ctx: ToolContext):
                     unit_ids=[scene_id],
                     request_options=request_options,
                     log=log,
+                    operation=_SCENE_OPERATION,
                 )
 
+            builder = GenerationResultBuilder(_SCENE_OPERATION, GenerationSelectionMode.EXPLICIT)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             item = next((s for s in items if s.get(id_field) == scene_id or s.get("scene_id") == scene_id), None)
             if not item:
-                raise ValueError(f"场景/片段 '{scene_id}' 不存在")
+                builder.block(
+                    scene_id,
+                    problem=GenerationProblem(
+                        code=GenerationProblemCode.UNIT_NOT_FOUND,
+                        detail=f"场景/片段 '{scene_id}' 不存在",
+                        action=GenerationAction.FIX_INPUT,
+                    ),
+                )
+                return generation_result_response(builder.build(), log)
             # 调用方可能用 ``scene_id`` 别名命中条目，但入队 / 文件名 / fallback
             # 必须用脚本里的规范 ``id_field`` 值，否则下游 generate_video_all 和
             # checkpoint 扫描会找不到产物。
             item_id = str(item[id_field])
-            require_script_unit_admitted(resolve_script_kind(script), item)
 
             project = ctx.pm.load_project(ctx.project_name)
             episode = (
@@ -1310,34 +1600,47 @@ def generate_video_scene_tool(ctx: ToolContext):
                 )
                 or 1
             )
+            currency = active_artifact_currency_resolver(project_dir, project)
+            states = _video_target_states([item], id_field, episode=episode, resolver=currency)
+
+            try:
+                require_script_unit_admitted(resolve_script_kind(script), item)
+            except SpeechAdmissionError as exc:
+                # 逐 ID 契约与既有 speech_admission 载荷并存：前者说「这个 ID 没做成、
+                # 下一步做什么」，后者带着准入自己的完整定位信息。
+                _block_unit(builder, states, item_id, **_speech_admission_block(exc))
+                result = builder.build()
+                return generation_result_response(result, log, **_sole_speech_admission(result))
+
             if not get_generated_assets(item).get("storyboard_image"):
-                raise ValueError(f"场景/片段 '{item_id}' 没有分镜图，请先运行 generate_storyboards")
-            resolve_usable_storyboard_video_inputs(
-                project_path=project_dir,
-                project=project,
-                episode=episode,
-                resource_id=item_id,
-                item=item,
-                allow_legacy_same_name=False,
-            )
+                _block_unit(
+                    builder,
+                    states,
+                    item_id,
+                    code=GenerationProblemCode.UNIT_INPUT_UNUSABLE,
+                    detail=f"场景/片段 '{item_id}' 没有分镜图，请先运行 generate_storyboards",
+                    action=GenerationAction.GENERATE_DEPENDENCY,
+                )
+                return generation_result_response(builder.build(), log)
+
             content_mode = resolve_content_mode(script, project)
             voice_characters = await _resolve_voice_context(ctx, content_mode)
-            prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
-            # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
-            # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
-            # 本应被执行层拒绝的非法值静默修正）。缺省由执行层按 caps 收口默认。
-            extra_payload: dict[str, Any] = {}
-            duration = item.get("duration_seconds")
-            if duration is not None:
-                extra_payload["duration_seconds"] = duration
-            spec = TaskSpec.from_request(
-                task_type="video",
-                media_type="video",
-                resource_id=item_id,
-                prompt=prompt,
-                script_file=script_filename,
-                extra_payload=extra_payload or None,
+            specs, _order_map = _build_video_specs(
+                items=[item],
+                id_field=id_field,
+                content_mode=content_mode,
+                script_filename=script_filename,
+                project_dir=project_dir,
+                project=project,
+                episode=episode,
+                resolver=currency,
+                skip_ids=None,
+                builder=builder,
+                states=states,
+                voice_characters=voice_characters,
             )
+            if not specs:
+                return generation_result_response(builder.build(), log)
 
             delivery_pending = await _prepare_storyboard_delivery_specs(
                 ctx=ctx,
@@ -1346,32 +1649,29 @@ def generate_video_scene_tool(ctx: ToolContext):
                 script_filename=script_filename,
                 items=[item],
                 id_field=id_field,
-                specs=[spec],
+                specs=specs,
                 request_options=request_options,
             )
             if delivery_pending is not None:
-                return _duration_confirmation_response(delivery_pending, log)
+                return _duration_confirmation_response(delivery_pending, log, builder)
 
             await _assert_audio_switch_for_storyboard(ctx)
-            queued = await enqueue_and_wait(
-                project_name=ctx.project_name,
-                task_type=spec.task_type,
-                media_type=spec.media_type,
-                resource_id=spec.resource_id,
-                payload=spec.payload,
-                script_file=spec.script_file,
-                source="skill",
+            successes, failures = await batch_enqueue_and_wait(project_name=ctx.project_name, specs=specs)
+            record_batch_outcomes(
+                builder,
+                successes=successes,
+                failures=failures,
+                states=states,
+                resolver=currency,
+                fallback_path=_scene_fallback_relpath,
             )
-            result = queued.get("result") or {}
-            rel = result.get("file_path") or f"videos/scene_{item_id}.mp4"
-            output_path = project_dir / rel
-            return {"content": [{"type": "text", "text": f"✅ 视频已保存: {output_path}"}]}
+            return generation_result_response(builder.build(), log)
         except ReferenceProjectionBlocked as exc:
-            return _reference_projection_error("generate_video_scene", exc, log)
+            return _reference_projection_error(_SCENE_OPERATION, exc, log)
         except SpeechAdmissionError as exc:
-            return _speech_admission_error("generate_video_scene", exc, log)
+            return _speech_admission_error(_SCENE_OPERATION, exc, log)
         except Exception as exc:  # noqa: BLE001
-            return tool_error("generate_video_scene", exc, log)
+            return tool_error(_SCENE_OPERATION, exc, log)
 
     return _handler
 
@@ -1409,6 +1709,7 @@ def generate_video_all_tool(ctx: ToolContext):
                     resume=False,
                     request_options=request_options,
                     log=log,
+                    operation=_ALL_OPERATION,
                 )
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             project = ctx.pm.load_project(ctx.project_name)
@@ -1423,25 +1724,32 @@ def generate_video_all_tool(ctx: ToolContext):
                 )
                 or 1
             )
-            pending: list[dict[str, Any]] = []
-            for item in items:
-                resource_id = item.get(id_field)
-                if (
-                    not isinstance(resource_id, str)
-                    or not resource_id
-                    or not _batch_video_is_reusable(
-                        currency=currency,
-                        versions=versions,
-                        episode=episode,
-                        resource_type="videos",
-                        resource_id=resource_id,
-                        artifact_path=get_generated_assets(item).get("video_clip"),
-                    )
-                ):
-                    pending.append(item)
-            if not pending:
-                return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
+            states = _video_target_states(items, id_field, episode=episode, resolver=currency)
+            selection = select_generation_targets(
+                candidates=[state.candidate for state in states.values()],
+                requested_ids=None,
+                resolver=currency,
+                # 一次精确匹配的手动上传与 Manifest 认定的 current/stale 同样可复用，
+                # 两条腿合起来才是「这个 ID 还缺不缺视频」。
+                reusable_override=lambda candidate: versions.selected_manual_upload_matches_current_file(
+                    "videos",
+                    candidate.unit_id,
+                    candidate.artifact_path,
+                ),
+            )
+            builder = GenerationResultBuilder.from_selection(_ALL_OPERATION, selection)
+            if not selection.targets:
+                return generation_result_response(builder.build(), log)
 
+            # 与 ``_video_target_states`` 用同一套 ID 回退规则：条目若缺 ``id_field``
+            # 但带 ``scene_id``/``segment_id``，selection 已按回退 ID 记为 target，
+            # 这里若只认 ``id_field`` 会把它筛没——进了 requested 却永远不入队。
+            target_id_set = set(selection.target_ids)
+            pending = [
+                item
+                for item in items
+                if str(item.get(id_field) or item.get("scene_id") or item.get("segment_id") or "") in target_id_set
+            ]
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, _order_map = _build_video_specs(
                 items=pending,
@@ -1453,31 +1761,30 @@ def generate_video_all_tool(ctx: ToolContext):
                 episode=episode,
                 resolver=currency,
                 skip_ids=None,
-                log=log,
+                builder=builder,
+                states=states,
                 voice_characters=voice_characters,
             )
             if not specs:
-                return {"content": [{"type": "text", "text": "\n".join([*log, "⚠️  没有任何可生成的视频任务"])}]}
+                return generation_result_response(builder.build(), log)
 
             await _assert_audio_switch_for_storyboard(ctx)
             successes, failures = await batch_enqueue_and_wait(project_name=ctx.project_name, specs=specs)
-            details: list[str] = []
-            for br in successes:
-                rel = (br.result or {}).get("file_path") or f"videos/scene_{br.resource_id}.mp4"
-                details.append(f"  ✓ {br.resource_id} → {rel}")
-            for br in failures:
-                details.append(f"  ✗ {br.resource_id}: {br.error}")
-            header = f"generate_video_all summary: {len(successes)} succeeded, {len(failures)} failed"
-            return {
-                "content": [{"type": "text", "text": "\n".join([header, *log, *details])}],
-                "is_error": bool(failures),
-            }
+            record_batch_outcomes(
+                builder,
+                successes=successes,
+                failures=failures,
+                states=states,
+                resolver=currency,
+                fallback_path=_scene_fallback_relpath,
+            )
+            return generation_result_response(builder.build(), log)
         except ReferenceProjectionBlocked as exc:
-            return _reference_projection_error("generate_video_all", exc, log)
+            return _reference_projection_error(_ALL_OPERATION, exc, log)
         except SpeechAdmissionError as exc:
-            return _speech_admission_error("generate_video_all", exc, log)
+            return _speech_admission_error(_ALL_OPERATION, exc, log)
         except Exception as exc:  # noqa: BLE001
-            return tool_error("generate_video_all", exc, log)
+            return tool_error(_ALL_OPERATION, exc, log)
 
     return _handler
 
@@ -1515,7 +1822,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             script_filename = validate_script_filename(args["script"])
             # 去重以避免同一 ID 重复入队；保留首次出现顺序便于人读日志，
             # checkpoint hash 再单独排序（见下方 ``canonical_scene_ids``）。
-            scene_ids: list[str] = list(dict.fromkeys(args["scene_ids"]))
+            scene_ids: list[str] = normalize_requested_ids(args["scene_ids"], field="scene_ids") or []
             resume = bool(args.get("resume"))
             request_options = _batch_reference_request_options(args)
 
@@ -1534,6 +1841,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                     unit_ids=scene_ids,
                     request_options=request_options,
                     log=log,
+                    operation=_SELECTED_OPERATION,
                 )
 
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
@@ -1554,6 +1862,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                 if "scene_id" in item:
                     items_by_id[item["scene_id"]] = item
 
+            builder = GenerationResultBuilder(_SELECTED_OPERATION, GenerationSelectionMode.EXPLICIT)
             selected: list[dict[str, Any]] = []
             seen_canonical: set[str] = set()
             # ``items_by_id`` 同时按 ``id_field`` 与 ``scene_id`` 索引同一个 item，
@@ -1561,7 +1870,14 @@ def generate_video_selected_tool(ctx: ToolContext):
             # 规范 ``id_field`` 再去一次重。
             for sid in scene_ids:
                 if sid not in items_by_id:
-                    log.append(f"⚠️  场景/片段 '{sid}' 不存在，跳过")
+                    builder.block(
+                        sid,
+                        problem=GenerationProblem(
+                            code=GenerationProblemCode.UNIT_NOT_FOUND,
+                            detail=f"场景/片段 '{sid}' 不存在",
+                            action=GenerationAction.FIX_INPUT,
+                        ),
+                    )
                     continue
                 item = items_by_id[sid]
                 canonical = str(item.get(id_field, ""))
@@ -1570,7 +1886,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                 seen_canonical.add(canonical)
                 selected.append(item)
             if not selected:
-                raise ValueError("没有找到任何有效的场景/片段")
+                return generation_result_response(builder.build(), log)
 
             # checkpoint hash 用 ``selected`` 解析出的规范 ID 集合，让同一批
             # 场景无论用别名 ``scene_id`` 还是规范 ``id_field`` 调用都落到同一
@@ -1598,6 +1914,10 @@ def generate_video_selected_tool(ctx: ToolContext):
                 episode=episode,
                 resolver=currency,
             )
+            states = _video_target_states(selected, id_field, episode=episode, resolver=currency)
+            for done_id in already_done:
+                builder.skip(_state_for(states, str(done_id)))
+
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=selected,
@@ -1609,19 +1929,14 @@ def generate_video_selected_tool(ctx: ToolContext):
                 episode=episode,
                 resolver=currency,
                 skip_ids=already_done,
-                log=log,
+                builder=builder,
+                states=states,
                 voice_characters=voice_characters,
             )
 
-            # ``_build_video_specs`` 可能把所有 selected 都过滤掉（缺分镜图 /
-            # video_prompt 无效），此时如果 ``ordered_paths`` 也没有已生成项就是
-            # "什么也没做"，必须抛错，否则下游会把 "完成：0 个" 当成功推进流程。
-            if not specs and not any(ordered_paths):
-                raise RuntimeError("没有任何可生成的视频任务（全部 selected 都被跳过）")
-
             if specs:
                 await _assert_audio_switch_for_storyboard(ctx)
-                failures = await _submit_with_checkpoint(
+                successes, failures = await _submit_with_checkpoint(
                     project_name=ctx.project_name,
                     project_dir=project_dir,
                     specs=specs,
@@ -1630,21 +1945,26 @@ def generate_video_selected_tool(ctx: ToolContext):
                     completed=completed,
                     fallback_relpath=_scene_fallback_relpath,
                     save_fn=lambda: _save_checkpoint_at(ckpt_path, completed, started_at, scene_ids=scene_ids),
-                    log=log,
                 )
-                if failures:
-                    raise RuntimeError(f"{len(failures)} 个视频生成失败（使用 resume=true 续传）")
+                record_batch_outcomes(
+                    builder,
+                    successes=successes,
+                    failures=failures,
+                    states=states,
+                    resolver=currency,
+                    fallback_path=_scene_fallback_relpath,
+                )
 
-            final_results = [p for p in ordered_paths if p is not None]
-            _clear_checkpoint_at(ckpt_path)
-            header = f"generate_video_selected 完成：{len(final_results)} 个"
-            return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
+            # checkpoint 只在整批无失败时清除，否则 resume=true 仍能接上断点。
+            if not builder.has_failures:
+                _clear_checkpoint_at(ckpt_path)
+            return generation_result_response(builder.build(), log)
         except ReferenceProjectionBlocked as exc:
-            return _reference_projection_error("generate_video_selected", exc, log)
+            return _reference_projection_error(_SELECTED_OPERATION, exc, log)
         except SpeechAdmissionError as exc:
-            return _speech_admission_error("generate_video_selected", exc, log)
+            return _speech_admission_error(_SELECTED_OPERATION, exc, log)
         except Exception as exc:  # noqa: BLE001
-            return tool_error("generate_video_selected", exc, log)
+            return tool_error(_SELECTED_OPERATION, exc, log)
 
     return _handler
 

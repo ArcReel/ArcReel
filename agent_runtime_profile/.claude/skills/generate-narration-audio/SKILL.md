@@ -21,7 +21,11 @@ description: 为说书模式剧本逐段生成旁白配音（TTS）。当用户�
 | 指定批量范围 | `mcp__arcreel__generate_narration_audio({"script": "episode_1.json", "segment_ids": ["E1S01", "E1S02"]})` |
 | 单段重生 | `mcp__arcreel__generate_narration_audio({"script": "episode_1.json", "segment_ids": ["E1S05"]})` |
 
-> **选择规则**：不传 `segment_ids` 则只为缺 `narration_audio` 的段入队；显式传入的段即使已有音频也会重新合成（用于换音色/语速后重生）。
+> **选择规则**：不传 `segment_ids` 则只为缺 `narration_audio` 的段入队——已失效但仍可用的旧配音会被复用，不自动重生；
+> 显式传入的段即使已有音频也会重新合成（用于换音色/语速后重生）。
+>
+> **只在用户要求时调用**：缺 TTS 不是工作流缺口，也不拦导出；后期配音路线的旁白根本不需要 TTS。
+> 不要因为 `workflow_status` 报了缺失音频就自动补齐。
 >
 > **依赖**：generation worker 必须在线（audio 独立通道）；audio 供应商、模型与全局默认音色/语速由用户在 Web 设置页配置。
 >
@@ -42,6 +46,7 @@ description: 为说书模式剧本逐段生成旁白配音（TTS）。当用户�
 
 ## 错误处理
 
-- 单段失败不影响批次，工具返回逐段结果
-- 失败段用 `segment_ids` 精确重试
+- 单段失败不影响批次：工具返回 `requested / succeeded / failed / blocked` 的逐 ID 结果
+- 按 `failed` / `blocked` 里每一项自带的问题码与下一步动作决定重试还是先改输入，不要读文本猜
+- 可重试的段用 `segment_ids` 精确重试
 - 工具提示未配置 audio 供应商时，引导用户到 Web 设置页配置后重试

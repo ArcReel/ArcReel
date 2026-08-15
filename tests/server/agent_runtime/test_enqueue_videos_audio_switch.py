@@ -143,6 +143,8 @@ class TestReferenceRouteGate:
             skip_ids={"E1U4"},
             spec_for=_unit_spec,
             request_options=mod.ReferenceRequestOptions(),
+            builder=mod.GenerationResultBuilder("generate_video", mod.GenerationSelectionMode.MISSING_ONLY),
+            states={},
         )
         assert seen == ["r2v", "r2v", "i2v"]
 
@@ -166,6 +168,8 @@ class TestReferenceRouteGate:
             skip_ids=set(),
             spec_for=_reject,
             request_options=mod.ReferenceRequestOptions(),
+            builder=mod.GenerationResultBuilder("generate_video", mod.GenerationSelectionMode.MISSING_ONLY),
+            states={},
         )
         assert called is False
 
@@ -229,11 +233,13 @@ class TestStoryboardGateSkipsEmptyBatches:
         assert result["out"].get("is_error") is not True
 
     async def test_all_items_filtered_out_still_fails_without_consulting_the_gate(self, tmp_path, monkeypatch):
-        """全部条目缺分镜图时报的应是「没有可生成的片段」，而不是音频开关冲突。"""
+        """全部条目缺分镜图时报的应是逐 ID 的输入不可用，而不是音频开关冲突。"""
         ctx = self._ctx_with(tmp_path, with_storyboard=False)
 
         result = await self._run_episode(ctx, monkeypatch)
 
         assert result["rejected"] == []
         assert result["out"].get("is_error") is True
-        assert "没有可生成的视频片段" in result["out"]["content"][0]["text"]
+        payload = result["out"]["generation_result"]
+        assert payload["blocked"] == ["E1S01"]
+        assert payload["items"][0]["problem"]["code"] == "generation_unit_input_unusable"

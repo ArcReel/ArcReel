@@ -23,7 +23,6 @@ EXPECTED_ROUTES = {
         'next_action.type == "generate_storyboards"',
         'next_action.type == "generate_grid"',
         'next_action.type == "generate_videos"',
-        'next_action.type == "generate_narration_audio"',
     ),
     "SKILL.drama.md": (
         'next_action.type == "analyze_assets"',

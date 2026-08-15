@@ -1,18 +1,42 @@
-"""SDK MCP tools for asset image generation (character / scene / prop / product)."""
+"""SDK MCP tools for asset image generation (character / scene / prop / product).
+
+``generate_assets`` addresses one asset by its qualified ``<type>/<name>`` unit
+ID: a single call may span four asset types whose names can collide, and the
+per-ID result contract requires globally unique IDs within one batch.
+"""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.asset_types import ASSET_SPECS, AssetSpec, resolve_asset_key
+from lib.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
+from lib.artifact_manifest import ArtifactKey
+from lib.asset_types import ASSET_SPECS, AssetSpec, asset_name_comparison_key, resolve_asset_key
 from lib.generation_queue_client import (
     TaskSpec,
     batch_enqueue_and_wait,
 )
+from lib.generation_result import (
+    GenerationAction,
+    GenerationCandidate,
+    GenerationProblem,
+    GenerationProblemCode,
+    GenerationResultBuilder,
+    GenerationSelectionMode,
+    GenerationTargetState,
+    normalize_requested_ids,
+    record_batch_outcomes,
+    select_generation_targets,
+)
 from lib.project_manager import ProjectManager
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
+from server.agent_runtime.sdk_tools._context import (
+    ToolContext,
+    generation_result_response,
+    tool_error,
+)
 
 # Asset-type emoji shown in tool output. Other display fields (bucket_key,
 # label_zh, subdir) come from lib.asset_types.ASSET_SPECS — the cross-app
@@ -20,6 +44,8 @@ from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 _EMOJI: dict[str, str] = {"character": "🧑", "scene": "🏠", "prop": "📦", "product": "🛍️"}
 
 ALL_TYPES: tuple[str, ...] = tuple(ASSET_SPECS.keys())
+
+_OPERATION = "generate_assets"
 
 _PENDING_DISPATCH = {
     "character": lambda pm, name: pm.get_pending_characters(name),
@@ -33,58 +59,81 @@ def _get_pending(pm: ProjectManager, project_name: str, asset_type: str) -> list
     return _PENDING_DISPATCH[asset_type](pm, project_name)
 
 
-def _build_specs(
-    pm: ProjectManager,
-    project_name: str,
+def asset_unit_id(asset_type: str, name: str) -> str:
+    """Qualify an asset name so IDs stay unique across asset types."""
+
+    return f"{asset_type}/{name}"
+
+
+def asset_name_of(unit_id: str) -> str:
+    """The bare asset name inside a qualified unit ID — inverse of :func:`asset_unit_id`."""
+
+    return unit_id.split("/", 1)[1]
+
+
+def _asset_candidates(
+    project: dict[str, Any],
+    asset_type: str,
+    resolver: ArtifactCurrencyResolver | None,
+    project_path: Path,
+) -> list[GenerationCandidate]:
+    """Missing-only candidates for one asset type.
+
+    Legacy (pre-Manifest) reusability only knows ``sheet`` as a metadata
+    string, not the Manifest-backed comparison the active branch gets from
+    ``resolver`` — so this filter re-verifies the file's existence on disk
+    itself before treating a legacy sheet as reusable. Without it, a legacy
+    project whose sheet file was deleted or moved would report that asset as
+    ``skipped`` and never be able to regenerate it via missing-only again.
+    """
+
+    spec = ASSET_SPECS[asset_type]
+    candidates: list[GenerationCandidate] = []
+    for name, entry in (project.get(spec.bucket_key) or {}).items():
+        sheet = entry.get(spec.sheet_field) if isinstance(entry, dict) else None
+        if resolver is None and isinstance(sheet, str) and sheet and not (project_path / sheet).exists():
+            sheet = None
+        candidates.append(
+            GenerationCandidate(
+                unit_id=asset_unit_id(asset_type, name),
+                artifact_key=(
+                    ArtifactKey.asset_sheet(asset_type, asset_name_comparison_key(name))
+                    if resolver is not None
+                    else None
+                ),
+                artifact_path=sheet if isinstance(sheet, str) else None,
+            )
+        )
+    return candidates
+
+
+def _requested_unit_ids(
+    project: dict[str, Any],
     asset_type: str,
     names: list[str] | None,
-    warnings: list[str],
-) -> list[TaskSpec]:
-    spec: AssetSpec = ASSET_SPECS[asset_type]
-    project = pm.load_project(project_name)
-    assets_dict = project.get(spec.bucket_key, {})
+) -> list[str] | None:
+    """Resolve caller-supplied names to canonical qualified unit IDs.
 
-    if names:
-        resolved: list[str] = []
-        # 调用方侧的保序去重只按原始字符串，同一资产的 NFC/NFD 两种拼写会各留一份；
-        # 解析到同一个真实 key 后在此二次去重，避免同一资产入两次队、重复产出版本。
-        seen_keys: set[str] = set()
-        for name in names:
-            # 调用方给的名字与桶 key 可能是 NFC/NFD 中的任一形态，按坐标系解析真实落盘 key
-            key = resolve_asset_key(assets_dict, name)
-            if key is None:
-                warnings.append(f"⚠️  {spec.label_zh} '{name}' 不存在于 project.json 中，跳过")
-                continue
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
-            # 仅当 description 是非空字符串才入队；空白 / 非字符串（dict、数字等）
-            # 都告警跳过，避免漏到 from_request 抛错或 .strip() 抛 AttributeError 而中断整批。
-            desc = assets_dict[key].get("description")
-            if not (isinstance(desc, str) and desc.strip()):
-                warnings.append(f"⚠️  {spec.label_zh} '{name}' 缺少描述，跳过")
-                continue
-            resolved.append(key)
-    else:
-        pending = _get_pending(pm, project_name, asset_type)
-        resolved = []
-        for item in pending:
-            name = item["name"]
-            desc = assets_dict.get(name, {}).get("description")
-            if not (isinstance(desc, str) and desc.strip()):
-                warnings.append(f"⚠️  {spec.label_zh} '{name}' 缺少描述，跳过")
-                continue
-            resolved.append(name)
+    Unresolvable names keep their literal spelling so the selection reports them
+    as unmatched instead of silently dropping them.
+    """
 
-    return [
-        TaskSpec.from_request(
-            task_type=spec.asset_type,
-            media_type="image",
-            resource_id=name,
-            prompt=assets_dict[name]["description"],
-        )
-        for name in resolved
-    ]
+    if names is None:
+        return None
+    assets_dict = (project.get(ASSET_SPECS[asset_type].bucket_key) or {}) if project else {}
+    resolved: list[str] = []
+    for name in names:
+        key = resolve_asset_key(assets_dict, name)
+        resolved.append(asset_unit_id(asset_type, key if key is not None else name))
+    return list(dict.fromkeys(resolved))
+
+
+def _description_of(project: dict[str, Any], asset_type: str, unit_id: str) -> str | None:
+    spec = ASSET_SPECS[asset_type]
+    name = asset_name_of(unit_id)
+    entry = (project.get(spec.bucket_key) or {}).get(name)
+    description = entry.get("description") if isinstance(entry, dict) else None
+    return description if isinstance(description, str) and description.strip() else None
 
 
 def list_pending_assets_tool(ctx: ToolContext):
@@ -131,10 +180,12 @@ def list_pending_assets_tool(ctx: ToolContext):
 
 def generate_assets_tool(ctx: ToolContext):
     @tool(
-        "generate_assets",
+        _OPERATION,
         "批量生成角色/场景/道具/产品设计图。"
         "type 省略则按 character→scene→prop→product 顺序每类独立 batch；"
-        "names 指定具体名称（必须同时给 type）；all=true 表示该 type 的全部 pending。",
+        "names 指定具体名称（必须同时给 type）；all=true 表示该 type 的全部缺图资产。"
+        "不传 names 时只选缺设计图的资产：已失效但可用的旧图会被复用，不会自动重生。"
+        "结果按 requested / succeeded / failed / blocked 逐 ID 返回，ID 形如 character/张三。",
         {
             "type": "object",
             "properties": {
@@ -150,7 +201,7 @@ def generate_assets_tool(ctx: ToolContext):
                 },
                 "all": {
                     "type": "boolean",
-                    "description": "是否扫描所有 pending（与 names 互斥；默认 false 但当未提供 names 时等同 true）",
+                    "description": "是否扫描所有缺图资产（与 names 互斥；默认 false 但当未提供 names 时等同 true）",
                 },
             },
         },
@@ -158,65 +209,95 @@ def generate_assets_tool(ctx: ToolContext):
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
             asset_type = args.get("type")
-            # ``dict.fromkeys`` 保序去重，避免同名重复入队但仍尊重调用方意图的顺序。
-            raw_names = args.get("names")
-            names: list[str] | None = list(dict.fromkeys(raw_names)) if raw_names else None
+            names = normalize_requested_ids(args.get("names"), field="names")
             all_flag = bool(args.get("all"))
-            if names and not asset_type:
+            if names is not None and not asset_type:
                 return {
                     "content": [{"type": "text", "text": "names 必须配合 type 使用"}],
                     "is_error": True,
                 }
-            if names and all_flag:
+            if names is not None and all_flag:
                 return {
                     "content": [{"type": "text", "text": "all 与 names 互斥，不能同时使用"}],
                     "is_error": True,
                 }
 
+            project = ctx.pm.load_project(ctx.project_name)
+            resolver = active_artifact_currency_resolver(ctx.project_path, project)
             types = (asset_type,) if asset_type else ALL_TYPES
-            warnings: list[str] = []
-            total_success = 0
-            total_failure = 0
-            details: list[str] = []
 
+            builder = GenerationResultBuilder(
+                _OPERATION,
+                GenerationSelectionMode.EXPLICIT if names is not None else GenerationSelectionMode.MISSING_ONLY,
+            )
+            targets: list[tuple[AssetSpec, GenerationTargetState]] = []
             for t in types:
                 spec = ASSET_SPECS[t]
-                specs = _build_specs(ctx.pm, ctx.project_name, t, names, warnings)
-                if not specs:
-                    continue
+                selection = select_generation_targets(
+                    candidates=_asset_candidates(project, t, resolver, ctx.project_path),
+                    requested_ids=_requested_unit_ids(project, t, names),
+                    resolver=resolver,
+                )
+                builder.absorb(selection)
+                for state in selection.targets:
+                    if _description_of(project, t, state.unit_id) is None:
+                        builder.block(
+                            state.unit_id,
+                            problem=GenerationProblem(
+                                code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                                detail=f"{spec.label_zh} '{state.unit_id}' 缺少 description，无法生成设计图",
+                                action=GenerationAction.FIX_INPUT,
+                            ),
+                            artifact_key=state.artifact_key,
+                            artifact_path=state.artifact_path,
+                            artifact_status=state.status,
+                        )
+                        continue
+                    targets.append((spec, state))
 
-                successes_acc, failures_acc = await batch_enqueue_and_wait(
+            by_id = {state.unit_id: state for _spec, state in targets}
+
+            # 按类型分批入队：``TaskSpec.resource_id`` 是资产名本身，跨类型不加限定；
+            # 只有本契约的 unit ID 需要限定前缀。
+            for t in types:
+                spec = ASSET_SPECS[t]
+                type_targets = [state for target_spec, state in targets if target_spec.asset_type == t]
+                if not type_targets:
+                    continue
+                task_specs = [
+                    TaskSpec.from_request(
+                        task_type=spec.asset_type,
+                        media_type="image",
+                        resource_id=asset_name_of(state.unit_id),
+                        prompt=_description_of(project, t, state.unit_id),
+                    )
+                    for state in type_targets
+                ]
+                successes, failures = await batch_enqueue_and_wait(
                     project_name=ctx.project_name,
-                    specs=specs,
+                    specs=task_specs,
+                )
+                record_batch_outcomes(
+                    builder,
+                    successes=successes,
+                    failures=failures,
+                    states=by_id,
+                    resolver=resolver,
+                    unit_id_of=lambda name, asset_type=t: asset_unit_id(asset_type, name),
+                    fallback_path=lambda name, subdir=spec.subdir: f"{subdir}/{name}.png",
                 )
 
-                for br in successes_acc:
-                    version = (br.result or {}).get("version")
-                    version_text = f" (v{version})" if version is not None else ""
-                    file_path = (br.result or {}).get("file_path") or f"{spec.subdir}/{br.resource_id}.png"
-                    details.append(f"  ✓ {spec.label_zh} '{br.resource_id}' → {file_path}{version_text}")
-                for br in failures_acc:
-                    details.append(f"  ✗ {spec.label_zh} '{br.resource_id}': {br.error}")
-                total_success += len(successes_acc)
-                total_failure += len(failures_acc)
-
-            header = f"generate_assets summary: {total_success} succeeded, {total_failure} failed"
-            body_parts = warnings + ([header] if (total_success or total_failure) else [])
-            if total_success == 0 and total_failure == 0:
-                body_parts.append("✅ 没有需要生成的资产")
-            body_parts.extend(details)
-            return {
-                "content": [{"type": "text", "text": "\n".join(body_parts)}],
-                "is_error": total_failure > 0,
-            }
+            return generation_result_response(builder.build())
         except Exception as exc:  # noqa: BLE001
-            return tool_error("generate_assets", exc)
+            return tool_error(_OPERATION, exc)
 
     return _handler
 
 
 __all__ = [
     "ALL_TYPES",
+    "asset_name_of",
+    "asset_unit_id",
     "list_pending_assets_tool",
     "generate_assets_tool",
 ]
