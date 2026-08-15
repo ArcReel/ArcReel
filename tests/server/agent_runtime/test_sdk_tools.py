@@ -1505,8 +1505,8 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
     """一条编辑的产物状态读取 fail-loud，不该把同批其它编辑的已算结果一起吞掉。
 
     ``resolve_usable_image_edit_source`` 在 Manifest 判定该条产物状态时抛
-    ``ArtifactManifestError`` 是设计内行为（对应 BLOCKED），此前只捕获 ``KeyError``，
-    这类异常会逃出 ``_build_specs`` 的 per-edit 循环，被 handler 级 ``except`` 接住变成
+    ``ArtifactManifestError`` 是设计内行为（对应 BLOCKED）；``_build_specs`` 的
+    per-edit 循环必须单独捕获它，否则会逃出循环、被 handler 级 ``except`` 接住变成
     整批不可读的纯文本错误——张三之外，李四这条本可正常入队的编辑也一起丢了结论。
     """
     from lib.artifact_manifest import ArtifactManifestError
@@ -2115,9 +2115,10 @@ async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unre
 ) -> None:
     """宫格整组共用一张联合图：组里一格产物状态不可读，其余格不能悄悄留空。
 
-    此前只有状态不可读的那一格记 ``blocked``，同组其余目标格既不入 ``blocked``，
-    也不进 ``succeeded``/``failed``——调用方拿不到结论，只能靠 ``requested`` 减去
-    已知集合去猜，违反 AC1 的 ``requested = succeeded ∪ failed ∪ blocked`` 不变式。
+    状态不可读的那一格记 ``blocked`` 时，同组其余目标格必须一并有归属——不能既不入
+    ``blocked``，也不进 ``succeeded``/``failed``，否则调用方拿不到结论，只能靠
+    ``requested`` 减去已知集合去猜，违反 ``requested = succeeded ∪ failed ∪ blocked``
+    不变式。
     """
     from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
 
