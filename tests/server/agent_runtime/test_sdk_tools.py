@@ -1394,6 +1394,42 @@ async def test_edit_images_happy(fake_ctx: ToolContext, monkeypatch) -> None:
 
 
 @pytest.mark.unit
+async def test_edit_images_failure_preserves_the_untouched_source_path(fake_ctx: ToolContext, monkeypatch) -> None:
+    """编辑任务失败时，源图未被覆盖——结果应带回编辑前的路径而不是 None。"""
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    project_path = fake_ctx.project_path
+    (project_path / "characters").mkdir()
+    (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
+
+    async def fake_i2i(_project):
+        return True
+
+    async def fake_batch(*, project_name, specs):
+        from lib.generation_queue_client import BatchTaskResult
+
+        fail = [
+            BatchTaskResult(resource_id=s.resource_id, task_id="t1", status="failed", error="provider rejected")
+            for s in specs
+        ]
+        return [], fail
+
+    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    tool_obj = edit_images_tool(fake_ctx)
+    out = await _call(
+        tool_obj,
+        {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
+    )
+
+    result = _generation_result(out)
+    assert result.failed == ["张三"]
+    item = result.items[0]
+    assert item.artifact_path == "characters/zhangsan.png"
+
+
+@pytest.mark.unit
 async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext, monkeypatch) -> None:
     """i2i 不可用时直接报错，不创建任何任务（复用服务端 fail-fast 判断点）。"""
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
@@ -1408,6 +1444,15 @@ async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext, monkeypatch) -
         {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
     )
     assert out.get("is_error") is True
+
+    # i2i 不可用是入队前的共享前置条件，但调用方仍按逐 ID 契约读结果——每个
+    # 请求到的 ID 各记一条 blocked，而不是只回一段无法编程消费的文本。
+    result = _generation_result(out)
+    assert result.blocked == ["张三"]
+    item = result.items[0]
+    assert item.problem is not None
+    assert item.problem.code == "image_capability_missing_i2i"
+    assert item.problem.action == "configure_provider"
 
 
 @pytest.mark.unit
@@ -1928,6 +1973,10 @@ async def test_generate_grid_split_failure_keeps_the_paid_image_and_fails_the_id
     assert item.problem is not None
     assert item.problem.code == "generation_post_processing_failed"
     assert item.problem.params["grid_id"].startswith("grid_")
+    # 恢复路径只在宫格面板内可执行，不是本工具能派发的下一步：action 不能是
+    # RETRY，否则按 action 派发的消费者会重跑 generate_grid，重新生成联合图
+    # 并重复计费。
+    assert item.problem.action == "none"
     # 任务与供应商提交都成功（钱已花），只有产物没有被标成就位。
     assert item.task_state.value == "succeeded"
     assert item.provider_checkpoint is not None
@@ -2287,7 +2336,7 @@ async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversiz
 
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
-    # 前 9 个缺分镜图（本次要生成的一张 grid_9），后 4 个已有可复用旧图
+    # 前 9 个缺分镜图（要生成的一张 grid_9），后 4 个已有可复用旧图
     # （落在另一张 grid_4 里，整张都可复用、不产出替代品）。
     missing_ids = [f"E1S{i:02d}" for i in range(1, 10)]
     reusable_ids = [f"E1S{i:02d}" for i in range(10, 14)]

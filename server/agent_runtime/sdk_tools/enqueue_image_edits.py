@@ -24,10 +24,12 @@ from lib.db import async_session_factory
 from lib.generation_queue_client import TaskSpec, batch_enqueue_and_wait
 from lib.generation_result import (
     GenerationAction,
+    GenerationCandidate,
     GenerationProblem,
     GenerationProblemCode,
     GenerationResultBuilder,
     GenerationSelectionMode,
+    GenerationTargetState,
     record_batch_outcomes,
 )
 from server.agent_runtime.sdk_tools._context import (
@@ -77,11 +79,16 @@ def _build_specs(
     resolver: ArtifactCurrencyResolver | None,
     warnings: list[str],
     builder: GenerationResultBuilder,
+    states: dict[str, GenerationTargetState],
 ) -> list[TaskSpec]:
     """Turn the requested edits into task specs, blocking the ones that cannot run.
 
     Malformed entries with no usable ID stay in ``warnings``: they have no unit
-    ID to report against, so they cannot enter the per-ID contract.
+    ID to report against, so they cannot enter the per-ID contract. ``states``
+    is filled in with each resolved edit source's pre-edit path so that, if the
+    edit task itself later fails, the per-ID result still reports the untouched
+    source image instead of ``None`` — the edit never landed, but the image it
+    would have overwritten is still there.
     """
 
     label = _LABEL_ZH[resource_type]
@@ -152,6 +159,9 @@ def _build_specs(
                 ),
             )
             continue
+        states[resource_id] = GenerationTargetState(
+            candidate=GenerationCandidate(unit_id=resource_id, artifact_path=source.artifact_path)
+        )
         specs.append(
             TaskSpec.from_request(
                 task_type="image_edit",
@@ -251,20 +261,33 @@ def edit_images_tool(ctx: ToolContext):
                 )
             resolver = active_artifact_currency_resolver(project_path, project)
 
-            if not await _i2i_provider_available(project):
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "❌ 当前项目图片供应商不支持图生图（i2i），无法执行编辑；"
-                            "请提示用户前往设置更换支持 i2i 的供应商",
-                        }
-                    ],
-                    "is_error": True,
-                }
-
             warnings: list[str] = []
             builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.EXPLICIT)
+            states: dict[str, GenerationTargetState] = {}
+
+            if not await _i2i_provider_available(project):
+                # 拦截在入队前：不是某个 ID 的产物问题，是整批共享的前置条件不满足，
+                # 但调用方仍按逐 ID 契约读结果，因此每个请求到的 ID 各记一条 blocked，
+                # 而不是只回一段无法编程消费的文本。
+                seen: set[str] = set()
+                for edit in edits:
+                    if not isinstance(edit, dict):
+                        continue
+                    resource_id = str(edit.get("id") or "").strip()
+                    if not resource_id or resource_id in seen:
+                        continue
+                    seen.add(resource_id)
+                    builder.block(
+                        resource_id,
+                        # 复用 lib.task_failure 已登记的 i2i 缺能力码（同一失败在
+                        # HTTP 端点的执行期路径下就是这个码），不新造未登记码。
+                        problem=GenerationProblem(
+                            code="image_capability_missing_i2i",
+                            detail="当前项目图片供应商不支持图生图（i2i），无法执行编辑；请提示用户前往设置更换支持 i2i 的供应商",
+                            action=GenerationAction.CONFIGURE_PROVIDER,
+                        ),
+                    )
+                return generation_result_response(builder.build(), warnings)
             specs = _build_specs(
                 project=project,
                 project_path=project_path,
@@ -276,6 +299,7 @@ def edit_images_tool(ctx: ToolContext):
                 resolver=resolver,
                 warnings=warnings,
                 builder=builder,
+                states=states,
             )
             if not specs and not builder.recorded_ids:
                 return {
@@ -289,11 +313,13 @@ def edit_images_tool(ctx: ToolContext):
                     specs=specs,
                 )
                 # 编辑产物不写回 Manifest（编辑意图不可推导，见模块顶部说明），
-                # 因此这里不带 resolver：产物时效轴如实留空而不是假装已知。
+                # 因此这里不带 resolver：产物时效轴如实留空而不是假装已知。states 只
+                # 用来在失败时把未被触碰的编辑源图路径带回结果，不参与时效判断。
                 record_batch_outcomes(
                     builder,
                     successes=successes,
                     failures=failures,
+                    states=states,
                     fallback_path=lambda rid: rid,
                 )
 

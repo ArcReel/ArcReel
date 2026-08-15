@@ -194,8 +194,8 @@ class TestApplyGridSplit:
         self, project_with_script, grid_with_image, caplog
     ):
         """only_scene_ids 过滤必须先于 valid_ids 检查生效：调用方只想要 E1S01 这一格
-        时，剧本里已不存在的 E1S02/E1S03（不在本次目标范围内）不能被当成本次缺口
-        计入 missing_scene_ids——那会让调用方以为它们是这次调用漏掉的，实际上从未
+        时，剧本里已不存在的 E1S02/E1S03（不在目标集合内）不能被当成该调用的缺口
+        计入 missing_scene_ids——那会让调用方以为它们是该调用漏掉的，实际上从未
         被请求过。"""
         grid = grid_with_image
         script_data = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))

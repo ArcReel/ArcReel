@@ -1103,7 +1103,6 @@ async def _generate_reference_units(
                 # ``artifact_is_usable``；只有整集路线的复用判定会查 Manifest）对
                 # BLOCKED 状态 fail-loud：一张已存在的成片若比对读不出来，不能让它把
                 # 整批生成打成 tool_error，而是逐 unit 记 blocked，交回去修复侧车。
-                state = _state_for(states, unit_id)
                 _block_unit(
                     builder,
                     states,

@@ -473,15 +473,18 @@ def generate_grid_tool(ctx: ToolContext):
                             )
                     except Exception as exc:  # noqa: BLE001
                         # 联合图已生成成功，仅落格失败：独立问题码把它与生成失败区分开，
-                        # 可在 WebUI 宫格面板重试切分（无需重新生成、不重复计费）。
-                        # 钱已花在联合图上，所以每格都是 failed + task_state=succeeded。
+                        # 可在 WebUI 宫格面板重试切分（无需重新生成、不重复计费）。钱已花
+                        # 在联合图上，所以每格都是 failed + task_state=succeeded。action 不
+                        # 能用 RETRY——消费者按 action 派发时会理解成重跑 generate_grid，
+                        # 那会重新生成联合图并重复计费；这条恢复路径只在宫格面板内可执行，
+                        # 不是本工具能派发的下一步，用 NONE 如实表达。
                         _fail_scenes(
                             builder,
                             report_ids,
                             problem=GenerationProblem(
                                 code=GenerationProblemCode.POST_PROCESSING_FAILED,
-                                detail=f"联合图已生成，但切分落格失败（可在宫格面板重试切分）: {exc}",
-                                action=GenerationAction.RETRY,
+                                detail=f"联合图已生成，但切分落格失败（可在宫格面板重试切分，不要重新生成）: {exc}",
+                                action=GenerationAction.NONE,
                                 params={"grid_id": grid.id},
                             ),
                             episode=episode,

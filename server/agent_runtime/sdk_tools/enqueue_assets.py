@@ -79,12 +79,12 @@ def _asset_candidates(
 ) -> list[GenerationCandidate]:
     """Missing-only candidates for one asset type.
 
-    Legacy (pre-Manifest) reusability only asks whether ``sheet`` is a
-    non-empty string — the file itself is never re-verified on disk, unlike
-    the active-Manifest branch where ``resolver`` does that check. Without
-    filtering here, a legacy project whose sheet file was deleted or moved
-    would report that asset as ``skipped`` and never be able to regenerate
-    it via missing-only again.
+    Legacy (pre-Manifest) reusability only knows ``sheet`` as a metadata
+    string, not the Manifest-backed comparison the active branch gets from
+    ``resolver`` — so this filter re-verifies the file's existence on disk
+    itself before treating a legacy sheet as reusable. Without it, a legacy
+    project whose sheet file was deleted or moved would report that asset as
+    ``skipped`` and never be able to regenerate it via missing-only again.
     """
 
     spec = ASSET_SPECS[asset_type]
