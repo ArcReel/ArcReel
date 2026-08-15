@@ -571,6 +571,17 @@ def _storyboard_item_id(item: dict[str, Any], id_field: str) -> object:
     return item.get(id_field) or item.get("scene_id") or item.get("segment_id")
 
 
+def _storyboard_item_aliases(item: dict[str, Any], id_field: str) -> set[str]:
+    """点名时能寻址到这个条目的全部写法。
+
+    各入口既认规范 ``id_field`` 也认 ``scene_id`` 别名，两者在剧本里可以不同；按哪一个
+    点名都要指到同一个条目，否则同一个名字在不同入口指向不同条目。
+    """
+
+    aliases = {item.get(id_field), item.get("scene_id")}
+    return {alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()}
+
+
 def _screen_storyboard_items(
     items: Sequence[Any],
     id_field: str,
@@ -652,7 +663,28 @@ def _screen_storyboard_items(
             continue
         seen.add(item_id)
         clean.append(item)
-    return clean, tickets
+    if named is None:
+        return clean, tickets
+    # 点名可以用 ``scene_id`` 别名，而规范 ID 的去重看不见它：同一个别名落在两个条目上时，
+    # 各入口按各自的查法分别选中头一个或末一个，同一次点名在不同入口指向不同条目。
+    holders: dict[str, list[dict[str, Any]]] = {}
+    for item in clean:
+        for alias in _storyboard_item_aliases(item, id_field) & named:
+            holders.setdefault(alias, []).append(item)
+    ambiguous = {id(item) for alias, owners in holders.items() if len(owners) > 1 for item in owners}
+    if not ambiguous:
+        return clean, tickets
+    tickets.extend(
+        refused_ticket(
+            alias,
+            code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+            detail=f"ID {alias} 在剧本中指向多个条目",
+            action=GenerationAction.FIX_INPUT,
+        )
+        for alias, owners in holders.items()
+        if len(owners) > 1
+    )
+    return [item for item in clean if id(item) not in ambiguous], tickets
 
 
 def _build_video_specs(
@@ -1485,9 +1517,14 @@ def generate_video_scene_tool(ctx: ToolContext):
             items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids={scene_id})
             item = next((s for s in items if s.get(id_field) == scene_id or s.get("scene_id") == scene_id), None)
             if not item:
+                # 筛查已经按这个名字拒过（剧本里它指向多个条目）时报筛查的结论：同一个 ID
+                # 记两遍会撞上结果契约的唯一性，用户拿到一句通用报错。
+                screened = next((ticket for ticket in screen_refused if ticket.unit_id == scene_id), None)
                 builder.block(
                     scene_id,
-                    problem=GenerationProblem(
+                    problem=screened.problems[0]
+                    if screened is not None and screened.problems
+                    else GenerationProblem(
                         code=GenerationProblemCode.UNIT_NOT_FOUND,
                         detail=f"场景/片段 '{scene_id}' 不存在",
                         action=GenerationAction.FIX_INPUT,
@@ -1795,7 +1832,11 @@ def generate_video_selected_tool(ctx: ToolContext):
             # ``items_by_id`` 同时按 ``id_field`` 与 ``scene_id`` 索引同一个 item，
             # 调用方若把两个值都列入 ``scene_ids`` 会让同一场景重复入队——必须按
             # 规范 ``id_field`` 再去一次重。
+            screened_ids = {ticket.unit_id for ticket in screen_refused}
             for sid in scene_ids:
+                if sid in screened_ids:
+                    # 筛查已经按这个名字记过一条结论，重复记名会撞上结果契约的唯一性。
+                    continue
                 if sid not in items_by_id:
                     refused.append(
                         refused_ticket(
@@ -1812,7 +1853,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                     continue
                 seen_canonical.add(canonical)
                 selected.append(item)
-            if not selected and not refused:
+            if not selected and not refused and not screen_refused:
                 return generation_result_response(builder.build(), log)
 
             # checkpoint hash 用 ``selected`` 解析出的规范 ID 集合，让同一批

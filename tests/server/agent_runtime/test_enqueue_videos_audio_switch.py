@@ -469,6 +469,31 @@ class TestStoryboardGateEntersAdmission:
         unit_ids = [unit["unit_id"] for unit in out["batch_admission"]["units"]]
         assert sorted(unit_ids) == ["items[0]", "items[0]*"]
 
+    async def test_a_named_alias_pointing_at_two_items_is_refused(self, tmp_path, monkeypatch):
+        """点名用的 scene_id 别名落在两个条目上：各入口会各自选中头一个或末一个，先拒收。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        first = segments[0]
+        first["scene_id"] = "SC1"
+        segments.append({**first, "segment_id": "E1S02"})
+
+        tool_obj = mod.generate_video_selected_tool(ctx)
+        out = await tool_obj.handler({"script": "episode_1.json", "scene_ids": ["SC1"]})
+
+        enqueue.assert_not_awaited()
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes["SC1"] == ["generation_unit_request_invalid"]
+
     async def test_generate_all_keeps_an_id_less_item_in_the_verdict(self, tmp_path, monkeypatch):
         """缺 ID 的条目进不了目标集合，但它属于这次请求：健康的兄弟条目不会独自入队计费。"""
 
