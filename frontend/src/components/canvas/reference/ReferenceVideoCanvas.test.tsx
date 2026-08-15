@@ -61,6 +61,7 @@ function mkAdmission(patch: Record<string, unknown> = {}) {
     confirmation: null,
     skipped_unit_ids: [],
     task_ids: ["t9"],
+    task_ids_by_unit: { E1U1: "t9" },
     deduped: false,
     ...patch,
   } as never;
@@ -822,7 +823,10 @@ describe("ReferenceVideoCanvas", () => {
     });
     const batchSpy = vi
       .spyOn(API, "generateReferenceVideoBatch")
-      .mockResolvedValue(mkAdmission({ task_ids: ["t1", "t2"] }));
+      .mockResolvedValue(mkAdmission({
+        task_ids: ["t1", "t2"],
+        task_ids_by_unit: { E1U1: "t1", E1U2: "t2" },
+      }));
     const unitSpy = vi.spyOn(API, "generateReferenceVideoUnit");
 
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);

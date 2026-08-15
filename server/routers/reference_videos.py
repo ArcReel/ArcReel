@@ -787,6 +787,7 @@ async def generate_units_batch(
     payload["skipped_unit_ids"] = sorted(state.unit_id for state in selection.skipped)
     if admission.decision is not BatchAdmissionDecision.ADMITTED:
         payload["task_ids"] = []
+        payload["task_ids_by_unit"] = {}
         payload["deduped"] = False
         return payload
 
@@ -817,6 +818,9 @@ async def generate_units_batch(
             },
         ) from exc
     payload["task_ids"] = [item.task_id for item in enqueued]
+    # 逐 unit 给出它自己的任务行：调用方的乐观占用标记要各等各的，拿整批清单会让每个 unit
+    # 都等到全批落库为止。
+    payload["task_ids_by_unit"] = {item.resource_id: item.task_id for item in enqueued}
     payload["deduped"] = bool(enqueued) and all(item.deduped for item in enqueued)
     return payload
 

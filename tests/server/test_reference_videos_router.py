@@ -1437,6 +1437,9 @@ def test_generate_batch_creates_the_whole_task_set_in_one_admission(
     body = resp.json()
     assert body["decision"] == "admitted"
     assert len(body["task_ids"]) == 2
+    # 逐 unit 的任务行让调用方各等各的，不必等到全批落库。
+    assert sorted(body["task_ids_by_unit"]) == sorted([first, second])
+    assert sorted(body["task_ids_by_unit"].values()) == sorted(body["task_ids"])
     assert [item["unit_id"] for item in body["units"]] == [first, second]
     assert all(item["admitted"] for item in body["units"])
     assert [call["resource_id"] for call in enqueued] == [first, second]

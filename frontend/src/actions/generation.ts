@@ -79,12 +79,13 @@ function markScriptFile(projectName: string, taskType: string, scriptFile: strin
 async function submit<T>(
   marks: readonly OptimisticHandle[],
   request: () => Promise<T>,
-  taskIdsOf: (res: T) => string[],
+  taskIdsOf: (res: T, markIndex: number) => string[],
 ): Promise<T> {
   try {
     const res = await request();
-    const taskIds = taskIdsOf(res);
-    for (const m of marks) m.settle(taskIds);
+    // 逐标记取自己的任务行：标记要等它的 task_id 全部落库才让位，把整批清单发给每个标记
+    // 会让每个资源都等到全批出现，而任务列表快照只保留最新若干行，早的行可能再不出现。
+    marks.forEach((m, index) => m.settle(taskIdsOf(res, index)));
     return res;
   } catch (e) {
     for (const m of marks) m.rollback();
@@ -319,13 +320,18 @@ export async function enqueueReferenceVideoBatch(
   episode: number,
   payload: ReferenceBatchGenerateRequest,
 ): Promise<ReferenceBatchAdmission> {
-  const marks = (payload.unit_ids ?? []).map((unitId) =>
+  const unitIds = payload.unit_ids ?? [];
+  const marks = unitIds.map((unitId) =>
     markResource(projectName, "reference_video", unitId, "reference_video"),
   );
   const res = await submit(
     marks,
     () => API.generateReferenceVideoBatch(projectName, episode, payload),
-    (admission) => (admission.decision === "admitted" ? admission.task_ids : []),
+    (admission, index) => {
+      if (admission.decision !== "admitted") return [];
+      const taskId = admission.task_ids_by_unit[unitIds[index]];
+      return taskId === undefined ? [] : [taskId];
+    },
   );
   if (res.decision === "admitted") {
     notifyEnqueued(

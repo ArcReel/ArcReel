@@ -218,6 +218,8 @@ export interface ReferenceBatchAdmission {
   skipped_unit_ids: string[];
   /** 仅 admitted 时非空 */
   task_ids: string[];
+  /** 逐 unit 的任务行，供调用方各自兑现自己的乐观占用标记。 */
+  task_ids_by_unit: Record<string, string>;
   deduped: boolean;
 }
 
