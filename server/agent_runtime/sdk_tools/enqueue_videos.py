@@ -381,6 +381,9 @@ async def _admit_storyboard_specs(
     The visual prompt each spec already carries is what the admission compares
     against the paid artifact, so the triples are built before the delivery payload
     is applied — the payload is a request fact, not part of the visual basis.
+
+    音频开关冲突是本次请求已知的配置缺口，在这里就折成逐目标的结论：留到提交前才检查，
+    用户会先被问一遍跨档确认、同意之后才收到一句通用报错。
     """
 
     items_by_id = {
@@ -392,6 +395,25 @@ async def _admit_storyboard_specs(
         if item is None:
             raise ValueError(f"找不到待生成条目: {spec.resource_id}")
         targets.append((spec.resource_id, item, (spec.payload or {}).get("prompt")))
+    audio_conflict = await _audio_switch_conflict(ctx) if specs else None
+    if audio_conflict is not None:
+        return BatchAdmission(
+            operation=operation,
+            selection=selection,
+            narration_delivery=request_options.narration_delivery,
+            tickets=(
+                *extra_tickets,
+                *(
+                    refused_ticket(
+                        spec.resource_id,
+                        code="video_audio_switch_not_supported",
+                        detail=audio_conflict,
+                        action=GenerationAction.CONFIGURE_PROVIDER,
+                    )
+                    for spec in specs
+                ),
+            ),
+        )
     admission = await admit_storyboard_video_batch(
         project_name=ctx.project_name,
         project=project,
@@ -453,18 +475,25 @@ def _get_video_prompt(
     return prompt
 
 
-async def _assert_audio_switch_for_storyboard(ctx: ToolContext) -> None:
+async def _audio_switch_conflict(ctx: ToolContext) -> str | None:
     """分镜路线入队前的音频闸门（``assert_audio_switch_supported``，与 WebUI 提交入口同一判据）。
 
     成片恒有声的模型收不到关闭音频的请求，放行只会让无声判据把音色约束整批裁掉。闸门与内容模式
     无关，narration/ad 同样受检。
 
-    调用点固定在「确有任务要入队」之后、提交之前：整集已完成、或条目全被
-    :func:`_build_video_specs` 过滤时本就不会产生任何请求，此时拒绝等于把一次正常的空转变成报错。
+    调用点固定在「确有任务要入队」之后：整集已完成、或条目全被 :func:`_build_video_specs`
+    过滤时本就不会产生任何请求，此时拒绝等于把一次正常的空转变成报错。
     参考路线由公共 request projection 给出同一音频能力判定。
+
+    返回冲突说明文本；无冲突返回 ``None``。调用方把它折成逐目标的准入结论，与其它缺口
+    一起在建任务之前一次报全。
     """
     project = ctx.pm.load_project(ctx.project_name)
-    await assert_audio_switch_supported(project, video_bucket_for_generation_mode(project.get("generation_mode")))
+    try:
+        await assert_audio_switch_supported(project, video_bucket_for_generation_mode(project.get("generation_mode")))
+    except ValueError as exc:
+        return str(exc)
+    return None
 
 
 async def _resolve_voice_context(ctx: ToolContext, content_mode: str) -> dict[str, Any] | None:
@@ -631,8 +660,11 @@ def _build_video_specs(
         if duration is not None:
             extra_payload["duration_seconds"] = duration
 
-        specs.append(
-            TaskSpec.from_request(
+        # 构造 TaskSpec 本身也是可入队性判定（空提示词等，``TaskSpecValidationError``
+        # 是 ValueError 子类）：不接住就会让一个坏条目把整批打成一句通用报错，
+        # 其余条目的结论无从得知。
+        try:
+            spec = TaskSpec.from_request(
                 task_type="video",
                 media_type="video",
                 resource_id=item_id,
@@ -640,7 +672,17 @@ def _build_video_specs(
                 script_file=script_filename,
                 extra_payload=extra_payload or None,
             )
-        )
+        except ValueError as exc:
+            refused.append(
+                refused_ticket(
+                    str(item_id),
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail=f"{item_type} {item_id} 无法构造入队请求: {exc}",
+                    action=GenerationAction.FIX_INPUT,
+                )
+            )
+            continue
+        specs.append(spec)
         order_map[item_id] = idx
     return specs, order_map, refused
 
@@ -1242,7 +1284,6 @@ def generate_video_episode_tool(ctx: ToolContext):
                 return _batch_admission_response(BatchAdmissionRefused(admission), log, builder, states)
 
             if specs:
-                await _assert_audio_switch_for_storyboard(ctx)
                 successes, failures = await _submit_with_checkpoint(
                     project_name=ctx.project_name,
                     project_dir=project_dir,
@@ -1386,7 +1427,6 @@ def generate_video_scene_tool(ctx: ToolContext):
             if not admission.admitted:
                 return _batch_admission_response(BatchAdmissionRefused(admission), log, builder, states)
 
-            await _assert_audio_switch_for_storyboard(ctx)
             successes, failures = await batch_enqueue_and_wait(project_name=ctx.project_name, specs=specs, atomic=True)
             record_batch_outcomes(
                 builder,
@@ -1528,7 +1568,6 @@ def generate_video_all_tool(ctx: ToolContext):
             if not admission.admitted:
                 return _batch_admission_response(BatchAdmissionRefused(admission), log, builder, states)
 
-            await _assert_audio_switch_for_storyboard(ctx)
             successes, failures = await batch_enqueue_and_wait(project_name=ctx.project_name, specs=specs, atomic=True)
             record_batch_outcomes(
                 builder,
@@ -1720,7 +1759,6 @@ def generate_video_selected_tool(ctx: ToolContext):
                 return _batch_admission_response(BatchAdmissionRefused(admission), log, builder, states)
 
             if specs:
-                await _assert_audio_switch_for_storyboard(ctx)
                 successes, failures = await _submit_with_checkpoint(
                     project_name=ctx.project_name,
                     project_dir=project_dir,

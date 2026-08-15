@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -102,8 +103,8 @@ class TestStoryboardRouteGate:
             raise ValueError("成片恒有声")
 
         monkeypatch.setattr(mod, "assert_audio_switch_supported", _reject)
-        with pytest.raises(ValueError):
-            await mod._assert_audio_switch_for_storyboard(_ctx(tmp_path, {"generation_mode": "storyboard"}))
+        conflict = await mod._audio_switch_conflict(_ctx(tmp_path, {"generation_mode": "storyboard"}))
+        assert conflict == "成片恒有声"
         assert seen == ["i2v"]
 
     async def test_voice_characters_resolve_independently_of_the_gate(self, tmp_path, monkeypatch):
@@ -271,3 +272,60 @@ class TestStoryboardGateSkipsEmptyBatches:
         payload = result["out"]["generation_result"]
         assert payload["blocked"] == ["E1S01"]
         assert payload["items"][0]["problem"]["code"] == "generation_unit_input_unusable"
+
+
+@pytest.mark.unit
+class TestStoryboardGateEntersAdmission:
+    """音频开关冲突与其它缺口一起在建任务之前报全，不留到确认之后才报。"""
+
+    def _ctx(self, tmp_path: Path) -> ToolContext:
+        project_dir = tmp_path / "demo"
+        (project_dir / "storyboards").mkdir(parents=True)
+        (project_dir / "storyboards" / "scene_E1S01.png").write_bytes(b"")
+        return ToolContext(
+            project_name="demo",
+            projects_root=tmp_path,
+            pm=_EpisodePM(project_dir, with_storyboard=True),  # type: ignore[arg-type]
+        )
+
+    async def test_audio_switch_conflict_is_reported_as_a_blocked_admission(self, tmp_path, monkeypatch):
+        async def _reject(_project, _capability):
+            raise ValueError("成片恒有声，无法关闭音频")
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(mod, "assert_audio_switch_supported", _reject)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+        tool_obj = mod.generate_video_episode_tool(self._ctx(tmp_path))
+        out = await tool_obj.handler({"script": "episode_1.json"})
+
+        assert out["batch_admission"]["decision"] == "blocked"
+        enqueue.assert_not_awaited()
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes == {"E1S01": ["video_audio_switch_not_supported"]}
+
+    async def test_a_blank_prompt_is_refused_per_unit(self, tmp_path, monkeypatch):
+        """空白提示词构造不出 TaskSpec：该条目带自己的问题码进结论，不把整批打成通用报错。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        ctx.pm.script_payload["segments"][0]["video_prompt"] = "   "  # type: ignore[attr-defined]
+
+        tool_obj = mod.generate_video_episode_tool(ctx)
+        out = await tool_obj.handler({"script": "episode_1.json"})
+
+        enqueue.assert_not_awaited()
+        assert out["batch_admission"]["decision"] == "blocked"
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes == {"E1S01": ["generation_unit_request_invalid"]}
