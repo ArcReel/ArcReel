@@ -243,6 +243,7 @@ MESSAGES = {
     # Versions
     "unsupported_resource_type": "不支持的资源类型: {resource_type}",
     "invalid_resource_id": "非法的资源 ID: {resource_id}",
+    "resource_id_required": "资源 ID 不能为空",
     "invalid_end_frame_source": "尾帧来源路径非法或越出项目目录: {path}",
     "end_frame_source_not_found": "尾帧来源图片不存在: {path}",
     "end_frame_source_too_large": "尾帧图超过大小上限（{max_mb} MB）: {path}",

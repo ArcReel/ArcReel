@@ -266,6 +266,7 @@ MESSAGES = {
     # Versions
     "unsupported_resource_type": "Loại tài nguyên không hỗ trợ: {resource_type}",
     "invalid_resource_id": "ID tài nguyên không hợp lệ: {resource_id}",
+    "resource_id_required": "ID tài nguyên không được để trống",
     "invalid_end_frame_source": "Đường dẫn ảnh nguồn cho khung hình cuối không hợp lệ hoặc nằm ngoài thư mục dự án: {path}",
     "end_frame_source_not_found": "Không tìm thấy ảnh nguồn cho khung hình cuối: {path}",
     "end_frame_source_too_large": "Ảnh khung hình cuối vượt quá giới hạn dung lượng ({max_mb} MB): {path}",

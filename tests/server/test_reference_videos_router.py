@@ -1902,3 +1902,17 @@ def test_generate_batch_reports_a_non_list_video_units_container(
     assert enqueued == []
     codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
     assert codes["video_units"] == ["generation_unit_request_invalid"]
+
+
+@pytest.mark.unit
+def test_generate_unit_rejects_a_path_like_unit_id(client: TestClient, tmp_path: Path):
+    """unit_id 带路径分隔符时当场拒绝（400），不漏到执行层拼产物路径时才失败。"""
+    script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"] = [
+        {"unit_id": "a\\b", "shots": [{"text": "镜头平移"}], "references": [], "duration_seconds": 3}
+    ]
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/a%5Cb/generate")
+    assert resp.status_code == 400, resp.text

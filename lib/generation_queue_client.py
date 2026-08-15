@@ -407,12 +407,12 @@ class TaskSpec:
         # 纯空白的 id 与空 id 同样不可用：它非空、能过下面的字符检查，却会在执行期变成一段
         # 空白文件名。判空统一按 strip 后的值，各调用点因此不必各自 strip 一遍。
         if not resource_id.strip():
-            raise ValueError("resource_id is required")
+            raise TaskSpecValidationError("resource_id_required")
         # resource_id 在执行期是产物路径的一段：带路径分隔符或 .. 的值要到 worker 拼路径时
         # 才被 safe_join 拒绝，那时同批健康的任务已经在跑并计费。结构守卫在这里就拒，让它
         # 与其它结构问题一样折成该 unit 的准入问题码。
         if any(sep in resource_id for sep in ("/", "\\", "\x00")) or resource_id.strip(".") == "":
-            raise ValueError(f"resource_id 含路径分隔符或路径片段: {resource_id!r}")
+            raise TaskSpecValidationError("invalid_resource_id", resource_id=resource_id)
         _validate_prompt(task_type, prompt)
 
         # extra_payload 不得携带守卫点已校验的保留键，否则调用方能绕过单一守卫点

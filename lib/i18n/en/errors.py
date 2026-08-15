@@ -266,6 +266,7 @@ MESSAGES = {
     # Versions
     "unsupported_resource_type": "Unsupported resource type: {resource_type}",
     "invalid_resource_id": "Invalid resource ID: {resource_id}",
+    "resource_id_required": "resource ID must not be empty",
     "invalid_end_frame_source": "End frame source path is invalid or outside the project directory: {path}",
     "end_frame_source_not_found": "End frame source image not found: {path}",
     "end_frame_source_too_large": "End frame image exceeds the size limit ({max_mb} MB): {path}",
