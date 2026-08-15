@@ -17,6 +17,7 @@ import pytest
 from lib.artifact_manifest import (
     LOCK_FILENAME,
     MANIFEST_FILENAME,
+    ArtifactEntryRekeyPlan,
     ArtifactKey,
     ArtifactManifestEntry,
     ProjectArtifactManifestAdapter,
@@ -451,6 +452,72 @@ class TestRenameAssetCascade:
         assert adapter.get_entry(ArtifactKey.asset_sheet("character", "主角甲")) == ArtifactManifestEntry(
             artifact_path="characters/主角甲.png",
             basis_digest=old_entry.basis_digest,
+        )
+
+    def test_project_binding_commits_before_manifest_claim_rekey(
+        self,
+        pm: ProjectManager,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        project_dir = _project_dir(pm)
+        sheet = project_dir / "characters" / "角色A.png"
+        sheet.write_bytes(b"current-sheet")
+        pm.update_project(
+            "demo",
+            lambda project: project["characters"]["角色A"].update({"character_sheet": "characters/角色A.png"}),
+        )
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        adapter.put_entry(
+            ArtifactKey.asset_sheet("character", "角色A"),
+            ArtifactManifestEntry("characters/角色A.png", "sha256-v1:" + "a" * 64),
+        )
+        original_commit = ArtifactEntryRekeyPlan.commit
+        project_seen_during_commit: dict[str, Any] = {}
+
+        def _commit(plan: ArtifactEntryRekeyPlan):
+            project_seen_during_commit.update(json.loads((project_dir / "project.json").read_text(encoding="utf-8")))
+            return original_commit(plan)
+
+        monkeypatch.setattr(ArtifactEntryRekeyPlan, "commit", _commit)
+
+        pm.rename_asset("demo", "characters", "角色A", "主角甲")
+
+        assert "主角甲" in project_seen_during_commit["characters"]
+        assert "角色A" not in project_seen_during_commit["characters"]
+
+    def test_retry_recovers_claim_after_project_binding_committed_first(self, pm: ProjectManager) -> None:
+        project_dir = _project_dir(pm)
+        old_sheet = project_dir / "characters" / "角色A.png"
+        new_sheet = project_dir / "characters" / "主角甲.png"
+        old_sheet.write_bytes(b"current-sheet")
+        pm.update_project(
+            "demo",
+            lambda project: project["characters"]["角色A"].update({"character_sheet": "characters/角色A.png"}),
+        )
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        old_key = ArtifactKey.asset_sheet("character", "角色A")
+        new_key = ArtifactKey.asset_sheet("character", "主角甲")
+        old_entry = ArtifactManifestEntry("characters/角色A.png", "sha256-v1:" + "a" * 64)
+        adapter.put_entry(old_key, old_entry)
+        old_sheet.replace(new_sheet)
+
+        def _commit_project_binding(project: dict[str, object]) -> None:
+            characters = project["characters"]
+            assert isinstance(characters, dict)
+            entry = characters.pop("角色A")
+            assert isinstance(entry, dict)
+            entry["character_sheet"] = "characters/主角甲.png"
+            characters["主角甲"] = entry
+
+        pm.update_project("demo", _commit_project_binding)
+
+        report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
+
+        assert (report.episodes, report.references, report.files, report.dry_run) == (0, 0, 0, False)
+        assert adapter.get_entry(old_key) is None
+        assert adapter.get_entry(new_key) == ArtifactManifestEntry(
+            "characters/主角甲.png",
+            old_entry.basis_digest,
         )
 
     def test_project_write_failure_compensates_manifest_claim_rekey(
