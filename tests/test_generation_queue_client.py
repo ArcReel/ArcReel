@@ -202,8 +202,9 @@ class TestTaskSpecFromRequest:
         assert "reserved" in str(exc.value)
 
     def test_empty_resource_id_rejected(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(TaskSpecValidationError) as excinfo:
             TaskSpec.from_request(task_type="video", media_type="video", resource_id="", prompt="跑")
+        assert excinfo.value.code == "resource_id_required"
 
     def test_extra_payload_cannot_override_reserved_keys(self):
         # extra_payload 携带保留键会绕过单一守卫点，必须拒绝。
