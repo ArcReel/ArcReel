@@ -4,6 +4,7 @@ import shutil
 import stat
 import zipfile
 from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 
@@ -17,6 +18,7 @@ from lib.artifact_manifest import (
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
+from lib.formal_write import project_metadata_lock
 from lib.grid.models import GridGeneration
 from lib.i18n import _
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
@@ -536,6 +538,80 @@ class TestProjectArchiveService:
 
         assert copy_count == 2
         with zipfile.ZipFile(archive_path) as archive:
+            assert archive.read("demo/characters/Hero.png") == b"new-formal-bytes"
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+        assert archive_manifest["artifact_manifest"]["entries"][key.encode()] == {
+            "artifact_path": "characters/Hero.png",
+            "basis_digest": f"sha256-v1:{'f' * 64}",
+        }
+
+    @pytest.mark.unit
+    def test_export_waits_for_a_formal_commit_before_snapshotting(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        migrate_v7_to_v8(project_dir)
+
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        artifact_path = project_dir / "characters" / "Hero.png"
+        versions_path = project_dir / "versions" / "versions.json"
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        service = ProjectArchiveService(pm)
+        formal_midpoint = Event()
+        release_formal_commit = Event()
+        copied_while_formal_commit_was_open = Event()
+        failures: list[BaseException] = []
+        archive_result: list[Path] = []
+
+        original_copy = service._copy_visible_tree
+
+        def _observe_copy(source_dir: Path, target_dir: Path) -> tuple[tuple[str, str], ...]:
+            if formal_midpoint.is_set() and not release_formal_commit.is_set():
+                copied_while_formal_commit_was_open.set()
+            return original_copy(source_dir, target_dir)
+
+        def _formal_commit() -> None:
+            try:
+                with project_metadata_lock(project_dir):
+                    artifact_path.write_bytes(b"new-formal-bytes")
+                    _write_json(versions_path, {"characters": {"Hero": {"current_version": 2, "versions": []}}})
+                    formal_midpoint.set()
+                    if not release_formal_commit.wait(timeout=5):
+                        raise TimeoutError("archive did not finish observing the held formal commit")
+                    adapter.put_entry(
+                        key,
+                        ArtifactManifestEntry(
+                            artifact_path="characters/Hero.png",
+                            basis_digest=f"sha256-v1:{'f' * 64}",
+                        ),
+                    )
+            except BaseException as exc:  # pragma: no cover - asserted through the parent thread
+                failures.append(exc)
+
+        def _export() -> None:
+            try:
+                archive_result.append(service.export_project("demo")[0])
+            except BaseException as exc:  # pragma: no cover - asserted through the parent thread
+                failures.append(exc)
+
+        monkeypatch.setattr(service, "_copy_visible_tree", _observe_copy)
+        writer = Thread(target=_formal_commit)
+        exporter = Thread(target=_export)
+        writer.start()
+        assert formal_midpoint.wait(timeout=5)
+        exporter.start()
+        copied_early = copied_while_formal_commit_was_open.wait(timeout=0.5)
+        release_formal_commit.set()
+        writer.join(timeout=5)
+        exporter.join(timeout=5)
+
+        assert not writer.is_alive()
+        assert not exporter.is_alive()
+        assert failures == []
+        assert copied_early is False
+        with zipfile.ZipFile(archive_result[0]) as archive:
             assert archive.read("demo/characters/Hero.png") == b"new-formal-bytes"
             archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
         assert archive_manifest["artifact_manifest"]["entries"][key.encode()] == {

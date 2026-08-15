@@ -23,7 +23,7 @@ class _FileSnapshot:
 
 @contextmanager
 def project_metadata_lock(project_dir: Path) -> Iterator[None]:
-    """Serialize every project.json read-modify-write across process boundaries."""
+    """Serialize project metadata and formal-artifact transactions across processes."""
 
     lock_path = Path(project_dir) / ".project.json.lock"
     lock_path.touch(exist_ok=True)

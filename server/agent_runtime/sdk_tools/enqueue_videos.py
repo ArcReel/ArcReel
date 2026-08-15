@@ -59,6 +59,7 @@ from lib.speech_composition import (
     video_unit_replan_problems,
 )
 from lib.storyboard_sequence import get_storyboard_items
+from lib.version_manager import VersionManager
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
     tool_error,
@@ -86,6 +87,28 @@ _NARRATION_DELIVERY_SCHEMA_PROPERTY = {
     "enum": [POST_PRODUCTION, USE_TTS],
     "description": "本次旁白交付方式；use_tts 只使用当前 fresh TTS 的实际媒体时长。",
 }
+
+
+def _batch_video_is_reusable(
+    *,
+    currency: ArtifactCurrencyResolver | None,
+    versions: VersionManager,
+    episode: int,
+    resource_type: str,
+    resource_id: str,
+    artifact_path: object,
+) -> bool:
+    """Admit a batch skip from either verified currency or one exact raw upload."""
+
+    return artifact_is_usable(
+        currency,
+        ArtifactKey.episode_video(episode, resource_id) if currency is not None else None,
+        artifact_path,
+    ) or versions.selected_manual_upload_matches_current_file(
+        resource_type,
+        resource_id,
+        artifact_path,
+    )
 
 
 def _reference_request_options(args: dict[str, Any]) -> ReferenceRequestOptions:
@@ -957,6 +980,7 @@ async def _run_reference_episode(
     if not units:
         raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
     currency = active_artifact_currency_resolver(ctx.project_path, project)
+    versions = VersionManager(ctx.project_path)
     result = await _generate_reference_units(
         ctx=ctx,
         units=units,
@@ -972,10 +996,13 @@ async def _run_reference_episode(
         script=script,
         script_filename=script_filename,
         request_options=request_options,
-        reuse_existing=lambda unit: artifact_is_usable(
-            currency,
-            ArtifactKey.episode_video(episode, str(unit.get("unit_id") or "")),
-            get_generated_assets(unit).get("video_clip"),
+        reuse_existing=lambda unit: _batch_video_is_reusable(
+            currency=currency,
+            versions=versions,
+            episode=episode,
+            resource_type="reference_videos",
+            resource_id=str(unit.get("unit_id") or ""),
+            artifact_path=get_generated_assets(unit).get("video_clip"),
         ),
     )
     if isinstance(result, DurationConfirmationPending):
@@ -1387,6 +1414,7 @@ def generate_video_all_tool(ctx: ToolContext):
             project = ctx.pm.load_project(ctx.project_name)
             content_mode = resolve_content_mode(script, project)
             currency = active_artifact_currency_resolver(project_dir, project)
+            versions = VersionManager(project_dir)
             episode = (
                 resolve_artifact_episode(
                     project=project,
@@ -1401,10 +1429,13 @@ def generate_video_all_tool(ctx: ToolContext):
                 if (
                     not isinstance(resource_id, str)
                     or not resource_id
-                    or not artifact_is_usable(
-                        currency,
-                        ArtifactKey.episode_video(episode, resource_id) if currency is not None else None,
-                        get_generated_assets(item).get("video_clip"),
+                    or not _batch_video_is_reusable(
+                        currency=currency,
+                        versions=versions,
+                        episode=episode,
+                        resource_type="videos",
+                        resource_id=resource_id,
+                        artifact_path=get_generated_assets(item).get("video_clip"),
                     )
                 ):
                     pending.append(item)

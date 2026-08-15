@@ -28,6 +28,8 @@ from lib.reference_video.quarantine import (
     write_quarantine,
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
+from lib.resource_paths import resource_relative_path
+from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.enqueue_assets import (
@@ -135,6 +137,27 @@ def fake_ctx(tmp_path: Path) -> ToolContext:
         projects_root=tmp_path,
         pm=_FakePM("demo", project_dir),  # type: ignore[arg-type]
     )
+
+
+def _select_manual_video(
+    project_path: Path,
+    *,
+    resource_type: str,
+    resource_id: str,
+    content: bytes,
+) -> str:
+    artifact_path = resource_relative_path(resource_type, resource_id)
+    staged = project_path / f".{resource_type}-{resource_id}.upload.mp4"
+    staged.write_bytes(content)
+    VersionManager(project_path).commit_staged_version(
+        resource_type,
+        resource_id,
+        "",
+        staged_file=staged,
+        current_file=project_path / artifact_path,
+        source=MANUAL_UPLOAD_VERSION_SOURCE,
+    )
+    return artifact_path
 
 
 @pytest.fixture(autouse=True)
@@ -3137,6 +3160,48 @@ async def test_generate_video_all_happy(fake_ctx: ToolContext, monkeypatch) -> N
     assert out.get("is_error") is not True
 
 
+@pytest.mark.integration
+async def test_generate_video_all_preserves_the_selected_manual_upload(
+    fake_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lib.generation_queue_client import TaskSpec
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    project_path = fake_ctx.project_path
+    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+        {
+            "schema_version": 8,
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        }
+    )
+    artifact_path = _select_manual_video(
+        project_path,
+        resource_type="videos",
+        resource_id="E1S01",
+        content=b"manual-video",
+    )
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"]["video_clip"] = artifact_path  # type: ignore[attr-defined]
+    enqueue = AsyncMock(return_value=([], []))
+    spec = TaskSpec.from_request(
+        task_type="video",
+        media_type="video",
+        resource_id="E1S01",
+        prompt="manual upload must not be replaced",
+        script_file="episode_1.json",
+    )
+    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: object())
+    monkeypatch.setattr(mod, "artifact_is_usable", lambda *_args: False)
+    monkeypatch.setattr(mod, "_build_video_specs", lambda **_kwargs: ([spec], {"E1S01": 0}))
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await _call(generate_video_all_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert "所有场景/片段的视频都已生成" in out["content"][0]["text"]
+    enqueue.assert_not_awaited()
+
+
 @pytest.mark.unit
 async def test_generate_video_all_error(fake_ctx: ToolContext) -> None:
     def boom(*a, **kw):
@@ -4954,6 +5019,36 @@ async def test_generate_video_episode_ad_reference_does_not_claim_orphan_file(
 
     assert out.get("is_error") is not True, out
     assert [spec.resource_id for spec in enqueued] == ["E1U1"]
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_ad_reference_preserves_the_selected_manual_upload(
+    ad_reference_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    project_path = ad_reference_ctx.project_path
+    ad_reference_ctx.pm.project_payload["schema_version"] = 8  # type: ignore[attr-defined]
+    artifact_path = _select_manual_video(
+        project_path,
+        resource_type="reference_videos",
+        resource_id="E1U1",
+        content=b"manual-reference-video",
+    )
+    ad_reference_ctx.pm.script_payload["video_units"][0]["generated_assets"] = {  # type: ignore[attr-defined]
+        "video_clip": artifact_path
+    }
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: object())
+    monkeypatch.setattr(mod, "artifact_is_usable", lambda *_args: False)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await _call(generate_video_all_tool(ad_reference_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert "参考视频生成完成，共 1 个 unit" in out["content"][0]["text"]
+    enqueue.assert_not_awaited()
 
 
 @pytest.mark.unit

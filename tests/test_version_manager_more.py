@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from lib.api_errors import BadRequestError, NotFoundError
-from lib.version_manager import VersionManager, _get_versions_file_lock
+from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager, _get_versions_file_lock
 
 pytestmark = pytest.mark.unit
 
@@ -30,6 +30,40 @@ class TestVersionManagerMore:
         assert vm.get_version_prompt("characters", "Alice", 1) is None
         assert vm.get_version_created_at("characters", "Alice", 1) is None
         assert vm.has_versions("characters", "Alice") is False
+
+    def test_selected_manual_upload_requires_the_canonical_pointer_and_exact_snapshot(self, tmp_path):
+        project = tmp_path / "demo"
+        vm = VersionManager(project)
+        current = project / "videos" / "scene_E1S01.mp4"
+        staged = project / "videos" / ".scene_E1S01.upload.mp4"
+        staged.parent.mkdir(parents=True)
+        staged.write_bytes(b"manual-video")
+
+        vm.commit_staged_version(
+            "videos",
+            "E1S01",
+            "",
+            staged_file=staged,
+            current_file=current,
+            source=MANUAL_UPLOAD_VERSION_SOURCE,
+        )
+
+        assert vm.selected_manual_upload_matches_current_file(
+            "videos",
+            "E1S01",
+            "videos/scene_E1S01.mp4",
+        )
+        assert not vm.selected_manual_upload_matches_current_file(
+            "videos",
+            "E1S01",
+            "videos/other.mp4",
+        )
+        current.write_bytes(b"concurrent-replacement")
+        assert not vm.selected_manual_upload_matches_current_file(
+            "videos",
+            "E1S01",
+            "videos/scene_E1S01.mp4",
+        )
 
     def test_add_backup_restore_paths(self, tmp_path):
         project = tmp_path / "demo"

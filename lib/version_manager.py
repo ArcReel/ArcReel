@@ -20,13 +20,15 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lib.api_errors import BadRequestError, NotFoundError
+from lib.artifact_manifest import ArtifactManifestError, ProjectArtifactManifestAdapter
 from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.resource_paths import RESOURCE_TYPES as _RESOURCE_TYPES
-from lib.resource_paths import resource_extension
+from lib.resource_paths import resource_extension, resource_relative_path
 
 _LOCKS_GUARD = threading.Lock()
 _LOCKS_BY_VERSIONS_FILE: dict[str, threading.RLock] = {}
 _PREVIOUS_CURRENT_VERSION = "_previous_current_version"
+MANUAL_UPLOAD_VERSION_SOURCE = "manual_upload"
 logger = logging.getLogger(__name__)
 
 
@@ -222,6 +224,68 @@ class VersionManager:
 
         with self._lock:
             yield self.get_versions(resource_type, resource_id)
+
+    def selected_manual_upload_matches_current_file(
+        self,
+        resource_type: str,
+        resource_id: str,
+        artifact_path: object,
+    ) -> bool:
+        """Whether the canonical video is the exact selected manual-upload snapshot.
+
+        Manual videos deliberately carry no paid-generation basis and therefore
+        have no Artifact Manifest claim.  Batch reuse still needs stronger proof
+        than a script pointer or same-named file: the selected version record must
+        be a manual upload and its managed snapshot must byte-match the canonical
+        formal file while the version selection is locked.
+        """
+
+        if resource_type not in {"videos", "reference_videos"}:
+            return False
+        try:
+            canonical_rel = resource_relative_path(resource_type, resource_id)
+        except (TypeError, ValueError):
+            return False
+        if artifact_path != canonical_rel:
+            return False
+
+        with self._lock:
+            history = self.get_versions(resource_type, resource_id)
+            selected_version = history.get("current_version")
+            if type(selected_version) is not int or selected_version <= 0:
+                return False
+            records = history.get("versions")
+            if not isinstance(records, list):
+                return False
+            selected = next(
+                (
+                    record
+                    for record in records
+                    if isinstance(record, Mapping)
+                    and record.get("version") == selected_version
+                    and record.get("is_current") is True
+                ),
+                None,
+            )
+            if selected is None or selected.get("source") != MANUAL_UPLOAD_VERSION_SOURCE:
+                return False
+            snapshot_rel = selected.get("file")
+            if not isinstance(snapshot_rel, str) or not self.is_managed_snapshot_path(resource_type, snapshot_rel):
+                return False
+            try:
+                adapter = ProjectArtifactManifestAdapter(self.project_path)
+                canonical = adapter.inspect_artifact_content(canonical_rel)
+                snapshot = adapter.inspect_artifact_content(snapshot_rel)
+            except ArtifactManifestError:
+                return False
+            if (
+                canonical.blocker is not None
+                or snapshot.blocker is not None
+                or not canonical.present
+                or not snapshot.present
+            ):
+                return False
+            return canonical.content_digest == snapshot.content_digest
 
     def add_version(
         self, resource_type: str, resource_id: str, prompt: str, source_file: Path | None = None, **metadata

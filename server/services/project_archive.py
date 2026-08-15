@@ -32,6 +32,7 @@ from lib.asset_types import normalize_asset_name
 from lib.config.resolver import resolve_raw_supported_durations
 from lib.data_validator import DataValidator
 from lib.episode_ledger import parse_positive_episode_num
+from lib.formal_write import project_metadata_lock
 from lib.json_io import load_json
 from lib.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_hint
@@ -651,23 +652,25 @@ class ProjectArchiveService:
         """Copy one visible tree whose bytes and Manifest stayed unchanged.
 
         Export cannot atomically snapshot a directory with ordinary filesystem
-        primitives.  Compare complete content signatures and the whole Manifest
-        on both sides of the copy, discarding a mixed attempt instead of pairing
-        old formal bytes with a newer claim (or the reverse).
+        primitives.  Hold the shared formal-write lock around each attempt, then
+        compare complete content signatures and the whole Manifest on both sides
+        of the copy.  The comparison still rejects unmanaged filesystem changes
+        that do not participate in the formal-write lock.
         """
 
         last_missing: FileNotFoundError | None = None
         for _attempt in range(_EXPORT_SNAPSHOT_ATTEMPTS):
-            if target_dir.exists():
-                shutil.rmtree(target_dir)
-            try:
-                manifest_before = self._source_manifest_entries(source_dir)
-                copied = self._copy_visible_tree(source_dir, target_dir)
-                source_after = self._visible_tree_signature(source_dir)
-                manifest_after = self._source_manifest_entries(source_dir)
-            except FileNotFoundError as exc:
-                last_missing = exc
-                continue
+            with project_metadata_lock(source_dir):
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+                try:
+                    manifest_before = self._source_manifest_entries(source_dir)
+                    copied = self._copy_visible_tree(source_dir, target_dir)
+                    source_after = self._visible_tree_signature(source_dir)
+                    manifest_after = self._source_manifest_entries(source_dir)
+                except FileNotFoundError as exc:
+                    last_missing = exc
+                    continue
             if manifest_before == manifest_after and source_after == copied:
                 return manifest_before
         if target_dir.exists():
