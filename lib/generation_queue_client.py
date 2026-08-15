@@ -628,6 +628,13 @@ async def _enqueue_sequentially(
                 dependency_index=spec.dependency_index,
                 user_id=user_id,
             )
+        except asyncio.CancelledError:
+            # 取消不是 Exception 的子类：不单独接住的话，已创建的前半批会留在队列里被执行
+            # 并计费，而后半批永远不会创建——这正是原子入队要杜绝的半成批。回滚本身要在
+            # shield 里跑完，否则取消会立刻穿透进撤销请求，然后原样上抛保持取消语义。
+            if atomic and created_task_ids:
+                await asyncio.shield(_rollback_enqueued(created_task_ids))
+            raise
         except Exception as exc:  # noqa: BLE001
             if atomic:
                 rolled_back, orphaned = await _rollback_enqueued(created_task_ids)

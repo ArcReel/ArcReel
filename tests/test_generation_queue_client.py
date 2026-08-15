@@ -748,3 +748,39 @@ class TestEnqueueBatchAtomically:
 
         assert aborted.value.rolled_back == ()
         assert aborted.value.orphaned == ("t1",)
+
+
+@pytest.mark.unit
+async def test_atomic_enqueue_rolls_back_when_the_caller_is_cancelled(monkeypatch):
+    """调用方在中途被取消：已创建的前半批要撤销，取消语义原样上抛。"""
+    import asyncio as _asyncio
+
+    from lib import generation_queue_client as mod
+
+    created: list[str] = []
+    cancelled: list[str] = []
+
+    async def fake_enqueue(**kwargs):
+        if kwargs["resource_id"] == "S02":
+            raise _asyncio.CancelledError
+        created.append(kwargs["resource_id"])
+        return {"task_id": f"t-{kwargs['resource_id']}", "deduped": False}
+
+    class _FakeQueue:
+        async def cancel_task(self, task_id: str):
+            cancelled.append(task_id)
+            return {"cancelled": [{"task_id": task_id}], "cancelling": [], "skipped_terminal": []}
+
+    monkeypatch.setattr(mod, "enqueue_task_only", fake_enqueue)
+    monkeypatch.setattr(mod, "get_generation_queue", lambda: _FakeQueue())
+
+    specs = [
+        TaskSpec.from_request(task_type="video", media_type="video", resource_id=rid, prompt="跑")
+        for rid in ("S01", "S02")
+    ]
+
+    with pytest.raises(_asyncio.CancelledError):
+        await mod.enqueue_batch_atomically(project_name="demo", specs=specs)
+
+    assert created == ["S01"]
+    assert cancelled == ["t-S01"]
