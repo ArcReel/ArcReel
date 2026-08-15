@@ -472,6 +472,22 @@ async def test_generate_assets_happy(fake_ctx: ToolContext, monkeypatch) -> None
 
 
 @pytest.mark.unit
+async def test_generate_assets_rejects_an_explicitly_empty_name_list(fake_ctx: ToolContext, monkeypatch) -> None:
+    """``names: []`` 是调用方错误，绝不能被当成「全部缺图资产」去扫全库付费。"""
+    from server.agent_runtime.sdk_tools import enqueue_assets as mod
+
+    async def fail_batch(**_kwargs):
+        raise AssertionError("空选择不该入队任何任务")
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fail_batch)
+
+    out = await _call(generate_assets_tool(fake_ctx), {"type": "character", "names": []})
+
+    assert out.get("is_error") is True
+    assert "不能为空数组" in out["content"][0]["text"]
+
+
+@pytest.mark.unit
 async def test_generate_assets_names_without_type(fake_ctx: ToolContext) -> None:
     tool_obj = generate_assets_tool(fake_ctx)
     out = await _call(tool_obj, {"names": ["张三"]})
@@ -1757,7 +1773,7 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(
 async def test_generate_grid_split_failure_keeps_the_paid_image_and_fails_the_id(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """联合图已付费落盘、切分失败：该 ID 记为 failed 且保留旧产物，不声称产物已就位。"""
+    """联合图已付费落盘、切分失败：该组每个场景都记为 failed，不声称产物已就位。"""
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
@@ -1786,15 +1802,79 @@ async def test_generate_grid_split_failure_keeps_the_paid_image_and_fails_the_id
     assert out.get("is_error") is True
     result = _generation_result(out)
     assert result.succeeded == []
-    assert len(result.failed) == 1
+    # 逐场景 ID 报告：一张宫格覆盖的四个场景各自拿到自己的失败结论。
+    assert result.failed == ["E1S01", "E1S02", "E1S03", "E1S04"]
     item = result.items[0]
     assert item.problem is not None
     assert item.problem.code == "generation_post_processing_failed"
+    assert item.problem.params["grid_id"].startswith("grid_")
     # 任务与供应商提交都成功（钱已花），只有产物没有被标成就位。
     assert item.task_state.value == "succeeded"
     assert item.provider_checkpoint is not None
     assert item.provider_checkpoint.submitted is True
     assert item.artifact_status is not ArtifactStatus.CURRENT
+
+
+@pytest.mark.unit
+async def test_generate_grid_reports_each_scene_of_a_shared_grid(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """同组场景共享一张宫格，结果仍逐场景 ID 报告：落格的成功、没落格的单独失败。"""
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
+    ]
+
+    async def _gate(_project: dict) -> bool:
+        return False
+
+    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+        return {"task_id": "t1"}
+
+    async def fake_wait(_task_id: str) -> dict[str, Any]:
+        return {"status": "succeeded", "provider_id": "openai", "provider_job_id": "job-1"}
+
+    async def partial_split(project_name: str, grid: Any) -> Any:
+        from server.services.grid_split import GridSplitResult
+
+        # 最后一格对应的分镜已不在剧本里，切分时被跳过。
+        return GridSplitResult(
+            updated_scene_ids=list(grid.scene_ids[:-1]),
+            missing_scene_ids=[grid.scene_ids[-1]],
+            asset_fingerprints={},
+        )
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.wait_for_task", fake_wait)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.apply_grid_split", partial_split)
+
+    out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json"})
+
+    result = _generation_result(out)
+    assert result.succeeded == ["E1S01", "E1S02", "E1S03"]
+    assert result.failed == ["E1S04"]
+    assert set(result.requested) == set(result.succeeded) | set(result.failed) | set(result.blocked)
+    done = next(item for item in result.items if item.unit_id == "E1S01")
+    assert done.artifact_path == "storyboards/scene_E1S01.png"
+    dropped = next(item for item in result.items if item.unit_id == "E1S04")
+    assert dropped.problem is not None
+    assert dropped.problem.code == "generation_post_processing_failed"
+    # 联合图这一次是花了钱的，所以未落格的那一格也带着成功的任务与供应商提交。
+    assert dropped.task_state.value == "succeeded"
+
+
+@pytest.mark.unit
+async def test_generate_grid_rejects_an_explicitly_empty_scene_selection(fake_ctx: ToolContext) -> None:
+    """显式空集合不是「全部」：拒绝请求，而不是静默扫全集。"""
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+
+    out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json", "scene_ids": []})
+
+    assert out.get("is_error") is True
+    assert "不能为空数组" in out["content"][0]["text"]
 
 
 @pytest.mark.unit
@@ -2136,6 +2216,26 @@ async def test_storyboard_resume_requires_usable_manifest_video_claim(
     else:
         assert out.get("is_error") is not True, out
         assert enqueued == ["E1S01"]
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_declares_the_missing_only_selection_it_performs(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """整集生成从不强制重生：已有可用片段一律复用，所以选择模式如实报 missing-only。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {  # type: ignore[attr-defined]
+        "storyboard_image": "storyboards/scene_E1S01.png"
+    }
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fake_scene_batch)
+
+    out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    result = _generation_result(out)
+    assert result.selection.value == "missing_only"
+    assert result.succeeded == ["E1S01"]
 
 
 @pytest.mark.integration

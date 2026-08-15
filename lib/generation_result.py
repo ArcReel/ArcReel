@@ -25,13 +25,16 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Literal, Self
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from lib.artifact_activation import ArtifactCurrencyResolver
 from lib.artifact_manifest import ArtifactBlocker, ArtifactKey, ArtifactManifestError, ArtifactStatus
 from lib.task_failure import parse_failure
+
+if TYPE_CHECKING:  # 仅用于类型标注，避免这个纯契约模块在运行时拖进队列客户端。
+    from lib.generation_queue_client import BatchTaskResult
 
 
 class GenerationSelectionMode(StrEnum):
@@ -67,7 +70,6 @@ class GenerationProblemCode(StrEnum):
     """
 
     UNIT_NOT_FOUND = "generation_unit_not_found"
-    UNIT_ID_MISSING = "generation_unit_id_missing"
     UNIT_INPUT_UNUSABLE = "generation_unit_input_unusable"
     UNIT_REQUEST_INVALID = "generation_unit_request_invalid"
     ARTIFACT_STATE_UNAVAILABLE = "generation_artifact_state_unavailable"
@@ -75,7 +77,6 @@ class GenerationProblemCode(StrEnum):
     TASK_FAILED = "generation_task_failed"
     TASK_CANCELLED = "generation_task_cancelled"
     POST_PROCESSING_FAILED = "generation_post_processing_failed"
-    PROVIDER_UNAVAILABLE = "generation_provider_unavailable"
 
 
 class GenerationAction(StrEnum):
@@ -95,9 +96,11 @@ class GenerationAction(StrEnum):
     NONE = "none"
 
 
-# Registered task-failure codes that carry a sharper next action than a bare
-# retry. Anything absent stays ``RETRY`` — a transient provider or queue error
-# is the common case and retrying is always the safe suggestion.
+# Next action per registered task-failure code. Every code in
+# ``lib.task_failure.FAILURE_CODE_KEYS`` must appear here — an unregistered code
+# would silently degrade to ``RETRY``, which for a rejected request means paying
+# again for the same rejection. The coverage test in
+# ``tests/test_generation_result.py`` is the drift guard.
 _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "needs_replan": GenerationAction.REPLAN_UNIT,
     "tts_missing": GenerationAction.GENERATE_TTS,
@@ -129,6 +132,51 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "execution_identity_unrecoverable": GenerationAction.RETRY,
     "video_shorter_than_tts": GenerationAction.RETRY,
     "script_edit_error": GenerationAction.FIX_INPUT,
+    "script_edit_items_not_list": GenerationAction.FIX_INPUT,
+    "script_edit_unit_lists_invalid": GenerationAction.FIX_INPUT,
+    "script_edit_generated_assets_invalid": GenerationAction.FIX_INPUT,
+    # 供应商不认这个档位 / 组合：换配置，重试同一请求只会被同样拒绝。
+    "image_dashscope_4k_t2i_only": GenerationAction.CONFIGURE_PROVIDER,
+    "video_duration_unavailable": GenerationAction.CONFIGURE_PROVIDER,
+    "video_supported_durations_missing": GenerationAction.CONFIGURE_PROVIDER,
+    "video_last_frame_requires_pro": GenerationAction.CONFIGURE_PROVIDER,
+    "video_last_frame_unsupported": GenerationAction.CONFIGURE_PROVIDER,
+    "video_reference_images_unsupported": GenerationAction.CONFIGURE_PROVIDER,
+    "video_reference_images_with_frames_unsupported": GenerationAction.CONFIGURE_PROVIDER,
+    "video_reference_audio_unsupported": GenerationAction.CONFIGURE_PROVIDER,
+    # 请求本身不合法（超限、缺配套字段、档位不匹配）：改请求。
+    "ref_payload_floor_exceeded": GenerationAction.FIX_INPUT,
+    "video_duration_invalid": GenerationAction.FIX_INPUT,
+    "video_duration_not_supported": GenerationAction.FIX_INPUT,
+    "video_end_image_requires_start_image": GenerationAction.FIX_INPUT,
+    "video_prompt_too_long": GenerationAction.FIX_INPUT,
+    "video_resolution_duration_unsupported": GenerationAction.FIX_INPUT,
+    "video_reference_images_duration_unsupported": GenerationAction.FIX_INPUT,
+    "video_reference_images_exceeded": GenerationAction.FIX_INPUT,
+    "video_reference_audio_duration_exceeded": GenerationAction.FIX_INPUT,
+    "video_reference_audio_exceeded": GenerationAction.FIX_INPUT,
+    "video_reference_audio_format_unsupported": GenerationAction.FIX_INPUT,
+    "video_reference_audio_slots_insufficient": GenerationAction.FIX_INPUT,
+    # 依赖的前置产物缺失或读不出来：先把依赖做出来，再回来重试本单元。
+    "cascade_blocked_dependency": GenerationAction.GENERATE_DEPENDENCY,
+    "image_reference_images_unreadable": GenerationAction.GENERATE_DEPENDENCY,
+    "video_start_image_unreadable": GenerationAction.GENERATE_DEPENDENCY,
+    "video_end_image_unreadable": GenerationAction.GENERATE_DEPENDENCY,
+    "video_reference_images_required": GenerationAction.GENERATE_DEPENDENCY,
+    "video_reference_images_unreadable": GenerationAction.GENERATE_DEPENDENCY,
+    "video_reference_audio_unreadable": GenerationAction.GENERATE_DEPENDENCY,
+    # 进程重启 / 恢复失败：任务本身没有内在缺陷，重试即可。
+    "dispatch_provider_requeue_failed": GenerationAction.RETRY,
+    "restart_lost_image": GenerationAction.RETRY,
+    "restart_lost_audio": GenerationAction.RETRY,
+    "restart_lost_no_job_id": GenerationAction.RETRY,
+    "restart_lost_resume_no_job_id": GenerationAction.RETRY,
+    "restart_lost_checkpoint_no_job_id": GenerationAction.RETRY,
+    "resume_unsupported_provider": GenerationAction.RETRY,
+    "resume_unsupported_capacity_zero": GenerationAction.RETRY,
+    "resume_unsupported_detail": GenerationAction.RETRY,
+    "resume_expired_detail": GenerationAction.RETRY,
+    "resume_endpoint_changed_detail": GenerationAction.RETRY,
 }
 
 
@@ -330,6 +378,26 @@ def artifact_is_reusable(state: GenerationTargetState, *, manifest_active: bool)
     return state.status in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}
 
 
+def normalize_requested_ids(raw: object, *, field: str) -> list[str] | None:
+    """Turn one entry point's raw ID argument into a selection intent.
+
+    ``None`` (the argument was omitted) means missing-only. A non-empty
+    sequence is an explicit selection, order-preserving and deduplicated. An
+    explicitly empty collection is invalid — it is never read as "everything",
+    because silently widening it to a full sweep is what buys media nobody
+    asked for.
+    """
+
+    if raw is None:
+        return None
+    if not isinstance(raw, list | tuple):
+        raise ValueError(f"{field} 必须是 ID 数组，收到: {raw!r}")
+    ids = list(dict.fromkeys(str(value) for value in raw))
+    if not ids:
+        raise ValueError(f"{field} 不能为空数组：省略该参数表示只补缺失项")
+    return ids
+
+
 def select_generation_targets(
     *,
     candidates: Sequence[GenerationCandidate],
@@ -339,10 +407,13 @@ def select_generation_targets(
 ) -> GenerationSelection:
     """Resolve one request's targets from an explicit ID set or from ``missing``.
 
-    ``requested_ids is None`` means missing-only. An explicit empty sequence is
-    an explicit empty selection and yields no targets — callers treat that as a
-    caller error rather than as "everything".
+    ``requested_ids is None`` means missing-only; anything else is an explicit
+    selection and must be non-empty — see :func:`normalize_requested_ids`, the
+    single gate every entry point feeds this through.
     """
+
+    if requested_ids is not None and not requested_ids:
+        raise ValueError("显式 ID 集合不能为空：省略该参数表示只补缺失项")
 
     states = [
         GenerationTargetState(candidate=candidate, status=status, blocker=blocker)
@@ -633,6 +704,58 @@ class GenerationResultBuilder:
         )
 
 
+def record_batch_outcomes(
+    builder: GenerationResultBuilder,
+    *,
+    successes: Iterable[BatchTaskResult],
+    failures: Iterable[BatchTaskResult],
+    states: Mapping[str, GenerationTargetState] | None = None,
+    resolver: ArtifactCurrencyResolver | None = None,
+    unit_id_of: Callable[[str], str] | None = None,
+    fallback_path: Callable[[str], str] | None = None,
+) -> None:
+    """Fold one queue batch into the per-ID contract, for every entry point.
+
+    A succeeded task is re-observed against the Manifest: the artifact may
+    already be stale if its unit was edited while the request was in flight,
+    and that is reported on its own axis rather than downgrading the task
+    result. ``unit_id_of`` maps a queue ``resource_id`` to this contract's unit
+    ID where the two differ; ``fallback_path`` supplies the conventional
+    relative path when the worker returned none.
+    """
+
+    def _state(unit_id: str) -> GenerationTargetState:
+        found = (states or {}).get(unit_id)
+        return found or GenerationTargetState(candidate=GenerationCandidate(unit_id=unit_id))
+
+    for br in successes:
+        unit_id = unit_id_of(br.resource_id) if unit_id_of else br.resource_id
+        state = _state(unit_id)
+        rel = (br.result or {}).get("file_path") or (fallback_path(br.resource_id) if fallback_path else None)
+        status, _blocker = observe_artifact_status(resolver=resolver, key=state.artifact_key, artifact_path=rel)
+        builder.succeed(
+            unit_id,
+            artifact_key=state.artifact_key,
+            artifact_path=rel,
+            task_id=br.task_id,
+            artifact_status=status,
+            provider_checkpoint=provider_checkpoint_from_task(br.task),
+        )
+    for br in failures:
+        unit_id = unit_id_of(br.resource_id) if unit_id_of else br.resource_id
+        state = _state(unit_id)
+        builder.fail(
+            unit_id,
+            problem=problem_from_task_failure(br.error, cancelled=br.status == "cancelled"),
+            artifact_key=state.artifact_key,
+            artifact_path=state.artifact_path,
+            task_id=br.task_id,
+            task_state=(GenerationTaskState.CANCELLED if br.status == "cancelled" else GenerationTaskState.FAILED),
+            artifact_status=state.status,
+            provider_checkpoint=provider_checkpoint_from_task(br.task),
+        )
+
+
 def _encode_key(key: ArtifactKey | None) -> str | None:
     return None if key is None else key.encode()
 
@@ -699,9 +822,11 @@ __all__ = [
     "ProviderCheckpoint",
     "artifact_is_reusable",
     "artifact_state_problem",
+    "normalize_requested_ids",
     "observe_artifact_status",
     "problem_from_task_failure",
     "provider_checkpoint_from_task",
+    "record_batch_outcomes",
     "render_generation_result",
     "select_generation_targets",
 ]

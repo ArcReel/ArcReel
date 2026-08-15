@@ -9,6 +9,10 @@
 |---|---|
 | 传 ID 列表（`segment_ids` / `scene_ids` / `names` / `edits[].id`） | 点名即强制：这些 ID 一律重做，哪怕产物是最新的 |
 | 不传 ID | 只补缺（missing-only）：只做产物缺失的单元 |
+| 传空数组 `[]` | 非法：不等于「全部」，请求会被拒绝；想补缺就别传这个参数 |
+
+`generate_video_episode` 是整集补缺入口（含 `resume`），它从不强制重做已有片段；
+要重做点名的镜头用 `generate_video_scene` / `generate_video_selected`。
 
 **已失效但仍可用的旧产物（stale）会被复用，不会自动重生**——它照样能看、能导出。
 用户要求更新时才用显式 ID 点名重做。产物状态读不出来（blocked）的单元报为独立缺口，
@@ -31,6 +35,9 @@ skipped                                     （复用旧产物，不在 requeste
 - `problem.action` — 闭集的下一步动作（`retry` / `fix_input` / `generate_dependency` /
   `replan_unit` / `configure_provider` / `confirm_request_duration` / …）
 - `unit_id` 与（若有）`artifact_key`、`artifact_path`
+
+宫格按**场景 ID** 记账：同一分组的场景共享一张宫格联合图，这张图的入队、任务、
+切分结果会投影到它覆盖的每个场景，某一格没落盘只算那一个场景失败。
 
 **按 `code` 与 `action` 决定下一步，不要解析文本判断能不能重试。**
 

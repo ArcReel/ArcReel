@@ -1,18 +1,24 @@
 """SDK MCP tool for grid storyboard generation.
 
-Grid images are addressed by their own record ID; a group that has not produced
-one yet is labelled ``group:<first>..<last>`` so the per-ID contract can report
-a reused group without inventing an artifact ID for it.
+Results are addressed by **scene** ID even though several scenes share one grid
+image: the caller requests scenes, and one grid's enqueue, task, cut or reuse
+outcome is projected onto every scene it covers — including a cut that dropped
+an individual cell.
 """
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.artifact_activation import active_artifact_currency_resolver, resolve_artifact_episode
+from lib.artifact_activation import (
+    ArtifactCurrencyResolver,
+    active_artifact_currency_resolver,
+    resolve_artifact_episode,
+)
 from lib.artifact_manifest import ArtifactKey
 from lib.generation_queue_client import enqueue_task_only, wait_for_task
 from lib.generation_result import (
@@ -23,7 +29,9 @@ from lib.generation_result import (
     GenerationResultBuilder,
     GenerationSelectionMode,
     GenerationTaskState,
+    ProviderCheckpoint,
     artifact_state_problem,
+    normalize_requested_ids,
     observe_artifact_status,
     problem_from_task_failure,
     provider_checkpoint_from_task,
@@ -35,6 +43,7 @@ from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager, grid_storyboard_enabled
+from lib.resource_paths import resource_relative_path
 from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
@@ -50,9 +59,34 @@ from server.services.grid_split import apply_grid_split
 _OPERATION = "generate_grid"
 
 
-def _group_unit_id(group: list[dict[str, Any]], id_field: str) -> str:
-    ids = [str(item.get(id_field)) for item in group]
-    return f"group:{ids[0]}..{ids[-1]}" if ids else "group:empty"
+def _scene_artifact_key(episode: int, scene_id: str, resolver: ArtifactCurrencyResolver | None) -> ArtifactKey | None:
+    """本工具的产物是各场景的分镜格；联合图只是共享的载体，不是被请求的 ID。"""
+
+    return ArtifactKey.episode_storyboard(episode, scene_id) if resolver is not None else None
+
+
+def _fail_scenes(
+    builder: GenerationResultBuilder,
+    scene_ids: Sequence[str],
+    *,
+    problem: GenerationProblem,
+    episode: int,
+    resolver: ArtifactCurrencyResolver | None,
+    task_id: str | None = None,
+    task_state: GenerationTaskState = GenerationTaskState.FAILED,
+    provider_checkpoint: ProviderCheckpoint | None = None,
+) -> None:
+    """一张宫格的失败落到它覆盖的每个场景：调用方点的是场景，不是宫格。"""
+
+    for scene_id in scene_ids:
+        builder.fail(
+            scene_id,
+            problem=problem,
+            artifact_key=_scene_artifact_key(episode, scene_id, resolver),
+            task_id=task_id,
+            task_state=task_state,
+            provider_checkpoint=provider_checkpoint,
+        )
 
 
 def _list_groups(
@@ -64,9 +98,9 @@ def _list_groups(
 ) -> list[str]:
     """List grid groups, optionally filtered to groups containing ``scene_ids``.
 
-    Empty list (``[]``) and ``None`` carry different intents: ``None`` means
-    "no filter, list all groups"; ``[]`` means "filter to zero groups"
-    (explicit zero selection). Use ``is not None`` to keep them distinct.
+    ``None`` means "no filter, list all groups"; an explicit list narrows to the
+    groups containing those scenes (an empty one is rejected upstream, see
+    ``normalize_requested_ids``).
 
     ``allow_large_grid`` 与实际生成分支同源，非 4K 项目的预览里不会出现 4×4 / 5×5。
     分块与实际入队同源（``plan_grid_chunks``）：超上限分组展示的宫格张数与档位
@@ -105,7 +139,8 @@ def generate_grid_tool(ctx: ToolContext):
         "端到端产出各场景起始分镜图。"
         "list_only=true 时只列出分组不执行生成。scene_ids 过滤包含这些场景的分组；"
         "不传 scene_ids 时只生成仍缺分镜图的分组，已失效但可用的旧图会被复用而不重生。"
-        "结果按 requested / succeeded / failed / blocked 逐宫格 ID 返回。",
+        "结果按 requested / succeeded / failed / blocked 逐场景 ID 返回"
+        "（同一分组的场景共享一张宫格，该宫格的结果投影到它覆盖的每个场景）。",
         {
             "type": "object",
             "properties": {
@@ -126,7 +161,7 @@ def generate_grid_tool(ctx: ToolContext):
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
             script_filename = validate_script_filename(args["script"])
-            scene_ids = args.get("scene_ids")
+            scene_ids = normalize_requested_ids(args.get("scene_ids"), field="scene_ids")
             list_only = bool(args.get("list_only"))
 
             project = ctx.pm.load_project(ctx.project_name)
@@ -174,8 +209,7 @@ def generate_grid_tool(ctx: ToolContext):
             selected_groups: list[list[dict[str, Any]]] = []
 
             if explicit:
-                # ``[]`` 是显式空选择，与全部不命中等价：两者都不产生任务。
-                wanted = list(dict.fromkeys(str(sid) for sid in scene_ids or []))
+                wanted = list(scene_ids or [])
                 known = {str(item.get(id_field)) for item in items}
                 for sid in wanted:
                     if sid not in known:
@@ -220,7 +254,9 @@ def generate_grid_tool(ctx: ToolContext):
                             )
                         continue
                     if not selection.targets:
-                        builder.skip_unit(_group_unit_id(group, id_field))
+                        # 整组分镜图都还可用：逐场景报告复用，宫格本身不进结果集。
+                        for state in selection.skipped:
+                            builder.skip(state)
                         continue
                     selected_groups.append(group)
 
@@ -286,14 +322,17 @@ def generate_grid_tool(ctx: ToolContext):
                         )
                     except Exception as exc:  # noqa: BLE001
                         gm.delete(grid.id)
-                        builder.fail(
-                            grid.id,
+                        _fail_scenes(
+                            builder,
+                            chunk_ids,
                             problem=GenerationProblem(
                                 code=GenerationProblemCode.ENQUEUE_FAILED,
-                                detail=f"{chunk_ids[0]}..{chunk_ids[-1]} 入队失败: {exc}",
+                                detail=f"{chunk_ids[0]}..{chunk_ids[-1]} 的宫格入队失败: {exc}",
                                 action=GenerationAction.RETRY,
-                                params={"scene_ids": chunk_ids},
+                                params={"grid_id": grid.id},
                             ),
+                            episode=episode,
+                            resolver=resolver,
                             task_state=GenerationTaskState.NOT_QUEUED,
                         )
                         continue
@@ -307,24 +346,28 @@ def generate_grid_tool(ctx: ToolContext):
                     return_exceptions=True,
                 )
                 for (grid, task_id), result in zip(pending, results, strict=True):
-                    grid_key = ArtifactKey.episode_grid(episode, grid.id) if resolver is not None else None
+                    chunk_ids = [str(sid) for sid in grid.scene_ids]
                     if isinstance(result, BaseException):
-                        builder.fail(
-                            grid.id,
+                        _fail_scenes(
+                            builder,
+                            chunk_ids,
                             problem=problem_from_task_failure(str(result)),
-                            artifact_key=grid_key,
+                            episode=episode,
+                            resolver=resolver,
                             task_id=task_id,
                         )
                         continue
                     status_value = result.get("status")
                     if status_value != "succeeded":
-                        builder.fail(
-                            grid.id,
+                        _fail_scenes(
+                            builder,
+                            chunk_ids,
                             problem=problem_from_task_failure(
                                 result.get("error_message"),
                                 cancelled=status_value == "cancelled",
                             ),
-                            artifact_key=grid_key,
+                            episode=episode,
+                            resolver=resolver,
                             task_id=task_id,
                             task_state=(
                                 GenerationTaskState.CANCELLED
@@ -336,7 +379,6 @@ def generate_grid_tool(ctx: ToolContext):
                         continue
                     # 生成任务只产出联合图；分镜格落盘由编排方在此显式调用切分补上，
                     # 端到端语义（分镜格齐备）不变。重载记录取 worker 回填的最新状态。
-                    reloaded: GridGeneration | None = None
                     try:
                         reloaded = gm.get(grid.id)
                         if reloaded is None:
@@ -346,34 +388,57 @@ def generate_grid_tool(ctx: ToolContext):
                     except Exception as exc:  # noqa: BLE001
                         # 联合图已生成成功，仅落格失败：独立问题码把它与生成失败区分开，
                         # 可在 WebUI 宫格面板重试切分（无需重新生成、不重复计费）。
-                        builder.fail(
-                            grid.id,
+                        # 钱已花在联合图上，所以每格都是 failed + task_state=succeeded。
+                        _fail_scenes(
+                            builder,
+                            chunk_ids,
                             problem=GenerationProblem(
                                 code=GenerationProblemCode.POST_PROCESSING_FAILED,
                                 detail=f"联合图已生成，但切分落格失败（可在宫格面板重试切分）: {exc}",
                                 action=GenerationAction.RETRY,
+                                params={"grid_id": grid.id},
                             ),
-                            artifact_key=grid_key,
-                            artifact_path=reloaded.grid_image_path if reloaded is not None else None,
+                            episode=episode,
+                            resolver=resolver,
                             task_id=task_id,
                             task_state=GenerationTaskState.SUCCEEDED,
                             provider_checkpoint=provider_checkpoint_from_task(result),
                         )
                         continue
-                    artifact_path = reloaded.grid_image_path
-                    artifact_status, _blocker = observe_artifact_status(
-                        resolver=resolver,
-                        key=grid_key,
-                        artifact_path=artifact_path,
-                    )
-                    builder.succeed(
-                        grid.id,
-                        artifact_key=grid_key,
-                        artifact_path=artifact_path,
-                        task_id=task_id,
-                        artifact_status=artifact_status,
-                        provider_checkpoint=provider_checkpoint_from_task(result),
-                    )
+                    # 逐格投影：落到盘上的格才算这一场景成功；联合图成功但某格没落盘
+                    # （该分镜已不在剧本里）是这一个场景自己的失败，不牵连同组其他场景。
+                    cut = set(split_result.updated_scene_ids)
+                    for scene_id in chunk_ids:
+                        scene_key = _scene_artifact_key(episode, scene_id, resolver)
+                        if scene_id not in cut:
+                            builder.fail(
+                                scene_id,
+                                problem=GenerationProblem(
+                                    code=GenerationProblemCode.POST_PROCESSING_FAILED,
+                                    detail=f"联合图已生成，但分镜 {scene_id} 未落格（已不在剧本中）",
+                                    action=GenerationAction.FIX_INPUT,
+                                    params={"grid_id": grid.id},
+                                ),
+                                artifact_key=scene_key,
+                                task_id=task_id,
+                                task_state=GenerationTaskState.SUCCEEDED,
+                                provider_checkpoint=provider_checkpoint_from_task(result),
+                            )
+                            continue
+                        cell_path = resource_relative_path("storyboards", scene_id)
+                        cell_status, _blocker = observe_artifact_status(
+                            resolver=resolver,
+                            key=scene_key,
+                            artifact_path=cell_path,
+                        )
+                        builder.succeed(
+                            scene_id,
+                            artifact_key=scene_key,
+                            artifact_path=cell_path,
+                            task_id=task_id,
+                            artifact_status=cell_status,
+                            provider_checkpoint=provider_checkpoint_from_task(result),
+                        )
                     line = f"已切分 {len(split_result.updated_scene_ids)} 格"
                     if split_result.missing_scene_ids:
                         line += f"，跳过已不在剧本的分镜: {split_result.missing_scene_ids}"

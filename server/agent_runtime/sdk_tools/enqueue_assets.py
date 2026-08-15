@@ -26,10 +26,8 @@ from lib.generation_result import (
     GenerationResultBuilder,
     GenerationSelectionMode,
     GenerationTargetState,
-    GenerationTaskState,
-    observe_artifact_status,
-    problem_from_task_failure,
-    provider_checkpoint_from_task,
+    normalize_requested_ids,
+    record_batch_outcomes,
     select_generation_targets,
 )
 from lib.project_manager import ProjectManager
@@ -64,6 +62,12 @@ def asset_unit_id(asset_type: str, name: str) -> str:
     """Qualify an asset name so IDs stay unique across asset types."""
 
     return f"{asset_type}/{name}"
+
+
+def asset_name_of(unit_id: str) -> str:
+    """The bare asset name inside a qualified unit ID — inverse of :func:`asset_unit_id`."""
+
+    return unit_id.split("/", 1)[1]
 
 
 def _asset_candidates(
@@ -112,7 +116,7 @@ def _requested_unit_ids(
 
 def _description_of(project: dict[str, Any], asset_type: str, unit_id: str) -> str | None:
     spec = ASSET_SPECS[asset_type]
-    name = unit_id.split("/", 1)[1]
+    name = asset_name_of(unit_id)
     entry = (project.get(spec.bucket_key) or {}).get(name)
     description = entry.get("description") if isinstance(entry, dict) else None
     return description if isinstance(description, str) and description.strip() else None
@@ -191,16 +195,14 @@ def generate_assets_tool(ctx: ToolContext):
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
             asset_type = args.get("type")
-            # ``dict.fromkeys`` 保序去重，避免同名重复入队但仍尊重调用方意图的顺序。
-            raw_names = args.get("names")
-            names: list[str] | None = list(dict.fromkeys(raw_names)) if raw_names else None
+            names = normalize_requested_ids(args.get("names"), field="names")
             all_flag = bool(args.get("all"))
-            if names and not asset_type:
+            if names is not None and not asset_type:
                 return {
                     "content": [{"type": "text", "text": "names 必须配合 type 使用"}],
                     "is_error": True,
                 }
-            if names and all_flag:
+            if names is not None and all_flag:
                 return {
                     "content": [{"type": "text", "text": "all 与 names 互斥，不能同时使用"}],
                     "is_error": True,
@@ -252,7 +254,7 @@ def generate_assets_tool(ctx: ToolContext):
                     TaskSpec.from_request(
                         task_type=spec.asset_type,
                         media_type="image",
-                        resource_id=state.unit_id.split("/", 1)[1],
+                        resource_id=asset_name_of(state.unit_id),
                         prompt=_description_of(project, t, state.unit_id),
                     )
                     for state in type_targets
@@ -261,38 +263,15 @@ def generate_assets_tool(ctx: ToolContext):
                     project_name=ctx.project_name,
                     specs=task_specs,
                 )
-                for br in successes:
-                    unit_id = asset_unit_id(t, br.resource_id)
-                    state = by_id[unit_id]
-                    rel = (br.result or {}).get("file_path") or f"{spec.subdir}/{br.resource_id}.png"
-                    status, _blocker = observe_artifact_status(
-                        resolver=resolver,
-                        key=state.artifact_key,
-                        artifact_path=rel,
-                    )
-                    builder.succeed(
-                        unit_id,
-                        artifact_key=state.artifact_key,
-                        artifact_path=rel,
-                        task_id=br.task_id,
-                        artifact_status=status,
-                        provider_checkpoint=provider_checkpoint_from_task(br.task),
-                    )
-                for br in failures:
-                    unit_id = asset_unit_id(t, br.resource_id)
-                    state = by_id[unit_id]
-                    builder.fail(
-                        unit_id,
-                        problem=problem_from_task_failure(br.error, cancelled=br.status == "cancelled"),
-                        artifact_key=state.artifact_key,
-                        artifact_path=state.artifact_path,
-                        task_id=br.task_id,
-                        task_state=(
-                            GenerationTaskState.CANCELLED if br.status == "cancelled" else GenerationTaskState.FAILED
-                        ),
-                        artifact_status=state.status,
-                        provider_checkpoint=provider_checkpoint_from_task(br.task),
-                    )
+                record_batch_outcomes(
+                    builder,
+                    successes=successes,
+                    failures=failures,
+                    states=by_id,
+                    resolver=resolver,
+                    unit_id_of=lambda name, asset_type=t: asset_unit_id(asset_type, name),
+                    fallback_path=lambda name, subdir=spec.subdir: f"{subdir}/{name}.png",
+                )
 
             return generation_result_response(builder.build())
         except Exception as exc:  # noqa: BLE001
@@ -303,6 +282,7 @@ def generate_assets_tool(ctx: ToolContext):
 
 __all__ = [
     "ALL_TYPES",
+    "asset_name_of",
     "asset_unit_id",
     "list_pending_assets_tool",
     "generate_assets_tool",

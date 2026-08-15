@@ -37,10 +37,9 @@ from lib.generation_result import (
     GenerationResultBuilder,
     GenerationSelectionMode,
     GenerationTargetState,
-    GenerationTaskState,
+    normalize_requested_ids,
     observe_artifact_status,
-    problem_from_task_failure,
-    provider_checkpoint_from_task,
+    record_batch_outcomes,
     select_generation_targets,
 )
 from lib.narration_delivery import (
@@ -170,52 +169,6 @@ def _video_target_states(
 
 def _state_for(states: dict[str, GenerationTargetState], unit_id: str) -> GenerationTargetState:
     return states.get(unit_id) or GenerationTargetState(candidate=GenerationCandidate(unit_id=unit_id))
-
-
-def _record_video_batch(
-    builder: GenerationResultBuilder,
-    *,
-    successes: list[BatchTaskResult],
-    failures: list[BatchTaskResult],
-    states: dict[str, GenerationTargetState],
-    resolver: ArtifactCurrencyResolver | None,
-    fallback_relpath: Callable[[str], str],
-) -> None:
-    """Fold one queue batch into the per-ID contract.
-
-    A succeeded task is re-observed against the Manifest: the video may already
-    be stale if the unit was edited while the request was in flight, and that is
-    reported on its own axis rather than downgrading the task result.
-    """
-
-    for br in successes:
-        state = _state_for(states, br.resource_id)
-        rel = (br.result or {}).get("file_path") or fallback_relpath(br.resource_id)
-        status, _blocker = observe_artifact_status(
-            resolver=resolver,
-            key=state.artifact_key,
-            artifact_path=rel,
-        )
-        builder.succeed(
-            br.resource_id,
-            artifact_key=state.artifact_key,
-            artifact_path=rel,
-            task_id=br.task_id,
-            artifact_status=status,
-            provider_checkpoint=provider_checkpoint_from_task(br.task),
-        )
-    for br in failures:
-        state = _state_for(states, br.resource_id)
-        builder.fail(
-            br.resource_id,
-            problem=problem_from_task_failure(br.error, cancelled=br.status == "cancelled"),
-            artifact_key=state.artifact_key,
-            artifact_path=state.artifact_path,
-            task_id=br.task_id,
-            task_state=(GenerationTaskState.CANCELLED if br.status == "cancelled" else GenerationTaskState.FAILED),
-            artifact_status=state.status,
-            provider_checkpoint=provider_checkpoint_from_task(br.task),
-        )
 
 
 def _block_unit(
@@ -1123,13 +1076,13 @@ async def _generate_reference_units(
                 None if ckpt_path is None else _save_checkpoint_at(ckpt_path, completed, started_at, episode=episode)
             ),
         )
-        _record_video_batch(
+        record_batch_outcomes(
             builder,
             successes=successes,
             failures=failures,
             states=states,
             resolver=resolver,
-            fallback_relpath=_reference_fallback_relpath,
+            fallback_path=_reference_fallback_relpath,
         )
 
     final = [p for p in ordered_paths if p is not None]
@@ -1404,11 +1357,10 @@ def generate_video_episode_tool(ctx: ToolContext):
                 resolver=currency,
             )
             states = _video_target_states(items, id_field, episode=episode, resolver=currency)
-            # 整集请求点名的是全集单元；resume 把它收窄为「只补断点之外缺的那些」。
-            builder = GenerationResultBuilder(
-                _EPISODE_OPERATION,
-                GenerationSelectionMode.MISSING_ONLY if resume else GenerationSelectionMode.EXPLICIT,
-            )
+            # 整集生成始终复用仍可用的旧片段（含 stale），从不强制重生——所以
+            # 无论是否 resume，选择模式如实报告为 missing-only；点名重做走
+            # generate_video_scene / generate_selected_videos。
+            builder = GenerationResultBuilder(_EPISODE_OPERATION, GenerationSelectionMode.MISSING_ONLY)
             for done_id in already_done:
                 state = _state_for(states, str(done_id))
                 builder.skip(state)
@@ -1444,13 +1396,13 @@ def generate_video_episode_tool(ctx: ToolContext):
                     fallback_relpath=_scene_fallback_relpath,
                     save_fn=lambda: _save_checkpoint_at(ckpt_path, completed, started_at, episode=episode),
                 )
-                _record_video_batch(
+                record_batch_outcomes(
                     builder,
                     successes=successes,
                     failures=failures,
                     states=states,
                     resolver=currency,
-                    fallback_relpath=_scene_fallback_relpath,
+                    fallback_path=_scene_fallback_relpath,
                 )
 
             # checkpoint 只在整批无失败时清除，否则 resume=true 仍能接上断点。
@@ -1593,13 +1545,13 @@ def generate_video_scene_tool(ctx: ToolContext):
 
             await _assert_audio_switch_for_storyboard(ctx)
             successes, failures = await batch_enqueue_and_wait(project_name=ctx.project_name, specs=specs)
-            _record_video_batch(
+            record_batch_outcomes(
                 builder,
                 successes=successes,
                 failures=failures,
                 states=states,
                 resolver=currency,
-                fallback_relpath=_scene_fallback_relpath,
+                fallback_path=_scene_fallback_relpath,
             )
             return generation_result_response(builder.build(), log)
         except ReferenceProjectionBlocked as exc:
@@ -1698,13 +1650,13 @@ def generate_video_all_tool(ctx: ToolContext):
 
             await _assert_audio_switch_for_storyboard(ctx)
             successes, failures = await batch_enqueue_and_wait(project_name=ctx.project_name, specs=specs)
-            _record_video_batch(
+            record_batch_outcomes(
                 builder,
                 successes=successes,
                 failures=failures,
                 states=states,
                 resolver=currency,
-                fallback_relpath=_scene_fallback_relpath,
+                fallback_path=_scene_fallback_relpath,
             )
             return generation_result_response(builder.build(), log)
         except ReferenceProjectionBlocked as exc:
@@ -1750,7 +1702,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             script_filename = validate_script_filename(args["script"])
             # 去重以避免同一 ID 重复入队；保留首次出现顺序便于人读日志，
             # checkpoint hash 再单独排序（见下方 ``canonical_scene_ids``）。
-            scene_ids: list[str] = list(dict.fromkeys(args["scene_ids"]))
+            scene_ids: list[str] = normalize_requested_ids(args["scene_ids"], field="scene_ids") or []
             resume = bool(args.get("resume"))
             request_options = _batch_reference_request_options(args)
 
@@ -1874,13 +1826,13 @@ def generate_video_selected_tool(ctx: ToolContext):
                     fallback_relpath=_scene_fallback_relpath,
                     save_fn=lambda: _save_checkpoint_at(ckpt_path, completed, started_at, scene_ids=scene_ids),
                 )
-                _record_video_batch(
+                record_batch_outcomes(
                     builder,
                     successes=successes,
                     failures=failures,
                     states=states,
                     resolver=currency,
-                    fallback_relpath=_scene_fallback_relpath,
+                    fallback_path=_scene_fallback_relpath,
                 )
 
             # checkpoint 只在整批无失败时清除，否则 resume=true 仍能接上断点。

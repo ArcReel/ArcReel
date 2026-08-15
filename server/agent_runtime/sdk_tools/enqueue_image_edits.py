@@ -27,9 +27,7 @@ from lib.generation_result import (
     GenerationProblemCode,
     GenerationResultBuilder,
     GenerationSelectionMode,
-    GenerationTaskState,
-    problem_from_task_failure,
-    provider_checkpoint_from_task,
+    record_batch_outcomes,
 )
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
@@ -277,24 +275,14 @@ def edit_images_tool(ctx: ToolContext):
                     project_name=ctx.project_name,
                     specs=specs,
                 )
-                for br in successes:
-                    result = br.result or {}
-                    builder.succeed(
-                        br.resource_id,
-                        artifact_path=result.get("file_path") or br.resource_id,
-                        task_id=br.task_id,
-                        provider_checkpoint=provider_checkpoint_from_task(br.task),
-                    )
-                for br in failures:
-                    builder.fail(
-                        br.resource_id,
-                        problem=problem_from_task_failure(br.error, cancelled=br.status == "cancelled"),
-                        task_id=br.task_id,
-                        task_state=(
-                            GenerationTaskState.CANCELLED if br.status == "cancelled" else GenerationTaskState.FAILED
-                        ),
-                        provider_checkpoint=provider_checkpoint_from_task(br.task),
-                    )
+                # 编辑产物不写回 Manifest（编辑意图不可推导，见模块顶部说明），
+                # 因此这里不带 resolver：产物时效轴如实留空而不是假装已知。
+                record_batch_outcomes(
+                    builder,
+                    successes=successes,
+                    failures=failures,
+                    fallback_path=lambda rid: rid,
+                )
 
             return generation_result_response(builder.build(), warnings)
         except Exception as exc:  # noqa: BLE001

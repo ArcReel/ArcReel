@@ -12,7 +12,9 @@ from lib.artifact_manifest import (
     ArtifactManifestError,
     ArtifactStatus,
 )
+from lib.generation_queue_client import BatchTaskResult
 from lib.generation_result import (
+    _TASK_FAILURE_ACTIONS,
     GenerationAction,
     GenerationBatchResult,
     GenerationCandidate,
@@ -26,13 +28,15 @@ from lib.generation_result import (
     GenerationTaskState,
     ProviderCheckpoint,
     artifact_is_reusable,
+    normalize_requested_ids,
     observe_artifact_status,
     problem_from_task_failure,
     provider_checkpoint_from_task,
+    record_batch_outcomes,
     render_generation_result,
     select_generation_targets,
 )
-from lib.task_failure import encode_failure
+from lib.task_failure import FAILURE_CODE_KEYS, encode_failure
 
 pytestmark = pytest.mark.unit
 
@@ -124,15 +128,20 @@ def test_explicit_selection_takes_named_ids_regardless_of_state() -> None:
     assert selection.skipped == ()
 
 
-def test_explicit_empty_list_is_an_empty_selection_not_everything() -> None:
-    selection = select_generation_targets(
-        candidates=[_candidate("A")],
-        requested_ids=[],
-        resolver=None,
-    )
+def test_explicit_empty_collection_is_invalid_not_everything() -> None:
+    """显式空集合是调用方错误：既不等于「全部」，也不静默变成空批次。"""
 
-    assert selection.mode is GenerationSelectionMode.EXPLICIT
-    assert selection.target_ids == ()
+    with pytest.raises(ValueError, match="不能为空"):
+        select_generation_targets(candidates=[_candidate("A")], requested_ids=[], resolver=None)
+
+
+def test_normalize_requested_ids_is_the_single_gate_for_selection_intent() -> None:
+    assert normalize_requested_ids(None, field="names") is None
+    assert normalize_requested_ids(["B", "A", "B"], field="names") == ["B", "A"]
+    with pytest.raises(ValueError, match="不能为空数组"):
+        normalize_requested_ids([], field="names")
+    with pytest.raises(ValueError, match="必须是 ID 数组"):
+        normalize_requested_ids("A", field="names")
 
 
 def test_missing_only_without_manifest_falls_back_to_path_presence() -> None:
@@ -338,6 +347,90 @@ def test_a_cancelled_task_reports_cancellation_rather_than_failure() -> None:
     problem = problem_from_task_failure("stopped", cancelled=True)
 
     assert problem.code == GenerationProblemCode.TASK_CANCELLED
+
+
+def test_every_registered_failure_code_resolves_to_a_declared_action() -> None:
+    """动作表与 task_failure 的编码表同源：新增 failure code 不登记就会被这里挡住。
+
+    未登记的 code 只会退化成 ``retry``——安全但不够锐利，所以要求显式登记。
+    """
+
+    unmapped = sorted(set(FAILURE_CODE_KEYS) - set(_TASK_FAILURE_ACTIONS))
+    assert unmapped == [], f"这些 failure code 未在 _TASK_FAILURE_ACTIONS 登记下一步动作: {unmapped}"
+
+    unknown = sorted(set(_TASK_FAILURE_ACTIONS) - set(FAILURE_CODE_KEYS))
+    assert unknown == [], f"这些动作映射的 code 已不在 FAILURE_CODE_KEYS 中: {unknown}"
+
+
+# --- batch recording -------------------------------------------------------
+
+
+def _batch(resource_id: str, *, status: str = "succeeded", **kwargs: object) -> BatchTaskResult:
+    return BatchTaskResult(resource_id=resource_id, task_id=f"task-{resource_id}", status=status, **kwargs)  # type: ignore[arg-type]
+
+
+def test_recording_a_batch_reports_task_provider_and_artifact_axes_separately() -> None:
+    """一次成功的任务不等于产物 current：三条轴各自如实报告。"""
+
+    resolver = _Resolver({"A": ArtifactStatus.STALE})
+    states = {
+        "A": GenerationTargetState(candidate=_candidate("A"), status=ArtifactStatus.MISSING),
+    }
+    builder = GenerationResultBuilder("probe", GenerationSelectionMode.MISSING_ONLY)
+
+    record_batch_outcomes(
+        builder,
+        successes=[_batch("A", result={"file_path": "videos/a.mp4"}, task={"provider_job_id": "job-1"})],
+        failures=[],
+        states=states,
+        resolver=resolver,  # type: ignore[arg-type]
+    )
+
+    item = builder.build().items[0]
+    assert item.task_state is GenerationTaskState.SUCCEEDED
+    assert item.artifact_status is ArtifactStatus.STALE
+    assert item.artifact_path == "videos/a.mp4"
+    assert item.provider_checkpoint == ProviderCheckpoint(submitted=True, provider_job_id="job-1")
+
+
+def test_a_failed_batch_item_keeps_the_old_artifact_and_its_status() -> None:
+    """失败不动旧产物：报告里保留旧文件路径与旧状态，付过的钱不被抹掉。"""
+
+    states = {
+        "A": GenerationTargetState(candidate=_candidate("A", path="videos/old.mp4"), status=ArtifactStatus.STALE),
+    }
+    builder = GenerationResultBuilder("probe", GenerationSelectionMode.EXPLICIT)
+
+    record_batch_outcomes(
+        builder,
+        successes=[],
+        failures=[_batch("A", status="cancelled", error="stopped")],
+        states=states,
+    )
+
+    item = builder.build().items[0]
+    assert item.state is GenerationItemState.FAILED
+    assert item.task_state is GenerationTaskState.CANCELLED
+    assert item.artifact_path == "videos/old.mp4"
+    assert item.artifact_status is ArtifactStatus.STALE
+
+
+def test_recording_maps_queue_resource_ids_onto_contract_unit_ids() -> None:
+    """队列侧 resource_id 与契约 unit ID 不同名时（如资产的 <type>/<name>）按映射记账。"""
+
+    builder = GenerationResultBuilder("generate_assets", GenerationSelectionMode.MISSING_ONLY)
+
+    record_batch_outcomes(
+        builder,
+        successes=[_batch("张三")],
+        failures=[],
+        unit_id_of=lambda name: f"character/{name}",
+        fallback_path=lambda name: f"characters/{name}.png",
+    )
+
+    item = builder.build().items[0]
+    assert item.unit_id == "character/张三"
+    assert item.artifact_path == "characters/张三.png"
 
 
 # --- rendering -------------------------------------------------------------
