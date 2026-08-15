@@ -2268,6 +2268,7 @@ class TestGenerationTasks:
 
         assert provider_submissions == []
         fake_queue.persist_execution_checkpoint.assert_not_awaited()
+        assert not (project_path / ".arcreel" / "tasks" / "task-storyboard-claim-race" / "provider_media").exists()
 
     @pytest.mark.integration
     async def test_legacy_video_rejects_storyboard_replaced_after_staging_before_activation(
@@ -2336,6 +2337,7 @@ class TestGenerationTasks:
 
         assert provider_submissions == []
         fake_queue.persist_execution_checkpoint.assert_not_awaited()
+        assert not (project_path / ".arcreel" / "tasks" / "task-legacy-storyboard-race" / "provider_media").exists()
 
     @pytest.mark.integration
     async def test_execute_video_task_generated_assets_non_dict_falls_back_to_default(self, monkeypatch, tmp_path):

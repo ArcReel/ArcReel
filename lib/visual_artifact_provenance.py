@@ -15,6 +15,7 @@ from pathlib import Path
 
 from lib.artifact_manifest import ArtifactBasis
 from lib.asset_types import ASSET_TYPES, normalize_asset_name
+from lib.grid.prompt_builder import project_grid_image_prompt
 from lib.prompt_utils import normalize_style, project_storyboard_image_prompt
 from lib.reference_video.request_projection import ResolvedReferenceAsset
 from lib.reference_video.shot_parser import match_dialogue_line, match_voiceover_line, strip_shot_header
@@ -455,36 +456,11 @@ def _project_grid_cells(members: Sequence[GridStoryboardVisual]) -> list[dict[st
             {
                 "cell_index": index,
                 "resource_id": member.resource_id,
-                "image_prompt": _project_grid_image_prompt(member.image_prompt),
+                "image_prompt": project_grid_image_prompt(member.image_prompt),
                 "transition": transition,
             }
         )
     return cells
-
-
-def _project_grid_image_prompt(image_prompt: object) -> object:
-    if not isinstance(image_prompt, Mapping):
-        return str(image_prompt)
-    scene = image_prompt.get("scene")
-    if scene is None:
-        scene = ""
-    if not isinstance(scene, str):
-        raise ValueError("grid image_prompt.scene must be a string")
-    raw_composition = image_prompt.get("composition")
-    if raw_composition is None:
-        raw_composition = {}
-    if not isinstance(raw_composition, Mapping):
-        raise ValueError("grid image_prompt.composition must be an object")
-    projected_composition: dict[str, str] = {}
-    for key, value in raw_composition.items():
-        if not isinstance(key, str):
-            raise ValueError("grid image_prompt.composition keys must be strings")
-        if value:
-            projected_composition[key] = str(value)
-    return {
-        "scene": scene,
-        "composition": projected_composition,
-    }
 
 
 def _project_grid_action(video_prompt: object) -> str:

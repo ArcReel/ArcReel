@@ -2,7 +2,29 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from math import gcd
+
+
+def project_grid_image_prompt(image_prompt: object) -> str | dict[str, object]:
+    """Project grid image semantics into the canonical provider/basis shape."""
+
+    if not isinstance(image_prompt, Mapping):
+        return str(image_prompt)
+    scene = image_prompt.get("scene")
+    if scene is None:
+        scene = ""
+    if not isinstance(scene, str):
+        raise ValueError("grid image_prompt.scene must be a string")
+    raw_composition = image_prompt.get("composition")
+    if raw_composition is None:
+        raw_composition = {}
+    if not isinstance(raw_composition, Mapping):
+        raise ValueError("grid image_prompt.composition must be an object")
+    if any(not isinstance(key, str) for key in raw_composition):
+        raise ValueError("grid image_prompt.composition keys must be strings")
+    composition = {key: str(raw_composition[key]) for key in sorted(raw_composition) if raw_composition[key]}
+    return {"scene": scene, "composition": composition}
 
 
 def _extract_image_desc(scene: dict) -> str:
@@ -11,19 +33,19 @@ def _extract_image_desc(scene: dict) -> str:
     If image_prompt is a dict, join scene + composition fields.
     If string, return as-is.
     """
-    image_prompt = scene.get("image_prompt", "")
-    if isinstance(image_prompt, dict):
-        parts = []
-        scene_text = image_prompt.get("scene", "")
-        if scene_text:
-            parts.append(scene_text)
-        composition = image_prompt.get("composition", {})
-        if isinstance(composition, dict):
-            comp_parts = [f"{k}: {v}" for k, v in composition.items() if v]
-            if comp_parts:
-                parts.append("，".join(comp_parts))
-        return "；".join(parts) if parts else ""
-    return str(image_prompt)
+    image_prompt = project_grid_image_prompt(scene.get("image_prompt", ""))
+    if isinstance(image_prompt, str):
+        return image_prompt
+    parts: list[str] = []
+    scene_text = image_prompt["scene"]
+    if scene_text:
+        parts.append(str(scene_text))
+    composition = image_prompt["composition"]
+    if isinstance(composition, Mapping):
+        comp_parts = [f"{key}: {value}" for key, value in composition.items()]
+        if comp_parts:
+            parts.append("，".join(comp_parts))
+    return "；".join(parts) if parts else ""
 
 
 def _extract_action(scene: dict) -> str:

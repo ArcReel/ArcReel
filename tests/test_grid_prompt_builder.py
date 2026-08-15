@@ -21,6 +21,12 @@ class TestExtractImageDesc:
         assert "medium" in result
         assert "natural" in result
 
+    def test_composition_key_order_is_a_semantic_noop(self):
+        first = self._scene_dict("a hero stands", {"shot_type": "medium", "lighting": "natural"})
+        reordered = self._scene_dict("a hero stands", {"lighting": "natural", "shot_type": "medium"})
+
+        assert _extract_image_desc(reordered) == _extract_image_desc(first)
+
     def test_string_prompt_returns_as_is(self):
         scene = {"scene_id": "S1", "image_prompt": "plain text prompt"}
         result = _extract_image_desc(scene)
