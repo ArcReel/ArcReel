@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -563,6 +563,87 @@ def _clear_checkpoint_at(path: Path) -> None:
         path.unlink()
 
 
+def _storyboard_item_id(item: dict[str, Any], id_field: str) -> object:
+    """条目自报的 id，按各入口共用的回退顺序取。"""
+
+    return item.get(id_field) or item.get("scene_id") or item.get("segment_id")
+
+
+def _screen_storyboard_items(
+    items: Sequence[Any],
+    id_field: str,
+    *,
+    requested_ids: Collection[str] | None,
+) -> tuple[list[dict[str, Any]], list[UnitAdmissionTicket]]:
+    """把剧本条目分成「能当目标的」与「成不了目标的」两份，后者按位置记名。
+
+    非对象条目、id 不是标量、id 为空、以及同一个 id 出现多次，都会让后面按 id 索引的每一步
+    失手：条目被静默滤掉时同批健康的目标独自入队计费，撞上集合查询时又把逐目标的拒绝契约打成
+    一句通用报错。各入口在读 id 之前先经这一道筛，两种失手都变成一张记名的准入票。
+
+    缺失即生成把整个剧本当作目标集合，剧本里任何一处脏条目都参与判定；点名生成的目标集合由
+    调用方给定，只有点到的 id 上的脏（同一个 id 的副本）才参与，否则别处的脏数据会否决一次
+    精确点名的重做。
+    """
+
+    clean: list[dict[str, Any]] = []
+    tickets: list[UnitAdmissionTicket] = []
+    seen: set[str] = set()
+    named = set(requested_ids) if requested_ids is not None else None
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            if named is None:
+                tickets.append(
+                    refused_ticket(
+                        f"item_{index}",
+                        code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                        detail=f"该条目不是对象，当前为 {type(item).__name__}",
+                        action=GenerationAction.FIX_INPUT,
+                    )
+                )
+            continue
+        raw_id = _storyboard_item_id(item, id_field)
+        if raw_id is not None and not isinstance(raw_id, str | int):
+            if named is None:
+                tickets.append(
+                    refused_ticket(
+                        f"item_{index}",
+                        code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                        detail=f"该条目的 ID 不是标量，当前为 {type(raw_id).__name__}",
+                        action=GenerationAction.FIX_INPUT,
+                    )
+                )
+            continue
+        item_id = str(raw_id or "").strip()
+        if not item_id:
+            if named is None:
+                tickets.append(
+                    refused_ticket(
+                        f"item_{index}",
+                        code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                        detail="该条目没有可用的 ID",
+                        action=GenerationAction.FIX_INPUT,
+                    )
+                )
+            continue
+        if named is not None and item_id not in named and str(item.get(id_field) or "") not in named:
+            clean.append(item)
+            continue
+        if item_id in seen:
+            tickets.append(
+                refused_ticket(
+                    f"{item_id}#{index}",
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail=f"ID {item_id} 在剧本中重复出现",
+                    action=GenerationAction.FIX_INPUT,
+                )
+            )
+            continue
+        seen.add(item_id)
+        clean.append(item)
+    return clean, tickets
+
+
 def _build_video_specs(
     *,
     items: list[dict[str, Any]],
@@ -602,38 +683,10 @@ def _build_video_specs(
     project = project or {}
     if resolver is None:
         resolver = active_artifact_currency_resolver(project_dir, project)
-    seen_ids: set[str] = set()
     for idx, item in enumerate(items):
-        raw_item_id = item.get(id_field) or item.get("scene_id") or item.get("segment_id")
-        # 非标量 id（数组 / 对象）在任何按 id 索引的一步都会失手，其中集合查询直接抛
-        # TypeError，把逐目标的拒绝契约打成一句通用报错。按位置记名拒收，其余目标照常评估。
-        if raw_item_id is not None and not isinstance(raw_item_id, str | int):
-            refused.append(
-                refused_ticket(
-                    f"item_{idx}",
-                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                    detail=f"{item_type} 的 ID 不是标量，当前为 {type(raw_item_id).__name__}",
-                    action=GenerationAction.FIX_INPUT,
-                )
-            )
-            continue
-        item_id = str(raw_item_id or f"item_{idx}")
+        item_id = str(_storyboard_item_id(item, id_field) or f"item_{idx}")
         if item_id in skip_set:
             continue
-        # 同一个 id 出现多次（外部编辑或 Agent 裸写产生）时按 id 索引的每一步都会把副本折成
-        # 一条：确认档位与报价按副本个数虚高，整批入队后又只等到一个任务，结果回写还会撞上
-        # 重复记名。拒收副本让整批停在这里，由用户去修剧本。
-        if item_id in seen_ids:
-            refused.append(
-                refused_ticket(
-                    f"{item_id}#{idx}",
-                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                    detail=f"{item_type} {item_id} 在剧本中重复出现",
-                    action=GenerationAction.FIX_INPUT,
-                )
-            )
-            continue
-        seen_ids.add(item_id)
 
         try:
             require_script_unit_admitted(skeleton_kind, item)
@@ -1211,6 +1264,7 @@ def generate_video_episode_tool(ctx: ToolContext):
             # 骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
             # 反推的种类误判成解析失败。
             skeleton_kind = resolve_script_kind(script)
+            items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids=None)
             project = ctx.pm.load_project(ctx.project_name)
             episode = (
                 resolve_artifact_episode(
@@ -1221,7 +1275,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                 or 1
             )
             content_mode = resolve_content_mode(script, project)
-            if not items:
+            if not items and not screen_refused:
                 raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
 
             ckpt_path = _episode_checkpoint_path(project_dir, episode)
@@ -1273,6 +1327,7 @@ def generate_video_episode_tool(ctx: ToolContext):
             ]
             blocked_ids = [state.unit_id for state in blocked_states]
             refused = artifact_state_tickets(blocked_states)
+            refused.extend(screen_refused)
 
             voice_characters = await _resolve_voice_context(ctx, content_mode)
             specs, order_map, spec_refused = _build_video_specs(
@@ -1394,6 +1449,7 @@ def generate_video_scene_tool(ctx: ToolContext):
             # 骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
             # 反推的种类误判成解析失败。
             skeleton_kind = resolve_script_kind(script)
+            items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids={scene_id})
             item = next((s for s in items if s.get(id_field) == scene_id or s.get("scene_id") == scene_id), None)
             if not item:
                 builder.block(
@@ -1434,6 +1490,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                 skip_ids=None,
                 voice_characters=voice_characters,
             )
+            refused.extend(screen_refused)
             if not specs and not refused:
                 return generation_result_response(builder.build(), log)
 
@@ -1517,6 +1574,7 @@ def generate_video_all_tool(ctx: ToolContext):
             # 骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
             # 反推的种类误判成解析失败。
             skeleton_kind = resolve_script_kind(script)
+            items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids=None)
             project = ctx.pm.load_project(ctx.project_name)
             content_mode = resolve_content_mode(script, project)
             currency = active_artifact_currency_resolver(project_dir, project)
@@ -1546,7 +1604,7 @@ def generate_video_all_tool(ctx: ToolContext):
             # 同一个 unit 记两次会让结果构造器 fail loud。
             unavailable_tickets = artifact_state_tickets(selection.unavailable)
             builder = GenerationResultBuilder.from_selection(_ALL_OPERATION, replace(selection, unavailable=()))
-            if not selection.targets and not unavailable_tickets:
+            if not selection.targets and not unavailable_tickets and not screen_refused:
                 return generation_result_response(builder.build(), log)
 
             # 与 ``_video_target_states`` 用同一套 ID 回退规则：条目若缺 ``id_field``
@@ -1575,6 +1633,7 @@ def generate_video_all_tool(ctx: ToolContext):
             # 产物状态不可读的场景被选目标环节排除在 targets 之外，但它属于这次请求：
             # 不带进准入，同批健康的场景会照常入队并计费，剩下这一个被无声略过。
             refused.extend(unavailable_tickets)
+            refused.extend(screen_refused)
             if not specs and not refused:
                 return generation_result_response(builder.build(), log)
 
@@ -1678,6 +1737,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             # 骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
             # 反推的种类误判成解析失败。
             skeleton_kind = resolve_script_kind(script)
+            items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids=set(scene_ids))
             project = ctx.pm.load_project(ctx.project_name)
             content_mode = resolve_content_mode(script, project)
             episode = (
@@ -1767,6 +1827,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                 voice_characters=voice_characters,
             )
             refused.extend(spec_refused)
+            refused.extend(screen_refused)
 
             admission = await _admit_storyboard_specs(
                 ctx=ctx,

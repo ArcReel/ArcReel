@@ -125,7 +125,7 @@ def unusable_script_entry_tickets(entries: Sequence[Any]) -> list[UnitAdmissionT
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
             detail = f"该条目不是对象，当前为 {type(entry).__name__}"
-        elif not str(entry.get("unit_id") or ""):
+        elif not str(entry.get("unit_id") or "").strip():
             detail = "该 unit 没有可用的 unit_id"
         else:
             continue
