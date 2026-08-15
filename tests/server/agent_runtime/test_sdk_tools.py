@@ -4487,6 +4487,7 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
         items=items,
         id_field="segment_id",
         content_mode="narration",
+        skeleton_kind="segments",
         script_filename="episode_1.json",
         project_dir=tmp_path,
         skip_ids=None,
@@ -4500,6 +4501,7 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
         items=items,
         id_field="segment_id",
         content_mode="narration",
+        skeleton_kind="segments",
         script_filename="episode_1.json",
         project_dir=tmp_path,
         skip_ids=None,
@@ -4543,6 +4545,7 @@ def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch
         items=items,
         id_field="segment_id",
         content_mode="narration",
+        skeleton_kind="segments",
         script_filename="episode_1.json",
         project_dir=tmp_path,
         skip_ids=None,
@@ -4577,6 +4580,7 @@ def test_build_video_specs_skips_non_dict_generated_assets_without_aborting_batc
         items=items,
         id_field="segment_id",
         content_mode="narration",
+        skeleton_kind="segments",
         script_filename="episode_1.json",
         project_dir=tmp_path,
         skip_ids=None,
@@ -8397,3 +8401,89 @@ async def test_generate_video_all_creates_zero_tasks_when_one_artifact_state_is_
     }
     assert codes["E1S02"] == ["generation_artifact_state_unavailable"]
     assert codes["E1S01"] == ["generation_batch_admission_withheld"]
+
+
+@pytest.mark.unit
+async def test_generate_video_all_admits_legacy_narration_stored_under_scenes(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """narration 数据落在 scenes 键的历史剧本按实际骨架做发声准入，不被整批判成解析失败。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+        "content_mode": "narration",
+        "episode": 1,
+        "scenes": [
+            {
+                "scene_id": "E1S01",
+                "video_prompt": {
+                    "action": "阿离转身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                    "dialogue": [{"speaker": "张三", "line": "跟紧我。"}],
+                },
+                "voiceover": [],
+                "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+            }
+        ],
+    }
+    (fake_ctx.project_path / "storyboards").mkdir(parents=True, exist_ok=True)
+    (fake_ctx.project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"\x89PNG")
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
+        from lib.generation_queue_client import BatchTaskResult
+
+        return [
+            BatchTaskResult(
+                resource_id=spec.resource_id,
+                task_id=f"t-{spec.resource_id}",
+                status="succeeded",
+                result={"file_path": f"videos/{spec.resource_id}.mp4"},
+            )
+            for spec in specs
+        ], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    out = await _call(generate_video_all_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    result = _generation_result(out)
+    assert list(result.succeeded) == ["E1S01"]
+
+
+@pytest.mark.integration
+async def test_generate_video_all_reports_an_all_unreadable_selection_as_blocked(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """全部目标的产物状态都读不出时不能报成空的成功：那会把每一条状态问题都藏起来。"""
+    from dataclasses import replace as dc_replace
+
+    from lib.artifact_manifest import ArtifactBlocker, ArtifactStatus
+    from lib.generation_result import GenerationCandidate, GenerationTargetState
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    select_targets = mod.select_generation_targets
+
+    def _all_unavailable(**kwargs: Any):
+        selection = select_targets(**kwargs)
+        blocked = GenerationTargetState(
+            candidate=GenerationCandidate(unit_id="E1S01"),
+            status=ArtifactStatus.BLOCKED,
+            blocker=ArtifactBlocker(code="artifact_manifest_unreadable", path="", detail="侧车读不出"),
+        )
+        return dc_replace(selection, targets=(), unavailable=(blocked,))
+
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "select_generation_targets", _all_unavailable)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await _call(generate_video_all_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("batch_admission") is not None, out
+    assert out["batch_admission"]["decision"] == "blocked"
+    enqueue.assert_not_awaited()
+    codes = {
+        unit["unit_id"]: [problem["code"] for problem in unit["problems"]] for unit in out["batch_admission"]["units"]
+    }
+    assert codes == {"E1S01": ["generation_artifact_state_unavailable"]}

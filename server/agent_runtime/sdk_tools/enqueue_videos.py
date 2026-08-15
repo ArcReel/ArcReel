@@ -61,7 +61,7 @@ from lib.reference_video.request_projection import (
     ReferenceRequestOptions,
 )
 from lib.script_models import get_generated_assets, resolve_content_mode
-from lib.script_skeleton import ensure_route_skeleton, resolve_declared_kind
+from lib.script_skeleton import ensure_route_skeleton, resolve_script_kind
 from lib.speech_composition import (
     SpeechAdmissionError,
     require_script_unit_admitted,
@@ -540,6 +540,7 @@ def _build_video_specs(
     items: list[dict[str, Any]],
     id_field: str,
     content_mode: str,
+    skeleton_kind: str,
     script_filename: str,
     project_dir: Path,
     skip_ids: list[str] | None,
@@ -555,6 +556,9 @@ def _build_video_specs(
     silently shrinks the batch — and, because the refusal is a ticket rather than a
     recorded block, it can hold the whole batch back before any task exists.
 
+    ``skeleton_kind`` 取路线闸门给出的剧本实际骨架种类，而不是按内容模式反推：族内的历史
+    形态（narration 数据落 ``scenes`` 键）按反推值去适配，合法的旧剧本会被整批判成解析失败。
+
     发声准入在这里执行，与参考路线由 ``reference_unit_task_spec`` 承担的位置对应：
     构造 TaskSpec 的这一步是「这个 unit 能不能被请求」的唯一口径，四个 storyboard 入口
     （整集 / 全部 / 点名 / 单条）都经由它，混合发声与 needs_replan 因此在任何入口都会
@@ -563,8 +567,6 @@ def _build_video_specs(
 
     item_type = "片段" if content_mode == "narration" else "场景"
     skip_set = set(skip_ids or [])
-    # 本构造器只服务分镜路线，骨架种类由内容模式定：narration→segments、drama→scenes、ad→shots。
-    skeleton_kind = resolve_declared_kind(content_mode, "storyboard")
 
     specs: list[TaskSpec] = []
     order_map: dict[str, int] = {}
@@ -1137,6 +1139,9 @@ def generate_video_episode_tool(ctx: ToolContext):
                     operation=_EPISODE_OPERATION,
                 )
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
+            # 骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
+            # 反推的种类误判成解析失败。
+            skeleton_kind = resolve_script_kind(script)
             project = ctx.pm.load_project(ctx.project_name)
             episode = (
                 resolve_artifact_episode(
@@ -1205,6 +1210,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                 items=items,
                 id_field=id_field,
                 content_mode=content_mode,
+                skeleton_kind=skeleton_kind,
                 script_filename=script_filename,
                 project_dir=project_dir,
                 project=project,
@@ -1317,6 +1323,9 @@ def generate_video_scene_tool(ctx: ToolContext):
 
             builder = GenerationResultBuilder(_SCENE_OPERATION, GenerationSelectionMode.EXPLICIT)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
+            # 骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
+            # 反推的种类误判成解析失败。
+            skeleton_kind = resolve_script_kind(script)
             item = next((s for s in items if s.get(id_field) == scene_id or s.get("scene_id") == scene_id), None)
             if not item:
                 builder.block(
@@ -1348,6 +1357,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                 items=[item],
                 id_field=id_field,
                 content_mode=content_mode,
+                skeleton_kind=skeleton_kind,
                 script_filename=script_filename,
                 project_dir=project_dir,
                 project=project,
@@ -1437,6 +1447,9 @@ def generate_video_all_tool(ctx: ToolContext):
                     operation=_ALL_OPERATION,
                 )
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
+            # 骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
+            # 反推的种类误判成解析失败。
+            skeleton_kind = resolve_script_kind(script)
             project = ctx.pm.load_project(ctx.project_name)
             content_mode = resolve_content_mode(script, project)
             currency = active_artifact_currency_resolver(project_dir, project)
@@ -1462,10 +1475,11 @@ def generate_video_all_tool(ctx: ToolContext):
                     candidate.artifact_path,
                 ),
             )
-            # 产物状态不可读的目标改由准入报告（下面折成准入票），结果契约里不再先记一遍：
+            # 产物状态不可读的目标改由准入报告（折成准入票），结果契约里不再先记一遍：
             # 同一个 unit 记两次会让结果构造器 fail loud。
+            unavailable_tickets = artifact_state_tickets(selection.unavailable)
             builder = GenerationResultBuilder.from_selection(_ALL_OPERATION, replace(selection, unavailable=()))
-            if not selection.targets:
+            if not selection.targets and not unavailable_tickets:
                 return generation_result_response(builder.build(), log)
 
             # 与 ``_video_target_states`` 用同一套 ID 回退规则：条目若缺 ``id_field``
@@ -1482,6 +1496,7 @@ def generate_video_all_tool(ctx: ToolContext):
                 items=pending,
                 id_field=id_field,
                 content_mode=content_mode,
+                skeleton_kind=skeleton_kind,
                 script_filename=script_filename,
                 project_dir=project_dir,
                 project=project,
@@ -1492,7 +1507,7 @@ def generate_video_all_tool(ctx: ToolContext):
             )
             # 产物状态不可读的场景被选目标环节排除在 targets 之外，但它属于本次请求：
             # 不带进准入，同批健康的场景会照常入队并计费，剩下这一个被无声略过。
-            refused.extend(artifact_state_tickets(selection.unavailable))
+            refused.extend(unavailable_tickets)
             if not specs and not refused:
                 return generation_result_response(builder.build(), log)
 
@@ -1594,6 +1609,9 @@ def generate_video_selected_tool(ctx: ToolContext):
                 )
 
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
+            # 骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
+            # 反推的种类误判成解析失败。
+            skeleton_kind = resolve_script_kind(script)
             project = ctx.pm.load_project(ctx.project_name)
             content_mode = resolve_content_mode(script, project)
             episode = (
@@ -1673,6 +1691,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                 items=selected,
                 id_field=id_field,
                 content_mode=content_mode,
+                skeleton_kind=skeleton_kind,
                 script_filename=script_filename,
                 project_dir=project_dir,
                 project=project,
