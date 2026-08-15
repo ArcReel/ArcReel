@@ -14,7 +14,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib import script_review
-from lib.artifact_activation import TARGET_SCHEMA_VERSION, ArtifactCurrencyResolver
+from lib.artifact_activation import ArtifactCurrencyResolver
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
 from lib.asset_types import ASSET_SPECS, asset_name_comparison_key
 from lib.data_validator import DataValidator
@@ -30,6 +30,7 @@ from lib.episode_ledger import (
 )
 from lib.path_safety import safe_exists
 from lib.project_manager import ProjectManager
+from lib.project_schema import project_schema_is_current
 from lib.script_models import get_generated_assets
 from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
@@ -350,7 +351,7 @@ class WorkflowStateService:
                         resource_id=name,
                         blockers=blockers,
                     )
-                elif project.get("schema_version") == TARGET_SCHEMA_VERSION:
+                elif project_schema_is_current(project):
                     collection["missing_ids"].append(name)
                 elif isinstance(path, str) and safe_exists(project_path, path):
                     collection["current_ids"].append(name)
@@ -700,7 +701,7 @@ class WorkflowStateService:
                     )
                 )
         currency: ArtifactCurrencyResolver | None = None
-        if project.get("schema_version") == TARGET_SCHEMA_VERSION:
+        if project_schema_is_current(project):
             try:
                 currency = ArtifactCurrencyResolver(project_path)
             except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError) as exc:

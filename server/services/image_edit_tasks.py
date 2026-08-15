@@ -31,6 +31,7 @@ from lib.async_thread import run_noninterruptible_sync
 from lib.db.base import DEFAULT_USER_ID
 from lib.image_reference_snapshot import freeze_image_references
 from lib.path_safety import safe_exists
+from lib.project_schema import project_schema_is_current
 from lib.resource_paths import resource_relative_path
 from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
@@ -140,7 +141,7 @@ def _resolve_current_image_pointer(
         pointer = get_generated_assets(item).get("storyboard_image")
         if isinstance(pointer, str) and pointer:
             return resolved_id, pointer
-        if project.get("schema_version") == 8:
+        if project_schema_is_current(project):
             return resolved_id, None
         return resolved_id, resource_relative_path("storyboards", resolved_id)
 

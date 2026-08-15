@@ -73,6 +73,7 @@ from lib.profile_manifest import (
     force_resync_profile as _force_resync_profile,
 )
 from lib.project_change_hints import emit_project_change_hint
+from lib.project_schema import parse_project_schema_version, project_schema_is_current
 from lib.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
 from lib.script_models import get_generated_assets, script_duration_total
@@ -2205,8 +2206,7 @@ class ProjectManager:
     @staticmethod
     def _requires_unique_asset_namespace(project: dict) -> bool:
         """schema v6 起禁止普通业务写继续操作已损坏的资产名称空间。"""
-        version = project.get("schema_version")
-        return isinstance(version, int) and not isinstance(version, bool) and version >= 6
+        return parse_project_schema_version(project) >= 6
 
     @staticmethod
     def _migrate_legacy_resolution_on_save(project: dict) -> None:
@@ -2733,7 +2733,6 @@ class ProjectManager:
 
             project = self._read_project_raw_unlocked(project_name)
             bucket = project.get(spec.bucket_key)
-            from lib.artifact_activation import TARGET_SCHEMA_VERSION
             from lib.artifact_manifest import (
                 MANIFEST_FILENAME,
                 ArtifactKey,
@@ -2744,8 +2743,7 @@ class ProjectManager:
             manifest_path = project_dir / MANIFEST_FILENAME
             manifest_adapter = (
                 ProjectArtifactManifestAdapter(project_dir)
-                if project.get("schema_version") == TARGET_SCHEMA_VERSION
-                and (manifest_path.exists() or manifest_path.is_symlink())
+                if project_schema_is_current(project) and (manifest_path.exists() or manifest_path.is_symlink())
                 else None
             )
 

@@ -83,6 +83,7 @@ def _mock_pm(project_with_script, script_data=None):
     pm = MagicMock()
     pm.get_project_path.return_value = project_with_script
     pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
+    pm.load_project_readonly.return_value = pm.load_project.return_value
     pm.load_script.return_value = (
         script_data
         if script_data is not None

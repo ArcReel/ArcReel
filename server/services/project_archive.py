@@ -16,7 +16,6 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lib.artifact_activation import (
-    TARGET_SCHEMA_VERSION,
     ensure_imported_artifact_target_state,
     snapshot_preserved_artifact_manifest,
 )
@@ -39,6 +38,7 @@ from lib.project_change_hints import emit_project_change_hint
 from lib.project_manager import ProjectManager
 from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_project_dict as normalize_legacy_providers
+from lib.project_schema import project_schema_is_current
 from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.resource_paths import resource_extension, resource_relative_path
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
@@ -454,7 +454,7 @@ class ProjectArchiveService:
 
         snapshot_project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE)
         artifact_manifest = None
-        if isinstance(snapshot_project, dict) and snapshot_project.get("schema_version") == TARGET_SCHEMA_VERSION:
+        if isinstance(snapshot_project, dict) and project_schema_is_current(snapshot_project):
             if source_manifest_entries is None:
                 raise ArtifactManifestError("schema-v8 archive snapshot has no matching Artifact Manifest state")
             artifact_manifest = encode_artifact_manifest_payload(
@@ -682,7 +682,7 @@ class ProjectArchiveService:
         source_dir: Path,
     ) -> dict[ArtifactKey, ArtifactManifestEntry] | None:
         project = self._load_json_file(source_dir / self.project_manager.PROJECT_FILE)
-        if not isinstance(project, dict) or project.get("schema_version") != TARGET_SCHEMA_VERSION:
+        if not isinstance(project, dict) or not project_schema_is_current(project):
             return None
         return dict(ProjectArtifactManifestAdapter(source_dir).snapshot_entries())
 

@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 from lib.artifact_activation import (
-    TARGET_SCHEMA_VERSION,
     ArtifactCurrencyResolver,
     register_artifact_entries_atomically,
 )
@@ -32,6 +31,7 @@ from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
 from lib.path_safety import safe_join
 from lib.project_manager import get_project_manager
+from lib.project_schema import project_schema_is_current
 from lib.version_manager import StagedVersionCommit, VersionManager
 from lib.visual_artifact_provenance import (
     GridStoryboardVisual,
@@ -99,7 +99,7 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
         source_status: ArtifactStatus | None = None
         source_key: ArtifactKey | None = None
         source_entry: ArtifactManifestEntry | None = None
-        if project.get("schema_version") == TARGET_SCHEMA_VERSION:
+        if project_schema_is_current(project):
             with pm.locked_project_script_snapshot(project_name, script_file) as (frozen_project, script):
                 source_key = ArtifactKey.episode_grid(grid.episode, grid.id)
                 adapter = ProjectArtifactManifestAdapter(project_path)
@@ -248,7 +248,7 @@ async def apply_grid_split(project_name: str, grid: GridGeneration) -> GridSplit
                 source_entry = None
                 source_key = None
                 source_status = None
-                if current_project.get("schema_version") == TARGET_SCHEMA_VERSION:
+                if project_schema_is_current(current_project):
                     source_key = ArtifactKey.episode_grid(grid.episode, grid.id)
                     adapter = ProjectArtifactManifestAdapter(project_path)
                     source_entry = adapter.get_entry(source_key)

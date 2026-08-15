@@ -18,7 +18,6 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.artifact_activation import (
-    TARGET_SCHEMA_VERSION,
     ArtifactInputClaim,
     active_artifact_currency_resolver,
     assert_current_artifact_input_claims_usable,
@@ -49,6 +48,7 @@ from lib.episode_paths import (
     episode_script_filename,
 )
 from lib.project_manager import ProjectManager
+from lib.project_schema import project_schema_is_current
 from lib.prompt_builders_ad import build_ad_prompt, build_ad_reference_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
@@ -876,7 +876,7 @@ class ScriptGenerator:
             # Legacy projects and small unit-test fixtures can predate the typed
             # artifact contract.  Schema 8 must remain strict because its
             # Manifest is authoritative.
-            if self.project_json.get("schema_version") == TARGET_SCHEMA_VERSION:
+            if project_schema_is_current(self.project_json):
                 raise
             self._artifact_basis = None
             return
@@ -913,7 +913,7 @@ class ScriptGenerator:
         try:
             basis = build_ad_episode_script_basis(episode, project=self.project_json)
         except (TypeError, ValueError):
-            if self.project_json.get("schema_version") == TARGET_SCHEMA_VERSION:
+            if project_schema_is_current(self.project_json):
                 raise
             self._artifact_basis = None
             return

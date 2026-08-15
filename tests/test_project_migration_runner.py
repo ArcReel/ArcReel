@@ -143,6 +143,15 @@ def test_corrupted_schema_version_skipped_not_abort(tmp_projects: Path):
     assert data["schema_version"] == "corrupted"  # 原样保留，待人工修复
 
 
+def test_numeric_string_schema_version_is_not_classified_as_current(tmp_projects: Path):
+    """数字字符串也是损坏的持久化版本，不能被误判为已完成迁移。"""
+    _write_project(tmp_projects, "numeric-string", {"schema_version": str(CURRENT_SCHEMA_VERSION)})
+
+    summary = run_project_migrations(tmp_projects)
+
+    assert "numeric-string" not in summary.migrated + summary.failed + summary.skipped
+
+
 def test_falsy_or_bool_schema_version_skipped_not_v0(tmp_projects: Path):
     """空串 / bool 等不可解析版本号按损坏跳过，不误当 v0 重跑迁移。"""
     for name, bad in [("empty", ""), ("bool-true", True), ("bool-false", False)]:

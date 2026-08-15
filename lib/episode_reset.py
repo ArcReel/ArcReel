@@ -50,6 +50,7 @@ from lib.episode_ledger import (
 )
 from lib.formal_write import formal_write_transaction
 from lib.project_manager import ProjectManager
+from lib.project_schema import project_schema_is_current
 
 logger = logging.getLogger(__name__)
 
@@ -495,9 +496,7 @@ def reset_episode_planning(
             p["episodes"] = []
             p["planning_cursor"] = None
             p.pop(SOURCE_FINGERPRINTS_KEY, None)
-        from lib.artifact_activation import TARGET_SCHEMA_VERSION
-
-        if p.get("schema_version") == TARGET_SCHEMA_VERSION:
+        if project_schema_is_current(p):
             try:
                 snapshot = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
             except ArtifactManifestError:

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lib.path_safety import safe_join, try_safe_join
+from lib.project_schema import project_schema_is_current
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.script_editor import resolve_items
 from lib.script_models import get_generated_assets
@@ -133,7 +134,7 @@ def resolve_storyboard_video_inputs(
     storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
     if storyboard_file is None:
         if allow_legacy_same_name is None:
-            allow_legacy_same_name = project.get("schema_version") != 8
+            allow_legacy_same_name = not project_schema_is_current(project)
         if not allow_legacy_same_name:
             raise StoryboardImageBindingRequired(f"storyboard binding missing: {resource_id}")
         storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
@@ -188,7 +189,7 @@ def resolve_previous_storyboard_path(
     if previous_rel not in (None, ""):
         previous_path = resolve_storyboard_image_ref(project_path, previous_rel)
         return previous_path if previous_path is not None and previous_path.is_file() else None
-    if project.get("schema_version") == 8:
+    if project_schema_is_current(project):
         return None
     previous_path = project_path / "storyboards" / f"scene_{previous_id}.png"
     if previous_path.exists():

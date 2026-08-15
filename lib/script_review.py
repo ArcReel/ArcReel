@@ -38,6 +38,7 @@ from lib.episode_paths import (
 from lib.formal_write import formal_write_transaction, project_metadata_lock
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager, find_episode, is_reference_video_project
+from lib.project_schema import project_schema_is_current
 from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.reference_video.quarantine import (
     QUARANTINE_KIND_STEP1,
@@ -288,7 +289,6 @@ def formal_step1_write_transaction(
     with project_metadata_lock(project_path), formal_write_transaction(*paths):
         yield
         from lib.artifact_activation import (
-            TARGET_SCHEMA_VERSION,
             register_current_artifact,
             register_current_artifact_if_provable,
         )
@@ -300,7 +300,7 @@ def formal_step1_write_transaction(
         except (OSError, UnicodeDecodeError, ValueError) as exc:
             logger.warning("cannot inspect project schema after formal step1 write: %s", exc)
             project = None
-        if isinstance(project, dict) and project.get("schema_version") == TARGET_SCHEMA_VERSION:
+        if isinstance(project, dict) and project_schema_is_current(project):
             # A successful no-op write can still repair a missing claim after a
             # temporarily unavailable source made activation skip this target.
             key = ArtifactKey.episode_step1(episode)

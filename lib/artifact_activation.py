@@ -42,6 +42,7 @@ from lib.grid.models import GridGeneration
 from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.media_artifact_currency import build_current_audio_artifact_basis, build_current_video_artifact_basis
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version, project_schema_is_current
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
 from lib.speech_artifact_provenance import RenditionVariant, SelectedMediaEvidence, media_content_digest
@@ -70,7 +71,7 @@ from lib.visual_artifact_provenance import (
     visual_file_digest,
 )
 
-TARGET_SCHEMA_VERSION = 8
+TARGET_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 _GRID_RECORD_RE = re.compile(r"grid_[0-9a-f]{12}\.json\Z")
 _EPISODE_RESOURCE_KINDS = frozenset(
     {
@@ -195,8 +196,8 @@ class _Planner:
         self._planned: set[str] = set()
 
     def plan(self) -> ArtifactTargetStatePlan:
-        schema = self.project.get("schema_version")
-        if type(schema) is not int or schema not in {TARGET_SCHEMA_VERSION - 1, TARGET_SCHEMA_VERSION}:
+        schema = parse_project_schema_version(self.project)
+        if schema not in {TARGET_SCHEMA_VERSION - 1, TARGET_SCHEMA_VERSION}:
             raise ValueError(f"artifact activation requires schema 7 or 8, got {schema!r}")
 
         self._activation_mode = True
@@ -223,8 +224,7 @@ class _Planner:
     def resolve_key(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
         """Resolve one post-commit target through the same canonical planner."""
 
-        schema = self.project.get("schema_version")
-        if schema != TARGET_SCHEMA_VERSION:
+        if not project_schema_is_current(self.project):
             raise RuntimeError("Artifact Manifest is not activated for this project schema")
         self._plan_key(key)
         return self.entries.get(key)
@@ -232,8 +232,7 @@ class _Planner:
     def resolve_basis(self, key: ArtifactKey) -> ArtifactBasis | None:
         """Resolve one canonical basis without requiring its formal output yet."""
 
-        schema = self.project.get("schema_version")
-        if schema != TARGET_SCHEMA_VERSION:
+        if not project_schema_is_current(self.project):
             raise RuntimeError("Artifact Manifest is not activated for this project schema")
         self._plan_key(key)
         return self.bases.get(key)
@@ -1478,7 +1477,7 @@ def ensure_imported_artifact_target_state(
         project = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:
         raise ValueError("project.json is not valid UTF-8 JSON") from exc
-    if not isinstance(project, Mapping) or project.get("schema_version") != TARGET_SCHEMA_VERSION:
+    if not isinstance(project, Mapping) or not project_schema_is_current(project):
         raise ValueError("archive activation requires a schema-v8 project")
     if preserved_manifest is not None:
         preserved_entries = dict(preserved_manifest.entries)
@@ -1730,7 +1729,7 @@ class ArtifactCurrencyResolver:
     def __init__(self, project_dir: Path) -> None:
         self._project_dir = Path(project_dir)
         root_planner = _Planner(project_dir)
-        if root_planner.project.get("schema_version") != TARGET_SCHEMA_VERSION:
+        if not project_schema_is_current(root_planner.project):
             raise RuntimeError("Artifact Manifest is not activated for this project schema")
         # Validate the sidecar once even when a workflow phase has no artifacts
         # to compare.  A corrupt active manifest is a blocker, never an empty
@@ -1822,7 +1821,7 @@ def active_artifact_currency_resolver(
 ) -> ArtifactCurrencyResolver | None:
     """Return the active resolver, preserving legacy selection before schema 8."""
 
-    return ArtifactCurrencyResolver(project_dir) if project.get("schema_version") == TARGET_SCHEMA_VERSION else None
+    return ArtifactCurrencyResolver(project_dir) if project_schema_is_current(project) else None
 
 
 def resolve_artifact_episode(
@@ -1846,11 +1845,11 @@ def resolve_artifact_episode(
         if episode < 1:
             raise ValueError("script episode must be a positive integer")
     except ValueError:
-        if project.get("schema_version") == TARGET_SCHEMA_VERSION:
+        if project_schema_is_current(project):
             raise
         return None
     if (
-        project.get("schema_version") == TARGET_SCHEMA_VERSION
+        project_schema_is_current(project)
         and resolve_episode_script_binding(
             project,
             episode,
@@ -2135,7 +2134,7 @@ def assert_current_artifact_input_claims_usable(
             raise ValueError("project.json is not valid UTF-8 JSON") from exc
         if not isinstance(project, Mapping):
             raise ValueError("project.json must contain an object")
-        if project.get("schema_version") != TARGET_SCHEMA_VERSION:
+        if not project_schema_is_current(project):
             adapter = ProjectArtifactManifestAdapter(project_path)
             for claim in claims:
                 if claim.content_digest is not None:
@@ -2312,7 +2311,7 @@ def artifact_key_for_resource(
         if resource_type == spec.bucket_key:
             return ArtifactKey.asset_sheet(asset_type, resource_id)
     planner = _Planner(project_dir)
-    if planner.project.get("schema_version") != TARGET_SCHEMA_VERSION:
+    if not project_schema_is_current(planner.project):
         raise RuntimeError("Artifact Manifest is not activated for this project schema")
     if resource_type == "grids":
         grid = next((candidate for candidate in planner._load_grid_records() if candidate.id == resource_id), None)
@@ -2571,7 +2570,7 @@ def _artifact_manifest_is_active(project_dir: Path) -> bool:
     project = json.loads(raw)
     if not isinstance(project, Mapping):
         raise ValueError("project.json must contain an object")
-    return project.get("schema_version") == TARGET_SCHEMA_VERSION
+    return project_schema_is_current(project)
 
 
 def _assert_preflight_unchanged(project_dir: Path, plan: ArtifactTargetStatePlan) -> None:

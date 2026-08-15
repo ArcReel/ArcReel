@@ -21,10 +21,11 @@ from lib.project_migrations.v4_to_v5_generation_route import migrate_v4_to_v5
 from lib.project_migrations.v5_to_v6_asset_namespace import migrate_v5_to_v6
 from lib.project_migrations.v6_to_v7_ad_reference_video_units import migrate_v6_to_v7
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
 _MIGRATORS_WITH_OWNED_BACKUP = frozenset({7})
@@ -81,15 +82,9 @@ def _load_schema_version(project_dir: Path) -> int:
         return -1  # 跳过非项目目录
     try:
         data = json.loads(pj.read_text(encoding="utf-8"))
-        raw_version = data.get("schema_version")
-        if raw_version is None:
-            return 0  # 仅字段缺失或显式 null 视为旧项目（v0）
-        if isinstance(raw_version, bool):
-            # bool 是 int 子类：int(True) == 1 会把损坏值静默当 v1
-            raise ValueError(f"schema_version 不可解析: {raw_version!r}")
-        # int 解析留在 try 内：其余不可解析值（空串/非数字串）与 JSON 损坏
-        # 同口径跳过——不当 v0 重跑迁移，也不让单个损坏项目中断整个迁移循环
-        return int(raw_version)
+        if not isinstance(data, dict):
+            raise ValueError("project.json 必须包含对象")
+        return parse_project_schema_version(data)
     except Exception as exc:
         logger.warning("project.json 损坏或 schema_version 不可解析，跳过：%s（%s）", project_dir, exc)
         return -1

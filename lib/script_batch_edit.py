@@ -18,7 +18,6 @@ from typing import Annotated, Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from lib.artifact_activation import (
-    TARGET_SCHEMA_VERSION,
     prepare_episode_script_manifest_commit,
 )
 from lib.artifact_manifest import (
@@ -29,6 +28,7 @@ from lib.artifact_manifest import (
 from lib.data_validator import DataValidator
 from lib.episode_paths import episode_script_filename
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager
+from lib.project_schema import project_schema_is_current
 from lib.reference_video import rederive_unit_references
 from lib.script_editor import ScriptEditError, patch_field, resolve_items
 from lib.script_review import content_fingerprint_of_data
@@ -461,7 +461,7 @@ class ScriptBatchEditor:
         resource_ids: frozenset[str],
         removed_resource_ids: frozenset[str],
     ) -> Callable[[], None] | None:
-        if project.get("schema_version") != TARGET_SCHEMA_VERSION:
+        if not project_schema_is_current(project):
             return None
         episode = script.get("episode")
         if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
