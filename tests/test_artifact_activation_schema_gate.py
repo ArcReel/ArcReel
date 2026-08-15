@@ -32,3 +32,21 @@ def test_formal_write_gate_rejects_a_numeric_string_schema_version(tmp_path: Pat
             resource_type="characters",
             resource_id="hero",
         )
+
+
+def test_runtime_resolver_rejects_a_future_schema_version(tmp_path: Path) -> None:
+    project = _write_project(tmp_path, 9)
+
+    with pytest.raises(ValueError, match="schema_version 9 is newer than supported version 8"):
+        active_artifact_currency_resolver(tmp_path, project)
+
+
+def test_formal_write_gate_rejects_a_future_schema_version(tmp_path: Path) -> None:
+    _write_project(tmp_path, 9)
+
+    with pytest.raises(ValueError, match="schema_version 9 is newer than supported version 8"):
+        register_current_resource_artifact(
+            tmp_path,
+            resource_type="characters",
+            resource_id="hero",
+        )

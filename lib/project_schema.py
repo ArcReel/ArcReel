@@ -21,7 +21,10 @@ def parse_project_schema_version(project: Mapping[str, object]) -> int:
 def project_schema_is_current(project: Mapping[str, object]) -> bool:
     """Return whether a strictly parsed project uses the current schema."""
 
-    return parse_project_schema_version(project) == CURRENT_PROJECT_SCHEMA_VERSION
+    version = parse_project_schema_version(project)
+    if version > CURRENT_PROJECT_SCHEMA_VERSION:
+        raise ValueError(f"schema_version {version} is newer than supported version {CURRENT_PROJECT_SCHEMA_VERSION}")
+    return version == CURRENT_PROJECT_SCHEMA_VERSION
 
 
 __all__ = [
