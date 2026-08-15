@@ -32,7 +32,14 @@ def _admission(*tickets: UnitAdmissionTicket, delivery: str = "post_production")
     )
 
 
-def _confirmation_ticket(unit_id: str, *, request: int, current: int | None = None, amount: float | None = None):
+def _confirmation_ticket(
+    unit_id: str,
+    *,
+    request: int,
+    current: int | None = None,
+    amount: float | None = None,
+    currency: str = "USD",
+):
     return UnitAdmissionTicket(
         unit_id=unit_id,
         problems=(
@@ -46,7 +53,7 @@ def _confirmation_ticket(unit_id: str, *, request: int, current: int | None = No
         request_duration_seconds=request,
         current_duration_seconds=current,
         request_cost=(
-            None if amount is None else {"amount": amount, "currency": "USD", "request_duration_seconds": request}
+            None if amount is None else {"amount": amount, "currency": currency, "request_duration_seconds": request}
         ),
     )
 
@@ -127,6 +134,21 @@ def test_a_tier_with_an_unquoted_member_reports_no_total():
 
     assert tier.unit_count == 2
     assert tier.cost_amount is None
+
+
+def test_a_tier_quoted_in_two_currencies_reports_no_total():
+    """币种不一的报价加不出一个数：合计与币种一起留空，不给出无从解读的金额。"""
+
+    admission = _admission(
+        _confirmation_ticket("E1U1", request=8, amount=1.0, currency="USD"),
+        _confirmation_ticket("E1U2", request=8, amount=7.0, currency="CNY"),
+    )
+
+    tier = admission.confirmation_tiers()[0]
+
+    assert tier.unit_count == 2
+    assert tier.cost_amount is None
+    assert tier.cost_currency is None
 
 
 def test_refusal_reports_every_requested_unit_including_the_clean_ones():

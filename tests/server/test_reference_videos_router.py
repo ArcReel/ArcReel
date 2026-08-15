@@ -1541,6 +1541,18 @@ def test_generate_batch_aggregates_the_confirmation_by_tier_then_enqueues_on_con
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("invalid", [0, -4, 4.5])
+def test_generate_batch_rejects_non_positive_confirmed_duration(client: TestClient, invalid: object) -> None:
+    """确认的档位是秒数，0 / 负数在边界拒绝，不落到请求选项构造里变成 500。"""
+
+    first = _seed_unit(client)
+
+    resp = client.post(BATCH_ENDPOINT, json={"confirmed_request_durations": {first: invalid}})
+
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.integration
 def test_generate_batch_partial_consent_still_creates_nothing(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

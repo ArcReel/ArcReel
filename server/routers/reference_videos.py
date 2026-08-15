@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PositiveInt
 
 from lib.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.artifact_activation import resolve_artifact_episode
@@ -140,7 +140,7 @@ class GenerateUnitsBatchRequest(BaseModel):
 
     unit_ids: list[str] | None = None
     narration_delivery: NarrationDelivery = POST_PRODUCTION
-    confirmed_request_durations: dict[str, int] = Field(default_factory=dict)
+    confirmed_request_durations: dict[str, PositiveInt] = Field(default_factory=dict)
 
     def projection_options(self) -> ReferenceRequestOptions:
         return ReferenceRequestOptions(narration_delivery=self.narration_delivery)

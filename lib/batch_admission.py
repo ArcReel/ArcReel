@@ -167,10 +167,13 @@ class BatchAdmission:
         for seconds, members in sorted(grouped.items(), key=lambda pair: (pair[0] is None, pair[0])):
             amounts = [_cost_amount(member.request_cost) for member in members]
             currencies = {_cost_currency(member.request_cost) for member in members} - {None}
-            # A tier whose members are not all quoted has no honest total; showing a
-            # partial sum would understate what the user is agreeing to pay.
+            # A tier whose members are not all quoted in one currency has no honest
+            # total: a partial sum understates what the user is agreeing to pay, and
+            # amounts of different currencies do not add up to a number at all.
             total = (
-                sum(amount for amount in amounts if amount is not None) if all(a is not None for a in amounts) else None
+                sum(amount for amount in amounts if amount is not None)
+                if all(a is not None for a in amounts) and len(currencies) == 1
+                else None
             )
             tiers.append(
                 BatchConfirmationTier(
