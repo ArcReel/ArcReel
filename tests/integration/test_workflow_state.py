@@ -277,7 +277,7 @@ def test_unsafe_source_returns_blocker_instead_of_skipping_or_raising(tmp_path: 
 
 
 @pytest.mark.integration
-def test_narration_progresses_through_storyboard_video_audio_to_export(tmp_path: Path) -> None:
+def test_narration_progresses_through_storyboard_video_to_export(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
     _write_source_and_complete(pm, project_path, source_text)
@@ -322,15 +322,19 @@ def test_narration_progresses_through_storyboard_video_audio_to_export(tmp_path:
     script["segments"][0]["generated_assets"]["video_clip"] = "videos/E1S01.mp4"
     _write_artifact(project_path, "videos/E1S01.mp4")
     atomic_write_json(script_path, script)
-    audio = service.get_status("demo")
-    assert audio.state == "AUDIO"
+    # 视频齐备即可导出：缺旁白 TTS 只在 artifacts["audio"] 里如实报告，
+    # 既不推进状态机也不拦导出（补 TTS 由用户显式发起）。
+    ready = service.get_status("demo")
+    assert ready.state == "EXPORT_READY"
+    assert ready.next_action.type == "export"
+    assert ready.artifacts["audio"]["missing_ids"] == ["E1S01"]
 
     script["segments"][0]["generated_assets"]["narration_audio"] = "audio/E1S01.wav"
     _write_artifact(project_path, "audio/E1S01.wav")
     atomic_write_json(script_path, script)
-    ready = service.get_status("demo")
-    assert ready.state == "EXPORT_READY"
-    assert ready.next_action.type == "export"
+    still_ready = service.get_status("demo")
+    assert still_ready.state == "EXPORT_READY"
+    assert still_ready.artifacts["audio"]["missing_ids"] == []
 
     (project_path / "source" / "novel.txt").write_text("全新文本", encoding="utf-8")
     refreshed_revision = compute_source_revision(

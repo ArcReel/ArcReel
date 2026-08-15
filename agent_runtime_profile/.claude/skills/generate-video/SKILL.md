@@ -58,8 +58,10 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 - 把点名视为强制重做，覆盖已有成片。
 - 任一目标已有在途任务时等待其完成，再重做整批目标。
-- 只生成剧本中点名的自包含 unit；未命中的 ID 会在输出中列出。
+- 只生成剧本中点名的自包含 unit；未命中的 ID 记为 `blocked`，带 `generation_unit_not_found`。
 - 点名重做不落 checkpoint，忽略 `resume`。
+- 结果按 `requested / succeeded / failed / blocked` 逐 ID 返回，
+  结构与问题码见 `.claude/references/generation-results.md`。
 
 ### reference_video 模式的时长确认
 

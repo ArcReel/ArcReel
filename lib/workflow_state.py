@@ -47,7 +47,6 @@ WorkflowStateName = Literal[
     "ASSET_SHEETS",
     "STORYBOARD",
     "VIDEO",
-    "AUDIO",
     "EXPORT_READY",
 ]
 
@@ -1042,6 +1041,9 @@ class WorkflowStateService:
                                 "reference_videos" if generation_mode == "reference_video" else "videos"
                             ),
                         )
+                        # 旁白 TTS 只作为信息报告，不参与状态推进：缺 TTS 既不是工作流缺口
+                        # 也不拦导出，补 TTS 由用户显式发起（见 generate_narration_audio），
+                        # 后期路线的旁白根本不需要 TTS。
                         artifacts["audio"] = (
                             self._media_collection(
                                 project_path,
@@ -1085,19 +1087,6 @@ class WorkflowStateService:
                             next_action = _action(
                                 "generate_videos",
                                 "video clips are missing",
-                                args={"episode": target.episode},
-                                ids=missing,
-                            )
-                        elif (
-                            mode == "narration"
-                            and generation_mode == "storyboard"
-                            and artifacts["audio"]["missing_ids"]
-                        ):
-                            missing = artifacts["audio"]["missing_ids"]
-                            state = "AUDIO"
-                            next_action = _action(
-                                "generate_narration_audio",
-                                "narration audio is missing",
                                 args={"episode": target.episode},
                                 ids=missing,
                             )

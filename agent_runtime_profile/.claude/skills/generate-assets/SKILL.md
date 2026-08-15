@@ -84,7 +84,9 @@ description: >-
 | 生成指定多个 | `mcp__arcreel__generate_assets({"type": "prop", "names": ["玉佩", "密信"]})` |
 | 生成单个 | `mcp__arcreel__generate_assets({"type": "scene", "names": ["村口老槐树"]})` |
 
-返回 `is_error: true` 时，文本里包含失败明细，按需重试或反馈给开发者。
+结果按 `requested / succeeded / failed / blocked` 逐 ID 返回，ID 形如 `character/张三`；
+按每一项自带的 `problem.code` 与 `problem.action` 决定下一步，不要解析文本。
+结构详见 `.claude/references/generation-results.md`。
 
 ## 工作流程
 

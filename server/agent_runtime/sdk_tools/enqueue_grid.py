@@ -1,4 +1,9 @@
-"""SDK MCP tool for grid storyboard generation."""
+"""SDK MCP tool for grid storyboard generation.
+
+Grid images are addressed by their own record ID; a group that has not produced
+one yet is labelled ``group:<first>..<last>`` so the per-ID contract can report
+a reused group without inventing an artifact ID for it.
+"""
 
 from __future__ import annotations
 
@@ -7,20 +12,47 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.artifact_activation import resolve_artifact_episode
+from lib.artifact_activation import active_artifact_currency_resolver, resolve_artifact_episode
+from lib.artifact_manifest import ArtifactKey
 from lib.generation_queue_client import enqueue_task_only, wait_for_task
+from lib.generation_result import (
+    GenerationAction,
+    GenerationCandidate,
+    GenerationProblem,
+    GenerationProblemCode,
+    GenerationResultBuilder,
+    GenerationSelectionMode,
+    GenerationTaskState,
+    artifact_state_problem,
+    observe_artifact_status,
+    problem_from_task_failure,
+    provider_checkpoint_from_task,
+    select_generation_targets,
+)
 from lib.grid.layout import GridLayout, plan_grid_chunks, video_aspect_ratio_of
 from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager, grid_storyboard_enabled
-from lib.script_models import resolve_content_mode
+from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
+from server.agent_runtime.sdk_tools._context import (
+    ToolContext,
+    generation_result_response,
+    tool_error,
+    validate_script_filename,
+)
 from server.services.grid_resolution import resolve_large_grid_allowed
 from server.services.grid_split import apply_grid_split
+
+_OPERATION = "generate_grid"
+
+
+def _group_unit_id(group: list[dict[str, Any]], id_field: str) -> str:
+    ids = [str(item.get(id_field)) for item in group]
+    return f"group:{ids[0]}..{ids[-1]}" if ids else "group:empty"
 
 
 def _list_groups(
@@ -67,11 +99,13 @@ def _describe_plans(plans: list[tuple[list[dict[str, Any]], GridLayout]]) -> str
 
 def generate_grid_tool(ctx: ToolContext):
     @tool(
-        "generate_grid",
+        _OPERATION,
         "为已开启宫格装配的 storyboard 项目（generation_mode=storyboard 且 grid_storyboard=true）"
         "生成宫格联合图（按 segment_break 分组），并在每张生成完成后自动执行切分落格，"
         "端到端产出各场景起始分镜图。"
-        "list_only=true 时只列出分组不执行生成。scene_ids 过滤包含这些场景的分组。",
+        "list_only=true 时只列出分组不执行生成。scene_ids 过滤包含这些场景的分组；"
+        "不传 scene_ids 时只生成仍缺分镜图的分组，已失效但可用的旧图会被复用而不重生。"
+        "结果按 requested / succeeded / failed / blocked 逐宫格 ID 返回。",
         {
             "type": "object",
             "properties": {
@@ -82,7 +116,7 @@ def generate_grid_tool(ctx: ToolContext):
                 "scene_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "只生成包含这些场景的分组",
+                    "description": "只生成包含这些场景的分组；不传则只生成仍缺分镜图的分组",
                 },
                 "list_only": {"type": "boolean", "description": "仅列出分组信息，不入队"},
             },
@@ -128,29 +162,72 @@ def generate_grid_tool(ctx: ToolContext):
             items, id_field, _, _, _ = get_storyboard_items(script)
             aspect_ratio = video_aspect_ratio_of(project)
             style = project.get("style", "")
+            resolver = active_artifact_currency_resolver(project_path, project)
             groups = group_scenes_by_segment_break(items, id_field)
 
-            # ``scene_ids is not None`` 区分"不传 = 不过滤"和"传 [] = 过滤到 0
-            # 个"——后者是显式空选择，按 ``not groups`` 分支当错误返回。同样
-            # 处理 list_only 预览（见 ``_list_groups``）保持一致。
-            if scene_ids is not None:
-                wanted = set(scene_ids)
-                groups = [g for g in groups if any(item[id_field] in wanted for item in g)]
+            explicit = scene_ids is not None
+            builder = GenerationResultBuilder(
+                _OPERATION,
+                GenerationSelectionMode.EXPLICIT if explicit else GenerationSelectionMode.MISSING_ONLY,
+            )
+            log: list[str] = []
+            selected_groups: list[list[dict[str, Any]]] = []
 
-            if not groups:
-                # 显式传了 ``scene_ids`` 但全部不命中（或传了 []）→ 错误；
-                # 不传 ``scene_ids`` 但脚本本身没有 segment_break 分组也走
-                # 这条路（罕见），按信息文案不带 is_error。
-                return {
-                    "content": [{"type": "text", "text": "没有匹配的场景组"}],
-                    "is_error": scene_ids is not None,
-                }
+            if explicit:
+                # ``[]`` 是显式空选择，与全部不命中等价：两者都不产生任务。
+                wanted = list(dict.fromkeys(str(sid) for sid in scene_ids or []))
+                known = {str(item.get(id_field)) for item in items}
+                for sid in wanted:
+                    if sid not in known:
+                        builder.block(
+                            sid,
+                            problem=GenerationProblem(
+                                code=GenerationProblemCode.UNIT_NOT_FOUND,
+                                detail=f"场景 {sid} 不在当前剧本中",
+                                action=GenerationAction.FIX_INPUT,
+                            ),
+                        )
+                selected_groups = [g for g in groups if any(str(item.get(id_field)) in set(wanted) for item in g)]
+            else:
+                for group in groups:
+                    # 分组的缺口按成员分镜图判定：整组分镜图都还可用（含 stale）时
+                    # 无需再出一张宫格，已付费的旧图照常复用。
+                    selection = select_generation_targets(
+                        candidates=[
+                            GenerationCandidate(
+                                unit_id=str(item.get(id_field)),
+                                artifact_key=(
+                                    ArtifactKey.episode_storyboard(episode, str(item.get(id_field)))
+                                    if resolver is not None
+                                    else None
+                                ),
+                                artifact_path=get_generated_assets(item).get("storyboard_image"),
+                            )
+                            for item in group
+                            if item.get(id_field)
+                        ],
+                        requested_ids=None,
+                        resolver=resolver,
+                    )
+                    if selection.unavailable:
+                        for state in selection.unavailable:
+                            builder.block(
+                                state.unit_id,
+                                problem=artifact_state_problem(state),
+                                artifact_key=state.artifact_key,
+                                artifact_path=state.artifact_path,
+                                artifact_status=state.status,
+                            )
+                        continue
+                    if not selection.targets:
+                        builder.skip_unit(_group_unit_id(group, id_field))
+                        continue
+                    selected_groups.append(group)
 
             gm = GridManager(project_path)
             pending: list[tuple[GridGeneration, str]] = []
-            enqueue_failures: list[tuple[str, list[str], str]] = []
 
-            for group in groups:
+            for group in selected_groups:
                 # 超上限分组切为多张宫格逐张入队：每张的场景数与画格数一致
                 # （末张不足一档时落小档 + 占位格），与预览、费用估算同源。
                 # 空分组（``plan_grid_chunks`` 的唯一空产出）自然跳过循环体。
@@ -185,7 +262,7 @@ def generate_grid_tool(ctx: ToolContext):
                         prompt=prompt,
                     )
                     # 先 save 后 enqueue 给 worker 提供可读的 grid 文件；入队失败时
-                    # 用 ``gm.delete`` 回收孤儿记录，并把该张并入 failures——前面已
+                    # 用 ``gm.delete`` 回收孤儿记录，并把该张记为 failed——前面已
                     # 入队成功的宫格继续跑，调用方不会被一张失败导致全量重试。
                     gm.save(grid)
                     try:
@@ -209,67 +286,102 @@ def generate_grid_tool(ctx: ToolContext):
                         )
                     except Exception as exc:  # noqa: BLE001
                         gm.delete(grid.id)
-                        enqueue_failures.append((grid.id, chunk_ids, str(exc)))
+                        builder.fail(
+                            grid.id,
+                            problem=GenerationProblem(
+                                code=GenerationProblemCode.ENQUEUE_FAILED,
+                                detail=f"{chunk_ids[0]}..{chunk_ids[-1]} 入队失败: {exc}",
+                                action=GenerationAction.RETRY,
+                                params={"scene_ids": chunk_ids},
+                            ),
+                            task_state=GenerationTaskState.NOT_QUEUED,
+                        )
                         continue
                     pending.append((grid, enqueue_result["task_id"]))
 
-            details: list[str] = []
-            for grid_id, group_ids, err in enqueue_failures:
-                details.append(f"  ✗ {grid_id}（{group_ids[0]}..{group_ids[-1]}）入队失败: {err}")
+            if pending:
+                # Wait for all queued grids concurrently — image worker channel can run
+                # multiple in parallel, so serial wait_for_task would mask that throughput.
+                results = await asyncio.gather(
+                    *(wait_for_task(task_id) for _, task_id in pending),
+                    return_exceptions=True,
+                )
+                for (grid, task_id), result in zip(pending, results, strict=True):
+                    grid_key = ArtifactKey.episode_grid(episode, grid.id) if resolver is not None else None
+                    if isinstance(result, BaseException):
+                        builder.fail(
+                            grid.id,
+                            problem=problem_from_task_failure(str(result)),
+                            artifact_key=grid_key,
+                            task_id=task_id,
+                        )
+                        continue
+                    status_value = result.get("status")
+                    if status_value != "succeeded":
+                        builder.fail(
+                            grid.id,
+                            problem=problem_from_task_failure(
+                                result.get("error_message"),
+                                cancelled=status_value == "cancelled",
+                            ),
+                            artifact_key=grid_key,
+                            task_id=task_id,
+                            task_state=(
+                                GenerationTaskState.CANCELLED
+                                if status_value == "cancelled"
+                                else GenerationTaskState.FAILED
+                            ),
+                            provider_checkpoint=provider_checkpoint_from_task(result),
+                        )
+                        continue
+                    # 生成任务只产出联合图；分镜格落盘由编排方在此显式调用切分补上，
+                    # 端到端语义（分镜格齐备）不变。重载记录取 worker 回填的最新状态。
+                    reloaded: GridGeneration | None = None
+                    try:
+                        reloaded = gm.get(grid.id)
+                        if reloaded is None:
+                            raise RuntimeError(f"grid record missing after generation: {grid.id}")
+                        with project_change_source("worker"):
+                            split_result = await apply_grid_split(ctx.project_name, reloaded)
+                    except Exception as exc:  # noqa: BLE001
+                        # 联合图已生成成功，仅落格失败：独立问题码把它与生成失败区分开，
+                        # 可在 WebUI 宫格面板重试切分（无需重新生成、不重复计费）。
+                        builder.fail(
+                            grid.id,
+                            problem=GenerationProblem(
+                                code=GenerationProblemCode.POST_PROCESSING_FAILED,
+                                detail=f"联合图已生成，但切分落格失败（可在宫格面板重试切分）: {exc}",
+                                action=GenerationAction.RETRY,
+                            ),
+                            artifact_key=grid_key,
+                            artifact_path=reloaded.grid_image_path if reloaded is not None else None,
+                            task_id=task_id,
+                            task_state=GenerationTaskState.SUCCEEDED,
+                            provider_checkpoint=provider_checkpoint_from_task(result),
+                        )
+                        continue
+                    artifact_path = reloaded.grid_image_path
+                    artifact_status, _blocker = observe_artifact_status(
+                        resolver=resolver,
+                        key=grid_key,
+                        artifact_path=artifact_path,
+                    )
+                    builder.succeed(
+                        grid.id,
+                        artifact_key=grid_key,
+                        artifact_path=artifact_path,
+                        task_id=task_id,
+                        artifact_status=artifact_status,
+                        provider_checkpoint=provider_checkpoint_from_task(result),
+                    )
+                    line = f"已切分 {len(split_result.updated_scene_ids)} 格"
+                    if split_result.missing_scene_ids:
+                        line += f"，跳过已不在剧本的分镜: {split_result.missing_scene_ids}"
+                    log.append(f"  {grid.id}: {line}")
 
-            if not pending:
-                msg = "\n".join([*details, "没有需要生成的宫格组"])
-                return {
-                    "content": [{"type": "text", "text": msg}],
-                    "is_error": bool(enqueue_failures),
-                }
-
-            successes: list[str] = []
-            failures: list[tuple[str, str]] = []
-            # Wait for all queued grids concurrently — image worker channel can run
-            # multiple in parallel, so serial wait_for_task would mask that throughput.
-            results = await asyncio.gather(
-                *(wait_for_task(task_id) for _, task_id in pending),
-                return_exceptions=True,
-            )
-            for (grid, _task_id), result in zip(pending, results, strict=True):
-                if isinstance(result, BaseException):
-                    failures.append((grid.id, str(result)))
-                    details.append(f"  ✗ {grid.id}: {result}")
-                    continue
-                if result.get("status") != "succeeded":
-                    err = result.get("error_message") or "unknown"
-                    failures.append((grid.id, err))
-                    details.append(f"  ✗ {grid.id}: {err}")
-                    continue
-                # 生成任务只产出联合图；分镜格落盘由编排方在此显式调用切分补上，
-                # 端到端语义（分镜格齐备）不变。重载记录取 worker 回填的最新状态。
-                try:
-                    reloaded = gm.get(grid.id)
-                    if reloaded is None:
-                        raise RuntimeError(f"grid record missing after generation: {grid.id}")
-                    with project_change_source("worker"):
-                        split_result = await apply_grid_split(ctx.project_name, reloaded)
-                except Exception as exc:  # noqa: BLE001
-                    # 联合图已生成成功，仅落格失败：不并入生成失败语义，提示可在
-                    # WebUI 宫格面板重试切分（无需重新生成、不重复计费）。
-                    failures.append((grid.id, str(exc)))
-                    details.append(f"  ✗ {grid.id}: 联合图已生成，但切分落格失败（可在宫格面板重试切分）: {exc}")
-                    continue
-                successes.append(grid.id)
-                line = f"  ✓ {grid.id}（{grid.scene_ids[0]}..{grid.scene_ids[-1]}，已切分 {len(split_result.updated_scene_ids)} 格）"
-                if split_result.missing_scene_ids:
-                    line += f"，跳过已不在剧本的分镜: {split_result.missing_scene_ids}"
-                details.append(line)
-
-            total_failed = len(failures) + len(enqueue_failures)
-            header = f"generate_grid summary: {len(successes)} succeeded, {total_failed} failed"
-            return {
-                "content": [{"type": "text", "text": "\n".join([header, *details])}],
-                "is_error": bool(failures) or bool(enqueue_failures),
-            }
+            return generation_result_response(builder.build(), log)
         except Exception as exc:  # noqa: BLE001
-            return tool_error("generate_grid", exc)
+            return tool_error(_OPERATION, exc)
 
     return _handler
 

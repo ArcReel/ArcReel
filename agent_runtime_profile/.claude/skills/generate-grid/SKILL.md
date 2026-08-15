@@ -21,6 +21,11 @@ description: 生成宫格分镜图。当用户说"生成宫格"、"宫格生图"
 | 指定场景所在的组 | `mcp__arcreel__generate_grid({"script": "episode_1.json", "scene_ids": ["E1S01", "E1S02", "E1S03"]})` |
 | 列出当前分组信息 | `mcp__arcreel__generate_grid({"script": "episode_1.json", "list_only": true})` |
 
+不传 `scene_ids` 时只补缺：分镜格已齐备的分组会被复用，不重新生成。
+结果按 `requested / succeeded / failed / blocked` 逐 ID 返回；联合图已生成但切分失败的项
+带 `generation_post_processing_failed`，此时不要重新生成整张宫格（会重复计费）。
+结构详见 `.claude/references/generation-results.md`。
+
 ## 输出
 
 - 宫格联合图保存到 `grids/{grid_id}.png`（`grid_id` 自身即带 `grid_` 前缀，如 `grids/grid_a1b2c3d4e5f6.png`），每次生成/上传记为一个 grids 版本

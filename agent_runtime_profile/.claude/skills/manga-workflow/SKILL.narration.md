@@ -59,15 +59,14 @@ Read / Glob 只用于执行已选定动作所需的内容，不用于另建状�
 | `generate_asset_sheets` | 阶段 5 |
 | `generate_storyboards` / `generate_grid` | 阶段 6 |
 | `generate_videos` | 阶段 7 |
-| `generate_narration_audio` | 阶段 8 |
 | `export` | 工作流完成 |
 | `none` | 展示 `blockers` 并停止变更 |
 
 调用后把 `target.episode` 作为目标集，把 `next_action.args` 与 `requested_ids` 原样带入对应阶段。
 不得根据空资产 bucket、文件名、旧文件存在性或对话记忆覆盖服务端结论。
 
-> 阶段 8 只依赖剧本各段的 `novel_text`，独立于分镜图/视频——阶段 4 剧本生成后即可推进。
-> 用户提前要求配音时直接进入阶段 8，不必等分镜/视频完成。
+> 阶段 8（旁白配音）不在这张表里：它由用户明确要求触发，不由 `next_action` 驱动。
+> 它只依赖剧本各段的 `novel_text`，独立于分镜图/视频——阶段 4 剧本生成后即可执行。
 
 ---
 
@@ -266,10 +265,12 @@ dispatch `generate-assets` subagent：
 
 ## 阶段 8：旁白配音（仅 storyboard 模式，含 grid_storyboard）
 
-**触发**：`next_action.type == "generate_narration_audio"`；服务端不会在 reference_video 模式返回此动作。
+**触发**：用户明确要求生成旁白配音。这一阶段不由工作流状态驱动——缺 TTS 不是工作流缺口，
+状态机不会推进到这里，也不会因此拦住导出；`workflow_status` 的 `artifacts.audio` 只如实报告哪些段缺配音。
+后期配音路线的旁白不需要 TTS，不要为它补齐。
 
 旁白配音以各段 `novel_text` 原文逐段合成语音，只依赖剧本、独立于分镜图/视频：
-按序推进时排在视频之后，但用户要求时可在阶段 4 剧本生成后随时执行。
+用户要求时可在阶段 4 剧本生成后随时执行。
 
 **dispatch `generate-assets` subagent**：
 

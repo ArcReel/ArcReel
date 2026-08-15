@@ -426,13 +426,19 @@ class TaskSpec:
 
 @dataclass
 class BatchTaskResult:
-    """Result of a single task after batch execution."""
+    """Result of a single task after batch execution.
+
+    ``task`` carries the finished task row so callers can report the provider
+    submission checkpoint separately from the queue status; it is ``None`` only
+    when the wait itself failed and no terminal row was ever read.
+    """
 
     resource_id: str
     task_id: str
     status: str  # "succeeded" | "failed" | "cancelled"
     result: dict[str, Any] | None = None
     error: str | None = None
+    task: dict[str, Any] | None = None
 
 
 def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: str) -> BatchTaskResult:
@@ -443,6 +449,7 @@ def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: 
             task_id=task_id,
             status="failed",
             error=task.get("error_message") or "task failed",
+            task=task,
         )
     if task.get("status") == "cancelled":
         return BatchTaskResult(
@@ -450,12 +457,14 @@ def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: 
             task_id=task_id,
             status="cancelled",
             error="task cancelled",
+            task=task,
         )
     return BatchTaskResult(
         resource_id=resource_id,
         task_id=task_id,
         status="succeeded",
         result=task.get("result") or {},
+        task=task,
     )
 
 

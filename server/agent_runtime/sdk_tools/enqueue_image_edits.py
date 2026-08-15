@@ -21,8 +21,27 @@ from lib.artifact_activation import (
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation_queue_client import TaskSpec, batch_enqueue_and_wait
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
+from lib.generation_result import (
+    GenerationAction,
+    GenerationProblem,
+    GenerationProblemCode,
+    GenerationResultBuilder,
+    GenerationSelectionMode,
+    GenerationTaskState,
+    problem_from_task_failure,
+    provider_checkpoint_from_task,
+)
+from server.agent_runtime.sdk_tools._context import (
+    ToolContext,
+    generation_result_response,
+    tool_error,
+    validate_script_filename,
+)
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
+
+# 编辑始终是显式选择：一次编辑必须携带自己的指令，没有可由 Manifest 推导的
+# "缺失的编辑"，因此本工具不提供 missing-only 选择。
+_OPERATION = "edit_images"
 
 # Display label for tool output only; storyboard isn't an ASSET_SPECS member so this
 # can't reuse that dict directly (mirrors enqueue_assets._EMOJI's separate table).
@@ -58,7 +77,14 @@ def _build_specs(
     artifact_episode: int | None,
     resolver: ArtifactCurrencyResolver | None,
     warnings: list[str],
+    builder: GenerationResultBuilder,
 ) -> list[TaskSpec]:
+    """Turn the requested edits into task specs, blocking the ones that cannot run.
+
+    Malformed entries with no usable ID stay in ``warnings``: they have no unit
+    ID to report against, so they cannot enter the per-ID contract.
+    """
+
     label = _LABEL_ZH[resource_type]
     specs: list[TaskSpec] = []
     seen_ids: set[str] = set()
@@ -76,7 +102,14 @@ def _build_specs(
             continue
         seen_ids.add(resource_id)
         if not instruction:
-            warnings.append(f"⚠️  {label} '{resource_id}' 缺少编辑指令，跳过")
+            builder.block(
+                resource_id,
+                problem=GenerationProblem(
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail=f"{label} '{resource_id}' 缺少编辑指令",
+                    action=GenerationAction.FIX_INPUT,
+                ),
+            )
             continue
         try:
             source = resolve_usable_image_edit_source(
@@ -89,10 +122,24 @@ def _build_specs(
                 resolver=resolver,
             )
         except KeyError:
-            warnings.append(f"⚠️  {label} '{resource_id}' 不存在，跳过")
+            builder.block(
+                resource_id,
+                problem=GenerationProblem(
+                    code=GenerationProblemCode.UNIT_NOT_FOUND,
+                    detail=f"{label} '{resource_id}' 不存在",
+                    action=GenerationAction.FIX_INPUT,
+                ),
+            )
             continue
         if source is None:
-            warnings.append(f"⚠️  {label} '{resource_id}' 没有可编辑的当前图，跳过")
+            builder.block(
+                resource_id,
+                problem=GenerationProblem(
+                    code=GenerationProblemCode.UNIT_INPUT_UNUSABLE,
+                    detail=f"{label} '{resource_id}' 没有可编辑的当前图",
+                    action=GenerationAction.GENERATE_DEPENDENCY,
+                ),
+            )
             continue
         specs.append(
             TaskSpec.from_request(
@@ -116,7 +163,8 @@ def edit_images_tool(ctx: ToolContext):
         "（仍按原 prompt 重画）；重新生成=按原 prompt 整图重画，会推翻已满意的部分。"
         "用户只想改局部时用编辑；用户想推翻构图/内容重来、或原 image_prompt 本身要改时用重新生成。"
         "resource_type 支持 character/scene/prop/product/storyboard 五类，storyboard 必须带 script_file。"
-        "编辑必然走图生图（i2i）；当前项目图片供应商不支持 i2i 时直接返回错误，不创建任何任务。",
+        "编辑必然走图生图（i2i）；当前项目图片供应商不支持 i2i 时直接返回错误，不创建任何任务。"
+        "编辑始终是显式选择（每条编辑自带指令），结果按 requested / succeeded / failed / blocked 逐 ID 返回。",
         {
             "type": "object",
             "properties": {
@@ -205,6 +253,7 @@ def edit_images_tool(ctx: ToolContext):
                 }
 
             warnings: list[str] = []
+            builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.EXPLICIT)
             specs = _build_specs(
                 project=project,
                 project_path=project_path,
@@ -215,35 +264,41 @@ def edit_images_tool(ctx: ToolContext):
                 artifact_episode=artifact_episode,
                 resolver=resolver,
                 warnings=warnings,
+                builder=builder,
             )
-            if not specs:
+            if not specs and not builder.recorded_ids:
                 return {
                     "content": [{"type": "text", "text": "\n".join([*warnings, "没有可执行的编辑任务"])}],
                     "is_error": True,
                 }
 
-            successes, failures = await batch_enqueue_and_wait(
-                project_name=ctx.project_name,
-                specs=specs,
-            )
+            if specs:
+                successes, failures = await batch_enqueue_and_wait(
+                    project_name=ctx.project_name,
+                    specs=specs,
+                )
+                for br in successes:
+                    result = br.result or {}
+                    builder.succeed(
+                        br.resource_id,
+                        artifact_path=result.get("file_path") or br.resource_id,
+                        task_id=br.task_id,
+                        provider_checkpoint=provider_checkpoint_from_task(br.task),
+                    )
+                for br in failures:
+                    builder.fail(
+                        br.resource_id,
+                        problem=problem_from_task_failure(br.error, cancelled=br.status == "cancelled"),
+                        task_id=br.task_id,
+                        task_state=(
+                            GenerationTaskState.CANCELLED if br.status == "cancelled" else GenerationTaskState.FAILED
+                        ),
+                        provider_checkpoint=provider_checkpoint_from_task(br.task),
+                    )
 
-            details: list[str] = []
-            for br in successes:
-                result = br.result or {}
-                version = result.get("version")
-                version_text = f" (v{version})" if version is not None else ""
-                file_path = result.get("file_path") or br.resource_id
-                details.append(f"  ✓ {br.resource_id} → {file_path}{version_text}")
-            for br in failures:
-                details.append(f"  ✗ {br.resource_id}: {br.error}")
-
-            header = f"edit_images summary: {len(successes)} succeeded, {len(failures)} failed"
-            return {
-                "content": [{"type": "text", "text": "\n".join([*warnings, header, *details])}],
-                "is_error": bool(failures),
-            }
+            return generation_result_response(builder.build(), warnings)
         except Exception as exc:  # noqa: BLE001
-            return tool_error("edit_images", exc)
+            return tool_error(_OPERATION, exc)
 
     return _handler
 
