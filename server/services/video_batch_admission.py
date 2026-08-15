@@ -113,6 +113,33 @@ def artifact_state_tickets(states: Sequence[GenerationTargetState]) -> list[Unit
     return [UnitAdmissionTicket(unit_id=state.unit_id, problems=(artifact_state_problem(state),)) for state in states]
 
 
+def unusable_script_entry_tickets(entries: Sequence[Any]) -> list[UnitAdmissionTicket]:
+    """把剧本里根本成不了目标的条目折成准入票，按它在剧本中的位置记名。
+
+    非对象条目与没有 unit_id 的条目都无法被点名，也就进不了目标集合。把它们悄悄滤掉
+    等于让同批健康的 unit 独自入队计费——这道门要防的正是这种部分成批。缺失即生成的
+    请求把整个剧本当作目标集合，因此由调用方在这一口径下取证。
+    """
+
+    tickets: list[UnitAdmissionTicket] = []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            detail = f"该条目不是对象，当前为 {type(entry).__name__}"
+        elif not str(entry.get("unit_id") or ""):
+            detail = "该 unit 没有可用的 unit_id"
+        else:
+            continue
+        tickets.append(
+            refused_ticket(
+                f"video_units[{index}]",
+                code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                detail=detail,
+                action=GenerationAction.FIX_INPUT,
+            )
+        )
+    return tickets
+
+
 def resolve_reference_batch_targets(
     *,
     units: Sequence[Any],

@@ -8352,7 +8352,7 @@ async def test_generate_video_episode_batch_is_all_or_nothing_when_a_unit_is_occ
 async def test_generate_video_all_creates_zero_tasks_when_one_artifact_state_is_unreadable(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """产物状态读不出的场景属于这次请求：它没进准入，同批健康的场景就会照常入队并计费。"""
+    """产物状态读不出的场景属于这次请求：它带着自己的问题进准入，整批停下，健康的场景不入队计费。"""
     from dataclasses import replace as dc_replace
 
     from lib.artifact_manifest import ArtifactBlocker, ArtifactStatus
