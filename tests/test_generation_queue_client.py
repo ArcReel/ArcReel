@@ -38,6 +38,18 @@ class TestTaskSpecFromRequest:
         assert spec.script_file == "episode_1.json"
         assert spec.payload == {"prompt": "一个奔跑的镜头", "script_file": "episode_1.json"}
 
+    def test_blank_resource_id_is_rejected(self):
+        """纯空白的 resource_id 与空的同样不可用：它会在执行期变成一段空白文件名。"""
+
+        with pytest.raises(ValueError, match="resource_id is required"):
+            TaskSpec.from_request(task_type="video", media_type="video", resource_id="   ", prompt="镜头平移")
+
+    def test_path_like_resource_id_is_rejected(self):
+        """带路径片段的 resource_id 在结构守卫处就拒，不留到执行期拼产物路径时才发现。"""
+
+        with pytest.raises(ValueError, match="路径"):
+            TaskSpec.from_request(task_type="video", media_type="video", resource_id="../bad", prompt="镜头平移")
+
     def test_video_action_object_prompt_builds_spec(self):
         prompt = {"action": "转身", "camera_motion": "Static", "dialogue": [{"speaker": "甲", "line": "走"}]}
         spec = TaskSpec.from_request(

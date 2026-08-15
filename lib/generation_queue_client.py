@@ -404,7 +404,9 @@ class TaskSpec:
         both the WebUI routes and the SDK spec builders construct through here so the
         rules can't diverge. Raises :class:`TaskSpecValidationError` on invalid input.
         """
-        if not resource_id:
+        # 纯空白的 id 与空 id 同样不可用：它非空、能过下面的字符检查，却会在执行期变成一段
+        # 空白文件名。判空统一按 strip 后的值，各调用点因此不必各自 strip 一遍。
+        if not resource_id.strip():
             raise ValueError("resource_id is required")
         # resource_id 在执行期是产物路径的一段：带路径分隔符或 .. 的值要到 worker 拼路径时
         # 才被 safe_join 拒绝，那时同批健康的任务已经在跑并计费。结构守卫在这里就拒，让它
