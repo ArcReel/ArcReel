@@ -999,14 +999,44 @@ class ProjectArtifactManifestAdapter:
         )
 
     def get_entry(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
-        with self._locked() as root_fd:
-            entries, _ = self._load_unlocked(root_fd)
-            return entries.get(key.encode())
+        return self._load_readonly().get(key.encode())
 
     def snapshot_entries(self) -> Mapping[ArtifactKey, ArtifactManifestEntry]:
-        with self._locked() as root_fd:
-            entries, _ = self._load_unlocked(root_fd)
-            return {ArtifactKey.decode(encoded): entry for encoded, entry in entries.items()}
+        entries = self._load_readonly()
+        return {ArtifactKey.decode(encoded): entry for encoded, entry in entries.items()}
+
+    def _load_readonly(self) -> dict[str, ArtifactManifestEntry]:
+        """Read one consistent snapshot without creating runtime state.
+
+        Once a writer has created the durable lock file, readers serialize with
+        that lock exactly as before.  A project that has never needed a manifest
+        write has no lock file; in that state two identical guarded reads provide
+        a stable snapshot without turning a status query into a filesystem write.
+        A legitimate writer creates the lock before replacing the manifest, so a
+        lock appearing during either read sends the reader back through the
+        serialized path.
+        """
+
+        lock_path = self._project_dir / LOCK_FILENAME
+        if self._runtime_file_identity(lock_path, "manifest lock") is not None:
+            with self._locked() as root_fd:
+                entries, _ = self._load_unlocked(root_fd)
+                return entries
+
+        with self._guard_portable_project_root():
+            entries, original_bytes = self._load_unlocked(None)
+            if self._runtime_file_identity(lock_path, "manifest lock") is not None:
+                with self._locked() as root_fd:
+                    locked_entries, _ = self._load_unlocked(root_fd)
+                    return locked_entries
+            repeated_entries, repeated_bytes = self._load_unlocked(None)
+            if self._runtime_file_identity(lock_path, "manifest lock") is not None:
+                with self._locked() as root_fd:
+                    locked_entries, _ = self._load_unlocked(root_fd)
+                    return locked_entries
+        if original_bytes != repeated_bytes or entries != repeated_entries:
+            raise ArtifactManifestError("artifact manifest changed during an unlocked read")
+        return entries
 
     def put_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> bool:
         with self._locked() as root_fd:

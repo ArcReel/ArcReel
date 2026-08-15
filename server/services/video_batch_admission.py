@@ -57,7 +57,7 @@ from lib.reference_video.request_projection import (
     project_reference_unit_request,
 )
 from lib.script_models import get_generated_assets
-from lib.speech_composition import SpeechAdmissionError, require_script_unit_admitted
+from lib.speech_composition import SpeechAdmission, SpeechAdmissionError, require_script_unit_admitted
 from lib.version_manager import VersionManager
 from server.services.cost_estimation import quote_video_request
 from server.services.narration_delivery_tasks import (
@@ -346,17 +346,26 @@ def _generation_problem(problem: ProjectionProblem | NarrationDeliveryProblem, *
     )
 
 
-def _speech_problem(exc: SpeechAdmissionError) -> GenerationProblem:
-    problem = exc.admission.problems[0]
-    return GenerationProblem(
-        code=problem.code.value,
-        detail=problem.reason.value,
-        action=_SPEECH_ACTIONS.get(problem.action.value, GenerationAction.FIX_INPUT),
-        params={"speech_admission": exc.admission.to_dict()},
+def speech_admission_problems(admission: SpeechAdmission) -> tuple[GenerationProblem, ...]:
+    """Lift every speech blocker into the shared generation problem contract."""
+
+    payload = admission.to_dict()
+    return tuple(
+        GenerationProblem(
+            code=problem.code.value,
+            detail=problem.reason.value,
+            action=_SPEECH_ACTIONS.get(problem.action.value, GenerationAction.FIX_INPUT),
+            params={"unit_id": admission.unit_id, "speech_admission": payload},
+        )
+        for problem in admission.problems
     )
 
 
-def _active_task_problem(task: Mapping[str, Any]) -> GenerationProblem:
+def _speech_problem(exc: SpeechAdmissionError) -> GenerationProblem:
+    return speech_admission_problems(exc.admission)[0]
+
+
+def active_task_problem(task: Mapping[str, Any]) -> GenerationProblem:
     return GenerationProblem(
         code=GenerationProblemCode.ACTIVE_TASK_CONFLICT,
         detail=f"该 unit 已有在途任务（状态：{task.get('status')}），等待其结束后再提交本次批量请求",
@@ -491,7 +500,7 @@ async def admit_reference_video_batch(
         seen_ids.add(unit_id)
         problems: list[GenerationProblem] = []
         if unit_id in conflicts:
-            problems.append(_active_task_problem(conflicts[unit_id]))
+            problems.append(active_task_problem(conflicts[unit_id]))
         if spec_check is not None:
             try:
                 spec_check(unit)
@@ -655,7 +664,7 @@ async def admit_storyboard_video_batch(
     for resource_id, item, visual_prompt in items:
         if resource_id in conflicts:
             tickets.append(
-                UnitAdmissionTicket(unit_id=resource_id, problems=(_active_task_problem(conflicts[resource_id]),))
+                UnitAdmissionTicket(unit_id=resource_id, problems=(active_task_problem(conflicts[resource_id]),))
             )
             continue
         if request_options.narration_delivery != USE_TTS:
@@ -730,11 +739,13 @@ async def _storyboard_ticket(
 
 
 __all__ = [
+    "active_task_problem",
     "admit_reference_video_batch",
     "admit_storyboard_video_batch",
     "reference_unit_task_spec",
     "artifact_state_tickets",
     "request_options_for_unit",
     "resolve_reference_batch_targets",
+    "speech_admission_problems",
     "video_target_states",
 ]

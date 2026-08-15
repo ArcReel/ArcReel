@@ -232,6 +232,16 @@ def test_project_adapter_serializes_concurrent_manifest_updates(tmp_path: Path) 
     assert len(stored["entries"]) == len(episodes)
 
 
+def test_project_adapter_read_does_not_create_a_lock_file(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    adapter = ProjectArtifactManifestAdapter(project)
+
+    assert adapter.get_entry(ArtifactKey.episode_script(1)) is None
+    assert adapter.snapshot_entries() == {}
+    assert not (project / LOCK_FILENAME).exists()
+
+
 @pytest.mark.skipif(os.name != "posix", reason="exclusive lock-file creation protects concurrent openat calls")
 def test_project_adapter_creates_lock_file_exclusively(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project = tmp_path / "project"

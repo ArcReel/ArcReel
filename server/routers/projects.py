@@ -44,6 +44,7 @@ from lib.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, scr
 from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
+from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow_state import WorkflowStateService, WorkflowStatus
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.routers._reorder import full_permutation_error
@@ -53,6 +54,7 @@ from server.routers._script_edits import (
     script_batch_status,
 )
 from server.routers._validators import validate_backend_value
+from server.services import workflow_planner as workflow_plan_service
 from server.services.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
@@ -691,6 +693,20 @@ async def get_workflow_status(
 
     try:
         return await asyncio.to_thread(WorkflowStateService(get_project_manager()).get_status, name, episode)
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
+    except json.JSONDecodeError:
+        raise
+    except ValueError as exc:
+        raise BadRequestError("request_invalid") from exc
+
+
+@router.post("/projects/{name}/workflow-plan", response_model=WorkflowPlan)
+async def get_workflow_plan(name: str, request: WorkflowPlanRequest):
+    """Return the side-effect-free plan for one transient workflow request."""
+
+    try:
+        return await workflow_plan_service.get_workflow_planner(get_project_manager()).get_plan(name, request)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except json.JSONDecodeError:

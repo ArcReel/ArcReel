@@ -35,6 +35,7 @@ from lib.script_models import get_generated_assets
 from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
 from lib.version_manager import VersionManager
+from lib.workflow_rules import workflow_rule
 
 WorkflowStateName = Literal[
     "PROJECT_INPUT",
@@ -854,13 +855,7 @@ class WorkflowStateService:
                 state = "EPISODE_PLAN"
                 next_action = self._planning_action(project, "target episode is unavailable")
             else:
-                preprocessor = (
-                    "split-reference-video-units"
-                    if generation_mode == "reference_video"
-                    else "split-narration-segments"
-                    if mode == "narration"
-                    else "normalize-drama-script"
-                )
+                preprocessor = workflow_rule(str(mode), str(generation_mode)).preprocessor
                 if mode != "ad" and selected is not None and selected[1].get("ledger_status") == "stale":
                     step1_path = script_review.step1_path(project_path, project, target.episode)
                     live_revision = script_review.content_fingerprint(step1_path) if step1_path is not None else None
