@@ -79,6 +79,7 @@ from server.services.video_batch_admission import (
     admit_reference_video_batch,
     admit_storyboard_video_batch,
     artifact_state_tickets,
+    diagnostic_unit_id,
     reference_unit_task_spec,
     request_options_for_unit,
     video_target_states,
@@ -584,18 +585,26 @@ def _screen_storyboard_items(
     缺失即生成把整个剧本当作目标集合，剧本里任何一处脏条目都参与判定；点名生成的目标集合由
     调用方给定，只有点到的 id 上的脏（同一个 id 的副本）才参与，否则别处的脏数据会否决一次
     精确点名的重做。
+
+    记名用带方括号的位置写法，与合法 id 不共用命名空间：同名会让结果契约把两条不同的条目
+    当作同一个，写第二遍时 fail loud，用户拿到的又是一句通用报错。
     """
 
     clean: list[dict[str, Any]] = []
     tickets: list[UnitAdmissionTicket] = []
     seen: set[str] = set()
+    taken = {
+        str(_storyboard_item_id(item, id_field) or "")
+        for item in items
+        if isinstance(item, dict) and isinstance(_storyboard_item_id(item, id_field), str | int)
+    }
     named = set(requested_ids) if requested_ids is not None else None
     for index, item in enumerate(items):
         if not isinstance(item, dict):
             if named is None:
                 tickets.append(
                     refused_ticket(
-                        f"item_{index}",
+                        diagnostic_unit_id(f"items[{index}]", taken),
                         code=GenerationProblemCode.UNIT_REQUEST_INVALID,
                         detail=f"该条目不是对象，当前为 {type(item).__name__}",
                         action=GenerationAction.FIX_INPUT,
@@ -607,7 +616,7 @@ def _screen_storyboard_items(
             if named is None:
                 tickets.append(
                     refused_ticket(
-                        f"item_{index}",
+                        diagnostic_unit_id(f"items[{index}]", taken),
                         code=GenerationProblemCode.UNIT_REQUEST_INVALID,
                         detail=f"该条目的 ID 不是标量，当前为 {type(raw_id).__name__}",
                         action=GenerationAction.FIX_INPUT,
@@ -619,7 +628,7 @@ def _screen_storyboard_items(
             if named is None:
                 tickets.append(
                     refused_ticket(
-                        f"item_{index}",
+                        diagnostic_unit_id(f"items[{index}]", taken),
                         code=GenerationProblemCode.UNIT_REQUEST_INVALID,
                         detail="该条目没有可用的 ID",
                         action=GenerationAction.FIX_INPUT,

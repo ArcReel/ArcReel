@@ -13,7 +13,7 @@ different conclusions about the same project.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -113,6 +113,19 @@ def artifact_state_tickets(states: Sequence[GenerationTargetState]) -> list[Unit
     return [UnitAdmissionTicket(unit_id=state.unit_id, problems=(artifact_state_problem(state),)) for state in states]
 
 
+def diagnostic_unit_id(base: str, taken: Collection[str]) -> str:
+    """成不了目标的条目按位置记名，并保证这个名字不与剧本里的合法 id 相同。
+
+    结果契约按 unit_id 记名一次：诊断名与某个真实 id 撞上时，两条不同的条目会被当作
+    同一个，写第二遍时 fail loud，用户拿到的是一句通用报错而不是逐目标的结论。
+    """
+
+    unit_id = base
+    while unit_id in taken:
+        unit_id += "*"
+    return unit_id
+
+
 def unusable_script_entry_tickets(entries: object) -> list[UnitAdmissionTicket]:
     """把剧本里根本成不了目标的条目折成准入票，按它在剧本中的位置记名。
 
@@ -134,6 +147,7 @@ def unusable_script_entry_tickets(entries: object) -> list[UnitAdmissionTicket]:
                 action=GenerationAction.FIX_INPUT,
             )
         ]
+    taken = {str(entry.get("unit_id") or "") for entry in entries if isinstance(entry, dict)}
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
             detail = f"该条目不是对象，当前为 {type(entry).__name__}"
@@ -143,7 +157,7 @@ def unusable_script_entry_tickets(entries: object) -> list[UnitAdmissionTicket]:
             continue
         tickets.append(
             refused_ticket(
-                f"video_units[{index}]",
+                diagnostic_unit_id(f"video_units[{index}]", taken),
                 code=GenerationProblemCode.UNIT_REQUEST_INVALID,
                 detail=detail,
                 action=GenerationAction.FIX_INPUT,
