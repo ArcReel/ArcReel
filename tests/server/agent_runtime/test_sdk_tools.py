@@ -3768,6 +3768,9 @@ async def test_six_route_agent_single_video_generation_returns_structured_admiss
     fake_ctx.pm.script_payload = case.script()  # type: ignore[attr-defined]
     batch_enqueue = AsyncMock()
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", batch_enqueue)
+    # reference_video 路线在准入失败前先探测在途任务（真实 DB 查询）；三个 storyboard
+    # case 走的是不摸 DB 的直连准入分支，只有 reference_video 三个 case 需要这个 mock。
+    monkeypatch.setattr(mod, "get_active_tasks_for_resources", AsyncMock(return_value=[]))
 
     out = await _call(generate_video_scene_tool(fake_ctx), {"script": "episode_1.json", "scene_id": case.unit_id})
 
