@@ -133,10 +133,10 @@ def screen_script_entries(
 ) -> tuple[list[dict[str, Any]], list[UnitAdmissionTicket]]:
     """把 video_units 分成「能当目标的」与「成不了目标的」两份，后者按位置记名。
 
-    非对象条目、unit_id 不是标量、unit_id 为空、以及同一个 unit_id 出现多次，都会让后面按
-    id 索引的每一步失手：条目被静默滤掉时同批健康的 unit 独自入队计费，撞上集合查询时又把
-    逐目标的拒绝契约打成一句通用报错。非标量 id 还能一路混过 ``str()`` 进队列，直到执行期
-    比对原值找不到 unit 才失败，那时兄弟条目可能已经在跑、已经计费。
+    非对象条目、unit_id 不是字符串、unit_id 为空、以及同一个 unit_id 出现多次，都会让后面
+    按 id 索引的每一步失手：条目被静默滤掉时同批健康的 unit 独自入队计费，撞上集合查询时又
+    把逐目标的拒绝契约打成一句通用报错。数字、布尔与对象 id 还能一路混过 ``str()`` 进队列，
+    执行期按原值比对时找不到 unit 才失败，那时兄弟条目可能已经在跑、已经计费。
 
     缺失即生成把整个剧本当作目标集合，剧本里任何一处脏条目都参与判定；点名生成的目标集合由
     调用方给定，只有点到的 id 上的脏（同一个 id 的副本）才参与，否则别处的脏数据会否决一次
@@ -160,9 +160,9 @@ def screen_script_entries(
     tickets: list[UnitAdmissionTicket] = []
     seen: set[str] = set()
     taken = {
-        str(entry.get("unit_id") or "").strip()
+        entry["unit_id"].strip()
         for entry in entries
-        if isinstance(entry, dict) and isinstance(entry.get("unit_id"), str | int)
+        if isinstance(entry, dict) and isinstance(entry.get("unit_id"), str)
     }
     named = set(requested_ids) if requested_ids is not None else None
     for index, entry in enumerate(entries):
@@ -172,10 +172,10 @@ def screen_script_entries(
             detail = f"该条目不是对象，当前为 {type(entry).__name__}"
         else:
             raw_id = entry.get("unit_id")
-            if raw_id is not None and not isinstance(raw_id, str | int):
-                detail = f"该 unit 的 ID 不是标量，当前为 {type(raw_id).__name__}"
+            if raw_id is not None and not isinstance(raw_id, str):
+                detail = f"该 unit 的 ID 不是字符串，当前为 {type(raw_id).__name__}"
             else:
-                unit_id = str(raw_id or "").strip()
+                unit_id = (raw_id or "").strip()
                 if not unit_id:
                     detail = "该 unit 没有可用的 unit_id"
         if detail is not None:

@@ -1431,7 +1431,7 @@ def test_generate_batch_creates_the_whole_task_set_in_one_admission(
     second = _seed_second_unit(client)
     enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
 
-    resp = client.post(BATCH_ENDPOINT, json={})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -1462,7 +1462,7 @@ def test_generate_batch_creates_zero_tasks_when_one_unit_is_blocked(
         active_tasks=[{"resource_id": second, "id": "task-running", "status": "running"}],
     )
 
-    resp = client.post(BATCH_ENDPOINT, json={})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -1488,7 +1488,9 @@ def test_generate_batch_reports_every_gap_not_only_the_first(
         active_tasks=[{"resource_id": second, "id": "task-running", "status": "running"}],
     )
 
-    resp = client.post(BATCH_ENDPOINT, json={"unit_ids": [first, second, "E9U9"]})
+    resp = client.post(
+        BATCH_ENDPOINT, json={"narration_delivery": "post_production", "unit_ids": [first, second, "E9U9"]}
+    )
 
     body = resp.json()
     assert body["decision"] == "blocked"
@@ -1509,7 +1511,7 @@ def test_generate_batch_aggregates_the_confirmation_by_tier_then_enqueues_on_con
     second = _seed_second_unit(client)
     enqueued = _patch_batch_admission(monkeypatch, durations=[4, 8], quote_amount=0.8)
 
-    pending = client.post(BATCH_ENDPOINT, json={})
+    pending = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     assert pending.status_code == 200, pending.text
     body = pending.json()
@@ -1526,7 +1528,7 @@ def test_generate_batch_aggregates_the_confirmation_by_tier_then_enqueues_on_con
 
     accepted = client.post(
         BATCH_ENDPOINT,
-        json={"confirmed_request_durations": {first: 4, second: 4}},
+        json={"narration_delivery": "post_production", "confirmed_request_durations": {first: 4, second: 4}},
     )
 
     assert accepted.status_code == 200, accepted.text
@@ -1547,7 +1549,9 @@ def test_generate_batch_rejects_non_positive_confirmed_duration(client: TestClie
 
     first = _seed_unit(client)
 
-    resp = client.post(BATCH_ENDPOINT, json={"confirmed_request_durations": {first: invalid}})
+    resp = client.post(
+        BATCH_ENDPOINT, json={"narration_delivery": "post_production", "confirmed_request_durations": {first: invalid}}
+    )
 
     assert resp.status_code == 422, resp.text
 
@@ -1562,7 +1566,9 @@ def test_generate_batch_partial_consent_still_creates_nothing(
     second = _seed_second_unit(client)
     enqueued = _patch_batch_admission(monkeypatch, durations=[4, 8], quote_amount=0.8)
 
-    resp = client.post(BATCH_ENDPOINT, json={"confirmed_request_durations": {first: 4}})
+    resp = client.post(
+        BATCH_ENDPOINT, json={"narration_delivery": "post_production", "confirmed_request_durations": {first: 4}}
+    )
 
     body = resp.json()
     assert body["decision"] == "confirmation_required"
@@ -1587,8 +1593,8 @@ def test_generate_batch_repeating_an_admitted_request_reports_dedup(
 
     monkeypatch.setattr("lib.generation_queue_client.enqueue_task_only", _enqueue_task_only)
 
-    first = client.post(BATCH_ENDPOINT, json={})
-    second = client.post(BATCH_ENDPOINT, json={})
+    first = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
+    second = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     assert first.json()["deduped"] is False
     assert second.json()["deduped"] is True
@@ -1660,7 +1666,7 @@ def test_generate_batch_use_tts_resolves_every_target_against_current_tts(
 def test_generate_batch_rejects_an_empty_selection(client: TestClient) -> None:
     """空数组不是「全部」：它是一次没有目标的请求，静默按全集处理会超出用户本意。"""
 
-    resp = client.post(BATCH_ENDPOINT, json={"unit_ids": []})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production", "unit_ids": []})
 
     assert resp.status_code == 400
     assert resp.json()["detail"]
@@ -1689,7 +1695,7 @@ def test_generate_batch_skips_units_that_already_have_a_clip(
     clip.mkdir(parents=True, exist_ok=True)
     (clip / f"{first}.mp4").write_bytes(b"\x00")
 
-    resp = client.post(BATCH_ENDPOINT, json={})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     body = resp.json()
     assert body["decision"] == "admitted"
@@ -1728,7 +1734,7 @@ def test_generate_batch_creates_zero_tasks_when_one_artifact_state_is_unreadable
 
     monkeypatch.setattr(router_mod, "resolve_reference_batch_targets", _one_unavailable)
 
-    resp = client.post(BATCH_ENDPOINT, json={})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -1775,7 +1781,7 @@ def test_generate_batch_reports_malformed_units_instead_of_shrinking_the_batch(
     script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-    resp = client.post(BATCH_ENDPOINT, json={})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -1809,7 +1815,7 @@ def test_generate_batch_explicit_ids_ignore_unrelated_malformed_units(
     script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-    resp = client.post(BATCH_ENDPOINT, json={"unit_ids": [first]})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production", "unit_ids": [first]})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -1836,7 +1842,7 @@ def test_generate_batch_reports_non_object_units_instead_of_dropping_them(
     script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-    resp = client.post(BATCH_ENDPOINT, json={})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -1865,7 +1871,7 @@ def test_generate_batch_reports_a_non_scalar_unit_id(client: TestClient, monkeyp
     script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-    resp = client.post(BATCH_ENDPOINT, json={})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -1893,7 +1899,7 @@ def test_generate_batch_reports_a_duplicated_unit_id(client: TestClient, monkeyp
     script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-    resp = client.post(BATCH_ENDPOINT, json={})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -1901,6 +1907,46 @@ def test_generate_batch_reports_a_duplicated_unit_id(client: TestClient, monkeyp
     assert enqueued == []
     codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
     assert codes[f"{first}#1"] == ["generation_unit_request_invalid"]
+
+
+@pytest.mark.integration
+def test_generate_batch_requires_an_explicit_narration_delivery(client: TestClient) -> None:
+    """不声明旁白交付方式的批量请求直接拒收：默认成后期配音等于替调用方做了这个选择。"""
+
+    _seed_unit(client)
+
+    resp = client.post(BATCH_ENDPOINT, json={})
+
+    assert resp.status_code == 422, resp.text
+    assert any(item["loc"][-1] == "narration_delivery" for item in resp.json()["detail"])
+
+
+@pytest.mark.integration
+def test_generate_batch_reports_a_numeric_unit_id(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """数字 unit_id 同样在入队前拒收：字符串化后执行期按原值比对找不到 unit。"""
+
+    from lib.project_manager import ProjectManager
+    from server.routers import reference_videos as router_mod
+
+    first = _seed_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    pm: ProjectManager = router_mod.get_project_manager()
+    script = pm.load_script("demo", "scripts/episode_1.json")
+    healthy = next(unit for unit in script["video_units"] if unit["unit_id"] == first)
+    script["video_units"] = [{**healthy, "unit_id": 0}, healthy]
+    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "blocked"
+    assert enqueued == []
+    codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
+    assert codes["video_units[0]"] == ["generation_unit_request_invalid"]
+    assert codes[first] == ["generation_batch_admission_withheld"]
 
 
 @pytest.mark.integration
@@ -1920,7 +1966,7 @@ def test_a_duplicate_marker_never_shadows_a_real_unit_id(client: TestClient, mon
     script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-    resp = client.post(BATCH_ENDPOINT, json={})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -1929,6 +1975,8 @@ def test_a_duplicate_marker_never_shadows_a_real_unit_id(client: TestClient, mon
     unit_ids = [item["unit_id"] for item in body["units"]]
     assert len(unit_ids) == len(set(unit_ids)), unit_ids
     assert f"{first}#1*" in unit_ids
+    codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
+    assert codes[first] == ["generation_batch_admission_withheld"]
 
 
 @pytest.mark.integration
@@ -1950,7 +1998,7 @@ def test_generate_batch_refuses_a_path_like_unit_id_before_enqueue(
     script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-    resp = client.post(BATCH_ENDPOINT, json={})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -1978,7 +2026,7 @@ def test_generate_batch_reports_a_non_list_video_units_container(
     script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-    resp = client.post(BATCH_ENDPOINT, json={})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -2020,7 +2068,7 @@ def test_generate_batch_reports_a_falsy_video_units_container(
     script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-    resp = client.post(BATCH_ENDPOINT, json={})
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()

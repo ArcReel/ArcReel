@@ -3033,7 +3033,7 @@ class API {
   static async generateReferenceVideoBatch(
     projectName: string,
     episode: number,
-    payload: ReferenceBatchGenerateRequest = {},
+    payload: ReferenceBatchGenerateRequest,
   ): Promise<ReferenceBatchAdmission> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/generate-batch`,

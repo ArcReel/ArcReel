@@ -579,9 +579,10 @@ def _screen_storyboard_items(
 ) -> tuple[list[dict[str, Any]], list[UnitAdmissionTicket]]:
     """把剧本条目分成「能当目标的」与「成不了目标的」两份，后者按位置记名。
 
-    非对象条目、id 不是标量、id 为空、以及同一个 id 出现多次，都会让后面按 id 索引的每一步
+    非对象条目、id 不是字符串、id 为空、以及同一个 id 出现多次，都会让后面按 id 索引的每一步
     失手：条目被静默滤掉时同批健康的目标独自入队计费，撞上集合查询时又把逐目标的拒绝契约打成
-    一句通用报错。各入口在读 id 之前先经这一道筛，两种失手都变成一张记名的准入票。
+    一句通用报错。数字与布尔 id 混过 ``str()`` 进队列后，执行期按原值比对同样找不到目标。
+    各入口在读 id 之前先经这一道筛，这些失手都变成一张记名的准入票。
 
     缺失即生成把整个剧本当作目标集合，剧本里任何一处脏条目都参与判定；点名生成的目标集合由
     调用方给定，只有点到的 id 上的脏（同一个 id 的副本）才参与，否则别处的脏数据会否决一次
@@ -595,9 +596,9 @@ def _screen_storyboard_items(
     tickets: list[UnitAdmissionTicket] = []
     seen: set[str] = set()
     taken = {
-        str(_storyboard_item_id(item, id_field) or "").strip()
+        str(_storyboard_item_id(item, id_field)).strip()
         for item in items
-        if isinstance(item, dict) and isinstance(_storyboard_item_id(item, id_field), str | int)
+        if isinstance(item, dict) and isinstance(_storyboard_item_id(item, id_field), str)
     }
     named = set(requested_ids) if requested_ids is not None else None
     for index, item in enumerate(items):
@@ -613,18 +614,18 @@ def _screen_storyboard_items(
                 )
             continue
         raw_id = _storyboard_item_id(item, id_field)
-        if raw_id is not None and not isinstance(raw_id, str | int):
+        if raw_id is not None and not isinstance(raw_id, str):
             if named is None:
                 tickets.append(
                     refused_ticket(
                         diagnostic_unit_id(f"items[{index}]", taken),
                         code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                        detail=f"该条目的 ID 不是标量，当前为 {type(raw_id).__name__}",
+                        detail=f"该条目的 ID 不是字符串，当前为 {type(raw_id).__name__}",
                         action=GenerationAction.FIX_INPUT,
                     )
                 )
             continue
-        item_id = str(raw_id or "").strip()
+        item_id = (raw_id or "").strip()
         if not item_id:
             if named is None:
                 tickets.append(

@@ -796,6 +796,7 @@ async def test_atomic_rollback_finishes_even_if_cancelled_midway(monkeypatch):
     created: list[str] = []
     cancelled: list[str] = []
     rollback_started = _asyncio.Event()
+    rollback_finished = _asyncio.Event()
 
     async def fake_enqueue(**kwargs):
         if kwargs["resource_id"] == "S02":
@@ -808,6 +809,7 @@ async def test_atomic_rollback_finishes_even_if_cancelled_midway(monkeypatch):
             rollback_started.set()
             await _asyncio.sleep(0.05)
             cancelled.append(task_id)
+            rollback_finished.set()
             return {"cancelled": [{"task_id": task_id}], "cancelling": [], "skipped_terminal": []}
 
     monkeypatch.setattr(mod, "enqueue_task_only", fake_enqueue)
@@ -825,6 +827,6 @@ async def test_atomic_rollback_finishes_even_if_cancelled_midway(monkeypatch):
         await task
 
     # 取消穿透到等待处，但被 shield 保护的撤销请求自己跑完了。
-    await _asyncio.sleep(0.1)
+    await _asyncio.wait_for(rollback_finished.wait(), timeout=5)
     assert created == ["S01"]
     assert cancelled == ["t-S01"]

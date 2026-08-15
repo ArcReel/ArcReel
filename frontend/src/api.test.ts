@@ -1295,6 +1295,7 @@ describe("API.referenceVideos", () => {
     );
 
     const res = await API.generateReferenceVideoBatch("proj", 1, {
+      narration_delivery: "post_production",
       unit_ids: ["E1U1", "E1U2"],
       confirmed_request_durations: { E1U1: 8 },
     });
@@ -1303,6 +1304,7 @@ describe("API.referenceVideos", () => {
       "/projects/proj/reference-videos/episodes/1/units/generate-batch",
     );
     expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({
+      narration_delivery: "post_production",
       unit_ids: ["E1U1", "E1U2"],
       confirmed_request_durations: { E1U1: 8 },
     });

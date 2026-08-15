@@ -317,7 +317,7 @@ export async function enqueueReferenceVideoUnit(
 export async function enqueueReferenceVideoBatch(
   projectName: string,
   episode: number,
-  payload: ReferenceBatchGenerateRequest = {},
+  payload: ReferenceBatchGenerateRequest,
 ): Promise<ReferenceBatchAdmission> {
   const marks = (payload.unit_ids ?? []).map((unitId) =>
     markResource(projectName, "reference_video", unitId, "reference_video"),

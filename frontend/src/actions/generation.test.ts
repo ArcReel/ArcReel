@@ -374,9 +374,15 @@ describe("enqueueReferenceVideoBatch", () => {
       .spyOn(API, "generateReferenceVideoBatch")
       .mockResolvedValue({ ...ADMISSION, decision: "admitted", task_ids: ["t1", "t2"] } as never);
 
-    const res = await enqueueReferenceVideoBatch("demo", 1, { unit_ids: ["E1U1", "E1U2"] });
+    const res = await enqueueReferenceVideoBatch("demo", 1, {
+      narration_delivery: "post_production",
+      unit_ids: ["E1U1", "E1U2"],
+    });
 
-    expect(batch).toHaveBeenCalledWith("demo", 1, { unit_ids: ["E1U1", "E1U2"] });
+    expect(batch).toHaveBeenCalledWith("demo", 1, {
+      narration_delivery: "post_production",
+      unit_ids: ["E1U1", "E1U2"],
+    });
     expect(occupied("demo", "reference_video", "E1U1")).toBe(true);
     expect(occupied("demo", "reference_video", "E1U2")).toBe(true);
     expect(useAppStore.getState().toast?.text).toBe(
@@ -396,7 +402,10 @@ describe("enqueueReferenceVideoBatch", () => {
         task_ids: [],
       } as never);
 
-      const res = await enqueueReferenceVideoBatch("demo", 1, { unit_ids: ["E1U1"] });
+      const res = await enqueueReferenceVideoBatch("demo", 1, {
+        narration_delivery: "post_production",
+        unit_ids: ["E1U1"],
+      });
 
       expect(res.decision).toBe(decision);
       expect(occupied("demo", "reference_video", "E1U1")).toBe(false);
@@ -407,7 +416,10 @@ describe("enqueueReferenceVideoBatch", () => {
   it("请求失败时回滚占用标记并原样抛出", async () => {
     vi.spyOn(API, "generateReferenceVideoBatch").mockRejectedValue(new Error("boom"));
 
-    await expect(enqueueReferenceVideoBatch("demo", 1, { unit_ids: ["E1U1"] })).rejects.toThrow(
+    await expect(enqueueReferenceVideoBatch("demo", 1, {
+        narration_delivery: "post_production",
+        unit_ids: ["E1U1"],
+      })).rejects.toThrow(
       "boom",
     );
 

@@ -141,7 +141,9 @@ class GenerateUnitsBatchRequest(BaseModel):
     """
 
     unit_ids: list[str] | None = None
-    narration_delivery: NarrationDelivery = POST_PRODUCTION
+    # 交付方式必填：默认成后期配音会让一次没声明的请求跳过 use_tts 的 fresh / 可测校验，
+    # 整批按另一种交付方式准入，而调用方并不知道自己选过。
+    narration_delivery: NarrationDelivery
     confirmed_request_durations: dict[str, PositiveInt] = Field(default_factory=dict)
 
     def projection_options(self) -> ReferenceRequestOptions:
@@ -722,7 +724,7 @@ async def generate_units_batch(
     episode: int,
     user: CurrentUser,
     _t: Translator,
-    req: GenerateUnitsBatchRequest | None = None,
+    req: GenerateUnitsBatchRequest,
 ) -> dict[str, Any]:
     """Admit a whole batch of reference units, then create every task or none.
 
@@ -733,7 +735,7 @@ async def generate_units_batch(
     """
 
     project, script, script_file = _load_episode_script(project_name, episode, _t)
-    body = req or GenerateUnitsBatchRequest()
+    body = req
     try:
         requested_ids = normalize_requested_ids(body.unit_ids, field="unit_ids")
     except ValueError as exc:
