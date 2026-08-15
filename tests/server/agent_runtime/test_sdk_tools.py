@@ -1936,6 +1936,81 @@ async def test_generate_grid_split_failure_keeps_the_paid_image_and_fails_the_id
 
 
 @pytest.mark.unit
+async def test_generate_grid_explicit_failure_preserves_the_old_artifact_path(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """点名强制重生成失败时，报告仍要带上剧本里登记的旧图路径——否则下游分不清
+    「这次替换失败、旧图还在」和「原本就没有可复用产物」，给不出正确的下一步建议。"""
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {
+            "segment_id": f"E1S0{i}",
+            "image_prompt": "p",
+            "segment_break": False,
+            "generated_assets": {"storyboard_image": f"storyboards/E1S0{i}.png"},
+        }
+        for i in range(1, 5)
+    ]
+
+    async def _gate(_project: dict) -> bool:
+        return False
+
+    async def failing_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+        raise RuntimeError("queue is down")
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", failing_enqueue)
+
+    out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json", "scene_ids": ["E1S01"]})
+
+    assert out.get("is_error") is True
+    result = _generation_result(out)
+    assert result.failed == ["E1S01"]
+    item = result.items[0]
+    assert item.artifact_path == "storyboards/E1S01.png"
+
+
+@pytest.mark.unit
+async def test_generate_grid_wait_timeout_is_reported_as_interrupted_not_failed(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """宫格工具直连 wait_for_task（不经 batch_enqueue_and_wait），同样不能把等待被
+    打断（任务可能仍在跑）报成终态失败——那会诱导调用方重试、造成重复付费提交。"""
+    from lib.generation_queue_client import TaskWaitTimeoutError
+
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
+    ]
+
+    async def _gate(_project: dict) -> bool:
+        return False
+
+    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+        return {"task_id": "t1"}
+
+    async def fake_wait(_task_id: str) -> dict[str, Any]:
+        raise TaskWaitTimeoutError("wait timed out before a terminal state")
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.wait_for_task", fake_wait)
+
+    out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json"})
+
+    result = _generation_result(out)
+    assert result.succeeded == []
+    assert result.failed == ["E1S01", "E1S02", "E1S03", "E1S04"]
+    item = result.items[0]
+    assert item.task_state.value == "interrupted"
+    assert item.problem is not None
+    assert item.problem.code == "generation_task_interrupted"
+    assert item.problem.action == "wait_for_task"
+
+
+@pytest.mark.unit
 async def test_generate_grid_reports_each_scene_of_a_shared_grid(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2136,6 +2211,77 @@ async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext, mo
     assert other_group.id in ids, "records of other groups must not be deleted"
     fresh = [g for g in remaining if g.id != other_group.id]
     assert [g.scene_ids for g in fresh] == [["E1S01", "E1S02", "E1S03", "E1S04"]]
+
+
+@pytest.mark.unit
+async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversized_group(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """超上限分组切成多张宫格时，清理范围不能按整组算——某一张可能整张都落在
+    已复用成员上（该张没有缺口，不会被生成替代品）。若仍按整组 ID 清理，会删掉
+    这张对应的旧完成记录却不产出新图，产物与 Manifest 记账双双丢失（悬空占用）。"""
+    from lib.grid.models import GridGeneration
+    from lib.grid_manager import GridManager
+
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    # 前 9 个缺分镜图（本次要生成的一张 grid_9），后 4 个已有可复用旧图
+    # （落在另一张 grid_4 里，整张都可复用、不产出替代品）。
+    missing_ids = [f"E1S{i:02d}" for i in range(1, 10)]
+    reusable_ids = [f"E1S{i:02d}" for i in range(10, 14)]
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": sid, "image_prompt": "p", "video_prompt": "v", "segment_break": False} for sid in missing_ids
+    ] + [
+        {
+            "segment_id": sid,
+            "image_prompt": "p",
+            "video_prompt": "v",
+            "segment_break": False,
+            "generated_assets": {"storyboard_image": f"storyboards/{sid}.png"},
+        }
+        for sid in reusable_ids
+    ]
+
+    async def _gate(_project: dict) -> bool:
+        return False
+
+    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+        return {"task_id": f"t{resource_id}"}
+
+    async def fake_wait(_task_id: str) -> dict[str, Any]:
+        return {"status": "succeeded"}
+
+    async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
+        from server.services.grid_split import GridSplitResult
+
+        return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.wait_for_task", fake_wait)
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.apply_grid_split", fake_split)
+
+    gm = GridManager(fake_ctx.project_path)
+    fully_reusable_chunk = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=reusable_ids,
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="",
+        model="",
+        video_aspect_ratio="9:16",
+    )
+    fully_reusable_chunk.status = "completed"
+    gm.save(fully_reusable_chunk)
+
+    tool_obj = generate_grid_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+    assert out.get("is_error") is not True
+
+    remaining_ids = {g.id for g in gm.list_all()}
+    assert fully_reusable_chunk.id in remaining_ids, "chunk 没有缺口、没有生成替代品，其旧记录不得被清理规则误删"
 
 
 @pytest.mark.unit
@@ -5729,6 +5875,64 @@ async def test_generate_video_episode_ad_reference_preserves_the_selected_manual
     result = _generation_result(out)
     assert result.requested == []
     assert [entry.unit_id for entry in result.skipped] == ["E1U1"]
+    enqueue.assert_not_awaited()
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_reference_blocks_a_clip_whose_manifest_state_is_unreadable(
+    ad_reference_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """整集参考路线里某 unit 已有成片、但 Manifest 比对抛错（BLOCKED）时必须报
+    blocked，不能让 ``artifact_is_usable`` 的 fail-loud 异常穿透成整批 tool_error——
+    与 storyboard 整集路线的同一场判定必须同步处理（同一个不可读产物、两条路线）。
+    """
+    from lib.artifact_manifest import ArtifactBlocker, ArtifactComparison, ArtifactStatus
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    project_path = ad_reference_ctx.project_path
+    ad_reference_ctx.pm.project_payload["schema_version"] = 8  # type: ignore[attr-defined]
+    artifact_path = "reference_videos/E1U1.mp4"
+    output = project_path / artifact_path
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"\x00")
+    ad_reference_ctx.pm.script_payload["video_units"][0]["generated_assets"] = {  # type: ignore[attr-defined]
+        "video_clip": artifact_path
+    }
+
+    class _BlockedResolver:
+        def compare(self, key, *, artifact_path):
+            if artifact_path == "reference_videos/E1U1.mp4":
+                return ArtifactComparison(
+                    status=ArtifactStatus.BLOCKED,
+                    artifact_path=artifact_path,
+                    blocker=ArtifactBlocker(
+                        code="manifest_read_failed", path=artifact_path, detail="sidecar unreadable"
+                    ),
+                )
+            return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
+
+        def resolve_usable_entry(self, key, *, artifact_path):
+            return None
+
+        def compare_frozen_entry(self, key, entry):
+            return self.compare(key, artifact_path=entry.artifact_path)
+
+        def artifact_content_digest(self, artifact_path):
+            return "0" * 64
+
+    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _BlockedResolver())
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+    out = await _call(generate_video_episode_tool(ad_reference_ctx), {"script": "episode_1.json"})
+
+    result = _generation_result(out)
+    assert result.succeeded == []
+    assert result.blocked == ["E1U1"]
+    blocked_item = next(item for item in result.items if item.unit_id == "E1U1")
+    assert blocked_item.problem is not None
+    assert blocked_item.problem.code == "generation_artifact_state_unavailable"
     enqueue.assert_not_awaited()
 
 

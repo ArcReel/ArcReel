@@ -19,7 +19,7 @@ from lib.artifact_activation import (
     resolve_artifact_episode,
     resolve_usable_storyboard_video_inputs,
 )
-from lib.artifact_manifest import ArtifactKey, ArtifactStatus
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
 from lib.config.resolver import video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.generation_queue_client import (
@@ -1062,6 +1062,7 @@ async def _generate_reference_units(
 
     ordered_paths: list[Path | None] = [None] * len(units)
     already_done: list[str] = []
+    manifest_blocked: list[str] = []
     for idx, unit in enumerate(units):
         if not isinstance(unit, dict):
             continue
@@ -1069,7 +1070,27 @@ async def _generate_reference_units(
         if not unit_id:
             continue
         candidate = output_dir / f"{unit_id}.mp4"
-        if candidate.exists() and not video_unit_replan_problems(unit) and reuse_existing(unit):
+        reusable = False
+        if candidate.exists() and not video_unit_replan_problems(unit):
+            try:
+                reusable = reuse_existing(unit)
+            except ArtifactManifestError:
+                # 复用判定（点名强制路线传入的 ``reuse_existing`` 恒为 False，不会走到
+                # ``artifact_is_usable``；只有整集路线的复用判定会查 Manifest）对
+                # BLOCKED 状态 fail-loud：一张已存在的成片若比对读不出来，不能让它把
+                # 整批生成打成 tool_error，而是逐 unit 记 blocked，交回去修复侧车。
+                state = _state_for(states, unit_id)
+                _block_unit(
+                    builder,
+                    states,
+                    unit_id,
+                    code=GenerationProblemCode.ARTIFACT_STATE_UNAVAILABLE,
+                    detail=f"unit {unit_id} 的产物状态不可读，跳过自动重生",
+                    action=GenerationAction.REPAIR_ARTIFACT_STATE,
+                )
+                manifest_blocked.append(unit_id)
+                continue
+        if reusable:
             ordered_paths[idx] = candidate
             already_done.append(unit_id)
             state = _state_for(states, unit_id)
@@ -1089,7 +1110,7 @@ async def _generate_reference_units(
         project_path=project_dir,
         script=script,
         units=units,
-        skip_ids=set(already_done),
+        skip_ids={*already_done, *manifest_blocked},
         spec_for=spec_for,
         request_options=request_options,
         builder=builder,
@@ -1100,7 +1121,7 @@ async def _generate_reference_units(
     if pending:
         return DurationConfirmationPending(items=pending, projections=projections)
 
-    specs, order_map = build_specs(units, [*already_done, *admission_blocked])
+    specs, order_map = build_specs(units, [*already_done, *admission_blocked, *manifest_blocked])
     for spec in specs:
         spec.payload = {**(spec.payload or {}), "reference_request_options": request_options.to_payload()}
     if specs:

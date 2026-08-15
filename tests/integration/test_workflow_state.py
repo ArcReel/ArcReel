@@ -358,7 +358,6 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_export(tmp_pat
     到达 EXPORT_READY，不可读事实只经 artifacts["audio"]["state"] 报告。用一个只对
     narration_audio 键抛错的假 resolver 隔离验证，不牵扯 step1/script Manifest 激活的
     全套前置状态。"""
-    import lib.workflow_state as workflow_state_mod
     from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
 
     pm, project_path = _make_project(tmp_path, "narration")
@@ -412,7 +411,9 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_export(tmp_pat
                 raise RuntimeError("manifest sidecar unreadable")
             return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=artifact_path)
 
-    monkeypatch.setattr(workflow_state_mod, "ArtifactCurrencyResolver", lambda _project_path: _AudioBlockedResolver())
+    monkeypatch.setattr(
+        f"{WorkflowStateService.__module__}.ArtifactCurrencyResolver", lambda _project_path: _AudioBlockedResolver()
+    )
 
     status = WorkflowStateService(pm).get_status("demo")
 

@@ -9,7 +9,7 @@ an individual cell.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -20,7 +20,7 @@ from lib.artifact_activation import (
     resolve_artifact_episode,
 )
 from lib.artifact_manifest import ArtifactKey
-from lib.generation_queue_client import enqueue_task_only, wait_for_task
+from lib.generation_queue_client import enqueue_task_only, is_interrupted_wait_error, wait_for_task
 from lib.generation_result import (
     GenerationAction,
     GenerationCandidate,
@@ -75,14 +75,28 @@ def _fail_scenes(
     task_id: str | None = None,
     task_state: GenerationTaskState = GenerationTaskState.FAILED,
     provider_checkpoint: ProviderCheckpoint | None = None,
+    artifact_paths: Mapping[str, str] | None = None,
 ) -> None:
-    """一张宫格的失败落到它覆盖的每个场景：调用方点的是场景，不是宫格。"""
+    """一张宫格的失败落到它覆盖的每个场景：调用方点的是场景，不是宫格。
+
+    ``artifact_paths`` 是剧本里已登记的旧图路径（点名强制路线也会有——旧图存在
+    只是这次调用不复用它）。失败不动旧产物，但报告要带上它的路径与状态，否则
+    下游分不清「这次替换失败」和「原本就没有可复用产物」——两者对下一步动作
+    （重试 vs 先补分镜图）的建议完全不同。
+    """
 
     for scene_id in scene_ids:
+        artifact_path = (artifact_paths or {}).get(scene_id)
+        artifact_key = _scene_artifact_key(episode, scene_id, resolver)
+        artifact_status, _blocker = observe_artifact_status(
+            resolver=resolver, key=artifact_key, artifact_path=artifact_path
+        )
         builder.fail(
             scene_id,
             problem=problem,
-            artifact_key=_scene_artifact_key(episode, scene_id, resolver),
+            artifact_key=artifact_key,
+            artifact_path=artifact_path,
+            artifact_status=artifact_status,
             task_id=task_id,
             task_state=task_state,
             provider_checkpoint=provider_checkpoint,
@@ -199,6 +213,13 @@ def generate_grid_tool(ctx: ToolContext):
             style = project.get("style", "")
             resolver = active_artifact_currency_resolver(project_path, project)
             groups = group_scenes_by_segment_break(items, id_field)
+            # 失败落回场景时用来带上旧图路径与状态（见 ``_fail_scenes`` docstring）；
+            # 与选择阶段的候选路径同源，取自剧本已登记的 storyboard_image。
+            scene_artifact_paths = {
+                str(item.get(id_field)): path
+                for item in items
+                if item.get(id_field) and (path := get_generated_assets(item).get("storyboard_image"))
+            }
 
             explicit = scene_ids is not None
             builder = GenerationResultBuilder(
@@ -302,8 +323,18 @@ def generate_grid_tool(ctx: ToolContext):
                 # 与 WebUI 入队路径同源：重生成该组时清理旧的已完成记录（同脚本
                 # 同集、scene_ids 是当前组子集、非在途），前端列表只显示新一代
                 # 宫格图。规则唯一定义在 GridManager.cleanup_superseded。
-                if plans:
-                    gm.cleanup_superseded(script_filename, episode, {item[id_field] for item in group})
+                #
+                # 清理范围只能是「这次真的会出新图」的块，不能是整组：超上限分组会
+                # 切成多张宫格，某一张可能整张都落在已复用成员上（该块没有缺口 ID，
+                # 下面的循环会直接 continue、不生成替代品）。若仍按整组 ID 清理，会
+                # 删掉这类块对应的旧记录却不产出新图，产物与 Manifest 记账双双丢失。
+                generated_ids: set[str] = set()
+                for chunk, _layout in plans:
+                    chunk_ids = {item[id_field] for item in chunk}
+                    if chunk_ids & target_ids:
+                        generated_ids |= chunk_ids
+                if generated_ids:
+                    gm.cleanup_superseded(script_filename, episode, generated_ids)
                 for chunk, layout in plans:
                     chunk_ids = [item[id_field] for item in chunk]
                     # 该张宫格覆盖的场景里，只有落在缺口集合内的才是这次要落格/报告
@@ -373,6 +404,7 @@ def generate_grid_tool(ctx: ToolContext):
                             episode=episode,
                             resolver=resolver,
                             task_state=GenerationTaskState.NOT_QUEUED,
+                            artifact_paths=scene_artifact_paths,
                         )
                         continue
                     pending.append((grid, enqueue_result["task_id"], report_ids))
@@ -386,13 +418,19 @@ def generate_grid_tool(ctx: ToolContext):
                 )
                 for (grid, task_id, report_ids), result in zip(pending, results, strict=True):
                     if isinstance(result, BaseException):
+                        # 直连 wait_for_task（不经 batch_enqueue_and_wait）同样要把「等待被
+                        # 打断」与「provider 判定失败」分开：宫格任务此时可能仍在跑，报
+                        # 终态失败会诱导重试、造成重复付费提交。
+                        interrupted = is_interrupted_wait_error(result)
                         _fail_scenes(
                             builder,
                             report_ids,
-                            problem=problem_from_task_failure(str(result)),
+                            problem=problem_from_task_failure(str(result), interrupted=interrupted),
                             episode=episode,
                             resolver=resolver,
                             task_id=task_id,
+                            task_state=(GenerationTaskState.INTERRUPTED if interrupted else GenerationTaskState.FAILED),
+                            artifact_paths=scene_artifact_paths,
                         )
                         continue
                     status_value = result.get("status")
@@ -413,6 +451,7 @@ def generate_grid_tool(ctx: ToolContext):
                                 else GenerationTaskState.FAILED
                             ),
                             provider_checkpoint=provider_checkpoint_from_task(result),
+                            artifact_paths=scene_artifact_paths,
                         )
                         continue
                     # 生成任务只产出联合图；分镜格落盘由编排方在此显式调用切分补上，
@@ -445,6 +484,7 @@ def generate_grid_tool(ctx: ToolContext):
                             task_id=task_id,
                             task_state=GenerationTaskState.SUCCEEDED,
                             provider_checkpoint=provider_checkpoint_from_task(result),
+                            artifact_paths=scene_artifact_paths,
                         )
                         continue
                     # 逐格投影：落到盘上的格才算这一场景成功；联合图成功但某格没落盘

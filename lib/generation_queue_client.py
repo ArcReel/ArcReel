@@ -38,6 +38,18 @@ class TaskWaitTimeoutError(TimeoutError):
     """Raised when queued task does not finish before timeout."""
 
 
+def is_interrupted_wait_error(exc: BaseException) -> bool:
+    """True when *exc* means a task wait was cut short, not provider-judged failed.
+
+    Shared by every ``wait_for_task`` caller — the batch path below and any direct
+    per-task wait loop — so a queued/running task caught mid-flight by a timeout or
+    an offline worker is reported as interrupted rather than terminal-failed. Reporting
+    it failed would suggest a safe retry while the original submission may still land,
+    risking a duplicate paid generation.
+    """
+    return isinstance(exc, (TaskWaitTimeoutError, WorkerOfflineError))
+
+
 DEFAULT_TASK_WAIT_TIMEOUT_SEC: float | None = 3600.0
 DEFAULT_WORKER_OFFLINE_GRACE_SEC: float = max(20.0, float(TASK_WORKER_LEASE_TTL_SEC) * 2.0)
 

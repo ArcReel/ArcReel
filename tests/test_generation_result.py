@@ -458,6 +458,26 @@ def test_recording_maps_queue_resource_ids_onto_contract_unit_ids() -> None:
     assert item.artifact_path == "characters/张三.png"
 
 
+def test_recording_a_success_with_no_known_state_does_not_crash_under_an_active_manifest() -> None:
+    """``states`` 缺该 unit 时退回的默认 state 没有 artifact_key；产物轴退化为
+    不可观测（None）而不是崩掉整批——resolver 是否激活不改变"缺 key 就没法比对"这一事实，
+    崩溃只会连累这批里其它已正确记账的条目。"""
+
+    builder = GenerationResultBuilder("generate_assets", GenerationSelectionMode.MISSING_ONLY)
+
+    record_batch_outcomes(
+        builder,
+        successes=[_batch("张三", result={"file_path": "characters/张三.png"})],
+        failures=[],
+        states={},  # unit 不在映射里 -> _state() 退回无 artifact_key 的默认 state
+        resolver=_Resolver({}),  # type: ignore[arg-type]
+    )
+
+    item = builder.build().items[0]
+    assert item.artifact_status is None
+    assert item.artifact_path == "characters/张三.png"
+
+
 # --- rendering -------------------------------------------------------------
 
 

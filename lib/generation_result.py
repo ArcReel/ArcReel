@@ -360,7 +360,11 @@ def observe_artifact_status(
     if resolver is None:
         return None, None
     if key is None:
-        raise ValueError("an ArtifactKey is required for active currency")
+        # A resolver being active doesn't guarantee every caller can supply a key —
+        # e.g. a batch-outcome unit with no matching ``states`` entry. Without a key
+        # there is nothing to compare against, so this axis degrades to
+        # unobservable rather than raising and losing the whole batch's outcome.
+        return None, None
     try:
         comparison = resolver.compare(key, artifact_path=artifact_path)
     except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError) as exc:
