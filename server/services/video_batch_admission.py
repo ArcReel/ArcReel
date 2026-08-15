@@ -165,6 +165,10 @@ def screen_script_entries(
         if isinstance(entry, dict) and isinstance(entry.get("unit_id"), str)
     }
     named = set(requested_ids) if requested_ids is not None else None
+    if named is not None:
+        # 点名的 ID 也占着记名空间：调用方点了一个剧本里没有的名字时，上游还会为它记一条
+        # 「不存在」，诊断名与它同名同样会把两条并成一条。
+        taken |= named
     for index, entry in enumerate(entries):
         detail: str | None = None
         unit_id = ""

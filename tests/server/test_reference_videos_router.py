@@ -1953,6 +1953,37 @@ def test_generate_batch_reports_a_numeric_unit_id(client: TestClient, monkeypatc
 
 
 @pytest.mark.integration
+def test_a_duplicate_marker_never_shadows_a_requested_id(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """点名了一个剧本里没有的名字时，重复条目的诊断名不能与它撞上：两条结论各占一行。"""
+
+    from lib.project_manager import ProjectManager
+    from server.routers import reference_videos as router_mod
+
+    first = _seed_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    pm: ProjectManager = router_mod.get_project_manager()
+    script = pm.load_script("demo", "scripts/episode_1.json")
+    healthy = next(unit for unit in script["video_units"] if unit["unit_id"] == first)
+    script["video_units"] = [healthy, {**healthy}]
+    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    resp = client.post(
+        BATCH_ENDPOINT,
+        json={"narration_delivery": "post_production", "unit_ids": [first, f"{first}#1"]},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "blocked"
+    assert enqueued == []
+    codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
+    assert codes[f"{first}#1"] == ["generation_unit_not_found"]
+    assert codes[f"{first}#1*"] == ["generation_unit_request_invalid"]
+
+
+@pytest.mark.integration
 def test_a_duplicate_marker_never_shadows_a_real_unit_id(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """重复条目按 `id#序号` 记名，剧本里恰好有同名 unit 时另起一个名字。"""
 

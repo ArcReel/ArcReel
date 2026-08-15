@@ -612,6 +612,10 @@ def _screen_storyboard_items(
         if isinstance(item, dict) and isinstance(_storyboard_item_id(item, id_field), str)
     }
     named = set(requested_ids) if requested_ids is not None else None
+    if named is not None:
+        # 点名的 ID 也占着记名空间：点到剧本里没有的名字时上游还会记一条「不存在」，
+        # 诊断名与它同名会把两条并成一条。
+        taken |= named
     for index, item in enumerate(items):
         if not isinstance(item, dict):
             if named is None:
