@@ -217,6 +217,48 @@ def test_storyboard_text_basis_tracks_the_style_sent_to_the_request(tmp_path: Pa
     assert changed_description.digest != first.digest
 
 
+@pytest.mark.parametrize(
+    "image_prompt",
+    (
+        "Style: 手绘\n\n阿黎站在雨中",
+        "Visual style: 柔光\n\n阿黎站在雨中",
+    ),
+)
+def test_preformatted_storyboard_prompt_still_consumes_project_style_inputs(image_prompt: str) -> None:
+    from lib.prompt_builders import build_storyboard_prompt
+
+    first_prompt = build_storyboard_prompt(image_prompt, "水墨", "柔光")
+    changed_style_prompt = build_storyboard_prompt(image_prompt, "写实", "柔光")
+    changed_description_prompt = build_storyboard_prompt(image_prompt, "水墨", "硬光")
+
+    first_basis = build_storyboard_image_visual_basis(
+        resource_id="E1S01",
+        image_prompt=image_prompt,
+        style="水墨",
+        style_description="柔光",
+        aspect_ratio="16:9",
+    )
+    changed_style_basis = build_storyboard_image_visual_basis(
+        resource_id="E1S01",
+        image_prompt=image_prompt,
+        style="写实",
+        style_description="柔光",
+        aspect_ratio="16:9",
+    )
+    changed_description_basis = build_storyboard_image_visual_basis(
+        resource_id="E1S01",
+        image_prompt=image_prompt,
+        style="水墨",
+        style_description="硬光",
+        aspect_ratio="16:9",
+    )
+
+    assert changed_style_prompt != first_prompt
+    assert changed_description_prompt != first_prompt
+    assert changed_style_basis.digest != first_basis.digest
+    assert changed_description_basis.digest != first_basis.digest
+
+
 def _grid_members(*, second_image: str = "雨巷", first_action: str = "阿黎转身") -> tuple[GridStoryboardVisual, ...]:
     return (
         GridStoryboardVisual(

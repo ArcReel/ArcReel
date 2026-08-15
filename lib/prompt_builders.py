@@ -155,8 +155,6 @@ def build_storyboard_prompt(
     if not isinstance(style_description, str):
         raise TypeError("style_description must be a string")
     projected, normalized_style = project_storyboard_image_prompt(image_prompt, style)
-    if isinstance(projected, str) and projected.lstrip().startswith(("Style:", "Visual style:")):
-        return append_image_negative_tail(projected)
 
     style_parts: list[str] = []
     if normalized_style and isinstance(projected, str):
@@ -166,7 +164,9 @@ def build_storyboard_prompt(
         style_parts.append(f"Visual style: {normalized_description}")
     style_prefix = "\n".join(style_parts) + "\n\n" if style_parts else ""
     rendered = image_prompt_to_yaml(projected, normalized_style) if isinstance(projected, dict) else projected
-    return append_image_negative_tail(f"{style_prefix}{rendered}")
+    if style_prefix and not rendered.startswith(style_prefix):
+        rendered = f"{style_prefix}{rendered}"
+    return append_image_negative_tail(rendered)
 
 
 def append_product_fidelity_tail(prompt: str, product_names: Sequence[str] | None) -> str:

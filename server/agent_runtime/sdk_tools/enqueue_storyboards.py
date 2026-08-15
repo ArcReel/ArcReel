@@ -129,10 +129,6 @@ def _build_specs(
                 resource_id=plan.resource_id,
                 prompt=image_prompt,
                 script_file=script_filename,
-                extra_payload={
-                    "storyboard_style": style,
-                    "storyboard_style_description": style_description,
-                },
                 dependency_resource_id=plan.dependency_resource_id,
                 dependency_group=plan.dependency_group,
                 dependency_index=plan.dependency_index,

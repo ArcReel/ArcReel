@@ -378,7 +378,7 @@ def _commit_staged_formal_image(
     )
 
 
-def _normalize_storyboard_prompt(prompt: str | dict, style: str, style_description: str = "") -> str:
+def _normalize_storyboard_prompt(prompt: object, style: str, style_description: str = "") -> str:
     """Render one semantic storyboard prompt through the shared provider projection."""
 
     return build_storyboard_prompt(prompt, style, style_description)
@@ -1363,8 +1363,7 @@ async def execute_storyboard_task(
     if not script_file:
         raise ValueError("script_file is required for storyboard task")
 
-    prompt = payload.get("prompt")
-    if prompt is None:
+    if payload.get("prompt") is None:
         raise ValueError("prompt is required for storyboard task")
 
     def _prepare():
@@ -1386,6 +1385,7 @@ async def execute_storyboard_task(
         if _resolved is None:
             raise ValueError(f"scene/segment not found: {resource_id}")
         _target_item, _target_index = _resolved
+        _semantic_prompt = _target_item.get("image_prompt")
 
         _prev_path = resolve_previous_storyboard_path(_project_path, _project, _items, _id_field, resource_id)
         _previous_id = (
@@ -1393,14 +1393,11 @@ async def execute_storyboard_task(
             if _prev_path is not None and _target_index > 0
             else None
         )
-        _style = payload.get("storyboard_style", _project.get("style", ""))
-        _style_description = payload.get(
-            "storyboard_style_description",
-            _project.get("style_description", ""),
-        )
+        _style = _project.get("style", "")
+        _style_description = _project.get("style_description", "")
         if not isinstance(_style, str) or not isinstance(_style_description, str):
             raise ValueError("storyboard style and style description must be strings")
-        _prompt_text = _normalize_storyboard_prompt(prompt, _style, _style_description)
+        _prompt_text = _normalize_storyboard_prompt(_semantic_prompt, _style, _style_description)
         _visual_references: list[VisualReference] = []
         _ref_images = _collect_reference_images(
             _project,
@@ -1443,7 +1440,7 @@ async def execute_storyboard_task(
             )
             _basis = build_storyboard_image_visual_basis(
                 resource_id=resource_id,
-                image_prompt=prompt,
+                image_prompt=_semantic_prompt,
                 style=_style,
                 style_description=_style_description,
                 aspect_ratio=get_aspect_ratio(_project, "storyboards"),

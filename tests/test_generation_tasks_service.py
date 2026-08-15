@@ -1056,7 +1056,7 @@ class TestGenerationTasks:
         )
         expected_basis = build_storyboard_image_visual_basis(
             resource_id="E1S02",
-            image_prompt="direct prompt",
+            image_prompt=fake_pm.script["segments"][1]["image_prompt"],
             style="Anime",
             style_description="cinematic",
             aspect_ratio="9:16",
@@ -1190,15 +1190,13 @@ class TestGenerationTasks:
             {
                 "script_file": "episode_1.json",
                 "prompt": "queued prompt",
-                "storyboard_style": "Anime",
-                "storyboard_style_description": "cinematic",
             },
             task_id="storyboard-task",
         )
 
         expected = build_storyboard_image_visual_basis(
             resource_id="E1S01",
-            image_prompt="queued prompt",
+            image_prompt="首镜头",
             style="Anime",
             style_description="cinematic",
             aspect_ratio="9:16",
@@ -1215,6 +1213,8 @@ class TestGenerationTasks:
         assert captured == [expected]
         assert captured[0].digest != latest.digest
         assert fake_generator.image_calls[0]["prompt"].startswith("Style: Anime\nVisual style: cinematic")
+        assert "首镜头" in fake_generator.image_calls[0]["prompt"]
+        assert "queued prompt" not in fake_generator.image_calls[0]["prompt"]
 
     @pytest.mark.unit
     async def test_asset_sheet_registers_generation_frozen_basis_when_definition_changes_in_flight(
