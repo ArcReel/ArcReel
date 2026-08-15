@@ -604,13 +604,26 @@ def _build_video_specs(
         resolver = active_artifact_currency_resolver(project_dir, project)
     seen_ids: set[str] = set()
     for idx, item in enumerate(items):
-        item_id = item.get(id_field) or item.get("scene_id") or item.get("segment_id") or f"item_{idx}"
+        raw_item_id = item.get(id_field) or item.get("scene_id") or item.get("segment_id")
+        # 非标量 id（数组 / 对象）在任何按 id 索引的一步都会失手，其中集合查询直接抛
+        # TypeError，把逐目标的拒绝契约打成一句通用报错。按位置记名拒收，其余目标照常评估。
+        if raw_item_id is not None and not isinstance(raw_item_id, str | int):
+            refused.append(
+                refused_ticket(
+                    f"item_{idx}",
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail=f"{item_type} 的 ID 不是标量，当前为 {type(raw_item_id).__name__}",
+                    action=GenerationAction.FIX_INPUT,
+                )
+            )
+            continue
+        item_id = str(raw_item_id or f"item_{idx}")
         if item_id in skip_set:
             continue
         # 同一个 id 出现多次（外部编辑或 Agent 裸写产生）时按 id 索引的每一步都会把副本折成
         # 一条：确认档位与报价按副本个数虚高，整批入队后又只等到一个任务，结果回写还会撞上
         # 重复记名。拒收副本让整批停在这里，由用户去修剧本。
-        if str(item_id) in seen_ids:
+        if item_id in seen_ids:
             refused.append(
                 refused_ticket(
                     f"{item_id}#{idx}",
@@ -620,7 +633,7 @@ def _build_video_specs(
                 )
             )
             continue
-        seen_ids.add(str(item_id))
+        seen_ids.add(item_id)
 
         try:
             require_script_unit_admitted(skeleton_kind, item)

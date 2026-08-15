@@ -391,3 +391,26 @@ class TestStoryboardGateEntersAdmission:
             for unit in out["batch_admission"]["units"]
         }
         assert codes == {"E1S01": ["reference_tts_stale", "video_audio_switch_not_supported"]}
+
+    async def test_a_non_scalar_item_id_is_refused_per_unit(self, tmp_path, monkeypatch):
+        """id 写成数组的条目按位置记名拒收，不把整批打成一句通用报错。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        ctx.pm.script_payload["segments"][0]["segment_id"] = ["E1S01"]  # type: ignore[attr-defined]
+
+        tool_obj = mod.generate_video_episode_tool(ctx)
+        out = await tool_obj.handler({"script": "episode_1.json"})
+
+        enqueue.assert_not_awaited()
+        assert out["batch_admission"]["decision"] == "blocked"
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes == {"item_0": ["generation_unit_request_invalid"]}
