@@ -231,6 +231,52 @@ def test_target_deprecation_rules_flag_code_fences_and_parenthesised_paths(tmp_p
         assert f".claude/agents/{source}: deprecated profile string '--scene-ids'" in errors
 
 
+def test_target_deprecation_rules_flag_soft_wrapped_routing_clause(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "wrapped.md").write_text(
+        "---\nname: wrapped\ndescription: Soft-wrapped routing agent\n---\n"
+        "- 请读取\n"
+        "  step1_normalized_script.md 后再继续下一步。\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert ".claude/agents/wrapped.md: deprecated profile string 'step1_normalized_script.md'" in errors
+
+
+def test_target_deprecation_rules_flag_nested_fence_content(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "nested-fence.md").write_text(
+        "---\nname: nested-fence\ndescription: Nested fence agent\n---\n"
+        "````markdown\n"
+        "```bash\n"
+        "cat drafts/episode_1/step1_normalized_script.md\n"
+        "```\n"
+        "````\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert ".claude/agents/nested-fence.md: deprecated profile string 'step1_normalized_script.md'" in errors
+
+
+def test_target_deprecation_rules_flag_routing_clause_alongside_reverse_note(tmp_path: Path) -> None:
+    """反向说明子句与真实路由子句同文共存同一 needle 时，仍须按各自子句独立判定并报违规。"""
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "mixed.md").write_text(
+        "---\nname: mixed\ndescription: Mixed clause agent\n---\n"
+        "- 旧项目残留的 step1_normalized_script.md 不算有效 step1。\n"
+        "- 读取 step1_normalized_script.md 作为剧本生成输入。\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert ".claude/agents/mixed.md: deprecated profile string 'step1_normalized_script.md'" in errors
+
+
 def test_reports_invalid_utf8_across_profile_inputs(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     (profile / "CLAUDE.narration.md").write_bytes(b"\xff")
