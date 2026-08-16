@@ -30,6 +30,9 @@ description: 为说书模式剧本逐段生成旁白配音（TTS）。当用户�
 > `regenerate_tts`（`tts_stale` / `tts_duration_unavailable`）重新合成且旧音频保留、`wait_for_task`
 > 等在跑的任务结束后重查而不是重复提交。新音频完成后请用户试听确认。
 >
+> **`regenerate_tts` 必须显式传 `segment_ids`**（取自 `problems[]` 涉及的段）。省略即「只补缺失」，
+> 而 stale 音频算可复用、会被跳过，不带 ID 重合成等于什么都没做，视频请求会一直卡在同一个问题上。
+>
 > **依赖**：generation worker 必须在线（audio 独立通道）；audio 供应商、模型与全局默认音色/语速由用户在 Web 设置页配置。
 >
 > **项目级音色/语速覆盖**：用户要求"这个项目旁白用 X 音色 / 语速 1.2"时，调

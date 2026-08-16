@@ -306,11 +306,19 @@ dispatch `generate-assets` subagent：
   任务类型：narration_audio
   项目名称：{project_name}
   工具调用：
-    mcp__arcreel__generate_narration_audio({"script": target.script_filename})
+    用户显式触发的全集补齐：
+      mcp__arcreel__generate_narration_audio({"script": target.script_filename})
+    计划驱动（regenerate_tts，或 generate_tts 只针对部分段）：
+      mcp__arcreel__generate_narration_audio({"script": target.script_filename,
+                                              "segment_ids": [问题涉及的段 ID]})
   验证方式：重新读取 target.script，检查各段 generated_assets.narration_audio 字段
 ```
 
-中断后重新 dispatch 同一工具调用即可断点续传——已有音频的段自动跳过，只补缺失段。
+**`regenerate_tts` 必须带 `segment_ids`。** 省略该参数是「只补缺失」，而 stale 音频算可复用、会被
+跳过——不带 ID 重合成等于什么都没做，视频请求会一直卡在同一个问题上。要重合成的段 ID 从
+`problems[]` 里逐条取。
+
+中断后重新 dispatch 全集补齐的那条调用即可断点续传——已有音频的段自动跳过，只补缺失段。
 
 ---
 

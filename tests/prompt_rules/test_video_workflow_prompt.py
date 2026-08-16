@@ -16,13 +16,17 @@ from pathlib import Path
 
 import pytest
 
+from lib.artifact_manifest import ArtifactStatus
 from lib.batch_admission import DURATION_CONFIRMATION_CODE, BatchAdmissionDecision
 from lib.generation_result import (
     _TASK_FAILURE_ACTIONS,
     GenerationAction,
+    GenerationCandidate,
     GenerationItemState,
     GenerationProblem,
     GenerationProblemCode,
+    GenerationTargetState,
+    artifact_is_reusable,
 )
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS, NarrationTtsStatus
 from lib.profile_manifest import VALID_CONTENT_MODES, resolve_profile_files_for_mode
@@ -485,6 +489,7 @@ def test_orchestration_spec_and_evals_describe_plan_driven_routing() -> None:
     spec = (REPO / "openspec" / "specs" / "workflow-orchestration" / "spec.md").read_text(encoding="utf-8")
 
     assert "get_workflow_plan" in spec
+    assert "next_action" in spec
     assert "基于 project.json 和文件系统判断当前所处阶段" not in spec
     assert "状态检测" not in spec
 
@@ -496,7 +501,7 @@ def test_orchestration_spec_and_evals_describe_plan_driven_routing() -> None:
         for assertion in case["assertions"]
     }
     assert {"reads_project_json", "uses_glob_check", "identifies_correct_stage"}.isdisjoint(names)
-    assert "queries_workflow_plan" in names
+    assert {"queries_workflow_plan", "does_not_infer_stage", "executes_next_action"}.issubset(names)
 
 
 def test_repair_section_takes_the_revision_from_whichever_action_supplies_it() -> None:
@@ -526,3 +531,24 @@ def test_export_guidance_forbids_muting_rather_than_merely_recommending_against_
         if "静音" in text:
             assert "不要建议静音" not in text
             assert "不静音 provider 原音" in text or "不要静音 provider 原音" in text
+
+
+def test_regenerating_narration_audio_names_the_segments() -> None:
+    """缺省是「只补缺失」，而 stale 算可复用被跳过——不带 ID 的重合成什么都不做。"""
+
+    assert artifact_is_reusable(
+        GenerationTargetState(
+            candidate=GenerationCandidate(unit_id="E1S01", artifact_key=None, artifact_path="a.mp3"),
+            status=ArtifactStatus.STALE,
+            blocker=None,
+        ),
+        manifest_active=True,
+    )
+
+    for content in (
+        _skill("SKILL.narration.md"),
+        (PROFILE / ".claude" / "skills" / "generate-narration-audio" / "SKILL.md").read_text(encoding="utf-8"),
+    ):
+        assert f"`{GenerationAction.REGENERATE_TTS.value}`" in content
+        assert "segment_ids" in content
+        assert "只补缺失" in content
