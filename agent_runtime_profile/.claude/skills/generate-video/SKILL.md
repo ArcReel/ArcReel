@@ -36,14 +36,15 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 | 操作 | 工具 |
 |------|------|
-| 整集生成（默认） | `mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": "post_production"})` |
-| 断点续传 | `mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": "post_production", "resume": true})` |
-| 单场景 | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": "post_production"})` |
-| 批量自选 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1S01", "E1S05", "E1S10"], "narration_delivery": "post_production"})` |
-| 自选 + 续传 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": [...], "narration_delivery": "post_production", "resume": true})` |
-| 全部待处理（独立模式） | `mcp__arcreel__generate_video_all({"script": "episode_1.json", "narration_delivery": "post_production"})` |
+| 整集生成（默认操作） | `mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": chosen_narration_delivery})` |
+| 断点续传 | `mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": chosen_narration_delivery, "resume": true})` |
+| 单场景 | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": chosen_narration_delivery})` |
+| 批量自选 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1S01", "E1S05", "E1S10"], "narration_delivery": chosen_narration_delivery})` |
+| 自选 + 续传 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": [...], "narration_delivery": chosen_narration_delivery, "resume": true})` |
+| 全部待处理（独立模式） | `mcp__arcreel__generate_video_all({"script": "episode_1.json", "narration_delivery": chosen_narration_delivery})` |
 
 每次调用都必须带 `narration_delivery`（见「旁白交付」）：省略或写错值一律返回工具错误、不入队任何任务。
+上表的 `chosen_narration_delivery` 是占位符，调用前换成本次已向用户确认的那个值，不要照抄一个具体值。
 
 把 `scene_id` / `scene_ids` 在 storyboard 路线解释为分镜 ID，在 reference 路线解释为 `unit_id`。集号由剧本元数据或文件名解析。
 
@@ -53,8 +54,8 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 | 操作 | 工具 |
 |------|------|
-| 重新生成单个 unit | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1U2", "narration_delivery": "post_production"})` |
-| 重新生成多个 unit | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1U2", "E1U3"], "narration_delivery": "post_production"})` |
+| 重新生成单个 unit | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1U2", "narration_delivery": chosen_narration_delivery})` |
+| 重新生成多个 unit | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1U2", "E1U3"], "narration_delivery": chosen_narration_delivery})` |
 
 一次调用完成入队、等待与结果回报：
 
