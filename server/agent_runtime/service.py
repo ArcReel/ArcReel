@@ -960,7 +960,7 @@ class AssistantService:
     # ``tests/test_frontend_skill_i18n.py`` cross-checks SKILL.md against
     # those keys so adding a user-invocable skill without translations fails CI.
     _SKILL_ICONS: dict[str, str] = {
-        "manga-workflow": "clapperboard",
+        "video-workflow": "clapperboard",
         "generate-storyboard": "images",
         "generate-grid": "grid-2x2",
         "generate-video": "film",
@@ -1028,7 +1028,7 @@ class AssistantService:
     def _resolve_skill_entry_file(skill_dir: Path) -> Path | None:
         # profile 端的 content_mode 变体（SKILL.narration.md / SKILL.drama.md）只在 sync
         # 进项目目录时才会被物化为 SKILL.md；列表接口直接扫 profile 时必须自己识别变体，
-        # 否则 manga-workflow 这类 variant-only skill 永远拿不到。
+        # 否则 video-workflow 这类 variant-only skill 永远拿不到。
         #
         # 查找契约与 tests/test_frontend_skill_i18n.py:_find_skill_md 保持一致：
         # 用 is_file 严格筛文件、按 sorted(VALID_CONTENT_MODES) 显式枚举有效模式、

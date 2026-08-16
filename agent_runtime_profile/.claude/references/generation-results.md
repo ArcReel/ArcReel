@@ -41,10 +41,21 @@ skipped                                     （复用旧产物，不在 requeste
 
 **按 `code` 与 `action` 决定下一步，不要解析文本判断能不能重试。**
 
-## 三条状态轴分开读
+## 四条状态轴分开读
 
-`task_state`（队列任务）、`provider_checkpoint`（供应商是否已提交）、
-`artifact_status`（产物 current/stale/missing）互相独立：
+workflow 步骤状态（`plan.steps[].state`）、`task_state`（队列任务）、
+`provider_checkpoint`（供应商是否已提交）、`artifact_status`（产物 current/stale/missing/blocked）
+互相独立，**分开陈述，不要互相翻译**：
 
 - 任务成功 ≠ 产物匹配当前依据
+- 产物缺失 ≠ 任务失败：可能根本没入队（`blocked`，不计费）
+- `provider_checkpoint.submitted` 为真表示供应商侧已提交、很可能已计费；`task_state` 为
+  `interrupted` 表示没有供应商裁决，盲目重试可能重复计费——按 `problem.action` 决定，
+  `resume` 与 `retry` 不可互换
 - 产物落盘失败时该 ID 记为 `failed`，旧的付费产物原样保留，绝不在文件真正落定前标成就位
+
+产物历史另成一轴：`current` 是当前选中的产物，`stale` 是依据已变但仍在的旧产物，历史版本是此前
+付费产出的其它版本。agent 不得自动删除、覆盖或重生任何已付费产物与历史版本——重做由用户明确决定。
+
+用户问「做完了没有」时，回答落在这四轴上，而不是压成一句「成功了」。计划整体的读法见
+[workflow-plan.md](workflow-plan.md)。

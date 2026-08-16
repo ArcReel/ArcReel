@@ -428,7 +428,7 @@ def test_valid_content_modes_constant() -> None:
 def _make_profile(tmp_path: Path) -> Path:
     """构造典型 profile：通用文件 + narration/drama/ad 变体配对。"""
     profile = tmp_path / "profile"
-    (profile / ".claude" / "skills" / "manga-workflow").mkdir(parents=True)
+    (profile / ".claude" / "skills" / "video-workflow").mkdir(parents=True)
     (profile / ".claude" / "agents").mkdir(parents=True)
     # 通用文件
     (profile / ".claude" / "agents" / "generate-assets.md").write_text("common")
@@ -437,9 +437,9 @@ def _make_profile(tmp_path: Path) -> Path:
     (profile / "CLAUDE.drama.md").write_text("drama top")
     (profile / "CLAUDE.ad.md").write_text("ad top")
     # SKILL.md 变体配对
-    (profile / ".claude" / "skills" / "manga-workflow" / "SKILL.narration.md").write_text("nar skill")
-    (profile / ".claude" / "skills" / "manga-workflow" / "SKILL.drama.md").write_text("dra skill")
-    (profile / ".claude" / "skills" / "manga-workflow" / "SKILL.ad.md").write_text("ad skill")
+    (profile / ".claude" / "skills" / "video-workflow" / "SKILL.narration.md").write_text("nar skill")
+    (profile / ".claude" / "skills" / "video-workflow" / "SKILL.drama.md").write_text("dra skill")
+    (profile / ".claude" / "skills" / "video-workflow" / "SKILL.ad.md").write_text("ad skill")
     return profile
 
 
@@ -452,7 +452,7 @@ def test_resolve_for_narration_picks_narration_variants(tmp_path: Path) -> None:
     assert mapping == {
         "CLAUDE.md": "CLAUDE.narration.md",
         ".claude/agents/generate-assets.md": ".claude/agents/generate-assets.md",
-        ".claude/skills/manga-workflow/SKILL.md": ".claude/skills/manga-workflow/SKILL.narration.md",
+        ".claude/skills/video-workflow/SKILL.md": ".claude/skills/video-workflow/SKILL.narration.md",
     }
 
 
@@ -462,7 +462,7 @@ def test_resolve_for_drama_picks_drama_variants(tmp_path: Path) -> None:
     profile = _make_profile(tmp_path)
     mapping = resolve_profile_files_for_mode(profile, "drama")
 
-    assert mapping[".claude/skills/manga-workflow/SKILL.md"] == ".claude/skills/manga-workflow/SKILL.drama.md"
+    assert mapping[".claude/skills/video-workflow/SKILL.md"] == ".claude/skills/video-workflow/SKILL.drama.md"
     assert mapping["CLAUDE.md"] == "CLAUDE.drama.md"
 
 
@@ -473,7 +473,7 @@ def test_resolve_for_ad_picks_ad_variants(tmp_path: Path) -> None:
     mapping = resolve_profile_files_for_mode(profile, "ad")
 
     assert mapping["CLAUDE.md"] == "CLAUDE.ad.md"
-    assert mapping[".claude/skills/manga-workflow/SKILL.md"] == ".claude/skills/manga-workflow/SKILL.ad.md"
+    assert mapping[".claude/skills/video-workflow/SKILL.md"] == ".claude/skills/video-workflow/SKILL.ad.md"
 
 
 def test_repo_profile_resolves_for_every_content_mode() -> None:
@@ -484,7 +484,7 @@ def test_repo_profile_resolves_for_every_content_mode() -> None:
     for mode in sorted(VALID_CONTENT_MODES):
         mapping = resolve_profile_files_for_mode(repo_profile, mode)  # type: ignore[arg-type]
         assert mapping["CLAUDE.md"] == f"CLAUDE.{mode}.md"
-        assert mapping[".claude/skills/manga-workflow/SKILL.md"] == f".claude/skills/manga-workflow/SKILL.{mode}.md"
+        assert mapping[".claude/skills/video-workflow/SKILL.md"] == f".claude/skills/video-workflow/SKILL.{mode}.md"
 
 
 def test_sync_ad_project_writes_ad_variant(tmp_path: Path) -> None:
@@ -497,7 +497,7 @@ def test_sync_ad_project_writes_ad_variant(tmp_path: Path) -> None:
     sync_profile_to_project(profile, project, content_mode="ad")
 
     assert (project / "CLAUDE.md").read_text() == "ad top"
-    assert (project / ".claude" / "skills" / "manga-workflow" / "SKILL.md").read_text() == "ad skill"
+    assert (project / ".claude" / "skills" / "video-workflow" / "SKILL.md").read_text() == "ad skill"
     assert not (project / "CLAUDE.ad.md").exists()
 
 
@@ -631,7 +631,7 @@ def test_sync_narration_project_writes_narration_variant(tmp_path: Path) -> None
     sync_profile_to_project(profile, project, content_mode="narration")
 
     assert (project / "CLAUDE.md").read_text() == "narration top"
-    assert (project / ".claude" / "skills" / "manga-workflow" / "SKILL.md").read_text() == "nar skill"
+    assert (project / ".claude" / "skills" / "video-workflow" / "SKILL.md").read_text() == "nar skill"
     assert not (project / "CLAUDE.narration.md").exists()
     assert not (project / "CLAUDE.drama.md").exists()
 
@@ -742,7 +742,7 @@ def test_variants_to_common_upgrade_preserves_modified_legacy_files_and_reports_
 
     for path in profile.glob("CLAUDE.*.md"):
         path.unlink()
-    workflow = profile / ".claude" / "skills" / "manga-workflow"
+    workflow = profile / ".claude" / "skills" / "video-workflow"
     for path in workflow.glob("SKILL.*.md"):
         path.unlink()
     (profile / "CLAUDE.md").write_text("common top", encoding="utf-8")
@@ -756,7 +756,7 @@ def test_variants_to_common_upgrade_preserves_modified_legacy_files_and_reports_
     sync_profile_to_project(profile, project, content_mode=mode)  # type: ignore[arg-type]
 
     assert (project / "CLAUDE.md").read_text(encoding="utf-8") == "common top"
-    assert (project / ".claude" / "skills" / "manga-workflow" / "SKILL.md").read_text(
+    assert (project / ".claude" / "skills" / "video-workflow" / "SKILL.md").read_text(
         encoding="utf-8"
     ) == "common skill"
     assert (project / ".claude" / "references" / "workflow-mode.md").read_text(encoding="utf-8") == mode
@@ -835,7 +835,7 @@ def test_profile_status_reports_missing_builtins_without_trusted_manifest(
         "customized": True,
         "customized_files": [
             ".claude/agents/generate-assets.md",
-            ".claude/skills/manga-workflow/SKILL.md",
+            ".claude/skills/video-workflow/SKILL.md",
             "CLAUDE.md",
         ],
     }
@@ -900,7 +900,7 @@ def test_create_project_with_drama_mode_materializes_drama_variant(
     pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
     project_dir = pm.create_project("demo", content_mode="drama")
     assert (project_dir / "CLAUDE.md").read_text() == "drama top"
-    assert (project_dir / ".claude" / "skills" / "manga-workflow" / "SKILL.md").read_text() == "dra skill"
+    assert (project_dir / ".claude" / "skills" / "video-workflow" / "SKILL.md").read_text() == "dra skill"
 
 
 def test_create_project_default_is_narration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

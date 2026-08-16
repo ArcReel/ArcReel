@@ -84,18 +84,22 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ## 工作流程概览
 
-`/manga-workflow` 编排 skill 按以下阶段推进（每个阶段完成后与用户确认再继续）；用户提到做视频、继续项目、查看进度时使用该 skill。涉及尚未落地的环节时如实告知用户，不要用 narration/drama 的小说流程替代：
+`/video-workflow` 编排 skill 按服务端计划推进（每个动作完成后与用户确认再继续）；用户提到做视频、继续项目、查看进度时使用该 skill。涉及尚未落地的环节时如实告知用户，不要用 narration/drama 的小说流程替代。
 
-1. **创作输入确认**：Read `project.json` 检查 `brief`、`products`、`target_duration`、`generation_mode`。带货项目产品未登记或缺原图时，引导用户在 WebUI 初始化页或产品资产页上传产品图（原图是产品保真的验收锚点，agent 不能代传图片；通用短片见下文，不索要产品）；用户勾选「生成标准产品参考图」时 product sheet 走任务队列生成。`brief` 为空时对话补齐创作诉求（产品/主题、目标人群、期望风格），经 `mcp__arcreel__patch_project` 写入。用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知路线创建后不可更改，无绕过方式；宫格装配对 ad 不开放
-2. **卖点起草确认**：产品已登记但 `selling_points` 为空时，从 brief、产品描述与原图起草卖点列表，与用户确认后经 `patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
-3. **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` subagent 出设计图；轻量短片可跳过，仅靠产品参考与项目 style
-4. **一键生成剧本**：`mcp__arcreel__generate_episode_script({"episode": 1})`，八段带货框架按 `target_duration` 选档配比；storyboard 路径向用户呈现镜头列表与口播文案，reference_video 路径呈现 video unit 列表与书写层正文，按需经 `patch_episode_script` 调整（顺序调整引导用户到 WebUI 剧本页）
-5. **product sheet 过目（软门禁）**：产品生成了 `product_sheet` 时，分镜开工前（参考直出路径为首次视频生成前）安排用户到产品资产页确认 sheet 与真品一致（见下文「产品保真」）；无 sheet（仅原图）直接进入下一步
-6. **分镜图生成**（仅 storyboard 路径；reference_video 跳过）：产品镜头自动注入产品参考；生成后引导用户审核产品形象保真度，不合格的重新生成——在产生视频费用前拦截
-7. **视频生成**：storyboard 路径逐镜头图生视频；reference_video 路径按剧本中的自包含 unit 直出
-8. **导出剪映草稿**：视频齐全后引导用户在 Web 端导出剪映草稿；storyboard 路径沿用视频轨 + 口播文案字幕轨，reference_video 路径本阶段只收敛视频单元骨架，不扩展配音、字幕或混音能力。in-app 成片（compose-video）对 ad 不适用
+**步骤表不在这里，也不在 skill 里**：调用 `mcp__arcreel__get_workflow_plan` 取回 `steps[]` 与唯一的 `next_action`，照它路由。受控动作表、旁白交付、批量准入与状态轴读法见 `.claude/references/workflow-plan.md`。
 
-工作流支持**灵活入口**：从 `project.json` 与剧本现状判断进行到哪一步，中断后从未完成的阶段继续。
+需要在这里说清、不由计划表达的 ad 专属规则：
+
+- **创作输入**：带货项目产品未登记或缺原图时，引导用户在 WebUI 初始化页或产品资产页上传产品图（原图是产品保真的验收锚点，agent 不能代传图片；通用短片见下文，不索要产品）；用户勾选「生成标准产品参考图」时 product sheet 走任务队列生成。`brief` 为空时对话补齐创作诉求（产品/主题、目标人群、期望风格），经 `mcp__arcreel__patch_project` 写入
+- **生成路线**：用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知路线创建后不可更改，无绕过方式；宫格装配对 ad 不开放
+- **卖点**：产品已登记但 `selling_points` 为空时，从 brief、产品描述与原图起草卖点列表，与用户确认后经 `patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
+- **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` subagent 出设计图；轻量短片可跳过，仅靠产品参考与项目 style
+- **剧本**：`mcp__arcreel__generate_episode_script({"episode": 1})` 单阶段产出，八段带货框架按 `target_duration` 选档配比；storyboard 路径向用户呈现镜头列表与口播文案，reference_video 路径呈现 video unit 列表与书写层正文，按需经 `patch_episode_script` 调整（顺序调整引导用户到 WebUI 剧本页）
+- **product sheet 过目（软门禁）**：产品生成了 `product_sheet` 时，分镜开工前（参考直出路径为首次视频生成前）安排用户到产品资产页确认 sheet 与真品一致（见下文「产品保真」）；无 sheet（仅原图）直接进入下一步
+- **保真拦截**：分镜图生成后引导用户审核产品形象保真度，不合格的重新生成——在产生视频费用前拦截
+- **导出**：视频齐全后引导用户在 Web 端导出剪映草稿。声音归属与字幕时序由服务端 presentation 结果决定，预览、下载与剪映草稿消费同一份；agent 不自行估算字幕时序、不静音 provider 原音、也不替用户判断 TTS 是否必需。stale 产物照常可导出，导出不清空也不覆盖旧付费媒体。in-app 成片（compose-video）对 ad 不适用
+
+工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，中断后从那里继续。
 
 ### 产品保真（软门禁）
 

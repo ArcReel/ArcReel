@@ -63,19 +63,61 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 - 结果按 `requested / succeeded / failed / blocked` 逐 ID 返回，
   结构与问题码见 `.claude/references/generation-results.md`。
 
-### reference_video 模式的时长确认
+### 旁白交付
 
-按 unit 的引用状态选择生效档位，把编排时长投影到能容纳内容的申请档位。申请时长不同于编排时长时，首次调用只返回确认清单，不入队。向用户说明每个 unit 的编排秒数、申请秒数及变长或变短；用户同意后给同一工具加 `confirm_duration: true`。能力解析成功且无需调整时直接入队；能力无法解析时把工具错误作为 blocker，先修复模型能力声明。
+叙述旁白有两条交付路线，**每次请求逐次选择、从不持久化**，经 `narration_delivery` 传入：
+
+| 取值 | 含义 |
+|---|---|
+| `post_production`（默认） | 后期配音：视频照常生成，旁白留到剪映等后期工具里补 |
+| `use_tts` | 使用当前 TTS：按 fresh 旁白音频的实际媒体时长参与时长求解 |
+
+对每次叙述旁白视频请求都要**显式向用户说明并选择**，不要默默沿用上一次。未配置 TTS 时默认走
+后期配音——那不是工作流缺口，视频照常成片，**不要为了让视频继续而建议用户去配置 TTS 供应商**。
+选 `use_tts` 时先显式生成并让用户试听旁白（`generate-narration-audio`），再按预检返回的
+`problems[].action` 处理——**action 是权威，不要按 `code` 自己推**：`tts_missing` 先生成、
+`tts_stale` / `tts_duration_unavailable` 先重新合成（旧音频保留）、`tts_generating` 与
+`tts_conflicts_with_active_narrated_video` 等待在跑的任务后重查（不要重复提交）、
+`tts_not_applicable` 改选后期配音、`tts_state_unavailable` 报为独立缺口而不是当作缺失去重生。
+
+`generation_mode == "reference_video"` **只跳过分镜图**，不跳过 audio：旁白交付选择在两条路线上都要做。
+
+### 批量准入与档位确认
+
+视频批量请求是**全有或全无**：准入 `admitted` 时整批入队，`blocked` 或 `confirmation_required` 时
+**一个任务都不入队**。Web 与 agent 走同一套准入与同一套请求选择语义，没有 agent 专属的宽松通道。
+
+按 unit 的引用状态选择生效档位，把编排时长投影到能容纳内容的申请档位。申请档位不同于当前视觉时长时
+预检返回 `reference_duration_confirmation_required`，逐档位向用户说明涉及的 unit、编排秒数、申请秒数
+与变长/变短；确认后经 `confirmed_request_durations`（按 unit_id 记档位）让**原目标集合仍作为一批重发**。
+重发要连同本次请求已选的 `narration_delivery` 一起带上——该参数不持久化，省略即按 `post_production` 处理，
+会把用户选的「使用当前 TTS」悄悄换掉：
 
 ```text
-mcp__arcreel__generate_video_episode({"script": "episode_1.json", "confirm_duration": true})
+mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": "use_tts",
+                                      "confirmed_request_durations": {"E1U1": 8}})
 ```
+
+被拒时逐 unit 报告 `unit_id`、`problem.code`、原因与 `problem.action`；通过的 unit 带
+`generation_batch_admission_withheld`，其 `blocked_unit_ids` 指出是被谁挡住的，如实说明这层因果。
+**不要把整批拆小去先跑通过的那一半**——那既绕开全有或全无，也会重复提交已经付过费的 unit。
+能力无法解析时把工具错误作为 blocker，先修复模型能力声明。
+
+### 结果怎么读、怎么说
+
+`task_state`（队列任务）、`provider_checkpoint`（供应商是否已提交）、`artifact_status`（产物
+current / stale / missing / blocked）与 workflow 步骤状态互相独立，**分开陈述**：「任务成功」不等于
+「当前产物有效」。`provider_checkpoint.submitted` 为真表示供应商侧很可能已计费；任务
+`interrupted` 表示没有供应商裁决，按 `problem.action` 决定，`resume` 与 `retry` 不可互换。
+
+stale 产物照常可预览、可导出、可参与成片，服务端会复用、不会自动重生；是否重做由用户明确决定。
+不自动删除、覆盖或重生任何已付费产物与历史版本。
 
 ## 工作流程
 
 1. 加载项目和剧本，确认骨架与路线一致。
 2. 在 storyboard 路线确认分镜图可用；在 reference 路线确认 unit 可生成且声明的参考资产可解析。
-3. 调用相应 MCP 工具，处理可能出现的时长确认。
+3. 与用户确定本次旁白交付方式，调用相应 MCP 工具，处理准入拒绝与档位确认。
 4. 展示结果，按用户选择点名重做不满意的分镜或 unit。
 5. 以工具写回的 `generated_assets.video_clip` 作为成片归属。
 
