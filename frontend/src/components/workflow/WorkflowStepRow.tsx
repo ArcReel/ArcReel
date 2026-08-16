@@ -9,7 +9,7 @@ import { ProblemList } from "./ProblemList";
 import { StaleArtifacts } from "./StaleArtifacts";
 import { TaskChips } from "./TaskChips";
 import { INLINE_ACTION_CLS, STEP_RAILS } from "./state-language";
-import { problemViews, type ProblemView } from "./problem-views";
+import { nextStepForAction, problemViews, type ProblemView } from "./problem-views";
 
 /** 轨道刻度：步骤进度这一轴的唯一图形。产物用填充块、任务用描边胶囊，三者不共用形状。 */
 function RailMark({ step }: { step: WorkflowPlanStep }) {
@@ -49,7 +49,7 @@ export interface NarrationChoiceBinding {
 
 interface Props {
   step: WorkflowPlanStep;
-  /** 跳到画布上的该单元；预览、下载与导出都在那里，面板不另起一套播放器。 */
+  /** 跳到画布上的该单元；预览与版本历史都在那里，面板不另起一套播放器。 */
   onViewUnit?: (unitId: string) => void;
   /** 显式重生：这一步的指定单元。会花钱，必须由用户按下。 */
   onRegenerate?: (stepId: string, unitIds: string[]) => void;
@@ -164,9 +164,7 @@ export function WorkflowStepRow({
 
             {step.action && step.action.type !== "none" && (
               <p className="text-[11.5px] leading-relaxed" style={{ color: "var(--color-text-3)" }}>
-                {t("next_step", {
-                  step: t(`action_${step.action.type}`, { defaultValue: t("action_unknown") }),
-                })}
+                {nextStepForAction(t, step.action.type)}
               </p>
             )}
           </>

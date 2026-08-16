@@ -37,7 +37,18 @@ function localizedSummary(t: Translate, code: string, fallback: string): string 
   return translated || fallback || code;
 }
 
-/** 动作译文是裸的祈使短语；「下一步：」这层框架由 {@link nextStepFor} 统一加，各调用点不各写一遍。 */
+/**
+ * 复述后端给的下一步动作。动作译文是裸的祈使短语，「下一步：」这层框架在这里统一加，
+ * 各调用点不各写一遍。动作类型是开放集合，未登记的取值落到 `action_unknown` 兜底陈述——
+ * 说不出是哪个动作，也好过把后端明确给出的这一步整个吞掉。
+ */
+export function nextStepForAction(t: Translate, action: string): string {
+  return t("next_step", {
+    step: t(`action_${action}`, { defaultValue: t("action_unknown") }),
+  });
+}
+
+/** 问题行里的下一步。没有动作、或动作没有对应译文时留空，不编造。 */
 function nextStepFor(t: Translate, action: string | null | undefined): string | null {
   if (!action || action === "none") return null;
   const phrase = t(`action_${action}`, { defaultValue: "" });

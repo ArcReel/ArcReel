@@ -8,7 +8,7 @@ import type { NarrationDelivery } from "@/types/workflow";
 import { ProblemList } from "./ProblemList";
 import { WorkflowStepRow } from "./WorkflowStepRow";
 import { STEP_RAILS } from "./state-language";
-import { blockerViews, problemViews } from "./problem-views";
+import { blockerViews, nextStepForAction, problemViews } from "./problem-views";
 
 /** TTS 没配好时后端给出的问题码；它挡住的只是 use_tts 这一条路径。 */
 const TTS_NOT_CONFIGURED = "tts_not_configured";
@@ -84,8 +84,13 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
   );
   const ttsUnavailable = useMemo(() => {
     if (!shown) return null;
-    const step = shown.steps.find((item) => item.id === "narration_delivery");
-    const problem = step?.problems.find((item) => item.code === TTS_NOT_CONFIGURED);
+    // TTS 没配好这件事是视频批量准入求解出来的（选了 TTS 才会跑那一轮），落点是计划的
+    // 问题清单与视频步骤，而不是旁白交付步骤自己。所以按 code 在整份计划里找：只翻交付
+    // 步骤的 problems 永远翻不到，那条引导就等于不存在。
+    const problem = [
+      ...shown.problems,
+      ...shown.steps.flatMap((step) => step.problems),
+    ].find((item) => item.code === TTS_NOT_CONFIGURED);
     return problem ? (problemViews(t, [problem], "tts")[0] ?? null) : null;
   }, [shown, t]);
 
@@ -96,9 +101,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
 
   // 摘要行只复述后端给的下一步动作，不做任何本地推断。
   const headline = shown
-    ? t("next_step", {
-        step: t(`action_${shown.next_action.type}`, { defaultValue: t("action_unknown") }),
-      })
+    ? nextStepForAction(t, shown.next_action.type)
     : loading
       ? t("plan_loading")
       : t("plan_unavailable");

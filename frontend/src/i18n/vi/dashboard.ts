@@ -1111,8 +1111,6 @@ export default {
   'reference_batch_blocked_cta': 'Đã hiểu',
   'reference_batch_blocked_title': 'Chưa bắt đầu tạo hàng loạt',
   'reference_batch_request_failed': 'Yêu cầu tạo hàng loạt thất bại: {{error}}',
-  // Khóa tương ứng tập đóng GenerationAction — action trong payload phê duyệt đã được máy chủ
-  // quy về tập này, nên từ vựng hành động riêng của các mô-đun nguồn không xuất hiện ở đây.
   'reference_episode_header_units_one': '{{count}} đơn vị',
   'reference_episode_header_units_other': '{{count}} đơn vị',
   'reference_episode_header_ready': 'Sẵn sàng',

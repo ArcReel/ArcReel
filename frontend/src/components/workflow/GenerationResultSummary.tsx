@@ -1,6 +1,7 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { GenerationBatchResult, GenerationItemResult } from "@/types/workflow";
+import { CheckpointNote } from "./CheckpointNote";
 import { ProblemList } from "./ProblemList";
 import { UnitTag } from "./UnitTag";
 import { ARTIFACT_TONES, taskTone } from "./state-language";
@@ -28,13 +29,7 @@ function ItemRow({ item }: { item: GenerationItemResult }) {
           </span>
         )}
       </span>
-      {item.provider_checkpoint?.submitted && (
-        <span className="text-[11px]" style={{ color: "var(--color-text-3)" }}>
-          {t("checkpoint_submitted", {
-            provider: item.provider_checkpoint.provider_id ?? t("checkpoint_provider_unknown"),
-          })}
-        </span>
-      )}
+      {item.provider_checkpoint && <CheckpointNote checkpoint={item.provider_checkpoint} />}
     </li>
   );
 }

@@ -40,6 +40,8 @@ export default {
   'artifact_missing': 'Not created yet',
   'artifact_blocked': 'Cannot be read',
   'artifact_not_applicable': 'Not used in this project.',
+  'artifact_partial': 'Covers only part of the content',
+  'artifact_unknown': 'State: {{state}}',
   'artifact_collection_blocked': 'This folder cannot be read, so its contents are unknown.',
   'artifact_empty': 'Nothing to produce here yet.',
   'artifact_usable_one': '{{count}} usable',
@@ -52,7 +54,7 @@ export default {
   // ---- Stale artifacts ----
   'stale_title_one': '{{count}} result is older than the current content',
   'stale_title_other': '{{count}} results are older than the current content',
-  'stale_still_usable': 'These files still play, download and export. Keeping them costs nothing; regenerating charges the provider again.',
+  'stale_still_usable': 'These files are kept. You can open them on the canvas, and they still go into this episode. Keeping them costs nothing; regenerating charges the provider again.',
   'stale_view': 'Open',
   'stale_view_unit': 'Open {{id}} on the canvas',
   'stale_regenerate': 'Regenerate',

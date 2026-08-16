@@ -1,29 +1,11 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
-import type { ProviderCheckpoint, WorkflowTaskObservation } from "@/types/workflow";
+import type { WorkflowTaskObservation } from "@/types/workflow";
+import { CheckpointNote } from "./CheckpointNote";
 import { UnitTag } from "./UnitTag";
 import { taskTone } from "./state-language";
 
 const ACTIVE_STATUSES = new Set(["queued", "running", "cancelling"]);
-
-function CheckpointMark({ checkpoint }: { checkpoint: ProviderCheckpoint }) {
-  const { t } = useTranslation("workflow");
-  if (!checkpoint.submitted) return null;
-  const jobId = checkpoint.provider_job_id;
-  return (
-    <span
-      className="flex flex-wrap items-baseline gap-x-1 text-[11px]"
-      style={{ color: "var(--color-text-3)" }}
-    >
-      <span>{t("checkpoint_submitted", { provider: checkpoint.provider_id ?? t("checkpoint_provider_unknown") })}</span>
-      {jobId && (
-        <code translate="no" className="break-all font-mono">
-          {jobId}
-        </code>
-      )}
-    </span>
-  );
-}
 
 interface Props {
   tasks: WorkflowTaskObservation[];
@@ -36,8 +18,7 @@ interface Props {
  * 不是同一类事物。恢复中的任务停在这条轴上：它还没有产出任何可用文件，把它画成 current
  * 产物会让用户以为已经生成好了。
  *
- * provider checkpoint 单独一行，因为它回答的是另一个问题：供应商侧是否已经收单。已收单时
- * 重试可能重复计费，这件事必须自己占一行，不能被折进任务状态词里。
+ * 供应商 checkpoint 交给 {@link CheckpointNote} 单独成行，理由见该组件。
  */
 export function TaskChips({ tasks }: Props) {
   const { t } = useTranslation("workflow");
@@ -67,7 +48,7 @@ export function TaskChips({ tasks }: Props) {
                 </span>
               </span>
               {task.provider_checkpoint && (
-                <CheckpointMark checkpoint={task.provider_checkpoint} />
+                <CheckpointNote checkpoint={task.provider_checkpoint} showJobId />
               )}
             </li>
           );

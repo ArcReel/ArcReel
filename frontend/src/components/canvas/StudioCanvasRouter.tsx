@@ -363,9 +363,14 @@ export function StudioCanvasRouter() {
     });
   }, [currentProjectData?.generation_mode]);
 
-  const handleWorkflowRegenerate = useCallback(async (stepId: string, unitIds: string[]) => {
+  // 剧本文件由调用方按当前剧集给出：多集项目里 currentScripts 装着全部剧集，
+  // 取第一个键会把重生打到别集的剧本上，用户看到的是另一集被重做。
+  const handleWorkflowRegenerate = useCallback(async (
+    stepId: string,
+    unitIds: string[],
+    scriptFile: string,
+  ) => {
     if (!currentProjectName || !currentScripts) return;
-    const scriptFile = Object.keys(currentScripts)[0];
     for (const unitId of unitIds) {
       try {
         if (stepId === "storyboard") {
@@ -761,7 +766,15 @@ export function StudioCanvasRouter() {
                   projectName={currentProjectName}
                   episode={epNum}
                   onViewUnit={handleViewWorkflowUnit}
-                  onRegenerate={voidPromise(handleWorkflowRegenerate)}
+                  // 参考路线的视频入队由 ReferenceVideoCanvas 自己的批量准入路径承担，
+                  // 本组件的逐单元回调对 video_units 剧本解不出提示词、按下去毫无反应。
+                  // 该路线只给「查看」跳转，重生入口在跳过去的那张单元卡上。
+                  onRegenerate={
+                    route === "reference_video" || !scriptFile
+                      ? undefined
+                      : (stepId, unitIds) =>
+                          void handleWorkflowRegenerate(stepId, unitIds, scriptFile)
+                  }
                 />
               )}
               <div className="min-h-0 flex-1">

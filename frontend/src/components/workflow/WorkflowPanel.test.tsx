@@ -70,6 +70,27 @@ describe("WorkflowPanel 状态语言", () => {
     expect(within(row).getByText(/还差 1 件/)).toBeInTheDocument();
   });
 
+  it("产物状态词超出产物时效四种取值时照常陈述，不在查表上崩掉整个面板", async () => {
+    // 资产盘点只盘了一部分源文时后端给的是 `partial`，它不属于产物时效那四种取值。
+    await renderExpanded(
+      makePlan({
+        steps: [makeStep({ id: "asset_inventory", artifacts: { state: "partial" } })],
+      }),
+    );
+    const row = screen.getByTestId("workflow-step-asset_inventory");
+    expect(within(row).getByText("只覆盖了一部分内容")).toBeInTheDocument();
+  });
+
+  it("状态词是后端新加的、面板还没有译文时复述原词，而不是显示译文键", async () => {
+    await renderExpanded(
+      makePlan({
+        steps: [makeStep({ id: "asset_inventory", artifacts: { state: "quarantined" } })],
+      }),
+    );
+    const row = screen.getByTestId("workflow-step-asset_inventory");
+    expect(within(row).getByText("状态：quarantined")).toBeInTheDocument();
+  });
+
   it("集合读不出来时只说读不出来，不把任何 id 猜成缺失", async () => {
     await renderExpanded(
       makePlan({ steps: [makeStep({ id: "storyboard", artifacts: { state: "blocked" } })] }),
@@ -90,12 +111,12 @@ describe("WorkflowPanel 已过时产物", () => {
     ],
   });
 
-  it("过时产物声明仍可预览下载导出，并给出显式重生入口", async () => {
+  it("过时产物声明文件保留可用，并给出查看与显式重生入口", async () => {
     const onRegenerate = vi.fn();
     const onViewUnit = vi.fn();
     await renderExpanded(stalePlan, { onRegenerate, onViewUnit });
 
-    expect(screen.getByText(/照常可以预览、下载和导出/)).toBeInTheDocument();
+    expect(screen.getByText(/仍然保留，可以在画布上查看/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "在画布上查看 E1U2" }));
     expect(onViewUnit).toHaveBeenCalledWith("E1U2");
@@ -113,13 +134,13 @@ describe("WorkflowPanel 已过时产物", () => {
     const spy = mockPlan(stalePlan);
     render(<WorkflowPanel projectName="proj" episode={1} />);
     fireEvent.click(await screen.findByRole("button", { name: /制作状态/ }));
-    await screen.findByText(/照常可以预览、下载和导出/);
+    await screen.findByText(/仍然保留，可以在画布上查看/);
 
     spy.mockRejectedValueOnce(new Error("offline"));
     await useWorkflowStore.getState().refreshPlan("proj", 1);
 
     await screen.findByText(/状态刷新失败/);
-    expect(screen.getByText(/照常可以预览、下载和导出/)).toBeInTheDocument();
+    expect(screen.getByText(/仍然保留，可以在画布上查看/)).toBeInTheDocument();
   });
 });
 
@@ -247,6 +268,29 @@ describe("WorkflowPanel 旁白交付", () => {
     expect(screen.getByText(/选后期配音即可继续/)).toBeInTheDocument();
     // 只是一条路径没配好，不是整集受阻——面板不弹错误摘要
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("TTS 未配置这条问题落在视频步骤上时同样引导后期配音", async () => {
+    // 这条问题由视频批量准入求解得出（选了 TTS 才跑那一轮），后端把它挂在计划的问题
+    // 清单与视频步骤上，而不是旁白交付步骤。只翻交付步骤的 problems 会漏掉它。
+    const problem = {
+      code: "tts_not_configured",
+      detail: "tts provider unavailable",
+      action: "configure_provider",
+      params: { path: ["generation_settings", "audio_backend"] },
+    };
+    await renderExpanded(
+      makePlan({
+        problems: [problem],
+        steps: [
+          makeStep({ id: "narration_delivery", state: "ready" }),
+          makeStep({ id: "video", state: "blocked", problems: [problem] }),
+        ],
+      }),
+    );
+    expect(screen.getByRole("radio", { name: "使用已配置的语音合成" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "后期配音" })).toBeEnabled();
+    expect(screen.getByText(/选后期配音即可继续/)).toBeInTheDocument();
   });
 });
 

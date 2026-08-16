@@ -13,7 +13,13 @@ import { SEVERITY_TONES, type ToneTokens } from "@/utils/severity-tone";
  * 色觉差异用户会把 stale 读成 current。纹理差异在灰度下依然成立。
  */
 
-export const ARTIFACT_STATUSES = ["current", "stale", "missing", "blocked"] as const;
+/**
+ * 计量条上并置的三种时效。`blocked` 不在其中：容器读不出来时一个 id 都数不出来，
+ * 那一步整条计量条都不摊，只留一句「读不出来」。
+ */
+export const METER_SEGMENTS = ["current", "stale", "missing"] as const;
+
+export type MeterSegment = (typeof METER_SEGMENTS)[number];
 
 /**
  * 面板内联动作的统一形态：文字链而非实心按钮。面板的主体是陈述，动作是陈述里的一个去处，
@@ -22,7 +28,8 @@ export const ARTIFACT_STATUSES = ["current", "stale", "missing", "blocked"] as c
 export const INLINE_ACTION_CLS =
   "focus-ring rounded text-[11.5px] underline underline-offset-2 hover:opacity-80 disabled:opacity-50 disabled:hover:opacity-50";
 
-const NEUTRAL_TONE: ToneTokens = {
+/** 未登记状态词的落点：说不出程度就不着色，绝不在查表上崩掉整个面板。 */
+export const NEUTRAL_TONE: ToneTokens = {
   color: "var(--color-text-3)",
   soft: "transparent",
   ring: "var(--color-hairline-strong)",
@@ -45,10 +52,10 @@ export const ARTIFACT_TONES: Record<ArtifactStatus, ToneTokens> = {
 };
 
 /**
- * 计量条分段的填充。四种时效四种纹理，灰度打印下仍可区分：
- * current 实心 / stale 斜纹 / missing 空槽 / blocked 交叉纹。
+ * 计量条分段的填充。三种并置时效三种纹理，灰度打印下仍可区分：
+ * current 实心 / stale 斜纹 / missing 空槽。
  */
-export function artifactFill(status: ArtifactStatus): React.CSSProperties {
+export function artifactFill(status: MeterSegment): React.CSSProperties {
   const tone = ARTIFACT_TONES[status];
   switch (status) {
     case "current":
@@ -60,14 +67,16 @@ export function artifactFill(status: ArtifactStatus): React.CSSProperties {
       };
     case "missing":
       return { background: "transparent", border: `1px dashed ${tone.ring}` };
-    case "blocked":
-      return {
-        background:
-          `repeating-linear-gradient(45deg, ${tone.color} 0 1.5px, transparent 1.5px 4px),` +
-          `repeating-linear-gradient(-45deg, ${tone.color} 0 1.5px, transparent 1.5px 4px)`,
-        border: `1px solid ${tone.ring}`,
-      };
   }
+}
+
+/**
+ * 状态词的色调。`partial` 与 stale 同调——都是「东西在，只是不齐」，
+ * 用户要做的判断是同一类。未登记的取值走中性色，后端加新状态词时面板照常出得来。
+ */
+export function artifactStateTone(state: string): ToneTokens {
+  if (state === "partial") return ARTIFACT_TONES.stale;
+  return ARTIFACT_TONES[state as ArtifactStatus] ?? NEUTRAL_TONE;
 }
 
 export interface StepRail {

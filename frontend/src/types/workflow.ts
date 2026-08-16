@@ -116,12 +116,19 @@ export interface GenerationBatchResult {
 }
 
 /**
+ * 计划里产物条目的状态词。比 {@link ArtifactStatus} 宽：产物时效之外还要表达
+ * 「本模式不涉及」与「只覆盖了部分范围」（如资产盘点只盘了一部分源文）。
+ * 取值随后端演进，界面按已知值分派、其余走兜底陈述，不做穷举断言。
+ */
+export type WorkflowArtifactState = ArtifactStatus | "not_applicable" | "partial" | (string & {});
+
+/**
  * 一个步骤下的产物集合。集合可枚举时给三份 id 列表；容器本身读不了时
  * 只给 `state: "blocked"`，此时不猜任何 id 落进 current / stale / missing。
  * 单份产物（剧本、step1 等）只给 `state`。
  */
 export interface WorkflowArtifactCollection {
-  state?: ArtifactStatus | "not_applicable";
+  state?: WorkflowArtifactState;
   current_ids?: string[];
   stale_ids?: string[];
   missing_ids?: string[];

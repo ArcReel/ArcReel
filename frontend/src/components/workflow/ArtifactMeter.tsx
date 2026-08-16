@@ -1,13 +1,17 @@
 import { useTranslation } from "react-i18next";
-import type { ArtifactStatus, WorkflowArtifactCollection } from "@/types/workflow";
-import { ARTIFACT_STATUSES, ARTIFACT_TONES, artifactFill } from "./state-language";
+import type { WorkflowArtifactCollection } from "@/types/workflow";
+import {
+  ARTIFACT_TONES,
+  METER_SEGMENTS,
+  artifactFill,
+  artifactStateTone,
+} from "./state-language";
 
-/** 集合按时效分出的四组 id。集合读不了时这里为 null，一个 id 都不猜。 */
+/** 集合按时效分出的三组 id。集合读不了时这里为 null，一个 id 都不猜。 */
 export interface ArtifactCounts {
   current: string[];
   stale: string[];
   missing: string[];
-  blocked: string[];
 }
 
 function idList(collection: WorkflowArtifactCollection, key: string): string[] {
@@ -29,17 +33,16 @@ export function artifactCounts(collection: WorkflowArtifactCollection): Artifact
   const hasLists =
     "current_ids" in collection || "stale_ids" in collection || "missing_ids" in collection;
   if (!hasLists || collection.state === "blocked") return null;
-  return { current, stale, missing, blocked: [] };
+  return { current, stale, missing };
 }
 
 /** 集合级计量条：形状区分时效，灰度下依然可读，颜色只区分程度。 */
 function Meter({ counts }: { counts: ArtifactCounts }) {
-  const total =
-    counts.current.length + counts.stale.length + counts.missing.length + counts.blocked.length;
+  const total = counts.current.length + counts.stale.length + counts.missing.length;
   if (total === 0) return null;
   return (
     <span aria-hidden className="flex h-2 w-full min-w-24 gap-px overflow-hidden rounded-full">
-      {ARTIFACT_STATUSES.map((status) => {
+      {METER_SEGMENTS.map((status) => {
         const size = counts[status].length;
         if (size === 0) return null;
         return (
@@ -56,7 +59,7 @@ function Meter({ counts }: { counts: ArtifactCounts }) {
 
 interface Props {
   collection: WorkflowArtifactCollection;
-  /** 该步骤已有的进行中任务数；用于说明「读不出来」与「正在跑」不是一回事。 */
+  /** 覆盖默认排版；只给一句状态词时由调用方决定这句话怎么排。 */
   className?: string;
 }
 
@@ -85,11 +88,14 @@ export function ArtifactMeter({ collection, className }: Props) {
 
   if (counts === null) {
     // 单份产物，或集合容器读不了。两者都只有一个状态词可讲，不摊计量条。
-    const single: ArtifactStatus = state === "blocked" ? "blocked" : (state as ArtifactStatus);
-    if (!single) return null;
+    // 状态词是开放集合（`partial` 等不属于产物时效的词也走这里），按已知值查译文，
+    // 未登记的照原样复述——查不到就崩掉整个面板，比说得笼统糟得多。
+    if (!state) return null;
     return (
-      <p className={className} style={{ color: ARTIFACT_TONES[single].color }}>
-        {state === "blocked" ? t("artifact_collection_blocked") : t(`artifact_${single}`)}
+      <p className={className} style={{ color: artifactStateTone(state).color }}>
+        {state === "blocked"
+          ? t("artifact_collection_blocked")
+          : t(`artifact_${state}`, { defaultValue: t("artifact_unknown", { state }) })}
       </p>
     );
   }

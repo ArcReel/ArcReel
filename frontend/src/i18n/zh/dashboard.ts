@@ -1137,8 +1137,6 @@ export default {
   'reference_batch_blocked_title': '批量生成未开始',
   'reference_batch_blocked_cta': '知道了',
   'reference_batch_request_failed': '批量生成请求失败：{{error}}',
-  // 键名对应 GenerationAction 的封闭取值——准入载荷里的 action 已由服务端归一到该集合，
-  // 上游各模块自己的动作词不会出现在这里。
   'reference_episode_header_units_one': '{{count}} 单元',
   'reference_episode_header_units_other': '{{count}} 单元',
   'reference_episode_header_ready': '就绪',

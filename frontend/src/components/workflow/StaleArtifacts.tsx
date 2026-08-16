@@ -5,7 +5,7 @@ import { ARTIFACT_TONES, INLINE_ACTION_CLS } from "./state-language";
 
 interface Props {
   staleIds: string[];
-  /** 跳到画布上的该单元；那里已经有预览、下载与导出。 */
+  /** 跳到画布上的该单元；那里已经有预览与版本历史。 */
   onView?: (unitId: string) => void;
   /** 显式重生。没有回调时只陈述状态，不长出一个点了没反应的按钮。 */
   onRegenerate?: (unitIds: string[]) => void;
@@ -17,7 +17,7 @@ interface Props {
  * 已过时但仍然可用的产物。
  *
  * 这一段的立场是「保留是默认，重做要你亲自点」：过时只说明产物比当前内容旧，文件还在、
- * 还能预览下载导出，也不挡着这一集走到导出。所以这里既不自动重生，也不把它算进缺口，
+ * 还照常参与成片，也不挡着这一集走到导出。所以这里既不自动重生，也不把它算进缺口，
  * 只把「去看看」和「确实要重做」两个入口摆出来——后者要花钱，必须是用户按下去的。
  */
 export function StaleArtifacts({ staleIds, onView, onRegenerate, busy }: Props) {

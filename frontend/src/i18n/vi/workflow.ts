@@ -42,6 +42,8 @@ export default {
   'artifact_missing': 'Chưa tạo',
   'artifact_blocked': 'Không đọc được',
   'artifact_not_applicable': 'Dự án này không dùng đến.',
+  'artifact_partial': 'Chỉ bao phủ một phần nội dung',
+  'artifact_unknown': 'Trạng thái: {{state}}',
   'artifact_collection_blocked': 'Không đọc được thư mục này nên chưa rõ bên trong có gì.',
   'artifact_empty': 'Bước này chưa có gì để tạo.',
   'artifact_usable_one': 'Dùng được {{count}}',
@@ -54,7 +56,7 @@ export default {
   // ---- Sản phẩm cũ nhưng vẫn dùng được ----
   'stale_title_one': '{{count}} kết quả cũ hơn nội dung hiện tại',
   'stale_title_other': '{{count}} kết quả cũ hơn nội dung hiện tại',
-  'stale_still_usable': 'Các tệp này vẫn xem, tải và xuất bản được. Giữ lại thì không tốn phí; tạo lại sẽ bị nhà cung cấp tính phí lần nữa.',
+  'stale_still_usable': 'Các tệp này vẫn được giữ lại, mở được trên canvas và vẫn tham gia vào tập phim này. Giữ lại thì không tốn phí; tạo lại sẽ bị nhà cung cấp tính phí lần nữa.',
   'stale_view': 'Xem',
   'stale_view_unit': 'Xem {{id}} trên canvas',
   'stale_regenerate': 'Tạo lại',

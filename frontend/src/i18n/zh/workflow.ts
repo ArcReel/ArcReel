@@ -42,6 +42,8 @@ export default {
   'artifact_missing': '尚未生成',
   'artifact_blocked': '读不出来',
   'artifact_not_applicable': '本项目不涉及。',
+  'artifact_partial': '只覆盖了一部分内容',
+  'artifact_unknown': '状态：{{state}}',
   'artifact_collection_blocked': '这个目录读不出来，里面有什么暂时无法判断。',
   'artifact_empty': '这一步还没有要生成的内容。',
   'artifact_usable_one': '可用 {{count}} 件',
@@ -54,7 +56,7 @@ export default {
   // ---- 已过时但可用的产物 ----
   'stale_title_one': '{{count}} 件产物比当前内容旧',
   'stale_title_other': '{{count}} 件产物比当前内容旧',
-  'stale_still_usable': '这些文件照常可以预览、下载和导出。保留不花钱，重新生成会再次向供应商计费。',
+  'stale_still_usable': '这些文件仍然保留，可以在画布上查看，也照常参与本集成片。保留不花钱，重新生成会再次向供应商计费。',
   'stale_view': '查看',
   'stale_view_unit': '在画布上查看 {{id}}',
   'stale_regenerate': '重新生成',

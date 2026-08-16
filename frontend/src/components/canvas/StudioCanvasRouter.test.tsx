@@ -11,6 +11,19 @@ import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import type { AdEpisodeScript, EpisodeScript, ProjectData } from "@/types";
 
+// 面板自身的行为在 WorkflowPanel.test.tsx 覆盖；这里只关心路由层递给它什么回调。
+vi.mock("@/components/workflow/WorkflowPanel", () => ({
+  WorkflowPanel: ({
+    onRegenerate,
+  }: {
+    onRegenerate?: (stepId: string, unitIds: string[]) => void;
+  }) => (
+    <div data-testid="workflow-panel" data-can-regenerate={onRegenerate ? "yes" : "no"}>
+      <button onClick={() => onRegenerate?.("storyboard", ["SEG-1"])}>workflow-regenerate</button>
+    </div>
+  ),
+}));
+
 vi.mock("./OverviewCanvas", () => ({
   OverviewCanvas: () => <div data-testid="overview-canvas">Overview</div>,
 }));
@@ -1349,6 +1362,64 @@ describe("StudioCanvasRouter", () => {
     await waitFor(() => {
       expect(API.updateEpisode).toHaveBeenCalledWith("demo", 1, { title: "新标题" });
     });
+  });
+
+  it("regenerates against the script file of the episode being viewed, not the first one loaded", async () => {
+    // 多集项目的 currentScripts 装着全部剧集。按第一个键重生，用户在第 2 集按下的
+    // 「重新生成」会打到第 1 集的剧本上，重做的是另一集已经付费的产物。
+    const episode2 = { ...makeScript(), episode: 2, title: "EP2" };
+    const projectData = makeProjectData({
+      episodes: [
+        { episode: 1, title: "EP1", script_file: "scripts/episode_1.json" },
+        { episode: 2, title: "EP2", script_file: "scripts/episode_2.json" },
+      ],
+    });
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: projectData,
+      currentScripts: { "episode_1.json": makeScript(), "episode_2.json": episode2 },
+    });
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: projectData,
+      scripts: { "episode_1.json": makeScript(), "episode_2.json": episode2 },
+    });
+    vi.spyOn(API, "generateStoryboard").mockResolvedValue({
+      success: true,
+      task_id: "t-sb",
+      deduped: false,
+      message: "已提交",
+    });
+
+    renderAt("/episodes/2");
+
+    fireEvent.click(screen.getByText("workflow-regenerate"));
+    await waitFor(() => {
+      expect(API.generateStoryboard).toHaveBeenCalledWith(
+        "demo",
+        "SEG-1",
+        "image prompt",
+        "episode_2.json",
+      );
+    });
+  });
+
+  it("withholds the panel's regenerate entry on the reference route instead of wiring a dead button", async () => {
+    // 参考路线的剧本是 video_units，本组件的逐单元入队回调解不出提示词。给出回调
+    // 只会长出一个按下去毫无反应的按钮，该路线的重生入口在单元卡上。
+    const projectData = makeProjectData({ generation_mode: "reference_video" });
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: projectData,
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: projectData,
+      scripts: { "episode_1.json": makeScript() },
+    });
+
+    renderAt("/episodes/1");
+
+    expect(screen.getByTestId("workflow-panel")).toHaveAttribute("data-can-regenerate", "no");
   });
 
   it("uses the unified unit canvas even when project and script content modes temporarily differ", () => {
