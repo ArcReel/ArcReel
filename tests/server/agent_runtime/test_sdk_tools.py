@@ -2817,7 +2817,7 @@ async def test_generate_video_episode_rejects_unbound_active_script_before_enque
     )
 
     def fake_build_specs(**_kwargs):
-        return [spec], {"E1S01": 0}
+        return [spec], {"E1S01": 0}, []
 
     async def fake_submit(**_kwargs):
         nonlocal submitted
@@ -4373,7 +4373,7 @@ async def test_generate_video_all_preserves_the_selected_manual_upload(
     )
     monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _MissingEverythingResolver())
     monkeypatch.setattr(mod, "artifact_is_usable", lambda *_args: False)
-    monkeypatch.setattr(mod, "build_storyboard_video_specs", lambda **_kwargs: ([spec], {"E1S01": 0}))
+    monkeypatch.setattr(mod, "build_storyboard_video_specs", lambda **_kwargs: ([spec], {"E1S01": 0}, []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
     out = await _call(generate_video_all_tool(fake_ctx), {"script": "episode_1.json"})
