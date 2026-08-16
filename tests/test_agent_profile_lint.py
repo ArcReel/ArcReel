@@ -184,6 +184,129 @@ def test_target_deprecation_rules_are_explicit_for_variant_profile(tmp_path: Pat
     )
 
 
+def test_target_deprecation_rules_flag_routing_and_spare_reverse_notes(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "router.md").write_text(
+        "---\nname: router\ndescription: Routing agent\n---\n"
+        "- 读取 `drafts/episode_1/step1_normalized_script.md` 作为剧本生成输入。\n"
+        "- 重生成指定场景时运行 generate-storyboard --scene-ids E1S01。\n",
+        encoding="utf-8",
+    )
+    (profile / ".claude" / "agents" / "note.md").write_text(
+        "---\nname: note\ndescription: Reverse note agent\n---\n"
+        "- 旧项目残留的 `step1_normalized_script.md`（结构化前自由文本稿）不算有效 step1，"
+        "须重跑 normalize 产出 `.json`。\n"
+        "- 旧脚本的 --scene-ids 参数已废弃，不要再传。\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert ".claude/agents/router.md: deprecated profile string 'step1_normalized_script.md'" in errors
+    assert ".claude/agents/router.md: deprecated profile string '--scene-ids'" in errors
+    assert not any(error.startswith(".claude/agents/note.md") for error in errors)
+
+
+def test_target_deprecation_rules_flag_code_fences_and_parenthesised_paths(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "fenced.md").write_text(
+        "---\nname: fenced\ndescription: Fenced command agent\n---\n"
+        "```bash\n"
+        "generate-storyboard --scene-ids E1S01\n"
+        "cat drafts/episode_1/step1_normalized_script.md\n"
+        "```\n",
+        encoding="utf-8",
+    )
+    (profile / ".claude" / "agents" / "inline.md").write_text(
+        "---\nname: inline\ndescription: Inline reference agent\n---\n"
+        "- 读取剧本草稿（`step1_normalized_script.md`）后继续。\n"
+        "- 请使用 generate-storyboard 重生成；--scene-ids E1S01\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    for source in ("fenced.md", "inline.md"):
+        assert f".claude/agents/{source}: deprecated profile string 'step1_normalized_script.md'" in errors
+        assert f".claude/agents/{source}: deprecated profile string '--scene-ids'" in errors
+
+
+def test_target_deprecation_rules_flag_soft_wrapped_routing_clause(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "wrapped.md").write_text(
+        "---\nname: wrapped\ndescription: Soft-wrapped routing agent\n---\n"
+        "- 请读取\n"
+        "  step1_normalized_script.md 后再继续下一步。\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert ".claude/agents/wrapped.md: deprecated profile string 'step1_normalized_script.md'" in errors
+
+
+def test_target_deprecation_rules_flag_adjacent_list_items_without_blank_line(tmp_path: Path) -> None:
+    """紧邻、无空行分隔的反向说明列表项与真实路由列表项须各自独立成句，不因段落合并互相吞并。"""
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "adjacent-items.md").write_text(
+        "---\nname: adjacent-items\ndescription: Adjacent list item agent\n---\n"
+        "- 不要使用旧格式 step1_normalized_script.md\n"
+        "- 读取 step1_normalized_script.md 作为输入\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert ".claude/agents/adjacent-items.md: deprecated profile string 'step1_normalized_script.md'" in errors
+
+
+def test_target_deprecation_rules_flag_routing_paragraph_after_deprecated_heading(tmp_path: Path) -> None:
+    """标题（ATX 单行块）不与其后段落同句：标题命中废弃语境不应吞掉紧邻下方的真实路由段落。"""
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "heading.md").write_text(
+        "---\nname: heading\ndescription: Heading boundary agent\n---\n"
+        "### 已废弃的旧格式\n"
+        "读取 step1_normalized_script.md 作为输入。\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert ".claude/agents/heading.md: deprecated profile string 'step1_normalized_script.md'" in errors
+
+
+def test_target_deprecation_rules_flag_nested_fence_content(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "nested-fence.md").write_text(
+        "---\nname: nested-fence\ndescription: Nested fence agent\n---\n"
+        "````markdown\n"
+        "```bash\n"
+        "cat drafts/episode_1/step1_normalized_script.md\n"
+        "```\n"
+        "````\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert ".claude/agents/nested-fence.md: deprecated profile string 'step1_normalized_script.md'" in errors
+
+
+def test_target_deprecation_rules_flag_routing_clause_alongside_reverse_note(tmp_path: Path) -> None:
+    """反向说明子句与真实路由子句同文共存同一 needle 时，仍须按各自子句独立判定并报违规。"""
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "mixed.md").write_text(
+        "---\nname: mixed\ndescription: Mixed clause agent\n---\n"
+        "- 旧项目残留的 step1_normalized_script.md 不算有效 step1。\n"
+        "- 读取 step1_normalized_script.md 作为剧本生成输入。\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert ".claude/agents/mixed.md: deprecated profile string 'step1_normalized_script.md'" in errors
+
+
 def test_reports_invalid_utf8_across_profile_inputs(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     (profile / "CLAUDE.narration.md").write_bytes(b"\xff")
@@ -209,3 +332,11 @@ def test_frontmatter_accepts_utf8_bom(tmp_path: Path) -> None:
 def test_shipped_profile_passes_current_lint() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     assert lint_profile(repo_root / "agent_runtime_profile") == []
+
+
+def test_shipped_profile_has_no_deprecated_string_routing() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+
+    errors = lint_profile(repo_root / "agent_runtime_profile", enforce_target_rules=True)
+
+    assert not any("deprecated profile string" in error for error in errors)

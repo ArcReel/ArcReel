@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
-"""Static integrity checks for the materialized Agent Runtime Profile."""
+"""Static integrity checks for the materialized Agent Runtime Profile.
+
+``--target-profile`` 额外启用目标档案专属的废弃用法检查。其中禁用字符串
+(`_TARGET_DEPRECATED_STRINGS`) 的判定边界如下：
+
+- 判定粒度是**子句**——散文按句读切分（见 ``_CLAUSE_SPLIT_RE``），围栏代码块内以整行
+  为一个子句；只看命中字符串所在的那个子句，不看整段上下文。
+- 子句命中废弃语境标记（``_DEPRECATION_CONTEXT_RE``）时视为反向说明，即告诫读者不要
+  再用旧格式，不判违规。该判断优先于下面的路由判定。
+- 否则，子句满足下列任一条即判违规：位于围栏代码块内（代码块是可执行指令而非散文告诫）、
+  禁用串本身是命令行 flag（``--`` 开头，其出现即指令形态）、或子句含路由/指令标记
+  （``_ROUTING_MARKER_RE``）。三者皆无的纯提及不判违规。
+
+因此「旧稿 X 不算有效输入」不报，而「读取 X 作为输入」与代码块里的 ``cmd --flag`` 仍报。
+"""
 
 from __future__ import annotations
 
@@ -8,6 +22,7 @@ import json
 import posixpath
 import re
 from collections import defaultdict
+from collections.abc import Iterator
 from pathlib import Path
 from typing import NoReturn
 from urllib.parse import unquote
@@ -33,6 +48,21 @@ _TARGET_DEPRECATED_STRINGS = (
     "--scene-ids",
     "--music-volume",
     "step1_normalized_script.md",
+)
+_CODE_FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")
+_BLOCK_START_RE = re.compile(r"^\s{0,3}([-*+]\s|\d+[.)]\s|#{1,6}\s|>)")
+_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s")
+_CLAUSE_SPLIT_RE = re.compile(r"[，,。；;！!？?]|——")
+_DEPRECATION_CONTEXT_RE = re.compile(
+    r"不算|不再|不要|不需|不得|不能|不应|不作为|不视为|无需|禁止|勿|别用"
+    r"|残留|遗留|废弃|已移除|已删除|旧项目|旧稿|旧格式"
+    r"|deprecated|legacy|obsolete|removed|no longer|instead of",
+    re.IGNORECASE,
+)
+_ROUTING_MARKER_RE = re.compile(
+    r"读取|写入|使用|运行|执行|调用|传入|加上|附加|指定|生成|保存|输出|输入|参数|选项|路径"
+    r"|\bread\b|\bwrite\b|\buse\b|\bruns?\b|\bpass\b|\bexec\b|\bpython\b|\.py\b|\$\s",
+    re.IGNORECASE,
 )
 _DIRECT_STEP1_EDIT_RE = re.compile(
     r"(?:Edit|Write).{0,100}(?:step1_normalized_script|narration.{0,30}step1|drama.{0,30}step1)",
@@ -161,6 +191,78 @@ def _validate_evals(profile_dir: Path, errors: list[str]) -> None:
                 seen[eval_id] = path
 
 
+def _iter_clauses(text: str) -> Iterator[tuple[str, bool]]:
+    """按行遍历 Markdown，产出 ``(子句, 是否位于围栏代码块内)``。
+
+    三条判定形状：围栏内以整行为一个子句（代码里的逗号分号是语法而非句读，不能当切分点）；
+    开合围栏须同字符、闭合长度不短于开启长度、且闭合行不带信息字符串才配对，避免更短的嵌套
+    反引号序列被误判为收围栏；围栏外先把连续的非空行合并为一个逻辑段落再切分子句——Markdown
+    软换行只是排版折行，不是句读边界，逐物理行切分会把同一子句拆散到两行而漏判。合并在遇到
+    新的列表项/标题/引用起始行（``_BLOCK_START_RE``）时截断，紧邻无空行分隔的两个列表项各
+    自独立成句——否则前一项若命中废弃语境，会连带吞掉后一项里本应报告的真实路由指令；标题
+    行（``_HEADING_RE``）额外在自身之后立即截断——ATX 标题恒为单行块，不与下方段落同句。
+    """
+    fence_char = ""
+    fence_len = 0
+    prose_lines: list[str] = []
+
+    def _flush_prose() -> list[str]:
+        nonlocal prose_lines
+        if not prose_lines:
+            return []
+        paragraph = " ".join(prose_lines)
+        prose_lines = []
+        return _CLAUSE_SPLIT_RE.split(paragraph)
+
+    for line in text.splitlines():
+        if fence_char:
+            match = _CODE_FENCE_RE.match(line)
+            if (
+                match
+                and match.group(1)[0] == fence_char
+                and len(match.group(1)) >= fence_len
+                and not match.group(2).strip()
+            ):
+                fence_char = ""
+                fence_len = 0
+            else:
+                yield line, True
+            continue
+        match = _CODE_FENCE_RE.match(line)
+        if match:
+            for clause in _flush_prose():
+                yield clause, False
+            fence_char = match.group(1)[0]
+            fence_len = len(match.group(1))
+            continue
+        if line.strip():
+            if _BLOCK_START_RE.match(line):
+                for clause in _flush_prose():
+                    yield clause, False
+            prose_lines.append(line)
+            if _HEADING_RE.match(line):
+                for clause in _flush_prose():
+                    yield clause, False
+        else:
+            for clause in _flush_prose():
+                yield clause, False
+    for clause in _flush_prose():
+        yield clause, False
+
+
+def _routes_to_deprecated_string(text: str, needle: str) -> bool:
+    """判断文本是否真的把 ``needle`` 当作可用路由/指令，而非反向说明它已废弃。"""
+    needle_is_cli_flag = needle.startswith("--")
+    for clause, in_code_fence in _iter_clauses(text):
+        if needle not in clause:
+            continue
+        if _DEPRECATION_CONTEXT_RE.search(clause):
+            continue
+        if in_code_fence or needle_is_cli_flag or _ROUTING_MARKER_RE.search(clause):
+            return True
+    return False
+
+
 def _validate_target_deprecations(profile_dir: Path, errors: list[str]) -> None:
     for path in sorted(profile_dir.rglob("*.md")):
         try:
@@ -169,7 +271,7 @@ def _validate_target_deprecations(profile_dir: Path, errors: list[str]) -> None:
             errors.append(f"{path.relative_to(profile_dir)}: cannot read: {exc}")
             continue
         for needle in _TARGET_DEPRECATED_STRINGS:
-            if needle in text:
+            if _routes_to_deprecated_string(text, needle):
                 errors.append(f"{path.relative_to(profile_dir)}: deprecated profile string {needle!r}")
         if _PYTHON_RESUME_RE.search(text):
             errors.append(f"{path.relative_to(profile_dir)}: deprecated Python --resume invocation")
