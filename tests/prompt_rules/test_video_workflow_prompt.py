@@ -122,6 +122,16 @@ def test_variants_do_not_hardcode_a_route_or_content_mode_step_table(filename: s
             )
 
 
+def test_plan_reference_shows_duration_confirmation_keyed_by_a_real_unit_id() -> None:
+    """键是 unit ID；写成字面量 `unit_id` 会被原样发出去，确认对不上任何 unit。"""
+
+    content = _reference(WORKFLOW_PLAN_REFERENCE)
+
+    assert '"confirmed_request_durations": {"unit_id"' not in content
+    assert "confirmed_request_durations" in content
+    assert "键是 unit ID" in content
+
+
 def test_plan_reference_covers_every_controlled_action() -> None:
     content = _reference(WORKFLOW_PLAN_REFERENCE)
 

@@ -13,7 +13,7 @@ drama / ad × storyboard / reference_video）之间哪些步骤适用、顺序�
 mcp__arcreel__get_workflow_plan({
   "episode": N,                                  // 可选：用户指定集数时传
   "narration_delivery": "post_production" | "use_tts",  // 可选：本次旁白交付选择
-  "confirmed_request_durations": {"unit_id": 8}  // 可选：用户已确认的逐 unit 申请档位
+  "confirmed_request_durations": {"E1U1": 8}    // 可选：用户已确认的逐 unit 申请档位（键是 unit ID）
 })
 ```
 
