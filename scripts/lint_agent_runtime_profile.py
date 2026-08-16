@@ -51,6 +51,7 @@ _TARGET_DEPRECATED_STRINGS = (
 )
 _CODE_FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")
 _BLOCK_START_RE = re.compile(r"^\s{0,3}([-*+]\s|\d+[.)]\s|#{1,6}\s|>)")
+_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s")
 _CLAUSE_SPLIT_RE = re.compile(r"[，,。；;！!？?]|——")
 _DEPRECATION_CONTEXT_RE = re.compile(
     r"不算|不再|不要|不需|不得|不能|不应|不作为|不视为|无需|禁止|勿|别用"
@@ -198,7 +199,8 @@ def _iter_clauses(text: str) -> Iterator[tuple[str, bool]]:
     反引号序列被误判为收围栏；围栏外先把连续的非空行合并为一个逻辑段落再切分子句——Markdown
     软换行只是排版折行，不是句读边界，逐物理行切分会把同一子句拆散到两行而漏判。合并在遇到
     新的列表项/标题/引用起始行（``_BLOCK_START_RE``）时截断，紧邻无空行分隔的两个列表项各
-    自独立成句——否则前一项若命中废弃语境，会连带吞掉后一项里本应报告的真实路由指令。
+    自独立成句——否则前一项若命中废弃语境，会连带吞掉后一项里本应报告的真实路由指令；标题
+    行（``_HEADING_RE``）额外在自身之后立即截断——ATX 标题恒为单行块，不与下方段落同句。
     """
     fence_char = ""
     fence_len = 0
@@ -238,6 +240,9 @@ def _iter_clauses(text: str) -> Iterator[tuple[str, bool]]:
                 for clause in _flush_prose():
                     yield clause, False
             prose_lines.append(line)
+            if _HEADING_RE.match(line):
+                for clause in _flush_prose():
+                    yield clause, False
         else:
             for clause in _flush_prose():
                 yield clause, False

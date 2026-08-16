@@ -260,6 +260,21 @@ def test_target_deprecation_rules_flag_adjacent_list_items_without_blank_line(tm
     assert ".claude/agents/adjacent-items.md: deprecated profile string 'step1_normalized_script.md'" in errors
 
 
+def test_target_deprecation_rules_flag_routing_paragraph_after_deprecated_heading(tmp_path: Path) -> None:
+    """标题（ATX 单行块）不与其后段落同句：标题命中废弃语境不应吞掉紧邻下方的真实路由段落。"""
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "heading.md").write_text(
+        "---\nname: heading\ndescription: Heading boundary agent\n---\n"
+        "### 已废弃的旧格式\n"
+        "读取 step1_normalized_script.md 作为输入。\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert ".claude/agents/heading.md: deprecated profile string 'step1_normalized_script.md'" in errors
+
+
 def test_target_deprecation_rules_flag_nested_fence_content(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     (profile / ".claude" / "agents" / "nested-fence.md").write_text(
