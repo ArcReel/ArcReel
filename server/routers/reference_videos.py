@@ -121,6 +121,9 @@ class AddUnitRequest(BaseModel):
 
 
 class GenerateUnitRequest(BaseModel):
+    # 单目标入口保留后期配音默认（docs/adr/0061）：请求由用户在这条 unit 的界面上直接触发，
+    # 界面已呈现该 unit 的旁白状态与费用，代价也止于这一条视频。必填只加在替整批选定准入判据
+    # 与时长基准的入口（``GenerateUnitsBatchRequest``）与由模型推断参数的智能体视频工具上。
     narration_delivery: NarrationDelivery = POST_PRODUCTION
     confirmed_request_duration_seconds: int | None = Field(default=None, gt=0)
 

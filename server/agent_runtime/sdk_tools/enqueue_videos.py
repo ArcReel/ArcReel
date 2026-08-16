@@ -101,7 +101,9 @@ _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY = {
 _NARRATION_DELIVERY_SCHEMA_PROPERTY = {
     "type": "string",
     "enum": [POST_PRODUCTION, USE_TTS],
-    "description": "本次旁白交付方式；use_tts 只使用当前 fresh TTS 的实际媒体时长。",
+    "description": (
+        "本次旁白交付方式，必填；use_tts 只使用当前 fresh TTS 的实际媒体时长，post_production 不因 TTS 缺失或过期受阻。"
+    ),
 }
 
 
@@ -178,9 +180,16 @@ def _sole_speech_admission(result: GenerationBatchResult) -> dict[str, Any]:
 
 
 def _reference_request_options(args: dict[str, Any]) -> ReferenceRequestOptions:
-    delivery = args.get("narration_delivery", POST_PRODUCTION)
+    """把工具入参折成一次请求的投影选项；交付方式缺省或非法一律拒绝，不入队任何任务。
+
+    交付方式决定整批走哪一套准入判据与哪一份时长基准（TTS 实测 vs 剧本计划），
+    替调用方挑一个默认值会让一批视频按它没声明过的交付方式准入并计费。
+    storyboard 与 reference 两条路线都经这里取交付方式，判定只有这一处。
+    """
+
+    delivery = args.get("narration_delivery")
     if delivery not in (POST_PRODUCTION, USE_TTS):
-        delivery = POST_PRODUCTION
+        raise ValueError(f"narration_delivery 必填，合法值：{POST_PRODUCTION} | {USE_TTS}，收到 {delivery!r}")
     raw_confirmed = args.get("confirmed_request_duration_seconds")
     confirmed: int | None = None
     if raw_confirmed is not None:
@@ -1071,7 +1080,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                 "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
                 "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
             },
-            "required": ["script"],
+            "required": ["script", "narration_delivery"],
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
@@ -1255,7 +1264,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                 "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
                 "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
             },
-            "required": ["script", "scene_id"],
+            "required": ["script", "scene_id", "narration_delivery"],
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
@@ -1388,7 +1397,7 @@ def generate_video_all_tool(ctx: ToolContext):
                 "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
                 "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
             },
-            "required": ["script"],
+            "required": ["script", "narration_delivery"],
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
@@ -1538,7 +1547,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                 "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
                 "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
             },
-            "required": ["script", "scene_ids"],
+            "required": ["script", "scene_ids", "narration_delivery"],
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:

@@ -98,6 +98,9 @@ class GenerateVideoRequest(BaseModel):
     script_file: str
     duration_seconds: int | None = Field(default=None, gt=0)
     seed: int | None = None
+    # 单目标入口保留后期配音默认（docs/adr/0061）：请求由用户在这一段的界面上直接触发，
+    # 界面已呈现该段的旁白状态与费用，代价也止于这一段。必填只加在替整批选定准入判据与
+    # 时长基准的批量入口与由模型推断参数的智能体视频工具上。
     narration_delivery: NarrationDelivery = POST_PRODUCTION
     confirmed_request_duration_seconds: int | None = Field(default=None, gt=0)
 

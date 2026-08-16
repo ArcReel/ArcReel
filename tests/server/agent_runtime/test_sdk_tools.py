@@ -311,6 +311,17 @@ def _stub_reference_request_projection(monkeypatch):
 
 
 async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
+    """调工具处理器；工具声明为必填的交付方式在未点名时补成后期配音。
+
+    绝大多数视频用例的主题不是旁白交付，逐个写死这一项只会让它们看起来在断言交付方式。
+    补齐条件取工具自己的 schema，新增视频工具无需在测试侧再登记一次。
+    专门验证该必填契约的用例直接调 ``tool_obj.handler``，不经过这里。
+    """
+
+    schema = tool_obj.input_schema
+    required = schema.get("required", ()) if isinstance(schema, dict) else ()
+    if "narration_delivery" in required and "narration_delivery" not in args:
+        args = {**args, "narration_delivery": "post_production"}
     return await tool_obj.handler(args)
 
 
@@ -3372,6 +3383,73 @@ def test_every_video_agent_tool_exposes_per_unit_confirmations(fake_ctx: ToolCon
     ):
         properties = tool_obj.input_schema["properties"]  # type: ignore[index]
         assert properties["confirmed_request_durations"]["additionalProperties"] == {"type": "integer", "minimum": 1}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("delivery", ["post_production", "use_tts"])
+def test_a_declared_narration_delivery_reaches_the_request_projection(delivery: str) -> None:
+    from server.agent_runtime.sdk_tools.enqueue_videos import _reference_request_options
+
+    assert _reference_request_options({"narration_delivery": delivery}).narration_delivery == delivery
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "args",
+    [
+        {},
+        {"narration_delivery": None},
+        {"narration_delivery": "post-production"},
+        {"narration_delivery": "POST_PRODUCTION"},
+        {"narration_delivery": "tts"},
+    ],
+)
+def test_an_undeclared_or_unknown_narration_delivery_is_refused(args: dict[str, Any]) -> None:
+    """缺省与拼错都不再折成后期配音——那会让整批按调用方没选过的交付方式准入并计费。"""
+
+    from server.agent_runtime.sdk_tools.enqueue_videos import _reference_request_options
+
+    with pytest.raises(ValueError, match="narration_delivery 必填"):
+        _reference_request_options(args)
+
+
+@pytest.mark.unit
+def test_every_video_agent_tool_requires_narration_delivery(fake_ctx: ToolContext) -> None:
+    for tool_obj in (
+        generate_video_episode_tool(fake_ctx),
+        generate_video_all_tool(fake_ctx),
+        generate_video_selected_tool(fake_ctx),
+        generate_video_scene_tool(fake_ctx),
+    ):
+        assert "narration_delivery" in tool_obj.input_schema["required"]  # type: ignore[index]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("delivery_args", [{}, {"narration_delivery": "post-production"}])
+async def test_no_video_tool_enqueues_without_a_declared_narration_delivery(
+    fake_ctx: ToolContext,
+    monkeypatch,
+    delivery_args: dict[str, Any],
+) -> None:
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    async def _never_enqueue(*_args, **_kwargs):
+        raise AssertionError("交付方式未声明时不得入队")
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _never_enqueue)
+
+    calls = [
+        (generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"}),
+        (generate_video_all_tool(fake_ctx), {"script": "episode_1.json"}),
+        (generate_video_selected_tool(fake_ctx), {"script": "episode_1.json", "scene_ids": ["E1S01"]}),
+        (generate_video_scene_tool(fake_ctx), {"script": "episode_1.json", "scene_id": "E1S01"}),
+    ]
+    for tool_obj, args in calls:
+        out = await tool_obj.handler({**args, **delivery_args})
+        assert out["is_error"] is True
+        text = out["content"][0]["text"]
+        assert "narration_delivery 必填" in text
+        assert "post_production" in text and "use_tts" in text
 
 
 @pytest.mark.integration
