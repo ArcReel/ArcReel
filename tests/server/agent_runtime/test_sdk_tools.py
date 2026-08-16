@@ -310,24 +310,17 @@ def _stub_reference_request_projection(monkeypatch):
     monkeypatch.setattr(_admission, "active_tts_resource_ids", _no_active_tts)
 
 
-_VIDEO_TOOL_NAMES = frozenset(
-    {
-        "generate_video_episode",
-        "generate_video_all",
-        "generate_video_selected",
-        "generate_video_scene",
-    }
-)
-
-
 async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
-    """调工具处理器；视频工具的必填交付方式在未点名时补成后期配音。
+    """调工具处理器；工具声明为必填的交付方式在未点名时补成后期配音。
 
     绝大多数视频用例的主题不是旁白交付，逐个写死这一项只会让它们看起来在断言交付方式。
+    补齐条件取工具自己的 schema，新增视频工具无需在测试侧再登记一次。
     专门验证该必填契约的用例直接调 ``tool_obj.handler``，不经过这里。
     """
 
-    if tool_obj.name in _VIDEO_TOOL_NAMES and "narration_delivery" not in args:
+    schema = tool_obj.input_schema
+    required = schema.get("required", ()) if isinstance(schema, dict) else ()
+    if "narration_delivery" in required and "narration_delivery" not in args:
         args = {**args, "narration_delivery": "post_production"}
     return await tool_obj.handler(args)
 

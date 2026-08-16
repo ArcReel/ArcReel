@@ -184,6 +184,7 @@ def _reference_request_options(args: dict[str, Any]) -> ReferenceRequestOptions:
 
     交付方式决定整批走哪一套准入判据与哪一份时长基准（TTS 实测 vs 剧本计划），
     替调用方挑一个默认值会让一批视频按它没声明过的交付方式准入并计费。
+    storyboard 与 reference 两条路线都经这里取交付方式，判定只有这一处。
     """
 
     delivery = args.get("narration_delivery")
