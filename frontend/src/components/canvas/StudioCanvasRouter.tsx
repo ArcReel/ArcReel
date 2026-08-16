@@ -31,6 +31,7 @@ import { ProductsPage } from "./lorebook/ProductsPage";
 import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
+import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
 import { API, NarratedVideoDurationError } from "@/api";
 import {
   enqueueCharacter,
@@ -349,6 +350,42 @@ export function StudioCanvasRouter() {
       useAppStore.getState().pushToast(tRef.current("generate_narration_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName, currentScripts, ensureAudioProviderConfigured]);
+
+  // ---- Workflow panel callbacks ----
+  // 面板只陈述状态，动作交回既有入口执行：跳转复用 Agent 定位用的同一条 scrollTarget 缝，
+  // 重生复用本组件已有的入队回调。面板不自建播放器，也不自建入队路径。
+  const handleViewWorkflowUnit = useCallback((unitId: string) => {
+    useAppStore.getState().triggerScrollTo({
+      type: normalizeRoute(currentProjectData?.generation_mode) === "reference_video"
+        ? "reference_unit"
+        : "segment",
+      id: unitId,
+    });
+  }, [currentProjectData?.generation_mode]);
+
+  const handleWorkflowRegenerate = useCallback(async (stepId: string, unitIds: string[]) => {
+    if (!currentProjectName || !currentScripts) return;
+    const scriptFile = Object.keys(currentScripts)[0];
+    for (const unitId of unitIds) {
+      try {
+        if (stepId === "storyboard") {
+          await handleGenerateStoryboard(unitId, scriptFile);
+        } else if (stepId === "video") {
+          await handleGenerateVideo(unitId, scriptFile);
+        } else if (stepId === "narration_delivery") {
+          await handleGenerateNarration(unitId, scriptFile);
+        }
+      } catch (err) {
+        useAppStore.getState().pushToast(errMsg(err), "error");
+      }
+    }
+  }, [
+    currentProjectName,
+    currentScripts,
+    handleGenerateStoryboard,
+    handleGenerateVideo,
+    handleGenerateNarration,
+  ]);
 
   // ---- Character CRUD callbacks ----
   const handleSaveCharacter = useCallback(async (
@@ -718,6 +755,15 @@ export function StudioCanvasRouter() {
 
           return (
             <div className="flex h-full flex-col">
+              {/* 演示态没有真实项目事实可投影，面板不挂载。 */}
+              {!demoMode && currentProjectName && (
+                <WorkflowPanel
+                  projectName={currentProjectName}
+                  episode={epNum}
+                  onViewUnit={handleViewWorkflowUnit}
+                  onRegenerate={voidPromise(handleWorkflowRegenerate)}
+                />
+              )}
               <div className="min-h-0 flex-1">
                 {demoMode && !script ? (
                   <DemoEpisodePlaceholder />

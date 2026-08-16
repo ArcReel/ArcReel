@@ -1212,8 +1212,8 @@ describe("ReferenceVideoCanvas", () => {
       // 档位分组：秒数 × 单元数 + 合计费用；报价不全的档位不展示假合计
       expect(dialog.getByText(/^(?:8 秒|8s)$/)).toBeInTheDocument();
       expect(dialog.getByText(/2 个单元|2 units/)).toBeInTheDocument();
-      expect(dialog.getByText(/合计 \$1\.60|\$1\.60 total/)).toBeInTheDocument();
-      expect(dialog.getByText(/合计费用暂不可得|Total cost unavailable/)).toBeInTheDocument();
+      expect(dialog.getByText(/约 \$1\.60|about \$1\.60/)).toBeInTheDocument();
+      expect(dialog.getByText(/报价不可用|price unavailable/)).toBeInTheDocument();
       for (const unitId of ["E1U1", "E1U2", "E1U3"]) {
         expect(dialog.getByText(unitId)).toBeInTheDocument();
       }
@@ -1347,12 +1347,12 @@ describe("ReferenceVideoCanvas", () => {
       // 全部缺口都在，不塌成第一条
       expect(dialog.getByText("引用的角色图缺失")).toBeInTheDocument();
       expect(dialog.getByText("该单元需要重新规划")).toBeInTheDocument();
-      expect(dialog.getByText(/补齐或替换缺失的引用资产|add or replace the missing reference/)).toBeInTheDocument();
-      expect(dialog.getByText(/重新规划该单元|replan this unit/)).toBeInTheDocument();
+      expect(dialog.getByText(/补上或更换缺失的参考素材|add or replace the missing reference/)).toBeInTheDocument();
+      expect(dialog.getByText(/改写这个单元|rewrite this unit/)).toBeInTheDocument();
       // 当前/所需档位与缺口同列，用户才看得出差多少
-      expect(dialog.getByText(/当前 5 秒 → 申请 12 秒|Current 5s → requested 12s/)).toBeInTheDocument();
+      expect(dialog.getByText(/当前 5 秒 · 申请 12 秒|now 5s · requesting 12s/)).toBeInTheDocument();
       // 被连带扣下的单元单列，说明它自身没问题
-      expect(dialog.getByText(/本身没有问题|no issue of (its|their) own/)).toBeInTheDocument();
+      expect(dialog.getByText(/本身没问题|w(as|ere) fine but w(as|ere) held back/)).toBeInTheDocument();
       for (const unitId of ["E1U1", "E1U2", "E1U3"]) {
         expect(dialog.getByText(unitId)).toBeInTheDocument();
       }

@@ -74,6 +74,7 @@ import type {
   PresentationResourceType,
 } from "@/types/presentation";
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
+import type { WorkflowPlan, WorkflowPlanRequest } from "@/types/workflow";
 import type {
   AgentCredential,
   CreateAgentCredentialRequest,
@@ -1585,6 +1586,22 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/files`
     );
+  }
+
+  /**
+   * 取本次请求的权威工作流计划。无副作用：不入队、不写项目，
+   * `narration_delivery` 与 `confirmed_request_durations` 只作用于这一次求解。
+   */
+  static async getWorkflowPlan(
+    projectName: string,
+    request: WorkflowPlanRequest = {},
+    options: { signal?: AbortSignal } = {}
+  ): Promise<WorkflowPlan> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/workflow-plan`, {
+      method: "POST",
+      body: JSON.stringify(request),
+      signal: options.signal,
+    });
   }
 
   static getFileUrl(
