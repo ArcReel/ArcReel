@@ -4,14 +4,15 @@
 ``--target-profile`` 额外启用目标档案专属的废弃用法检查。其中禁用字符串
 (`_TARGET_DEPRECATED_STRINGS`) 的判定边界如下：
 
-- 判定粒度是**子句**——按换行、中英文逗号/分号/句号/问号/叹号与括号切分；只看命中
-  字符串所在的那个子句，不看整段上下文。
-- 子句含废弃语境标记（否定词、「残留」「旧项目」「废弃」「legacy」等）时视为反向说明，
-  即告诫读者不要再用旧格式，不判违规。该判断优先于路由标记。
-- 否则要求子句含路由/指令标记（读取/使用/运行/参数/路径、read/use/run、命令行形态等）
-  才判违规；两者都没有的纯提及不判违规。
+- 判定粒度是**子句**——散文按句读切分（见 ``_CLAUSE_SPLIT_RE``），围栏代码块内以整行
+  为一个子句；只看命中字符串所在的那个子句，不看整段上下文。
+- 子句命中废弃语境标记（``_DEPRECATION_CONTEXT_RE``）时视为反向说明，即告诫读者不要
+  再用旧格式，不判违规。该判断优先于下面的路由判定。
+- 否则，子句满足下列任一条即判违规：位于围栏代码块内（代码块是可执行指令而非散文告诫）、
+  禁用串本身是命令行 flag（``--`` 开头，其出现即指令形态）、或子句含路由/指令标记
+  （``_ROUTING_MARKER_RE``）。三者皆无的纯提及不判违规。
 
-因此「旧稿 X 不算有效输入」不报，而「读取 X 作为输入」仍报。
+因此「旧稿 X 不算有效输入」不报，而「读取 X 作为输入」与代码块里的 ``cmd --flag`` 仍报。
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import json
 import posixpath
 import re
 from collections import defaultdict
+from collections.abc import Iterator
 from pathlib import Path
 from typing import NoReturn
 from urllib.parse import unquote
@@ -47,16 +49,17 @@ _TARGET_DEPRECATED_STRINGS = (
     "--music-volume",
     "step1_normalized_script.md",
 )
-_CLAUSE_SPLIT_RE = re.compile(r"[\n，,。；;！!？?（）()]|——")
+_CODE_FENCE_RE = re.compile(r"^\s{0,3}(?:```|~~~)")
+_CLAUSE_SPLIT_RE = re.compile(r"[，,。；;！!？?]|——")
 _DEPRECATION_CONTEXT_RE = re.compile(
-    r"不算|不再|不要|不需|不得|不能|不应|不作为|不视为|不当|不是|无需|禁止|勿|别用"
-    r"|残留|遗留|废弃|已移除|已删除|旧项目|旧稿|旧格式|历史"
+    r"不算|不再|不要|不需|不得|不能|不应|不作为|不视为|无需|禁止|勿|别用"
+    r"|残留|遗留|废弃|已移除|已删除|旧项目|旧稿|旧格式"
     r"|deprecated|legacy|obsolete|removed|no longer|instead of",
     re.IGNORECASE,
 )
 _ROUTING_MARKER_RE = re.compile(
-    r"读取|读|写入|写|使用|用|运行|执行|调用|传入|传|加上|附加|指定|填|生成|保存|输出|输入|参数|选项|路径"
-    r"|\bread\b|\bwrite\b|\buse\b|\bruns?\b|\bpass\b|\bexec\b|\bpython\b|\.py\b|\$\s|^\s*[>`]",
+    r"读取|写入|使用|运行|执行|调用|传入|加上|附加|指定|生成|保存|输出|输入|参数|选项|路径"
+    r"|\bread\b|\bwrite\b|\buse\b|\bruns?\b|\bpass\b|\bexec\b|\bpython\b|\.py\b|\$\s",
     re.IGNORECASE,
 )
 _DIRECT_STEP1_EDIT_RE = re.compile(
@@ -186,14 +189,32 @@ def _validate_evals(profile_dir: Path, errors: list[str]) -> None:
                 seen[eval_id] = path
 
 
+def _iter_clauses(text: str) -> Iterator[tuple[str, bool]]:
+    """按行遍历 Markdown，产出 ``(子句, 是否位于围栏代码块内)``。
+
+    围栏内以整行为一个子句——代码里的逗号分号是语法而非句读，不能当切分点。
+    """
+    in_fence = False
+    for line in text.splitlines():
+        if _CODE_FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            yield line, True
+        else:
+            for clause in _CLAUSE_SPLIT_RE.split(line):
+                yield clause, False
+
+
 def _routes_to_deprecated_string(text: str, needle: str) -> bool:
     """判断文本是否真的把 ``needle`` 当作可用路由/指令，而非反向说明它已废弃。"""
-    for clause in _CLAUSE_SPLIT_RE.split(text):
+    needle_is_cli_flag = needle.startswith("--")
+    for clause, in_code_fence in _iter_clauses(text):
         if needle not in clause:
             continue
         if _DEPRECATION_CONTEXT_RE.search(clause):
             continue
-        if _ROUTING_MARKER_RE.search(clause):
+        if in_code_fence or needle_is_cli_flag or _ROUTING_MARKER_RE.search(clause):
             return True
     return False
 

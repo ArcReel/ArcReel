@@ -207,6 +207,30 @@ def test_target_deprecation_rules_flag_routing_and_spare_reverse_notes(tmp_path:
     assert not any(error.startswith(".claude/agents/note.md") for error in errors)
 
 
+def test_target_deprecation_rules_flag_code_fences_and_parenthesised_paths(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "fenced.md").write_text(
+        "---\nname: fenced\ndescription: Fenced command agent\n---\n"
+        "```bash\n"
+        "generate-storyboard --scene-ids E1S01\n"
+        "cat drafts/episode_1/step1_normalized_script.md\n"
+        "```\n",
+        encoding="utf-8",
+    )
+    (profile / ".claude" / "agents" / "inline.md").write_text(
+        "---\nname: inline\ndescription: Inline reference agent\n---\n"
+        "- 读取剧本草稿（`step1_normalized_script.md`）后继续。\n"
+        "- 请使用 generate-storyboard 重生成；--scene-ids E1S01\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    for source in ("fenced.md", "inline.md"):
+        assert f".claude/agents/{source}: deprecated profile string 'step1_normalized_script.md'" in errors
+        assert f".claude/agents/{source}: deprecated profile string '--scene-ids'" in errors
+
+
 def test_reports_invalid_utf8_across_profile_inputs(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     (profile / "CLAUDE.narration.md").write_bytes(b"\xff")
