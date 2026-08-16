@@ -217,6 +217,22 @@ def test_recorded_artifact_is_present_reports_only_the_legacy_branch(tmp_path: P
     assert recorded_artifact_is_present(absent, manifest_active=True, project_dir=tmp_path) is True
 
 
+def test_recorded_artifact_is_present_rejects_paths_the_manifest_would_refuse(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    (project_dir / "videos").mkdir(parents=True)
+    (project_dir / "videos" / "x.mp4").write_bytes(b"x")
+    outside = tmp_path / "outside.mp4"
+    outside.write_bytes(b"x")
+
+    escaping = GenerationTargetState(candidate=_candidate("A", path="../outside.mp4"))
+    absolute = GenerationTargetState(candidate=_candidate("A", path=str(outside)))
+    directory = GenerationTargetState(candidate=_candidate("A", path="videos"))
+
+    assert recorded_artifact_is_present(escaping, manifest_active=False, project_dir=project_dir) is False
+    assert recorded_artifact_is_present(absolute, manifest_active=False, project_dir=project_dir) is False
+    assert recorded_artifact_is_present(directory, manifest_active=False, project_dir=project_dir) is False
+
+
 def test_observe_artifact_status_separates_unobservable_from_missing() -> None:
     key = ArtifactKey.episode_video(1, "A")
 
@@ -241,9 +257,7 @@ def test_observe_artifact_status_separates_unobservable_from_missing() -> None:
         (ArtifactStatus.BLOCKED, False),
     ],
 )
-def test_artifact_is_reusable_treats_stale_as_usable(
-    status: ArtifactStatus, expected: bool, tmp_path: Path
-) -> None:
+def test_artifact_is_reusable_treats_stale_as_usable(status: ArtifactStatus, expected: bool, tmp_path: Path) -> None:
     state = GenerationTargetState(candidate=_candidate("A"), status=status)
     assert artifact_is_reusable(state, manifest_active=True, project_dir=tmp_path) is expected
 

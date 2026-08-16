@@ -31,7 +31,13 @@ from typing import TYPE_CHECKING, Any, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from lib.artifact_activation import ArtifactCurrencyResolver
-from lib.artifact_manifest import ArtifactBlocker, ArtifactKey, ArtifactManifestError, ArtifactStatus
+from lib.artifact_manifest import (
+    ArtifactBlocker,
+    ArtifactKey,
+    ArtifactManifestError,
+    ArtifactStatus,
+    normalize_artifact_path,
+)
 from lib.task_failure import parse_failure
 
 if TYPE_CHECKING:  # 仅用于类型标注，避免这个纯契约模块在运行时拖进队列客户端。
@@ -395,6 +401,12 @@ def recorded_artifact_is_present(state: GenerationTargetState, *, manifest_activ
     ``project_dir`` is required rather than optional: an opt-out would restore
     exactly the trust-the-string behavior this check exists to remove, and every
     caller has already resolved a project directory to build its candidates.
+
+    A path the Manifest would refuse to register — absolute, traversing out of
+    the project, or otherwise non-canonical — is reported absent rather than
+    resolved: registration goes through ``safe_join``, so such a value never
+    names this project's artifact, and an active Manifest would already report
+    it blocked instead of reusable. A directory is likewise not an artifact.
     """
 
     if manifest_active:
@@ -402,7 +414,11 @@ def recorded_artifact_is_present(state: GenerationTargetState, *, manifest_activ
     path = state.artifact_path
     if not path:
         return False
-    return (project_dir / path).exists()
+    try:
+        relative = normalize_artifact_path(path)
+    except ValueError:
+        return False
+    return (project_dir / relative).is_file()
 
 
 def artifact_is_reusable(state: GenerationTargetState, *, manifest_active: bool, project_dir: Path) -> bool:
