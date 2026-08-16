@@ -259,14 +259,18 @@ reference_video 模式返回这两个动作。
 `blocked_unit_ids` 连累而非自身有问题。修掉被拒 unit 后**整批重来**，不拆批先跑通过的那一半，
 否则会重复提交已经付过费的 unit。
 
-**dispatch `generate-assets` subagent**：
+**dispatch `generate-assets` subagent**：请求选择语义与 Web 完全一致——**点名即强制重做（必然计费）/
+不传即只补缺 / 空数组非法**，所以按 `requested_ids` 是否为空二选一，不要两个工具都试：
 
 ```text
 dispatch `generate-assets` subagent：
   任务类型：video
   项目名称：{project_name}
   工具调用：
-    mcp__arcreel__generate_video_episode({"script": target.script_filename})
+    requested_ids 非空 →
+      mcp__arcreel__generate_video_selected({"script": target.script_filename, "scene_ids": requested_ids})
+    requested_ids 为空 →
+      mcp__arcreel__generate_video_episode({"script": target.script_filename})
   验证方式：重新读取 target.script，检查各场景的 video_clip 字段
 ```
 
@@ -301,6 +305,30 @@ dispatch `generate-assets` subagent：
 ```
 
 中断后重新 dispatch 同一工具调用即可断点续传——已有音频的段自动跳过，只补缺失段。
+
+---
+
+## `repair_video_units` / `patch_episode_script`：改剧本再重做
+
+**触发**：`next_action.type` 为 `"repair_video_units"` 或 `"patch_episode_script"`。
+
+Read `target.script`，**只处理 `requested_ids` 对应的条目**。先调
+`mcp__arcreel__get_episode_script_revision({"script": target.script_filename})` 取 revision
+（`patch_episode_script` 动作的 `next_action.args` 已直接给出 `expected_revision` 与逐条 `problems`，
+用它即可），再用**一次** `mcp__arcreel__patch_episode_script({"script": target.script_filename,
+"expected_revision": revision, "operations": [...]})` 把全部条目改完——每条一个有序 `update`。
+`needs_replan` 之类的标记由工具重算，不要手写。工具报 revision 冲突时刷新计划重来，不得用旧
+revision 重试。改完后按上面的请求选择语义点名重做这些 ID，再刷新计划。
+
+---
+
+## `wait_for_task`：有任务在跑
+
+**触发**：`next_action.type == "wait_for_task"`。
+
+已有任务在队列或供应商侧执行中。**不入队任何新任务**，把 `steps[].tasks[]` 的 `task_id`、`status`
+与 `provider_checkpoint` 如实说给用户，等待后重新调 `mcp__arcreel__get_workflow_plan` 复查。
+`provider_checkpoint.submitted == true` 表示供应商侧已提交、很可能已计费，此时重新提交等于重复付费。
 
 ---
 

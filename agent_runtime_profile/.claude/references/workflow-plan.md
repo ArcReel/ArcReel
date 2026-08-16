@@ -30,7 +30,7 @@ mcp__arcreel__get_workflow_plan({
 |---|---|
 | `steps[]` | 有序步骤。`id` 是稳定步骤名，`state` ∈ `completed` / `ready` / `active` / `blocked` / `pending` / `skipped`，`required=false` 表示该步骤在本项目模式组合下不适用 |
 | `steps[].action` | 该步骤自己的受控动作（可能为 null） |
-| `steps[].artifacts` | 该步骤的产物时效快照（`current` / `stale` / `missing` / `blocked` 分账） |
+| `steps[].artifacts` | 该步骤的产物时效快照：`current_ids` / `stale_ids` / `missing_ids` 三个 ID 桶，外加集合级 `state`（`current` / `stale` / `partial` / `missing` / `blocked` / `not_applicable`）。`blocked` 是集合级状态，**没有**逐 ID 的 blocked 桶 |
 | `steps[].tasks[]` | 该步骤的活动任务观察，每条含 `task_id`、`status`、`provider_checkpoint`、`problem` |
 | `steps[].admission` | 视频步骤的批量准入结论（见下） |
 | `steps[].problems[]` | 逐条问题，带 `code` 与闭集 `action` |
@@ -69,6 +69,27 @@ mcp__arcreel__get_workflow_plan({
 `next_action.args.preprocessor` 是权威的预处理 subagent 名，**不要自己按 `content_mode` ×
 `generation_mode` 反推**：服务端在同一张规则表上得出它，profile 侧再推一遍只会造出第二个真相源。
 
+### 批量被拒时交回的逐问题动作
+
+视频批量准入被拒时，计划把**第一个问题的 `action`** 直接当成 `next_action.type` 交回，
+`next_action.args.admission` 带完整准入结论。因此上表之外还可能收到下面这些动作——它们与
+`problems[].action` 同一个闭集，逐 unit 的处理方式一律读各自的 `problems[].action`，不要按
+`code` 自己猜：
+
+| `next_action.type` | 执行入口 |
+|---|---|
+| `fix_input` | 剧本/声明本身不合法：按 `problems[].detail` 定位，经 `mcp__arcreel__patch_episode_script` 改对再重查 |
+| `replan_unit` | unit 需要重新规划：走 `repair_video_units` 那一行的改法 |
+| `generate_dependency` | 缺上游产物（参考资产等）：先补齐依赖再重查 |
+| `generate_tts` / `regenerate_tts` | 缺旁白音频 / 依据已变：经 `generate-narration-audio` 合成后重查 |
+| `configure_provider` | 当前供应商或档位不支持这次请求：告知用户要改哪项配置，**重试同一请求只会被同样拒绝** |
+| `repair_artifact_state` | 产物状态读不出来：报为独立缺口，绝不当作缺失去重生 |
+| `retry` | 可安全重发同一请求 |
+| `resume` | 供应商侧已提交：接回原请求，**不得改用 `retry`**，否则重复计费 |
+
+`retry` / `resume` / `configure_provider` 三者都不入队新批次之前，先把动作原因说给用户；
+凡是会产生新费用的动作，取得用户明确同意再执行。
+
 ## 旁白交付
 
 叙述旁白有两条交付路线，**每次视频请求逐次选择、从不持久化**：
@@ -89,13 +110,19 @@ mcp__arcreel__get_workflow_plan({
 3. 用户选 `use_tts` → 先**显式生成并让用户试听**旁白音频（`generate-narration-audio` skill），
    再带 `narration_delivery: "use_tts"` 重查计划，按返回的问题码处理：
 
-| `code` | 处理 |
-|---|---|
-| `tts_missing` | 先生成旁白音频，再重查 |
-| `tts_stale` | 依据已变，重新合成该段再重查；旧音频保留 |
-| `tts_not_applicable` | 该 unit 没有叙述旁白，改选 `post_production` |
-| `tts_duration_unavailable` / `tts_state_unavailable` | 产物读不出来，报告缺口，不当作缺失去重生 |
-| `tts_not_configured` | 见下 |
+每条问题的 `action` 是权威处理方式，下表只是常见码的说明；**照 `problems[].action` 执行，
+不要按 `code` 自己推**：
+
+| `code` | `action` | 处理 |
+|---|---|---|
+| `tts_missing` | `generate_tts` | 先生成旁白音频，再重查 |
+| `tts_stale` | `regenerate_tts` | 依据已变，重新合成该段再重查；旧音频保留 |
+| `tts_duration_unavailable` | `regenerate_tts` | 时长读不出来，按重新合成处理 |
+| `tts_generating` | `wait_for_task` | 已有旁白任务在跑，**不要再提交一次**，等待后重查 |
+| `tts_conflicts_with_active_narrated_video` | `wait_for_task` | 该 unit 有带旁白的视频任务在跑，等待后重查 |
+| `tts_not_applicable` | `fix_input` | 该 unit 没有叙述旁白，改选 `post_production` |
+| `tts_state_unavailable` | `repair_artifact_state` | 产物状态读不出来，报告缺口，不当作缺失去重生 |
+| `tts_not_configured` | `configure_provider` | 见下 |
 
 **未配置 TTS 时默认走后期配音。** `tts_not_configured` 只是「这次选了 TTS 但没有可用供应商」
 的事实，不是工作流缺口，也不拦导出。此时告诉用户后期配音这条路照常可用、视频不受影响，
@@ -120,7 +147,8 @@ mcp__arcreel__get_workflow_plan({
 ## 四条状态轴分开报告
 
 `workflow`（步骤进度）、`task`（队列任务）、`provider_checkpoint`（供应商是否已提交）、
-`artifact`（产物 current / stale / missing / blocked）互相独立，**分开陈述，不要互相翻译**：
+`artifact`（产物 `current_ids` / `stale_ids` / `missing_ids` 与集合级 `state`）互相独立，
+**分开陈述，不要互相翻译**：
 
 - 「任务成功」不等于「当前产物有效」。任务成功而产物 `stale`，说明依据变了、产物还在。
 - 「产物缺失」不等于「任务失败」。可能根本没入队（`blocked`，不计费）。

@@ -74,9 +74,11 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 对每次叙述旁白视频请求都要**显式向用户说明并选择**，不要默默沿用上一次。未配置 TTS 时默认走
 后期配音——那不是工作流缺口，视频照常成片，**不要为了让视频继续而建议用户去配置 TTS 供应商**。
-选 `use_tts` 时先显式生成并让用户试听旁白（`generate-narration-audio`），再按预检返回的问题码处理：
-`tts_missing` 先生成、`tts_stale` 先重新合成（旧音频保留）、`tts_not_applicable` 改选后期配音、
-`tts_duration_unavailable` / `tts_state_unavailable` 报为独立缺口而不是当作缺失去重生。
+选 `use_tts` 时先显式生成并让用户试听旁白（`generate-narration-audio`），再按预检返回的
+`problems[].action` 处理——**action 是权威，不要按 `code` 自己推**：`tts_missing` 先生成、
+`tts_stale` / `tts_duration_unavailable` 先重新合成（旧音频保留）、`tts_generating` 与
+`tts_conflicts_with_active_narrated_video` 等待在跑的任务后重查（不要重复提交）、
+`tts_not_applicable` 改选后期配音、`tts_state_unavailable` 报为独立缺口而不是当作缺失去重生。
 
 `generation_mode == "reference_video"` **只跳过分镜图**，不跳过 audio：旁白交付选择在两条路线上都要做。
 

@@ -27,7 +27,7 @@
     {
       "id": 2,
       "prompt": "继续上次的项目，我记得角色已经分析完了，帮我继续",
-      "expected_output": "应触发 video-workflow 状态检测，按检测清单顺序找到第一个缺失项，从对应阶段继续",
+      "expected_output": "应触发 video-workflow，调 get_workflow_plan 取权威计划，按 next_action 从对应动作继续",
       "target_skills": ["video-workflow"],
       "assertions": [
         {

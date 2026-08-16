@@ -54,7 +54,7 @@ mcp__arcreel__get_video_capabilities({})
 
 ### 情况 A：首次生成规范化内容
 
-**触发**：`drafts/episode_{N}/step1_normalized_script.json` **不存在**（典型路径：video-workflow 状态检测路由到单集预处理阶段）。两种情况的分支以**文件存在性为准**，主 agent 传入的操作类型仅作意图参考。
+**触发**：`drafts/episode_{N}/step1_normalized_script.json` **不存在**（典型路径：video-workflow 按计划的 `prepare_step1` 动作路由到单集预处理）。两种情况的分支以**文件存在性为准**，主 agent 传入的操作类型仅作意图参考。
 
 > 注：旧项目可能残留 step1 时代的 `step1_normalized_script.md`（结构化前的自由文本稿）。它**不**视为有效 step1——若无 `.json`，按首次生成重跑工具产出结构化 `.json`，不要把旧 `.md` 当输入或做 md→结构化迁移。
 
@@ -82,7 +82,7 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 
 ### 情况 B：修改已有规范化内容
 
-**触发**：`drafts/episode_{N}/step1_normalized_script.json` **已存在**，且主 agent 传入了用户的修改意见（用户驱动，不经状态检测——如阶段间确认时选「重做此阶段」或直接提出修改要求）：
+**触发**：`drafts/episode_{N}/step1_normalized_script.json` **已存在**，且主 agent 传入了用户的修改意见（用户驱动，不经计划路由——如阶段间确认时选「重做此阶段」或直接提出修改要求）：
 
 **Step 1**: 读取现有内容
 

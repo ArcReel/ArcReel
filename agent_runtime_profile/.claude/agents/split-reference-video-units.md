@@ -54,7 +54,7 @@ mcp__arcreel__get_video_capabilities({})
 
 ### 情况 A：首次生成拆分
 
-**触发**：`drafts/episode_{N}/step1_reference_units.json` **不存在**（典型路径：video-workflow 状态检测路由到单集预处理阶段）。两种情况的分支以**文件存在性为准**，主 agent 传入的操作类型仅作意图参考。
+**触发**：`drafts/episode_{N}/step1_reference_units.json` **不存在**（典型路径：video-workflow 按计划的 `prepare_step1` 动作路由到单集预处理）。两种情况的分支以**文件存在性为准**，主 agent 传入的操作类型仅作意图参考。
 
 > 注：旧项目可能残留结构化前的自由文本稿 `step1_reference_units.md`。它**不**视为有效 step1——若无 `.json`，按首次生成重跑工具产出结构化 `.json`，不要把旧 `.md` 当输入或做 md→结构化迁移。
 
@@ -90,7 +90,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 
 ### 情况 B：修改已有拆分
 
-**触发**：`drafts/episode_{N}/step1_reference_units.json` **已存在**，且主 agent 传入了用户的修改意见（用户驱动，不经状态检测）。
+**触发**：`drafts/episode_{N}/step1_reference_units.json` **已存在**，且主 agent 传入了用户的修改意见（用户驱动，不经计划路由）。
 
 正式文件不可直改，改动经隔离草稿这条持锁通道落回：
 

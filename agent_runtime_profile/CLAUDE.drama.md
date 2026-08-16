@@ -83,7 +83,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 ```
 主 Agent（编排层 — 极轻量）
   │  只持有：项目状态摘要 + 用户对话历史
-  │  职责：状态检测、流程决策、用户确认、dispatch subagent
+  │  职责：查服务端计划、按受控动作决策、用户确认、dispatch subagent
   │
   ├─ dispatch → analyze-assets               全局角色/场景/道具提取
   ├─ dispatch → split-narration-segments     说书模式片段拆分

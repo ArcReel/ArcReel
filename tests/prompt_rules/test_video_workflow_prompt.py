@@ -1,9 +1,11 @@
 """Behaviour acceptance for the video-workflow Agent Profile.
 
-The profile is a prompt, so its acceptance criteria are statements that must be present
-in (or absent from) the materialized Markdown. Every assertion here is anchored on a
-symbol imported from the authoritative module, so a contract change breaks the test
-rather than silently drifting away from what the profile tells the agent.
+The profile is a prompt, so what it promises the agent is checked as statements that must
+be present in (or absent from) the materialized Markdown. Contract surfaces — action
+types, problem codes, admission decisions, delivery options, tool ids — are asserted
+through symbols imported from the authoritative module, so widening one of those enums
+without teaching the profile about it breaks the test. The remaining assertions quote the
+profile's own prose and only guard that the instruction has not been dropped.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from lib.batch_admission import DURATION_CONFIRMATION_CODE, BatchAdmissionDecision
-from lib.generation_result import GenerationItemState, GenerationProblemCode
+from lib.generation_result import GenerationAction, GenerationItemState, GenerationProblemCode
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS, NarrationTtsStatus
 from lib.profile_manifest import VALID_CONTENT_MODES, resolve_profile_files_for_mode
 from lib.workflow_rules import WORKFLOW_RULES
@@ -31,8 +33,8 @@ GENERATION_RESULTS_REFERENCE = REFERENCES / "generation-results.md"
 WORKFLOW_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md", "SKILL.ad.md")
 EPISODIC_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md")
 
-# 服务端可以交回的受控动作全集：workflow_state 的动作 + workflow_plan 注入的动作。
-CONTROLLED_ACTIONS = (
+# ``workflow_state`` 自己产出的动作类型是散落的字符串字面量，没有枚举可导入，只能手写。
+_WORKFLOW_STATE_ACTIONS = (
     "collect_project_input",
     "draft_selling_points",
     "analyze_assets",
@@ -48,10 +50,16 @@ CONTROLLED_ACTIONS = (
     "repair_video_units",
     "export",
     "none",
-    "patch_episode_script",
-    "wait_for_task",
-    "choose_narration_delivery",
-    "confirm_request_duration",
+)
+
+# ``build_workflow_plan`` 额外注入的动作类型。
+_PLAN_INJECTED_ACTIONS = ("patch_episode_script", "choose_narration_delivery")
+
+# 批量准入被拒时 ``_admission_action`` 把 ``problems[0].action`` 直接当成 ``next_action.type``
+# 交回，所以整个 ``GenerationAction`` 闭集都可能出现在计划里。从枚举导出而不是手抄，新增
+# 动作时这份契约测试会直接红。
+CONTROLLED_ACTIONS = tuple(
+    dict.fromkeys((*_WORKFLOW_STATE_ACTIONS, *_PLAN_INJECTED_ACTIONS, *(action.value for action in GenerationAction)))
 )
 
 
@@ -63,7 +71,7 @@ def _reference(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-# ---------------------------------------------------------------- AC1 完整工作流
+# ------------------------------------------------- 计划是步骤适用性的唯一真相源
 
 
 @pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
@@ -87,7 +95,6 @@ def test_variants_do_not_hardcode_a_route_or_content_mode_step_table(filename: s
             assert rule.preprocessor not in content, (
                 f"{filename} 硬编码了预处理 subagent {rule.preprocessor}；应改读 next_action.args.preprocessor"
             )
-    assert "next_action.args.preprocessor" in content or filename == "SKILL.ad.md"
     assert "generation_mode == reference_video" not in content
     assert "content_mode == drama" not in content
     assert "content_mode == narration" not in content
@@ -109,7 +116,7 @@ def test_plan_reference_names_only_registered_mcp_tools() -> None:
         assert f"mcp__arcreel__{tool_id}" in content
 
 
-# ------------------------------------------------------------- AC2/AC3 旁白交付
+# ------------------------------------------------------------------- 旁白交付
 
 
 def test_plan_reference_states_both_narration_delivery_options() -> None:
@@ -143,7 +150,7 @@ def test_missing_tts_defaults_to_post_production_without_pushing_provider_setup(
     assert "tts_stale" in video_skill
 
 
-# ------------------------------------------------------------------- AC4 批量准入
+# ------------------------------------------------------------------- 批量准入
 
 
 def test_plan_reference_states_all_or_nothing_admission() -> None:
@@ -167,16 +174,33 @@ def test_variants_refuse_to_resubmit_the_passing_half_of_a_refused_batch(filenam
     assert "不拆批先跑通过的那一半" in content
 
 
+@pytest.mark.parametrize("filename", EPISODIC_VARIANTS)
+def test_episodic_variants_route_repair_wait_and_named_redo(filename: str) -> None:
+    """计划可以交回这三类动作，变体里必须各有落点，否则 agent 收到就没路可走。"""
+
+    content = _skill(filename)
+
+    assert "repair_video_units" in content
+    assert "patch_episode_script" in content
+    assert GenerationAction.WAIT_FOR_TASK.value in content
+    # 点名即强制重做的请求选择语义：非空 requested_ids 必须走 selected 工具。
+    assert "mcp__arcreel__generate_video_selected" in content
+    assert "mcp__arcreel__generate_video_episode" in content
+
+
 def test_video_skill_confirms_duration_tiers_without_splitting_the_batch() -> None:
     content = (PROFILE / ".claude" / "skills" / "generate-video" / "SKILL.md").read_text(encoding="utf-8")
 
     assert DURATION_CONFIRMATION_CODE in content
     assert "confirmed_request_durations" in content
     assert "仍作为一批重发" in content
-    assert "confirm_duration" not in content.replace("confirm_duration_tiers", "")
+
+    # 入队工具没有 confirm_duration 参数，写进 skill 会让 agent 发出必被拒的请求。
+    # DURATION_CONFIRMATION_CODE 本身含该子串，先摘掉再查裸参数名。
+    assert "confirm_duration" not in content.replace(DURATION_CONFIRMATION_CODE, "")
 
 
-# --------------------------------------------------- AC5 四条状态轴 / 部分执行结果
+# ------------------------------------------------------- 四条状态轴 / 逐 ID 分账
 
 
 def test_generation_results_reference_keeps_four_axes_apart() -> None:
@@ -207,7 +231,7 @@ def test_variants_report_per_id_outcomes_on_four_axes(filename: str) -> None:
         assert state.value in content
 
 
-# ------------------------------------------------------------ AC6 stale 与付费历史
+# ---------------------------------------------------------------- stale 与付费历史
 
 
 def test_plan_reference_protects_stale_artifacts_and_paid_history() -> None:
@@ -225,7 +249,7 @@ def test_generation_results_reference_protects_paid_history() -> None:
     assert "不得自动删除、覆盖或重生" in content
 
 
-# ------------------------------------------------------------------- AC6 恢复任务
+# ------------------------------------------------------- 恢复任务与重试不可互换
 
 
 def test_plan_reference_separates_resume_from_retry() -> None:
@@ -242,7 +266,7 @@ def test_video_skill_separates_resume_from_retry() -> None:
     assert "interrupted" in content
 
 
-# ------------------------------------------------------ AC7 compose / export 消费 presentation
+# ------------------------------------------ compose / export 的声音与字幕归服务端
 
 
 def test_compose_skill_defers_sound_and_subtitles_to_presentation() -> None:
@@ -263,7 +287,7 @@ def test_top_level_profile_defers_export_semantics_to_presentation(mode: str) ->
     assert "不替用户判断 TTS 是否必需" in content
 
 
-# ---------------------------------------------- AC8 Profile 物化：每个模式都拿到工作流 skill
+# ------------------------------------ Profile 物化：每个模式都拿到工作流 skill
 
 
 @pytest.mark.parametrize("mode", sorted(VALID_CONTENT_MODES))
@@ -292,6 +316,13 @@ def test_asset_and_storyboard_routes_forward_authoritative_arguments(filename: s
     if filename != "SKILL.ad.md":
         assert "names = artifacts.asset_sheets[type].missing_ids ∩ requested_ids" in content
         assert "若 names 为空 → 跳过，不 dispatch；不得回退到整类 missing_ids" in content
+
+
+@pytest.mark.parametrize("filename", EPISODIC_VARIANTS)
+def test_episodic_variants_take_the_preprocessor_from_the_plan(filename: str) -> None:
+    """ad 无 step1，不参与本断言。"""
+
+    assert "next_action.args.preprocessor" in _skill(filename)
 
 
 @pytest.mark.parametrize("filename", EPISODIC_VARIANTS)
