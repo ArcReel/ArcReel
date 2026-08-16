@@ -1499,7 +1499,7 @@ export default {
   'tool_name_rename_asset': 'Rename asset',
   // Skill display names (single source of truth: user-invocable SKILL.md files
   // under agent_runtime_profile/.claude/skills/; tests/test_frontend_skill_i18n.py enforces parity)
-  'skill_name_manga_workflow': 'Video workflow',
+  'skill_name_video_workflow': 'Video creation workflow',
   'skill_name_generate_storyboard': 'Generate storyboard',
   'skill_name_generate_grid': 'Generate grid',
   'skill_name_generate_video': 'Generate video',

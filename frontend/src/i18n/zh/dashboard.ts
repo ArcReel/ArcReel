@@ -1498,7 +1498,7 @@ export default {
   'tool_name_rename_asset': '重命名资产',
   // Skill display names (single source of truth: agent_runtime_profile/.claude/skills/*/SKILL.md
   // 中 user-invocable: true 的 skill；tests/test_frontend_skill_i18n.py 校验三语齐全)
-  'skill_name_manga_workflow': '视频工作流',
+  'skill_name_video_workflow': '视频创作工作流',
   'skill_name_generate_storyboard': '生成分镜图',
   'skill_name_generate_grid': '生成宫格图',
   'skill_name_generate_video': '生成视频',

@@ -54,18 +54,18 @@ class TestListAvailableSkills:
     def test_lists_skill_with_only_content_mode_variants(self, tmp_path, monkeypatch):
         """Variant-only skills (SKILL.<mode>.md without a plain SKILL.md) must appear."""
         profile_root = tmp_path / "agent_runtime_profile"
-        skill_dir = profile_root / ".claude" / "skills" / "manga-workflow"
+        skill_dir = profile_root / ".claude" / "skills" / "video-workflow"
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.narration.md").write_text(
-            "---\nname: manga-workflow\ndescription: Narration variant\n---\n",
+            "---\nname: video-workflow\ndescription: Narration variant\n---\n",
             encoding="utf-8",
         )
         (skill_dir / "SKILL.drama.md").write_text(
-            "---\nname: manga-workflow\ndescription: Drama variant\n---\n",
+            "---\nname: video-workflow\ndescription: Drama variant\n---\n",
             encoding="utf-8",
         )
         (skill_dir / "SKILL.ad.md").write_text(
-            "---\nname: manga-workflow\ndescription: Ad variant\n---\n",
+            "---\nname: video-workflow\ndescription: Ad variant\n---\n",
             encoding="utf-8",
         )
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_root))
@@ -79,7 +79,7 @@ class TestListAvailableSkills:
 
         skills = service.list_available_skills()
         names = [s["name"] for s in skills]
-        assert "manga-workflow" in names
+        assert "video-workflow" in names
 
     @pytest.mark.parametrize("include_common", [False, True])
     def test_skips_incomplete_or_conflicting_variants(self, tmp_path, monkeypatch, caplog, include_common):

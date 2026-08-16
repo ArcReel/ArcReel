@@ -1621,7 +1621,7 @@ export default {
   'tool_name_rename_asset': 'Đổi tên tài sản',
   // Skill display names (single source of truth: user-invocable SKILL.md
   // dưới agent_runtime_profile/.claude/skills/; tests/test_frontend_skill_i18n.py kiểm tra đồng bộ)
-  'skill_name_manga_workflow': 'Quy trình video',
+  'skill_name_video_workflow': 'Quy trình sáng tạo video',
   'skill_name_generate_storyboard': 'Tạo storyboard',
   'skill_name_generate_grid': 'Tạo lưới',
   'skill_name_generate_video': 'Tạo video',

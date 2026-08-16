@@ -9,8 +9,8 @@ description: 从剧本中提取角色 / 场景 / 道具三类资产定义，并�
 
 **输入**：主 agent 会在 prompt 中提供以下信息：
 - 项目名称（如 `my_project`）
-- workflow-status 授权的分析范围
-- workflow-status 给出的 `scope` 与 `expected_source_revision`
+- 计划授权的分析范围
+- 计划给出的 `scope` 与 `expected_source_revision`
 - 已有角色/场景/道具名称列表（如有）
 
 **输出**：完成角色/场景/道具写入后，返回精炼的结构化摘要（不包含原始小说文本）
@@ -36,7 +36,7 @@ description: 从剧本中提取角色 / 场景 / 道具三类资产定义，并�
 然后严格按主 agent 传入的 `scope` 读取文本：`kind=all` 时只读取 `source/` 根目录中扩展名（不区分
 大小写）为 `.txt` 或 `.md` 的文件，排除文件名以 `.` / `_` 开头以及匹配 `episode_[0-9]+.txt`
 的派生文件，再按文件名顺序读取；`kind=files` 时只读 `files` 列出的完整文件。不得以用户临时提出的更窄章节范围替换
-workflow-status 的权威 scope，也不得为该局部范围提交 completion fact；局部分析若不覆盖权威 scope，
+计划的权威 scope，也不得为该局部范围提交 completion fact；局部分析若不覆盖权威 scope，
 只能作为不写 completion fact 的独立管理任务执行。
 
 ### Step 3: 分析提取角色、场景和道具
@@ -118,7 +118,7 @@ mcp__arcreel__complete_asset_inventory({
 ```
 
 三个 bucket 全空也是合法完成结果，仍须调用。若工具返回 `source_revision_conflict` 或 source blocker，
-把错误原样返回主 agent；由主 agent 刷新 workflow-status 后重新决定动作。工具在同一把项目锁内先复核
+把错误原样返回主 agent；由主 agent 刷新计划后重新决定动作。工具在同一把项目锁内先复核
 revision，再一起写入资产与 completion fact；冲突时两者都不写。只有整笔成功才返回“资产提取完成”。
 
 随后向主 agent 返回以下格式的摘要：

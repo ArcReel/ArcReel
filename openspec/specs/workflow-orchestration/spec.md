@@ -1,8 +1,8 @@
 ## ADDED Requirements
 
-### Requirement: manga-workflow 编排 skill 须具备项目状态检测能力
+### Requirement: video-workflow 编排 skill 须具备项目状态检测能力
 
-manga-workflow skill 被加载后，SHALL 自动检测当前项目的工作流状态，基于 project.json 和文件系统判断当前所处阶段。
+video-workflow skill 被加载后，SHALL 自动检测当前项目的工作流状态，基于 project.json 和文件系统判断当前所处阶段。
 
 #### Scenario: 新项目无角色 / 场景 / 道具
 - **WHEN** project.json 中 characters、scenes、props 均为空
@@ -38,7 +38,7 @@ manga-workflow skill 被加载后，SHALL 自动检测当前项目的工作流�
 
 ### Requirement: 编排 skill 须支持灵活入口点
 
-manga-workflow SHALL 支持从任意阶段开始执行，而非强制从头开始。
+video-workflow SHALL 支持从任意阶段开始执行，而非强制从头开始。
 
 #### Scenario: 用户只想做角色设计
 - **WHEN** 用户请求"分析小说角色"但不需要创建剧本
@@ -49,7 +49,7 @@ manga-workflow SHALL 支持从任意阶段开始执行，而非强制从头开�
 - **THEN** 编排 skill 跳过资产提取阶段，直接进入单集预处理阶段
 
 #### Scenario: 用户想续做上次中断的工作
-- **WHEN** 用户运行 /manga-workflow，项目有部分完成的工作
+- **WHEN** 用户运行 /video-workflow，项目有部分完成的工作
 - **THEN** 编排 skill 通过状态检测自动定位到上次中断的阶段，从该阶段继续
 
 ### Requirement: 编排 skill 须正确传递上下文给 subagent

@@ -2,7 +2,7 @@
 
 ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`content_mode` 严格表达**内容类型**（narration / drama），`generation_mode` 表达**视频来源 / 生成路径**（storyboard / reference_video）。二者均由 `project.json` 顶层字段唯一决定，项目创建后不可更改，不存在集级覆盖。组合上可枚举如下；参考生视频路径下内容类型仅作画面比例 / 默认时长等次级决策。
 
-宫格不是独立生成模式：`grid_storyboard` 是仅在 `generation_mode="storyboard"` 下生效的独立布尔开关（由用户在设置页开关，agent 无对应写入权限），决定 Step 6 走分镜图还是宫格图，不影响 Step 3/4/5/7/8 的分派。
+宫格不是独立生成模式：`grid_storyboard` 是仅在 `generation_mode="storyboard"` 下生效的独立布尔开关（由用户在设置页开关，agent 无对应写入权限），决定分镜图步骤走单图还是宫格图，不影响其余步骤的分派。
 
 ## 模式矩阵
 
@@ -16,39 +16,23 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 >
 > step1 中间文件统一位于 `drafts/episode_{N}/`。状态检测与剧本生成**只认当前项目 generation_mode 对应的那一个文件**：目录中出现其他模式的 `step1_*` 文件属历史残留，既不作为预处理已完成的依据，也不能当作剧本生成的代替输入。drama 旧项目残留的 `step1_normalized_script.md`（结构化前自由文本稿）不算有效 step1，须重跑 normalize 产出 `.json`。
 
-## 阶段映射
+## 步骤适用性由计划表达
 
-```
-Step 3 预处理（按项目 generation_mode 分派；中间文件统一位于 drafts/episode_{N}/）
-  generation_mode = reference_video       → dispatch split-reference-video-units → step1_reference_units.json
-  generation_mode = storyboard：
-    content_mode = narration               → dispatch split-narration-segments   → step1_segments.json
-    content_mode = drama                   → dispatch normalize-drama-script     → step1_normalized_script.json（结构化内容）
+**本文档不再复述一张按内容模式或生成路线展开的步骤表。** 哪些步骤适用、顺序如何、当前停在哪一步、
+预处理该 dispatch 哪个 subagent，一律读 `mcp__arcreel__get_workflow_plan` 的 `steps[]` 与
+`next_action`（`prepare_step1` 的 `next_action.args.preprocessor` 就是权威的预处理 subagent 名）。
+读法见 [workflow-plan.md](workflow-plan.md)。
 
-Step 4 JSON 剧本
-  → dispatch create-episode-script（内部按 generation_mode 选 schema）
-  Step 3 中间文件被修改 / 重拆后必须重新执行本步——剧本 JSON 不会自动跟随中间文件更新
+上表只解释**数据结构与 schema 的差异**：同一步骤在不同组合下操作的是哪种主结构、哪个中间文件、
+哪份 schema、视觉参考从哪来。两条路线的差别落在这里，不落在「跳过哪一步」上。
 
-Step 5 资产（characters / scenes / props 三类）
-  两种模式共用 `generate-assets` skill（--characters/--scenes/--props）
+几条不由计划表达、需要在这里说清的事实：
 
-Step 6 分镜图
-  storyboard（grid_storyboard=false）  → dispatch generate-assets (storyboard)
-  storyboard（grid_storyboard=true）   → dispatch generate-assets (grid)
-  reference_video                     → 跳过
-
-Step 7 视频（路由同样按项目 generation_mode，剧本骨架只作校验）
-  storyboard          → dispatch generate-assets (video) → task_type="video"
-  reference_video     → dispatch generate-assets (video) → task_type="reference_video"
-                        mcp__arcreel__generate_video_episode 读 project.json 定路线，再校验剧本骨架是否匹配；
-                        失配（如 storyboard 项目里残留 video_units[] 旧剧本）直接拒绝入队，
-                        正解是按项目当前路线重跑 Step 3/4 重生剧本，而非指望旧剧本被执行
-
-Step 8 旁白配音（仅 narration 内容模式）
-  storyboard          → dispatch generate-assets (narration_audio)
-                        mcp__arcreel__generate_narration_audio 按段以 novel_text 合成
-  reference_video      → 跳过（无 segments）
-```
+- `reference_video` **只跳过分镜图**这一步。它不跳过 audio：旁白交付选择在两条路线上都要逐次做，
+  只是参考路线没有按段批量 TTS 的入口（无 `segments[]`）。
+- 视频入队按项目 `generation_mode` 定路线，剧本骨架只作校验；失配（如 storyboard 项目里残留
+  `video_units[]` 旧剧本）直接拒绝入队，正解是按项目当前路线重跑预处理与剧本生成，而非指望旧剧本被执行。
+- 预处理中间文件被修改 / 重拆后必须重新生成剧本 JSON——剧本不会自动跟随中间文件更新。
 
 ## 视频规格
 

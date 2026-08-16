@@ -116,37 +116,41 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 | Skill | 触发命令 | 功能 |
 |-------|---------|------|
-| manga-workflow | `/manga-workflow` | 编排 skill：状态检测 + subagent dispatch + 用户确认 |
+| video-workflow | `/video-workflow` | 编排 skill：查计划 + subagent dispatch + 用户确认 |
 | manage-project | — | 项目管理工具集：角色/场景/道具批量写入、项目 settings 与概述编辑 |
 | generate-script | — | 调用项目配置的文本模型生成 JSON 剧本（由 subagent 调用） |
 | generate-assets | `/generate-assets` | 统一资产生成：可指定 `type=character\|scene\|prop`，省略则三类并行 |
 | generate-storyboard | `/generate-storyboard` | 生成分镜图片（storyboard 模式） |
 | generate-grid | `/generate-grid` | 生成宫格分镜图（`grid_storyboard=true` 时：按 segment_break 分组的链式宫格） |
 | generate-video | `/generate-video` | 生成视频 |
-| compose-video | `/compose-video` | 视频后期合成（BGM、片头片尾、多集拼接，ffmpeg） |
+| compose-video | `/compose-video` | 单集片段串接 + 可选 BGM（仅 drama，ffmpeg） |
 
 ## 快速开始
 
-新用户请使用 `/manga-workflow` 开始完整的视频创作流程。
+新用户请使用 `/video-workflow` 开始完整的视频创作流程。
 
 ## 工作流程概览
 
-`/manga-workflow` 编排 skill 按以下阶段自动推进（每个阶段完成后等待用户确认）：
+`/video-workflow` 编排 skill 按服务端计划推进（每个动作完成后等待用户确认）。**步骤表不在这里，
+也不在 skill 里**：调用 `mcp__arcreel__get_workflow_plan` 取回 `steps[]` 与唯一的 `next_action`，
+照它路由。六种模式组合的步骤适用性、受控动作表、旁白交付、批量准入与状态轴读法见
+`.claude/references/workflow-plan.md`。
 
-1. **项目设置**：创建项目（创建时确定 `content_mode` 与 `generation_mode`，之后均不可变）、上传小说、生成项目概述。用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知路线创建后不可更改，无绕过方式；要求改宫格装配（`grid_storyboard`）时指引用户前往设置页操作，agent 无对应写入权限；该开关只影响后续生成，已生成的分镜图不会自动失效，须显式重新生成对应分镜才会按新装配方式出图
-2. **全局角色/场景/道具提取** → dispatch `analyze-assets` subagent
-3. **分集规划** → 主 agent 调用 `mcp__arcreel__plan_episodes` 服务端工具规划一批集（账本+派生集文件由工具维护）+ 批级审阅。用户对已规划内容提出调整意见时走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning` 退回到意见中最早受影响的集（保留其前的集），再带调整后的 `instructions` 分批重新调用 `plan_episodes`。用户表达常驻分集偏好（如按章节对齐切分）时，须经 `plan_episodes` 的 `instructions` 传入，并在规划完成前**每一批调用都重复带上**（偏好不持久化）；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
-4. **单集预处理** → 按项目 `generation_mode` × `content_mode` 选（中间文件统一位于 `drafts/episode_{N}/`）：
-   - reference_video（本内容模式）→ `split-reference-video-units`（产出 `step1_reference_units.json`）
-   - storyboard + narration → `split-narration-segments`（产出 `step1_segments.json`）
-   - storyboard + drama → `normalize-drama-script`（产出结构化内容 `step1_normalized_script.json`）
-5. **JSON 剧本生成** → dispatch `create-episode-script` subagent；中间文件被修改/重拆后必须重新执行本阶段
-6. **资产设计（character/scene/prop 三类并行）** → dispatch `generate-assets` subagent
-7. **分镜图生成**：仅 `storyboard` 模式（`grid_storyboard=true` 时生成宫格图）；`reference_video` 跳过 → dispatch `generate-assets` subagent
-8. **视频生成** → dispatch `generate-assets` subagent（脚本自动按 video_units/segments/scenes 分派）
+需要在这里说清、不由计划表达的几条：
 
-工作流支持**灵活入口**：状态检测自动定位到第一个未完成的阶段，支持中断后恢复。
-视频生成完成后，用户可在 Web 端导出为剪映草稿。
+- 生成路线（storyboard ↔ reference_video）创建后不可更改，无绕过方式；宫格装配（`grid_storyboard`）
+  由用户在设置页开关，agent 无写入权限。该开关只影响后续生成，已生成的分镜图不会自动失效，
+  须显式重新生成对应分镜才会按新装配方式出图
+- 分集规划的常驻偏好（如按章节对齐切分）不持久化，须经 `plan_episodes` 的 `instructions` 在**每一批
+  调用上重复带上**；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
+- 预处理中间文件被修改 / 重拆后必须重新生成剧本 JSON，剧本不会自动跟随中间文件更新
+- `reference_video` **只跳过分镜图**，不跳过 audio：旁白交付选择在两条路线上都要逐次做
+- 批量旁白配音由用户显式要求触发，不由 `next_action` 驱动
+
+工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，支持中断后恢复。
+视频生成完成后，用户可在 Web 端导出为剪映草稿——声音归属与字幕时序由服务端 presentation 结果决定，
+预览、下载与剪映草稿消费同一份；agent 不自行估算字幕时序、不静音 provider 原音、
+也不替用户判断 TTS 是否必需。stale 产物照常可导出，导出不清空也不覆盖旧付费媒体。
 
 ## 关键原则
 
