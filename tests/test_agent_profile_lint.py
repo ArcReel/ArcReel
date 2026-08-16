@@ -184,6 +184,29 @@ def test_target_deprecation_rules_are_explicit_for_variant_profile(tmp_path: Pat
     )
 
 
+def test_target_deprecation_rules_flag_routing_and_spare_reverse_notes(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "router.md").write_text(
+        "---\nname: router\ndescription: Routing agent\n---\n"
+        "- 读取 `drafts/episode_1/step1_normalized_script.md` 作为剧本生成输入。\n"
+        "- 重生成指定场景时运行 generate-storyboard --scene-ids E1S01。\n",
+        encoding="utf-8",
+    )
+    (profile / ".claude" / "agents" / "note.md").write_text(
+        "---\nname: note\ndescription: Reverse note agent\n---\n"
+        "- 旧项目残留的 `step1_normalized_script.md`（结构化前自由文本稿）不算有效 step1，"
+        "须重跑 normalize 产出 `.json`。\n"
+        "- 旧脚本的 --scene-ids 参数已废弃，不要再传。\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert ".claude/agents/router.md: deprecated profile string 'step1_normalized_script.md'" in errors
+    assert ".claude/agents/router.md: deprecated profile string '--scene-ids'" in errors
+    assert not any(error.startswith(".claude/agents/note.md") for error in errors)
+
+
 def test_reports_invalid_utf8_across_profile_inputs(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     (profile / "CLAUDE.narration.md").write_bytes(b"\xff")
@@ -209,3 +232,11 @@ def test_frontmatter_accepts_utf8_bom(tmp_path: Path) -> None:
 def test_shipped_profile_passes_current_lint() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     assert lint_profile(repo_root / "agent_runtime_profile") == []
+
+
+def test_shipped_profile_has_no_deprecated_string_routing() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+
+    errors = lint_profile(repo_root / "agent_runtime_profile", enforce_target_rules=True)
+
+    assert not any("deprecated profile string" in error for error in errors)

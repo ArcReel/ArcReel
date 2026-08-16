@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
-"""Static integrity checks for the materialized Agent Runtime Profile."""
+"""Static integrity checks for the materialized Agent Runtime Profile.
+
+``--target-profile`` 额外启用目标档案专属的废弃用法检查。其中禁用字符串
+(`_TARGET_DEPRECATED_STRINGS`) 的判定边界如下：
+
+- 判定粒度是**子句**——按换行、中英文逗号/分号/句号/问号/叹号与括号切分；只看命中
+  字符串所在的那个子句，不看整段上下文。
+- 子句含废弃语境标记（否定词、「残留」「旧项目」「废弃」「legacy」等）时视为反向说明，
+  即告诫读者不要再用旧格式，不判违规。该判断优先于路由标记。
+- 否则要求子句含路由/指令标记（读取/使用/运行/参数/路径、read/use/run、命令行形态等）
+  才判违规；两者都没有的纯提及不判违规。
+
+因此「旧稿 X 不算有效输入」不报，而「读取 X 作为输入」仍报。
+"""
 
 from __future__ import annotations
 
@@ -33,6 +46,18 @@ _TARGET_DEPRECATED_STRINGS = (
     "--scene-ids",
     "--music-volume",
     "step1_normalized_script.md",
+)
+_CLAUSE_SPLIT_RE = re.compile(r"[\n，,。；;！!？?（）()]|——")
+_DEPRECATION_CONTEXT_RE = re.compile(
+    r"不算|不再|不要|不需|不得|不能|不应|不作为|不视为|不当|不是|无需|禁止|勿|别用"
+    r"|残留|遗留|废弃|已移除|已删除|旧项目|旧稿|旧格式|历史"
+    r"|deprecated|legacy|obsolete|removed|no longer|instead of",
+    re.IGNORECASE,
+)
+_ROUTING_MARKER_RE = re.compile(
+    r"读取|读|写入|写|使用|用|运行|执行|调用|传入|传|加上|附加|指定|填|生成|保存|输出|输入|参数|选项|路径"
+    r"|\bread\b|\bwrite\b|\buse\b|\bruns?\b|\bpass\b|\bexec\b|\bpython\b|\.py\b|\$\s|^\s*[>`]",
+    re.IGNORECASE,
 )
 _DIRECT_STEP1_EDIT_RE = re.compile(
     r"(?:Edit|Write).{0,100}(?:step1_normalized_script|narration.{0,30}step1|drama.{0,30}step1)",
@@ -161,6 +186,18 @@ def _validate_evals(profile_dir: Path, errors: list[str]) -> None:
                 seen[eval_id] = path
 
 
+def _routes_to_deprecated_string(text: str, needle: str) -> bool:
+    """判断文本是否真的把 ``needle`` 当作可用路由/指令，而非反向说明它已废弃。"""
+    for clause in _CLAUSE_SPLIT_RE.split(text):
+        if needle not in clause:
+            continue
+        if _DEPRECATION_CONTEXT_RE.search(clause):
+            continue
+        if _ROUTING_MARKER_RE.search(clause):
+            return True
+    return False
+
+
 def _validate_target_deprecations(profile_dir: Path, errors: list[str]) -> None:
     for path in sorted(profile_dir.rglob("*.md")):
         try:
@@ -169,7 +206,7 @@ def _validate_target_deprecations(profile_dir: Path, errors: list[str]) -> None:
             errors.append(f"{path.relative_to(profile_dir)}: cannot read: {exc}")
             continue
         for needle in _TARGET_DEPRECATED_STRINGS:
-            if needle in text:
+            if _routes_to_deprecated_string(text, needle):
                 errors.append(f"{path.relative_to(profile_dir)}: deprecated profile string {needle!r}")
         if _PYTHON_RESUME_RE.search(text):
             errors.append(f"{path.relative_to(profile_dir)}: deprecated Python --resume invocation")
