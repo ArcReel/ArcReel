@@ -245,6 +245,21 @@ def test_target_deprecation_rules_flag_soft_wrapped_routing_clause(tmp_path: Pat
     assert ".claude/agents/wrapped.md: deprecated profile string 'step1_normalized_script.md'" in errors
 
 
+def test_target_deprecation_rules_flag_adjacent_list_items_without_blank_line(tmp_path: Path) -> None:
+    """紧邻、无空行分隔的反向说明列表项与真实路由列表项须各自独立成句，不因段落合并互相吞并。"""
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "adjacent-items.md").write_text(
+        "---\nname: adjacent-items\ndescription: Adjacent list item agent\n---\n"
+        "- 不要使用旧格式 step1_normalized_script.md\n"
+        "- 读取 step1_normalized_script.md 作为输入\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert ".claude/agents/adjacent-items.md: deprecated profile string 'step1_normalized_script.md'" in errors
+
+
 def test_target_deprecation_rules_flag_nested_fence_content(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     (profile / ".claude" / "agents" / "nested-fence.md").write_text(

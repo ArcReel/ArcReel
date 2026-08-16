@@ -50,6 +50,7 @@ _TARGET_DEPRECATED_STRINGS = (
     "step1_normalized_script.md",
 )
 _CODE_FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")
+_BLOCK_START_RE = re.compile(r"^\s{0,3}([-*+]\s|\d+[.)]\s|#{1,6}\s|>)")
 _CLAUSE_SPLIT_RE = re.compile(r"[，,。；;！!？?]|——")
 _DEPRECATION_CONTEXT_RE = re.compile(
     r"不算|不再|不要|不需|不得|不能|不应|不作为|不视为|无需|禁止|勿|别用"
@@ -195,7 +196,9 @@ def _iter_clauses(text: str) -> Iterator[tuple[str, bool]]:
     三条判定形状：围栏内以整行为一个子句（代码里的逗号分号是语法而非句读，不能当切分点）；
     开合围栏须同字符、闭合长度不短于开启长度、且闭合行不带信息字符串才配对，避免更短的嵌套
     反引号序列被误判为收围栏；围栏外先把连续的非空行合并为一个逻辑段落再切分子句——Markdown
-    软换行只是排版折行，不是句读边界，逐物理行切分会把同一子句拆散到两行而漏判。
+    软换行只是排版折行，不是句读边界，逐物理行切分会把同一子句拆散到两行而漏判。合并在遇到
+    新的列表项/标题/引用起始行（``_BLOCK_START_RE``）时截断，紧邻无空行分隔的两个列表项各
+    自独立成句——否则前一项若命中废弃语境，会连带吞掉后一项里本应报告的真实路由指令。
     """
     fence_char = ""
     fence_len = 0
@@ -231,6 +234,9 @@ def _iter_clauses(text: str) -> Iterator[tuple[str, bool]]:
             fence_len = len(match.group(1))
             continue
         if line.strip():
+            if _BLOCK_START_RE.match(line):
+                for clause in _flush_prose():
+                    yield clause, False
             prose_lines.append(line)
         else:
             for clause in _flush_prose():
