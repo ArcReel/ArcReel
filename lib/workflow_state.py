@@ -35,6 +35,7 @@ from lib.script_models import get_generated_assets
 from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
 from lib.version_manager import VersionManager
+from lib.workflow_rules import workflow_rule
 
 WorkflowStateName = Literal[
     "PROJECT_INPUT",
@@ -49,6 +50,15 @@ WorkflowStateName = Literal[
     "VIDEO",
     "EXPORT_READY",
 ]
+
+
+class WorkflowRequestError(ValueError):
+    """调用方给出的查询参数本身不合法。
+
+    与之相对的是持久化数据损坏（剧本骨架、content_mode / generation_mode 组合等）：
+    那类问题同样以 ``ValueError`` 家族抛出，但责任在服务端数据而非本次请求，消费方
+    据此区分「回 400 / invalid_request」与「按服务端故障上报」，不把排障方向指向调用方。
+    """
 
 
 class WorkflowProject(BaseModel):
@@ -748,9 +758,9 @@ class WorkflowStateService:
     ) -> WorkflowStatus:
         mode = project.get("content_mode")
         if episode is not None and (isinstance(episode, bool) or episode < 1):
-            raise ValueError("episode must be a positive integer")
+            raise WorkflowRequestError("episode must be a positive integer")
         if mode == "ad" and episode not in {None, 1}:
-            raise ValueError("ad workflow only has episode 1")
+            raise WorkflowRequestError("ad workflow only has episode 1")
         generation_mode = project.get("generation_mode")
         grid = project.get("grid_storyboard") is True and generation_mode == "storyboard"
         blockers = list(shared.blockers)
@@ -854,13 +864,7 @@ class WorkflowStateService:
                 state = "EPISODE_PLAN"
                 next_action = self._planning_action(project, "target episode is unavailable")
             else:
-                preprocessor = (
-                    "split-reference-video-units"
-                    if generation_mode == "reference_video"
-                    else "split-narration-segments"
-                    if mode == "narration"
-                    else "normalize-drama-script"
-                )
+                preprocessor = workflow_rule(str(mode), str(generation_mode)).preprocessor
                 if mode != "ad" and selected is not None and selected[1].get("ledger_status") == "stale":
                     step1_path = script_review.step1_path(project_path, project, target.episode)
                     live_revision = script_review.content_fingerprint(step1_path) if step1_path is not None else None
@@ -1159,6 +1163,7 @@ __all__ = [
     "WorkflowBlocker",
     "WorkflowNextAction",
     "WorkflowProject",
+    "WorkflowRequestError",
     "WorkflowStateService",
     "WorkflowStatus",
     "WorkflowTarget",

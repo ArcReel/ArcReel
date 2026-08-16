@@ -56,6 +56,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     split_reference_video_units_tool,
     validate_and_promote_reference_draft_tool,
 )
+from server.agent_runtime.sdk_tools.workflow_plan import get_workflow_plan_tool
 from server.agent_runtime.sdk_tools.workflow_status import complete_step1_rebuild_tool, get_workflow_status_tool
 
 __all__ = ["build_arcreel_mcp_server", "ToolContext", "ARCREEL_MCP_TOOL_IDS"]
@@ -71,6 +72,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "complete_asset_inventory",
     "complete_step1_rebuild",
     "get_workflow_status",
+    "get_workflow_plan",
     "list_pending_assets",
     "generate_assets",
     "generate_storyboards",
@@ -112,6 +114,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
             complete_asset_inventory_tool(ctx),
             complete_step1_rebuild_tool(ctx),
             get_workflow_status_tool(ctx),
+            get_workflow_plan_tool(ctx),
             list_pending_assets_tool(ctx),
             generate_assets_tool(ctx),
             generate_storyboards_tool(ctx),

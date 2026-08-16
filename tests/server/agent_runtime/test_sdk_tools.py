@@ -223,7 +223,7 @@ def _stub_audio_switch_guard(monkeypatch):
 
     行为覆盖在 tests/server/agent_runtime/test_enqueue_videos_audio_switch.py。
     """
-    from server.agent_runtime.sdk_tools import enqueue_videos as _mod
+    from server.services import video_batch_admission as _mod
 
     async def _noop(_project, _capability):
         return None
@@ -2817,14 +2817,14 @@ async def test_generate_video_episode_rejects_unbound_active_script_before_enque
     )
 
     def fake_build_specs(**_kwargs):
-        return [spec], {"E1S01": 0}
+        return [spec], {"E1S01": 0}, []
 
     async def fake_submit(**_kwargs):
         nonlocal submitted
         submitted = True
         return []
 
-    monkeypatch.setattr(mod, "_build_video_specs", fake_build_specs)
+    monkeypatch.setattr(mod, "build_storyboard_video_specs", fake_build_specs)
     monkeypatch.setattr(mod, "_submit_with_checkpoint", fake_submit)
 
     out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
@@ -2841,6 +2841,7 @@ async def test_generate_video_episode_resolves_episode_from_canonical_filename(
 ) -> None:
     """A schema-8 script may rely on its canonical filename for the episode identity."""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.services import video_batch_admission as admission_mod
 
     fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
@@ -2852,7 +2853,7 @@ async def test_generate_video_episode_resolves_episode_from_canonical_filename(
         }
     )
     captured: dict[str, int] = {}
-    build_video_specs = mod._build_video_specs
+    build_video_specs = admission_mod.build_storyboard_video_specs
 
     def _capture_episode(**kwargs):
         captured["episode"] = kwargs["episode"]
@@ -2873,7 +2874,7 @@ async def test_generate_video_episode_resolves_episode_from_canonical_filename(
                 )
         return [], []
 
-    monkeypatch.setattr(mod, "_build_video_specs", _capture_episode)
+    monkeypatch.setattr(mod, "build_storyboard_video_specs", _capture_episode)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
     monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: None)
 
@@ -4372,7 +4373,7 @@ async def test_generate_video_all_preserves_the_selected_manual_upload(
     )
     monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _MissingEverythingResolver())
     monkeypatch.setattr(mod, "artifact_is_usable", lambda *_args: False)
-    monkeypatch.setattr(mod, "_build_video_specs", lambda **_kwargs: ([spec], {"E1S01": 0}))
+    monkeypatch.setattr(mod, "build_storyboard_video_specs", lambda **_kwargs: ([spec], {"E1S01": 0}, []))
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
     out = await _call(generate_video_all_tool(fake_ctx), {"script": "episode_1.json"})
@@ -4470,7 +4471,7 @@ def test_asset_requested_ids_resolve_nfd_registered_key() -> None:
 @pytest.mark.unit
 def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> None:
     """duration 是能力维度，入队侧不再校验——任意 duration 都透传给执行层（见 ADR-0001）。"""
-    from server.agent_runtime.sdk_tools.enqueue_videos import _build_video_specs
+    from server.services.video_batch_admission import build_storyboard_video_specs as _build_video_specs
 
     (tmp_path / "storyboards").mkdir()
     (tmp_path / "storyboards" / "scene_S01.png").write_bytes(b"png")
@@ -4523,7 +4524,7 @@ def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch
 ) -> None:
     """批量入队场景下，单个条目 storyboard_image 非法（脏数据/越界/绝对路径）只记为该 ID 的
     blocked，不应让 `project_dir / storyboard_image` 抛未处理异常中断整批。"""
-    from server.agent_runtime.sdk_tools.enqueue_videos import _build_video_specs
+    from server.services.video_batch_admission import build_storyboard_video_specs as _build_video_specs
 
     (tmp_path / "storyboards").mkdir()
     (tmp_path / "storyboards" / "scene_S02.png").write_bytes(b"png")
@@ -4558,7 +4559,7 @@ def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch
 def test_build_video_specs_skips_non_dict_generated_assets_without_aborting_batch(tmp_path: Path) -> None:
     """generated_assets 容器本身被外部编辑损坏为非 dict（如 list）时按「没有分镜图」跳过，
     不应让 `.get("storyboard_image")` 在非 dict 上抛未处理 AttributeError 中断整批。"""
-    from server.agent_runtime.sdk_tools.enqueue_videos import _build_video_specs
+    from server.services.video_batch_admission import build_storyboard_video_specs as _build_video_specs
 
     (tmp_path / "storyboards").mkdir()
     (tmp_path / "storyboards" / "scene_S02.png").write_bytes(b"png")
@@ -4606,7 +4607,7 @@ def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
     voiceover-kind 不进；narration / ad（无 utterances 字段）原样渲染既有 video_prompt.dialogue。"""
     import yaml
 
-    from server.agent_runtime.sdk_tools.enqueue_videos import _get_video_prompt
+    from server.services.video_batch_admission import storyboard_video_prompt as _get_video_prompt
 
     drama_item = {
         "scene_id": "E1S01",
@@ -4638,7 +4639,7 @@ def test_get_video_prompt_injects_voice_profiles_when_characters_given() -> None
     voice_characters 缺省（既有调用点行为）不注入。"""
     import yaml
 
-    from server.agent_runtime.sdk_tools.enqueue_videos import _get_video_prompt
+    from server.services.video_batch_admission import storyboard_video_prompt as _get_video_prompt
 
     drama_item = {
         "scene_id": "E1S01",
@@ -4665,7 +4666,7 @@ def test_get_video_prompt_injects_voice_profiles_from_legacy_dialogue() -> None:
     video_prompt.dialogue）：改走 legacy 出口派生 Voice_Profiles，不因缺 utterances 静默丢失。"""
     import yaml
 
-    from server.agent_runtime.sdk_tools.enqueue_videos import _get_video_prompt
+    from server.services.video_batch_admission import storyboard_video_prompt as _get_video_prompt
 
     legacy_drama_item = {
         "scene_id": "E1S01",
@@ -4690,7 +4691,7 @@ def test_get_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() 
     （真无声）门控直达 YAML。"""
     import yaml
 
-    from server.agent_runtime.sdk_tools.enqueue_videos import _get_video_prompt
+    from server.services.video_batch_admission import storyboard_video_prompt as _get_video_prompt
 
     narration_item = {
         "segment_id": "E1S01",
@@ -4708,9 +4709,9 @@ def test_get_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() 
 @pytest.mark.unit
 async def test_resolve_voice_context_skips_non_drama(fake_ctx: ToolContext) -> None:
     """narration/ad：不解析 voice_consistency，直接跳过（无 drama dialogue speaker 概念）。"""
-    from server.agent_runtime.sdk_tools.enqueue_videos import _resolve_voice_context
+    from server.services.video_batch_admission import resolve_voice_context as _resolve_voice_context
 
-    assert await _resolve_voice_context(fake_ctx, "narration") is None
+    assert await _resolve_voice_context(fake_ctx.pm.project_payload, "narration") is None
 
 
 @pytest.mark.unit
@@ -4718,20 +4719,20 @@ async def test_resolve_voice_context_drama_reads_project_characters_and_gate(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """drama：读项目角色资产，无声（C 类真无声、或本集关闭音频）时退回不注入。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.services import video_batch_admission as admission_mod
 
     async def fake_not_silent(_project, _episode=None):
         return False
 
-    monkeypatch.setattr(mod, "resolve_project_is_silent", fake_not_silent)
-    characters = await mod._resolve_voice_context(fake_ctx, "drama")
+    monkeypatch.setattr(admission_mod, "resolve_project_is_silent", fake_not_silent)
+    characters = await admission_mod.resolve_voice_context(fake_ctx.pm.project_payload, "drama")
     assert characters == fake_ctx.pm.project_payload["characters"]  # type: ignore[attr-defined]
 
     async def fake_silent(_project, _episode=None):
         return True
 
-    monkeypatch.setattr(mod, "resolve_project_is_silent", fake_silent)
-    assert await mod._resolve_voice_context(fake_ctx, "drama") is None
+    monkeypatch.setattr(admission_mod, "resolve_project_is_silent", fake_silent)
+    assert await admission_mod.resolve_voice_context(fake_ctx.pm.project_payload, "drama") is None
 
 
 @pytest.mark.unit
@@ -6076,7 +6077,6 @@ def _ad_reference_unit(**overrides: Any) -> dict[str, Any]:
 
 @pytest.fixture
 def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> ToolContext:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     pm = fake_ctx.pm
     pm.project_payload.update(  # type: ignore[attr-defined]
@@ -6102,7 +6102,7 @@ def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> 
         return None
 
     monkeypatch.setattr("server.services.video_batch_admission.get_active_tasks_for_resources", _fake_no_active_tasks)
-    monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow_audio_switch)
+    monkeypatch.setattr("server.services.video_batch_admission.assert_audio_switch_supported", _allow_audio_switch)
     return fake_ctx
 
 

@@ -13,12 +13,18 @@ different conclusions about the same project.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
-from lib.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver, artifact_is_usable
+from lib.artifact_activation import (
+    ArtifactCurrencyResolver,
+    active_artifact_currency_resolver,
+    artifact_is_usable,
+    resolve_usable_storyboard_video_inputs,
+)
 from lib.artifact_manifest import ArtifactKey
 from lib.batch_admission import (
     BatchAdmission,
@@ -49,6 +55,13 @@ from lib.narration_delivery import (
     video_request_requires_exact_quote,
     video_request_reuses_current_visual,
 )
+from lib.prompt_utils import (
+    build_drama_video_prompt,
+    build_drama_video_prompt_from_legacy_dialogue,
+    is_structured_video_prompt,
+    strip_voice_profiles,
+    video_prompt_to_yaml,
+)
 from lib.reference_video import assemble_shots_text
 from lib.reference_video.request_projection import (
     ProjectionProblem,
@@ -57,7 +70,8 @@ from lib.reference_video.request_projection import (
     project_reference_unit_request,
 )
 from lib.script_models import get_generated_assets
-from lib.speech_composition import SpeechAdmissionError, require_script_unit_admitted
+from lib.speech_composition import SpeechAdmission, SpeechAdmissionError, require_script_unit_admitted
+from lib.storyboard_sequence import StoryboardImageUnavailable
 from lib.version_manager import VersionManager
 from server.services.cost_estimation import quote_video_request
 from server.services.narration_delivery_tasks import (
@@ -65,6 +79,7 @@ from server.services.narration_delivery_tasks import (
     prepare_current_reference_video_request_options,
     prepare_current_storyboard_narrated_video_duration,
 )
+from server.services.video_caps import assert_audio_switch_supported, resolve_project_is_silent
 
 
 def video_target_states(
@@ -346,17 +361,26 @@ def _generation_problem(problem: ProjectionProblem | NarrationDeliveryProblem, *
     )
 
 
-def _speech_problem(exc: SpeechAdmissionError) -> GenerationProblem:
-    problem = exc.admission.problems[0]
-    return GenerationProblem(
-        code=problem.code.value,
-        detail=problem.reason.value,
-        action=_SPEECH_ACTIONS.get(problem.action.value, GenerationAction.FIX_INPUT),
-        params={"speech_admission": exc.admission.to_dict()},
+def speech_admission_problems(admission: SpeechAdmission) -> tuple[GenerationProblem, ...]:
+    """Lift every speech blocker into the shared generation problem contract."""
+
+    payload = admission.to_dict()
+    return tuple(
+        GenerationProblem(
+            code=problem.code.value,
+            detail=problem.reason.value,
+            action=_SPEECH_ACTIONS.get(problem.action.value, GenerationAction.FIX_INPUT),
+            params={"unit_id": admission.unit_id, "speech_admission": payload},
+        )
+        for problem in admission.problems
     )
 
 
-def _active_task_problem(task: Mapping[str, Any]) -> GenerationProblem:
+def _speech_problem(exc: SpeechAdmissionError) -> GenerationProblem:
+    return speech_admission_problems(exc.admission)[0]
+
+
+def active_task_problem(task: Mapping[str, Any]) -> GenerationProblem:
     return GenerationProblem(
         code=GenerationProblemCode.ACTIVE_TASK_CONFLICT,
         detail=f"该 unit 已有在途任务（状态：{task.get('status')}），等待其结束后再提交本次批量请求",
@@ -491,7 +515,7 @@ async def admit_reference_video_batch(
         seen_ids.add(unit_id)
         problems: list[GenerationProblem] = []
         if unit_id in conflicts:
-            problems.append(_active_task_problem(conflicts[unit_id]))
+            problems.append(active_task_problem(conflicts[unit_id]))
         if spec_check is not None:
             try:
                 spec_check(unit)
@@ -655,7 +679,7 @@ async def admit_storyboard_video_batch(
     for resource_id, item, visual_prompt in items:
         if resource_id in conflicts:
             tickets.append(
-                UnitAdmissionTicket(unit_id=resource_id, problems=(_active_task_problem(conflicts[resource_id]),))
+                UnitAdmissionTicket(unit_id=resource_id, problems=(active_task_problem(conflicts[resource_id]),))
             )
             continue
         if request_options.narration_delivery != USE_TTS:
@@ -729,12 +753,292 @@ async def _storyboard_ticket(
     )
 
 
+def speech_admission_ticket(unit_id: str, exc: SpeechAdmissionError) -> UnitAdmissionTicket:
+    """Refuse a target on its speech admission, carrying that verdict through.
+
+    The admission's own problem code and action are kept unchanged, so a caller
+    never has to read the rendered text to decide what to do next.
+    """
+
+    problem = exc.admission.problems[0]
+    return refused_ticket(
+        unit_id or exc.admission.unit_id,
+        code=problem.code.value,
+        detail=f"发声准入未通过：{json.dumps(exc.admission.to_dict(), ensure_ascii=False)}",
+        action=(GenerationAction.REPLAN_UNIT if problem.action.value == "replan_unit" else GenerationAction.FIX_INPUT),
+        params={"speech_admission": exc.admission.to_dict()},
+    )
+
+
+def storyboard_video_prompt(
+    item: dict[str, Any], *, content_mode: str, voice_characters: dict[str, Any] | None = None
+) -> str:
+    prompt = item.get("video_prompt")
+    if not prompt:
+        item_id = item.get("segment_id") or item.get("scene_id")
+        raise ValueError(f"片段/场景缺少 video_prompt 字段: {item_id}")
+    if is_structured_video_prompt(prompt):
+        # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 系的机械派生：剧本 JSON
+        # 里残留的 voice_profiles 一律先剥离，不因门控不触发（narration/ad、或 drama 无
+        # utterances 的条目）而绕过 C 类（真无声）门控直达 YAML。
+        prompt = strip_voice_profiles(prompt)
+        if content_mode == "drama":
+            # drama 口型台词单一真相源在场景级有序 utterances：取 dialogue-kind 注入 video YAML 的
+            # dialogue 出口（drama video_prompt 已不带 dialogue）。utterances 迁移前的存量剧本
+            # （load_script 按原始 JSON 读盘不过 pydantic，不会被 DramaScene._migrate_legacy
+            # 自动补齐）台词仍留在 video_prompt.dialogue，改走 legacy 出口。
+            if "utterances" in item:
+                prompt = build_drama_video_prompt(prompt, item.get("utterances"), characters=voice_characters)
+            else:
+                prompt = build_drama_video_prompt_from_legacy_dialogue(prompt, characters=voice_characters)
+        return video_prompt_to_yaml(prompt)
+    if isinstance(prompt, dict):
+        item_id = item.get("segment_id") or item.get("scene_id")
+        raise ValueError(f"片段/场景 video_prompt 为对象但格式不符合结构化规范: {item_id}")
+    if not isinstance(prompt, str):
+        item_id = item.get("segment_id") or item.get("scene_id")
+        raise TypeError(f"片段/场景 video_prompt 类型无效（期望 str 或 dict）: {item_id}")
+    return prompt
+
+
+async def resolve_voice_context(project: dict[str, Any], content_mode: str) -> dict[str, Any] | None:
+    """供 Voice_Profiles 注入的角色资产（``None`` 表示不注入）。
+
+    非 drama 不注入；drama 按无声判据排除（C 类模型不产音、或本集关闭了音频，两条路径同口径）。
+    台词不受影响、照常下发。
+    """
+    if content_mode != "drama":
+        return None
+    if await resolve_project_is_silent(project):
+        return None
+    return project.get("characters") or {}
+
+
+async def audio_switch_conflict(project: dict[str, Any]) -> str | None:
+    """分镜路线的音频闸门（``assert_audio_switch_supported``，与 WebUI 提交入口同一判据）。
+
+    成片恒有声的模型收不到关闭音频的请求，放行只会让无声判据把音色约束整批裁掉。闸门与内容模式
+    无关，narration/ad 同样受检。
+
+    调用点固定在「确有目标要请求」之后：整集已完成、或条目全被 :func:`build_storyboard_video_specs`
+    过滤时本就不会产生任何请求，此时拒绝等于把一次正常的空转变成报错。
+    参考路线由公共 request projection 给出同一音频能力判定。
+
+    返回冲突说明文本；无冲突返回 ``None``。调用方把它折成逐目标的准入结论，与其它缺口
+    一起在建任务之前一次报全。
+    """
+    try:
+        await assert_audio_switch_supported(project, video_bucket_for_generation_mode(project.get("generation_mode")))
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+def build_storyboard_video_specs(
+    *,
+    items: list[dict[str, Any]],
+    id_field: str,
+    content_mode: str,
+    skeleton_kind: str,
+    script_filename: str,
+    project_dir: Path,
+    skip_ids: list[str] | None,
+    project: dict[str, Any] | None = None,
+    episode: int = 1,
+    resolver: ArtifactCurrencyResolver | None = None,
+    voice_characters: dict[str, Any] | None = None,
+) -> tuple[list[TaskSpec], dict[str, int], list[UnitAdmissionTicket]]:
+    """Build the storyboard-route specs, refusing each unit that cannot be requested.
+
+    A unit whose speech, inputs or prompt are unusable is refused with its own code
+    and next action instead of being dropped into a log line, so one bad unit never
+    silently shrinks the batch — and, because the refusal is a ticket rather than a
+    recorded block, it can hold the whole batch back before any task exists.
+
+    ``skeleton_kind`` 取路线闸门给出的剧本实际骨架种类，而不是按内容模式反推：族内的历史
+    形态（narration 数据落 ``scenes`` 键）按反推值去适配，合法的旧剧本会被整批判成解析失败。
+
+    发声准入在这里执行，与参考路线由 ``reference_unit_task_spec`` 承担的位置对应：
+    构造 TaskSpec 的这一步是「这个 unit 能不能被请求」的唯一口径，四个 storyboard 入口
+    （整集 / 全部 / 点名 / 单条）与只读的工作流计划都经由它，混合发声与 needs_replan 因此
+    在任何入口都会在建任务之前扣住整批，计划预告的准入结论也与真正提交时一致。
+    """
+
+    item_type = "片段" if content_mode == "narration" else "场景"
+    skip_set = set(skip_ids or [])
+
+    specs: list[TaskSpec] = []
+    order_map: dict[str, int] = {}
+    refused: list[UnitAdmissionTicket] = []
+    project = project or {}
+    if resolver is None:
+        resolver = active_artifact_currency_resolver(project_dir, project)
+    for idx, item in enumerate(items):
+        item_id = str(storyboard_item_id(item, id_field))
+        if item_id in skip_set:
+            continue
+
+        try:
+            require_script_unit_admitted(skeleton_kind, item)
+        except SpeechAdmissionError as exc:
+            # 逐 ID 契约与既有 speech_admission 载荷并存：前者说「这个 ID 没做成、
+            # 下一步做什么」，后者带着准入自己的完整定位信息。
+            refused.append(speech_admission_ticket(str(item_id), exc))
+            continue
+
+        try:
+            resolve_usable_storyboard_video_inputs(
+                project_path=project_dir,
+                project=project,
+                episode=episode,
+                resource_id=str(item_id),
+                item=item,
+                resolver=resolver,
+                allow_legacy_same_name=False,
+            )
+        except (OSError, ValueError) as exc:
+            # 分镜图本身不可用是最常见的一种，给出下一步该跑什么，而不是只报路径。
+            advice = "，请先运行 generate_storyboards" if isinstance(exc, StoryboardImageUnavailable) else ""
+            refused.append(
+                refused_ticket(
+                    str(item_id),
+                    code=GenerationProblemCode.UNIT_INPUT_UNUSABLE,
+                    detail=f"{item_type} {item_id} 的视频输入不可用: {exc}{advice}",
+                    action=GenerationAction.GENERATE_DEPENDENCY,
+                )
+            )
+            continue
+
+        try:
+            prompt = storyboard_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
+        except Exception as exc:  # noqa: BLE001
+            refused.append(
+                refused_ticket(
+                    str(item_id),
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail=f"{item_type} {item_id} 的 video_prompt 无效: {exc}",
+                    action=GenerationAction.FIX_INPUT,
+                )
+            )
+            continue
+
+        # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
+        # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
+        # 本应被执行层拒绝的非法值静默修正）。缺省由执行层按 caps 收口默认。
+        extra_payload: dict[str, Any] = {}
+        duration = item.get("duration_seconds")
+        if duration is not None:
+            extra_payload["duration_seconds"] = duration
+
+        # 构造 TaskSpec 本身也是可入队性判定（空提示词等，``TaskSpecValidationError``
+        # 是 ValueError 子类）：不接住就会让一个坏条目把整批打成一句通用报错，
+        # 其余条目的结论无从得知。
+        try:
+            spec = TaskSpec.from_request(
+                task_type="video",
+                media_type="video",
+                resource_id=item_id,
+                prompt=prompt,
+                script_file=script_filename,
+                extra_payload=extra_payload or None,
+            )
+        except ValueError as exc:
+            refused.append(
+                refused_ticket(
+                    str(item_id),
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail=f"{item_type} {item_id} 无法构造入队请求: {exc}",
+                    action=GenerationAction.FIX_INPUT,
+                )
+            )
+            continue
+        specs.append(spec)
+        order_map[item_id] = idx
+    return specs, order_map, refused
+
+
+async def admit_storyboard_video_request(
+    *,
+    project_name: str,
+    project: dict[str, Any],
+    project_path: Path,
+    script: dict[str, Any],
+    script_file: str,
+    items: Sequence[dict[str, Any]],
+    id_field: str,
+    specs: Sequence[TaskSpec],
+    request_options: ReferenceRequestOptions,
+    confirmed_request_durations: Mapping[str, int],
+    operation: str,
+    selection: GenerationSelectionMode,
+    extra_tickets: Sequence[UnitAdmissionTicket],
+) -> BatchAdmission:
+    """Admit one storyboard-route request from the specs it would actually enqueue.
+
+    The visual prompt each spec already carries is what the admission compares
+    against the paid artifact, so the triples are built from the specs rather than
+    from the raw script items — a preview that skipped them would judge reuse on a
+    different basis than the submission it predicts.
+
+    音频开关冲突属于请求自身已知的配置缺口，在这里与投影侧的缺口折进同一批逐目标结论：
+    留到提交前才检查，用户会先被问一遍跨档确认、同意之后才收到一句通用报错。
+    """
+
+    items_by_id = {str(storyboard_item_id(item, id_field) or ""): item for item in items}
+    targets: list[tuple[str, dict[str, Any], object]] = []
+    for spec in specs:
+        item = items_by_id.get(spec.resource_id)
+        if item is None:
+            raise ValueError(f"找不到待生成条目: {spec.resource_id}")
+        targets.append((spec.resource_id, item, (spec.payload or {}).get("prompt")))
+    conflict_detail = await audio_switch_conflict(project) if specs else None
+    admission = await admit_storyboard_video_batch(
+        project_name=project_name,
+        project=project,
+        project_path=project_path,
+        script=script,
+        script_file=script_file,
+        items=targets,
+        request_options=request_options,
+        confirmed_request_durations=confirmed_request_durations,
+        operation=operation,
+        selection=selection,
+        extra_tickets=extra_tickets,
+    )
+    if conflict_detail is None:
+        return admission
+    # 音频开关冲突与投影侧的缺口写进同一批票：短路返回只会报出这一条，用户改完配置
+    # 重试才撞见下一个已知缺口，正是这道门要免掉的逐条试探。
+    conflict = GenerationProblem(
+        code="video_audio_switch_not_supported",
+        detail=conflict_detail,
+        action=GenerationAction.CONFIGURE_PROVIDER,
+        params={},
+    )
+    target_ids = {spec.resource_id for spec in specs}
+    return replace(
+        admission,
+        tickets=tuple(
+            replace(ticket, problems=(*ticket.problems, conflict)) if ticket.unit_id in target_ids else ticket
+            for ticket in admission.tickets
+        ),
+    )
+
+
 __all__ = [
+    "active_task_problem",
+    "admit_storyboard_video_request",
+    "audio_switch_conflict",
+    "build_storyboard_video_specs",
+    "resolve_voice_context",
+    "speech_admission_ticket",
+    "storyboard_video_prompt",
     "admit_reference_video_batch",
     "admit_storyboard_video_batch",
     "reference_unit_task_spec",
     "artifact_state_tickets",
     "request_options_for_unit",
     "resolve_reference_batch_targets",
+    "speech_admission_problems",
     "video_target_states",
 ]
