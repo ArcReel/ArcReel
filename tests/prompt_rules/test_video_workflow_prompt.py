@@ -558,7 +558,7 @@ def test_export_guidance_forbids_muting_rather_than_merely_recommending_against_
             assert "不静音 provider 原音" in text or "不要静音 provider 原音" in text
 
 
-def test_regenerating_narration_audio_names_the_segments() -> None:
+def test_regenerating_narration_audio_names_the_segments(tmp_path: Path) -> None:
     """缺省是「只补缺失」，而 stale 算可复用被跳过——不带 ID 的重合成什么都不做。"""
 
     assert artifact_is_reusable(
@@ -568,6 +568,7 @@ def test_regenerating_narration_audio_names_the_segments() -> None:
             blocker=None,
         ),
         manifest_active=True,
+        project_dir=tmp_path,
     )
 
     for content in (

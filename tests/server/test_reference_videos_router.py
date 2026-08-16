@@ -1707,6 +1707,40 @@ def test_generate_batch_skips_units_that_already_have_a_clip(
 
 
 @pytest.mark.integration
+def test_generate_batch_regenerates_a_unit_whose_recorded_clip_is_gone(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """旧 schema 项目里剧本仍登记着成片路径、文件却已被删：该 unit 判为缺失重新入队。
+
+    这条腿上「另一条可复用的判定」（手动上传/登记路径可用）曾能越过存在性核实，
+    用户删掉文件后整批永远补不回这一个 unit。
+    """
+
+    first = _seed_unit(client)
+    second = _seed_second_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    from lib.project_manager import ProjectManager
+    from server.routers import reference_videos as router_mod
+
+    pm: ProjectManager = router_mod.get_project_manager()
+    script = pm.load_script("demo", "scripts/episode_1.json")
+    for unit in script["video_units"]:
+        if unit["unit_id"] == first:
+            unit["generated_assets"] = {"video_clip": f"reference_videos/{first}.mp4"}
+    pm.save_script("demo", script, "scripts/episode_1.json")
+    # 登记了路径但目录里没有这个文件——正是用户在文件系统里删掉成片后的形态。
+    assert not (pm.get_project_path("demo") / "reference_videos" / f"{first}.mp4").exists()
+
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
+
+    body = resp.json()
+    assert body["decision"] == "admitted"
+    assert sorted(item["unit_id"] for item in body["units"]) == sorted([first, second])
+    assert sorted(call["resource_id"] for call in enqueued) == sorted([first, second])
+
+
+@pytest.mark.integration
 def test_generate_batch_creates_zero_tasks_when_one_artifact_state_is_unreadable(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

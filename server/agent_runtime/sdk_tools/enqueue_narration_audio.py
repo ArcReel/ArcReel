@@ -172,6 +172,7 @@ def generate_narration_audio_tool(ctx: ToolContext):
                 candidates=candidates,
                 requested_ids=segment_ids,
                 resolver=resolver,
+                project_dir=ctx.project_path,
             )
             builder = GenerationResultBuilder.from_selection(_OPERATION, selection)
 

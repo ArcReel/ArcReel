@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -33,6 +35,7 @@ from lib.generation_result import (
     problem_from_task_failure,
     provider_checkpoint_from_task,
     record_batch_outcomes,
+    recorded_artifact_is_present,
     render_generation_result,
     select_generation_targets,
 )
@@ -66,7 +69,7 @@ def _candidate(unit_id: str, *, path: str | None = "videos/x.mp4") -> Generation
 # --- selection -------------------------------------------------------------
 
 
-def test_missing_only_selects_missing_and_reuses_stale() -> None:
+def test_missing_only_selects_missing_and_reuses_stale(tmp_path: Path) -> None:
     """stale 可用即复用：只有 missing 进 targets，stale 与 current 都进 skipped。"""
 
     resolver = _Resolver(
@@ -81,6 +84,7 @@ def test_missing_only_selects_missing_and_reuses_stale() -> None:
         candidates=[_candidate("A"), _candidate("B"), _candidate("C")],
         requested_ids=None,
         resolver=resolver,  # type: ignore[arg-type]
+        project_dir=tmp_path,
     )
 
     assert selection.mode is GenerationSelectionMode.MISSING_ONLY
@@ -89,7 +93,7 @@ def test_missing_only_selects_missing_and_reuses_stale() -> None:
     assert selection.unavailable == ()
 
 
-def test_missing_only_never_regenerates_a_blocked_artifact() -> None:
+def test_missing_only_never_regenerates_a_blocked_artifact(tmp_path: Path) -> None:
     """产物状态读不出来时报为独立缺口，绝不当作 missing 去重付一次费。"""
 
     resolver = _Resolver({"A": ArtifactStatus.MISSING}, raises={"B"})
@@ -98,6 +102,7 @@ def test_missing_only_never_regenerates_a_blocked_artifact() -> None:
         candidates=[_candidate("A"), _candidate("B")],
         requested_ids=None,
         resolver=resolver,  # type: ignore[arg-type]
+        project_dir=tmp_path,
     )
 
     assert selection.target_ids == ("A",)
@@ -111,7 +116,7 @@ def test_missing_only_never_regenerates_a_blocked_artifact() -> None:
     assert problem.action is GenerationAction.REPAIR_ARTIFACT_STATE
 
 
-def test_explicit_selection_takes_named_ids_regardless_of_state() -> None:
+def test_explicit_selection_takes_named_ids_regardless_of_state(tmp_path: Path) -> None:
     """点名即强制：current 的 ID 照样进 targets，未命中的 ID 单列为 unmatched。"""
 
     resolver = _Resolver({"A": ArtifactStatus.CURRENT, "B": ArtifactStatus.MISSING})
@@ -120,6 +125,7 @@ def test_explicit_selection_takes_named_ids_regardless_of_state() -> None:
         candidates=[_candidate("A"), _candidate("B")],
         requested_ids=["A", "ZZ"],
         resolver=resolver,  # type: ignore[arg-type]
+        project_dir=tmp_path,
     )
 
     assert selection.mode is GenerationSelectionMode.EXPLICIT
@@ -128,11 +134,11 @@ def test_explicit_selection_takes_named_ids_regardless_of_state() -> None:
     assert selection.skipped == ()
 
 
-def test_explicit_empty_collection_is_invalid_not_everything() -> None:
+def test_explicit_empty_collection_is_invalid_not_everything(tmp_path: Path) -> None:
     """显式空集合是调用方错误：既不等于「全部」，也不静默变成空批次。"""
 
     with pytest.raises(ValueError, match="不能为空"):
-        select_generation_targets(candidates=[_candidate("A")], requested_ids=[], resolver=None)
+        select_generation_targets(candidates=[_candidate("A")], requested_ids=[], resolver=None, project_dir=tmp_path)
 
 
 def test_normalize_requested_ids_is_the_single_gate_for_selection_intent() -> None:
@@ -144,17 +150,87 @@ def test_normalize_requested_ids_is_the_single_gate_for_selection_intent() -> No
         normalize_requested_ids("A", field="names")
 
 
-def test_missing_only_without_manifest_falls_back_to_path_presence() -> None:
-    """Manifest 未激活时产物状态不可观测，只能按「剧本里有没有登记路径」判缺。"""
+def test_missing_only_without_manifest_reselects_a_recorded_path_whose_file_is_gone(tmp_path: Path) -> None:
+    """旧 schema 项目里登记路径指向的文件被删/被移后，该单元判为缺失而不是被永久复用。"""
+
+    (tmp_path / "videos").mkdir()
+    (tmp_path / "videos" / "kept.mp4").write_bytes(b"x")
 
     selection = select_generation_targets(
-        candidates=[_candidate("A", path=None), _candidate("B")],
+        candidates=[
+            _candidate("GONE", path="videos/gone.mp4"),
+            _candidate("KEPT", path="videos/kept.mp4"),
+        ],
         requested_ids=None,
         resolver=None,
+        project_dir=tmp_path,
+    )
+
+    assert selection.target_ids == ("GONE",)
+    assert [state.unit_id for state in selection.skipped] == ["KEPT"]
+    # Manifest 未激活时产物状态不可观测：复用与否只由登记路径与磁盘共同决定。
+    assert [state.status for state in selection.skipped] == [None]
+
+
+def test_missing_only_without_manifest_ignores_an_override_when_the_file_is_gone(tmp_path: Path) -> None:
+    """另一条可复用的腿（如手动上传匹配）也救不回磁盘上已经不存在的产物。"""
+
+    selection = select_generation_targets(
+        candidates=[_candidate("A", path="videos/gone.mp4")],
+        requested_ids=None,
+        resolver=None,
+        project_dir=tmp_path,
+        reusable_override=lambda _candidate: True,
     )
 
     assert selection.target_ids == ("A",)
-    assert [state.status for state in selection.skipped] == [None]
+    assert selection.skipped == ()
+
+
+def test_missing_only_with_active_manifest_does_not_recheck_the_filesystem(tmp_path: Path) -> None:
+    """Manifest 激活的项目照旧只信比对结论：磁盘上没有同名文件也不改变判定。"""
+
+    resolver = _Resolver({"A": ArtifactStatus.CURRENT, "B": ArtifactStatus.MISSING})
+
+    selection = select_generation_targets(
+        candidates=[_candidate("A"), _candidate("B")],
+        requested_ids=None,
+        resolver=resolver,  # type: ignore[arg-type]
+        project_dir=tmp_path,
+    )
+
+    assert selection.target_ids == ("B",)
+    assert [state.unit_id for state in selection.skipped] == ["A"]
+
+
+def test_recorded_artifact_is_present_reports_only_the_legacy_branch(tmp_path: Path) -> None:
+    (tmp_path / "videos").mkdir()
+    (tmp_path / "videos" / "x.mp4").write_bytes(b"x")
+    present = GenerationTargetState(candidate=_candidate("A"))
+    absent = GenerationTargetState(candidate=_candidate("A", path="videos/gone.mp4"))
+    unrecorded = GenerationTargetState(candidate=_candidate("A", path=None))
+
+    assert recorded_artifact_is_present(present, manifest_active=False, project_dir=tmp_path) is True
+    assert recorded_artifact_is_present(absent, manifest_active=False, project_dir=tmp_path) is False
+    assert recorded_artifact_is_present(unrecorded, manifest_active=False, project_dir=tmp_path) is False
+    # 激活 Manifest 时这条不参与判定：比对结论已经拒绝了不存在的文件。
+    assert recorded_artifact_is_present(absent, manifest_active=True, project_dir=tmp_path) is True
+
+
+def test_recorded_artifact_is_present_rejects_paths_the_manifest_would_refuse(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    (project_dir / "videos").mkdir(parents=True)
+    (project_dir / "videos" / "x.mp4").write_bytes(b"x")
+    outside = tmp_path / "outside.mp4"
+    outside.write_bytes(b"x")
+
+    escaping = GenerationTargetState(candidate=_candidate("A", path="../outside.mp4"))
+    absolute = GenerationTargetState(candidate=_candidate("A", path=str(outside)))
+    directory = GenerationTargetState(candidate=_candidate("A", path="videos"))
+
+    assert recorded_artifact_is_present(escaping, manifest_active=False, project_dir=project_dir) is False
+    assert recorded_artifact_is_present(absolute, manifest_active=False, project_dir=project_dir) is False
+    assert recorded_artifact_is_present(directory, manifest_active=False, project_dir=project_dir) is False
 
 
 def test_observe_artifact_status_separates_unobservable_from_missing() -> None:
@@ -181,9 +257,9 @@ def test_observe_artifact_status_separates_unobservable_from_missing() -> None:
         (ArtifactStatus.BLOCKED, False),
     ],
 )
-def test_artifact_is_reusable_treats_stale_as_usable(status: ArtifactStatus, expected: bool) -> None:
+def test_artifact_is_reusable_treats_stale_as_usable(status: ArtifactStatus, expected: bool, tmp_path: Path) -> None:
     state = GenerationTargetState(candidate=_candidate("A"), status=status)
-    assert artifact_is_reusable(state, manifest_active=True) is expected
+    assert artifact_is_reusable(state, manifest_active=True, project_dir=tmp_path) is expected
 
 
 # --- result identity -------------------------------------------------------

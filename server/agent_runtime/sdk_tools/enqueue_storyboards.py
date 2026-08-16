@@ -165,6 +165,7 @@ def generate_storyboards_tool(ctx: ToolContext):
                 ],
                 requested_ids=segment_ids,
                 resolver=resolver,
+                project_dir=project_dir,
             )
             builder = GenerationResultBuilder.from_selection(_OPERATION, selection)
 

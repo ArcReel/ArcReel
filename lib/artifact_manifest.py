@@ -284,7 +284,7 @@ class ArtifactManifest:
             raise TypeError("basis must be an ArtifactBasisDescriptor")
         previous = self._adapter.get_entry(key)
         expected = ArtifactManifestEntry(
-            artifact_path=_normalize_relative_path(artifact_path),
+            artifact_path=normalize_artifact_path(artifact_path),
             basis_digest=basis.digest,
         )
         try:
@@ -389,7 +389,7 @@ class ArtifactManifest:
         """
 
         rewrites = {
-            _normalize_relative_path(source): _normalize_relative_path(target)
+            normalize_artifact_path(source): normalize_artifact_path(target)
             for source, target in (artifact_path_rewrites or {}).items()
         }
         source_entry = self._adapter.get_entry(source_key)
@@ -479,7 +479,7 @@ class ArtifactManifest:
             None
             if expected is None
             else ArtifactManifestEntry(
-                artifact_path=_normalize_relative_path(expected.artifact_path),
+                artifact_path=normalize_artifact_path(expected.artifact_path),
                 basis_digest=expected.basis_digest,
             )
         )
@@ -493,12 +493,12 @@ class InMemoryArtifactManifestAdapter:
     def __init__(self, *, artifacts: set[str] | None = None) -> None:
         self._lock = threading.RLock()
         self._entries: dict[str, ArtifactManifestEntry] = {}
-        self._artifacts = {_normalize_relative_path(path) for path in artifacts or set()}
+        self._artifacts = {normalize_artifact_path(path) for path in artifacts or set()}
         self._blockers: dict[str, ArtifactBlocker] = {}
 
     def inspect_artifact(self, artifact_path: str) -> ArtifactObservation:
         try:
-            normalized = _normalize_relative_path(artifact_path)
+            normalized = normalize_artifact_path(artifact_path)
         except ValueError as exc:
             blocker = ArtifactBlocker(code="artifact_path_invalid", path=str(artifact_path), detail=str(exc))
             return ArtifactObservation(artifact_path=str(artifact_path), present=False, blocker=blocker)
@@ -583,13 +583,13 @@ class InMemoryArtifactManifestAdapter:
             return True
 
     def remove_artifact(self, artifact_path: str) -> None:
-        normalized = _normalize_relative_path(artifact_path)
+        normalized = normalize_artifact_path(artifact_path)
         with self._lock:
             self._artifacts.discard(normalized)
             self._blockers.pop(normalized, None)
 
     def block_artifact(self, artifact_path: str, *, code: str, detail: str) -> None:
-        normalized = _normalize_relative_path(artifact_path)
+        normalized = normalize_artifact_path(artifact_path)
         with self._lock:
             self._artifacts.discard(normalized)
             self._blockers[normalized] = ArtifactBlocker(code=code, path=normalized, detail=detail)
@@ -665,7 +665,7 @@ class ProjectArtifactManifestAdapter:
         include_content_bytes: bool = False,
     ) -> ArtifactObservation:
         try:
-            normalized = _normalize_relative_path(artifact_path)
+            normalized = normalize_artifact_path(artifact_path)
         except ValueError as exc:
             blocker = ArtifactBlocker(code="artifact_path_invalid", path=str(artifact_path), detail=str(exc))
             return ArtifactObservation(artifact_path=str(artifact_path), present=False, blocker=blocker)
@@ -1827,7 +1827,15 @@ def _normalize_json(value: object) -> object:
     raise ValueError(f"artifact basis contains a non-JSON value: {type(value).__name__}")
 
 
-def _normalize_relative_path(value: object) -> str:
+def normalize_artifact_path(value: object) -> str:
+    """Return the canonical project-relative POSIX form of a recorded artifact path.
+
+    This is the single rule for what a registered artifact path may look like:
+    project-relative, POSIX-separated, free of traversal, drive letters and
+    runtime-owned names. Anything else raises ``ValueError`` — callers that
+    only need a verdict catch it rather than re-deriving the rule.
+    """
+
     if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
         raise ValueError(f"artifact path must be a non-empty project-relative POSIX path: {value!r}")
     try:
@@ -1866,7 +1874,7 @@ def _encode_target_entries(
             raise TypeError("manifest target keys must be ArtifactKey values")
         if not isinstance(entry, ArtifactManifestEntry):
             raise TypeError("manifest target entries must be ArtifactManifestEntry values")
-        normalized_path = _normalize_relative_path(entry.artifact_path)
+        normalized_path = normalize_artifact_path(entry.artifact_path)
         if normalized_path != entry.artifact_path:
             raise ValueError("manifest target artifact path must be canonical")
         if _DIGEST_RE.fullmatch(entry.basis_digest) is None:
@@ -2009,7 +2017,7 @@ def decode_artifact_manifest_payload(payload: object) -> ArtifactManifestArchive
         basis_digest = raw_entry["basis_digest"]
         content_digest = raw_entry["content_digest"]
         try:
-            normalized_path = _normalize_relative_path(artifact_path)
+            normalized_path = normalize_artifact_path(artifact_path)
         except (TypeError, ValueError) as exc:
             raise ArtifactManifestError(f"archive artifact manifest entry has an invalid path: {encoded_key}") from exc
         if normalized_path != artifact_path:
@@ -2055,7 +2063,7 @@ def _parse_manifest(raw: bytes, *, validate_path_ownership: bool = True) -> dict
         artifact_path = raw_entry["artifact_path"]
         basis_digest = raw_entry["basis_digest"]
         try:
-            normalized_path = _normalize_relative_path(artifact_path)
+            normalized_path = normalize_artifact_path(artifact_path)
         except (TypeError, ValueError) as exc:
             raise ArtifactManifestError(f"artifact manifest entry has an invalid path: {encoded_key}") from exc
         if normalized_path != artifact_path:
