@@ -8,10 +8,11 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from lib.project_manager import ProjectManager
-from lib.workflow_state import WorkflowStateService
+from lib.workflow_state import WorkflowRequestError, WorkflowStateService
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.workflow_status import complete_step1_rebuild_tool, get_workflow_status_tool
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import projects
 
 
@@ -141,3 +142,45 @@ async def test_workflow_status_adapters_treat_corrupt_project_as_server_failure(
         response = client.get("/api/v1/projects/demo/workflow-status")
 
     assert response.status_code == 500
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("error", "expected_status", "expects_request_blame"),
+    [
+        (WorkflowRequestError("ad workflow only has episode 1"), 400, True),
+        (ValueError("scenes must be an array of objects"), 500, False),
+    ],
+)
+async def test_workflow_status_adapters_blame_the_request_only_for_request_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    expected_status: int,
+    expects_request_blame: bool,
+) -> None:
+    pm = _project(tmp_path)
+    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+
+    def _raise(*args: object, **kwargs: object) -> None:
+        raise error
+
+    monkeypatch.setattr(WorkflowStateService, "get_status", _raise)
+
+    result = await get_workflow_status_tool(ctx).handler({"episode": 2})
+
+    assert result["is_error"] is True
+    if expects_request_blame:
+        assert json.loads(result["content"][0]["text"])["error"] == "invalid_episode"
+    else:
+        assert result["content"][0]["text"].startswith("get_workflow_status 失败:")
+
+    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    app = FastAPI()
+    register_error_handlers(app)
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
+    app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/api/v1/projects/demo/workflow-status", params={"episode": 2})
+
+    assert response.status_code == expected_status

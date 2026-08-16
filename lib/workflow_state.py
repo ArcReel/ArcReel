@@ -52,6 +52,15 @@ WorkflowStateName = Literal[
 ]
 
 
+class WorkflowRequestError(ValueError):
+    """调用方给出的查询参数本身不合法。
+
+    与之相对的是持久化数据损坏（剧本骨架、content_mode / generation_mode 组合等）：
+    那类问题同样以 ``ValueError`` 家族抛出，但责任在服务端数据而非本次请求，消费方
+    据此区分「回 400 / invalid_request」与「按服务端故障上报」，不把排障方向指向调用方。
+    """
+
+
 class WorkflowProject(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -749,9 +758,9 @@ class WorkflowStateService:
     ) -> WorkflowStatus:
         mode = project.get("content_mode")
         if episode is not None and (isinstance(episode, bool) or episode < 1):
-            raise ValueError("episode must be a positive integer")
+            raise WorkflowRequestError("episode must be a positive integer")
         if mode == "ad" and episode not in {None, 1}:
-            raise ValueError("ad workflow only has episode 1")
+            raise WorkflowRequestError("ad workflow only has episode 1")
         generation_mode = project.get("generation_mode")
         grid = project.get("grid_storyboard") is True and generation_mode == "storyboard"
         blockers = list(shared.blockers)
@@ -1154,6 +1163,7 @@ __all__ = [
     "WorkflowBlocker",
     "WorkflowNextAction",
     "WorkflowProject",
+    "WorkflowRequestError",
     "WorkflowStateService",
     "WorkflowStatus",
     "WorkflowTarget",

@@ -10,10 +10,17 @@ from fastapi.testclient import TestClient
 from lib.narration_delivery import POST_PRODUCTION
 from lib.project_manager import ProjectManager
 from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
-from lib.workflow_state import WorkflowNextAction, WorkflowProject, WorkflowStatus, WorkflowTarget
+from lib.workflow_state import (
+    WorkflowNextAction,
+    WorkflowProject,
+    WorkflowRequestError,
+    WorkflowStatus,
+    WorkflowTarget,
+)
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.workflow_plan import get_workflow_plan_tool
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import projects
 from server.services import workflow_planner
 
@@ -115,3 +122,58 @@ async def test_workflow_plan_mcp_rejects_invalid_transient_choice_before_service
     assert result["is_error"] is True
     assert json.loads(result["content"][0]["text"])["error"] == "invalid_request"
     assert calls == []
+
+
+class _FailingPlanner:
+    def __init__(self, error: Exception):
+        self._error = error
+
+    async def get_plan(self, project_name: str, request: WorkflowPlanRequest):
+        raise self._error
+
+
+def _adapter_app(pm: ProjectManager, monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    app = FastAPI()
+    register_error_handlers(app)
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
+    app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+    return app
+
+
+async def test_workflow_plan_adapters_blame_the_request_only_for_request_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pm = _project(tmp_path)
+    planner = _FailingPlanner(WorkflowRequestError("ad workflow only has episode 1"))
+    monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
+
+    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    mcp_result = await get_workflow_plan_tool(ctx).handler({"episode": 2})
+
+    assert mcp_result["is_error"] is True
+    assert json.loads(mcp_result["content"][0]["text"])["error"] == "invalid_request"
+
+    with TestClient(_adapter_app(pm, monkeypatch), raise_server_exceptions=False) as client:
+        response = client.post("/api/v1/projects/demo/workflow-plan", json={"episode": 2})
+
+    assert response.status_code == 400
+
+
+async def test_workflow_plan_adapters_report_corrupt_script_as_server_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pm = _project(tmp_path)
+    planner = _FailingPlanner(ValueError("segments must be an array of objects"))
+    monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
+
+    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    mcp_result = await get_workflow_plan_tool(ctx).handler({"episode": 1})
+
+    assert mcp_result["is_error"] is True
+    assert mcp_result["content"][0]["text"].startswith("get_workflow_plan 失败:")
+
+    with TestClient(_adapter_app(pm, monkeypatch), raise_server_exceptions=False) as client:
+        response = client.post("/api/v1/projects/demo/workflow-plan", json={"episode": 1})
+
+    assert response.status_code == 500

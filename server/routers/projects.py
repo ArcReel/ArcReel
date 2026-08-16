@@ -45,7 +45,7 @@ from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RAT
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
-from lib.workflow_state import WorkflowStateService, WorkflowStatus
+from lib.workflow_state import WorkflowRequestError, WorkflowStateService, WorkflowStatus
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import (
@@ -695,9 +695,7 @@ async def get_workflow_status(
         return await asyncio.to_thread(WorkflowStateService(get_project_manager()).get_status, name, episode)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    except json.JSONDecodeError:
-        raise
-    except ValueError as exc:
+    except WorkflowRequestError as exc:
         raise BadRequestError("request_invalid") from exc
 
 
@@ -709,9 +707,7 @@ async def get_workflow_plan(name: str, request: WorkflowPlanRequest):
         return await workflow_plan_service.get_workflow_planner(get_project_manager()).get_plan(name, request)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    except json.JSONDecodeError:
-        raise
-    except ValueError as exc:
+    except WorkflowRequestError as exc:
         raise BadRequestError("request_invalid") from exc
 
 

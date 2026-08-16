@@ -9,7 +9,7 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.script_review import Step1RebuildCompletionError, complete_stale_step1_rebuild
-from lib.workflow_state import WorkflowStateService
+from lib.workflow_state import WorkflowRequestError, WorkflowStateService
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 
 
@@ -45,9 +45,7 @@ def get_workflow_status_tool(ctx: ToolContext):
         try:
             status = await asyncio.to_thread(WorkflowStateService(ctx.pm).get_status, ctx.project_name, raw_episode)
             return {"content": [{"type": "text", "text": status.model_dump_json()}]}
-        except json.JSONDecodeError as exc:
-            return tool_error("get_workflow_status", exc)
-        except ValueError as exc:
+        except WorkflowRequestError as exc:
             return _error("invalid_episode", str(exc))
         except Exception as exc:  # noqa: BLE001
             return tool_error("get_workflow_status", exc)

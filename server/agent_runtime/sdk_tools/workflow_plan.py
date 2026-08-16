@@ -8,6 +8,7 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.workflow_plan import WorkflowPlanRequest
+from lib.workflow_state import WorkflowRequestError
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 from server.services import workflow_planner
 
@@ -47,9 +48,7 @@ def get_workflow_plan_tool(ctx: ToolContext):
         try:
             plan = await workflow_planner.get_workflow_planner(ctx.pm).get_plan(ctx.project_name, request)
             return {"content": [{"type": "text", "text": plan.model_dump_json()}]}
-        except json.JSONDecodeError as exc:
-            return tool_error("get_workflow_plan", exc)
-        except ValueError as exc:
+        except WorkflowRequestError as exc:
             return _error("invalid_request", str(exc))
         except Exception as exc:  # noqa: BLE001
             return tool_error("get_workflow_plan", exc)
