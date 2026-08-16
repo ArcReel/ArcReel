@@ -21,10 +21,12 @@ from lib.generation_result import (
     _TASK_FAILURE_ACTIONS,
     GenerationAction,
     GenerationItemState,
+    GenerationProblem,
     GenerationProblemCode,
 )
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS, NarrationTtsStatus
 from lib.profile_manifest import VALID_CONTENT_MODES, resolve_profile_files_for_mode
+from lib.workflow_plan import _structure_action
 from lib.workflow_rules import WORKFLOW_RULES
 from lib.workflow_state import WorkflowTarget
 from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
@@ -495,3 +497,32 @@ def test_orchestration_spec_and_evals_describe_plan_driven_routing() -> None:
     }
     assert {"reads_project_json", "uses_glob_check", "identifies_correct_stage"}.isdisjoint(names)
     assert "queries_workflow_plan" in names
+
+
+def test_repair_section_takes_the_revision_from_whichever_action_supplies_it() -> None:
+    """`expected_revision` 只随 `patch_episode_script` 注入；两个动作共用一节，来源必须分开写。"""
+
+    problem = GenerationProblem(
+        code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+        detail="unit 规划不合法",
+        action=GenerationAction.FIX_INPUT,
+    )
+    injected = _structure_action([problem], script_revision="r1")
+    assert injected.type == "patch_episode_script"
+    assert "expected_revision" in injected.args
+
+    for filename in EPISODIC_VARIANTS:
+        section = _skill(filename).split("## `repair_video_units`", 1)[1].split("\n---", 1)[0]
+        assert "revision 按动作取" in section
+        assert "不必再查" in section
+        assert "mcp__arcreel__get_episode_script_revision" in section
+
+
+def test_export_guidance_forbids_muting_rather_than_merely_recommending_against_it() -> None:
+    texts = [_skill(name) for name in WORKFLOW_VARIANTS]
+    texts += [(PROFILE / f"CLAUDE.{mode}.md").read_text(encoding="utf-8") for mode in VALID_CONTENT_MODES]
+
+    for text in texts:
+        if "静音" in text:
+            assert "不要建议静音" not in text
+            assert "不静音 provider 原音" in text or "不要静音 provider 原音" in text

@@ -280,11 +280,12 @@ stale 产物照常可预览、可导出、可参与成片，是否重做由用�
 
 **触发**：`next_action.type` 为 `"repair_video_units"` 或 `"patch_episode_script"`。
 
-Read `target.script`，**只处理 `requested_ids` 对应的条目**。先调
-`mcp__arcreel__get_episode_script_revision({"script": target.script_filename})` 取 revision
-（`patch_episode_script` 动作的 `next_action.args` 已直接给出 `expected_revision` 与逐条 `problems`，
-用它即可），再用**一次** `mcp__arcreel__patch_episode_script({"script": target.script_filename,
-"expected_revision": revision, "operations": [...]})` 把全部条目改完——每条一个有序 `update`。
+Read `target.script`，**只处理 `requested_ids` 对应的条目**。revision 按动作取：
+`patch_episode_script` 的 `next_action.args` 已直接给出 `expected_revision` 与逐条 `problems`，
+直接用，不必再查；`repair_video_units` 的 args 里没有，先调
+`mcp__arcreel__get_episode_script_revision({"script": target.script_filename})` 取。
+再用**一次** `mcp__arcreel__patch_episode_script({"script": target.script_filename,
+"expected_revision": <上面取到的 revision>, "operations": [...]})` 把全部条目改完——每条一个有序 `update`。
 `needs_replan` 之类的标记由工具重算，不要手写。工具报 revision 冲突时刷新计划重来，不得用旧
 revision 重试。改完后按上面的请求选择语义点名重做这些 ID，再刷新计划。
 
