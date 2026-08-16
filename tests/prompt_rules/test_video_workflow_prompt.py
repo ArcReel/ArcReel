@@ -103,9 +103,17 @@ def test_variants_do_not_hardcode_a_route_or_content_mode_step_table(filename: s
             assert rule.preprocessor not in content, (
                 f"{filename} 硬编码了预处理 subagent {rule.preprocessor}；应改读 next_action.args.preprocessor"
             )
-    assert "generation_mode == reference_video" not in content
-    assert "content_mode == drama" not in content
-    assert "content_mode == narration" not in content
+    # 禁的是「按模式挑步骤」，不是提到模式：AC2 要求变体写明参考路线只跳过分镜图，那句同样带
+    # `generation_mode == "reference_video"`。因此只在同一行还出现路由标记时判违约，并放宽引号与空格。
+    comparison = re.compile(
+        r"(?:generation_mode|content_mode)\s*==\s*[\"']?(?:reference_video|storyboard|drama|narration|ad)\b"
+    )
+    routing = ("→", "dispatch", "步骤", "mcp__arcreel__generate")
+    for line in content.splitlines():
+        if comparison.search(line):
+            assert not any(marker in line for marker in routing), (
+                f"{filename} 按内容模式/生成路线自己挑步骤：{line.strip()}"
+            )
 
 
 def test_plan_reference_covers_every_controlled_action() -> None:

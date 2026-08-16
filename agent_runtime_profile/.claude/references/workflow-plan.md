@@ -9,7 +9,7 @@ drama / ad × storyboard / reference_video）之间哪些步骤适用、顺序�
 
 ## 查询
 
-```json
+```text
 mcp__arcreel__get_workflow_plan({
   "episode": N,                                  // 可选：用户指定集数时传
   "narration_delivery": "post_production" | "use_tts",  // 可选：本次旁白交付选择

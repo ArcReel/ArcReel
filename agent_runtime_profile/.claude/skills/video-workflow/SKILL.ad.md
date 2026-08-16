@@ -57,7 +57,7 @@ Read 只补充创作输入与产品 soft gate 信息。每次动作完成后刷�
      才入队，`blocked` / `confirmation_required` 时**一个任务都不入队**，逐 unit 报告 `unit_id`、
      `problems[].code`、原因与 `problems[].action`（被 `blocked_unit_ids` 连累的 unit 带
      `generation_batch_admission_withheld`，如实说明不是它自身有问题）；修掉被拒 unit 后整批重来，
-     不拆批先跑通过的那一半。入队时 `requested_ids` 非空时调
+     不拆批先跑通过的那一半。入队时若 `requested_ids` 非空则调
      `mcp__arcreel__generate_video_selected({"script": target.script_filename, "scene_ids": requested_ids})`；
      `requested_ids` 为空时才调 `mcp__arcreel__generate_video_episode({"script": target.script_filename})`。
      返回后按逐 ID 分账陈述结果（`succeeded` / `failed` / `blocked` / `skipped`），并把 workflow 步骤
