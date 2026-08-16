@@ -66,10 +66,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
     let curEpisode = episode;
     let curResolvers = resolvers;
     let again = true;
+    // 绑定本轮迭代实际使用的取消域：`resetTarget` 轮换取消域时已经显式复位过
+    // `running` 一次，若此实例结束时不核对自己仍持有当前取消域就无条件清标志，
+    // 会把接管者（新目标下正在跑的实例）的在途标志顶掉，引发同目标并发请求、
+    // 写回顺序倒挂。合并循环每轮重新绑定，让接手了排队目标的实例在自然完结时
+    // 仍能正确清掉它实际持有的（可能是轮换后的）取消域。
+    let ownScope = scope;
     while (again) {
       again = false;
+      ownScope = scope;
       let result: RefreshPlanResult;
-      const signal = scope.signal;
+      const signal = ownScope.signal;
       const key = planKey(curProject, curEpisode);
       try {
         const plan = await API.getWorkflowPlan(
@@ -107,7 +114,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
         queuedResolvers = [];
       }
     }
-    running = false;
+    // 只有仍持有最后一轮取消域的实例才清 running；被 `resetTarget` 作废的旧实例
+    // 在这里读到的 `scope` 已经是新取消域，跳过——它不是新实例的接管者。
+    if (scope === ownScope) running = false;
   };
 
   return {

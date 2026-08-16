@@ -20,6 +20,7 @@ vi.mock("@/components/workflow/WorkflowPanel", () => ({
   }) => (
     <div data-testid="workflow-panel" data-can-regenerate={onRegenerate ? "yes" : "no"}>
       <button onClick={() => onRegenerate?.("storyboard", ["SEG-1"])}>workflow-regenerate</button>
+      <button onClick={() => onRegenerate?.("video", ["SEG-1"])}>workflow-regenerate-video</button>
     </div>
   ),
 }));
@@ -1403,6 +1404,59 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
+  it("routes the panel's video regenerate to the duration-confirmation flow instead of a dead-end raw toast", async () => {
+    // 视频重生撞上时长档位需要确认时，enqueueVideo 内部对 NarratedVideoDurationError
+    // 选择 rethrow（而不是像其它入队回调那样自己吞掉转成 toast）。面板没有自己的确认
+    // 弹窗——把用户带到承接这套确认流程的单元卡上，并给一句翻译过的提示，而不是把
+    // 供应商侧的裸 message 直接扔出来。
+    const projectData = makeProjectData();
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: projectData,
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: projectData,
+      scripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "generateVideo").mockRejectedValue(
+      new NarratedVideoDurationError({
+        allowed: false,
+        kind: "narrated_video_duration",
+        unit_id: "SEG-1",
+        narration_delivery: {},
+        planned_duration: 4,
+        duration_input: 6.2,
+        request_duration: 8,
+        adjustment: "up",
+        problems: [
+          {
+            code: "reference_duration_confirmation_required",
+            blocking: true,
+            unit_id: "SEG-1",
+            locations: [{ path: ["duration_seconds"], line: null }],
+            params: { duration_input: 6.2, request_duration: 8 },
+            reason: "request_duration_uses_different_tier",
+            action: "confirm_duration",
+            message: "本次时长基准 6.2s 将按 8s 档位生成，请确认后重试",
+          },
+        ],
+      }),
+    );
+
+    renderAt("/episodes/1");
+
+    fireEvent.click(screen.getByText("workflow-regenerate-video"));
+    await waitFor(() => {
+      expect(useAppStore.getState().toast?.tone).toBe("error");
+      // 供应商侧的裸 message（"本次时长基准..."）不得直接出现在 toast 上——
+      // 必须走翻译过的引导文案，不是 errMsg(err) 原样转发。
+      expect(useAppStore.getState().toast?.text).not.toContain("本次时长基准");
+    });
+    expect(useAppStore.getState().scrollTarget?.id).toBe("SEG-1");
+    expect(useAppStore.getState().scrollTarget?.type).toBe("segment");
+  });
+
   it("withholds the panel's regenerate entry on the reference route instead of wiring a dead button", async () => {
     // 参考路线的剧本是 video_units，本组件的逐单元入队回调解不出提示词。给出回调
     // 只会长出一个按下去毫无反应的按钮，该路线的重生入口在单元卡上。
@@ -1419,7 +1473,7 @@ describe("StudioCanvasRouter", () => {
 
     renderAt("/episodes/1");
 
-    expect(screen.getByTestId("workflow-panel")).toHaveAttribute("data-can-regenerate", "no");
+    expect(await screen.findByTestId("workflow-panel")).toHaveAttribute("data-can-regenerate", "no");
   });
 
   it("uses the unified unit canvas even when project and script content modes temporarily differ", () => {

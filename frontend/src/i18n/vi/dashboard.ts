@@ -531,6 +531,7 @@ export default {
   'generate_storyboard_failed': 'Tạo phân cảnh thất bại: {{message}}',
   'video_task_submitted_toast': 'Đã gửi tác vụ tạo video cho "{{id}}"',
   'generate_video_failed': 'Tạo video thất bại: {{message}}',
+  'workflow_regenerate_needs_confirmation': 'Thời lượng yêu cầu lần này cần xác nhận mức trước — đã chuyển bạn đến cảnh quay tương ứng',
   'narration_task_submitted_toast': 'Đã gửi tác vụ tạo thuyết minh cho "{{id}}"',
   'script_generation_notice_toast': 'Đang tạo kịch bản — bước này mất khá lâu, vui lòng đợi…',
   'narration_batch_submitted_toast': 'Đã gửi {{count}} tác vụ tạo thuyết minh',

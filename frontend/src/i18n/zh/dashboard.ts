@@ -538,6 +538,7 @@ export default {
   'generate_storyboard_failed': '生成分镜失败: {{message}}',
   'video_task_submitted_toast': '已提交视频 "{{id}}" 生成任务',
   'generate_video_failed': '生成视频失败: {{message}}',
+  'workflow_regenerate_needs_confirmation': '本次申请时长需要先确认档位，已为你定位到对应分镜',
   'narration_task_submitted_toast': '已提交旁白 "{{id}}" 生成任务',
   'script_generation_notice_toast': '正在生成剧本，这一步耗时较长，请耐心等待…',
   'narration_batch_submitted_toast': '已提交 {{count}} 个旁白生成任务',

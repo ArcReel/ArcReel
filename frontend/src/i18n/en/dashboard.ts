@@ -539,6 +539,7 @@ export default {
   'generate_storyboard_failed': 'Failed to generate storyboard: {{message}}',
   'video_task_submitted_toast': 'Video generation task for "{{id}}" submitted',
   'generate_video_failed': 'Failed to generate video: {{message}}',
+  'workflow_regenerate_needs_confirmation': 'This request duration needs a tier confirmation — jumped to the shot for you',
   'narration_task_submitted_toast': 'Narration audio task for "{{id}}" submitted',
   'script_generation_notice_toast': 'Generating the script — this step takes a while, please wait…',
   'narration_batch_submitted_toast': 'Submitted {{count}} narration audio tasks',
