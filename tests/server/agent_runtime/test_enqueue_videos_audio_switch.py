@@ -102,8 +102,8 @@ class TestStoryboardRouteGate:
             seen.append(capability)
             raise ValueError("成片恒有声")
 
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _reject)
-        conflict = await mod._audio_switch_conflict(_ctx(tmp_path, {"generation_mode": "storyboard"}))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _reject)
+        conflict = await admission_mod.audio_switch_conflict({"generation_mode": "storyboard"})
         assert conflict == "成片恒有声"
         assert seen == ["i2v"]
 
@@ -111,9 +111,9 @@ class TestStoryboardRouteGate:
         async def _not_silent(_project):
             return False
 
-        monkeypatch.setattr(mod, "resolve_project_is_silent", _not_silent)
+        monkeypatch.setattr(admission_mod, "resolve_project_is_silent", _not_silent)
         project = {"generation_mode": "storyboard", "characters": {"张三": {"description": "主角"}}}
-        assert await mod._resolve_voice_context(_ctx(tmp_path, project), "drama") == project["characters"]
+        assert await admission_mod.resolve_voice_context(project, "drama") == project["characters"]
 
 
 @pytest.mark.unit
@@ -244,7 +244,7 @@ class TestStoryboardGateSkipsEmptyBatches:
             rejected.append(capability)
             raise ValueError("成片恒有声")
 
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _reject)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _reject)
         tool_obj = mod.generate_video_episode_tool(ctx)
         out = await tool_obj.handler({"script": "episode_1.json", **args})
         return {"out": out, "rejected": rejected}
@@ -302,7 +302,7 @@ class TestStoryboardGateEntersAdmission:
             raise ValueError("成片恒有声，无法关闭音频")
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _reject)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _reject)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
         tool_obj = mod.generate_video_episode_tool(self._ctx(tmp_path))
@@ -323,7 +323,7 @@ class TestStoryboardGateEntersAdmission:
             return None
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
         ctx.pm.script_payload["segments"][0]["video_prompt"] = "   "  # type: ignore[attr-defined]
@@ -346,7 +346,7 @@ class TestStoryboardGateEntersAdmission:
             return None
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
         segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
@@ -387,8 +387,8 @@ class TestStoryboardGateEntersAdmission:
             )
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _reject)
-        monkeypatch.setattr(mod, "admit_storyboard_video_batch", _admit)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _reject)
+        monkeypatch.setattr(admission_mod, "admit_storyboard_video_batch", _admit)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
         tool_obj = mod.generate_video_episode_tool(self._ctx(tmp_path))
@@ -408,7 +408,7 @@ class TestStoryboardGateEntersAdmission:
             return None
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
         ctx.pm.script_payload["segments"][0]["segment_id"] = ["E1S01"]  # type: ignore[attr-defined]
@@ -431,7 +431,7 @@ class TestStoryboardGateEntersAdmission:
             return None
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
         ctx.pm.script_payload["segments"].insert(0, 42)  # type: ignore[attr-defined]
@@ -454,7 +454,7 @@ class TestStoryboardGateEntersAdmission:
             return None
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
         segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
@@ -476,7 +476,7 @@ class TestStoryboardGateEntersAdmission:
             return None
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
         segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
@@ -501,7 +501,7 @@ class TestStoryboardGateEntersAdmission:
             return None
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
         segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
@@ -521,7 +521,7 @@ class TestStoryboardGateEntersAdmission:
             return None
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
         segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
@@ -549,7 +549,7 @@ class TestStoryboardGateEntersAdmission:
             return None
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
         segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
@@ -573,7 +573,7 @@ class TestStoryboardGateEntersAdmission:
             return None
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
         segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
@@ -598,7 +598,7 @@ class TestStoryboardGateEntersAdmission:
             return None
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
         ctx = self._ctx(tmp_path)
         segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]

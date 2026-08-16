@@ -6,12 +6,13 @@ from typing import Any
 import pytest
 
 from lib.batch_admission import BatchAdmission, UnitAdmissionTicket
+from lib.generation_queue_client import TaskSpec
 from lib.generation_result import GenerationSelectionMode
 from lib.narration_delivery import POST_PRODUCTION
 from lib.project_manager import ProjectManager
 from lib.workflow_plan import WorkflowPlanRequest, WorkflowStepState
 from lib.workflow_state import WorkflowNextAction, WorkflowProject, WorkflowStatus, WorkflowTarget
-from server.services import workflow_planner
+from server.services import video_batch_admission, workflow_planner
 
 pytestmark = pytest.mark.integration
 
@@ -113,7 +114,7 @@ async def test_planner_uses_shared_admission_and_never_reads_the_real_task_singl
         )
 
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
-    monkeypatch.setattr(workflow_planner, "admit_storyboard_video_batch", _admit)
+    monkeypatch.setattr(workflow_planner, "admit_storyboard_video_request", _admit)
 
     request = WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
     first = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", request)  # type: ignore[arg-type]
@@ -157,7 +158,7 @@ async def test_active_task_and_provider_checkpoint_are_reported_as_separate_axes
         )
 
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
-    monkeypatch.setattr(workflow_planner, "admit_storyboard_video_batch", _admit)
+    monkeypatch.setattr(workflow_planner, "admit_storyboard_video_request", _admit)
 
     plan = await workflow_planner.WorkflowPlanner(pm).get_plan(  # type: ignore[arg-type]
         "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
@@ -203,7 +204,7 @@ async def test_recovery_checkpoint_without_provider_job_remains_visible(
         )
 
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
-    monkeypatch.setattr(workflow_planner, "admit_storyboard_video_batch", _admit)
+    monkeypatch.setattr(workflow_planner, "admit_storyboard_video_request", _admit)
 
     plan = await workflow_planner.WorkflowPlanner(pm).get_plan(  # type: ignore[arg-type]
         "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
@@ -273,3 +274,116 @@ async def test_status_read_is_idempotent_and_does_not_touch_project_files(
 
     assert first == second
     assert before == middle == after
+
+
+async def test_planner_refuses_a_unit_whose_video_input_is_unusable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """计划走的是提交侧同一条 spec 构造缝：分镜图不可用的条目在计划里就被逐 ID 拒绝。"""
+
+    pm = _ProjectManager(tmp_path, _script())
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
+
+    async def _no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
+        return []
+
+    monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _no_active_tasks)
+    monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
+
+    before = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(  # type: ignore[arg-type]
+        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
+    )
+
+    # 走提交侧那条缝要读 Manifest 与分镜图，读到的一切仍不得在项目目录留下痕迹。
+    assert sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*")) == before
+
+    video = next(step for step in plan.steps if step.id == "video")
+    assert video.admission is not None
+    assert video.admission["decision"] != "admitted"
+    codes = {problem["code"] for ticket in video.admission["units"] for problem in ticket["problems"]}
+    assert "generation_unit_input_unusable" in codes
+
+
+async def test_planner_hands_the_submitted_visual_prompt_to_the_admission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """准入按真正会提交的视觉提示词判断已付费产物能否复用，计划不得把它留空。"""
+
+    pm = _ProjectManager(tmp_path, _script())
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
+
+    async def _no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
+        return []
+
+    spec = TaskSpec.from_request(
+        task_type="video",
+        media_type="video",
+        resource_id="E1S01",
+        prompt="镜头提示",
+        script_file="episode_1.json",
+    )
+
+    def _specs(**_kwargs: Any):
+        return [spec], {"E1S01": 0}, []
+
+    captured: dict[str, Any] = {}
+
+    async def _admit(**kwargs: Any) -> BatchAdmission:
+        captured.update(kwargs)
+        return BatchAdmission(
+            operation=kwargs["operation"],
+            selection=kwargs["selection"],
+            narration_delivery=kwargs["request_options"].narration_delivery,
+            tickets=(UnitAdmissionTicket("E1S01"),),
+        )
+
+    monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _no_active_tasks)
+    monkeypatch.setattr(workflow_planner, "build_storyboard_video_specs", _specs)
+    monkeypatch.setattr(video_batch_admission, "admit_storyboard_video_batch", _admit)
+
+    await workflow_planner.WorkflowPlanner(pm).get_plan(  # type: ignore[arg-type]
+        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
+    )
+
+    assert [prompt for _id, _item, prompt in captured["items"]] == ["镜头提示"]
+
+
+async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """音频闸门与入队入口同一道：计划预告的准入结论包含它，用户不必提交后才撞见。"""
+
+    pm = _ProjectManager(tmp_path, _script())
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
+
+    async def _no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
+        return []
+
+    async def _reject(_project: dict[str, Any], _capability: Any) -> None:
+        raise ValueError("成片恒有声")
+
+    spec = TaskSpec.from_request(
+        task_type="video",
+        media_type="video",
+        resource_id="E1S01",
+        prompt="镜头提示",
+        script_file="episode_1.json",
+    )
+
+    def _specs(**_kwargs: Any):
+        return [spec], {"E1S01": 0}, []
+
+    monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _no_active_tasks)
+    monkeypatch.setattr(workflow_planner, "build_storyboard_video_specs", _specs)
+    monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
+    monkeypatch.setattr(video_batch_admission, "assert_audio_switch_supported", _reject)
+
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(  # type: ignore[arg-type]
+        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
+    )
+
+    video = next(step for step in plan.steps if step.id == "video")
+    assert video.admission is not None
+    codes = {problem["code"] for ticket in video.admission["units"] for problem in ticket["problems"]}
+    assert "video_audio_switch_not_supported" in codes

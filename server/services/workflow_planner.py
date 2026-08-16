@@ -25,10 +25,12 @@ from lib.workflow_state import WorkflowStateService, WorkflowStatus
 from server.services.video_batch_admission import (
     active_task_problem,
     admit_reference_video_batch,
-    admit_storyboard_video_batch,
+    admit_storyboard_video_request,
     artifact_state_tickets,
+    build_storyboard_video_specs,
     reference_unit_task_spec,
     resolve_reference_batch_targets,
+    resolve_voice_context,
     screen_script_entries,
     speech_admission_problems,
 )
@@ -205,24 +207,44 @@ class WorkflowPlanner:
             )
             return admission.to_payload()
 
+        # 计划要预告的是「这一批真提交时会得到什么结论」，所以走的是提交侧同一条缝：
+        # spec 由 build_storyboard_video_specs 构造（发声准入、输入可用性、prompt 组装
+        # 与逐 ID 拒绝票都在其中），准入由 admit_storyboard_video_request 给出（音频闸门
+        # 与投影缺口折在同一批票里）。自行挑目标并把视觉提示词留空，会让计划按另一套
+        # 视觉基准判断已付费产物能否复用，与真正提交时的结论分叉。
         requested = set(status.next_action.requested_ids)
         id_field = SKELETONS[facts.kind].id_field
-        targets = [
-            (str(item[id_field]), item, None)
-            for item in facts.items
-            if isinstance(item.get(id_field), str) and str(item[id_field]) in requested
+        items = [
+            item for item in facts.items if isinstance(item.get(id_field), str) and str(item[id_field]) in requested
         ]
-        admission = await admit_storyboard_video_batch(
+        voice_characters = await resolve_voice_context(facts.project, status.project.content_mode)
+        specs, _order_map, refused = await asyncio.to_thread(
+            build_storyboard_video_specs,
+            items=items,
+            id_field=id_field,
+            content_mode=status.project.content_mode,
+            skeleton_kind=facts.kind,
+            script_filename=facts.script_file,
+            project_dir=facts.project_path,
+            skip_ids=None,
+            project=facts.project,
+            episode=status.target.episode if status.target is not None else 1,
+            voice_characters=voice_characters,
+        )
+        admission = await admit_storyboard_video_request(
             project_name=project_name,
             project=facts.project,
             project_path=facts.project_path,
             script=facts.script,
             script_file=facts.script_file,
-            items=targets,
+            items=items,
+            id_field=id_field,
+            specs=specs,
             request_options=options,
             operation=status.next_action.type,
             selection=GenerationSelectionMode.MISSING_ONLY,
             confirmed_request_durations=request.confirmed_request_durations,
+            extra_tickets=refused,
         )
         return admission.to_payload()
 
