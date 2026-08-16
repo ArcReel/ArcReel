@@ -46,6 +46,42 @@ describe("workflow-store", () => {
     expect(useWorkflowStore.getState().narrationDelivery).toBeNull();
   });
 
+  it("首次加载期间切换目标：旧目标的迟到响应作废，不写进 store", async () => {
+    // planKey 起始为 null，且只在成功后才更新。若目标切换判据只看 planKey，
+    // 首次加载（A 还没成功过）期间切到 B 会因为「两次都读到 null」被判定为
+    // 未易主，A 的迟到响应会被当成当前目标的事实写进 plan/planKey。
+    const planA = makePlan();
+    const planB = makePlan();
+    let resolveA!: (plan: ReturnType<typeof makePlan>) => void;
+    let resolveB!: (plan: ReturnType<typeof makePlan>) => void;
+    vi.spyOn(API, "getWorkflowPlan").mockImplementation((project) =>
+      project === "A"
+        ? new Promise((resolve) => { resolveA = resolve; })
+        : new Promise((resolve) => { resolveB = resolve; }),
+    );
+    const store = useWorkflowStore.getState();
+
+    // A::1 是这次会话里第一次发出的请求：planKey 仍是 null。
+    const pA = store.refreshPlan("A", 1);
+    await Promise.resolve();
+
+    // 还没等 A 落地就切到 B——这正是首次加载途中快速切集的路径。
+    const pB = store.refreshPlan("B", 1);
+    await Promise.resolve();
+
+    // A 的响应姗姗来迟：必须判定为 cancelled，且不得覆盖 store。
+    resolveA(planA);
+    expect(await pA).toBe("cancelled");
+    await Promise.resolve();
+    expect(useWorkflowStore.getState().planKey).not.toBe("A::1");
+    expect(useWorkflowStore.getState().plan).not.toEqual(planA);
+
+    resolveB(planB);
+    expect(await pB).toBe("success");
+    expect(useWorkflowStore.getState().planKey).toBe("B::1");
+    expect(useWorkflowStore.getState().plan).toEqual(planB);
+  });
+
   it("running 标志绑定取消域，旧实例的迟到结算不清掉新目标的在途标志（不产生同目标并发请求）", async () => {
     // 复现路径：A::1 已有一次成功计划；同目标再刷新一次（不触发 resetTarget，
     // running=true，绑定当前取消域）；紧接着切到 B（resetTarget 轮换取消域、
@@ -103,21 +139,21 @@ describe("workflow-store", () => {
     expect(await p1).toBe("cancelled");
     await flush();
 
-    // 5) 此时 store.planKey 仍是步骤 1 留下的 "A::1"（B 还没成功），
-    //    对 A::1 的刷新走的是「同目标合并」分支而非 resetTarget。running 若被
-    //    步骤 4 误清，这里会立刻对 A 发出第二个真实请求，与仍在途的 B 请求
-    //    并发；running 未被误清时，这次请求应合并排队，等 B 那一轮跑完才发出。
-    const p3 = store.refreshPlan("A", 1);
+    // 5) 目标此时是 B（步骤 3 登记的 currentTarget），再次刷新 B 走的是
+    //    「同目标合并」分支而非 resetTarget。running 若被步骤 4 误清，这里
+    //    会立刻对 B 发出第二个真实请求，与仍在途的步骤 3 请求并发；running
+    //    未被误清时，这次请求应合并排队，等步骤 3 那一轮跑完才发出。
+    const p3 = store.refreshPlan("B", 1);
     await flush();
-    // 关键断言：B 尚未结算前，不应该已经多发出一次真实请求。
+    // 关键断言：步骤 3 的请求尚未结算前，不应该已经多发出一次真实请求。
     expect(spy).toHaveBeenCalledTimes(3);
-    expect(pendingByProject.A).toHaveLength(0);
+    expect(pendingByProject.B).toHaveLength(1);
 
     settle("B", planB);
     await flush();
-    // B 完结后才为排队的 A 请求补跑一轮，这才是第 4 次真实请求。
+    // 步骤 3 的请求完结后才为排队的 B 请求补跑一轮，这才是第 4 次真实请求。
     expect(spy).toHaveBeenCalledTimes(4);
-    settle("A", planA);
+    settle("B", planB);
 
     const [r2, r3] = await Promise.all([p2, p3]);
     expect(r2).toBe("success");

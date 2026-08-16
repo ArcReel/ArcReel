@@ -50,6 +50,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
   let queued = false;
   let queuedTarget: { projectName: string; episode: number | null } | null = null;
   let queuedResolvers: Array<(result: RefreshPlanResult) => void> = [];
+  // 当前请求目标：与 `planKey` 不同，它在请求发出时就登记，不等成功才更新。
+  // 首次加载（`planKey` 仍是 null）期间切换目标必须能被识别为目标易主——
+  // 只看 `planKey` 会因为它此时同样是 null 而放过这次切换，任由旧目标的
+  // 迟到响应写回 store。
+  let currentTarget: { projectName: string; episode: number | null } | null = null;
 
   let scope = new AbortController();
   const rotateScope = () => {
@@ -136,6 +141,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
       running = false;
       queued = false;
       queuedTarget = null;
+      currentTarget = null;
       const resolvers = queuedResolvers;
       queuedResolvers = [];
       for (const resolve of resolvers) resolve("cancelled");
@@ -150,11 +156,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
     },
 
     refreshPlan: (projectName, episode) => {
-      const key = planKey(projectName, episode);
-      // 目标易主：作废旧目标的在途请求并清掉它的计划，新目标从空白开始求解。
-      if (get().planKey !== null && get().planKey !== key) {
+      // 目标易主：按「本次请求登记的目标」判断，不用 `planKey`——`planKey`
+      // 只在请求成功后才更新，首次加载期间它恒为 null，若拿它做判据，首次
+      // 加载途中切换目标会因为「两次都读到 null」而放过 resetTarget，旧目标
+      // 的响应回来后仍会写进 store。
+      if (
+        currentTarget !== null
+        && (currentTarget.projectName !== projectName || currentTarget.episode !== episode)
+      ) {
         get().resetTarget();
       }
+      currentTarget = { projectName, episode };
       set({ loading: true });
       return new Promise<RefreshPlanResult>((resolve) => {
         if (running) {

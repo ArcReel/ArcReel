@@ -1449,9 +1449,11 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("workflow-regenerate-video"));
     await waitFor(() => {
       expect(useAppStore.getState().toast?.tone).toBe("error");
-      // 供应商侧的裸 message（"本次时长基准..."）不得直接出现在 toast 上——
-      // 必须走翻译过的引导文案，不是 errMsg(err) 原样转发。
-      expect(useAppStore.getState().toast?.text).not.toContain("本次时长基准");
+      // 断言的是翻译过的引导文案本身，不是"不包含供应商原始 message"这个弱条件——
+      // 空文本、错译 key 或无关错误文本都得挡在这条断言之外。
+      expect(useAppStore.getState().toast?.text).toBe(
+        "本次申请时长需要先确认档位，已为你定位到对应分镜",
+      );
     });
     expect(useAppStore.getState().scrollTarget?.id).toBe("SEG-1");
     expect(useAppStore.getState().scrollTarget?.type).toBe("segment");
