@@ -32,6 +32,7 @@ export const I18N_NAMESPACES = [
   'templates',
   'assets',
   'onboarding',
+  'workflow',
 ] as const;
 
 // Replace every [[brand]] placeholder in a loaded namespace with the current
