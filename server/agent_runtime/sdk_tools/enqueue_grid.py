@@ -272,6 +272,7 @@ def generate_grid_tool(ctx: ToolContext):
                         ],
                         requested_ids=None,
                         resolver=resolver,
+                        project_dir=ctx.project_path,
                     )
                     if selection.unavailable:
                         unavailable_ids = {state.unit_id for state in selection.unavailable}

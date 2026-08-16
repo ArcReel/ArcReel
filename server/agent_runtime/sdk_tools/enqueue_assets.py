@@ -7,7 +7,6 @@ per-ID result contract requires globally unique IDs within one batch.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -75,24 +74,13 @@ def _asset_candidates(
     project: dict[str, Any],
     asset_type: str,
     resolver: ArtifactCurrencyResolver | None,
-    project_path: Path,
 ) -> list[GenerationCandidate]:
-    """Missing-only candidates for one asset type.
-
-    Legacy (pre-Manifest) reusability only knows ``sheet`` as a metadata
-    string, not the Manifest-backed comparison the active branch gets from
-    ``resolver`` — so this filter re-verifies the file's existence on disk
-    itself before treating a legacy sheet as reusable. Without it, a legacy
-    project whose sheet file was deleted or moved would report that asset as
-    ``skipped`` and never be able to regenerate it via missing-only again.
-    """
+    """Missing-only candidates for one asset type."""
 
     spec = ASSET_SPECS[asset_type]
     candidates: list[GenerationCandidate] = []
     for name, entry in (project.get(spec.bucket_key) or {}).items():
         sheet = entry.get(spec.sheet_field) if isinstance(entry, dict) else None
-        if resolver is None and isinstance(sheet, str) and sheet and not (project_path / sheet).exists():
-            sheet = None
         candidates.append(
             GenerationCandidate(
                 unit_id=asset_unit_id(asset_type, name),
@@ -234,9 +222,10 @@ def generate_assets_tool(ctx: ToolContext):
             for t in types:
                 spec = ASSET_SPECS[t]
                 selection = select_generation_targets(
-                    candidates=_asset_candidates(project, t, resolver, ctx.project_path),
+                    candidates=_asset_candidates(project, t, resolver),
                     requested_ids=_requested_unit_ids(project, t, names),
                     resolver=resolver,
+                    project_dir=ctx.project_path,
                 )
                 builder.absorb(selection)
                 for state in selection.targets:

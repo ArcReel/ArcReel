@@ -263,6 +263,7 @@ def resolve_reference_batch_targets(
         candidates=[state.candidate for state in states.values()],
         requested_ids=requested_ids,
         resolver=resolver,
+        project_dir=project_path,
         reusable_override=lambda candidate: (
             artifact_is_usable(
                 resolver,

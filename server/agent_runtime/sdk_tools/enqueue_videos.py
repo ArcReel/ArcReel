@@ -142,6 +142,7 @@ def _currency_reusable_ids(
     already_done: list[str],
     *,
     manifest_active: bool,
+    project_dir: Path,
 ) -> list[str]:
     """Missing-only ids that active currency already reports current/stale.
 
@@ -156,7 +157,7 @@ def _currency_reusable_ids(
     return [
         unit_id
         for unit_id, state in states.items()
-        if unit_id not in done and artifact_is_reusable(state, manifest_active=manifest_active)
+        if unit_id not in done and artifact_is_reusable(state, manifest_active=manifest_active, project_dir=project_dir)
     ]
 
 
@@ -1144,7 +1145,9 @@ def generate_video_episode_tool(ctx: ToolContext):
             # current/stale，就会把整集当作缺失重新生成一遍。
             already_done = [
                 *already_done,
-                *_currency_reusable_ids(states, already_done, manifest_active=currency is not None),
+                *_currency_reusable_ids(
+                    states, already_done, manifest_active=currency is not None, project_dir=project_dir
+                ),
             ]
             builder = GenerationResultBuilder(_EPISODE_OPERATION, GenerationSelectionMode.MISSING_ONLY)
             for done_id in already_done:
@@ -1434,6 +1437,7 @@ def generate_video_all_tool(ctx: ToolContext):
                 candidates=[state.candidate for state in states.values()],
                 requested_ids=None,
                 resolver=currency,
+                project_dir=project_dir,
                 # 一次精确匹配的手动上传与 Manifest 认定的 current/stale 同样可复用，
                 # 两条腿合起来才是「这个 ID 还缺不缺视频」。
                 reusable_override=lambda candidate: versions.selected_manual_upload_matches_current_file(

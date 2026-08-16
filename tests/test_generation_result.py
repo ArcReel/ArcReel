@@ -81,6 +81,7 @@ def test_missing_only_selects_missing_and_reuses_stale() -> None:
         candidates=[_candidate("A"), _candidate("B"), _candidate("C")],
         requested_ids=None,
         resolver=resolver,  # type: ignore[arg-type]
+        project_dir=None,
     )
 
     assert selection.mode is GenerationSelectionMode.MISSING_ONLY
@@ -98,6 +99,7 @@ def test_missing_only_never_regenerates_a_blocked_artifact() -> None:
         candidates=[_candidate("A"), _candidate("B")],
         requested_ids=None,
         resolver=resolver,  # type: ignore[arg-type]
+        project_dir=None,
     )
 
     assert selection.target_ids == ("A",)
@@ -120,6 +122,7 @@ def test_explicit_selection_takes_named_ids_regardless_of_state() -> None:
         candidates=[_candidate("A"), _candidate("B")],
         requested_ids=["A", "ZZ"],
         resolver=resolver,  # type: ignore[arg-type]
+        project_dir=None,
     )
 
     assert selection.mode is GenerationSelectionMode.EXPLICIT
@@ -132,7 +135,7 @@ def test_explicit_empty_collection_is_invalid_not_everything() -> None:
     """显式空集合是调用方错误：既不等于「全部」，也不静默变成空批次。"""
 
     with pytest.raises(ValueError, match="不能为空"):
-        select_generation_targets(candidates=[_candidate("A")], requested_ids=[], resolver=None)
+        select_generation_targets(candidates=[_candidate("A")], requested_ids=[], resolver=None, project_dir=None)
 
 
 def test_normalize_requested_ids_is_the_single_gate_for_selection_intent() -> None:
@@ -151,6 +154,7 @@ def test_missing_only_without_manifest_falls_back_to_path_presence() -> None:
         candidates=[_candidate("A", path=None), _candidate("B")],
         requested_ids=None,
         resolver=None,
+        project_dir=None,
     )
 
     assert selection.target_ids == ("A",)
@@ -183,7 +187,7 @@ def test_observe_artifact_status_separates_unobservable_from_missing() -> None:
 )
 def test_artifact_is_reusable_treats_stale_as_usable(status: ArtifactStatus, expected: bool) -> None:
     state = GenerationTargetState(candidate=_candidate("A"), status=status)
-    assert artifact_is_reusable(state, manifest_active=True) is expected
+    assert artifact_is_reusable(state, manifest_active=True, project_dir=None) is expected
 
 
 # --- result identity -------------------------------------------------------
