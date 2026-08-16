@@ -57,7 +57,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 下文各节以 `next_action.type` 为标题。`export` 表示工作流完成，`none` 表示展示 `blockers` 并停止变更。
 
-> 批量旁白配音是用户显式触发的动作，不由 `next_action` 驱动：它只依赖剧本各段的 `novel_text`，
+> 批量旁白配音有用户显式触发与计划驱动两条来路（见「批量旁白配音」节）：它只依赖剧本各段的 `novel_text`，
 > 独立于分镜图/视频——`generate_script` 产出剧本后即可执行。它与「本次视频请求的旁白交付选择」
 > 是两件事，后者由 `choose_narration_delivery` 驱动，见 workflow-plan 参考。
 
@@ -249,9 +249,9 @@ reference_video 模式返回这两个动作。
   请求，并在「使用当前 TTS」与「后期配音」之间二选一；选择经 `narration_delivery` 带进下一次
   `mcp__arcreel__get_workflow_plan`，不持久化，之后每次查询都要重新带上。未配置 TTS 时默认后期配音，
   不要为了让视频继续而建议用户去配置 TTS 供应商；选 TTS 时先显式生成并让用户试听，再按
-  `tts_missing` / `tts_stale` / 时长类问题码处理
+  预检返回的 `problems[].action` 处理（action 是权威，不要按 `code` 自己推）
 - `confirm_request_duration` — 批量准入要求确认申请档位。按 `admission.confirmation.tiers[]` 逐档位
-  展示涉及的 unit 与费用，取得确认后经 `confirmed_request_durations` 带回
+  展示涉及的 unit 与费用，取得确认后经 `confirmed_request_durations` 连同仍成立的 `narration_delivery` 一起带回
 
 只有 `plan.steps[].admission.decision == "admitted"` 才入队；`blocked` 或 `confirmation_required` 时
 **一个任务都不入队**。此时逐 unit 报告 `admission.units[]` 的 `unit_id`、`problems[].code`、原因与
@@ -280,11 +280,17 @@ stale 产物照常可预览、可导出、可参与成片，是否重做由用�
 
 ---
 
-## 批量旁白配音（用户显式触发，不由 `next_action` 驱动）
+## 批量旁白配音
 
-**触发**：用户明确要求生成旁白配音，或用户在 `choose_narration_delivery` 处选了「使用当前 TTS」而
-计划回报 `tts_missing` / `tts_stale`。这一动作不由计划的 `next_action` 驱动——缺 TTS 不是工作流缺口，
-计划不会因此停下，也不会因此拦住导出；`plan.status.artifacts.audio` 只如实报告哪些段缺配音。
+**触发**分两条，都要走本节：
+
+- **用户显式触发**：用户明确要求生成旁白配音。这一条不由计划的 `next_action` 驱动——缺 TTS 不是
+  工作流缺口，计划不会因此停下，也不会因此拦住导出；`plan.status.artifacts.audio` 只如实报告哪些段缺配音。
+- **计划驱动**：用户在 `choose_narration_delivery` 处选了「使用当前 TTS」，视频批量准入因此被拒，
+  计划把 `generate_tts` / `regenerate_tts` 交回成 `next_action.type`。这一条按受控动作办：逐 unit
+  读 `problems[].action`（action 是权威，不要按 `code` 自己推），`wait_for_task` / `configure_provider`
+  等其它动作照它们各自的规矩来，不要一律当成缺配音去合成。
+
 后期配音路线的旁白不需要 TTS，不要为它补齐，也不要建议用户为了继续做视频去配置 TTS 供应商。
 
 旁白配音以各段 `novel_text` 原文逐段合成语音，只依赖剧本、独立于分镜图/视频：
@@ -339,7 +345,8 @@ revision 重试。改完后按上面的请求选择语义点名重做这些 ID�
 - "分析小说角色" → 只执行 `analyze_assets`
 - "创建第2集剧本" → 从 `plan_episodes` 开始（如果角色已有）
 - "继续" → 计划给出第一个未完成动作
-- 指定具体动作（如"生成分镜图"）→ 直接跳到该动作
+- 指定具体动作（如"生成分镜图"）→ 该动作只是用户意图，仍先查计划：与 `next_action.type` 一致才执行；
+  不一致或有 blockers 时不入队，改为说明计划当前要求的动作与原因
 
 ---
 

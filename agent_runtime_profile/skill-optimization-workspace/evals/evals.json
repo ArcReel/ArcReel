@@ -31,18 +31,18 @@
       "target_skills": ["video-workflow"],
       "assertions": [
         {
-          "name": "reads_project_json",
-          "text": "读取 project.json 检查当前状态",
+          "name": "queries_workflow_plan",
+          "text": "调用 mcp__arcreel__get_workflow_plan 取权威计划",
           "type": "behavior"
         },
         {
-          "name": "uses_glob_check",
-          "text": "使用 Glob 检查文件系统确认各阶段文件是否存在",
-          "type": "behavior"
+          "name": "does_not_infer_stage",
+          "text": "不读 project.json、不用 Glob 探测文件系统自行推断阶段",
+          "type": "constraint"
         },
         {
-          "name": "identifies_correct_stage",
-          "text": "根据检测结果确定正确的下一阶段",
+          "name": "executes_next_action",
+          "text": "按计划交回的 next_action 执行对应受控动作",
           "type": "behavior"
         }
       ]

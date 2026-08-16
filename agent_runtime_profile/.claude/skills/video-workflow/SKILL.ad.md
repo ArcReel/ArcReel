@@ -50,9 +50,9 @@ Read 只补充创作输入与产品 soft gate 信息。每次动作完成后刷�
      「使用当前 TTS」与「后期配音」之间二选一，选择经 `narration_delivery` 带进下一次
      `mcp__arcreel__get_workflow_plan`（不持久化，每次查询都要重新带上）。未配置 TTS 时默认后期配音，
      不要为了让视频继续而建议用户去配置 TTS 供应商；选 TTS 时先显式生成并让用户试听，再按
-     `tts_missing` / `tts_stale` / 时长类问题码处理
+     预检返回的 `problems[].action` 处理（action 是权威，不要按 `code` 自己推）
    - `next_action.type == "confirm_request_duration"` → 按 `admission.confirmation.tiers[]` 逐档位展示
-     涉及的 unit 与费用，确认后经 `confirmed_request_durations` 带回
+     涉及的 unit 与费用，确认后经 `confirmed_request_durations` 连同仍成立的 `narration_delivery` 一起带回
    - `next_action.type == "generate_videos"` → 先看 `plan.steps[].admission.decision`：只有 `admitted`
      才入队，`blocked` / `confirmation_required` 时**一个任务都不入队**，逐 unit 报告 `unit_id`、
      `problems[].code`、原因与 `problems[].action`（被 `blocked_unit_ids` 连累的 unit 带

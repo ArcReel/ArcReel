@@ -10,13 +10,19 @@ profile's own prose and only guard that the instruction has not been dropped.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
 import pytest
 
 from lib.batch_admission import DURATION_CONFIRMATION_CODE, BatchAdmissionDecision
-from lib.generation_result import GenerationAction, GenerationItemState, GenerationProblemCode
+from lib.generation_result import (
+    _TASK_FAILURE_ACTIONS,
+    GenerationAction,
+    GenerationItemState,
+    GenerationProblemCode,
+)
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS, NarrationTtsStatus
 from lib.profile_manifest import VALID_CONTENT_MODES, resolve_profile_files_for_mode
 from lib.workflow_rules import WORKFLOW_RULES
@@ -385,3 +391,99 @@ def test_asset_analysis_records_completion_fact() -> None:
     assert "`episode_[0-9]+.txt`" in content
     assert "`.text`" not in content
     assert "不要调用 `patch_project`" in content
+
+
+# ------------------------------------------- TTS 与档位确认按 action 路由、选择不丢
+
+
+def test_narration_audio_skill_routes_by_problem_action_not_by_code() -> None:
+    """`tts_duration_unavailable` 服务端登记为重新合成；按 code 自己推会把它漏成不处理。"""
+
+    content = (PROFILE / ".claude" / "skills" / "generate-narration-audio" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "problems[].action" in content
+    assert "action 是权威" in content
+    for code, action in (
+        ("tts_stale", GenerationAction.REGENERATE_TTS),
+        ("tts_duration_unavailable", GenerationAction.REGENERATE_TTS),
+    ):
+        assert _TASK_FAILURE_ACTIONS[code] is action
+        assert code in content
+    assert GenerationAction.GENERATE_TTS.value in content
+    assert GenerationAction.WAIT_FOR_TASK.value in content
+
+
+@pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
+def test_variants_carry_the_delivery_choice_into_the_confirmed_resend(filename: str) -> None:
+    """`narration_delivery` 不持久化，重发漏带即静默退回 post_production。"""
+
+    content = _skill(filename)
+
+    assert "confirmed_request_durations" in content
+    assert "`narration_delivery`" in content
+    assert "problems[].action" in content
+
+
+def test_video_skill_resend_example_keeps_the_delivery_choice() -> None:
+    content = (PROFILE / ".claude" / "skills" / "generate-video" / "SKILL.md").read_text(encoding="utf-8")
+
+    blocks = [block for block in content.split("```")[1::2] if "confirmed_request_durations" in block]
+    assert blocks, "确认重发的示例代码块不见了"
+    for block in blocks:
+        assert "narration_delivery" in block
+        assert "mcp__arcreel__generate_video" in block
+    assert POST_PRODUCTION in content
+
+
+# ------------------------------------------------- 用户意图不越过计划、隔离草稿优先
+
+
+@pytest.mark.parametrize("filename", EPISODIC_VARIANTS)
+def test_user_named_action_is_checked_against_the_plan(filename: str) -> None:
+    content = _skill(filename)
+
+    assert "直接跳到该动作" not in content
+    assert "与 `next_action.type` 一致才执行" in content
+
+
+def test_narration_variant_routes_plan_driven_tts_as_a_controlled_action() -> None:
+    """批量准入被拒时计划会把 TTS 动作交回成 next_action，不能一律当成用户显式触发。"""
+
+    content = _skill("SKILL.narration.md")
+
+    assert GenerationAction.GENERATE_TTS.value in content
+    assert GenerationAction.REGENERATE_TTS.value in content
+    assert "计划驱动" in content
+    assert "用户显式触发" in content
+
+
+def test_split_reference_subagent_prefers_the_quarantined_draft() -> None:
+    """违约时正式 JSON 不写、只落 invalid.json——首次生成分支不收紧就会重跑工具重复计费。"""
+
+    content = (PROFILE / ".claude" / "agents" / "split-reference-video-units.md").read_text(encoding="utf-8")
+
+    trigger = content.split("### 情况 A", 1)[1].split("### 情况", 1)[0]
+    assert "step1_reference_units.invalid.json" in trigger
+    assert "都不存在" in trigger
+    assert "先走情况 C" in trigger
+
+
+# ----------------------------------------- openspec 与 eval 用例跟随计划权威一起迁移
+
+
+def test_orchestration_spec_and_evals_describe_plan_driven_routing() -> None:
+    spec = (REPO / "openspec" / "specs" / "workflow-orchestration" / "spec.md").read_text(encoding="utf-8")
+
+    assert "get_workflow_plan" in spec
+    assert "基于 project.json 和文件系统判断当前所处阶段" not in spec
+    assert "状态检测" not in spec
+
+    evals = json.loads((PROFILE / "skill-optimization-workspace" / "evals" / "evals.json").read_text(encoding="utf-8"))
+    names = {
+        assertion["name"]
+        for case in evals["evals"]
+        if "video-workflow" in case["target_skills"]
+        for assertion in case["assertions"]
+    }
+    assert {"reads_project_json", "uses_glob_check", "identifies_correct_stage"}.isdisjoint(names)
+    assert "queries_workflow_plan" in names

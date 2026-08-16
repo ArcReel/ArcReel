@@ -54,7 +54,9 @@ mcp__arcreel__get_video_capabilities({})
 
 ### 情况 A：首次生成拆分
 
-**触发**：`drafts/episode_{N}/step1_reference_units.json` **不存在**（典型路径：video-workflow 按计划的 `prepare_step1` 动作路由到单集预处理）。两种情况的分支以**文件存在性为准**，主 agent 传入的操作类型仅作意图参考。
+**触发**：`drafts/episode_{N}/step1_reference_units.json` 与 `drafts/episode_{N}/step1_reference_units.invalid.json`
+**都不存在**（典型路径：video-workflow 按计划的 `prepare_step1` 动作路由到单集预处理）。三种情况的分支以**文件存在性为准**，
+主 agent 传入的操作类型仅作意图参考；`invalid.json` 在时一律先走情况 C，正式 JSON 不存在也不重跑工具重抽。
 
 > 注：旧项目可能残留结构化前的自由文本稿 `step1_reference_units.md`。它**不**视为有效 step1——若无 `.json`，按首次生成重跑工具产出结构化 `.json`，不要把旧 `.md` 当输入或做 md→结构化迁移。
 

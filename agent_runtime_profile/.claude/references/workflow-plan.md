@@ -142,7 +142,8 @@ mcp__arcreel__get_workflow_plan({
   `problems[].action`（下一步动作）。通过的 unit 会带 `generation_batch_admission_withheld`，
   其 `blocked_unit_ids` 指出是被谁挡住的——把这层因果如实说给用户，不要报成它们自己有问题。
 - `decision == "confirmation_required"` 时 `admission.confirmation.tiers[]` 给出按申请档位分组的
-  unit 与费用。取得用户确认后，把确认过的档位填进 `confirmed_request_durations` 重查计划。
+  unit 与费用。取得用户确认后，把确认过的档位填进 `confirmed_request_durations`、连同仍成立的
+  `narration_delivery` 一起重查计划；同一对参数在 `generate_video_*` 重发时同样要带全。
 - **不要把整批拆成小批去「先跑通过的那半批」。** 那既绕开了全有或全无，也会在补齐后重复提交
   已经付过费的 unit。修掉被拒的 unit，整批重来。
 

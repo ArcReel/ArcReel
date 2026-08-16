@@ -89,10 +89,13 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 按 unit 的引用状态选择生效档位，把编排时长投影到能容纳内容的申请档位。申请档位不同于当前视觉时长时
 预检返回 `reference_duration_confirmation_required`，逐档位向用户说明涉及的 unit、编排秒数、申请秒数
-与变长/变短；确认后经 `confirmed_request_durations`（按 unit_id 记档位）让**原目标集合仍作为一批重发**：
+与变长/变短；确认后经 `confirmed_request_durations`（按 unit_id 记档位）让**原目标集合仍作为一批重发**。
+重发要连同本次请求已选的 `narration_delivery` 一起带上——该参数不持久化，省略即按 `post_production` 处理，
+会把用户选的「使用当前 TTS」悄悄换掉：
 
 ```text
-mcp__arcreel__generate_video_episode({"script": "episode_1.json", "confirmed_request_durations": {"E1U1": 8}})
+mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": "use_tts",
+                                      "confirmed_request_durations": {"E1U1": 8}})
 ```
 
 被拒时逐 unit 报告 `unit_id`、`problem.code`、原因与 `problem.action`；通过的 unit 带
