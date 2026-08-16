@@ -109,6 +109,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
         }
       }
       for (const resolve of curResolvers) resolve(result);
+      // 被 `resetTarget` 作废的旧实例到这里也不得消费排队请求：`queued` 是
+      // 全局标志，若不核对取消域，姗姗来迟的旧实例会把新取消域下真正接管
+      // 该目标的实例应该服务的排队请求抢走，重新绑定到当前 `scope` 后对同一
+      // 目标发出第二个真实请求——与接管实例自己在途的请求并发，写回顺序
+      // 不再有保证。让接管实例自己去消费队列。
+      if (scope !== ownScope) return;
       if (queued && queuedTarget) {
         again = true;
         curProject = queuedTarget.projectName;

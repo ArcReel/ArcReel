@@ -164,6 +164,76 @@ describe("workflow-store", () => {
     expect(maxInFlight).toBe(2);
   });
 
+  it("被作废的旧实例不消费新取消域下的排队请求（不产生同目标并发请求）", async () => {
+    // 复现路径：A 在途时目标切到 B（resetTarget 轮换取消域，起跑接管实例）；
+    // 紧接着对 B 再发一次刷新——由于接管实例仍在跑，这次请求排队等待；随后
+    // A 的旧实例姗姗来迟结算。若旧实例不核对自己是否仍持有当前取消域就去
+    // 消费排队请求，会把本该由接管实例服务的 B 请求抢走，重新绑定到当前
+    // scope 后对 B 发出第二个真实请求——与接管实例自己在途的请求并发。
+    const planA = makePlan();
+    const planB1 = makePlan();
+    const planB2 = makePlan();
+    const pendingByProject: Record<string, Array<(plan: ReturnType<typeof makePlan>) => void>> = {
+      A: [],
+      B: [],
+    };
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const spy = vi.spyOn(API, "getWorkflowPlan").mockImplementation((project: string) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      return new Promise((resolve) => {
+        pendingByProject[project as "A" | "B"].push((plan) => {
+          inFlight -= 1;
+          resolve(plan);
+        });
+      });
+    });
+    const settle = (project: "A" | "B", plan: ReturnType<typeof makePlan>) => {
+      const fn = pendingByProject[project].shift();
+      fn?.(plan);
+    };
+    const flush = async (times = 3) => {
+      for (let i = 0; i < times; i += 1) await Promise.resolve();
+    };
+
+    const store = useWorkflowStore.getState();
+
+    // 1) A 起跑，在途（首次加载，currentTarget=A）。
+    const pA = store.refreshPlan("A", 1);
+    await flush();
+
+    // 2) 目标切到 B：resetTarget 作废 A 的取消域，起跑接管实例（第 2 次真实请求）。
+    const pB1 = store.refreshPlan("B", 1);
+    await flush();
+
+    // 3) 紧接着再刷新一次 B：接管实例仍在跑，排队等待，不发第 3 次真实请求。
+    const pB2 = store.refreshPlan("B", 1);
+    await flush();
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    // 4) A 的旧实例姗姗来迟结算：应判定为 cancelled，且不得抢走步骤 3 排的队。
+    settle("A", planA);
+    expect(await pA).toBe("cancelled");
+    await flush();
+    // 关键断言：旧实例结算后，不应该已经多发出一次真实请求——排队的 B 请求
+    // 只能由接管实例（服务步骤 2 的那个）在它自己的请求完结后才去发出。
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(maxInFlight).toBe(2);
+
+    // 5) 接管实例自己的请求完结，才为排队的 B 请求补跑一轮（第 3 次真实请求）。
+    settle("B", planB1);
+    await flush();
+    expect(spy).toHaveBeenCalledTimes(3);
+    settle("B", planB2);
+
+    const [rB1, rB2] = await Promise.all([pB1, pB2]);
+    expect(rB1).toBe("success");
+    expect(rB2).toBe("success");
+    expect(useWorkflowStore.getState().plan).toEqual(planB2);
+    expect(maxInFlight).toBe(2);
+  });
+
   it("求解带上本次请求的交付选择与已确认档位", async () => {
     const spy = vi.spyOn(API, "getWorkflowPlan").mockResolvedValue(makePlan());
     const store = useWorkflowStore.getState();
