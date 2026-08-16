@@ -553,6 +553,7 @@ def test_regenerating_narration_audio_names_the_segments() -> None:
             blocker=None,
         ),
         manifest_active=True,
+        project_dir=None,
     )
 
     for content in (

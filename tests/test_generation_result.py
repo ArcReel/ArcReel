@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -33,6 +35,7 @@ from lib.generation_result import (
     problem_from_task_failure,
     provider_checkpoint_from_task,
     record_batch_outcomes,
+    recorded_artifact_is_present,
     render_generation_result,
     select_generation_targets,
 )
@@ -159,6 +162,72 @@ def test_missing_only_without_manifest_falls_back_to_path_presence() -> None:
 
     assert selection.target_ids == ("A",)
     assert [state.status for state in selection.skipped] == [None]
+
+
+def test_missing_only_without_manifest_reselects_a_recorded_path_whose_file_is_gone(tmp_path: Path) -> None:
+    """旧 schema 项目里登记路径指向的文件被删/被移后，该单元判为缺失而不是被永久复用。"""
+
+    (tmp_path / "videos").mkdir()
+    (tmp_path / "videos" / "kept.mp4").write_bytes(b"x")
+
+    selection = select_generation_targets(
+        candidates=[
+            _candidate("GONE", path="videos/gone.mp4"),
+            _candidate("KEPT", path="videos/kept.mp4"),
+        ],
+        requested_ids=None,
+        resolver=None,
+        project_dir=tmp_path,
+    )
+
+    assert selection.target_ids == ("GONE",)
+    assert [state.unit_id for state in selection.skipped] == ["KEPT"]
+
+
+def test_missing_only_without_manifest_ignores_an_override_when_the_file_is_gone(tmp_path: Path) -> None:
+    """另一条可复用的腿（如手动上传匹配）也救不回磁盘上已经不存在的产物。"""
+
+    selection = select_generation_targets(
+        candidates=[_candidate("A", path="videos/gone.mp4")],
+        requested_ids=None,
+        resolver=None,
+        project_dir=tmp_path,
+        reusable_override=lambda _candidate: True,
+    )
+
+    assert selection.target_ids == ("A",)
+    assert selection.skipped == ()
+
+
+def test_missing_only_with_active_manifest_does_not_recheck_the_filesystem(tmp_path: Path) -> None:
+    """Manifest 激活的项目照旧只信比对结论：磁盘上没有同名文件也不改变判定。"""
+
+    resolver = _Resolver({"A": ArtifactStatus.CURRENT, "B": ArtifactStatus.MISSING})
+
+    selection = select_generation_targets(
+        candidates=[_candidate("A"), _candidate("B")],
+        requested_ids=None,
+        resolver=resolver,  # type: ignore[arg-type]
+        project_dir=tmp_path,
+    )
+
+    assert selection.target_ids == ("B",)
+    assert [state.unit_id for state in selection.skipped] == ["A"]
+
+
+def test_recorded_artifact_is_present_reports_only_the_legacy_branch(tmp_path: Path) -> None:
+    (tmp_path / "videos").mkdir()
+    (tmp_path / "videos" / "x.mp4").write_bytes(b"x")
+    present = GenerationTargetState(candidate=_candidate("A"))
+    absent = GenerationTargetState(candidate=_candidate("A", path="videos/gone.mp4"))
+    unrecorded = GenerationTargetState(candidate=_candidate("A", path=None))
+
+    assert recorded_artifact_is_present(present, manifest_active=False, project_dir=tmp_path) is True
+    assert recorded_artifact_is_present(absent, manifest_active=False, project_dir=tmp_path) is False
+    assert recorded_artifact_is_present(unrecorded, manifest_active=False, project_dir=tmp_path) is False
+    # 无项目目录可解析相对路径时退回登记路径本身，激活 Manifest 时这条不参与判定。
+    assert recorded_artifact_is_present(absent, manifest_active=False, project_dir=None) is True
+    assert recorded_artifact_is_present(absent, manifest_active=True, project_dir=tmp_path) is True
 
 
 def test_observe_artifact_status_separates_unobservable_from_missing() -> None:

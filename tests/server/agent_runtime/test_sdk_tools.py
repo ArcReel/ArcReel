@@ -179,6 +179,10 @@ def fake_ctx(tmp_path: Path) -> ToolContext:
     # Build a storyboard image so video tools can find it.
     (project_dir / "storyboards").mkdir()
     (project_dir / "storyboards" / "scene_E1S01.png").write_bytes(b"")
+    # 旁白夹具登记的音频同样落盘：旧 schema 的复用判定要核实文件确实还在。
+    (project_dir / "audio").mkdir()
+    (project_dir / "audio" / "segment_E1S01.wav").write_bytes(b"")
+    (project_dir / "audio" / "segment_E1S02.wav").write_bytes(b"")
 
     return ToolContext(
         project_name="demo",
@@ -1261,6 +1265,52 @@ async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) ->
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
     assert captured[0].payload["prompt"] == semantic_prompt
+
+
+@pytest.mark.integration
+async def test_generate_storyboards_legacy_project_reverifies_image_file_on_disk(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """预激活 Manifest 的旧项目：剧本登记了分镜图路径但文件不在磁盘上时判为缺口重生；
+    文件真在时照旧复用，不重复付费。"""
+    from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
+
+    # E1S01 的分镜图由 fixture 落在磁盘上；E1S02 只在剧本里登记路径，文件并不存在。
+    fake_ctx.pm.script_payload["segments"].append(  # type: ignore[attr-defined]
+        {
+            "segment_id": "E1S02",
+            "image_prompt": "村口清晨",
+            "novel_text": "清晨的村口。",
+            "video_prompt": {"action": "镜头平移", "camera_motion": "Pan", "ambiance_audio": "鸟鸣"},
+            "duration_seconds": 4,
+            "generated_assets": {"storyboard_image": "storyboards/scene_E1S02.png"},
+        }
+    )
+
+    enqueued: list[str] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
+        from lib.generation_queue_client import BatchTaskResult
+
+        enqueued.extend(spec.resource_id for spec in specs)
+        return [
+            BatchTaskResult(
+                resource_id=spec.resource_id,
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": f"storyboards/scene_{spec.resource_id}.png"},
+            )
+            for spec in specs
+        ], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    out = await _call(generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
+
+    result = _generation_result(out)
+    assert enqueued == ["E1S02"]
+    assert result.succeeded == ["E1S02"]
+    assert [entry.unit_id for entry in result.skipped] == ["E1S01"]
 
 
 @pytest.mark.integration
@@ -2359,6 +2409,8 @@ async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversiz
         }
         for sid in reusable_ids
     ]
+    for sid in reusable_ids:
+        (fake_ctx.project_path / "storyboards" / f"{sid}.png").write_bytes(b"")
 
     async def _gate(_project: dict) -> bool:
         return False
