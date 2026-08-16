@@ -246,7 +246,7 @@ class TestStoryboardGateSkipsEmptyBatches:
 
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _reject)
         tool_obj = mod.generate_video_episode_tool(ctx)
-        out = await tool_obj.handler({"script": "episode_1.json", **args})
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production", **args})
         return {"out": out, "rejected": rejected}
 
     async def test_resume_with_everything_done_reports_completion(self, tmp_path, monkeypatch):
@@ -306,7 +306,7 @@ class TestStoryboardGateEntersAdmission:
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
         tool_obj = mod.generate_video_episode_tool(self._ctx(tmp_path))
-        out = await tool_obj.handler({"script": "episode_1.json"})
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
 
         assert out["batch_admission"]["decision"] == "blocked"
         enqueue.assert_not_awaited()
@@ -329,7 +329,7 @@ class TestStoryboardGateEntersAdmission:
         ctx.pm.script_payload["segments"][0]["video_prompt"] = "   "  # type: ignore[attr-defined]
 
         tool_obj = mod.generate_video_episode_tool(ctx)
-        out = await tool_obj.handler({"script": "episode_1.json"})
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
 
         enqueue.assert_not_awaited()
         assert out["batch_admission"]["decision"] == "blocked"
@@ -353,7 +353,7 @@ class TestStoryboardGateEntersAdmission:
         segments.append({**segments[0]})
 
         tool_obj = mod.generate_video_episode_tool(ctx)
-        out = await tool_obj.handler({"script": "episode_1.json"})
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
 
         enqueue.assert_not_awaited()
         assert out["batch_admission"]["decision"] == "blocked"
@@ -392,7 +392,7 @@ class TestStoryboardGateEntersAdmission:
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
         tool_obj = mod.generate_video_episode_tool(self._ctx(tmp_path))
-        out = await tool_obj.handler({"script": "episode_1.json"})
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
 
         enqueue.assert_not_awaited()
         codes = {
@@ -414,7 +414,7 @@ class TestStoryboardGateEntersAdmission:
         ctx.pm.script_payload["segments"][0]["segment_id"] = ["E1S01"]  # type: ignore[attr-defined]
 
         tool_obj = mod.generate_video_episode_tool(ctx)
-        out = await tool_obj.handler({"script": "episode_1.json"})
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
 
         enqueue.assert_not_awaited()
         assert out["batch_admission"]["decision"] == "blocked"
@@ -437,7 +437,7 @@ class TestStoryboardGateEntersAdmission:
         ctx.pm.script_payload["segments"].insert(0, 42)  # type: ignore[attr-defined]
 
         tool_obj = mod.generate_video_episode_tool(ctx)
-        out = await tool_obj.handler({"script": "episode_1.json"})
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
 
         enqueue.assert_not_awaited()
         assert out["batch_admission"]["decision"] == "blocked"
@@ -462,7 +462,7 @@ class TestStoryboardGateEntersAdmission:
         segments[1]["segment_id"] = "items[0]"
 
         tool_obj = mod.generate_video_episode_tool(ctx)
-        out = await tool_obj.handler({"script": "episode_1.json"})
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
 
         enqueue.assert_not_awaited()
         assert out["batch_admission"]["decision"] == "blocked"
@@ -485,7 +485,9 @@ class TestStoryboardGateEntersAdmission:
         segments.append({**first, "segment_id": "E1S02"})
 
         tool_obj = mod.generate_video_selected_tool(ctx)
-        out = await tool_obj.handler({"script": "episode_1.json", "scene_ids": ["SC1"]})
+        out = await tool_obj.handler(
+            {"script": "episode_1.json", "narration_delivery": "post_production", "scene_ids": ["SC1"]}
+        )
 
         enqueue.assert_not_awaited()
         codes = {
@@ -508,7 +510,9 @@ class TestStoryboardGateEntersAdmission:
         segments[0]["scene_id"] = ["E1S01"]
 
         tool_obj = mod.generate_video_selected_tool(ctx)
-        out = await tool_obj.handler({"script": "episode_1.json", "scene_ids": ["E1S01"]})
+        out = await tool_obj.handler(
+            {"script": "episode_1.json", "narration_delivery": "post_production", "scene_ids": ["E1S01"]}
+        )
 
         # 别名不可用不影响按规范 ID 寻址：不崩、不塌成一句通用报错，该目标照常进入这批。
         assert out.get("is_error") is not True, out
@@ -529,7 +533,9 @@ class TestStoryboardGateEntersAdmission:
         segments.append({**segments[0], "scene_id": "B"})
 
         tool_obj = mod.generate_video_selected_tool(ctx)
-        out = await tool_obj.handler({"script": "episode_1.json", "scene_ids": ["B"]})
+        out = await tool_obj.handler(
+            {"script": "episode_1.json", "narration_delivery": "post_production", "scene_ids": ["B"]}
+        )
 
         enqueue.assert_not_awaited()
         codes = {
@@ -557,7 +563,9 @@ class TestStoryboardGateEntersAdmission:
         segments[0]["scene_id"] = "E1S01"
 
         tool_obj = mod.generate_video_selected_tool(ctx)
-        out = await tool_obj.handler({"script": "episode_1.json", "scene_ids": ["E1S01"]})
+        out = await tool_obj.handler(
+            {"script": "episode_1.json", "narration_delivery": "post_production", "scene_ids": ["E1S01"]}
+        )
 
         enqueue.assert_not_awaited()
         codes = {
@@ -580,7 +588,7 @@ class TestStoryboardGateEntersAdmission:
         segments.append({**segments[0], "segment_id": ""})
 
         tool_obj = mod.generate_video_all_tool(ctx)
-        out = await tool_obj.handler({"script": "episode_1.json"})
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
 
         enqueue.assert_not_awaited()
         assert out["batch_admission"]["decision"] == "blocked"
@@ -605,7 +613,9 @@ class TestStoryboardGateEntersAdmission:
         segments.append({**segments[0]})
 
         tool_obj = mod.generate_video_selected_tool(ctx)
-        out = await tool_obj.handler({"script": "episode_1.json", "scene_ids": ["E1S01"]})
+        out = await tool_obj.handler(
+            {"script": "episode_1.json", "narration_delivery": "post_production", "scene_ids": ["E1S01"]}
+        )
 
         enqueue.assert_not_awaited()
         codes = {

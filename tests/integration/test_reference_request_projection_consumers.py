@@ -311,7 +311,7 @@ async def test_malformed_references_block_all_public_consumers_without_queue_or_
         )
     agent_response = await enqueue_videos.generate_video_episode_tool(
         ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)  # type: ignore[arg-type]
-    ).handler({"script": "ep1.json"})
+    ).handler({"script": "ep1.json", "narration_delivery": "post_production"})
     service = CostEstimationService(ConfigResolver(db_factory), db_factory, project_path=tmp_path)
     quote = await service.compute(project, {"ep1.json": script}, project_name="demo")
     queue_projection = await reference_projection_for_queued_task(

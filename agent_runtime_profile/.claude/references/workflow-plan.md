@@ -112,6 +112,9 @@ mcp__arcreel__get_workflow_plan({
 3. 用户选 `use_tts` → 先**显式生成并让用户试听**旁白音频（`generate-narration-audio` skill），
    再带 `narration_delivery: "use_tts"` 重查计划，按返回的问题码处理：
 
+本字段在计划查询上可选，在 `generate_video_*` 四个工具上**必填**：省略或写错值一律返回工具错误、
+不入队任何任务，也不退回后期配音。凑够必填项不等于做过选择——没问过用户就不要自己填一个值。
+
 每条问题的 `action` 是权威处理方式，下表只是常见码的说明；**照 `problems[].action` 执行，
 不要按 `code` 自己推**：
 
@@ -143,7 +146,8 @@ mcp__arcreel__get_workflow_plan({
   其 `blocked_unit_ids` 指出是被谁挡住的——把这层因果如实说给用户，不要报成它们自己有问题。
 - `decision == "confirmation_required"` 时 `admission.confirmation.tiers[]` 给出按申请档位分组的
   unit 与费用。取得用户确认后，把确认过的档位填进 `confirmed_request_durations`、连同仍成立的
-  `narration_delivery` 一起重查计划；同一对参数在 `generate_video_*` 重发时同样要带全。
+  `narration_delivery` 一起重查计划；同一对参数在 `generate_video_*` 重发时同样要带全，
+  后者漏带 `narration_delivery` 会直接失败。
 - **不要把整批拆成小批去「先跑通过的那半批」。** 那既绕开了全有或全无，也会在补齐后重复提交
   已经付过费的 unit。修掉被拒的 unit，整批重来。
 

@@ -262,13 +262,18 @@ reference_video 模式返回这两个动作。
 dispatch `generate-assets` subagent：
   任务类型：video
   项目名称：{project_name}
-  工具调用：
+  工具调用（两个工具的 narration_delivery 均为必填，填本次已向用户确认的那个值）：
     requested_ids 非空 →
-      mcp__arcreel__generate_video_selected({"script": target.script_filename, "scene_ids": requested_ids})
+      mcp__arcreel__generate_video_selected({"script": target.script_filename, "scene_ids": requested_ids,
+                                             "narration_delivery": chosen_narration_delivery})
     requested_ids 为空 →
-      mcp__arcreel__generate_video_episode({"script": target.script_filename})
+      mcp__arcreel__generate_video_episode({"script": target.script_filename,
+                                            "narration_delivery": chosen_narration_delivery})
   验证方式：重新读取 target.script，检查各场景的 video_clip 字段
 ```
+
+`narration_delivery` 省略或写错值一律返回工具错误、不入队任何任务，也不退回后期配音。凑够必填项
+不等于做过选择：没和用户确认过就先走 `choose_narration_delivery`，不要自己填一个值。
 
 返回后按逐 ID 分账陈述结果（`succeeded` / `failed` / `blocked` / `skipped`），并把 workflow 步骤状态、
 队列任务、provider checkpoint、产物时效四轴**分开说**——「任务成功」不等于「当前产物有效」。

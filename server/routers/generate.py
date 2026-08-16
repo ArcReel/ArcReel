@@ -94,6 +94,13 @@ class GenerateStoryboardRequest(BaseModel):
 
 
 class GenerateVideoRequest(BaseModel):
+    """One single-segment video request.
+
+    交付方式保留默认值：请求由用户在这一段的界面上直接触发，选错的代价限于这一段；
+    收紧为必填的是替整批选定准入判据与时长基准的批量入口与由模型推断参数的智能体
+    视频工具。
+    """
+
     prompt: str | dict
     script_file: str
     duration_seconds: int | None = Field(default=None, gt=0)

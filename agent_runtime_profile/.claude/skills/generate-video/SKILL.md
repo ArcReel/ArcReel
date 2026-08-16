@@ -36,12 +36,14 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 | 操作 | 工具 |
 |------|------|
-| 整集生成（默认） | `mcp__arcreel__generate_video_episode({"script": "episode_1.json"})` |
-| 断点续传 | `mcp__arcreel__generate_video_episode({"script": "episode_1.json", "resume": true})` |
-| 单场景 | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1S01"})` |
-| 批量自选 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1S01", "E1S05", "E1S10"]})` |
-| 自选 + 续传 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": [...], "resume": true})` |
-| 全部待处理（独立模式） | `mcp__arcreel__generate_video_all({"script": "episode_1.json"})` |
+| 整集生成（默认） | `mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": "post_production"})` |
+| 断点续传 | `mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": "post_production", "resume": true})` |
+| 单场景 | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": "post_production"})` |
+| 批量自选 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1S01", "E1S05", "E1S10"], "narration_delivery": "post_production"})` |
+| 自选 + 续传 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": [...], "narration_delivery": "post_production", "resume": true})` |
+| 全部待处理（独立模式） | `mcp__arcreel__generate_video_all({"script": "episode_1.json", "narration_delivery": "post_production"})` |
+
+每次调用都必须带 `narration_delivery`（见「旁白交付」）：省略或写错值一律返回工具错误、不入队任何任务。
 
 把 `scene_id` / `scene_ids` 在 storyboard 路线解释为分镜 ID，在 reference 路线解释为 `unit_id`。集号由剧本元数据或文件名解析。
 
@@ -51,8 +53,8 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 | 操作 | 工具 |
 |------|------|
-| 重新生成单个 unit | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1U2"})` |
-| 重新生成多个 unit | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1U2", "E1U3"]})` |
+| 重新生成单个 unit | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1U2", "narration_delivery": "post_production"})` |
+| 重新生成多个 unit | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1U2", "E1U3"], "narration_delivery": "post_production"})` |
 
 一次调用完成入队、等待与结果回报：
 
@@ -65,15 +67,15 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 ### 旁白交付
 
-叙述旁白有两条交付路线，**每次请求逐次选择、从不持久化**，经 `narration_delivery` 传入：
+叙述旁白有两条交付路线，**每次请求逐次选择、从不持久化**，经 `narration_delivery` 传入，该参数在四个视频工具上均为必填：
 
 | 取值 | 含义 |
 |---|---|
-| `post_production`（默认） | 后期配音：视频照常生成，旁白留到剪映等后期工具里补 |
+| `post_production` | 后期配音：视频照常生成，旁白留到剪映等后期工具里补 |
 | `use_tts` | 使用当前 TTS：按 fresh 旁白音频的实际媒体时长参与时长求解 |
 
-对每次叙述旁白视频请求都要**显式向用户说明并选择**，不要默默沿用上一次。未配置 TTS 时默认走
-后期配音——那不是工作流缺口，视频照常成片，**不要为了让视频继续而建议用户去配置 TTS 供应商**。
+对每次叙述旁白视频请求都要**显式向用户说明并选择**，不要默默沿用上一次，也不要在没问过用户时
+直接填 `post_production` 凑够必填项。未配置 TTS 时用户通常选后期配音——那不是工作流缺口，视频照常成片，**不要为了让视频继续而建议用户去配置 TTS 供应商**。
 选 `use_tts` 时先显式生成并让用户试听旁白（`generate-narration-audio`），再按预检返回的
 `problems[].action` 处理——**action 是权威，不要按 `code` 自己推**：`tts_missing` 先生成、
 `tts_stale` / `tts_duration_unavailable` 先重新合成（旧音频保留）、`tts_generating` 与
@@ -90,8 +92,8 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 按 unit 的引用状态选择生效档位，把编排时长投影到能容纳内容的申请档位。申请档位不同于当前视觉时长时
 预检返回 `reference_duration_confirmation_required`，逐档位向用户说明涉及的 unit、编排秒数、申请秒数
 与变长/变短；确认后经 `confirmed_request_durations`（按 unit_id 记档位）让**原目标集合仍作为一批重发**。
-重发要连同本次请求已选的 `narration_delivery` 一起带上——该参数不持久化，省略即按 `post_production` 处理，
-会把用户选的「使用当前 TTS」悄悄换掉：
+重发要连同本次请求已选的 `narration_delivery` 一起带上——该参数不持久化，省略会让重发直接失败，
+不会退回后期配音把用户选的「使用当前 TTS」悄悄换掉：
 
 ```text
 mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": "use_tts",

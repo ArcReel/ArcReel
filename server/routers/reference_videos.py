@@ -121,6 +121,14 @@ class AddUnitRequest(BaseModel):
 
 
 class GenerateUnitRequest(BaseModel):
+    """One single-unit video request.
+
+    交付方式在这里保留默认值：请求由用户在这条 unit 的界面上直接触发，界面已呈现该 unit
+    当前的旁白状态与费用，省略即等于沿用界面上的后期配音默认，代价也止于这一条视频。
+    收紧为必填的是替整批选定准入判据与时长基准的入口（``GenerateUnitsBatchRequest``）
+    与由模型推断参数的智能体视频工具。
+    """
+
     narration_delivery: NarrationDelivery = POST_PRODUCTION
     confirmed_request_duration_seconds: int | None = Field(default=None, gt=0)
 

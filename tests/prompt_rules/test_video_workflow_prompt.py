@@ -160,6 +160,18 @@ def test_plan_reference_states_both_narration_delivery_options() -> None:
     assert "从不持久化" in content
 
 
+def test_prompts_state_that_the_video_tools_require_a_declared_delivery() -> None:
+    """工具侧已把交付方式收紧为必填，prompt 不能还在描述「省略即后期配音」。"""
+
+    plan_reference = _reference(WORKFLOW_PLAN_REFERENCE)
+    video_skill = (PROFILE / ".claude" / "skills" / "generate-video" / "SKILL.md").read_text(encoding="utf-8")
+
+    for content in (plan_reference, video_skill):
+        assert "必填" in content
+        assert "不入队任何任务" in content
+        assert "省略即按 `post_production` 处理" not in content
+
+
 def test_reference_route_skips_only_storyboard_images() -> None:
     for path in (WORKFLOW_PLAN_REFERENCE, REFERENCES / "generation-modes.md"):
         content = _reference(path)
@@ -399,10 +411,11 @@ def test_ad_workflow_regenerates_named_reference_units_with_selected_tool() -> N
     content = _skill("SKILL.ad.md")
 
     assert (
-        'mcp__arcreel__generate_video_selected({"script": target.script_filename, "scene_ids": requested_ids})'
-        in content
+        'mcp__arcreel__generate_video_selected({"script": target.script_filename, "scene_ids": requested_ids, '
+        '"narration_delivery": chosen_narration_delivery})' in content
     )
     assert "`requested_ids` 为空时才调 `mcp__arcreel__generate_video_episode" in content
+    assert "`narration_delivery` 必填" in content
 
 
 def test_asset_analysis_records_completion_fact() -> None:
@@ -439,13 +452,15 @@ def test_narration_audio_skill_routes_by_problem_action_not_by_code() -> None:
 
 @pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
 def test_variants_carry_the_delivery_choice_into_the_confirmed_resend(filename: str) -> None:
-    """`narration_delivery` 不持久化，重发漏带即静默退回 post_production。"""
+    """`narration_delivery` 不持久化，重发漏带即失败，不退回 post_production。"""
 
     content = _skill(filename)
 
     assert "confirmed_request_durations" in content
     assert "`narration_delivery`" in content
     assert "problems[].action" in content
+    assert "必填" in content
+    assert "不要自己填" in content or "不要自己填一个值" in content
 
 
 def test_video_skill_resend_example_keeps_the_delivery_choice() -> None:
