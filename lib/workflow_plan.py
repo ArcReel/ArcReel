@@ -274,11 +274,14 @@ def build_workflow_plan(
 
     delivery_step = by_id["narration_delivery"]
     delivery_index = next(index for index, item in enumerate(rules) if item.id == "narration_delivery")
-    if not structure_problems:
-        if narration_delivery is not None and current_index >= delivery_index:
-            delivery_step.state = WorkflowStepState.COMPLETED
-        elif narration_delivery is None and current_index >= delivery_index:
-            delivery_step.state = WorkflowStepState.READY
+    if not structure_problems and current_index >= delivery_index:
+        # 音轨产物 blocked 只对本次选择 TTS 的请求成立：后期配音路径不消费 TTS 产物，
+        # 交付选择尚未作出时两条路径都还开放，两种情况都不该被音轨阻断吞掉。
+        tts_blocked = narration_delivery == USE_TTS and delivery_step.state is WorkflowStepState.BLOCKED
+        if not tts_blocked:
+            delivery_step.state = (
+                WorkflowStepState.COMPLETED if narration_delivery is not None else WorkflowStepState.READY
+            )
 
     for observation in task_observations:
         step_id = _TASK_STEP.get(observation.task_type)

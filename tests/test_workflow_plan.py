@@ -164,6 +164,28 @@ def test_post_production_keeps_video_executable_when_tts_is_missing() -> None:
     assert plan.next_action == status.next_action
 
 
+def _status_with_blocked_audio() -> WorkflowStatus:
+    status = _status()
+    artifacts = dict(status.artifacts)
+    artifacts["audio"] = {"state": "blocked", "current_ids": [], "stale_ids": [], "missing_ids": ["E1S01"]}
+    return status.model_copy(update={"artifacts": artifacts})
+
+
+def test_blocked_audio_artifact_survives_the_delivery_step_projection() -> None:
+    plan = build_workflow_plan(_status_with_blocked_audio(), narration_delivery=USE_TTS)
+
+    assert _step(plan, "narration_delivery").state is WorkflowStepState.BLOCKED
+    assert _step(plan, "narration_delivery").artifacts["state"] == "blocked"
+
+
+@pytest.mark.parametrize("delivery", [POST_PRODUCTION, None])
+def test_blocked_audio_artifact_does_not_block_the_post_production_path(delivery: NarrationDelivery | None) -> None:
+    plan = build_workflow_plan(_status_with_blocked_audio(), narration_delivery=delivery)
+
+    expected = WorkflowStepState.COMPLETED if delivery is not None else WorkflowStepState.READY
+    assert _step(plan, "narration_delivery").state is expected
+
+
 def test_use_tts_preserves_structured_admission_blockers() -> None:
     problem = GenerationProblem(
         code="tts_missing",
