@@ -10,6 +10,7 @@ profile's own prose and only guard that the instruction has not been dropped.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from lib.generation_result import GenerationAction, GenerationItemState, Generat
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS, NarrationTtsStatus
 from lib.profile_manifest import VALID_CONTENT_MODES, resolve_profile_files_for_mode
 from lib.workflow_rules import WORKFLOW_RULES
+from lib.workflow_state import WorkflowTarget
 from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 
 pytestmark = pytest.mark.unit
@@ -316,6 +318,26 @@ def test_asset_and_storyboard_routes_forward_authoritative_arguments(filename: s
     if filename != "SKILL.ad.md":
         assert "names = artifacts.asset_sheets[type].missing_ids ∩ requested_ids" in content
         assert "若 names 为空 → 跳过，不 dispatch；不得回退到整类 missing_ids" in content
+
+
+def test_plan_reference_documents_every_target_field_and_the_two_script_forms() -> None:
+    """两个剧本字段一个是可读路径、一个是工具入参裸名，漏掉任一都会让 agent 选错。"""
+
+    content = WORKFLOW_PLAN_REFERENCE.read_text(encoding="utf-8")
+
+    for field in WorkflowTarget.model_fields:
+        assert f"`{field}`" in content
+    assert "`script` 是相对项目根的剧本路径" in content
+    assert "所有 `mcp__arcreel__*` 工具的 `script` 参数用它" in content
+
+
+@pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
+def test_variants_read_the_script_by_path_and_call_tools_by_bare_filename(filename: str) -> None:
+    content = _skill(filename)
+
+    assert "target.script_filename" in content
+    assert not re.search(r'"script":\s*target\.script(?!_filename)', content)
+    assert re.search(r"(Read|读取)\s*`?target\.script`?(?!_filename)", content)
 
 
 @pytest.mark.parametrize("filename", EPISODIC_VARIANTS)

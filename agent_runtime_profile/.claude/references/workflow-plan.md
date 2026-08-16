@@ -42,7 +42,9 @@ mcp__arcreel__get_workflow_plan({
 ## 受控动作表
 
 按 `next_action.type` 路由，把 `target.episode`、`next_action.args` 与 `requested_ids` 原样带入。
-`plan.status.target` 提供 `episode` 与 `script_filename`。
+`plan.status.target` 提供 `episode`、`script`、`script_filename`、`source`。两个剧本字段不可互换：
+`script` 是相对项目根的剧本路径（`scripts/episode_N.json`），用 Read 读剧本内容时用它；
+`script_filename` 是剥掉 `scripts/` 前缀的裸文件名，所有 `mcp__arcreel__*` 工具的 `script` 参数用它。
 
 | `next_action.type` | 执行入口 |
 |---|---|
