@@ -69,7 +69,7 @@ def _candidate(unit_id: str, *, path: str | None = "videos/x.mp4") -> Generation
 # --- selection -------------------------------------------------------------
 
 
-def test_missing_only_selects_missing_and_reuses_stale() -> None:
+def test_missing_only_selects_missing_and_reuses_stale(tmp_path: Path) -> None:
     """stale 可用即复用：只有 missing 进 targets，stale 与 current 都进 skipped。"""
 
     resolver = _Resolver(
@@ -84,7 +84,7 @@ def test_missing_only_selects_missing_and_reuses_stale() -> None:
         candidates=[_candidate("A"), _candidate("B"), _candidate("C")],
         requested_ids=None,
         resolver=resolver,  # type: ignore[arg-type]
-        project_dir=None,
+        project_dir=tmp_path,
     )
 
     assert selection.mode is GenerationSelectionMode.MISSING_ONLY
@@ -93,7 +93,7 @@ def test_missing_only_selects_missing_and_reuses_stale() -> None:
     assert selection.unavailable == ()
 
 
-def test_missing_only_never_regenerates_a_blocked_artifact() -> None:
+def test_missing_only_never_regenerates_a_blocked_artifact(tmp_path: Path) -> None:
     """产物状态读不出来时报为独立缺口，绝不当作 missing 去重付一次费。"""
 
     resolver = _Resolver({"A": ArtifactStatus.MISSING}, raises={"B"})
@@ -102,7 +102,7 @@ def test_missing_only_never_regenerates_a_blocked_artifact() -> None:
         candidates=[_candidate("A"), _candidate("B")],
         requested_ids=None,
         resolver=resolver,  # type: ignore[arg-type]
-        project_dir=None,
+        project_dir=tmp_path,
     )
 
     assert selection.target_ids == ("A",)
@@ -116,7 +116,7 @@ def test_missing_only_never_regenerates_a_blocked_artifact() -> None:
     assert problem.action is GenerationAction.REPAIR_ARTIFACT_STATE
 
 
-def test_explicit_selection_takes_named_ids_regardless_of_state() -> None:
+def test_explicit_selection_takes_named_ids_regardless_of_state(tmp_path: Path) -> None:
     """点名即强制：current 的 ID 照样进 targets，未命中的 ID 单列为 unmatched。"""
 
     resolver = _Resolver({"A": ArtifactStatus.CURRENT, "B": ArtifactStatus.MISSING})
@@ -125,7 +125,7 @@ def test_explicit_selection_takes_named_ids_regardless_of_state() -> None:
         candidates=[_candidate("A"), _candidate("B")],
         requested_ids=["A", "ZZ"],
         resolver=resolver,  # type: ignore[arg-type]
-        project_dir=None,
+        project_dir=tmp_path,
     )
 
     assert selection.mode is GenerationSelectionMode.EXPLICIT
@@ -134,11 +134,11 @@ def test_explicit_selection_takes_named_ids_regardless_of_state() -> None:
     assert selection.skipped == ()
 
 
-def test_explicit_empty_collection_is_invalid_not_everything() -> None:
+def test_explicit_empty_collection_is_invalid_not_everything(tmp_path: Path) -> None:
     """显式空集合是调用方错误：既不等于「全部」，也不静默变成空批次。"""
 
     with pytest.raises(ValueError, match="不能为空"):
-        select_generation_targets(candidates=[_candidate("A")], requested_ids=[], resolver=None, project_dir=None)
+        select_generation_targets(candidates=[_candidate("A")], requested_ids=[], resolver=None, project_dir=tmp_path)
 
 
 def test_normalize_requested_ids_is_the_single_gate_for_selection_intent() -> None:
@@ -148,20 +148,6 @@ def test_normalize_requested_ids_is_the_single_gate_for_selection_intent() -> No
         normalize_requested_ids([], field="names")
     with pytest.raises(ValueError, match="必须是 ID 数组"):
         normalize_requested_ids("A", field="names")
-
-
-def test_missing_only_without_manifest_falls_back_to_path_presence() -> None:
-    """Manifest 未激活时产物状态不可观测，只能按「剧本里有没有登记路径」判缺。"""
-
-    selection = select_generation_targets(
-        candidates=[_candidate("A", path=None), _candidate("B")],
-        requested_ids=None,
-        resolver=None,
-        project_dir=None,
-    )
-
-    assert selection.target_ids == ("A",)
-    assert [state.status for state in selection.skipped] == [None]
 
 
 def test_missing_only_without_manifest_reselects_a_recorded_path_whose_file_is_gone(tmp_path: Path) -> None:
@@ -182,6 +168,8 @@ def test_missing_only_without_manifest_reselects_a_recorded_path_whose_file_is_g
 
     assert selection.target_ids == ("GONE",)
     assert [state.unit_id for state in selection.skipped] == ["KEPT"]
+    # Manifest 未激活时产物状态不可观测：复用与否只由登记路径与磁盘共同决定。
+    assert [state.status for state in selection.skipped] == [None]
 
 
 def test_missing_only_without_manifest_ignores_an_override_when_the_file_is_gone(tmp_path: Path) -> None:
@@ -225,8 +213,7 @@ def test_recorded_artifact_is_present_reports_only_the_legacy_branch(tmp_path: P
     assert recorded_artifact_is_present(present, manifest_active=False, project_dir=tmp_path) is True
     assert recorded_artifact_is_present(absent, manifest_active=False, project_dir=tmp_path) is False
     assert recorded_artifact_is_present(unrecorded, manifest_active=False, project_dir=tmp_path) is False
-    # 无项目目录可解析相对路径时退回登记路径本身，激活 Manifest 时这条不参与判定。
-    assert recorded_artifact_is_present(absent, manifest_active=False, project_dir=None) is True
+    # 激活 Manifest 时这条不参与判定：比对结论已经拒绝了不存在的文件。
     assert recorded_artifact_is_present(absent, manifest_active=True, project_dir=tmp_path) is True
 
 
@@ -254,9 +241,11 @@ def test_observe_artifact_status_separates_unobservable_from_missing() -> None:
         (ArtifactStatus.BLOCKED, False),
     ],
 )
-def test_artifact_is_reusable_treats_stale_as_usable(status: ArtifactStatus, expected: bool) -> None:
+def test_artifact_is_reusable_treats_stale_as_usable(
+    status: ArtifactStatus, expected: bool, tmp_path: Path
+) -> None:
     state = GenerationTargetState(candidate=_candidate("A"), status=status)
-    assert artifact_is_reusable(state, manifest_active=True, project_dir=None) is expected
+    assert artifact_is_reusable(state, manifest_active=True, project_dir=tmp_path) is expected
 
 
 # --- result identity -------------------------------------------------------
