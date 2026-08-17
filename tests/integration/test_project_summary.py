@@ -17,6 +17,7 @@ from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
 from lib.project_migrations.runner import migrate_project_with_verdict
 from lib.resource_paths import resource_relative_path
+from lib.source_revision import SourceRevisionResult, compute_source_revision
 from lib.workflow_state import WorkflowStateService
 from tests.integration.test_workflow_state import (
     _complete_episode_media,
@@ -240,7 +241,7 @@ def test_summary_never_reads_the_source_corpus(tmp_path: Path, monkeypatch: pyte
 
     分集原文（``source/episode_N.txt``）是另一回事——它是产物清单重建 step1 基线的输入，
     每集至多读一次，与工作台比对同一件产物付的代价相同。这条断言把两者分开钉住：
-    一旦有人为了算阶段又去读整本源文，它就会红。
+    一旦有人为了算阶段又去读整本源文、或为了修订号做全量 sha256，它就会红。
     """
 
     pm, project_path = _make_project(tmp_path, "narration")
@@ -248,10 +249,21 @@ def test_summary_never_reads_the_source_corpus(tmp_path: Path, monkeypatch: pyte
     _write_source_and_complete(pm, project_path, source_text)
     _episode_with_media(pm, project_path, source_text)
 
+    revision_calls: list[Path] = []
+
+    def _spy(project_path: Path, *args: object, **kwargs: object) -> SourceRevisionResult:
+        revision_calls.append(project_path)
+        return compute_source_revision(project_path, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr("lib.workflow_state.compute_source_revision", _spy)
     source_reads = _count_source_reads(monkeypatch, project_path)
     summary = WorkflowStateService(pm).get_project_summary("demo")
 
     assert summary.phase == "completed"
+    # 整本源文（含 source/ 直下其余文件）一次不读，修订号也不算。
+    assert revision_calls == []
+    assert "novel.txt" not in source_reads
+    # 分集原文每集至多一次：产物清单比对 step1 基线的必需读。
     assert source_reads == {"episode_1.txt": 1}
 
 
