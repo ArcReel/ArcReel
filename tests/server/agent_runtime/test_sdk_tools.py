@@ -8417,27 +8417,58 @@ async def test_generate_episode_script_reference_legacy_md_hints_resplit(fake_ct
 
 
 @pytest.mark.integration
-async def test_generate_video_episode_reports_a_rolled_back_batch_enqueue(fake_ctx: ToolContext, monkeypatch) -> None:
-    """整批入队中断后不假装成功：已撤销与未撤销的任务数都写进失败信封。"""
-    from lib.generation_queue_client import BatchEnqueueAborted
+async def test_generate_video_episode_reports_an_interrupted_batch_enqueue_per_id(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """入队中断逐 ID 报告：建成的算 succeeded，没轮到的带「入队中断」问题码且未计费。"""
+    from lib.generation_queue_client import BatchTaskResult
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    async def _abort(**_kwargs):
-        raise BatchEnqueueAborted(
-            resource_id="E1S02",
-            error="queue unavailable",
-            rolled_back=("t1",),
-            orphaned=(),
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": "E1S01", "novel_text": "第一段旁白。", "video_prompt": "第一镜"},
+        {"segment_id": "E1S02", "novel_text": "第二段旁白。", "video_prompt": "第二镜"},
+    ]
+    project_dir = fake_ctx.pm.get_project_path("demo")
+    for segment_id in ("E1S01", "E1S02"):
+        image = project_dir / "storyboards" / f"scene_{segment_id}.png"
+        image.write_bytes(b"png")
+        for item in fake_ctx.pm.script_payload["segments"]:  # type: ignore[attr-defined]
+            if item["segment_id"] == segment_id:
+                item["generated_assets"] = {"storyboard_image": f"storyboards/scene_{segment_id}.png"}
+
+    async def _interrupted(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
+        success = BatchTaskResult(
+            resource_id="E1S01",
+            task_id="t1",
+            status="succeeded",
+            result={"file_path": "videos/E1S01.mp4"},
+        )
+        if on_success is not None:
+            on_success(success)
+        return (
+            [success],
+            [
+                BatchTaskResult(
+                    resource_id="E1S02",
+                    task_id="",
+                    status="failed",
+                    error="queue unavailable",
+                    enqueue_interrupted=True,
+                )
+            ],
         )
 
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _abort)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _interrupted)
 
     out = await _call(generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
 
-    assert out["is_error"] is True
-    text = out["content"][0]["text"]
-    assert "已回滚 1 个任务" in text
-    assert "未回滚 0 个" in text
+    payload = out["generation_result"]
+    assert payload["succeeded"] == ["E1S01"]
+    assert payload["failed"] == ["E1S02"]
+    failed_item = next(item for item in payload["items"] if item["unit_id"] == "E1S02")
+    assert failed_item["problem"]["code"] == "generation_enqueue_interrupted"
+    assert failed_item["task_state"] == "not_queued"
+    assert failed_item["task_id"] is None
 
 
 @pytest.mark.integration

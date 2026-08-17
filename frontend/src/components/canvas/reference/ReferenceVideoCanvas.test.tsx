@@ -62,6 +62,7 @@ function mkAdmission(patch: Record<string, unknown> = {}) {
     skipped_unit_ids: [],
     task_ids: ["t9"],
     task_ids_by_unit: { E1U1: "t9" },
+    enqueue_failures: [],
     deduped: false,
     ...patch,
   } as never;

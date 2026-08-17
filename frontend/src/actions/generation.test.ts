@@ -366,6 +366,7 @@ describe("enqueueReferenceVideoBatch", () => {
     units: [],
     confirmation: null,
     skipped_unit_ids: [],
+    enqueue_failures: [],
     deduped: false,
   };
 
@@ -424,6 +425,35 @@ describe("enqueueReferenceVideoBatch", () => {
 
     expect(occupied("demo", "reference_video", "E1U1")).toBe(false);
     expect(occupied("demo", "reference_video", "E1U2")).toBe(true);
+  });
+
+  // 入队中断不撤销已建的任务：建成的单元继续占用等自己的任务行，没轮到的单元让位，
+  // 并且用户要听到「少了几个」，否则只看到成功提示会以为整批都在跑。
+  it("入队中断时只保留已建任务的占用标记并提示未创建的单元", async () => {
+    vi.spyOn(API, "generateReferenceVideoBatch").mockResolvedValue({
+      ...ADMISSION,
+      decision: "admitted",
+      task_ids: ["t1"],
+      task_ids_by_unit: { E1U1: "t1" },
+      enqueue_failures: [
+        {
+          unit_id: "E1U2",
+          problem: { code: "generation_enqueue_interrupted", action: "retry", detail: "queue down" },
+        },
+      ],
+    } as never);
+
+    const res = await enqueueReferenceVideoBatch("demo", 1, {
+      narration_delivery: "post_production",
+      unit_ids: ["E1U1", "E1U2"],
+    });
+
+    expect(res.enqueue_failures).toHaveLength(1);
+    expect(occupied("demo", "reference_video", "E1U1")).toBe(true);
+    expect(occupied("demo", "reference_video", "E1U2")).toBe(false);
+    expect(useAppStore.getState().toast?.text).toBe(
+      i18n.t("dashboard:reference_batch_enqueue_interrupted", { count: 1 }),
+    );
   });
 
   // confirmation_required / blocked 一个任务也没建：占用标记必须整批回滚，

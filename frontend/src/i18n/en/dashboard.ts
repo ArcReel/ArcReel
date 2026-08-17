@@ -1132,6 +1132,8 @@ export default {
   'reference_duration_batch_summary': '{{count}} units will use a different video duration tier:',
   'reference_duration_precheck_failed_one': 'Could not check the length for {{count}} unit; it was not queued. Try again.',
   'reference_duration_precheck_failed_other': 'Could not check the length for {{count}} units; they were not queued. Try again.',
+  'reference_batch_enqueue_interrupted_one': 'Enqueue was interrupted: {{count}} unit got no task this time. The tasks already queued keep running, and a retry queues what is missing.',
+  'reference_batch_enqueue_interrupted_other': 'Enqueue was interrupted: {{count}} units got no task this time. The tasks already queued keep running, and a retry queues what is missing.',
   'reference_batch_queued_one': 'Queued {{count}} video generation task',
   'reference_batch_queued_other': 'Queued {{count}} video generation tasks',
   'reference_batch_confirm_title': 'Confirm the lengths for this batch',

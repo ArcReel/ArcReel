@@ -86,7 +86,11 @@ MESSAGES = {
     "generation_unit_request_invalid": "This unit's request content is invalid; fix it and retry",
     "generation_artifact_state_unavailable": "This unit's artifact state cannot be read; repair it and retry",
     "ref_batch_empty_selection": "Batch generation needs at least one video unit selected",
-    "ref_batch_enqueue_aborted": 'Batch enqueue stopped at unit "{unit_id}" and the tasks it created were rolled back; please retry',
+    "generation_enqueue_failed": "No task could be created for this unit; please retry",
+    "generation_enqueue_interrupted": (
+        "Batch enqueue was interrupted before this unit got a task; the tasks already created keep "
+        "running, and a retry only queues what is still missing"
+    ),
     "video_supported_durations_missing": "The selected video model does not declare supported duration tiers",
     "video_prompt_must_be_string_or_action_object": "prompt must be a string or an object containing action/camera_motion",
     "video_prompt_action_empty": "prompt.action cannot be empty",

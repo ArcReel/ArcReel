@@ -339,6 +339,18 @@ export async function enqueueReferenceVideoBatch(
       i18n.t("dashboard:reference_batch_queued", { count: res.task_ids.length }),
       "info",
     );
+    // 入队中断不撤销已建的任务，所以「建了几个」与「哪些没建」要一起说：只报成功数
+    // 会让用户以为整批都在跑，回头发现少了几条却不知道为什么。
+    if (res.enqueue_failures.length > 0) {
+      useAppStore
+        .getState()
+        .pushToast(
+          i18n.t("dashboard:reference_batch_enqueue_interrupted", {
+            count: res.enqueue_failures.length,
+          }),
+          "error",
+        );
+    }
   }
   return res;
 }

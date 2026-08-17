@@ -1131,6 +1131,8 @@ export default {
   'reference_duration_batch_summary': '{{count}} 个单元将改用不同的视频时长档位：',
   'reference_duration_precheck_failed_one': '{{count}} 个单元的时长核对失败，未加入队列，请重试',
   'reference_duration_precheck_failed_other': '{{count}} 个单元的时长核对失败，未加入队列，请重试',
+  'reference_batch_enqueue_interrupted_one': '入队中断，{{count}} 个单元本次未创建任务；已提交的任务照常执行，重试会补上未创建的部分',
+  'reference_batch_enqueue_interrupted_other': '入队中断，{{count}} 个单元本次未创建任务；已提交的任务照常执行，重试会补上未创建的部分',
   'reference_batch_queued_one': '已提交 {{count}} 个视频生成任务',
   'reference_batch_queued_other': '已提交 {{count}} 个视频生成任务',
   'reference_batch_confirm_title': '确认批量生成的时长档位',
