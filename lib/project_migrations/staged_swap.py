@@ -75,12 +75,16 @@ def staging_project_name(dir_name: str) -> str | None:
 
 
 def _candidate_dirs(projects_root: Path) -> list[Path]:
-    """projects_root 下可参与命名反解的子目录：真目录、排除符号链接。"""
+    """projects_root 下可参与命名反解的子目录：真目录、排除符号链接。
+
+    合法命名一律以 ``.`` 开头，字符串前缀过滤先行、短路掉非候选项的 ``is_dir``/``is_symlink``
+    系统调用——启动期无条件扫描整个 projects_root，项目数多或文件系统慢（网络挂载、Docker
+    共享目录）时这两次 stat 调用的量级会被放大。"""
     try:
         children = sorted(projects_root.iterdir())
     except OSError:
         return []
-    return [child for child in children if child.is_dir() and not child.is_symlink()]
+    return [child for child in children if child.name.startswith(".") and child.is_dir() and not child.is_symlink()]
 
 
 def reclaim_interrupted_swaps(projects_root: Path) -> list[str]:
