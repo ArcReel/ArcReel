@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { API } from "@/api";
+import { useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { WorkflowPanel } from "./WorkflowPanel";
-import { makePlan, makeStep } from "@/test/factories";
+import { makePlan, makeStep, makeTask } from "@/test/factories";
 import type { WorkflowPlan } from "@/types/workflow";
 
 function mockPlan(plan: WorkflowPlan) {
@@ -461,5 +462,71 @@ describe("WorkflowPanel 布局与展开", () => {
     expect(summary.className).toContain("flex-wrap");
     // 摘要文本在窄屏下截断而不是把整行撑宽
     expect(summary.querySelector(".truncate")).not.toBeNull();
+  });
+});
+
+
+describe("WorkflowPanel 刷新纪律", () => {
+  beforeEach(() => {
+    useTasksStore.getState().setTasks([]);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    useTasksStore.getState().setTasks([]);
+  });
+
+  /** 推进指定毫秒数的定时器。 */
+  async function advanceDebounce(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  /** 推过防抖窗口，把待发布的指纹变化结算掉。 */
+  async function settleDebounce() {
+    await advanceDebounce(400);
+  }
+
+  it("别的项目的任务状态跳变不惊动本项目的计划", async () => {
+    const spy = mockPlan(makePlan());
+    render(<WorkflowPanel projectName="proj" episode={1} />);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      useTasksStore
+        .getState()
+        .setTasks([makeTask({ task_id: "other-1", project_name: "another", status: "queued" })]);
+    });
+    act(() => {
+      useTasksStore
+        .getState()
+        .setTasks([makeTask({ task_id: "other-1", project_name: "another", status: "succeeded" })]);
+    });
+    await settleDebounce();
+
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("本项目任务连续跳状态时合并为一次求解", async () => {
+    const spy = mockPlan(makePlan());
+    render(<WorkflowPanel projectName="proj" episode={1} />);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+
+    for (const status of ["queued", "running", "succeeded"] as const) {
+      act(() => {
+        useTasksStore
+          .getState()
+          .setTasks([makeTask({ task_id: "t1", project_name: "proj", status })]);
+      });
+    }
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    await advanceDebounce(249);
+    expect(spy).toHaveBeenCalledTimes(1);
+    await advanceDebounce(1);
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
   });
 });

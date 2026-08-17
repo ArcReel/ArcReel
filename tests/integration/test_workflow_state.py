@@ -15,7 +15,7 @@ from lib.project_manager import ProjectManager
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from lib.source_revision import SourceScope, compute_source_revision
 from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
-from lib.workflow_state import WorkflowStateService
+from lib.workflow_state import WorkflowStateService, planning_docs
 
 
 def _make_project(
@@ -468,6 +468,49 @@ def test_unplanned_source_with_legacy_episode_without_source_range_requires_full
     assert status.next_action.args == {"from_episode": 1}
 
 
+def _count_source_reads(monkeypatch: pytest.MonkeyPatch, project_path: Path) -> dict[str, int]:
+    """记录 ``source/`` 直下每份源文被读取的次数，字节与文本两条读法都算。"""
+
+    counts: dict[str, int] = {}
+    source_dir = (project_path / "source").resolve()
+    original_read_bytes = Path.read_bytes
+    original_read_text = Path.read_text
+
+    def _record(path: Path) -> None:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            return
+        if resolved.parent == source_dir:
+            counts[resolved.name] = counts.get(resolved.name, 0) + 1
+
+    def _counted_read_bytes(self: Path) -> bytes:
+        _record(self)
+        return original_read_bytes(self)
+
+    def _counted_read_text(self: Path, *args: object, **kwargs: object) -> str:
+        _record(self)
+        return original_read_text(self, *args, **kwargs)  # pyright: ignore[reportArgumentType, reportCallIssue]
+
+    monkeypatch.setattr(Path, "read_bytes", _counted_read_bytes)
+    monkeypatch.setattr(Path, "read_text", _counted_read_text)
+    return counts
+
+
+@pytest.mark.integration
+def test_status_reads_each_source_file_exactly_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """修订号计算与分集排布共用同一次读取；源文越多，重复读的代价越大。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    (project_path / "source" / "novel.txt").write_text("第一份原文", encoding="utf-8")
+    (project_path / "source" / "extra.md").write_text("第二份原文", encoding="utf-8")
+
+    source_reads = _count_source_reads(monkeypatch, project_path)
+    WorkflowStateService(pm).get_status("demo")
+
+    assert source_reads == {"novel.txt": 1, "extra.md": 1}
+
+
 @pytest.mark.integration
 def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -512,10 +555,8 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     load_calls = 0
     source_inventory_calls = 0
     asset_sheet_calls = 0
-    source_discovery_calls = 0
     original_source_inventory = WorkflowStateService._source_inventory
     original_asset_sheets = WorkflowStateService._asset_sheets
-    original_discover_sources = discover_sources
 
     def _counted_load_project(project_name: str) -> dict:
         nonlocal load_calls
@@ -532,21 +573,16 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
         asset_sheet_calls += 1
         return original_asset_sheets(*args, **kwargs)
 
-    def _counted_discover_sources(*args, **kwargs):
-        nonlocal source_discovery_calls
-        source_discovery_calls += 1
-        return original_discover_sources(*args, **kwargs)
-
     monkeypatch.setattr(pm, "load_project_readonly", _counted_load_project)
     monkeypatch.setattr(WorkflowStateService, "_source_inventory", _counted_source_inventory)
     monkeypatch.setattr(WorkflowStateService, "_asset_sheets", _counted_asset_sheets)
-    monkeypatch.setattr("lib.workflow_state.discover_sources", _counted_discover_sources)
+    source_reads = _count_source_reads(monkeypatch, project_path)
     status = WorkflowStateService(pm).get_status("demo")
 
     assert load_calls == 1
     assert source_inventory_calls == 1
     assert asset_sheet_calls == 1
-    assert source_discovery_calls == 1
+    assert source_reads == {"novel.txt": 1}
     assert status.target is not None
     assert status.target.episode == 2
     assert status.state == "STEP1_CONTENT"
@@ -1638,7 +1674,7 @@ def test_planning_completion_resolves_nfc_cursor_to_nfd_filesystem_path(tmp_path
     project["planning_cursor"] = {"source_file": source.files[-1], "offset": 4}
     project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
 
-    assert WorkflowStateService._planning_complete(project_path, project, source) is True
+    assert WorkflowStateService._planning_complete(project, source, planning_docs(source)) is True
 
 
 @pytest.mark.integration
@@ -1651,7 +1687,7 @@ def test_planning_without_source_fingerprint_baseline_is_incomplete(tmp_path: Pa
     assert source.revision is not None
     project["planning_cursor"] = {"source_file": source.files[-1], "offset": 4}
 
-    assert WorkflowStateService._planning_complete(project_path, project, source) is False
+    assert WorkflowStateService._planning_complete(project, source, planning_docs(source)) is False
 
 
 @pytest.mark.integration
@@ -1691,7 +1727,7 @@ def test_planning_completion_preserves_planner_order_for_canonical_paths(tmp_pat
     project["planning_cursor"] = {"source_file": docs[-1].rel_path, "offset": len(docs[-1].text)}
     project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(docs)
 
-    assert WorkflowStateService._planning_complete(project_path, project, source) is True
+    assert WorkflowStateService._planning_complete(project, source, planning_docs(source)) is True
 
 
 @pytest.mark.integration

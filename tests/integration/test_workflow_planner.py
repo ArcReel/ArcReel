@@ -11,7 +11,13 @@ from lib.generation_result import GenerationSelectionMode
 from lib.narration_delivery import POST_PRODUCTION
 from lib.project_manager import ProjectManager
 from lib.workflow_plan import WorkflowPlanRequest, WorkflowStepState
-from lib.workflow_state import WorkflowNextAction, WorkflowProject, WorkflowStatus, WorkflowTarget
+from lib.workflow_state import (
+    WorkflowActionType,
+    WorkflowNextAction,
+    WorkflowProject,
+    WorkflowStatus,
+    WorkflowTarget,
+)
 from server.services import video_batch_admission, workflow_planner
 
 pytestmark = pytest.mark.integration
@@ -46,7 +52,7 @@ def _status(*, state: str = "VIDEO", action: str = "generate_videos") -> Workflo
                 "audio": {"current_ids": [], "stale_ids": [], "missing_ids": ["E1S01"]},
             },
             "next_action": WorkflowNextAction(
-                type=action,
+                type=WorkflowActionType(action),
                 requested_ids=["E1S01"],
                 reason="next",
             ),

@@ -155,6 +155,7 @@ export default {
   'action_patch_episode_script': 'sửa các trường kịch bản được liệt kê bên dưới',
   'action_choose_narration_delivery': 'chọn cách đưa lời dẫn cho lô này',
   'action_export': 'xuất tập đã hoàn thành',
+  'action_retry_project_migration': 'sửa các tệp dự án được báo cáo rồi thử lại việc nâng cấp dữ liệu',
 
   // ---- Tóm tắt vấn đề ----
   'problem_generation_unit_not_found': 'Đơn vị này không còn trong kịch bản.',

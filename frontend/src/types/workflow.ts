@@ -35,10 +35,43 @@ export type GenerationTaskState =
   | "interrupted";
 
 /**
- * 后端给出的下一步动作标识。取值是开放集合（编排层会派生动态类型），
- * 界面按已知值分派、其余走兜底陈述，不做穷举断言。
+ * 后端给出的下一步动作标识的闭集，与 `lib/workflow_state.py` 的 `WorkflowActionType`
+ * 一一对应，后端契约测试守住两侧同步。列成运行时数组而不只是类型，是为了让译文覆盖
+ * 检查能逐个遍历：新增动作没配文案时测试直接红，而不是静默落到兜底陈述。
  */
-export type WorkflowActionType = string;
+export const WORKFLOW_ACTION_TYPES = [
+  "none",
+  "collect_project_input",
+  "draft_selling_points",
+  "analyze_assets",
+  "plan_episodes",
+  "reset_episode_planning",
+  "prepare_step1",
+  "confirm_step1",
+  "generate_script",
+  "generate_asset_sheets",
+  "generate_storyboards",
+  "generate_grid",
+  "repair_video_units",
+  "generate_videos",
+  "export",
+  "retry_project_migration",
+  "patch_episode_script",
+  "choose_narration_delivery",
+  "retry",
+  "resume",
+  "fix_input",
+  "generate_dependency",
+  "generate_tts",
+  "regenerate_tts",
+  "wait_for_task",
+  "replan_unit",
+  "confirm_request_duration",
+  "configure_provider",
+  "repair_artifact_state",
+] as const;
+
+export type WorkflowActionType = (typeof WORKFLOW_ACTION_TYPES)[number];
 
 export interface WorkflowNextAction {
   type: WorkflowActionType;
