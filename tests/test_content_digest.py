@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from lib.content_digest import (
+    CHUNK_BYTES,
     HASH_ALGORITHM,
     canonical_json,
     canonical_json_bytes,
@@ -26,10 +27,10 @@ pytestmark = pytest.mark.unit
 
 
 def test_sha256_file_streams_large_payload(tmp_path: Path) -> None:
-    """流式读避免大文件 OOM；结果应与标准 hashlib 一致。"""
+    """流式读避免大文件 OOM；跨 CHUNK_BYTES 边界的多块读取结果应与标准 hashlib 一致。"""
 
     big = tmp_path / "big.bin"
-    payload = b"abc" * (256 * 1024)
+    payload = b"abc" * (CHUNK_BYTES // len(b"abc") + 1)
     big.write_bytes(payload)
     assert sha256_file(big) == hashlib.sha256(payload).hexdigest()
 
