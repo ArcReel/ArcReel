@@ -102,11 +102,16 @@ def reclaim_interrupted_swaps(projects_root: Path) -> list[str]:
         candidates.append((mtime, child, name))
 
     reclaimed: list[str] = []
-    # 同一项目有多个 rollback 目录时取最新的——它才是最后一次交换的原树。
+    attempted: set[str] = set()
+    # 同一项目有多个 rollback 目录时取最新的——它才是最后一次交换的原树。最新候选改回失败时，
+    # 不得继续尝试更旧的候选：那代表更早一次交换前的数据，恢复它会用陈旧内容覆盖认领结果。
     for _mtime, rollback, name in sorted(candidates, key=lambda item: item[0], reverse=True):
+        if name in attempted:
+            continue
         project_dir = projects_root / name
         if project_dir.exists():
             continue
+        attempted.add(name)
         try:
             os.replace(rollback, project_dir)
         except OSError:

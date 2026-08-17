@@ -133,6 +133,49 @@ def test_reclaim_ignores_dirs_outside_the_naming_convention(tmp_projects: Path) 
     assert not (tmp_projects / "demo").exists()
 
 
+def test_reclaim_ignores_short_hex_suffix_with_correct_infix(tmp_projects: Path) -> None:
+    """`.demo.v6-rollback-deadbeef` 后缀是合法十六进制但只有 8 位，不是 uuid4().hex 定长产物。
+
+    仅校验字符集会把它误判为本约定的 rollback 目录，进而被启动恢复错误改回、或被清理端删除。
+    """
+    lookalike = tmp_projects / ".demo.v6-rollback-deadbeef"
+    lookalike.mkdir()
+
+    assert rollback_project_name(lookalike.name) is None
+    assert reclaim_interrupted_swaps(tmp_projects) == []
+    assert lookalike.is_dir()
+    assert not (tmp_projects / "demo").exists()
+
+    _age(lookalike, _EIGHT_DAYS)
+    cleanup_stale_backups(tmp_projects, max_age_days=7)
+    assert lookalike.is_dir()
+
+
+def test_reclaim_does_not_fall_back_to_an_older_rollback_when_the_newest_fails(tmp_projects: Path, monkeypatch) -> None:
+    """最新 rollback 改回失败时不得继续尝试更旧的候选：那是更早一次交换前的陈旧数据。"""
+    older = _swap_dir(tmp_projects, "demo", rollback=True)
+    older.mkdir()
+    (older / "marker.txt").write_text("older", encoding="utf-8")
+    _age(older, _EIGHT_DAYS)
+    newer = _swap_dir(tmp_projects, "demo", rollback=True)
+    newer.mkdir()
+    (newer / "marker.txt").write_text("newer", encoding="utf-8")
+
+    real_replace = os.replace
+
+    def _flaky_replace(src, dst):
+        if Path(src) == newer:
+            raise OSError("simulated failure")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr("lib.project_migrations.staged_swap.os.replace", _flaky_replace)
+
+    assert reclaim_interrupted_swaps(tmp_projects) == []
+    assert not (tmp_projects / "demo").exists()
+    assert newer.is_dir()
+    assert older.is_dir()
+
+
 def test_swap_dir_names_round_trip_project_names_containing_dots() -> None:
     assert rollback_project_name(".my.show.v6-rollback-" + "a" * 32) == "my.show"
     assert staging_project_name(".my.show.v6-" + "b" * 32) == "my.show"
