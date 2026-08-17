@@ -54,7 +54,7 @@ video-workflow skill 被加载后，SHALL 调用 `mcp__arcreel__get_workflow_pla
 
 ### Requirement: dispatch 参数取自计划，不由编排 skill 推导
 
-主 agent dispatch subagent 时，任务参数（目标集、预处理器、待处理的资源 ID）SHALL 取自 `next_action.args` 与 `requested_ids`；上下文只传文件路径与关键参数，原文正文由 subagent 自行读取，不进主 agent context。
+主 agent dispatch subagent 时，任务参数 SHALL 按具体动作区分来源：目标集、预处理器等动作专属参数取自该动作的 `next_action.args`；待处理的资源 ID 在计划交回 `requested_ids` 时取自该字段——并非每个动作都会携带这一字段。上下文只传文件路径与关键参数，原文正文由 subagent 自行读取，不进主 agent context。
 
 #### Scenario: dispatch 资产提取 subagent
 - **WHEN** 主 agent dispatch `analyze-assets`
