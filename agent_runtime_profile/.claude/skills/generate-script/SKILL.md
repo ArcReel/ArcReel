@@ -53,7 +53,7 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
    - reference_video（narration/drama 下）→ `ReferenceVideoScript`（含 `video_units[]`）
    - narration → step2 走两段式：LLM 的 `response_schema` 是 `NarrationVisualEpisodeScript`（仅 `segment_id` + image_prompt + video_prompt），后端按 `segment_id` 把视觉层合并回 step1 的结构化片段（novel_text / 时长 / segment_break / 出场角色 / 场景 / 道具透传），得到完整 `NarrationEpisodeScript`。novel_text 不进 LLM 输出 → 不发生扩写漂移
    - drama（storyboard，含 grid_storyboard）→ **两段式**：LLM 输出 `DramaVisualScript`（仅 `scene_id` + image_prompt + video_prompt），后端按 scene_id 把视觉层合并回 step1 已定稿内容（`step1_normalized_script.json` 的 utterances / source_text / 出场资产 / 时长 / 边界透传不变），合并结果即 `DramaEpisodeScript`。非视觉字段不进 LLM 输出，从工程上杜绝其经 Structured Outputs 漂移（见 ADR 0041）
-6. **补充元数据** — `episode`、`content_mode`、`novel`（项目 title + `第N集`）、统计信息（片段 / 场景 / unit 数、总时长）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（compose-video 的 mp4 文件名、剪映草稿等）。
+6. **补充元数据** — `episode`、`content_mode`、`novel`（项目 title + `第N集`）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（compose-video 的 mp4 文件名、剪映草稿等）。
    - 注：**任何骨架的剧本都不写入顶层 `generation_mode`**。生成路线是项目级事实（`project.json` 的 `generation_mode`，创建时锁定），剧本骨架种类本身即路线的体现；消费方一律读 `project.json` 分派，不得从剧本上找该字段。
 
 ## 输出格式

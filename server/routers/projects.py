@@ -204,8 +204,9 @@ class CreateProjectRequest(BaseModel):
 class EpisodePatch(BaseModel):
     """PATCH body entry for a single episode.
 
-    Only whitelisted fields persist; computed fields (scenes_count, status,
-    storyboards, etc.) are silently dropped via extra='ignore'.
+    The declared fields are the writable set; derived fields the API serves on
+    episodes (scenes_count, status, storyboards, etc.) are not declared here and
+    are silently dropped via extra='ignore', so they can never be written back.
     """
 
     model_config = ConfigDict(extra="ignore")

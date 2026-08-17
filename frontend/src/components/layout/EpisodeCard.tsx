@@ -157,7 +157,10 @@ export function EpisodeCard({
             </>
           )}
           {staleCount > 0 && (
-            <span className="num inline-flex items-center gap-1 text-[10.5px] text-warm-bright">
+            <span
+              className="num inline-flex items-center gap-1 text-[10.5px] text-warm-bright"
+              title={t("episode_stale_artifacts", { count: staleCount })}
+            >
               <span
                 aria-hidden
                 className="h-[5px] w-[5px] rounded-full"
