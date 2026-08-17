@@ -631,7 +631,6 @@ def _storyboard_visual_basis_digest(
     try:
         storyboard_file, end_frame_file = resolve_storyboard_video_inputs(
             project_path=project_path,
-            project=project,
             resource_id=resource_id,
             item=item,
         )

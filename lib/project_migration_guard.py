@@ -1,10 +1,10 @@
 """Refuse work on a project whose schema migration has not finished.
 
-The verdict written by the migration runner blocks generation, not reading: the
-project keeps opening, its scripts keep loading and the artifacts already on the
-canvas stay visible. What is closed is every path that would create new work on
-inputs the migration itself refused — the user should not pay for output derived
-from a state the system cannot vouch for.
+The verdict blocks generation, not reading: the project keeps opening, its
+scripts keep loading and the artifacts already on the canvas stay visible. What
+is closed is every path that would create new work on inputs the system cannot
+vouch for — a chain that failed, or one that never carried the project to the
+current schema at all.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from lib.project_manager import ProjectManager, get_project_manager
 from lib.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     MigrationFailureRecord,
-    load_migration_failure,
+    load_migration_verdict,
 )
 
 
@@ -33,7 +33,7 @@ def project_migration_failure(project_name: str, pm: ProjectManager | None = Non
         # A project that cannot be located is not blocked by migration; the caller's
         # own not-found handling owns that verdict.
         return None
-    return load_migration_failure(project_dir)
+    return load_migration_verdict(project_dir)
 
 
 def assert_project_migration_ok(project_name: str) -> None:

@@ -50,7 +50,6 @@ from lib.episode_ledger import (
 )
 from lib.formal_write import formal_write_transaction
 from lib.project_manager import ProjectManager
-from lib.project_schema import project_schema_is_current
 
 logger = logging.getLogger(__name__)
 
@@ -496,23 +495,22 @@ def reset_episode_planning(
             p["episodes"] = []
             p["planning_cursor"] = None
             p.pop(SOURCE_FINGERPRINTS_KEY, None)
-        if project_schema_is_current(p):
-            try:
-                snapshot = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
-            except ArtifactManifestError:
-                if from_episode != 1:
-                    raise
-                # Full planning reset is the zero-precondition recovery path.
-                # An unreadable Manifest proves no current claim, so replace its
-                # complete state with an empty valid snapshot during commit.
-                recover_unreadable_manifest = True
-            else:
-                manifest_expected = {
-                    key: entry
-                    for key, entry in snapshot.items()
-                    if key.episode_number is not None and (from_episode == 1 or key.episode_number >= from_episode)
-                }
-                manifest_removals = dict.fromkeys(manifest_expected)
+        try:
+            snapshot = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
+        except ArtifactManifestError:
+            if from_episode != 1:
+                raise
+            # Full planning reset is the zero-precondition recovery path.
+            # An unreadable Manifest proves no current claim, so replace its
+            # complete state with an empty valid snapshot during commit.
+            recover_unreadable_manifest = True
+        else:
+            manifest_expected = {
+                key: entry
+                for key, entry in snapshot.items()
+                if key.episode_number is not None and (from_episode == 1 or key.episode_number >= from_episode)
+            }
+            manifest_removals = dict.fromkeys(manifest_expected)
         commit_plan = current
 
     def _commit_side_effects(_project_file: Path) -> None:

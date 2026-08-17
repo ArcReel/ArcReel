@@ -35,7 +35,6 @@ from lib.generation_result import (
     problem_from_task_failure,
     provider_checkpoint_from_task,
     record_batch_outcomes,
-    recorded_artifact_is_present,
     render_generation_result,
     select_generation_targets,
 )
@@ -84,7 +83,6 @@ def test_missing_only_selects_missing_and_reuses_stale(tmp_path: Path) -> None:
         candidates=[_candidate("A"), _candidate("B"), _candidate("C")],
         requested_ids=None,
         resolver=resolver,  # type: ignore[arg-type]
-        project_dir=tmp_path,
     )
 
     assert selection.mode is GenerationSelectionMode.MISSING_ONLY
@@ -102,7 +100,6 @@ def test_missing_only_never_regenerates_a_blocked_artifact(tmp_path: Path) -> No
         candidates=[_candidate("A"), _candidate("B")],
         requested_ids=None,
         resolver=resolver,  # type: ignore[arg-type]
-        project_dir=tmp_path,
     )
 
     assert selection.target_ids == ("A",)
@@ -125,7 +122,6 @@ def test_explicit_selection_takes_named_ids_regardless_of_state(tmp_path: Path) 
         candidates=[_candidate("A"), _candidate("B")],
         requested_ids=["A", "ZZ"],
         resolver=resolver,  # type: ignore[arg-type]
-        project_dir=tmp_path,
     )
 
     assert selection.mode is GenerationSelectionMode.EXPLICIT
@@ -138,7 +134,11 @@ def test_explicit_empty_collection_is_invalid_not_everything(tmp_path: Path) -> 
     """显式空集合是调用方错误：既不等于「全部」，也不静默变成空批次。"""
 
     with pytest.raises(ValueError, match="不能为空"):
-        select_generation_targets(candidates=[_candidate("A")], requested_ids=[], resolver=None, project_dir=tmp_path)
+        select_generation_targets(
+            candidates=[_candidate("A")],
+            requested_ids=[],
+            resolver=_Resolver({}),  # type: ignore[arg-type]
+        )
 
 
 def test_normalize_requested_ids_is_the_single_gate_for_selection_intent() -> None:
@@ -150,11 +150,12 @@ def test_normalize_requested_ids_is_the_single_gate_for_selection_intent() -> No
         normalize_requested_ids("A", field="names")
 
 
-def test_missing_only_without_manifest_reselects_a_recorded_path_whose_file_is_gone(tmp_path: Path) -> None:
-    """旧 schema 项目里登记路径指向的文件被删/被移后，该单元判为缺失而不是被永久复用。"""
+def test_missing_only_reselects_a_recorded_path_the_manifest_no_longer_claims(tmp_path: Path) -> None:
+    """登记路径指向的文件被删/被移后，比对报 MISSING，该单元判为缺失而不是被永久复用。"""
 
     (tmp_path / "videos").mkdir()
     (tmp_path / "videos" / "kept.mp4").write_bytes(b"x")
+    resolver = _Resolver({"GONE": ArtifactStatus.MISSING, "KEPT": ArtifactStatus.CURRENT})
 
     selection = select_generation_targets(
         candidates=[
@@ -162,33 +163,31 @@ def test_missing_only_without_manifest_reselects_a_recorded_path_whose_file_is_g
             _candidate("KEPT", path="videos/kept.mp4"),
         ],
         requested_ids=None,
-        resolver=None,
-        project_dir=tmp_path,
+        resolver=resolver,  # type: ignore[arg-type]
     )
 
     assert selection.target_ids == ("GONE",)
     assert [state.unit_id for state in selection.skipped] == ["KEPT"]
-    # Manifest 未激活时产物状态不可观测：复用与否只由登记路径与磁盘共同决定。
-    assert [state.status for state in selection.skipped] == [None]
 
 
-def test_missing_only_without_manifest_ignores_an_override_when_the_file_is_gone(tmp_path: Path) -> None:
-    """另一条可复用的腿（如手动上传匹配）也救不回磁盘上已经不存在的产物。"""
+def test_missing_only_admits_an_override_leg_without_rechecking_the_filesystem(tmp_path: Path) -> None:
+    """另一条可复用的腿（如精确匹配的手动上传）独立成立，不再叠加一次文件存在性复核。"""
+
+    resolver = _Resolver({"A": ArtifactStatus.MISSING})
 
     selection = select_generation_targets(
         candidates=[_candidate("A", path="videos/gone.mp4")],
         requested_ids=None,
-        resolver=None,
-        project_dir=tmp_path,
+        resolver=resolver,  # type: ignore[arg-type]
         reusable_override=lambda _candidate: True,
     )
 
-    assert selection.target_ids == ("A",)
-    assert selection.skipped == ()
+    assert selection.target_ids == ()
+    assert [state.unit_id for state in selection.skipped] == ["A"]
 
 
-def test_missing_only_with_active_manifest_does_not_recheck_the_filesystem(tmp_path: Path) -> None:
-    """Manifest 激活的项目照旧只信比对结论：磁盘上没有同名文件也不改变判定。"""
+def test_missing_only_does_not_recheck_the_filesystem(tmp_path: Path) -> None:
+    """只信比对结论：磁盘上没有同名文件也不改变判定。"""
 
     resolver = _Resolver({"A": ArtifactStatus.CURRENT, "B": ArtifactStatus.MISSING})
 
@@ -196,48 +195,30 @@ def test_missing_only_with_active_manifest_does_not_recheck_the_filesystem(tmp_p
         candidates=[_candidate("A"), _candidate("B")],
         requested_ids=None,
         resolver=resolver,  # type: ignore[arg-type]
-        project_dir=tmp_path,
     )
 
     assert selection.target_ids == ("B",)
     assert [state.unit_id for state in selection.skipped] == ["A"]
 
 
-def test_recorded_artifact_is_present_reports_only_the_legacy_branch(tmp_path: Path) -> None:
-    (tmp_path / "videos").mkdir()
-    (tmp_path / "videos" / "x.mp4").write_bytes(b"x")
-    present = GenerationTargetState(candidate=_candidate("A"))
-    absent = GenerationTargetState(candidate=_candidate("A", path="videos/gone.mp4"))
-    unrecorded = GenerationTargetState(candidate=_candidate("A", path=None))
-
-    assert recorded_artifact_is_present(present, manifest_active=False, project_dir=tmp_path) is True
-    assert recorded_artifact_is_present(absent, manifest_active=False, project_dir=tmp_path) is False
-    assert recorded_artifact_is_present(unrecorded, manifest_active=False, project_dir=tmp_path) is False
-    # 激活 Manifest 时这条不参与判定：比对结论已经拒绝了不存在的文件。
-    assert recorded_artifact_is_present(absent, manifest_active=True, project_dir=tmp_path) is True
-
-
-def test_recorded_artifact_is_present_rejects_paths_the_manifest_would_refuse(tmp_path: Path) -> None:
-    project_dir = tmp_path / "project"
-    (project_dir / "videos").mkdir(parents=True)
-    (project_dir / "videos" / "x.mp4").write_bytes(b"x")
-    outside = tmp_path / "outside.mp4"
-    outside.write_bytes(b"x")
-
-    escaping = GenerationTargetState(candidate=_candidate("A", path="../outside.mp4"))
-    absolute = GenerationTargetState(candidate=_candidate("A", path=str(outside)))
-    directory = GenerationTargetState(candidate=_candidate("A", path="videos"))
-
-    assert recorded_artifact_is_present(escaping, manifest_active=False, project_dir=project_dir) is False
-    assert recorded_artifact_is_present(absolute, manifest_active=False, project_dir=project_dir) is False
-    assert recorded_artifact_is_present(directory, manifest_active=False, project_dir=project_dir) is False
-
-
 def test_observe_artifact_status_separates_unobservable_from_missing() -> None:
     key = ArtifactKey.episode_video(1, "A")
+    resolver = _Resolver({"A": ArtifactStatus.CURRENT})
 
-    assert observe_artifact_status(resolver=None, key=key, artifact_path="videos/a.mp4") == (None, None)
-    assert observe_artifact_status(resolver=None, key=key, artifact_path=None)[0] is ArtifactStatus.MISSING
+    # 没有 key 可比对的单元：该轴不可观测，与「缺失」不是一回事。
+    assert observe_artifact_status(
+        resolver=resolver,  # type: ignore[arg-type]
+        key=None,
+        artifact_path="videos/a.mp4",
+    ) == (None, None)
+    assert (
+        observe_artifact_status(
+            resolver=resolver,  # type: ignore[arg-type]
+            key=key,
+            artifact_path=None,
+        )[0]
+        is ArtifactStatus.MISSING
+    )
 
     status, blocker = observe_artifact_status(
         resolver=_Resolver({}, raises={"A"}),  # type: ignore[arg-type]
@@ -259,7 +240,7 @@ def test_observe_artifact_status_separates_unobservable_from_missing() -> None:
 )
 def test_artifact_is_reusable_treats_stale_as_usable(status: ArtifactStatus, expected: bool, tmp_path: Path) -> None:
     state = GenerationTargetState(candidate=_candidate("A"), status=status)
-    assert artifact_is_reusable(state, manifest_active=True, project_dir=tmp_path) is expected
+    assert artifact_is_reusable(state) is expected
 
 
 # --- result identity -------------------------------------------------------

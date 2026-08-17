@@ -74,7 +74,7 @@ def _resolve_request_artifact_episode(
     project: dict,
     script: dict,
     script_file: str,
-) -> int | None:
+) -> int:
     """Validate the submitted script's live project binding before enqueue."""
 
     with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=script_file)):
@@ -516,8 +516,6 @@ async def generate_tts_batch(
         items, id_field, kind = resolve_items(script)
         episode = _resolve_request_artifact_episode(_project, script, req.script_file)
         currency = active_artifact_currency_resolver(pm_local.get_project_path(project_name), _project)
-        if currency is not None and episode is None:
-            raise ValueError("script episode must be a positive integer")
         missing: list[str] = []
         for item in items:
             admission = admit_script_unit(kind, item)
@@ -528,9 +526,7 @@ async def generate_tts_batch(
             seg_id = item.get(id_field)
             if seg_id and not artifact_is_usable(
                 currency,
-                ArtifactKey.episode_audio(episode, str(seg_id))
-                if currency is not None and episode is not None
-                else None,
+                ArtifactKey.episode_audio(episode, str(seg_id)),
                 get_generated_assets(item).get("narration_audio"),
             ):
                 missing.append(str(seg_id))

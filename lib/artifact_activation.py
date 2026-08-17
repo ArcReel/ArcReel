@@ -969,7 +969,6 @@ class _Planner:
                     version_metadata=record,
                     current_tts_settings=self._selected_audio_settings(versions, episode, resource_id),
                     resolve_audio_manifest_entry=self.entries.get if self._activation_mode else None,
-                    allow_legacy_storyboard_same_name=False,
                 )
         except (KeyError, OSError, TypeError, ValueError):
             return
@@ -1624,7 +1623,7 @@ def reconcile_artifact_target_claims(
     """
 
     requested = tuple(dict.fromkeys(keys))
-    if not requested or not _artifact_manifest_is_active(project_dir):
+    if not requested:
         return False
 
     storage = adapter or ProjectArtifactManifestAdapter(project_dir)
@@ -1850,10 +1849,22 @@ class EpisodeScriptInput:
 def active_artifact_currency_resolver(
     project_dir: Path,
     project: Mapping[str, Any],
-) -> ArtifactCurrencyResolver | None:
-    """Return the active resolver, preserving legacy selection before schema 8."""
+) -> ArtifactCurrencyResolver:
+    """Return the resolver, refusing a project short of the current schema.
 
-    return ArtifactCurrencyResolver(project_dir) if project_schema_is_current(project) else None
+    The Manifest is the only reading rule for produced artifacts. A project that
+    never reached the current schema has no backfilled claims to read, so it is
+    refused with the migration verdict instead of being served from filesystem
+    existence.
+    """
+
+    if not project_schema_is_current(project):
+        raise ProjectMigrationError(
+            f"project schema v{parse_project_schema_version(project)} "
+            f"did not reach v{CURRENT_PROJECT_SCHEMA_VERSION}",
+            file="project.json",
+        )
+    return ArtifactCurrencyResolver(project_dir)
 
 
 def resolve_artifact_episode(
@@ -1861,28 +1872,21 @@ def resolve_artifact_episode(
     project: Mapping[str, object],
     script: dict[str, Any],
     script_filename: str,
-) -> int | None:
-    """Resolve the Manifest episode identity while preserving legacy fallback.
+) -> int:
+    """Resolve the Manifest episode identity of one bound script.
 
-    Active projects require a positive identity, but the canonical filename is
-    valid evidence when the script omits its redundant top-level field. Before
-    activation, ``None`` tells callers to retain their historical episode-1
-    behavior without weakening the schema-8 gate.
+    A positive identity bound in ``project.json`` is required: the canonical
+    filename is valid evidence when the script omits its redundant top-level
+    field, but an unbound or unreadable identity is refused rather than guessed.
     """
 
     from lib.project_manager import ProjectManager, resolve_episode_script_binding
 
-    try:
-        episode = ProjectManager.resolve_episode_from_script(script, script_filename)
-        if episode < 1:
-            raise ValueError("script episode must be a positive integer")
-    except ValueError:
-        if project_schema_is_current(project):
-            raise
-        return None
+    episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+    if episode < 1:
+        raise ValueError("script episode must be a positive integer")
     if (
-        project_schema_is_current(project)
-        and resolve_episode_script_binding(
+        resolve_episode_script_binding(
             project,
             episode,
             script_filename,
@@ -1900,15 +1904,11 @@ def resolve_usable_episode_script_input(
     project: Mapping[str, object],
     script: dict[str, Any],
     script_filename: str,
-    legacy_episode_fallback: int | None = None,
 ) -> EpisodeScriptInput:
     """Resolve one bound episode script through the shared formal-input seam.
 
-    Legacy projects still admit the script that the caller already loaded, while
-    retaining its typed identity in case schema activation wins before provider
-    submission. Callers with a historical noncanonical filename can supply their
-    established legacy episode identity. Active projects require the exact bound
-    script claim immediately and never use that fallback.
+    The exact bound script claim is required: an identity that is not registered
+    in the Manifest is refused rather than admitted on the caller's word.
     """
 
     from lib.project_manager import ProjectManager
@@ -1918,12 +1918,6 @@ def resolve_usable_episode_script_input(
         script=script,
         script_filename=script_filename,
     )
-    if episode is None:
-        episode = (
-            ProjectManager.resolve_episode_from_script(script, script_filename)
-            if legacy_episode_fallback is None
-            else legacy_episode_fallback
-        )
     artifact_path = _normalize_script_binding(ProjectManager.normalize_script_filename(script_filename))
     content_bytes, content_digest = _artifact_content_snapshot(
         ProjectArtifactManifestAdapter(project_path),
@@ -1944,23 +1938,18 @@ def resolve_usable_episode_script_input(
 
 
 def artifact_is_usable(
-    resolver: ArtifactCurrencyResolver | None,
-    key: ArtifactKey | None,
+    resolver: ArtifactCurrencyResolver,
+    key: ArtifactKey,
     artifact_path: object,
 ) -> bool:
     """Classify selection eligibility without treating stale artifacts as missing.
 
-    Before activation, callers retain their historical metadata-pointer behavior.
-    Once active, only Manifest current/stale entries are usable; a blocked
-    comparison fails loud so a damaged sidecar cannot trigger paid regeneration.
+    Only Manifest current/stale entries are usable; a blocked comparison fails
+    loud so a damaged sidecar cannot trigger paid regeneration.
     """
 
     if not isinstance(artifact_path, str) or not artifact_path:
         return False
-    if resolver is None:
-        return True
-    if key is None:
-        raise ValueError("an ArtifactKey is required for active currency")
     comparison = resolver.compare(key, artifact_path=artifact_path)
     if comparison.status is ArtifactStatus.BLOCKED:
         assert comparison.blocker is not None
@@ -1970,7 +1959,7 @@ def artifact_is_usable(
 
 def artifact_input_is_usable(
     *,
-    resolver: ArtifactCurrencyResolver | None,
+    resolver: ArtifactCurrencyResolver,
     key: ArtifactKey,
     artifact_path: str,
     claims: list[ArtifactInputClaim] | None,
@@ -1991,22 +1980,17 @@ def artifact_input_is_usable(
 
 def resolve_usable_artifact_input_claim(
     *,
-    resolver: ArtifactCurrencyResolver | None,
+    resolver: ArtifactCurrencyResolver,
     key: ArtifactKey,
     artifact_path: str,
     content_digest: str | None = None,
 ) -> ArtifactInputClaim | None:
-    """Return recheck evidence for one usable formal input in either schema.
+    """Return recheck evidence for one usable formal input.
 
-    Legacy selection still uses filesystem ownership, but retaining the logical
-    key and exact path lets a provider-boundary check apply a Manifest that was
-    activated while the task awaited provider configuration or staging.
+    Retaining the logical key and the exact registered path lets the
+    provider-boundary check recheck the identical claim that was selected.
     """
 
-    if resolver is None:
-        if not artifact_is_usable(resolver, key, artifact_path):
-            return None
-        return ArtifactInputClaim(key=key, artifact_path=artifact_path, content_digest=content_digest)
     entry = resolver.resolve_usable_entry(key, artifact_path=artifact_path)
     if entry is None:
         return None
@@ -2027,19 +2011,15 @@ def resolve_usable_artifact_input_claim(
 def snapshot_usable_artifact_input_claim(
     *,
     project_path: Path,
-    resolver: ArtifactCurrencyResolver | None,
+    resolver: ArtifactCurrencyResolver,
     key: ArtifactKey,
     artifact_path: str,
     content_digest: str | None = None,
 ) -> ArtifactInputClaim | None:
-    """Select one formal input and freeze its byte identity in every schema."""
+    """Select one formal input and freeze its byte identity."""
 
     if content_digest is None:
-        content_digest = (
-            resolver.artifact_content_digest(artifact_path)
-            if resolver is not None
-            else _artifact_content_digest(ProjectArtifactManifestAdapter(project_path), artifact_path)
-        )
+        content_digest = resolver.artifact_content_digest(artifact_path)
     return resolve_usable_artifact_input_claim(
         resolver=resolver,
         key=key,
@@ -2051,7 +2031,7 @@ def snapshot_usable_artifact_input_claim(
 def bind_artifact_input_claims_to_frozen_visuals(
     *,
     project_path: Path,
-    resolver: ArtifactCurrencyResolver | None,
+    resolver: ArtifactCurrencyResolver,
     claims: Sequence[ArtifactInputClaim],
     source_references: Sequence[VisualReference],
     frozen_references: Sequence[VisualReference],
@@ -2082,7 +2062,7 @@ def bind_artifact_input_claims_to_frozen_visuals(
 
 def bind_artifact_input_claims_to_content_digests(
     *,
-    resolver: ArtifactCurrencyResolver | None,
+    resolver: ArtifactCurrencyResolver,
     claims: Sequence[ArtifactInputClaim],
     content_digests: Mapping[str, str],
 ) -> tuple[ArtifactInputClaim, ...]:
@@ -2116,8 +2096,6 @@ def assert_artifact_input_claims_usable(
     if not claims:
         return
     resolver = active_artifact_currency_resolver(project_path, project)
-    if resolver is None:
-        raise RuntimeError("formal artifact input claims require an active Artifact Manifest")
     for claim in claims:
         if claim.basis_digest is None:
             if not artifact_is_usable(resolver, claim.key, claim.artifact_path):
@@ -2148,12 +2126,11 @@ def assert_current_artifact_input_claims_usable(
     project_path: Path,
     claims: Sequence[ArtifactInputClaim],
 ) -> None:
-    """Recheck frozen input identities against one current schema snapshot.
+    """Recheck frozen input identities against one committed project snapshot.
 
-    The project lock serializes this read with schema activation and formal
-    metadata writes. Legacy projects retain their filesystem admission rule;
-    once schema 8 wins the lock, every frozen formal identity must have a
-    current or stale Manifest claim before a paid provider can be called.
+    The project lock serializes this read with formal metadata writes, so every
+    frozen formal identity must still hold a current or stale Manifest claim
+    before a paid provider can be called.
     """
 
     if not claims:
@@ -2166,15 +2143,6 @@ def assert_current_artifact_input_claims_usable(
             raise ValueError("project.json is not valid UTF-8 JSON") from exc
         if not isinstance(project, Mapping):
             raise ValueError("project.json must contain an object")
-        if not project_schema_is_current(project):
-            adapter = ProjectArtifactManifestAdapter(project_path)
-            for claim in claims:
-                if claim.content_digest is not None:
-                    _assert_input_claim_content_unchanged(
-                        claim,
-                        _artifact_content_digest(adapter, claim.artifact_path),
-                    )
-            return
         assert_artifact_input_claims_usable(project_path, project, claims)
 
 
@@ -2187,16 +2155,13 @@ def resolve_usable_storyboard_video_inputs(
     item: dict[str, object],
     resolver: ArtifactCurrencyResolver | None = None,
     claims: list[ArtifactInputClaim] | None = None,
-    allow_legacy_same_name: bool | None = None,
 ) -> tuple[Path, Path | None]:
     """Resolve video inputs and retain active-Manifest recheck evidence."""
 
     storyboard_file, end_frame = resolve_storyboard_video_inputs(
         project_path=project_path,
-        project=project,
         resource_id=resource_id,
         item=item,
-        allow_legacy_same_name=allow_legacy_same_name,
     )
     if resolver is None:
         resolver = active_artifact_currency_resolver(project_path, project)
@@ -2273,8 +2238,6 @@ def prepare_episode_script_manifest_commit(
     the same formal-write transaction that selects the script bytes.
     """
 
-    if not _artifact_manifest_is_active(project_dir):
-        return None
     if type(episode) is not int or episode < 1:
         raise ValueError("episode must be a positive integer")
     remaining_ids = frozenset(resource_ids)
@@ -2389,10 +2352,8 @@ def resolve_current_resource_artifact_basis(
     resource_id: str,
     script_file: str | None = None,
 ) -> ArtifactBasis | None:
-    """Resolve one resource's canonical basis, preserving pre-activation writes."""
+    """Resolve one resource's canonical basis."""
 
-    if not _artifact_manifest_is_active(project_dir):
-        return None
     key = artifact_key_for_resource(
         project_dir,
         resource_type=resource_type,
@@ -2412,9 +2373,6 @@ def register_current_resource_artifact(
     basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
 ) -> bool:
     """Register a successful formal commit from target or execution-frozen evidence."""
-
-    if not _artifact_manifest_is_active(project_dir):
-        return False
 
     key = artifact_key_for_resource(
         project_dir,
@@ -2444,9 +2402,6 @@ def register_task_current_resource_artifact(
     basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
 ) -> ArtifactRegistrationReceipt:
     """Register a task's frozen evidence and return its terminal-cancel receipt."""
-
-    if not _artifact_manifest_is_active(project_dir):
-        return ArtifactRegistrationReceipt(None, None, None, None)
 
     key = artifact_key_for_resource(
         project_dir,
@@ -2490,7 +2445,7 @@ def register_artifact_entries_atomically(
     formal commit fail and roll back when an input claim changes after preflight.
     """
 
-    if not entries or not _artifact_manifest_is_active(project_dir):
+    if not entries:
         return False
     storage = adapter or ProjectArtifactManifestAdapter(project_dir)
     replacements = dict(entries)
@@ -2536,9 +2491,6 @@ def forget_current_resource_artifact(
 ) -> bool:
     """Remove a currency claim after an unprovable formal replacement."""
 
-    if not _artifact_manifest_is_active(project_dir):
-        return False
-
     key = artifact_key_for_resource(
         project_dir,
         resource_type=resource_type,
@@ -2556,8 +2508,6 @@ def _forget_unbound_episode_artifacts(
 ) -> bool:
     """Remove claims of one episode-scoped kind when its canonical owner is absent."""
 
-    if not _artifact_manifest_is_active(project_dir):
-        return False
     adapter = ProjectArtifactManifestAdapter(project_dir)
     try:
         snapshot = adapter.snapshot_entries()
@@ -2589,20 +2539,6 @@ def forget_unbound_grid_artifacts(project_dir: Path, resource_id: str) -> bool:
         resource_id,
         kind=ArtifactKind.EPISODE_GRID,
     )
-
-
-def _artifact_manifest_is_active(project_dir: Path) -> bool:
-    """Return whether runtime write-through is enabled by the schema gate."""
-
-    project_path = project_dir / "project.json"
-    try:
-        raw = project_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return False
-    project = json.loads(raw)
-    if not isinstance(project, Mapping):
-        raise ValueError("project.json must contain an object")
-    return project_schema_is_current(project)
 
 
 def _assert_preflight_unchanged(project_dir: Path, plan: ArtifactTargetStatePlan) -> None:

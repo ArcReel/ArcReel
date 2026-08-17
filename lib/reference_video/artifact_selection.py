@@ -29,7 +29,7 @@ class CurrentReferenceAssets:
     def __init__(self, project_path: Path, project: Mapping[str, object]) -> None:
         self._project_path = project_path.resolve()
         self._filesystem = FilesystemReferenceAssets(project_path)
-        self._resolver: ArtifactCurrencyResolver | None = active_artifact_currency_resolver(project_path, project)
+        self._resolver: ArtifactCurrencyResolver = active_artifact_currency_resolver(project_path, project)
 
     def _claim_for(self, asset: ResolvedReferenceAsset) -> ArtifactInputClaim | None:
         if asset.kind == "original":
@@ -47,7 +47,7 @@ class CurrentReferenceAssets:
         if not self._filesystem.is_available(asset):
             return False
         claim = self._claim_for(asset)
-        if self._resolver is None or claim is None:
+        if claim is None:
             return True
         return artifact_input_is_usable(
             resolver=self._resolver,

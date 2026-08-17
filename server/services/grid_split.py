@@ -31,7 +31,6 @@ from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
 from lib.path_safety import safe_join
 from lib.project_manager import get_project_manager
-from lib.project_schema import project_schema_is_current
 from lib.version_manager import StagedVersionCommit, VersionManager
 from lib.visual_artifact_provenance import (
     GridStoryboardVisual,
@@ -90,7 +89,6 @@ async def apply_grid_split(
 
     pm = get_project_manager()
     project_path = await asyncio.to_thread(pm.get_project_path, project_name)
-    project = await asyncio.to_thread(pm.load_project, project_name)
 
     grid_manager = GridManager(project_path)
     grid_image_file = grid_manager.image_path(grid.id)
@@ -107,22 +105,18 @@ async def apply_grid_split(
         source_status: ArtifactStatus | None = None
         source_key: ArtifactKey | None = None
         source_entry: ArtifactManifestEntry | None = None
-        if project_schema_is_current(project):
-            with pm.locked_project_script_snapshot(project_name, script_file) as (frozen_project, script):
-                source_key = ArtifactKey.episode_grid(grid.episode, grid.id)
-                adapter = ProjectArtifactManifestAdapter(project_path)
-                source_entry = adapter.get_entry(source_key)
-                comparison = ArtifactCurrencyResolver(project_path).compare(
-                    source_key,
-                    artifact_path=grid_image_path,
-                )
-                if source_entry is None or not comparison.usable or adapter.get_entry(source_key) != source_entry:
-                    raise GridImageNotReadyError(f"grid {grid.id} has no registered grid image to split")
-                source_status = comparison.status
-                project_snapshot = frozen_project
-        else:
-            project_snapshot = project
-            script = pm.load_script(project_name, script_file)
+        with pm.locked_project_script_snapshot(project_name, script_file) as (frozen_project, script):
+            source_key = ArtifactKey.episode_grid(grid.episode, grid.id)
+            adapter = ProjectArtifactManifestAdapter(project_path)
+            source_entry = adapter.get_entry(source_key)
+            comparison = ArtifactCurrencyResolver(project_path).compare(
+                source_key,
+                artifact_path=grid_image_path,
+            )
+            if source_entry is None or not comparison.usable or adapter.get_entry(source_key) != source_entry:
+                raise GridImageNotReadyError(f"grid {grid.id} has no registered grid image to split")
+            source_status = comparison.status
+            project_snapshot = frozen_project
 
         # 比例取记录冻结值：项目 aspect_ratio 改过之后再切历史联合图，按新比例中心裁切
         # 会把每格削掉大半（横版图按竖版切）。存量记录无该字段，回退到项目当前设置。
@@ -252,23 +246,19 @@ async def apply_grid_split(
             member_ratio = video_aspect_ratio
 
             def _prepare_manifest_state(current_project: dict[str, Any], current_script: dict[str, Any]) -> None:
-                """Refresh schema admission and derived bases inside the final project transaction."""
+                """Refresh the registered grid source and derived bases inside the final transaction."""
 
                 nonlocal source_entry, source_key, source_status
-                source_entry = None
-                source_key = None
-                source_status = None
-                if project_schema_is_current(current_project):
-                    source_key = ArtifactKey.episode_grid(grid.episode, grid.id)
-                    adapter = ProjectArtifactManifestAdapter(project_path)
-                    source_entry = adapter.get_entry(source_key)
-                    comparison = ArtifactCurrencyResolver(project_path).compare(
-                        source_key,
-                        artifact_path=grid_image_path,
-                    )
-                    if source_entry is None or not comparison.usable or adapter.get_entry(source_key) != source_entry:
-                        raise GridImageNotReadyError(f"grid {grid.id} has no registered grid image to split")
-                    source_status = comparison.status
+                source_key = ArtifactKey.episode_grid(grid.episode, grid.id)
+                adapter = ProjectArtifactManifestAdapter(project_path)
+                source_entry = adapter.get_entry(source_key)
+                comparison = ArtifactCurrencyResolver(project_path).compare(
+                    source_key,
+                    artifact_path=grid_image_path,
+                )
+                if source_entry is None or not comparison.usable or adapter.get_entry(source_key) != source_entry:
+                    raise GridImageNotReadyError(f"grid {grid.id} has no registered grid image to split")
+                source_status = comparison.status
 
                 current_items, current_id_field, _kind = resolve_items(current_script)
                 item_by_id = {

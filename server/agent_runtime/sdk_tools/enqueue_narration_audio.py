@@ -82,7 +82,7 @@ def _candidates(
     kind: str,
     *,
     episode: int,
-    resolver: ArtifactCurrencyResolver | None,
+    resolver: ArtifactCurrencyResolver,
     explicit: bool,
 ) -> tuple[list[GenerationCandidate], dict[str, GenerationProblem]]:
     """Build the addressable TTS units plus the reasons some cannot be generated.
@@ -105,7 +105,7 @@ def _candidates(
         candidates.append(
             GenerationCandidate(
                 unit_id=resource_id,
-                artifact_key=ArtifactKey.episode_audio(episode, resource_id) if resolver is not None else None,
+                artifact_key=ArtifactKey.episode_audio(episode, resource_id),
                 artifact_path=get_generated_assets(item).get("narration_audio"),
             )
         )
@@ -172,7 +172,6 @@ def generate_narration_audio_tool(ctx: ToolContext):
                 candidates=candidates,
                 requested_ids=segment_ids,
                 resolver=resolver,
-                project_dir=ctx.project_path,
             )
             builder = GenerationResultBuilder.from_selection(_OPERATION, selection)
 

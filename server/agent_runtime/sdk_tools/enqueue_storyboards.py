@@ -156,16 +156,13 @@ def generate_storyboards_tool(ctx: ToolContext):
                 candidates=[
                     GenerationCandidate(
                         unit_id=unit_id,
-                        artifact_key=(
-                            ArtifactKey.episode_storyboard(episode, unit_id) if resolver is not None else None
-                        ),
+                        artifact_key=ArtifactKey.episode_storyboard(episode, unit_id),
                         artifact_path=get_generated_assets(item).get("storyboard_image"),
                     )
                     for unit_id, item in items_by_id.items()
                 ],
                 requested_ids=segment_ids,
                 resolver=resolver,
-                project_dir=project_dir,
             )
             builder = GenerationResultBuilder.from_selection(_OPERATION, selection)
 
