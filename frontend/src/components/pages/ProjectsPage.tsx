@@ -35,7 +35,9 @@ import {
   PhasePill,
   NeedsRepairPill,
   RepairReasonLine,
+  StaleAssetsLine,
   asProjectStatus,
+  assetCount,
   gradientProgressStyles,
   repairReasonOf,
   usePhaseLabels,
@@ -74,11 +76,11 @@ const ACCENT_BUTTON_STYLE: CSSProperties = {
 function projectActivityScore(p: ProjectSummary): number {
   const status = asProjectStatus(p.status);
   if (!status) return -1;
-  if (status.current_phase === "production" && status.phase_progress < 1) {
+  if (status.phase === "production" && status.phase_progress < 1) {
     return 100 + status.phase_progress * 10;
   }
-  if (status.current_phase === "completed") return -10;
-  return PHASE_ORDER.indexOf(status.current_phase) * 10 + status.phase_progress;
+  if (status.phase === "completed") return -10;
+  return PHASE_ORDER.indexOf(status.phase) * 10 + status.phase_progress;
 }
 
 function pickFeaturedProject(projects: ProjectSummary[]): ProjectSummary | null {
@@ -119,14 +121,14 @@ interface NowEditingCardProps {
 
 function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardProps) {
   const status = asProjectStatus(project.status);
-  const phase: Phase | null = status?.current_phase ?? null;
+  const phase: Phase | null = status?.phase ?? null;
   const phaseLabel = phase ? phaseLabels[phase] : "";
   const progressPct = status ? Math.round(status.phase_progress * 100) : 0;
   const episodes =
     status?.episodes_summary ?? { total: 0, scripted: 0, in_production: 0, completed: 0 };
-  const characters = status?.characters ?? { completed: 0, total: 0 };
-  const scenes = status?.scenes ?? { completed: 0, total: 0 };
-  const propsStat = status?.props ?? { completed: 0, total: 0 };
+  const characters = assetCount(status, "character");
+  const scenes = assetCount(status, "scene");
+  const propsStat = assetCount(status, "prop");
   const repairReason = repairReasonOf(status);
 
   const { trackStyle, barStyle } = gradientProgressStyles(
@@ -207,6 +209,8 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
           </div>
         </div>
 
+        <StaleAssetsLine count={characters.stale + scenes.stale + propsStat.stale} />
+
         <div
           className="relative grid overflow-hidden rounded-[8px]"
           style={{
@@ -226,12 +230,12 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
             },
             {
               k: t("dashboard:characters"),
-              v: `${characters.completed} / ${characters.total || "—"}`,
-              sub: `${t("dashboard:scenes")} ${scenes.completed}/${scenes.total || "—"}`,
+              v: `${characters.available} / ${characters.total || "—"}`,
+              sub: `${t("dashboard:scenes")} ${scenes.available}/${scenes.total || "—"}`,
             },
             {
               k: t("dashboard:props"),
-              v: `${propsStat.completed} / ${propsStat.total || "—"}`,
+              v: `${propsStat.available} / ${propsStat.total || "—"}`,
               sub: `${t("dashboard:lobby_now_editing_progress_label")} ${progressPct}%`,
             },
           ].map((cell) => (
@@ -527,9 +531,10 @@ const KICKER_DATE_OPTS: Intl.DateTimeFormatOptions = {
 interface HeroStripProps {
   totals: {
     total: number;
+    preparation: number;
+    script: number;
     production: number;
     completed: number;
-    drafts: number;
     episodesCompleted: number;
     episodesInProduction: number;
   };
@@ -568,20 +573,20 @@ function HeroStrip({ totals, t }: HeroStripProps) {
       tone: { color: "var(--color-text)" },
     },
     {
+      key: "script",
+      label: t("dashboard:phase_script"),
+      value: totals.script,
+      tone: { color: "oklch(0.86 0.06 75)" },
+    },
+    {
       key: "prod",
-      label: t("dashboard:lobby_stat_production"),
+      label: t("dashboard:phase_production"),
       value: totals.production,
       tone: { color: "var(--color-accent-2)" },
     },
     {
-      key: "draft",
-      label: t("dashboard:lobby_stat_drafts"),
-      value: totals.drafts,
-      tone: { color: "oklch(0.86 0.06 75)" },
-    },
-    {
       key: "done",
-      label: t("dashboard:lobby_stat_completed"),
+      label: t("dashboard:phase_completed"),
       value: totals.completed,
       tone: { color: "var(--color-good)" },
     },
@@ -633,7 +638,7 @@ function HeroStrip({ totals, t }: HeroStripProps) {
                 (i < stats.length - 1 ? " border-r border-hairline-soft" : "")
               }
             >
-              <div className="font-mono text-[9px] font-bold tracking-[0.14em] text-text-3">
+              <div className="font-mono text-[9px] font-bold whitespace-nowrap uppercase tracking-[0.14em] text-text-3">
                 {s.label}
               </div>
               <div
@@ -669,11 +674,12 @@ interface FilterPillsProps {
 function FilterPills({ active, onChange, counts, phaseLabels, t }: FilterPillsProps) {
   const pills: Array<{ key: PhaseFilter; label: string; n: number }> = [
     { key: "all", label: t("dashboard:lobby_filter_all"), n: counts.all },
-    { key: "production", label: phaseLabels.production, n: counts.production },
-    { key: "scripting", label: phaseLabels.scripting, n: counts.scripting },
-    { key: "worldbuilding", label: phaseLabels.worldbuilding, n: counts.worldbuilding },
-    { key: "completed", label: phaseLabels.completed, n: counts.completed },
-    { key: "setup", label: phaseLabels.setup, n: counts.setup },
+    // 顺序即流程：胶囊按阶段推进排，不按使用频率排
+    ...PHASE_ORDER.map((phase) => ({
+      key: phase,
+      label: phaseLabels[phase],
+      n: counts[phase],
+    })),
   ];
 
   return (
@@ -888,40 +894,43 @@ export function ProjectsPage() {
   const phaseCounts = useMemo(() => {
     const out: Record<Phase, number> & { all: number } = {
       all: 0,
-      setup: 0,
-      worldbuilding: 0,
-      scripting: 0,
+      preparation: 0,
+      script: 0,
       production: 0,
       completed: 0,
     };
     for (const p of projects) {
       out.all += 1;
       const status = asProjectStatus(p.status);
-      if (status) out[status.current_phase] += 1;
+      if (status) out[status.phase] += 1;
     }
     return out;
   }, [projects]);
 
   const totals = useMemo(() => {
+    // 四格与筛选胶囊读同一套阶段词汇：Hero 报的每一个数都能在下面的胶囊上点开。
+    let preparation = 0;
+    let script = 0;
     let production = 0;
     let completed = 0;
-    let drafts = 0;
     let episodesCompleted = 0;
     let episodesInProduction = 0;
     for (const p of projects) {
       const s = asProjectStatus(p.status);
       if (!s) continue;
-      if (s.current_phase === "production") production += 1;
-      else if (s.current_phase === "completed") completed += 1;
-      else drafts += 1;
+      if (s.phase === "production") production += 1;
+      else if (s.phase === "completed") completed += 1;
+      else if (s.phase === "script") script += 1;
+      else preparation += 1;
       episodesCompleted += s.episodes_summary.completed;
       episodesInProduction += s.episodes_summary.in_production;
     }
     return {
       total: projects.length,
+      preparation,
+      script,
       production,
       completed,
-      drafts,
       episodesCompleted,
       episodesInProduction,
     };
@@ -938,10 +947,10 @@ export function ProjectsPage() {
     return projects.filter((p) => {
       const s = asProjectStatus(p.status);
       if (phaseFilter !== "all") {
-        if (!s || s.current_phase !== phaseFilter) return false;
+        if (!s || s.phase !== phaseFilter) return false;
       }
       if (!q) return true;
-      const phaseLabel = s ? phaseLabels[s.current_phase] : "";
+      const phaseLabel = s ? phaseLabels[s.phase] : "";
       return `${p.title || ""} ${p.name} ${phaseLabel}`.toLowerCase().includes(q);
     });
   }, [projects, phaseFilter, searchQuery, phaseLabels]);

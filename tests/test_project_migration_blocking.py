@@ -118,8 +118,6 @@ async def test_workflow_plan_reports_exactly_one_problem_pointing_at_the_retry(t
 
 
 def test_project_status_marks_the_project_for_repair(tmp_path: Path) -> None:
-    from lib.status_calculator import StatusCalculator
-
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
     project_dir, *_ = _project(projects_root)
@@ -127,11 +125,10 @@ def test_project_status_marks_the_project_for_repair(tmp_path: Path) -> None:
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
 
-    pm = ProjectManager(str(projects_root))
-    status = StatusCalculator(pm).calculate_project_status("demo", pm.load_project_readonly("demo"))
+    summary = WorkflowStateService(ProjectManager(str(projects_root))).get_project_summary("demo")
 
-    assert status["needs_repair"] is True
-    assert status["repair_reason"] == failure.reason
+    assert summary.needs_repair is True
+    assert summary.repair_reason == failure.reason
 
 
 def test_generation_entries_refuse_while_the_project_is_blocked(tmp_path: Path, monkeypatch) -> None:

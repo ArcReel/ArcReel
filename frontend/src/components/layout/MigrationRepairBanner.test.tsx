@@ -9,13 +9,15 @@ import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectData, ProjectStatus } from "@/types/project";
 
 const HEALTHY: ProjectStatus = {
-  current_phase: "production",
+  phase: "production",
   phase_progress: 0.5,
   needs_repair: false,
   repair_reason: null,
-  characters: { total: 1, completed: 1 },
-  scenes: { total: 1, completed: 1 },
-  props: { total: 0, completed: 0 },
+  assets: {
+    character: { total: 1, available: 1, stale: 0 },
+    scene: { total: 1, available: 1, stale: 0 },
+    prop: { total: 0, available: 0, stale: 0 },
+  },
   episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
 };
 

@@ -13,7 +13,7 @@ import { useTranslation } from "react-i18next";
 import { getProjectDisplayName } from "@/utils/project-display";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { hashHue, posterGridStyle } from "@/components/ui/darkroom-tokens";
-import type { Phase, ProjectStatus, ProjectSummary } from "@/types";
+import type { ArtifactCount, Phase, ProjectStatus, ProjectSummary } from "@/types";
 
 interface PhaseTone {
   dot: string;
@@ -22,17 +22,12 @@ interface PhaseTone {
 }
 
 const PHASE_TONE: Record<Phase, PhaseTone> = {
-  setup: {
+  preparation: {
     dot: "oklch(0.64 0.020 265)",
     text: "oklch(0.78 0.010 265)",
     glow: "transparent",
   },
-  worldbuilding: {
-    dot: "oklch(0.78 0.10 220)",
-    text: "oklch(0.86 0.06 220)",
-    glow: "oklch(0.78 0.10 220 / 0.35)",
-  },
-  scripting: {
+  script: {
     dot: "oklch(0.80 0.12 75)",
     text: "oklch(0.90 0.08 75)",
     glow: "oklch(0.80 0.12 75 / 0.35)",
@@ -62,7 +57,7 @@ const POSTER_SPROCKET_STYLE: CSSProperties = {
 };
 
 export function asProjectStatus(s: ProjectSummary["status"]): ProjectStatus | null {
-  return s && "current_phase" in s ? (s as ProjectStatus) : null;
+  return s && "phase" in s ? (s as ProjectStatus) : null;
 }
 
 // -- Poster -------------------------------------------------------------------
@@ -181,7 +176,7 @@ export function repairReasonOf(status: ProjectStatus | null): string | null {
 // -- PhasePill / EpisodeStrip -------------------------------------------------
 
 export function PhasePill({ phase, label }: { phase: Phase | null; label: string }) {
-  const tone = phase ? PHASE_TONE[phase] : PHASE_TONE.setup;
+  const tone = phase ? PHASE_TONE[phase] : PHASE_TONE.preparation;
   const isProduction = phase === "production";
   return (
     <span
@@ -263,19 +258,46 @@ export function gradientProgressStyles(variant: "accent" | "good"): {
 
 // -- ProjectCard --------------------------------------------------------------
 
-/** 五个阶段的本地化标签。卡片、筛选胶囊、搜索匹配都读同一份。 */
+/** 四个阶段的本地化标签。卡片、筛选胶囊、搜索匹配都读同一份。 */
 export function usePhaseLabels(): Record<Phase, string> {
   const { t } = useTranslation("dashboard");
   return useMemo(
     () => ({
-      setup: t("phase_setup"),
-      worldbuilding: t("phase_worldbuilding"),
-      scripting: t("phase_scripting"),
+      preparation: t("phase_preparation"),
+      script: t("phase_script"),
       production: t("phase_production"),
       completed: t("phase_completed"),
     }),
     [t],
   );
+}
+
+/**
+ * 「比当前内容旧」的一行提示。stale 的产物仍然可用，所以它不进缺口计数，
+ * 而是单独说明有几件可以考虑重生——大厅卡与「正在编辑」卡共用同一句话。
+ */
+export function StaleAssetsLine({ count }: { count: number }) {
+  const { t } = useTranslation("dashboard");
+  if (count <= 0) return null;
+  return (
+    <div className="mt-2.5 flex items-center gap-1.5 border-t border-dashed border-hairline-soft pt-2.5">
+      <span
+        aria-hidden
+        className="h-[5px] w-[5px] rounded-full"
+        style={{ background: "var(--color-warm-bright)" }}
+      />
+      <span className="font-mono text-[10px] tracking-[0.04em] text-warm-bright">
+        {t("lobby_card_stale_assets", { count })}
+      </span>
+    </div>
+  );
+}
+
+const EMPTY_COUNT = { total: 0, available: 0, stale: 0 } as const;
+
+/** 一类资产的可用计数：产物清单里 current ∪ stale 的那些。 */
+export function assetCount(status: ProjectStatus | null, assetType: string): ArtifactCount {
+  return status?.assets?.[assetType] ?? EMPTY_COUNT;
 }
 
 interface ProjectCardBaseProps {
@@ -320,12 +342,13 @@ export function ProjectCard(props: ProjectCardProps) {
   }, [menuOpen]);
 
   const status = asProjectStatus(project.status);
-  const phase: Phase | null = status?.current_phase ?? null;
+  const phase: Phase | null = status?.phase ?? null;
   const phaseLabel = phase ? phaseLabels[phase] : "";
   const progressPct = status ? Math.round(status.phase_progress * 100) : 0;
-  const characters = status?.characters ?? { completed: 0, total: 0 };
-  const scenes = status?.scenes ?? { completed: 0, total: 0 };
-  const propsStat = status?.props ?? { completed: 0, total: 0 };
+  const characters = assetCount(status, "character");
+  const scenes = assetCount(status, "scene");
+  const propsStat = assetCount(status, "prop");
+  const staleAssets = characters.stale + scenes.stale + propsStat.stale;
   const episodes =
     status?.episodes_summary ?? { total: 0, scripted: 0, in_production: 0, completed: 0 };
   const projectDisplayName = getProjectDisplayName(project.title, t("untitled_project"));
@@ -339,6 +362,7 @@ export function ProjectCard(props: ProjectCardProps) {
     phaseLabel,
     status?.needs_repair ? t("lobby_card_needs_repair") : "",
     repairReason ?? "",
+    staleAssets > 0 ? t("lobby_card_stale_assets", { count: staleAssets }) : "",
     props.readOnly ? t("onboarding:demo_banner_title") : "",
   ]
     .filter(Boolean)
@@ -382,13 +406,10 @@ export function ProjectCard(props: ProjectCardProps) {
         >
           {(
             [
-              { k: t("lobby_card_stat_cast"), v: characters },
-              { k: t("lobby_card_stat_scene"), v: scenes },
-              { k: t("lobby_card_stat_prop"), v: propsStat },
-              {
-                k: t("lobby_card_stat_episode"),
-                v: { completed: episodes.completed, total: episodes.total },
-              },
+              { k: t("lobby_card_stat_cast"), v: characters.available, total: characters.total },
+              { k: t("lobby_card_stat_scene"), v: scenes.available, total: scenes.total },
+              { k: t("lobby_card_stat_prop"), v: propsStat.available, total: propsStat.total },
+              { k: t("lobby_card_stat_episode"), v: episodes.completed, total: episodes.total },
             ] as const
           ).map((cell, i) => (
             <div
@@ -402,8 +423,8 @@ export function ProjectCard(props: ProjectCardProps) {
                 {cell.k}
               </div>
               <div className="mt-0.5 font-mono text-[11.5px] font-semibold tabular-nums text-text-2">
-                {cell.v.completed}
-                <span className="text-text-4">/{cell.v.total || "—"}</span>
+                {cell.v}
+                <span className="text-text-4">/{cell.total || "—"}</span>
               </div>
             </div>
           ))}
@@ -428,11 +449,7 @@ export function ProjectCard(props: ProjectCardProps) {
           </span>
         </div>
 
-        <div className="mt-2.5 flex items-center border-t border-dashed border-hairline-soft pt-2.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-text-3">
-            {phaseLabel}
-          </span>
-        </div>
+        <StaleAssetsLine count={staleAssets} />
       </div>
     </>
   );

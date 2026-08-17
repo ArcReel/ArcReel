@@ -73,27 +73,33 @@ export interface EpisodesSummary {
   completed: number;
 }
 
+/** Production state merged for the lobby, in workflow order */
 export const PHASE_ORDER = [
-  "setup",
-  "worldbuilding",
-  "scripting",
+  "preparation",
+  "script",
   "production",
   "completed",
 ] as const;
 
 export type Phase = (typeof PHASE_ORDER)[number];
 
-/** Injected by StatusCalculator.calculate_project_status at read time */
+/** One artifact group: available = current plus stale, stale counted separately */
+export interface ArtifactCount {
+  total: number;
+  available: number;
+  stale: number;
+}
+
+/** Project summary projection, injected at read time by WorkflowStateService */
 export interface ProjectStatus {
-  current_phase: Phase;
+  phase: Phase;
   phase_progress: number;
   /** Schema migration (artifact backfill included) failed; generation is closed until repaired */
   needs_repair: boolean;
   /** The migration failure message exactly as raised, or null when not blocked */
   repair_reason: string | null;
-  characters: ProgressCategory;
-  scenes: ProgressCategory;
-  props: ProgressCategory;
+  /** Asset sheet counts keyed by asset type (character / scene / prop / product) */
+  assets: Record<string, ArtifactCount>;
   episodes_summary: EpisodesSummary;
 }
 

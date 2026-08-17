@@ -45,7 +45,7 @@ from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RAT
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
-from lib.workflow_state import WorkflowRequestError, WorkflowStateService, WorkflowStatus
+from lib.workflow_state import ProjectSummary, WorkflowRequestError, WorkflowStateService, WorkflowStatus
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.dependencies import require_project_migration_ok
 from server.routers._reorder import full_permutation_error
@@ -77,6 +77,20 @@ EPISODE_PERSIST_FIELDS = {"script_file"}
 
 def get_status_calculator() -> StatusCalculator:
     return StatusCalculator(get_project_manager())
+
+
+def get_workflow_state_service() -> WorkflowStateService:
+    return WorkflowStateService(get_project_manager())
+
+
+def _project_status_payload(summary: ProjectSummary) -> dict[str, Any]:
+    """项目级状态负载：项目摘要去掉每集明细。
+
+    列表页与全局头只看项目粒度；每集明细经项目详情端点交付，不让 N 个项目的列表
+    驮上 N×集数 的对象。
+    """
+
+    return summary.model_dump(mode="json", exclude={"episodes"})
 
 
 def get_archive_service() -> ProjectArchiveService:
@@ -469,7 +483,7 @@ async def list_projects():
 
     def _sync():
         manager = get_project_manager()
-        calculator = get_status_calculator()
+        summaries = get_workflow_state_service()
         projects = []
         for name in manager.list_projects():
             try:
@@ -478,7 +492,7 @@ async def list_projects():
                     project = manager.load_project(name)
                     # 一次性预加载每集剧本，喂给 cover + status 两路下游，去除重复 JSON I/O。
                     # key 为 episode['script_file'] 原值（match resolve_project_cover /
-                    # StatusCalculator 对 key 的期望）。任何一集加载失败都不影响列表：
+                    # 项目摘要投影对 key 的期望）。任何一集加载失败都不影响列表：
                     # 仅跳过入 map，下游消费者自然按"缺失"路径兜底。
                     preloaded_scripts: dict[str, dict] = {}
                     for ep in project.get("episodes") or []:
@@ -488,8 +502,8 @@ async def list_projects():
                         try:
                             preloaded_scripts[script_file] = manager.load_script(name, script_file)
                         except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError) as load_err:
-                            # 与 resolve_project_cover / StatusCalculator._load_episode_script
-                            # 对齐：I/O 缺失 + JSON/schema 解析失败 → 跳过此集，继续预加载其他集；
+                            # 与 resolve_project_cover / 项目摘要投影对齐：I/O 缺失 +
+                            # JSON/schema 解析失败 → 跳过此集，继续预加载其他集；
                             # 非预期异常（RuntimeError/MemoryError 等）让其冒泡到外层 try，走 basic info 兜底行。
                             logger.debug(
                                 "list_projects 预加载剧本失败 project=%s script=%s err=%s",
@@ -503,8 +517,10 @@ async def list_projects():
                     # —— 兼顾 reference / grid / storyboard 三种生成模式。
                     thumbnail = resolve_project_cover(manager, name, project, preloaded_scripts=preloaded_scripts)
 
-                    # 使用 StatusCalculator 计算进度（读时计算）
-                    status = calculator.calculate_project_status(name, project, preloaded_scripts=preloaded_scripts)
+                    # 阶段与产物计数一律来自项目摘要投影（读时计算，产物口径取产物清单）
+                    status = _project_status_payload(
+                        summaries.get_project_summary(name, preloaded_scripts=preloaded_scripts)
+                    )
 
                     raw_title = project.get("title")
                     projects.append(
@@ -730,6 +746,7 @@ async def get_project(
 
             # 注入计算字段（不写入 JSON，仅用于 API 响应）
             project = calculator.enrich_project(name, project)
+            project["status"] = _project_status_payload(get_workflow_state_service().get_project_summary(name))
 
             # 加载所有剧本并注入计算字段
             scripts = {}

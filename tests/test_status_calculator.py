@@ -177,129 +177,6 @@ class TestStatusCalculator:
         assert script7 is None
 
     @pytest.mark.unit
-    def test_calculate_current_phase_setup(self, tmp_path):
-        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
-        project_no_overview = {}
-        assert calc.calculate_current_phase(project_no_overview, []) == "setup"
-        # 即使有空集列表，但无 overview 且无资产 → 仍是 setup
-        assert calc.calculate_current_phase(project_no_overview, [], assets_completed=0) == "setup"
-
-    @pytest.mark.unit
-    def test_calculate_current_phase_worldbuilding(self, tmp_path):
-        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
-        project = {"overview": {"synopsis": "test"}}
-        # 无任何 generated 脚本 → worldbuilding
-        episodes_stats = [{"script_status": "none"}, {"script_status": "segmented"}]
-        assert calc.calculate_current_phase(project, episodes_stats) == "worldbuilding"
-        # 无集 → worldbuilding
-        assert calc.calculate_current_phase(project, []) == "worldbuilding"
-        # 没有 overview，但已有资产产出 → 仍判定为 worldbuilding（不卡在 setup）
-        assert calc.calculate_current_phase({}, [], assets_completed=1) == "worldbuilding"
-        # 没有 overview / 资产，但已有分段草稿 → 仍判定为 worldbuilding
-        assert calc.calculate_current_phase({}, [{"script_status": "segmented"}], assets_completed=0) == "worldbuilding"
-
-    @pytest.mark.unit
-    def test_calculate_current_phase_scripting(self, tmp_path):
-        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
-        project = {"overview": {"synopsis": "test"}}
-        # 有至少一集 generated，但未全部 → scripting
-        episodes_stats = [
-            {"script_status": "generated", "status": "draft"},
-            {"script_status": "none"},
-        ]
-        assert calc.calculate_current_phase(project, episodes_stats) == "scripting"
-        # 没有 overview 也一样：脚本产物本身就是更强信号
-        assert calc.calculate_current_phase({}, episodes_stats) == "scripting"
-
-    @pytest.mark.unit
-    def test_calculate_current_phase_production_and_completed(self, tmp_path):
-        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
-        project = {"overview": {"synopsis": "test"}}
-        # 全部 generated，有未完成视频 → production
-        episodes_stats = [
-            {"script_status": "generated", "status": "in_production"},
-            {"script_status": "generated", "status": "draft"},
-        ]
-        assert calc.calculate_current_phase(project, episodes_stats) == "production"
-        # 全部 completed → completed
-        episodes_stats_done = [
-            {"script_status": "generated", "status": "completed"},
-        ]
-        assert calc.calculate_current_phase(project, episodes_stats_done) == "completed"
-        # 没有 overview 也一样：production / completed 由脚本与视频状态决定
-        assert calc.calculate_current_phase({}, episodes_stats) == "production"
-        assert calc.calculate_current_phase({}, episodes_stats_done) == "completed"
-
-    @pytest.mark.unit
-    def test_calculate_current_phase_regression_no_overview_with_artifacts(self, tmp_path):
-        """回归：项目缺 overview 但已生成资产+脚本+部分视频，阶段必须前进。
-
-        历史 bug：``calculate_current_phase`` 早退判定 ``if not overview: return "setup"``
-        导致用户跳过 overview 直接做后续步骤时，阶段进度条永远卡在「筹备」。
-        """
-        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
-        project = {"title": "无 overview 的项目"}
-
-        # 仅有资产 → worldbuilding（之前会被错判为 setup）
-        assert calc.calculate_current_phase(project, [], assets_completed=2) == "worldbuilding"
-
-        # 资产 + 部分脚本 → scripting
-        partial_scripts = [
-            {"script_status": "generated", "status": "draft"},
-            {"script_status": "none"},
-        ]
-        assert calc.calculate_current_phase(project, partial_scripts, assets_completed=3) == "scripting"
-
-        # 资产 + 全部脚本 + 部分视频 → production
-        all_scripts_in_prod = [
-            {"script_status": "generated", "status": "in_production"},
-        ]
-        assert calc.calculate_current_phase(project, all_scripts_in_prod, assets_completed=3) == "production"
-
-    @pytest.mark.unit
-    def test_calculate_project_status(self, tmp_path):
-        project_root = tmp_path / "projects"
-        project_path = project_root / "demo"
-        (project_path / "characters").mkdir(parents=True)
-        (project_path / "scenes").mkdir(parents=True)
-        (project_path / "props").mkdir(parents=True)
-        (project_path / "characters" / "A.png").write_bytes(b"ok")
-        (project_path / "scenes" / "S1.png").write_bytes(b"ok")
-        (project_path / "props" / "P1.png").write_bytes(b"ok")
-
-        project = {
-            "overview": {"synopsis": "test"},
-            "characters": {"A": {"character_sheet": "characters/A.png"}, "B": {"character_sheet": ""}},
-            "scenes": {
-                "S1": {"scene_sheet": "scenes/S1.png"},
-                "S2": {"scene_sheet": ""},
-            },
-            "props": {
-                "P1": {"prop_sheet": "props/P1.png"},
-            },
-            "episodes": [
-                {"episode": 1, "script_file": "scripts/episode_1.json"},
-            ],
-        }
-        scripts = {
-            "episode_1.json": {
-                "content_mode": "narration",
-                "segments": [
-                    {"duration_seconds": 4, "generated_assets": {"storyboard_image": "a.png", "video_clip": "b.mp4"}},
-                ],
-            }
-        }
-        calc = StatusCalculator(_FakePM(project_root, project, scripts))
-        status = calc.calculate_project_status("demo", project)
-
-        assert status["current_phase"] == "completed"
-        assert status["phase_progress"] == 1.0
-        assert status["characters"] == {"total": 2, "completed": 1}
-        assert status["scenes"] == {"total": 2, "completed": 1}
-        assert status["props"] == {"total": 1, "completed": 1}
-        assert status["episodes_summary"] == {"total": 1, "scripted": 1, "in_production": 0, "completed": 1}
-
-    @pytest.mark.unit
     def test_enrich_project(self, tmp_path):
         project_root = tmp_path / "projects"
         project_root.mkdir(parents=True)
@@ -339,8 +216,6 @@ class TestStatusCalculator:
             },
         )
 
-        assert "status" in enriched
-        assert enriched["status"]["current_phase"] == "scripting"
         ep1 = enriched["episodes"][0]
         assert ep1["script_status"] == "generated"
         assert ep1["status"] == "scripted"
@@ -394,8 +269,6 @@ class TestStatusCalculator:
         # 非 stale 集不受影响
         ep2 = enriched["episodes"][1]
         assert ep2["script_status"] == "generated"
-        # 项目级汇总同步回退：仅 1 集计为已生成剧本
-        assert enriched["status"]["episodes_summary"]["scripted"] == 1
 
     @pytest.mark.unit
     def test_enrich_script(self, tmp_path):
@@ -433,100 +306,6 @@ class TestStatusCalculator:
         status, script = calc._load_episode_script("demo", 1, "scripts/episode_1.json")
         assert status == "generated"
         assert script is None
-
-    @pytest.mark.unit
-    def test_calculate_project_status_preloaded_scripts_skips_pm_load(self, tmp_path):
-        """preloaded_scripts 覆盖所有集时，不应再调用 pm.load_script。
-
-        list_projects 的 hot-path 合同：与 resolve_project_cover 共用一份加载结果，
-        避免 cover + status 两次 JSON 解析。"""
-        project_root = tmp_path / "projects"
-        project_path = project_root / "demo"
-        project_path.mkdir(parents=True)
-
-        project = {
-            "overview": {"synopsis": "test"},
-            "characters": {},
-            "scenes": {},
-            "props": {},
-            "episodes": [
-                {"episode": 1, "script_file": "scripts/episode_1.json"},
-            ],
-        }
-
-        class _TrackingPM(_FakePM):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self.load_calls: list[str] = []
-
-            def load_script(self, project_name, filename):
-                self.load_calls.append(filename)
-                return super().load_script(project_name, filename)
-
-        pm = _TrackingPM(project_root, project, {})  # 空 scripts：若走 pm.load_script 必抛
-        calc = StatusCalculator(pm)
-
-        preloaded = {
-            "scripts/episode_1.json": {
-                "content_mode": "narration",
-                "segments": [{"duration_seconds": 4, "generated_assets": {}}],
-            }
-        }
-        status = calc.calculate_project_status("demo", project, preloaded_scripts=preloaded)
-
-        assert pm.load_calls == []  # 预加载命中：未触发任何一次 pm.load_script
-        # 合理性断言：预加载的剧本被识别为 generated 且纳入统计
-        assert status["episodes_summary"]["total"] == 1
-        assert status["episodes_summary"]["scripted"] == 1
-
-    @pytest.mark.unit
-    def test_calculate_project_status_preloaded_scripts_falls_back_for_missing(self, tmp_path):
-        """preloaded_scripts 未覆盖的集：回退 pm.load_script，保持"尽力而为"合同。"""
-        project_root = tmp_path / "projects"
-        project_path = project_root / "demo"
-        project_path.mkdir(parents=True)
-
-        project = {
-            "overview": {"synopsis": "test"},
-            "characters": {},
-            "scenes": {},
-            "props": {},
-            "episodes": [
-                {"episode": 1, "script_file": "scripts/episode_1.json"},
-                {"episode": 2, "script_file": "scripts/episode_2.json"},
-            ],
-        }
-
-        class _TrackingPM(_FakePM):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self.load_calls: list[str] = []
-
-            def load_script(self, project_name, filename):
-                self.load_calls.append(filename)
-                return super().load_script(project_name, filename)
-
-        # pm 仅能加载 episode_2；preload 覆盖 episode_1。
-        pm = _TrackingPM(
-            project_root,
-            project,
-            {"episode_2.json": {"content_mode": "narration", "segments": [{"duration_seconds": 4}]}},
-        )
-        calc = StatusCalculator(pm)
-
-        preloaded = {
-            "scripts/episode_1.json": {"content_mode": "narration", "segments": [{"duration_seconds": 4}]},
-        }
-        status = calc.calculate_project_status("demo", project, preloaded_scripts=preloaded)
-
-        # 预加载命中 episode_1 (no load_script 调用)；episode_2 未预加载 → pm.load_script 一次。
-        assert pm.load_calls == ["scripts/episode_2.json"]
-        assert status["episodes_summary"]["total"] == 2
-        assert status["episodes_summary"]["scripted"] == 2
-
-
-class TestAdStatusCalculation:
-    """广告/短片模式（平铺 shots[]）的状态与统计计算。"""
 
     @pytest.mark.unit
     def test_select_ad_by_duck_typing_when_content_mode_absent(self):

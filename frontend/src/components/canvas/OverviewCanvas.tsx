@@ -539,19 +539,16 @@ export function OverviewCanvas({
             {/* Asset progress — characters / scenes / props */}
             {status && (
               <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                {(["characters", "scenes", "props"] as const).map((key) => {
-                  const cat = status[key] as
-                    | { total: number; completed: number }
-                    | undefined;
+                {(["character", "scene", "prop"] as const).map((key) => {
+                  const cat = status.assets?.[key];
                   if (!cat) return null;
-                  const pct = cat.total > 0 ? Math.round((cat.completed / cat.total) * 100) : 0;
+                  const pct = cat.total > 0 ? Math.round((cat.available / cat.total) * 100) : 0;
                   const labels: Record<string, string> = {
-                    characters: t("characters"),
-                    scenes: t("scenes"),
-                    props: t("props"),
+                    character: t("characters"),
+                    scene: t("scenes"),
+                    prop: t("props"),
                   };
-                  const Icon =
-                    key === "characters" ? Users : key === "scenes" ? Landmark : Package;
+                  const Icon = key === "character" ? Users : key === "scene" ? Landmark : Package;
                   return (
                     <div
                       key={key}
@@ -588,7 +585,7 @@ export function OverviewCanvas({
                           className="num text-[11px]"
                           style={{ color: "var(--color-text-2)" }}
                         >
-                          {cat.completed}
+                          {cat.available}
                           <span style={{ color: "var(--color-text-4)" }}>/{cat.total}</span>
                         </span>
                       </div>

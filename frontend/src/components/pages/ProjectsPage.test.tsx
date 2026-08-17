@@ -58,13 +58,15 @@ describe("ProjectsPage", () => {
           style_template_id: "anim_kyoto",
           thumbnail: null,
           status: {
-            current_phase: "production",
+            phase: "production",
             phase_progress: 0.5,
             needs_repair: false,
             repair_reason: null,
-            characters: { total: 2, completed: 2 },
-            scenes: { total: 1, completed: 1 },
-            props: { total: 1, completed: 0 },
+            assets: {
+              character: { total: 2, available: 2, stale: 0 },
+              scene: { total: 1, available: 1, stale: 0 },
+              prop: { total: 1, available: 0, stale: 0 },
+            },
             episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
           },
         },
@@ -77,8 +79,88 @@ describe("ProjectsPage", () => {
     // featured "Now Editing" card — see ProjectsPage.tsx Darkroom design.
     expect((await screen.findAllByText("Demo Project")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("商业动画 京都").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("制作中").length).toBeGreaterThan(0);
+    // 阶段名与工作台同一套词：卡片胶囊、筛选胶囊、Hero 计数格都读「制作」
+    expect(screen.getAllByText("制作").length).toBeGreaterThan(0);
     expect(screen.getByText("50%")).toBeInTheDocument();
+  });
+
+  it("filters by the four merged phases and counts each pill", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [
+        {
+          name: "writing",
+          title: "Writing Project",
+          style: "Anime",
+          style_template_id: "anim_kyoto",
+          thumbnail: null,
+          status: {
+            phase: "script" as const,
+            phase_progress: 0.5,
+            needs_repair: false,
+            repair_reason: null,
+            assets: { character: { total: 1, available: 1, stale: 0 } },
+            episodes_summary: { total: 2, scripted: 1, in_production: 0, completed: 0 },
+          },
+        },
+        {
+          name: "shooting",
+          title: "Shooting Project",
+          style: "Anime",
+          style_template_id: "anim_kyoto",
+          thumbnail: null,
+          status: {
+            phase: "production" as const,
+            phase_progress: 0.4,
+            needs_repair: false,
+            repair_reason: null,
+            assets: { character: { total: 1, available: 1, stale: 0 } },
+            episodes_summary: { total: 2, scripted: 2, in_production: 1, completed: 0 },
+          },
+        },
+      ],
+    });
+
+    renderPage();
+
+    const scriptPill = await screen.findByRole("button", { name: /脚本/ });
+    fireEvent.click(scriptPill);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Shooting Project")).not.toBeInTheDocument();
+    });
+    expect(screen.getAllByText("Writing Project").length).toBeGreaterThan(0);
+  });
+
+  it("tells the reader how many sheets are older than the current content", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [
+        {
+          name: "aged",
+          title: "Aged Project",
+          style: "Anime",
+          style_template_id: "anim_kyoto",
+          thumbnail: null,
+          status: {
+            phase: "production" as const,
+            phase_progress: 0.5,
+            needs_repair: false,
+            repair_reason: null,
+            assets: {
+              character: { total: 3, available: 3, stale: 2 },
+              scene: { total: 1, available: 1, stale: 0 },
+              prop: { total: 0, available: 0, stale: 0 },
+            },
+            episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
+          },
+        },
+      ],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("2 张设计图比当前内容旧")).toBeInTheDocument();
+    // stale 仍是可用产物：计数格照报 3 / 3，不从可用里扣
+    expect(screen.getAllByText("3 / 3").length).toBeGreaterThan(0);
   });
 
   it("marks a project that needs repair and shows the reason on the card", async () => {
@@ -91,13 +173,15 @@ describe("ProjectsPage", () => {
           style_template_id: "anim_kyoto",
           thumbnail: null,
           status: {
-            current_phase: "production",
+            phase: "production",
             phase_progress: 0.5,
             needs_repair: true,
             repair_reason: "episode script scripts/episode_1.json item 2 has no identity",
-            characters: { total: 1, completed: 1 },
-            scenes: { total: 1, completed: 1 },
-            props: { total: 0, completed: 0 },
+            assets: {
+              character: { total: 1, available: 1, stale: 0 },
+              scene: { total: 1, available: 1, stale: 0 },
+              prop: { total: 0, available: 0, stale: 0 },
+            },
             episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
           },
         },
@@ -116,13 +200,15 @@ describe("ProjectsPage", () => {
 
   it("puts the repair state and reason into the library card's accessible name", async () => {
     const brokenStatus = {
-      current_phase: "production" as const,
+      phase: "production" as const,
       phase_progress: 0.5,
       needs_repair: true,
       repair_reason: "episode script scripts/episode_1.json item 2 has no identity",
-      characters: { total: 1, completed: 1 },
-      scenes: { total: 1, completed: 1 },
-      props: { total: 0, completed: 0 },
+      assets: {
+        character: { total: 1, available: 1, stale: 0 },
+        scene: { total: 1, available: 1, stale: 0 },
+        prop: { total: 0, available: 0, stale: 0 },
+      },
       episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
     };
     vi.spyOn(API, "listProjects").mockResolvedValue({
@@ -167,13 +253,15 @@ describe("ProjectsPage", () => {
           style_image: "style_reference.png",
           thumbnail: null,
           status: {
-            current_phase: "production",
+            phase: "production",
             phase_progress: 0.1,
             needs_repair: false,
             repair_reason: null,
-            characters: { total: 1, completed: 0 },
-            scenes: { total: 0, completed: 0 },
-            props: { total: 0, completed: 0 },
+            assets: {
+              character: { total: 1, available: 0, stale: 0 },
+              scene: { total: 0, available: 0, stale: 0 },
+              prop: { total: 0, available: 0, stale: 0 },
+            },
             episodes_summary: { total: 1, scripted: 0, in_production: 1, completed: 0 },
           },
         },
@@ -197,13 +285,15 @@ describe("ProjectsPage", () => {
           style_image: null,
           thumbnail: null,
           status: {
-            current_phase: "production",
+            phase: "production",
             phase_progress: 0,
             needs_repair: false,
             repair_reason: null,
-            characters: { total: 0, completed: 0 },
-            scenes: { total: 0, completed: 0 },
-            props: { total: 0, completed: 0 },
+            assets: {
+              character: { total: 0, available: 0, stale: 0 },
+              scene: { total: 0, available: 0, stale: 0 },
+              prop: { total: 0, available: 0, stale: 0 },
+            },
             episodes_summary: { total: 0, scripted: 0, in_production: 0, completed: 0 },
           },
         },
@@ -241,13 +331,15 @@ describe("ProjectsPage", () => {
             style: "Anime",
             thumbnail: null,
             status: {
-              current_phase: "completed",
+              phase: "completed",
               phase_progress: 1,
               needs_repair: false,
               repair_reason: null,
-              characters: { total: 1, completed: 1 },
-              scenes: { total: 1, completed: 1 },
-              props: { total: 0, completed: 0 },
+              assets: {
+                character: { total: 1, available: 1, stale: 0 },
+                scene: { total: 1, available: 1, stale: 0 },
+                prop: { total: 0, available: 0, stale: 0 },
+              },
               episodes_summary: { total: 1, scripted: 1, in_production: 0, completed: 1 },
             },
           },
@@ -348,13 +440,15 @@ describe("ProjectsPage", () => {
             style: "Anime",
             thumbnail: null,
             status: {
-              current_phase: "completed",
+              phase: "completed",
               phase_progress: 1,
               needs_repair: false,
               repair_reason: null,
-              characters: { total: 1, completed: 1 },
-              scenes: { total: 1, completed: 1 },
-              props: { total: 0, completed: 0 },
+              assets: {
+                character: { total: 1, available: 1, stale: 0 },
+                scene: { total: 1, available: 1, stale: 0 },
+                prop: { total: 0, available: 0, stale: 0 },
+              },
               episodes_summary: { total: 1, scripted: 1, in_production: 0, completed: 1 },
             },
           },
