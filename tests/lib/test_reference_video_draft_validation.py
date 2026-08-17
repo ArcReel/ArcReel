@@ -4,6 +4,7 @@ import unicodedata
 
 import pytest
 
+from lib.draft_quarantine import violation_entries
 from lib.reference_video.draft_validation import (
     DraftViolation,
     DraftViolations,
@@ -14,7 +15,6 @@ from lib.reference_video.draft_validation import (
     validate_source_text_anchor,
     validate_unit_text,
 )
-from lib.reference_video.quarantine import violation_entries
 
 pytestmark = pytest.mark.unit
 

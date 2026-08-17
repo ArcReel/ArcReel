@@ -148,7 +148,7 @@ MESSAGES = {
     "script_review_not_applicable": "Step 1 review does not apply to this episode (this mode has no structured Step 1 intermediate)",
     "script_review_no_step1": "No Step 1 structured draft to confirm yet; please finish preprocessing first",
     "script_review_quarantined": (
-        "This episode has a rejected Step 1 draft awaiting repair; let the agent fix and promote it before confirming"
+        "This episode has a quarantined Step 1 draft awaiting repair; let the agent fix and promote it before confirming"
     ),
     "script_review_conflict": (
         "The Step 1 draft was modified by another editor while you were editing; your save was not applied. "

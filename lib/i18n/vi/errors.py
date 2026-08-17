@@ -148,7 +148,7 @@ MESSAGES = {
     "script_review_not_applicable": "Tập này không áp dụng xác nhận Step 1 (chế độ này không có bản trung gian Step 1 có cấu trúc)",
     "script_review_no_step1": "Chưa có bản nháp có cấu trúc Step 1 để xác nhận; vui lòng hoàn tất tiền xử lý trước",
     "script_review_quarantined": (
-        "Tập này có bản nháp Step 1 vi phạm đang chờ xử lý; hãy để tác nhân sửa và thăng cấp trước khi xác nhận"
+        "Tập này có bản nháp Step 1 cách ly đang chờ xử lý; hãy để tác nhân sửa và thăng cấp trước khi xác nhận"
     ),
     "script_review_conflict": (
         "Bản nháp Step 1 đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "

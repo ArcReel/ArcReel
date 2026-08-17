@@ -12,6 +12,7 @@ import json
 import logging
 import re
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, NamedTuple, cast
@@ -26,6 +27,20 @@ from lib.asset_types import BUCKET_KEY
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
 from lib.db import async_session_factory
+from lib.draft_quarantine import (
+    PROMOTE_TOOL_NAME,
+    QUARANTINE_KIND_DRAMA_STEP1,
+    QUARANTINE_KIND_STEP1,
+    QUARANTINE_KIND_STEP2,
+    STEP1_EDIT_TOOL_NAME,
+    QuarantinedDraft,
+    clear_quarantine,
+    quarantine_and_report,
+    quarantine_exists,
+    quarantine_path,
+    read_quarantine,
+    write_quarantine,
+)
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
     REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
@@ -45,19 +60,6 @@ from lib.reference_video.draft_validation import (
     validate_dialogue_load,
     validate_source_text_anchor,
     validate_unit_text,
-)
-from lib.reference_video.quarantine import (
-    PROMOTE_TOOL_NAME,
-    QUARANTINE_KIND_STEP1,
-    QUARANTINE_KIND_STEP2,
-    STEP1_EDIT_TOOL_NAME,
-    QuarantinedDraft,
-    clear_quarantine,
-    quarantine_and_report,
-    quarantine_exists,
-    quarantine_path,
-    read_quarantine,
-    write_quarantine,
 )
 from lib.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
@@ -266,6 +268,19 @@ def _uses_reference_video_units(project_data: dict[str, Any]) -> bool:
     return is_reference_video_project(project_data)
 
 
+def _step2_blocking_quarantine_kinds(project_data: dict[str, Any]) -> tuple[str, ...]:
+    """该项目上会阻塞 step2 的隔离草稿来源。
+
+    按项目当前路线解析、不无条件枚举全部来源：换过路线的项目上会残留另一条路线的隔离草稿，
+    而那条路线的写入方不会再清它们——无条件判会把该集永久卡死。参考路线的 step2 视觉展开
+    自身也有隔离草稿位，故比其它变体多一个来源。
+    """
+    if _uses_reference_video_units(project_data):
+        return (QUARANTINE_KIND_STEP1, QUARANTINE_KIND_STEP2)
+    kind = script_review.step1_quarantine_kind(project_data)
+    return (kind,) if kind is not None else ()
+
+
 def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str, Any]) -> tuple[Path, str] | None:
     """Return (step1_md path, hint text for missing-file error)；ad 一键生成不依赖 step1，返回 None。"""
     content_mode = project_data.get("content_mode", "narration")
@@ -330,26 +345,23 @@ def generate_episode_script_tool(ctx: ToolContext):
                 project_data = {}
 
             # 隔离草稿在场先于「缺 step1」与审核 gate 报出。三者都判「未放行」，但出路各不相同：
-            # 首次拆分就违约时正式 step1 本就不存在，先报缺文件会把 agent 引回重跑拆分——正是本
+            # 首次产出就违约时正式 step1 本就不存在，先报缺文件会把 agent 引回重跑生成——正是本
             # 机制要避免的「丢弃重抽」；gate 阻塞则要用户去 Web 端确认，agent 自己解决不了。
-            # 只在项目实际走参考路径时判：分镜路线项目上残留的隔离草稿与其生成路径无关，
-            # 非参考路径的写入方不会清它们，无条件判会把该集永久卡死。
-            if _uses_reference_video_units(project_data):
-                for kind in (QUARANTINE_KIND_STEP1, QUARANTINE_KIND_STEP2):
-                    if quarantine_exists(project_path, episode, kind):
-                        path = quarantine_path(project_path, episode, kind)
-                        return {
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": (
-                                        f"⏸️ 本集有违约产物待处置（{path}），step2 视觉生成已中止。"
-                                        f"请按草稿内 violations 的定位修正 content，再调用 {PROMOTE_TOOL_NAME} 晋升。"
-                                    ),
-                                }
-                            ],
-                            "is_error": True,
-                        }
+            for kind in _step2_blocking_quarantine_kinds(project_data):
+                if quarantine_exists(project_path, episode, kind):
+                    path = quarantine_path(project_path, episode, kind)
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    f"⏸️ 本集有隔离草稿待处置（{path}），step2 视觉生成已中止。"
+                                    f"请按草稿内 violations 的定位修改 content，再调用 {PROMOTE_TOOL_NAME} 晋升。"
+                                ),
+                            }
+                        ],
+                        "is_error": True,
+                    }
 
             step1 = _resolve_step1_path(project_path, episode, project_data)
             if step1 is not None:
@@ -587,11 +599,14 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 else:
                     scene["needs_replan"] = True
 
-            drafts_dir = episode_drafts_dir(project_path, episode)
-            drafts_dir.mkdir(parents=True, exist_ok=True)
-            step1_path = drafts_dir / STEP1_FILENAMES["drama"]
-            # 结构化 step1 的所有 Python 正式写共用锁、原子替换与 Manifest 登记边界。
-            script_review.write_step1_json(project_path, episode, step1_path, content, basis=step1_basis)
+            step1_path = episode_drafts_dir(project_path, episode) / STEP1_FILENAMES["drama"]
+            # 重新规范化是刻意的整份重建，无基线可比对；写盘经与晋升同一个持锁出口。上一轮
+            # 隔离草稿的清除与写盘同一临界区（与参考路线的重拆分同口径）：正式文件已是这一份
+            # 产物，旧草稿留着只会让审阅 gate 与 step2 继续阻塞在一份已被取代的内容上，而它
+            # 记下的基线指纹此刻也已对不上，晋升只会反复报冲突。
+            with script_review.formal_step1_lock(project_path, episode, step1_path):
+                script_review.write_formal_step1_locked(project_path, episode, step1_path, content, basis=step1_basis)
+                clear_quarantine(project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)
 
             scenes = raw_scenes
             return {
@@ -1014,7 +1029,18 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
             clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
     except script_review.Step1WriteConflict as conflict:
         return {
-            "content": [{"type": "text", "text": _render_step1_conflict_report(episode, draft, conflict)}],
+            "content": [
+                {
+                    "type": "text",
+                    "text": _render_step1_conflict_report(
+                        episode,
+                        draft,
+                        conflict,
+                        to_draft_shape=_reference_step1_draft_shape,
+                        field_hint="content.units",
+                    ),
+                }
+            ],
             "is_error": True,
         }
     warning_lines = _reference_voice_warning_lines([f["text"] for f in flat_units], project, split_caps.voice)
@@ -1024,18 +1050,26 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
 
 
 def _render_step1_conflict_report(
-    episode: int, draft: QuarantinedDraft, conflict: script_review.Step1WriteConflict
+    episode: int,
+    draft: QuarantinedDraft,
+    conflict: script_review.Step1WriteConflict,
+    *,
+    to_draft_shape: Callable[[dict[str, Any]], dict[str, Any] | None],
+    field_hint: str,
 ) -> str:
     """渲染晋升遇乐观并发冲突时回给 agent 的结构化报告：最新内容 + 合并指引。
 
-    报告要让编辑方能就地合并：附上盘上现值的扁平书写层（与草稿 ``content`` 同形，可逐 unit
+    报告要让编辑方能就地合并：附上盘上现值转成草稿那一层的形状（与草稿 ``content`` 同形，可逐条
     对照），并指明确认合并后把 ``meta.base_fingerprint`` 更新为现值指纹——这一步是显式确认
     「我已看过并合并了对方的修改」，之后重新晋升才会放行；不更新就重试只会拿到同一份报告。
+
+    ``to_draft_shape`` 与 ``field_hint`` 由各变体传入：草稿层的形状与可改字段按变体不同，
+    附一份对不上形状的「最新内容」比不附更误导。
     """
-    current_units = (conflict.current_content or {}).get("units")
-    if isinstance(current_units, list) and current_units:
-        latest = json.dumps({"units": _flatten_reference_step1_units(current_units)}, ensure_ascii=False, indent=2)
-        latest_block = f"当前正式 step1 的最新内容（扁平书写层，与草稿 content 同形）：\n{latest}"
+    latest_content = to_draft_shape(conflict.current_content) if conflict.current_content is not None else None
+    if latest_content is not None:
+        latest = json.dumps(latest_content, ensure_ascii=False, indent=2)
+        latest_block = f"当前正式 step1 的最新内容（与草稿 content 同形）：\n{latest}"
     else:
         latest_block = "当前正式文件不存在或不是合法的 step1 JSON，无法附上最新内容；请自行读取该文件确认。"
     # 指纹按 JSON 字面量给：正式文件已被删除时现值是 null，写成 "None" 会让 agent 把这串字符
@@ -1046,7 +1080,7 @@ def _render_step1_conflict_report(
         "直接晋升会覆盖对方的修改，本次未写盘、草稿仍在场。\n"
         f"草稿基线指纹: {json.dumps(conflict.expected)}；盘上现值指纹: {actual_literal}\n\n"
         f"{latest_block}\n\n"
-        f"处置：对照上方最新内容与草稿 {draft.path} 的 content.units，把对方的修改合并进草稿；"
+        f"处置：对照上方最新内容与草稿 {draft.path} 的 {field_hint}，把对方的修改合并进草稿；"
         f"合并完成后把草稿 meta.base_fingerprint 更新为 {actual_literal}，"
         f'再调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 重新晋升。'
     )
@@ -1094,12 +1128,232 @@ def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
     return flat
 
 
-def open_reference_step1_for_edit_tool(ctx: ToolContext):
+def _reference_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
+    """正式参考 step1 内容 → 隔离草稿装的书写层形状；不是合法 step1 时返回 None。"""
+    units = content.get("units")
+    if not isinstance(units, list) or not units:
+        return None
+    return {"units": _flatten_reference_step1_units(units)}
+
+
+def _drama_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
+    """正式 drama step1 内容 → 隔离草稿装的书写层形状；不是合法 step1 时返回 None。
+
+    只剥 ``needs_replan``：它是按台词准入机械派生的标记，让 agent 编辑派生物等于给漂移开
+    口子——晋升时照样按 ``content`` 现值重新派生。其余字段原样带过，包括 ``scene_id``：它是
+    step2 视觉层的对齐锚，草稿里写坏了要由晋升侧的 schema 逐条报出来，不能在这一层替它填。
+    非 dict 的场景项同样原样带过而非丢弃：跳过会让数组变短，若剩余场景恰好都能过校验，晋升
+    会悄悄覆盖正式文件、丢掉这一场而无人知晓。
+    """
+    scenes = content.get("scenes")
+    if not isinstance(scenes, list) or not scenes:
+        return None
+    flat: list[Any] = []
+    for scene in scenes:
+        flat.append({k: v for k, v in scene.items() if k != "needs_replan"} if isinstance(scene, dict) else scene)
+    return {"title": content.get("title", ""), "scenes": flat}
+
+
+async def _promote_drama_step1(ctx: ToolContext, episode: int, draft: QuarantinedDraft) -> dict[str, Any]:
+    """按产出时那套校验器全量重判 drama step1 隔离草稿，通过则晋升为正式 step1 并清除草稿。
+
+    校验器就是产出时那一个（按当前能力档位构造的 ``DramaNormalizedScript``），不是它的副本：
+    档位随项目配置变化，草稿里那个曾经合法的秒数今天可能已不在档位内，用旧枚举放行等于把一份
+    供应商不接的时长固化进正式文件。``needs_replan`` 同样按现值重新派生，与生成侧同一口径。
+    """
+    project_path = ctx.project_path
+    project = ctx.pm.load_project(ctx.project_name)
+    source = draft.meta.get("source")
+    try:
+        _, _, step1_basis = _load_step1_source_with_basis(project_path, source, project, episode, "drama")
+    except ValueError as exc:
+        return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
+
+    _, supported_durations = await _fetch_caps_with_fallback(project, episode)
+    schema = build_drama_normalized_script_model(supported_durations)
+    try:
+        content = schema.model_validate(draft.content).model_dump()
+    except ValidationError as exc:
+        violation = DraftViolation(
+            f"隔离草稿的 content 不符合 step1 规范化产出结构：{exc}；"
+            f"顶层须为 {{title, scenes}}，每个场景的 duration_seconds 取自模型档位 {supported_durations}",
+            code="schema_invalid",
+        )
+        # 写回 agent 手里那份原样内容，不做收编——字段被改坏时收编会把它的原稿改形，它照着
+        # 报告回去看反而对不上自己写的东西。
+        report = quarantine_and_report(
+            project_path,
+            episode,
+            QUARANTINE_KIND_DRAMA_STEP1,
+            content=draft.content,
+            violations=[violation],
+            meta=draft.meta,
+        )
+        return {"content": [{"type": "text", "text": report}], "is_error": True}
+
+    raw_scenes = content.get("scenes")
+    if not isinstance(raw_scenes, list) or not raw_scenes:
+        violation = DraftViolation("隔离草稿的 content.scenes 必须是非空的场景对象数组", code="schema_invalid")
+        report = quarantine_and_report(
+            project_path,
+            episode,
+            QUARANTINE_KIND_DRAMA_STEP1,
+            content=draft.content,
+            violations=[violation],
+            meta=draft.meta,
+        )
+        return {"content": [{"type": "text", "text": report}], "is_error": True}
+    for scene in raw_scenes:
+        admission = admit_script_unit("scenes", scene, ignore_marker=True)
+        if admission.allowed:
+            scene.pop("needs_replan", None)
+        else:
+            scene["needs_replan"] = True
+
+    # 基线指纹取自取回时记进 meta 的 base_fingerprint：正式文件在草稿产出后被其他写入方
+    # （Web 端保存、重跑 normalize）改过时晋升中止、返回冲突报告让 agent 合并，不静默覆盖。
+    expected = (
+        draft.meta["base_fingerprint"] if "base_fingerprint" in draft.meta else script_review.UNCHECKED_FINGERPRINT
+    )
+    step1_path = episode_drafts_dir(project_path, episode) / STEP1_FILENAMES["drama"]
+    try:
+        with script_review.formal_step1_lock(project_path, episode, step1_path):
+            script_review.write_formal_step1_locked(
+                project_path,
+                episode,
+                step1_path,
+                content,
+                expected_fingerprint=expected,
+                basis=step1_basis,
+            )
+            # 落盘成功后才清草稿：写盘失败（含冲突）时草稿还在，改完重试晋升即可，不会两头皆空。
+            # 清理与写盘同一临界区：并发的取回请求不会在两步之间看到「正式文件已是新内容、
+            # 草稿却还在场」的中间态。
+            clear_quarantine(project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)
+    except script_review.Step1WriteConflict as conflict:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": _render_step1_conflict_report(
+                        episode,
+                        draft,
+                        conflict,
+                        to_draft_shape=_drama_step1_draft_shape,
+                        field_hint="content.scenes",
+                    ),
+                }
+            ],
+            "is_error": True,
+        }
+    replan = sum(1 for scene in raw_scenes if scene.get("needs_replan") is True)
+    replan_note = f"；其中 {replan} 个场景被标记为需重新规划（台词量未过准入）" if replan else ""
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": f"✅ step1 规范化内容已校验通过并晋升: {step1_path}\n📊 {len(raw_scenes)} 个场景{replan_note}",
+            }
+        ]
+    }
+
+
+async def _open_drama_step1_for_edit(ctx: ToolContext, episode: int, source: str | None) -> dict[str, Any]:
+    """把本集正式 drama step1 取回为隔离草稿（正式文件保持原样），返回给 agent 的编辑指引。
+
+    与参考路线同一条流程：草稿有无的检查、正式文件的读取、草稿的写入整段在同一把 per-path
+    锁的临界区内完成——拆开在锁外各做一次的话，同一集的两个并发取回请求会都先看到「无草稿」、
+    再各自写入，后写者悄悄覆盖前者的内容与 meta。
+    """
+    project_path = ctx.project_path
+    # source 在写草稿前校验：草稿一旦落盘就把它记进 meta.source 供晋升取产物依据，若此刻是个
+    # 缺失 / 改名 / 写错的路径，晋升会反复报错，而草稿已在场又挡住重新取回改正 source——agent
+    # 会卡在一个自己改不动的死角。校验失败时不落盘，无效参数不留持久副作用。
+    if source is not None:
+        try:
+            _load_novel_source(project_path, source)
+        except ValueError as exc:
+            return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
+
+    step1_path = episode_drafts_dir(project_path, episode) / STEP1_FILENAMES["drama"]
+    with script_review.formal_step1_lock(project_path, episode, step1_path):
+        # 已有草稿在场时不覆盖：那份草稿可能已含 agent 未晋升的修改，拿正式文件盖过去等于
+        # 抹掉它手上的工作。出路是继续改那份草稿再晋升。
+        if quarantine_exists(project_path, episode, QUARANTINE_KIND_DRAMA_STEP1):
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"❌ 第 {episode} 集已有 step1 隔离草稿在场："
+                            f"{quarantine_path(project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)}\n"
+                            "不覆盖它（可能已含未晋升的修改）；请直接编辑该草稿的 content.scenes[i]，"
+                            f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 晋升。'
+                        ),
+                    }
+                ],
+                "is_error": True,
+            }
+
+        data = load_json_or_none(step1_path)
+        draft_content = _drama_step1_draft_shape(data) if isinstance(data, dict) else None
+        if draft_content is None:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"❌ 第 {episode} 集没有可编辑的正式 step1（{step1_path} 不存在、不是合法 JSON，"
+                            "或 scenes 不是非空数组）；首次生成请调用 normalize_drama_script"
+                        ),
+                    }
+                ],
+                "is_error": True,
+            }
+
+        draft_path = write_quarantine(
+            project_path,
+            episode,
+            QUARANTINE_KIND_DRAMA_STEP1,
+            content=draft_content,
+            # 取回时无违约可报：草稿在这条路上是「编辑工位」而非「违约产物」，报告为空即可，
+            # 晋升时照常全量重判。
+            violations=[],
+            # source 键一律写出（未指定时为 null），与生成侧同口径。base_fingerprint 记下此刻
+            # 正式文件的指纹（与本临界区读到的 data 同一份内容）：晋升前按它做基线比对，取回与
+            # 晋升之间正式文件被 Web 端保存等并发写入改过时中止晋升、报冲突让 agent 合并。
+            meta={
+                "source": source or None,
+                "base_fingerprint": script_review.content_fingerprint_of_data(data),
+            },
+        )
+    scenes = draft_content["scenes"]
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": (
+                    f"✅ 第 {episode} 集 step1 已取回可编辑草稿：{draft_path}\n"
+                    f"📊 {len(scenes)} 个场景（正式文件 {step1_path} 保持原样，未改动）\n\n"
+                    "编辑口径：改 content.scenes[i] 的 scene_description / utterances / source_text / "
+                    "duration_seconds / segment_break / 出场资产；needs_replan 是按台词准入派生的标记，"
+                    "不在草稿里、也不要手写。增删场景即增删数组元素。\n"
+                    f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 全量校验并晋升回正式文件；'
+                    "违约时返回逐条报告，继续改再晋升，无轮次上限。\n"
+                    "草稿在场期间审阅门与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"
+                ),
+            }
+        ]
+    }
+
+
+def open_step1_for_edit_tool(ctx: ToolContext):
     @tool(
         STEP1_EDIT_TOOL_NAME,
-        "把本集已落盘的参考生视频 step1 拆分取回可编辑的隔离草稿（扁平书写层：时长 + 原文锚 + 正文），"
-        f"用于修改已有拆分。改完调用 {PROMOTE_TOOL_NAME} 全量校验并晋升回正式文件。"
-        "正式 step1 不可用 Write/Edit 直改——它与 Web 端保存、迁移、重拆分共享一把文件锁，"
+        "把本集已落盘的正式 step1 取回可编辑的隔离草稿（书写层：参考生视频为时长 + 原文锚 + 正文，"
+        "drama 为场景内容），用于修改已有产出。改完调用 "
+        f"{PROMOTE_TOOL_NAME} 全量校验并晋升回正式文件。"
+        "正式 step1 不可用 Write/Edit 直改——它与 Web 端保存、迁移、重生成共享一把文件锁，"
         "只能经工具写盘。",
         {
             "type": "object",
@@ -1109,7 +1363,7 @@ def open_reference_step1_for_edit_tool(ctx: ToolContext):
                     "type": "string",
                     "description": (
                         "本集小说源文件路径（相对项目目录，如 source/episode_1.txt）；"
-                        "晋升时按它重判原文锚，不传则按整个 source/ 目录重解析（判定更松）"
+                        "晋升时按它重判原文锚 / 重取产物依据，不传则按整个 source/ 目录重解析（判定更松）"
                     ),
                 },
             },
@@ -1123,15 +1377,25 @@ def open_reference_step1_for_edit_tool(ctx: ToolContext):
             project_path = ctx.project_path
             project_data = ctx.pm.load_project(ctx.project_name)
 
-            # 与晋升工具同一判据：分镜路线项目上盘存的 step1 与其生成路径无关，
-            # 取回来编辑只会诱导 agent 改一份不会被消费的文件。
-            if not _uses_reference_video_units(project_data):
+            # 与晋升工具同一判据：按项目当前变体解析该改哪份 step1。换过路线的项目上盘存的
+            # 另一条路线的 step1 与其生成路径无关，取回来编辑只会诱导 agent 改一份不会被消费
+            # 的文件；无隔离草稿位的变体（narration / ad）则本就没有这条编辑通道。
+            quarantine_kind = script_review.step1_quarantine_kind(project_data)
+            if quarantine_kind is None:
                 return {
                     "content": [
-                        {"type": "text", "text": f"❌ 第 {episode} 集当前不走参考生视频路径，无 step1 拆分可编辑"}
+                        {
+                            "type": "text",
+                            "text": (
+                                f"❌ 第 {episode} 集的 step1 没有隔离草稿编辑通道"
+                                "（该项目无结构化 step1，或其 step1 变体由 subagent 直接编辑）"
+                            ),
+                        }
                     ],
                     "is_error": True,
                 }
+            if quarantine_kind == QUARANTINE_KIND_DRAMA_STEP1:
+                return await _open_drama_step1_for_edit(ctx, episode, source)
 
             # source 在写草稿前校验：草稿一旦落盘就把它记进 meta.source 供晋升重判用，若此刻
             # 是个缺失/改名/写错的路径，晋升会在 _load_novel_source 上反复报错，而草稿已在场
@@ -1390,16 +1654,16 @@ def split_reference_video_units_tool(ctx: ToolContext):
 
 
 # ---------------------------------------------------------------------------
-# validate_and_promote_reference_draft
+# validate_and_promote_draft
 # ---------------------------------------------------------------------------
 
 
-def validate_and_promote_reference_draft_tool(ctx: ToolContext):
+def validate_and_promote_draft_tool(ctx: ToolContext):
     @tool(
         PROMOTE_TOOL_NAME,
-        "重新全量校验本集的参考生视频隔离草稿（step1 拆分或 step2 视觉展开的违约产物），"
+        "重新全量校验本集的隔离草稿（step1 产出、step2 视觉展开的违约产物，或取回编辑的正式 step1），"
         "通过则晋升为正式文件并清除草稿，不通过则返回刷新后的违约报告。"
-        "在按上一份报告修改过隔离草稿的 content 之后调用；可反复调用，无轮次上限。",
+        "在修改过隔离草稿的 content 之后调用；可反复调用，无轮次上限。",
         {
             "type": "object",
             "properties": {"episode": {"type": "integer", "description": "剧集编号"}},
@@ -1412,8 +1676,22 @@ def validate_and_promote_reference_draft_tool(ctx: ToolContext):
             project_path = ctx.project_path
             project_data = ctx.pm.load_project(ctx.project_name)
 
-            # 分镜路线项目上残留的草稿不再晋升：晋升会按参考路径的形状覆盖 scripts/episode_N.json，
-            # 而该项目走的是分镜路径。与 generate_episode_script 忽略这些残留同一判据。
+            # 按项目当前变体分派：换过路线的项目上残留的另一条路线的草稿不再晋升——晋升会按
+            # 那条路线的形状覆盖正式产物。与 generate_episode_script 忽略这些残留同一判据。
+            if script_review.step1_quarantine_kind(project_data) == QUARANTINE_KIND_DRAMA_STEP1:
+                drama_draft = read_quarantine(project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)
+                if drama_draft is not None:
+                    return await _promote_drama_step1(ctx, episode, drama_draft)
+                if quarantine_exists(project_path, episode, QUARANTINE_KIND_DRAMA_STEP1):
+                    raise ValueError(
+                        f"step1 隔离草稿 {quarantine_path(project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)} "
+                        "不是合法的 JSON 信封（顶层须为对象且含 content 对象）；请修正该文件的 JSON 结构后重试"
+                    )
+                return {
+                    "content": [{"type": "text", "text": f"❌ 第 {episode} 集没有待处置的隔离草稿"}],
+                    "is_error": True,
+                }
+
             if not _uses_reference_video_units(project_data):
                 return {
                     "content": [
@@ -1680,6 +1958,6 @@ __all__ = [
     "confirm_script_review_tool",
     "normalize_drama_script_tool",
     "split_reference_video_units_tool",
-    "validate_and_promote_reference_draft_tool",
+    "validate_and_promote_draft_tool",
     "split_narration_segments_tool",
 ]

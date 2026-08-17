@@ -1354,7 +1354,7 @@ export default {
   'reference_step1_fix_request_prefill_header':
     '第 {{episode}} 集的参考视频 step1 拆分草稿有 {{count}} 处违约待修复，请直接编辑隔离草稿修正：',
   'reference_step1_fix_request_promote_prefill':
-    '第 {{episode}} 集的参考视频 step1 拆分草稿重新校验已无违约，仍处于隔离态待处置，请调用 validate_and_promote_reference_draft 晋升为正式内容。',
+    '第 {{episode}} 集的参考视频 step1 拆分草稿重新校验已无违约，仍处于隔离态待处置，请调用 validate_and_promote_draft 晋升为正式内容。',
   'image_prompt_placeholder': '分镜图描述...',
   'video_prompt_placeholder': '视频动作描述...',
 
@@ -1485,8 +1485,8 @@ export default {
   'tool_name_confirm_script_review': '确认 step1 审核',
   'tool_name_normalize_drama_script': '规范化剧本',
   'tool_name_split_reference_video_units': '拆分参考视频单元',
-  'tool_name_open_reference_step1_for_edit': '取回参考视频拆分供编辑',
-  'tool_name_validate_and_promote_reference_draft': '校验并晋升参考视频草稿',
+  'tool_name_open_step1_for_edit': '取回正式 step1 供编辑',
+  'tool_name_validate_and_promote_draft': '校验并晋升隔离草稿',
   'tool_name_split_narration_segments': '拆分说书片段',
   'tool_name_get_video_capabilities': '查询视频模型能力',
   'tool_name_plan_episodes': '分集规划',

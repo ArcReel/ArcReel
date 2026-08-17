@@ -18,8 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
-from lib.episode_paths import REFERENCE_VIDEO_STEP1_FILENAME
-from lib.reference_video.quarantine import PROMOTE_TOOL_NAME, STEP1_EDIT_TOOL_NAME
+from lib.draft_quarantine import PROMOTE_TOOL_NAME, STEP1_EDIT_TOOL_NAME
+from lib.episode_paths import AGENT_PROTECTED_STEP1_FILENAMES
 
 logger = logging.getLogger(__name__)
 
@@ -566,7 +566,7 @@ class AgentAccessPolicy:
 
     def _check_write_access(self, resolved: Path, project_cwd: Path, *, logical_norm: Path) -> tuple[bool, str | None]:
         """Write/Edit 的写入约束：cwd 外一律拒，cwd 内先过 ``PROTECTED_WRITE_RULES`` 规则表
-        （``scripts/*.json`` / ``project.json`` / 参考生视频正式 step1——只能走收归后的 MCP
+        （``scripts/*.json`` / ``project.json`` / 正式 step1——只能走收归后的 MCP
         工具），再拒代码扩展名（agent 不写代码）。
 
         所有 cwd-relative 判定（cwd 内外、protected 区命中）都按 **base 同时枚举 raw + resolved**
@@ -677,30 +677,37 @@ class AgentAccessPolicy:
                 return True
         return False
 
-    @classmethod
-    def _is_protected_reference_step1(cls, target: Path, bases: list[Path]) -> bool:
-        """命中参考生视频的正式 step1（``drafts/episode_N/step1_reference_units.json``）。
+    #: 写禁 step1 文件名的归一化形态（与路径比对同一把尺）。类体内不能调 classmethod，
+    #: 故占位声明在此、实际值在 ``PROTECTED_WRITE_RULES`` 之后一并赋。
+    _PROTECTED_STEP1_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
 
-        与 ``scripts/*.json`` / ``project.json`` 同一条理由收进写禁：这份文件有四条写入路径
-        （迁移读改写、Web 端保存、重拆分 / 晋升写盘、agent 修改），前三条都持
+    @classmethod
+    def _is_protected_formal_step1(cls, target: Path, bases: list[Path]) -> bool:
+        """命中受写禁的正式 step1（``drafts/episode_N/`` 下 ``AGENT_PROTECTED_STEP1_FILENAMES``）。
+
+        与 ``scripts/*.json`` / ``project.json`` 同一条理由收进写禁：这些文件各有多条写入路径
+        （迁移读改写、Web 端保存、重生成 / 晋升写盘、agent 修改），除 agent 外都持
         ``ProjectManager.file_lock`` 的同一把 per-path 锁；agent 的 Write/Edit 跑在沙箱里、
         取不到这把锁，直改与并发的 Web 端保存之间就是一个丢失更新窗口。改走
-        ``open_reference_step1_for_edit`` → 改草稿 → 晋升，写盘只发生在持锁的晋升侧。
+        ``open_step1_for_edit`` → 改草稿 → 晋升，写盘只发生在持锁的晋升侧。
+
+        按文件名匹配、不按项目变体解析：写禁在会话装配前就要成立，而项目的 content_mode /
+        generation_mode 运行时可变。多认一两个本项目用不到的 step1 文件名无害——那些文件在
+        该项目里本就没有合法写入者。
 
         只拦正式文件，不拦同目录的 ``.invalid.json`` 隔离草稿：草稿本就是给 agent 用文件工具
         改的编辑工位，且没有第二条写入路径（Web 端草稿保存只写正式文件名），无并发可言。
 
         ``bases`` 与 target 的 raw/resolved 双形式口径同 ``_is_protected_project_json``。
-        集号不枚举、按 ``episode_*`` 目录名匹配：写禁在会话装配前就要成立，而集是运行时增删的。
+        集号不枚举、按 ``episode_*`` 目录名匹配：同上，集是运行时增删的。
         """
         target_s = cls._normalize_path_for_protected_compare(target)
-        filename = cls._normalize_path_for_protected_compare(Path(REFERENCE_VIDEO_STEP1_FILENAME))
         for base in bases:
             drafts_dir = cls._normalize_path_for_protected_compare(base / "drafts")
             if not target_s.startswith(drafts_dir + os.sep):
                 continue
             parts = target_s[len(drafts_dir) + 1 :].split(os.sep)
-            if len(parts) == 2 and parts[0].startswith("episode_") and parts[1] == filename:
+            if len(parts) == 2 and parts[0].startswith("episode_") and parts[1] in cls._PROTECTED_STEP1_FILENAMES_NORM:
                 return True
         return False
 
@@ -711,7 +718,7 @@ class AgentAccessPolicy:
 #:
 #: - ``project_json``：「写入口收归」——``scripts/*.json`` 与 ``project.json`` 只能走 MCP
 #:   工具；两层投影同覆盖面（``scripts/`` 整子树 + ``project.json``）。
-#: - ``reference_step1``：「写入口持锁」——正式 step1 另有三条持同一把 per-path 锁的写入
+#: - ``formal_step1``：「写入口持锁」——正式 step1 另有多条持同一把 per-path 锁的写入
 #:   路径，Write/Edit 取不到锁，直改即丢失更新窗口。两层刻意不对称：sandbox 按 ``drafts/``
 #:   整目录 deny（清单在会话装配期一次性构造，集是运行时增删的，逐文件枚举必然落空；Bash
 #:   本就没有合法写入者），hook 只拒正式 step1——同目录的 ``.invalid.json`` 隔离草稿正是
@@ -729,15 +736,22 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
         sandbox_subpaths=("scripts", "project.json"),
     ),
     ProtectedWriteRule(
-        name="reference_step1",
-        matches=AgentAccessPolicy._is_protected_reference_step1,
+        name="formal_step1",
+        matches=AgentAccessPolicy._is_protected_formal_step1,
         deny_message=(
-            f"访问被拒绝：参考生视频的 {REFERENCE_VIDEO_STEP1_FILENAME} 不可用 Write/Edit 直改。"
-            "该文件与 Web 端保存、迁移读改写、重拆分共享一把文件锁，而 Write/Edit 取不到这把锁，"
+            "访问被拒绝：正式 step1（"
+            + " / ".join(sorted(AGENT_PROTECTED_STEP1_FILENAMES))
+            + "）不可用 Write/Edit 直改。"
+            "这些文件与 Web 端保存、迁移读改写、重生成共享一把文件锁，而 Write/Edit 取不到这把锁，"
             "直改会与并发的保存互相丢失更新。"
             f'请改用 MCP 工具——mcp__arcreel__{STEP1_EDIT_TOOL_NAME}({{"episode": N}}) 取回可编辑草稿，'
-            f"改草稿的 content.units[i]，再用 mcp__arcreel__{PROMOTE_TOOL_NAME} 校验并晋升回正式文件。"
+            f"改草稿的 content，再用 mcp__arcreel__{PROMOTE_TOOL_NAME} 校验并晋升回正式文件。"
         ),
         sandbox_subpaths=("drafts",),
     ),
+)
+
+#: 写禁文件名的归一化形态（与路径比对同一把尺）。类体内不能引用 classmethod，故在表之后赋值。
+AgentAccessPolicy._PROTECTED_STEP1_FILENAMES_NORM = frozenset(
+    AgentAccessPolicy._normalize_path_for_protected_compare(Path(name)) for name in AGENT_PROTECTED_STEP1_FILENAMES
 )

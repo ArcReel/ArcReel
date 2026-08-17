@@ -1,4 +1,4 @@
-"""违约的 step1 / step2 产出的隔离草稿：落盘信封、违约报告与晋升口径。
+"""step1 / step2 产出的隔离草稿：落盘信封、违约报告与晋升口径。
 
 生成一次要付费，产物违约时丢弃重抽既烧钱又不收敛（同一个模型对同一份原文大概率再犯同一
 类错）。改为：正式文件一步不动，违约产物连同逐条违约报告落到同目录的隔离草稿，agent 用文件
@@ -6,16 +6,23 @@
 ——过则晋升为正式文件、隔离草稿随之清除，不过则报告刷新、继续改。无收敛轮次上限：每一轮都
 由 agent 带着具体定位在改，不是重抽碰运气。
 
-隔离草稿装的是**扁平书写层产物**（LLM 面的形状），不是落盘形状：结构字段（``unit_id`` /
-``shots`` / ``references``）一律机器派生，让 agent 编辑派生物等于给漂移开口子。
+同一个隔离草稿位还承担第二种用途：**编辑工位**。正式 step1 不可用 Write/Edit 直改（它与 Web 端
+保存、迁移读改写、重拆分共享一把 per-path 锁，而 agent 的文件工具取不到这把锁），要改已定稿的
+step1 就先取回一份草稿、改完走同一条晋升通道写盘。两种用途共用一套信封与晋升口径：来路不同，
+但「正文在草稿里、写盘只发生在持锁的晋升侧」这一位相同，分两套只会让 gate 与生成侧各认一半。
+
+隔离草稿装的是**该步模型输出那一层的形状**（LLM 面的形状），不是落盘形状：机器派生的字段
+（参考路线的 ``unit_id`` / ``shots`` / ``references``、drama 的 ``needs_replan``）一律不进草稿，
+让 agent 编辑派生物等于给漂移开口子。
 
 信封形状::
 
     {"kind": ..., "episode": N, "meta": {...}, "violations": [{"code","label","message"}, ...], "content": {...}}
 
 ``violations`` 是上一轮判定的快照，只供 agent 阅读定位——晋升时一律按 ``content`` 现值重判，
-不信任草稿里的这份记录。``meta`` 存重判所需、又无法从项目状态重新导出的产出上下文（step1 的
-源文路径：晋升时按整个 ``source/`` 目录重解析会让原文锚的子串判定比产出时更松）。
+不信任草稿里的这份记录。``meta`` 存重判所需、又无法从项目状态重新导出的上下文：step1 的源文
+路径（晋升时按整个 ``source/`` 目录重解析会让原文锚的子串判定比产出时更松），以及产出 / 取回
+时正式文件的内容指纹（``base_fingerprint``，晋升前的乐观并发基线）。
 """
 
 from __future__ import annotations
@@ -25,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from lib.episode_paths import (
+    DRAMA_STEP1_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
     episode_drafts_dir,
@@ -32,23 +40,38 @@ from lib.episode_paths import (
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.reference_video.draft_validation import DraftViolation, render_violation_report
 
-#: 隔离草稿的两种产出来源。step1 的 ``content`` 是 ``{units: [{duration_seconds, source_text, text}]}``，
-#: step2 的是 ``{title, units: [{text}]}``——各自与该阶段模型的输出 schema 同形。
+#: 隔离草稿的产出来源。``content`` 与该来源那一步的模型输出 schema 同形：参考路线 step1 是
+#: ``{units: [{duration_seconds, source_text, text}]}``、step2 是 ``{title, units: [{text}]}``，
+#: drama step1 是 ``{title, scenes: [...]}``（即 ``DramaNormalizedScript`` 去掉机器派生的
+#: ``needs_replan``）。
 QUARANTINE_KIND_STEP1 = "reference_video_step1"
 QUARANTINE_KIND_STEP2 = "reference_video_step2"
+QUARANTINE_KIND_DRAMA_STEP1 = "drama_step1"
 
 _QUARANTINE_FILENAMES: dict[str, str] = {
     QUARANTINE_KIND_STEP1: REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
     QUARANTINE_KIND_STEP2: REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+    QUARANTINE_KIND_DRAMA_STEP1: DRAMA_STEP1_QUARANTINE_FILENAME,
+}
+
+#: 报告里「改哪个字段」的指引按来源分流：草稿正文的形状各不相同，指引落到不存在的字段名
+#: 会把 agent 引到它改不动的地方。与文件名同表登记，新增一种来源只在本模块加一行。
+_QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
+    QUARANTINE_KIND_STEP1: ("step1 拆分", "units[i].text / source_text / duration_seconds"),
+    QUARANTINE_KIND_STEP2: ("step2 视觉展开", "units[i].text"),
+    QUARANTINE_KIND_DRAMA_STEP1: (
+        "step1 规范化",
+        "scenes[i].scene_description / utterances / source_text / duration_seconds",
+    ),
 }
 
 #: 晋升工具名。报告里的处置指引要指名它，写死在这里而非各调用点各写一遍。
-PROMOTE_TOOL_NAME = "validate_and_promote_reference_draft"
+PROMOTE_TOOL_NAME = "validate_and_promote_draft"
 
 #: 取回正式 step1 供编辑的工具名。正式 step1 与 Web 端保存、迁移、重拆分共享一把 per-path 锁，
 #: agent 的 Write/Edit 在沙箱内跑、取不到这把锁，故对它的修改一律改走「取回草稿 → 改 → 晋升」：
 #: 写盘只发生在晋升侧，与另三条路径同一把锁。写禁策略的拒绝消息也要指名它，故同样收在这里。
-STEP1_EDIT_TOOL_NAME = "open_reference_step1_for_edit"
+STEP1_EDIT_TOOL_NAME = "open_step1_for_edit"
 
 
 @dataclass(frozen=True)
@@ -171,8 +194,7 @@ def render_report(draft: Path, kind: str, violations: list[DraftViolation], *, e
     指引写「改哪个文件的哪个字段、改完调什么」而非泛泛的「请修正」：处置路径是本机制的全部
     要点，agent 若不知道产物还在盘上，就会退回重抽。
     """
-    stage = "step1 拆分" if kind == QUARANTINE_KIND_STEP1 else "step2 视觉展开"
-    field = "units[i].text / source_text / duration_seconds" if kind == QUARANTINE_KIND_STEP1 else "units[i].text"
+    stage, field = _QUARANTINE_REPORT_HINTS[kind]
     return (
         f"❌ {stage}产出有 {len(violations)} 处违约，已隔离到草稿（正式文件未被改动）：{draft}\n\n"
         f"{render_violation_report(violations)}\n\n"
@@ -203,6 +225,7 @@ def quarantine_and_report(
 
 __all__ = [
     "PROMOTE_TOOL_NAME",
+    "QUARANTINE_KIND_DRAMA_STEP1",
     "QUARANTINE_KIND_STEP1",
     "QUARANTINE_KIND_STEP2",
     "STEP1_EDIT_TOOL_NAME",
