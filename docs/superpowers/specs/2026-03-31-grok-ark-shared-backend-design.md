@@ -26,8 +26,10 @@ Grok (xAI) 共享工具模块
 
 供 text_backends / image_backends / video_backends 复用。
 """
+
 from __future__ import annotations
 import xai_sdk
+
 
 def create_grok_client(*, api_key: str) -> xai_sdk.AsyncClient:
     """创建 xAI AsyncClient，统一校验和构造。"""
@@ -49,10 +51,12 @@ Ark (火山方舟) 共享工具模块
 
 供 text_backends / image_backends / video_backends 复用。
 """
+
 from __future__ import annotations
 import os
 
 ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
+
 
 def create_ark_client(*, api_key: str | None = None):
     """创建 Ark 客户端，统一校验和构造。"""

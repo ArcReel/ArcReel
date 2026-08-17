@@ -210,9 +210,7 @@ return {
     "success": True,
     **result,
     "file_path": file_path,
-    "asset_fingerprints": {
-        file_path: current_file.stat().st_mtime_ns
-    }
+    "asset_fingerprints": {file_path: current_file.stat().st_mtime_ns},
 }
 ```
 

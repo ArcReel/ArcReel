@@ -1346,9 +1346,9 @@ def upgrade() -> None:
     bind = op.get_bind()
     try:
         rows = bind.execute(
-            sa.text(
-                "SELECT key, value FROM system_settings WHERE key IN :keys"
-            ).bindparams(sa.bindparam("keys", expanding=True)),
+            sa.text("SELECT key, value FROM system_settings WHERE key IN :keys").bindparams(
+                sa.bindparam("keys", expanding=True)
+            ),
             {"keys": list(_LEGACY_KEYS)},
         ).fetchall()
         settings = {r.key: r.value for r in rows if r.value}
@@ -1381,9 +1381,7 @@ def upgrade() -> None:
         # 数据迁移失败不阻塞 schema 升级；用户可在 UI 里手动建
         import logging
 
-        logging.getLogger(__name__).warning(
-            "agent_anthropic_credentials data migration skipped: %s", exc
-        )
+        logging.getLogger(__name__).warning("agent_anthropic_credentials data migration skipped: %s", exc)
 
 
 def downgrade() -> None:
@@ -1679,9 +1677,7 @@ class AgentCredentialRepository(BaseRepository):
             return
         if cred.is_active:
             raise ValueError("cannot delete active credential; activate another first")
-        await self.session.execute(
-            delete(AgentAnthropicCredential).where(AgentAnthropicCredential.id == cred_id)
-        )
+        await self.session.execute(delete(AgentAnthropicCredential).where(AgentAnthropicCredential.id == cred_id))
         await self.session.flush()
 ```
 
@@ -2131,10 +2127,12 @@ async def test_create_unknown_preset_rejected(authed_client) -> None:
 
 @pytest.mark.asyncio
 async def test_patch_credential(authed_client) -> None:
-    created = (await authed_client.post(
-        "/api/v1/agent/credentials",
-        json={"preset_id": "deepseek", "api_key": "sk1"},
-    )).json()
+    created = (
+        await authed_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "deepseek", "api_key": "sk1"},
+        )
+    ).json()
     cid = created["id"]
     resp = await authed_client.patch(
         f"/api/v1/agent/credentials/{cid}",
@@ -2146,10 +2144,12 @@ async def test_patch_credential(authed_client) -> None:
 
 @pytest.mark.asyncio
 async def test_delete_active_blocked(authed_client) -> None:
-    created = (await authed_client.post(
-        "/api/v1/agent/credentials",
-        json={"preset_id": "deepseek", "api_key": "sk"},
-    )).json()
+    created = (
+        await authed_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "deepseek", "api_key": "sk"},
+        )
+    ).json()
     resp = await authed_client.delete(f"/api/v1/agent/credentials/{created['id']}")
     assert resp.status_code == 409
 ```
@@ -2366,14 +2366,18 @@ git commit -m "feat(api): /agent/credentials CRUD"
 async def test_activate_credential_switches(authed_client, monkeypatch) -> None:
     import os
 
-    a = (await authed_client.post(
-        "/api/v1/agent/credentials",
-        json={"preset_id": "deepseek", "api_key": "sk-A"},
-    )).json()
-    b = (await authed_client.post(
-        "/api/v1/agent/credentials",
-        json={"preset_id": "kimi", "api_key": "sk-B", "activate": False},
-    )).json()
+    a = (
+        await authed_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "deepseek", "api_key": "sk-A"},
+        )
+    ).json()
+    b = (
+        await authed_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "kimi", "api_key": "sk-B", "activate": False},
+        )
+    ).json()
     # 第一条创建时自动 active；第二条 activate=False
     assert a["is_active"] is True
     assert b["is_active"] is False
@@ -2492,10 +2496,12 @@ async def test_test_credential_uses_stored(authed_client, monkeypatch) -> None:
     fake = AsyncMock(return_value=expected)
     monkeypatch.setattr("server.routers.agent_config.run_test", fake)
 
-    cred = (await authed_client.post(
-        "/api/v1/agent/credentials",
-        json={"preset_id": "deepseek", "api_key": "sk-stored"},
-    )).json()
+    cred = (
+        await authed_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "deepseek", "api_key": "sk-stored"},
+        )
+    ).json()
     resp = await authed_client.post(f"/api/v1/agent/credentials/{cred['id']}/test")
     assert resp.status_code == 200
     body = resp.json()
@@ -2553,9 +2559,7 @@ class TestConnectionRequest(BaseModel):
 def _serialize_probe(p: ProbeResultDC | None) -> ProbeResultModel | None:
     if p is None:
         return None
-    return ProbeResultModel(
-        success=p.success, status_code=p.status_code, latency_ms=p.latency_ms, error=p.error
-    )
+    return ProbeResultModel(success=p.success, status_code=p.status_code, latency_ms=p.latency_ms, error=p.error)
 
 
 def _serialize_test_response(r: TestConnectionResponseDC) -> TestConnectionResponseModel:

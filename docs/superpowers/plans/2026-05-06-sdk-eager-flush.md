@@ -121,9 +121,7 @@ def test_unknown_falls_back_to_eager_with_warning(monkeypatch, caplog):
     monkeypatch.setenv("ARCREEL_SDK_SESSION_STORE_FLUSH", "weird")
     with caplog.at_level(logging.WARNING, logger="arcreel.session_store"):
         assert session_store_flush_mode() == "eager"
-    assert any(
-        "ARCREEL_SDK_SESSION_STORE_FLUSH" in rec.message for rec in caplog.records
-    )
+    assert any("ARCREEL_SDK_SESSION_STORE_FLUSH" in rec.message for rec in caplog.records)
 
 
 def test_empty_treated_as_eager(monkeypatch):
@@ -274,7 +272,7 @@ Edit `server/agent_runtime/session_manager.py`：
 1. 在 `from lib.agent_session_store import ...` 已有 import 处补上 `session_store_flush_mode`（如果该处尚未 import 这个模块，则新增 `from lib.agent_session_store import session_store_flush_mode`）
 2. 找到 `_build_options` 末尾的 `return ClaudeAgentOptions(...)` 调用（约 565 行起），在 `session_store=self._build_session_store(),` 这一行之后加：
 ```python
-        session_store_flush=session_store_flush_mode(),
+session_store_flush = (session_store_flush_mode(),)
 ```
 
 最终该 return 块形如：
@@ -475,12 +473,7 @@ def test_existing_signature_backward_compat(tmp_path):
     """旧调用（5 个位置参数）保持工作 — 不破坏 test_assistant_service_more 回归。"""
     service = AssistantService(project_root=tmp_path)
     # uuid dedup 路径：transcript 已有 uuid → True
-    assert (
-        service._is_buffer_duplicate(
-            {"uuid": "u1", "type": "user"}, "user", {"u1"}, set(), []
-        )
-        is True
-    )
+    assert service._is_buffer_duplicate({"uuid": "u1", "type": "user"}, "user", {"u1"}, set(), []) is True
 ```
 
 - [ ] **Step 2: 跑测试，验证失败**
@@ -609,9 +602,7 @@ def test_build_projector_dedups_echo_when_buffer_has_real_user(tmp_path):
 
     projector = asyncio.run(_go())
     user_turns = [t for t in projector.turns if t.get("type") == "user"]
-    assert len(user_turns) == 1, (
-        f"expected 1 user turn, got {len(user_turns)}: {user_turns}"
-    )
+    assert len(user_turns) == 1, f"expected 1 user turn, got {len(user_turns)}: {user_turns}"
 ```
 
 - [ ] **Step 2: 跑测试，验证失败**
@@ -632,11 +623,10 @@ Edit `server/agent_runtime/service.py` 的 `_build_projector` 方法（约第 60
 
 在 `for msg in buffer or []:` 之前插入 pre-scan：
 ```python
-        # Pre-scan buffer for real (non-echo) user texts; used as dedup fallback
-        # when the DB transcript momentarily lags the in-memory buffer (eager
-        # flush is fire-and-forget + SDK coalesces frames under a slow store).
-        buffer_real_user_texts = self._collect_buffer_real_user_texts(buffer or [])
-
+# Pre-scan buffer for real (non-echo) user texts; used as dedup fallback
+# when the DB transcript momentarily lags the in-memory buffer (eager
+# flush is fire-and-forget + SDK coalesces frames under a slow store).
+buffer_real_user_texts = self._collect_buffer_real_user_texts(buffer or [])
 ```
 
 然后把循环内的 `_is_buffer_duplicate` 调用从：
@@ -794,9 +784,7 @@ git commit -m "test(agent-runtime): regress R1 / user-disappear cross-round scen
 在 `tests/agent_runtime/test_session_store_e2e.py` 末尾追加：
 ```python
 @pytest.mark.asyncio
-async def test_partial_transcript_visible_after_simulated_crash(
-    session_factory, tmp_path: Path
-):
+async def test_partial_transcript_visible_after_simulated_crash(session_factory, tmp_path: Path):
     """eager flush durability：partial transcript 在进程"重启"后仍可读。
 
     模拟"服务进程崩溃"= 丢弃所有 in-memory 状态，仅保留 DB；新建 store
@@ -849,9 +837,7 @@ async def test_partial_transcript_visible_after_simulated_crash(
 
 
 @pytest.mark.asyncio
-async def test_eager_persistence_independent_of_buffer(
-    session_factory, tmp_path: Path
-):
+async def test_eager_persistence_independent_of_buffer(session_factory, tmp_path: Path):
     """长 turn 跨 buffer 驱逐：DB 应有完整 user/assistant 序列。
 
     DbSessionStore 的 append 调用与 in-memory buffer 完全解耦。本测试

@@ -199,28 +199,27 @@ CredentialRepository.save() ──► DB (加密)
 ```python
 {
     # —— Anthropic 注入（真值，从 DB 取）——
-    "ANTHROPIC_API_KEY":             cred.api_key,
-    "ANTHROPIC_BASE_URL":            cred.base_url or "",
-    "ANTHROPIC_MODEL":               cred.model or "",
+    "ANTHROPIC_API_KEY": cred.api_key,
+    "ANTHROPIC_BASE_URL": cred.base_url or "",
+    "ANTHROPIC_MODEL": cred.model or "",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": cred.haiku_model or "",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL":cred.sonnet_model or "",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL":  cred.opus_model or "",
-    "CLAUDE_CODE_SUBAGENT_MODEL":    cred.subagent_model or "",
-
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": cred.sonnet_model or "",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": cred.opus_model or "",
+    "CLAUDE_CODE_SUBAGENT_MODEL": cred.subagent_model or "",
     # —— 其他 provider：空值覆盖（决策 4 防御性兜底）——
-    "ARK_API_KEY":                   "",
-    "XAI_API_KEY":                   "",
-    "GEMINI_API_KEY":                "",
-    "VIDU_API_KEY":                  "",
-    "GOOGLE_APPLICATION_CREDENTIALS":"",
-    "GEMINI_BASE_URL":               "",
-    "GEMINI_IMAGE_MODEL":            "",
-    "GEMINI_VIDEO_MODEL":            "",
-    "GEMINI_IMAGE_BACKEND":          "",
-    "GEMINI_VIDEO_BACKEND":          "",
-    "VERTEX_GCS_BUCKET":             "",
-    "FILE_SERVICE_BASE_URL":         "",
-    "DEFAULT_VIDEO_PROVIDER":        "",
+    "ARK_API_KEY": "",
+    "XAI_API_KEY": "",
+    "GEMINI_API_KEY": "",
+    "VIDU_API_KEY": "",
+    "GOOGLE_APPLICATION_CREDENTIALS": "",
+    "GEMINI_BASE_URL": "",
+    "GEMINI_IMAGE_MODEL": "",
+    "GEMINI_VIDEO_MODEL": "",
+    "GEMINI_IMAGE_BACKEND": "",
+    "GEMINI_VIDEO_BACKEND": "",
+    "VERTEX_GCS_BUCKET": "",
+    "FILE_SERVICE_BASE_URL": "",
+    "DEFAULT_VIDEO_PROVIDER": "",
 }
 ```
 

@@ -200,18 +200,14 @@ async def _command_loop(self, client: ClaudeSDKClient) -> None:
 ### 5.4 `_drive_query` —— 消息与命令并发等待
 
 ```python
-async def _drive_query(
-    self, client: ClaudeSDKClient, query_cmd: SessionCommand
-) -> SessionCommand | None:
+async def _drive_query(self, client: ClaudeSDKClient, query_cmd: SessionCommand) -> SessionCommand | None:
     """在同一 task 内交织消费 receive_response 与新命令。返回需要下一轮处理的命令。"""
     msg_iter = client.receive_response().__aiter__()
     msg_task = asyncio.create_task(msg_iter.__anext__(), name="actor-recv")
     cmd_task = asyncio.create_task(self._cmd_queue.get(), name="actor-cmd")
     try:
         while True:
-            done, _ = await asyncio.wait(
-                {msg_task, cmd_task}, return_when=asyncio.FIRST_COMPLETED
-            )
+            done, _ = await asyncio.wait({msg_task, cmd_task}, return_when=asyncio.FIRST_COMPLETED)
 
             if msg_task in done:
                 try:
@@ -235,7 +231,7 @@ async def _drive_query(
                     cmd_task = asyncio.create_task(self._cmd_queue.get())
                 elif next_cmd.type == "disconnect":
                     await client.interrupt()  # 让消息流收尾
-                    return next_cmd           # 携带到 _command_loop 下一轮退出
+                    return next_cmd  # 携带到 _command_loop 下一轮退出
                 elif next_cmd.type == "query":
                     # 违反 "drain before new query"；保守策略：携带到下一轮
                     # ManagedSession 层保证不会在 running 状态下再发 query
@@ -266,13 +262,13 @@ async def _drive_query(
 class ManagedSession:
     session_id: str
     project_name: str
-    actor: SessionActor                            # 替换原 `client: ClaudeSDKClient`
+    actor: SessionActor  # 替换原 `client: ClaudeSDKClient`
     status: Literal["running", "idle", "interrupted", "error", "closed"]
-    message_buffer: deque[dict]                    # maxsize=100，critical 优先
+    message_buffer: deque[dict]  # maxsize=100，critical 优先
     subscribers: set[asyncio.Queue[dict]]
     pending_questions: dict[str, PendingQuestion]
     _inbox: asyncio.Queue[dict | None] = field(default_factory=asyncio.Queue)  # actor 回调 → 异步业务
-    _process_task: asyncio.Task | None = None      # 读 _inbox，跑异步业务（替换原 consumer_task）
+    _process_task: asyncio.Task | None = None  # 读 _inbox，跑异步业务（替换原 consumer_task）
     _cleanup_task: asyncio.Task | None = None
     _interrupting: bool = False
     # 移除字段：client、consumer_task
@@ -286,8 +282,8 @@ class ManagedSession:
 回调原型：
 ```python
 def _on_message(msg: dict) -> None:
-    managed._on_actor_message(msg)      # 同步：状态机 + add_message
-    managed._inbox.put_nowait(msg)      # 异步业务排队，由 _process_inbox 消费
+    managed._on_actor_message(msg)  # 同步：状态机 + add_message
+    managed._inbox.put_nowait(msg)  # 异步业务排队，由 _process_inbox 消费
 ```
 
 关停路径：`_evict_one` / `send_disconnect` 完成后，push `None` 作为 sentinel 唤醒 `_process_inbox` 退出，然后 `await managed._process_task`。
@@ -311,7 +307,7 @@ def _on_actor_message(self, msg: dict) -> None:
         elif subtype and subtype.startswith("error"):
             self.status = "error"
 
-    self.add_message(msg)   # 既有逻辑：buffer + broadcast
+    self.add_message(msg)  # 既有逻辑：buffer + broadcast
 ```
 
 **回调必须同步**：actor 主 task 正是回调的调用者，任何 `await` 都会挂住整条消息循环。`add_message` 本身为 O(1) 内存操作（deque append + `put_nowait` 到订阅者），不 await。"订阅者队列满→critical 强制插入+驱逐非 critical" 策略保留。
@@ -319,9 +315,7 @@ def _on_actor_message(self, msg: dict) -> None:
 ### 6.3 对外代理方法
 
 ```python
-async def send_query(
-    self, prompt: str | AsyncIterable[dict], sdk_session_id: str = "default"
-) -> None:
+async def send_query(self, prompt: str | AsyncIterable[dict], sdk_session_id: str = "default") -> None:
     self.status = "running"
     cmd = SessionCommand(type="query", prompt=prompt, session_id=sdk_session_id)
     await self.actor.enqueue(cmd)
@@ -330,6 +324,7 @@ async def send_query(
         self.status = "error"
         raise cmd.error
 
+
 async def send_interrupt(self) -> None:
     if self._interrupting:
         return
@@ -337,15 +332,16 @@ async def send_interrupt(self) -> None:
     try:
         cmd = SessionCommand(type="interrupt")
         await self.actor.enqueue(cmd)
-        await cmd.done.wait()    # actor 发信号后立即 ACK
+        await cmd.done.wait()  # actor 发信号后立即 ACK
     finally:
         self._interrupting = False
     # status 由 _on_actor_message 在收到 ResultMessage(error_during_execution) 时推导
 
+
 async def send_disconnect(self) -> None:
     cmd = SessionCommand(type="disconnect")
     await self.actor.enqueue(cmd)
-    await cmd.done.wait()                     # actor 已消费 disconnect 命令
+    await cmd.done.wait()  # actor 已消费 disconnect 命令
     # 等 actor task 真正结束（__aexit__ 完成），保证 "closed" 状态与资源释放对齐
     if self.actor._task is not None:
         with contextlib.suppress(BaseException):
@@ -383,6 +379,7 @@ async def _evict_one(self, victim: ManagedSession) -> None:
     finally:
         self.sessions.pop(victim.session_id, None)
 
+
 async def _cleanup_idle(self, session_id: str) -> None:
     managed = self.sessions.get(session_id)
     if managed and managed.status in ("idle", "interrupted", "error"):
@@ -419,9 +416,7 @@ async def shutdown_gracefully(self, timeout: float = 30.0) -> None:
 用户答案本质上是 "下一个 user message"，在 actor 模式下直接复用 `send_query` 命令：
 
 ```python
-async def answer_user_question(
-    self, managed: ManagedSession, question_id: str, answer: str
-) -> None:
+async def answer_user_question(self, managed: ManagedSession, question_id: str, answer: str) -> None:
     question = managed.pending_questions.pop(question_id, None)
     if question is None:
         raise KeyError(f"unknown question: {question_id}")

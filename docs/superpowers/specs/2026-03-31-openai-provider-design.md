@@ -82,6 +82,7 @@ try:
         InternalServerError,
         RateLimitError,
     )
+
     OPENAI_RETRYABLE_ERRORS = (
         APIConnectionError,
         APITimeoutError,
@@ -176,8 +177,8 @@ class OpenAIImageBackend:
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         if request.reference_images:
-            return await self._generate_edit(request)    # I2I
-        return await self._generate_create(request)      # T2I
+            return await self._generate_edit(request)  # I2I
+        return await self._generate_create(request)  # T2I
 ```
 
 **T2I** — `client.images.generate()`:
@@ -316,20 +317,20 @@ class OpenAIVideoBackend:
 ```python
 # OpenAI 文本费率（USD/百万 token）
 OPENAI_TEXT_COST = {
-    "gpt-5.4":      {"input": 2.50, "output": 15.00},
+    "gpt-5.4": {"input": 2.50, "output": 15.00},
     "gpt-5.4-mini": {"input": 0.75, "output": 4.50},
     "gpt-5.4-nano": {"input": 0.20, "output": 1.25},
 }
 
 # OpenAI 图片费率（USD/张），按 quality 区分
 OPENAI_IMAGE_COST = {
-    "gpt-image-1.5":    {"low": 0.009, "medium": 0.034, "high": 0.133},
+    "gpt-image-1.5": {"low": 0.009, "medium": 0.034, "high": 0.133},
     "gpt-image-1-mini": {"low": 0.005, "medium": 0.011, "high": 0.036},
 }
 
 # OpenAI 视频费率（USD/秒），按分辨率区分
 OPENAI_VIDEO_COST = {
-    "sora-2":     {"720p": 0.10},
+    "sora-2": {"720p": 0.10},
     "sora-2-pro": {"720p": 0.30, "1024p": 0.50, "1080p": 0.70},
 }
 ```

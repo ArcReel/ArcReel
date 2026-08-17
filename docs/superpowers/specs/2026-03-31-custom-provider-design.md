@@ -99,7 +99,7 @@
 # lib/custom_provider/backends.py
 class CustomTextBackend:
     def __init__(self, *, provider_id: str, delegate: TextBackend, model: str):
-        self._provider_id = provider_id   # "custom-3"
+        self._provider_id = provider_id  # "custom-3"
         self._delegate = delegate
         self._model = model
 

@@ -62,6 +62,7 @@
 
 ```python
 """验证 duration_presets 启发式表覆盖排行榜 Top-20 模型 + 未匹配回退。"""
+
 from __future__ import annotations
 
 import pytest
@@ -252,6 +253,7 @@ uv run alembic heads
 
 ```python
 """Alembic 回填迁移：验证 video endpoint 模型的 NULL supported_durations 被启发式填充。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -295,27 +297,31 @@ def test_backfill_video_endpoints_with_null_durations(alembic_cfg: Config, backf
     engine = sa.create_engine(alembic_cfg.get_main_option("sqlalchemy.url"))
     with engine.begin() as conn:
         conn.execute(
-            sa.text("INSERT INTO custom_provider (id, display_name, discovery_format, base_url, api_key) "
-                    "VALUES (1, 'P', 'openai', 'https://x', 'k')")
+            sa.text(
+                "INSERT INTO custom_provider (id, display_name, discovery_format, base_url, api_key) "
+                "VALUES (1, 'P', 'openai', 'https://x', 'k')"
+            )
         )
         # 三条：video endpoint 且 NULL → 应被回填；text endpoint 不动；非 NULL 也不动
-        conn.execute(sa.text(
-            "INSERT INTO custom_provider_model (id, provider_id, model_id, display_name, "
-            "endpoint, is_default, is_enabled, supported_durations) VALUES "
-            "(1, 1, 'sora-2-pro', 'X', 'openai-video', 0, 1, NULL),"
-            "(2, 1, 'unknown-foo', 'Y', 'openai-video', 0, 1, NULL),"
-            "(3, 1, 'gpt-4o', 'Z', 'openai-chat', 0, 1, NULL),"
-            "(4, 1, 'sora-2', 'W', 'openai-video', 0, 1, '[1,2,3]')"
-        ))
+        conn.execute(
+            sa.text(
+                "INSERT INTO custom_provider_model (id, provider_id, model_id, display_name, "
+                "endpoint, is_default, is_enabled, supported_durations) VALUES "
+                "(1, 1, 'sora-2-pro', 'X', 'openai-video', 0, 1, NULL),"
+                "(2, 1, 'unknown-foo', 'Y', 'openai-video', 0, 1, NULL),"
+                "(3, 1, 'gpt-4o', 'Z', 'openai-chat', 0, 1, NULL),"
+                "(4, 1, 'sora-2', 'W', 'openai-video', 0, 1, '[1,2,3]')"
+            )
+        )
 
     # 2. 升级到 backfill
     command.upgrade(alembic_cfg, backfill_revision_id)
 
     # 3. 断言
     with engine.begin() as conn:
-        rows = conn.execute(sa.text(
-            "SELECT model_id, supported_durations FROM custom_provider_model ORDER BY id"
-        )).fetchall()
+        rows = conn.execute(
+            sa.text("SELECT model_id, supported_durations FROM custom_provider_model ORDER BY id")
+        ).fetchall()
     by_id = {r[0]: r[1] for r in rows}
 
     # sora-2-pro 命中第一条预设：[4, 8, 12]
@@ -410,10 +416,12 @@ def _infer(model_id: str) -> list[int]:
 def upgrade() -> None:
     bind = op.get_bind()
     placeholders = ",".join(f"'{ep}'" for ep in _VIDEO_ENDPOINTS)
-    rows = bind.execute(sa.text(
-        f"SELECT id, model_id FROM custom_provider_model "
-        f"WHERE supported_durations IS NULL AND endpoint IN ({placeholders})"
-    )).fetchall()
+    rows = bind.execute(
+        sa.text(
+            f"SELECT id, model_id FROM custom_provider_model "
+            f"WHERE supported_durations IS NULL AND endpoint IN ({placeholders})"
+        )
+    ).fetchall()
     for row_id, model_id in rows:
         durations = _infer(model_id or "")
         bind.execute(
@@ -562,24 +570,29 @@ async def test_gemini_duration_passthrough(monkeypatch, tmp_path: Path):
                 response = None
                 error = "stub"
                 metadata = None
+
             return R()
 
     class _FakeAio:
-        models = type("M", (), {"generate_videos": staticmethod(
-            lambda model, source, config: _capture(captured, model, source, config)
-        )})()
+        models = type(
+            "M",
+            (),
+            {"generate_videos": staticmethod(lambda model, source, config: _capture(captured, model, source, config))},
+        )()
         operations = _FakeOps()
 
     async def _capture(cap, model, source, config):
         # 把传给 SDK 的 config.duration_seconds 抓出来
         cap["duration_seconds"] = config.duration_seconds
         cap["model"] = model
+
         class Op:
             done = True
             response = None
             error = "stub"
             name = "operations/x"
             metadata = None
+
         return Op()
 
     # 完整 mock GeminiVideoBackend 的 client；具体写法参照同文件已有 fixture 风格
@@ -601,12 +614,14 @@ async def test_gemini_duration_passthrough_str(tmp_path: Path):
 
     async def fake_generate_videos(model, source, config):
         captured["duration_seconds"] = config.duration_seconds
+
         class Op:
             name = "operations/abc"
             done = True
             response = type("R", (), {"generated_videos": []})()
             error = "boom"
             metadata = None
+
         return Op()
 
     backend = GeminiVideoBackend.__new__(GeminiVideoBackend)
@@ -614,23 +629,29 @@ async def test_gemini_duration_passthrough_str(tmp_path: Path):
     backend._backend_type = "aistudio"  # type: ignore[attr-defined]
     backend._rate_limiter = None  # type: ignore[attr-defined]
     backend._capabilities = set()  # type: ignore[attr-defined]
+
     # 替换 _client.aio.models.generate_videos
     class _Models:
         generate_videos = staticmethod(fake_generate_videos)
+
     class _Aio:
         models = _Models()
         operations = type("O", (), {"get": staticmethod(lambda op: op)})()
+
     backend._client = type("C", (), {"aio": _Aio()})()  # type: ignore[attr-defined]
+
     # 旁路 _types 构造（最小可运行 stub）
     class _GVConfig:
         def __init__(self, **kw):
             for k, v in kw.items():
                 setattr(self, k, v)
+
     class _Types:
         GenerateVideosConfig = _GVConfig
         GenerateVideosSource = lambda prompt, image=None: type("S", (), {"prompt": prompt, "image": image})()
         VideoGenerationReferenceImage = type("Ri", (), {})
         VideoGenerationReferenceType = type("Rt", (), {"ASSET": "ASSET"})()
+
     backend._types = _Types()  # type: ignore[attr-defined]
 
     request = VideoGenerationRequest(
@@ -812,6 +833,7 @@ data_validator 仅验证类型与正性。"
 
 ```python
 """验证 _format_duration_constraint 按连续性切换文案，且不允许空 supported_durations。"""
+
 from __future__ import annotations
 
 import pytest
@@ -875,9 +897,7 @@ def _format_duration_constraint(supported_durations: list[int], default_duration
         raise ValueError("supported_durations 不能为空：调用方必须提供 model 的合法时长列表")
 
     sorted_d = sorted(set(supported_durations))
-    is_continuous = len(sorted_d) >= 5 and all(
-        sorted_d[i] == sorted_d[i - 1] + 1 for i in range(1, len(sorted_d))
-    )
+    is_continuous = len(sorted_d) >= 5 and all(sorted_d[i] == sorted_d[i - 1] + 1 for i in range(1, len(sorted_d)))
     if is_continuous:
         body = f"{sorted_d[0]} 到 {sorted_d[-1]} 秒间整数任选"
     else:
@@ -892,7 +912,7 @@ def _format_duration_constraint(supported_durations: list[int], default_duration
 第 51-52 行（`build_narration_prompt`）和第 178 行附近（`build_drama_prompt`）的签名：
 
 ```python
-    supported_durations: list[int] | None = None,
+supported_durations: list[int] | None = (None,)
 ```
 
 改为：
@@ -904,13 +924,13 @@ def _format_duration_constraint(supported_durations: list[int], default_duration
 第 118 与 245 行附近的 fallback：
 
 ```python
-- {_format_duration_constraint(supported_durations or [4, 6, 8], default_duration)}
+-{_format_duration_constraint(supported_durations or [4, 6, 8], default_duration)}
 ```
 
 改为：
 
 ```python
-- {_format_duration_constraint(supported_durations, default_duration)}
+-{_format_duration_constraint(supported_durations, default_duration)}
 ```
 
 - [ ] **Step 6.4: 运行测试确认通过**
@@ -989,13 +1009,13 @@ Expected: FAIL —— 当前 `_resolve_supported_durations` 找不到时返回 `
 第 118 行：
 
 ```python
-                supported_durations=self._resolve_supported_durations(caps) or [4, 8],
+supported_durations = (self._resolve_supported_durations(caps) or [4, 8],)
 ```
 
 改为：
 
 ```python
-                supported_durations=self._resolve_supported_durations(caps),
+supported_durations = (self._resolve_supported_durations(caps),)
 ```
 
 第 208 行同样替换（`or [4, 8]` 删掉）。
@@ -1003,25 +1023,24 @@ Expected: FAIL —— 当前 `_resolve_supported_durations` 找不到时返回 `
 第 257-275 行附近 `_resolve_supported_durations` 整段重写为：
 
 ```python
-    def _resolve_supported_durations(self, caps: dict | None = None) -> list[int]:
-        """从 caps → project.json → registry 三级解析；都拿不到抛 ValueError。"""
-        if caps and caps.get("supported_durations"):
-            return list(caps["supported_durations"])
-        durations = self.project_json.get("_supported_durations")
-        if durations and isinstance(durations, list):
-            return list(durations)
-        video_backend = self.project_json.get("video_backend")
-        if video_backend and isinstance(video_backend, str) and "/" in video_backend:
-            provider_id, model_id = video_backend.split("/", 1)
-            provider_meta = PROVIDER_REGISTRY.get(provider_id)
-            if provider_meta:
-                model_info = provider_meta.models.get(model_id)
-                if model_info and model_info.supported_durations:
-                    return list(model_info.supported_durations)
-        raise ValueError(
-            f"supported_durations 无法解析：caps={bool(caps)}, "
-            f"video_backend={video_backend!r}；请确保 model 配置完整"
-        )
+def _resolve_supported_durations(self, caps: dict | None = None) -> list[int]:
+    """从 caps → project.json → registry 三级解析；都拿不到抛 ValueError。"""
+    if caps and caps.get("supported_durations"):
+        return list(caps["supported_durations"])
+    durations = self.project_json.get("_supported_durations")
+    if durations and isinstance(durations, list):
+        return list(durations)
+    video_backend = self.project_json.get("video_backend")
+    if video_backend and isinstance(video_backend, str) and "/" in video_backend:
+        provider_id, model_id = video_backend.split("/", 1)
+        provider_meta = PROVIDER_REGISTRY.get(provider_id)
+        if provider_meta:
+            model_info = provider_meta.models.get(model_id)
+            if model_info and model_info.supported_durations:
+                return list(model_info.supported_durations)
+    raise ValueError(
+        f"supported_durations 无法解析：caps={bool(caps)}, video_backend={video_backend!r}；请确保 model 配置完整"
+    )
 ```
 
 > 函数返回类型从 `list[int] | None` 收紧到 `list[int]`。
@@ -1062,20 +1081,25 @@ git commit -m "refactor(script-gen): _resolve_supported_durations 找不到时 f
 async def test_create_custom_model_video_endpoint_autofills_durations(async_client):
     """创建 video endpoint 模型时不传 supported_durations，应由 server 用预设表自动填。"""
     # 1. 创建 provider
-    resp = await async_client.post("/api/v1/custom-providers", json={
-        "display_name": "test-cp",
-        "discovery_format": "openai",
-        "base_url": "https://example.com/v1",
-        "api_key": "sk-test",
-        "models": [{
-            "model_id": "sora-2-pro",
-            "display_name": "Sora 2 Pro",
-            "endpoint": "openai-video",
-            "is_default": True,
-            "is_enabled": True,
-            # 注意：不传 supported_durations
-        }],
-    })
+    resp = await async_client.post(
+        "/api/v1/custom-providers",
+        json={
+            "display_name": "test-cp",
+            "discovery_format": "openai",
+            "base_url": "https://example.com/v1",
+            "api_key": "sk-test",
+            "models": [
+                {
+                    "model_id": "sora-2-pro",
+                    "display_name": "Sora 2 Pro",
+                    "endpoint": "openai-video",
+                    "is_default": True,
+                    "is_enabled": True,
+                    # 注意：不传 supported_durations
+                }
+            ],
+        },
+    )
     assert resp.status_code == 201, resp.text
     provider_id = resp.json()["id"]
 
@@ -1088,20 +1112,25 @@ async def test_create_custom_model_video_endpoint_autofills_durations(async_clie
 
 async def test_create_custom_model_user_provided_durations_kept(async_client):
     """用户传了非空 supported_durations 时，server 不应被预设表覆盖。"""
-    resp = await async_client.post("/api/v1/custom-providers", json={
-        "display_name": "test-cp-2",
-        "discovery_format": "openai",
-        "base_url": "https://example.com/v1",
-        "api_key": "sk-test",
-        "models": [{
-            "model_id": "sora-2-pro",
-            "display_name": "Sora 2 Pro",
-            "endpoint": "openai-video",
-            "is_default": True,
-            "is_enabled": True,
-            "supported_durations": [6, 10, 12, 16, 20],  # 用户已自填
-        }],
-    })
+    resp = await async_client.post(
+        "/api/v1/custom-providers",
+        json={
+            "display_name": "test-cp-2",
+            "discovery_format": "openai",
+            "base_url": "https://example.com/v1",
+            "api_key": "sk-test",
+            "models": [
+                {
+                    "model_id": "sora-2-pro",
+                    "display_name": "Sora 2 Pro",
+                    "endpoint": "openai-video",
+                    "is_default": True,
+                    "is_enabled": True,
+                    "supported_durations": [6, 10, 12, 16, 20],  # 用户已自填
+                }
+            ],
+        },
+    )
     assert resp.status_code == 201, resp.text
     provider_id = resp.json()["id"]
     resp = await async_client.get(f"/api/v1/custom-providers/{provider_id}")
@@ -1111,19 +1140,24 @@ async def test_create_custom_model_user_provided_durations_kept(async_client):
 
 async def test_text_endpoint_does_not_get_durations(async_client):
     """text endpoint 模型不应被预设表赋值（保持 None）。"""
-    resp = await async_client.post("/api/v1/custom-providers", json={
-        "display_name": "test-cp-3",
-        "discovery_format": "openai",
-        "base_url": "https://example.com/v1",
-        "api_key": "sk-test",
-        "models": [{
-            "model_id": "gpt-4o",
-            "display_name": "GPT 4o",
-            "endpoint": "openai-chat",
-            "is_default": True,
-            "is_enabled": True,
-        }],
-    })
+    resp = await async_client.post(
+        "/api/v1/custom-providers",
+        json={
+            "display_name": "test-cp-3",
+            "discovery_format": "openai",
+            "base_url": "https://example.com/v1",
+            "api_key": "sk-test",
+            "models": [
+                {
+                    "model_id": "gpt-4o",
+                    "display_name": "GPT 4o",
+                    "endpoint": "openai-chat",
+                    "is_default": True,
+                    "is_enabled": True,
+                }
+            ],
+        },
+    )
     assert resp.status_code == 201
     provider_id = resp.json()["id"]
     resp = await async_client.get(f"/api/v1/custom-providers/{provider_id}")
@@ -1152,13 +1186,11 @@ Expected: FAIL —— `model["supported_durations"]` 是 None 或空。
 找到 `def to_db_dict(self) -> dict:`（约 85 行）与下面的 `d["supported_durations"] = json.dumps(...)`：
 
 ```python
-    def to_db_dict(self) -> dict:
-        """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。"""
-        d = self.model_dump(exclude_none=False)
-        d["supported_durations"] = (
-            json.dumps(self.supported_durations) if self.supported_durations is not None else None
-        )
-        return d
+def to_db_dict(self) -> dict:
+    """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。"""
+    d = self.model_dump(exclude_none=False)
+    d["supported_durations"] = json.dumps(self.supported_durations) if self.supported_durations is not None else None
+    return d
 ```
 
 替换为：

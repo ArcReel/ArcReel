@@ -267,13 +267,7 @@ _COMPRESS_THRESHOLD = 2 * 1024 * 1024  # 2MB
 `lib/data_validator.py` line 50 — 在 `ALLOWED_ROOT_ENTRIES` 中添加 `.jpg` 变体（保留 `.png` 兼容旧项目）：
 
 ```python
-    ALLOWED_ROOT_ENTRIES = {
-        "project.json",
-        "style_reference.png",
-        "style_reference.jpg",
-        "source",
-        ...
-    }
+ALLOWED_ROOT_ENTRIES = {"project.json", "style_reference.png", "style_reference.jpg", "source", ...}
 ```
 
 `server/services/project_archive.py` line 492 — 归档修复逻辑需同时处理两种后缀。将 `canonical_rel` 改为检查实际存在的文件：先查 `.jpg`，不存在则查 `.png`。如果修改 `_repair_path_to_canonical` 逻辑过于侵入，可保持现状不改此文件（旧项目仍为 `.png`，新项目的 `style_image` 字段已正确指向实际文件）。
@@ -439,12 +433,18 @@ Expected: FAIL — 旧测试断言 `image_url`（单数），新测试断言 `im
 ```python
 _SUPPORTED_ASPECT_RATIOS = {
     "1:1",
-    "16:9", "9:16",
-    "4:3", "3:4",
-    "3:2", "2:3",
-    "2:1", "1:2",
-    "19.5:9", "9:19.5",
-    "20:9", "9:20",
+    "16:9",
+    "9:16",
+    "4:3",
+    "3:4",
+    "3:2",
+    "2:3",
+    "2:1",
+    "1:2",
+    "19.5:9",
+    "9:19.5",
+    "20:9",
+    "9:20",
     "auto",
 }
 ```

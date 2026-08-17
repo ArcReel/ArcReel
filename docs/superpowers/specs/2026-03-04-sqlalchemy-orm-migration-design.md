@@ -79,8 +79,10 @@ def get_database_url() -> str:
     db_path = app_data_dir() / ".arcreel.db"
     return f"sqlite+aiosqlite:///{db_path}"
 
+
 async_engine = create_async_engine(get_database_url(), echo=False, pool_pre_ping=True)
 async_session_factory = async_sessionmaker(async_engine, expire_on_commit=False)
+
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_factory() as session:
@@ -120,7 +122,9 @@ class Task(Base):
         Index("idx_tasks_dependency_task_id", "dependency_task_id"),
         Index(
             "idx_tasks_dedupe_active",
-            "project_name", "task_type", "resource_id",
+            "project_name",
+            "task_type",
+            "resource_id",
             text("COALESCE(script_file, '')"),
             unique=True,
             sqlite_where=text("status IN ('queued', 'running')"),
@@ -335,7 +339,7 @@ alembic/
 `server/app.py` lifespan 更新：
 ```python
 async def lifespan(app: FastAPI):
-    await init_db()       # 确保表存在
+    await init_db()  # 确保表存在
     # ... 原有 worker 启动逻辑 ...
     yield
     # ... 原有 shutdown 逻辑 ...

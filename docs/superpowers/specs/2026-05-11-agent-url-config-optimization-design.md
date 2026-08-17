@@ -131,19 +131,20 @@ UI toast：「已切换到 X，新会话生效；当前会话继续使用旧凭�
 ```python
 @dataclass(frozen=True)
 class PresetProvider:
-    id: str                          # "deepseek", "kimi", "anthropic-official", ...
-    display_name: str                # "DeepSeek"
-    icon_key: str                    # @lobehub/icons 子组件名 (如 "DeepSeek")
-                                     # 渲染时 import(`@lobehub/icons/es/${icon_key}/components/Color`)
-    messages_url: str                # https://api.deepseek.com/anthropic
-    discovery_url: str | None        # https://api.deepseek.com  (None = 不支持/无公开)
-    default_model: str               # deepseek-v4-pro
+    id: str  # "deepseek", "kimi", "anthropic-official", ...
+    display_name: str  # "DeepSeek"
+    icon_key: str  # @lobehub/icons 子组件名 (如 "DeepSeek")
+    # 渲染时 import(`@lobehub/icons/es/${icon_key}/components/Color`)
+    messages_url: str  # https://api.deepseek.com/anthropic
+    discovery_url: str | None  # https://api.deepseek.com  (None = 不支持/无公开)
+    default_model: str  # deepseek-v4-pro
     suggested_models: tuple[str, ...]  # 下拉兜底
-    docs_url: str | None             # 文档链接 (右上角小字)
-    api_key_url: str | None          # 「获取 API Key」链接 (输入框右侧)
-    notes_i18n_key: str | None       # 如 "preset_notes_deepseek" → i18n 中给文字
-    api_key_pattern: str | None      # "^sk-[A-Za-z0-9-]+$" 前端轻量校验
+    docs_url: str | None  # 文档链接 (右上角小字)
+    api_key_url: str | None  # 「获取 API Key」链接 (输入框右侧)
+    notes_i18n_key: str | None  # 如 "preset_notes_deepseek" → i18n 中给文字
+    api_key_pattern: str | None  # "^sk-[A-Za-z0-9-]+$" 前端轻量校验
     is_recommended: bool
+
 
 PRESET_PROVIDERS: dict[str, PresetProvider] = {
     "anthropic-official": PresetProvider(
@@ -183,18 +184,21 @@ PRESET_ORDER: tuple[str, ...] = (
     "deepseek",
     "kimi",
     "glm",
-    "minimax-intl", "minimax-cn",
+    "minimax-intl",
+    "minimax-cn",
     "hunyuan",
-    "lkeap",        # 腾讯 LKEAP
-    "ark-coding",   # 火山方舟 Coding Plan
-    "bailian",      # 阿里百炼
+    "lkeap",  # 腾讯 LKEAP
+    "ark-coding",  # 火山方舟 Coding Plan
+    "bailian",  # 阿里百炼
     "xiaomi-mimo",
     # ...
 )
 
+
 def get_preset(preset_id: str) -> PresetProvider | None: ...
 def list_presets() -> list[PresetProvider]:
     return [PRESET_PROVIDERS[k] for k in PRESET_ORDER]
+
 
 CUSTOM_SENTINEL_ID = "__custom__"
 ```
@@ -206,20 +210,22 @@ CUSTOM_SENTINEL_ID = "__custom__"
 ```python
 @dataclass(frozen=True)
 class AnthropicEndpoints:
-    messages_root: str        # SDK 用 (拼 /v1/messages)
-    discovery_root: str       # 模型发现用 (拼 /v1/models)
-    has_explicit_suffix: bool # 用户是否已经显式带了 anthropic 子路径
+    messages_root: str  # SDK 用 (拼 /v1/messages)
+    discovery_root: str  # 模型发现用 (拼 /v1/models)
+    has_explicit_suffix: bool  # 用户是否已经显式带了 anthropic 子路径
+
 
 # 已知的 "Claude 兼容子路径" 模式 — 按精确度从严到宽排
 _KNOWN_ANTHROPIC_SUFFIX = re.compile(
     r"/(?:api/anthropic|apps/anthropic|plan/anthropic|coding/anthropic|api/coding|anthropic)/?$"
 )
 
+
 def derive_anthropic_endpoints(user_url: str) -> AnthropicEndpoints:
     """1) 剥末尾 /v1[/messages] (用户误带版本路径)
-       2) 检测 _KNOWN_ANTHROPIC_SUFFIX：
-          匹配 → messages_root=原值, discovery_root=剥掉后缀
-          不匹配 → messages_root=discovery_root=原值
+    2) 检测 _KNOWN_ANTHROPIC_SUFFIX：
+       匹配 → messages_root=原值, discovery_root=剥掉后缀
+       不匹配 → messages_root=discovery_root=原值
     """
 ```
 
@@ -233,10 +239,10 @@ class AgentAnthropicCredential(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[str] = mapped_column(index=True, default=DEFAULT_USER_ID)
-    preset_id: Mapped[str]                # "deepseek" | "__custom__" | ...
-    display_name: Mapped[str]             # 用户可改 (默认 = preset.display_name)
-    base_url: Mapped[str]                 # 预设填 catalog.messages_url；自定义填用户输入
-    api_key: Mapped[str]        # 明文存储；读出 API 时 mask_secret 脱敏 (与 ProviderConfig 一致)
+    preset_id: Mapped[str]  # "deepseek" | "__custom__" | ...
+    display_name: Mapped[str]  # 用户可改 (默认 = preset.display_name)
+    base_url: Mapped[str]  # 预设填 catalog.messages_url；自定义填用户输入
+    api_key: Mapped[str]  # 明文存储；读出 API 时 mask_secret 脱敏 (与 ProviderConfig 一致)
     model: Mapped[str | None]
     haiku_model: Mapped[str | None]
     sonnet_model: Mapped[str | None]
@@ -262,17 +268,20 @@ def upgrade():
 
     # Data migration: 旧 system_settings 中的 anthropic_* → 一条 __custom__ active 记录
     bind = op.get_bind()
-    rows = bind.execute(text("""
+    rows = bind.execute(
+        text("""
         SELECT key, value FROM system_settings
         WHERE key IN ('anthropic_api_key', 'anthropic_base_url', 'anthropic_model',
                       'anthropic_default_haiku_model', 'anthropic_default_sonnet_model',
                       'anthropic_default_opus_model', 'claude_code_subagent_model')
-    """)).fetchall()
+    """)
+    ).fetchall()
     settings = {r.key: r.value for r in rows if r.value}
 
     if settings.get("anthropic_api_key"):
         # 与现有 ProviderConfig.value 一致：明文存储，读出时通过 mask_secret 脱敏
-        bind.execute(text("""
+        bind.execute(
+            text("""
             INSERT INTO agent_anthropic_credentials
               (user_id, preset_id, display_name, base_url, api_key,
                model, haiku_model, sonnet_model, opus_model, subagent_model,
@@ -280,17 +289,20 @@ def upgrade():
             VALUES (:user, '__custom__', 'Migrated', :url, :key,
                     :model, :haiku, :sonnet, :opus, :subagent,
                     1, :now, :now)
-        """), {
-            "user": DEFAULT_USER_ID,
-            "url": settings.get("anthropic_base_url", ""),
-            "key": settings["anthropic_api_key"],
-            "model": settings.get("anthropic_model"),
-            "haiku": settings.get("anthropic_default_haiku_model"),
-            "sonnet": settings.get("anthropic_default_sonnet_model"),
-            "opus": settings.get("anthropic_default_opus_model"),
-            "subagent": settings.get("claude_code_subagent_model"),
-            "now": datetime.utcnow(),
-        })
+        """),
+            {
+                "user": DEFAULT_USER_ID,
+                "url": settings.get("anthropic_base_url", ""),
+                "key": settings["anthropic_api_key"],
+                "model": settings.get("anthropic_model"),
+                "haiku": settings.get("anthropic_default_haiku_model"),
+                "sonnet": settings.get("anthropic_default_sonnet_model"),
+                "opus": settings.get("anthropic_default_opus_model"),
+                "subagent": settings.get("claude_code_subagent_model"),
+                "now": datetime.utcnow(),
+            },
+        )
+
 
 def downgrade():
     op.drop_index("ix_agent_credentials_user_active", table_name="agent_anthropic_credentials")
@@ -453,12 +465,12 @@ async def probe_messages(
     # httpx 直调，避免 SDK subprocess 副作用
     ...
 
-async def probe_discovery(
-    *, discovery_root: str | None, api_key: str, timeout_s: float = 5.0
-) -> ProbeResult | None:
+
+async def probe_discovery(*, discovery_root: str | None, api_key: str, timeout_s: float = 5.0) -> ProbeResult | None:
     if not discovery_root:
         return None
     ...
+
 
 async def run_test(
     *,
@@ -491,10 +503,12 @@ async def run_test(
 
     # 3. 自定义模式 + 失败 + 没有 explicit suffix → 尝试 +/anthropic 自愈
     suggestion: SuggestionAction | None = None
-    if (not msg.success
+    if (
+        not msg.success
         and preset_id == CUSTOM_SENTINEL_ID
         and not ep.has_explicit_suffix
-        and msg.status_code in (404, 405, 502)):
+        and msg.status_code in (404, 405, 502)
+    ):
         retry_root = ep.messages_root.rstrip("/") + "/anthropic"
         retry = await probe_messages(messages_root=retry_root, api_key=api_key, model=effective_model)
         if retry.success:
@@ -535,15 +549,15 @@ async def build_anthropic_env_dict(session: AsyncSession) -> dict[str, str]:
     if cred is None:
         # 双轨期 fallback：无 active credential 时从 system_settings 兜底
         settings = await SystemSettingRepository(session).get_all()
-        return {env_key: settings.get(db_key, "").strip()
-                for db_key, env_key in _ANTHROPIC_ENV_MAP.items()}
+        return {env_key: settings.get(db_key, "").strip() for db_key, env_key in _ANTHROPIC_ENV_MAP.items()}
     settings = await SystemSettingRepository(session).get_all()
     return {
         "ANTHROPIC_API_KEY": cred.api_key or "",
         "ANTHROPIC_BASE_URL": cred.base_url or "",
         "ANTHROPIC_MODEL": cred.model or settings.get("anthropic_model", "").strip(),
         "ANTHROPIC_DEFAULT_HAIKU_MODEL": cred.haiku_model or settings.get("anthropic_default_haiku_model", "").strip(),
-        "ANTHROPIC_DEFAULT_SONNET_MODEL": cred.sonnet_model or settings.get("anthropic_default_sonnet_model", "").strip(),
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": cred.sonnet_model
+        or settings.get("anthropic_default_sonnet_model", "").strip(),
         "ANTHROPIC_DEFAULT_OPUS_MODEL": cred.opus_model or settings.get("anthropic_default_opus_model", "").strip(),
         "CLAUDE_CODE_SUBAGENT_MODEL": cred.subagent_model or settings.get("claude_code_subagent_model", "").strip(),
     }
@@ -564,12 +578,10 @@ async def build_anthropic_env_dict(session: AsyncSession) -> dict[str, str]:
 ```python
 async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
     from lib.config.anthropic_url import derive_anthropic_endpoints
+
     ep = derive_anthropic_endpoints(base_url or "https://api.anthropic.com")
     discovery_root = ep.discovery_root or "https://api.anthropic.com"
-    resp = await get_http_client().get(
-        f"{discovery_root}/v1/models",
-        ...
-    )
+    resp = await get_http_client().get(f"{discovery_root}/v1/models", ...)
 ```
 
 `server/routers/custom_providers.py` 的 `/discover-anthropic` 端点：从 active credential 取默认凭证（不再从 system_settings 读 `anthropic_*`）。

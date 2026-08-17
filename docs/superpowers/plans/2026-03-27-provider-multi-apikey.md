@@ -128,8 +128,9 @@ def normalize_base_url(url: str | None) -> str | None:
 ```
 改为：
 ```python
-            from lib.config.url_utils import normalize_base_url
-            effective_base_url = normalize_base_url(base_url or os.environ.get("GEMINI_BASE_URL", "").strip())
+from lib.config.url_utils import normalize_base_url
+
+effective_base_url = normalize_base_url(base_url or os.environ.get("GEMINI_BASE_URL", "").strip())
 ```
 
 修改 `lib/video_backends/gemini.py`，将第 86 行：
@@ -138,8 +139,9 @@ def normalize_base_url(url: str | None) -> str | None:
 ```
 改为：
 ```python
-            from lib.config.url_utils import normalize_base_url
-            base_url = normalize_base_url(os.environ.get("GEMINI_BASE_URL", "").strip())
+from lib.config.url_utils import normalize_base_url
+
+base_url = normalize_base_url(os.environ.get("GEMINI_BASE_URL", "").strip())
 ```
 
 修改 `lib/gemini_client.py`，将第 497 行：
@@ -148,8 +150,9 @@ def normalize_base_url(url: str | None) -> str | None:
 ```
 改为：
 ```python
-            from lib.config.url_utils import normalize_base_url
-            effective_base_url = normalize_base_url(base_url)
+from lib.config.url_utils import normalize_base_url
+
+effective_base_url = normalize_base_url(base_url)
 ```
 
 修改 `server/routers/providers.py` 的 `_test_gemini_aistudio` 函数，将第 285 行：
@@ -158,8 +161,9 @@ def normalize_base_url(url: str | None) -> str | None:
 ```
 改为：
 ```python
-    from lib.config.url_utils import normalize_base_url
-    base_url = normalize_base_url(config.get("base_url"))
+from lib.config.url_utils import normalize_base_url
+
+base_url = normalize_base_url(config.get("base_url"))
 ```
 
 - [ ] **Step 6: 运行全部测试确认无回归**
@@ -201,9 +205,7 @@ class ProviderCredential(TimestampMixin, Base):
     """供应商凭证。每个供应商可有多条凭证，其中最多一条 is_active=True。"""
 
     __tablename__ = "provider_credential"
-    __table_args__ = (
-        Index("ix_provider_credential_provider", "provider"),
-    )
+    __table_args__ = (Index("ix_provider_credential_provider", "provider"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -255,95 +257,104 @@ git commit -m "feat: 新增 ProviderCredential ORM 模型"
 在 autogenerate 生成的 `upgrade()` 函数末尾，在 `create_table` 之后添加数据迁移：
 
 ```python
-    # 数据迁移：将 provider_config 中的凭证行迁入 provider_credential
-    conn = op.get_bind()
+# 数据迁移：将 provider_config 中的凭证行迁入 provider_credential
+conn = op.get_bind()
 
-    # 读出所有现有的凭证相关配置
-    rows = conn.execute(
-        sa.text(
-            "SELECT provider, key, value FROM provider_config "
-            "WHERE key IN ('api_key', 'credentials_path', 'base_url')"
-        )
-    ).fetchall()
+# 读出所有现有的凭证相关配置
+rows = conn.execute(
+    sa.text("SELECT provider, key, value FROM provider_config WHERE key IN ('api_key', 'credentials_path', 'base_url')")
+).fetchall()
 
-    # 按 provider 分组
-    from collections import defaultdict
-    provider_data: dict[str, dict[str, str]] = defaultdict(dict)
-    for provider, key, value in rows:
-        provider_data[provider][key] = value
+# 按 provider 分组
+from collections import defaultdict
 
-    # 为每个 provider 创建凭证记录
-    now = sa.func.now()
-    cred_table = sa.table(
-        "provider_credential",
-        sa.column("provider", sa.String),
-        sa.column("name", sa.String),
-        sa.column("api_key", sa.Text),
-        sa.column("credentials_path", sa.Text),
-        sa.column("base_url", sa.Text),
-        sa.column("is_active", sa.Boolean),
-        sa.column("created_at", sa.DateTime),
-        sa.column("updated_at", sa.DateTime),
-    )
+provider_data: dict[str, dict[str, str]] = defaultdict(dict)
+for provider, key, value in rows:
+    provider_data[provider][key] = value
 
-    for provider, data in provider_data.items():
-        if not data.get("api_key") and not data.get("credentials_path"):
-            continue  # 没有密钥的 provider 不迁移
-        conn.execute(
-            cred_table.insert().values(
-                provider=provider,
-                name="默认密钥",
-                api_key=data.get("api_key"),
-                credentials_path=data.get("credentials_path"),
-                base_url=data.get("base_url"),
-                is_active=True,
-                created_at=now,
-                updated_at=now,
-            )
-        )
+# 为每个 provider 创建凭证记录
+now = sa.func.now()
+cred_table = sa.table(
+    "provider_credential",
+    sa.column("provider", sa.String),
+    sa.column("name", sa.String),
+    sa.column("api_key", sa.Text),
+    sa.column("credentials_path", sa.Text),
+    sa.column("base_url", sa.Text),
+    sa.column("is_active", sa.Boolean),
+    sa.column("created_at", sa.DateTime),
+    sa.column("updated_at", sa.DateTime),
+)
 
-    # 从 provider_config 中删除已迁移的行
+for provider, data in provider_data.items():
+    if not data.get("api_key") and not data.get("credentials_path"):
+        continue  # 没有密钥的 provider 不迁移
     conn.execute(
-        sa.text(
-            "DELETE FROM provider_config WHERE key IN ('api_key', 'credentials_path', 'base_url')"
+        cred_table.insert().values(
+            provider=provider,
+            name="默认密钥",
+            api_key=data.get("api_key"),
+            credentials_path=data.get("credentials_path"),
+            base_url=data.get("base_url"),
+            is_active=True,
+            created_at=now,
+            updated_at=now,
         )
     )
+
+# 从 provider_config 中删除已迁移的行
+conn.execute(sa.text("DELETE FROM provider_config WHERE key IN ('api_key', 'credentials_path', 'base_url')"))
 ```
 
 在 `downgrade()` 函数中，在 `drop_table` 之前添加反向迁移：
 
 ```python
-    # 反向迁移：将 provider_credential 中的活跃凭证写回 provider_config
-    conn = op.get_bind()
-    rows = conn.execute(
-        sa.text(
-            "SELECT provider, api_key, credentials_path, base_url "
-            "FROM provider_credential WHERE is_active = 1"
-        )
-    ).fetchall()
+# 反向迁移：将 provider_credential 中的活跃凭证写回 provider_config
+conn = op.get_bind()
+rows = conn.execute(
+    sa.text("SELECT provider, api_key, credentials_path, base_url FROM provider_credential WHERE is_active = 1")
+).fetchall()
 
-    config_table = sa.table(
-        "provider_config",
-        sa.column("provider", sa.String),
-        sa.column("key", sa.String),
-        sa.column("value", sa.Text),
-        sa.column("is_secret", sa.Boolean),
-        sa.column("updated_at", sa.DateTime),
-    )
-    now = sa.func.now()
-    for provider, api_key, cred_path, base_url in rows:
-        if api_key:
-            conn.execute(config_table.insert().values(
-                provider=provider, key="api_key", value=api_key, is_secret=True, updated_at=now,
-            ))
-        if cred_path:
-            conn.execute(config_table.insert().values(
-                provider=provider, key="credentials_path", value=cred_path, is_secret=False, updated_at=now,
-            ))
-        if base_url:
-            conn.execute(config_table.insert().values(
-                provider=provider, key="base_url", value=base_url, is_secret=False, updated_at=now,
-            ))
+config_table = sa.table(
+    "provider_config",
+    sa.column("provider", sa.String),
+    sa.column("key", sa.String),
+    sa.column("value", sa.Text),
+    sa.column("is_secret", sa.Boolean),
+    sa.column("updated_at", sa.DateTime),
+)
+now = sa.func.now()
+for provider, api_key, cred_path, base_url in rows:
+    if api_key:
+        conn.execute(
+            config_table.insert().values(
+                provider=provider,
+                key="api_key",
+                value=api_key,
+                is_secret=True,
+                updated_at=now,
+            )
+        )
+    if cred_path:
+        conn.execute(
+            config_table.insert().values(
+                provider=provider,
+                key="credentials_path",
+                value=cred_path,
+                is_secret=False,
+                updated_at=now,
+            )
+        )
+    if base_url:
+        conn.execute(
+            config_table.insert().values(
+                provider=provider,
+                key="base_url",
+                value=base_url,
+                is_secret=False,
+                updated_at=now,
+            )
+        )
 ```
 
 - [ ] **Step 3: 运行迁移**
@@ -508,7 +519,9 @@ class TestCredentialRepository:
     async def test_base_url_normalized_on_create(self, session: AsyncSession):
         repo = CredentialRepository(session)
         c = await repo.create(
-            provider="gemini-aistudio", name="Key", api_key="AIza-1",
+            provider="gemini-aistudio",
+            name="Key",
+            api_key="AIza-1",
             base_url="https://proxy.example.com/v1",
         )
         await session.flush()
@@ -599,15 +612,11 @@ class CredentialRepository:
         """激活指定凭证，同时取消同供应商的其他活跃标记。"""
         # 先全部取消
         await self.session.execute(
-            update(ProviderCredential)
-            .where(ProviderCredential.provider == provider)
-            .values(is_active=False)
+            update(ProviderCredential).where(ProviderCredential.provider == provider).values(is_active=False)
         )
         # 再激活目标
         await self.session.execute(
-            update(ProviderCredential)
-            .where(ProviderCredential.id == cred_id)
-            .values(is_active=True)
+            update(ProviderCredential).where(ProviderCredential.id == cred_id).values(is_active=True)
         )
 
     async def update(
@@ -733,56 +742,62 @@ from lib.db.repositories.credential_repository import CredentialRepository
 修改调用方，将 session 传入 `_resolve_*` 方法：
 
 ```python
-    async def provider_config(self, provider_id: str) -> dict[str, str]:
-        async with self._session_factory() as session:
-            svc = ConfigService(session)
-            return await self._resolve_provider_config(svc, session, provider_id)
+async def provider_config(self, provider_id: str) -> dict[str, str]:
+    async with self._session_factory() as session:
+        svc = ConfigService(session)
+        return await self._resolve_provider_config(svc, session, provider_id)
 
-    async def all_provider_configs(self) -> dict[str, dict[str, str]]:
-        async with self._session_factory() as session:
-            svc = ConfigService(session)
-            return await self._resolve_all_provider_configs(svc, session)
+
+async def all_provider_configs(self) -> dict[str, dict[str, str]]:
+    async with self._session_factory() as session:
+        svc = ConfigService(session)
+        return await self._resolve_all_provider_configs(svc, session)
 ```
 
 将 `_resolve_provider_config` 方法改为：
 
 ```python
-    async def _resolve_provider_config(
-        self, svc: ConfigService, session: AsyncSession, provider_id: str,
-    ) -> dict[str, str]:
-        # 1. 读共享配置（RPM / workers 等）
-        config = await svc.get_provider_config(provider_id)
-        # 2. 读活跃凭证，合并 api_key / base_url / credentials_path
-        cred_repo = CredentialRepository(session)
-        active = await cred_repo.get_active(provider_id)
-        if active:
-            if active.api_key:
-                config["api_key"] = active.api_key
-            if active.credentials_path:
-                config["credentials_path"] = active.credentials_path
-            if active.base_url:
-                config["base_url"] = active.base_url
-        return config
+async def _resolve_provider_config(
+    self,
+    svc: ConfigService,
+    session: AsyncSession,
+    provider_id: str,
+) -> dict[str, str]:
+    # 1. 读共享配置（RPM / workers 等）
+    config = await svc.get_provider_config(provider_id)
+    # 2. 读活跃凭证，合并 api_key / base_url / credentials_path
+    cred_repo = CredentialRepository(session)
+    active = await cred_repo.get_active(provider_id)
+    if active:
+        if active.api_key:
+            config["api_key"] = active.api_key
+        if active.credentials_path:
+            config["credentials_path"] = active.credentials_path
+        if active.base_url:
+            config["base_url"] = active.base_url
+    return config
 ```
 
 同样修改 `_resolve_all_provider_configs`：
 
 ```python
-    async def _resolve_all_provider_configs(
-        self, svc: ConfigService, session: AsyncSession,
-    ) -> dict[str, dict[str, str]]:
-        configs = await svc.get_all_provider_configs()
-        cred_repo = CredentialRepository(session)
-        active_creds = await cred_repo.get_active_credentials_bulk()
-        for provider_id, cred in active_creds.items():
-            cfg = configs.setdefault(provider_id, {})
-            if cred.api_key:
-                cfg["api_key"] = cred.api_key
-            if cred.credentials_path:
-                cfg["credentials_path"] = cred.credentials_path
-            if cred.base_url:
-                cfg["base_url"] = cred.base_url
-        return configs
+async def _resolve_all_provider_configs(
+    self,
+    svc: ConfigService,
+    session: AsyncSession,
+) -> dict[str, dict[str, str]]:
+    configs = await svc.get_all_provider_configs()
+    cred_repo = CredentialRepository(session)
+    active_creds = await cred_repo.get_active_credentials_bulk()
+    for provider_id, cred in active_creds.items():
+        cfg = configs.setdefault(provider_id, {})
+        if cred.api_key:
+            cfg["api_key"] = cred.api_key
+        if cred.credentials_path:
+            cfg["credentials_path"] = cred.credentials_path
+        if cred.base_url:
+            cfg["base_url"] = cred.base_url
+    return configs
 ```
 
 - [ ] **Step 3: 运行已有测试确认无回归**
@@ -990,6 +1005,7 @@ class UpdateCredentialRequest(BaseModel):
 ```python
 def _cred_to_response(cred: "ProviderCredential") -> CredentialResponse:
     from lib.db.base import dt_to_iso
+
     return CredentialResponse(
         id=cred.id,
         provider=cred.provider,
@@ -1111,10 +1127,12 @@ async def activate_credential(
 def _invalidate_caches(request: Request) -> None:
     """配置变更后清理后端缓存。"""
     from server.services.generation_tasks import invalidate_backend_cache
+
     invalidate_backend_cache()
     worker = getattr(request.app.state, "generation_worker", None)
     if worker:
         import asyncio
+
         asyncio.ensure_future(worker.reload_limits())
 ```
 

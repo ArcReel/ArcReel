@@ -69,9 +69,7 @@ def test_file_handler_registered_by_default(isolated_log_dir: Path) -> None:
     assert Path(file_handlers[0].baseFilename).parent == isolated_log_dir.resolve()
 
 
-def test_file_handler_disabled_by_env(
-    isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_file_handler_disabled_by_env(isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCREEL_LOG_FILE_DISABLED", "1")
     cfg = _reload_module()
     cfg.setup_logging()
@@ -90,9 +88,7 @@ def test_logs_written_to_file(isolated_log_dir: Path) -> None:
     assert "hello-arcreel" in log_file.read_text(encoding="utf-8")
 
 
-def test_mkdir_failure_graceful(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_mkdir_failure_graceful(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     target = tmp_path / "blocked" / "logs"
     monkeypatch.setenv("ARCREEL_LOG_DIR", str(target))
     monkeypatch.delenv("ARCREEL_LOG_FILE_DISABLED", raising=False)
@@ -123,9 +119,7 @@ def test_idempotent(isolated_log_dir: Path) -> None:
     assert len(file_handlers) == 1
 
 
-def test_disabled_env_accepts_aliases(
-    isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_disabled_env_accepts_aliases(isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     for value in ("1", "true", "TRUE", "yes", "Yes"):
         monkeypatch.setenv("ARCREEL_LOG_FILE_DISABLED", value)
         cfg = _reload_module()
@@ -208,9 +202,7 @@ def setup_logging(level: str | None = None) -> None:
         root.addHandler(handler)
 
     # 文件 handler：默认开启，按天切，保留 7 份。失败不阻塞 stdout。
-    if not _file_logging_disabled() and not any(
-        getattr(h, _FILE_HANDLER_ATTR, False) for h in root.handlers
-    ):
+    if not _file_logging_disabled() and not any(getattr(h, _FILE_HANDLER_ATTR, False) for h in root.handlers):
         try:
             log_dir = _resolve_log_dir()
             log_dir.mkdir(parents=True, exist_ok=True)
@@ -289,6 +281,7 @@ import pytest
 def test_collect_returns_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
     from lib.app_data_dir import _reset_for_tests
+
     _reset_for_tests()
 
     from server.services.diagnostics import collect_diagnostics
@@ -310,6 +303,7 @@ def test_collect_masks_db_password(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         "postgresql+asyncpg://arcuser:supersecretpassword@db.example.com:5432/arcreel",
     )
     from lib.app_data_dir import _reset_for_tests
+
     _reset_for_tests()
 
     from server.services.diagnostics import collect_diagnostics
@@ -325,6 +319,7 @@ def test_collect_masks_db_password(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
 def test_collect_swallows_field_errors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
     from lib.app_data_dir import _reset_for_tests
+
     _reset_for_tests()
 
     import server.services.diagnostics as diag_mod
@@ -340,12 +335,11 @@ def test_collect_swallows_field_errors(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert "Python" in text
 
 
-def test_collect_returns_log_dir_matching_logging_config(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_collect_returns_log_dir_matching_logging_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     log_dir = tmp_path / "custom-logs"
     monkeypatch.setenv("ARCREEL_LOG_DIR", str(log_dir))
     from lib.app_data_dir import _reset_for_tests
+
     _reset_for_tests()
 
     from server.services.diagnostics import collect_diagnostics
@@ -549,6 +543,7 @@ async def _client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, auth_disabled
     monkeypatch.setenv("ARCREEL_LOG_DIR", str(log_dir))
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
     from lib.app_data_dir import _reset_for_tests
+
     _reset_for_tests()
 
     # 重新载入 app 以让 env 生效
@@ -624,6 +619,7 @@ async def test_download_requires_auth(monkeypatch: pytest.MonkeyPatch, tmp_path:
     monkeypatch.setenv("ARCREEL_LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
     from lib.app_data_dir import _reset_for_tests
+
     _reset_for_tests()
 
     import importlib
@@ -685,9 +681,7 @@ async def download_logs(_user: CurrentUser) -> StreamingResponse:
                     continue
                 size = path.stat().st_size
                 if size > _MAX_FILE_BYTES:
-                    diagnostics_lines.append(
-                        f"[skipped: too large: {path.name} ({size} bytes)]"
-                    )
+                    diagnostics_lines.append(f"[skipped: too large: {path.name} ({size} bytes)]")
                     continue
                 zf.write(path, arcname=f"logs/{path.name}")
 
@@ -720,6 +714,7 @@ async def download_logs(_user: CurrentUser) -> StreamingResponse:
 
 ```python
 from server.routers import system as system_router  # 在 import 区域
+
 # ...
 app.include_router(system_router.router, prefix="/api/v1", tags=["系统"])
 ```

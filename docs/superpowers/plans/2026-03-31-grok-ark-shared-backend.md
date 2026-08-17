@@ -253,44 +253,48 @@ class TestArkImageBackendInit:
 
 改动前：
 ```python
-    @pytest.fixture()
-    def backend(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.delenv("ARK_API_KEY", raising=False)
-        with patch("volcenginesdkarkruntime.Ark"):
-            from lib.image_backends.ark import ArkImageBackend
+@pytest.fixture()
+def backend(self, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("ARK_API_KEY", raising=False)
+    with patch("volcenginesdkarkruntime.Ark"):
+        from lib.image_backends.ark import ArkImageBackend
 
-            return ArkImageBackend(api_key="test-key")
+        return ArkImageBackend(api_key="test-key")
 
-    # ...
 
-    def test_custom_model(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.delenv("ARK_API_KEY", raising=False)
-        with patch("volcenginesdkarkruntime.Ark"):
-            from lib.image_backends.ark import ArkImageBackend
+# ...
 
-            b = ArkImageBackend(api_key="k", model="custom-model")
-            assert b.model == "custom-model"
+
+def test_custom_model(self, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("ARK_API_KEY", raising=False)
+    with patch("volcenginesdkarkruntime.Ark"):
+        from lib.image_backends.ark import ArkImageBackend
+
+        b = ArkImageBackend(api_key="k", model="custom-model")
+        assert b.model == "custom-model"
 ```
 
 改动后：
 ```python
-    @pytest.fixture()
-    def backend(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.delenv("ARK_API_KEY", raising=False)
-        with patch("lib.ark_shared.create_ark_client"):
-            from lib.image_backends.ark import ArkImageBackend
+@pytest.fixture()
+def backend(self, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("ARK_API_KEY", raising=False)
+    with patch("lib.ark_shared.create_ark_client"):
+        from lib.image_backends.ark import ArkImageBackend
 
-            return ArkImageBackend(api_key="test-key")
+        return ArkImageBackend(api_key="test-key")
 
-    # ...
 
-    def test_custom_model(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.delenv("ARK_API_KEY", raising=False)
-        with patch("lib.ark_shared.create_ark_client"):
-            from lib.image_backends.ark import ArkImageBackend
+# ...
 
-            b = ArkImageBackend(api_key="k", model="custom-model")
-            assert b.model == "custom-model"
+
+def test_custom_model(self, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("ARK_API_KEY", raising=False)
+    with patch("lib.ark_shared.create_ark_client"):
+        from lib.image_backends.ark import ArkImageBackend
+
+        b = ArkImageBackend(api_key="k", model="custom-model")
+        assert b.model == "custom-model"
 ```
 
 **`TestArkImageBackendGenerate` 类的 fixture：**
@@ -689,44 +693,46 @@ class TestGenerate:
 
 改动前：
 ```python
-    @pytest.fixture
-    def backend_no_structured(self, mock_ark):
-        """创建一个模型不支持原生 structured_output 的 backend。"""
-        mock_client = MagicMock()
-        mock_ark.return_value = mock_client
-        b = ArkTextBackend(api_key="k")
-        b._test_client = mock_client
-        return b
+@pytest.fixture
+def backend_no_structured(self, mock_ark):
+    """创建一个模型不支持原生 structured_output 的 backend。"""
+    mock_client = MagicMock()
+    mock_ark.return_value = mock_client
+    b = ArkTextBackend(api_key="k")
+    b._test_client = mock_client
+    return b
 
-    @pytest.fixture
-    def backend_with_structured(self, mock_ark):
-        """创建一个模型支持原生 structured_output 的 backend（模拟）。"""
-        mock_client = MagicMock()
-        mock_ark.return_value = mock_client
-        b = ArkTextBackend(api_key="k", model="mock-model-with-structured")
-        b._test_client = mock_client
-        b._capabilities.add(TextCapability.STRUCTURED_OUTPUT)
-        return b
+
+@pytest.fixture
+def backend_with_structured(self, mock_ark):
+    """创建一个模型支持原生 structured_output 的 backend（模拟）。"""
+    mock_client = MagicMock()
+    mock_ark.return_value = mock_client
+    b = ArkTextBackend(api_key="k", model="mock-model-with-structured")
+    b._test_client = mock_client
+    b._capabilities.add(TextCapability.STRUCTURED_OUTPUT)
+    return b
 ```
 
 改动后：
 ```python
-    @pytest.fixture
-    def backend_no_structured(self, mock_ark):
-        """创建一个模型不支持原生 structured_output 的 backend。"""
-        _, mock_client = mock_ark
-        b = ArkTextBackend(api_key="k")
-        b._test_client = mock_client
-        return b
+@pytest.fixture
+def backend_no_structured(self, mock_ark):
+    """创建一个模型不支持原生 structured_output 的 backend。"""
+    _, mock_client = mock_ark
+    b = ArkTextBackend(api_key="k")
+    b._test_client = mock_client
+    return b
 
-    @pytest.fixture
-    def backend_with_structured(self, mock_ark):
-        """创建一个模型支持原生 structured_output 的 backend（模拟）。"""
-        _, mock_client = mock_ark
-        b = ArkTextBackend(api_key="k", model="mock-model-with-structured")
-        b._test_client = mock_client
-        b._capabilities.add(TextCapability.STRUCTURED_OUTPUT)
-        return b
+
+@pytest.fixture
+def backend_with_structured(self, mock_ark):
+    """创建一个模型支持原生 structured_output 的 backend（模拟）。"""
+    _, mock_client = mock_ark
+    b = ArkTextBackend(api_key="k", model="mock-model-with-structured")
+    b._test_client = mock_client
+    b._capabilities.add(TextCapability.STRUCTURED_OUTPUT)
+    return b
 ```
 
 **`test_unknown_model_falls_back_to_instructor`（第 132-137 行）：**
@@ -1187,60 +1193,64 @@ class GrokVideoBackend:
 
 改动前：
 ```python
-    @patch("lib.video_backends.grok.xai_sdk")
-    def test_name_and_model(self, mock_sdk):
-        from lib.video_backends.grok import GrokVideoBackend
+@patch("lib.video_backends.grok.xai_sdk")
+def test_name_and_model(self, mock_sdk):
+    from lib.video_backends.grok import GrokVideoBackend
 
-        backend = GrokVideoBackend(api_key="test-key")
-        assert backend.name == PROVIDER_GROK
-        assert backend.model == "grok-imagine-video"
+    backend = GrokVideoBackend(api_key="test-key")
+    assert backend.name == PROVIDER_GROK
+    assert backend.model == "grok-imagine-video"
 
-    @patch("lib.video_backends.grok.xai_sdk")
-    def test_capabilities(self, mock_sdk):
-        from lib.video_backends.grok import GrokVideoBackend
 
-        backend = GrokVideoBackend(api_key="test-key")
-        assert VideoCapability.TEXT_TO_VIDEO in backend.capabilities
-        assert VideoCapability.IMAGE_TO_VIDEO in backend.capabilities
-        assert VideoCapability.GENERATE_AUDIO not in backend.capabilities
-        assert VideoCapability.NEGATIVE_PROMPT not in backend.capabilities
-        assert VideoCapability.SEED_CONTROL not in backend.capabilities
+@patch("lib.video_backends.grok.xai_sdk")
+def test_capabilities(self, mock_sdk):
+    from lib.video_backends.grok import GrokVideoBackend
 
-    @patch("lib.video_backends.grok.xai_sdk")
-    def test_custom_model(self, mock_sdk):
-        from lib.video_backends.grok import GrokVideoBackend
+    backend = GrokVideoBackend(api_key="test-key")
+    assert VideoCapability.TEXT_TO_VIDEO in backend.capabilities
+    assert VideoCapability.IMAGE_TO_VIDEO in backend.capabilities
+    assert VideoCapability.GENERATE_AUDIO not in backend.capabilities
+    assert VideoCapability.NEGATIVE_PROMPT not in backend.capabilities
+    assert VideoCapability.SEED_CONTROL not in backend.capabilities
 
-        backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video-2")
-        assert backend.model == "grok-imagine-video-2"
+
+@patch("lib.video_backends.grok.xai_sdk")
+def test_custom_model(self, mock_sdk):
+    from lib.video_backends.grok import GrokVideoBackend
+
+    backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video-2")
+    assert backend.model == "grok-imagine-video-2"
 ```
 
 改动后：
 ```python
-    @patch("lib.grok_shared.create_grok_client")
-    def test_name_and_model(self, mock_create):
-        from lib.video_backends.grok import GrokVideoBackend
+@patch("lib.grok_shared.create_grok_client")
+def test_name_and_model(self, mock_create):
+    from lib.video_backends.grok import GrokVideoBackend
 
-        backend = GrokVideoBackend(api_key="test-key")
-        assert backend.name == PROVIDER_GROK
-        assert backend.model == "grok-imagine-video"
+    backend = GrokVideoBackend(api_key="test-key")
+    assert backend.name == PROVIDER_GROK
+    assert backend.model == "grok-imagine-video"
 
-    @patch("lib.grok_shared.create_grok_client")
-    def test_capabilities(self, mock_create):
-        from lib.video_backends.grok import GrokVideoBackend
 
-        backend = GrokVideoBackend(api_key="test-key")
-        assert VideoCapability.TEXT_TO_VIDEO in backend.capabilities
-        assert VideoCapability.IMAGE_TO_VIDEO in backend.capabilities
-        assert VideoCapability.GENERATE_AUDIO not in backend.capabilities
-        assert VideoCapability.NEGATIVE_PROMPT not in backend.capabilities
-        assert VideoCapability.SEED_CONTROL not in backend.capabilities
+@patch("lib.grok_shared.create_grok_client")
+def test_capabilities(self, mock_create):
+    from lib.video_backends.grok import GrokVideoBackend
 
-    @patch("lib.grok_shared.create_grok_client")
-    def test_custom_model(self, mock_create):
-        from lib.video_backends.grok import GrokVideoBackend
+    backend = GrokVideoBackend(api_key="test-key")
+    assert VideoCapability.TEXT_TO_VIDEO in backend.capabilities
+    assert VideoCapability.IMAGE_TO_VIDEO in backend.capabilities
+    assert VideoCapability.GENERATE_AUDIO not in backend.capabilities
+    assert VideoCapability.NEGATIVE_PROMPT not in backend.capabilities
+    assert VideoCapability.SEED_CONTROL not in backend.capabilities
 
-        backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video-2")
-        assert backend.model == "grok-imagine-video-2"
+
+@patch("lib.grok_shared.create_grok_client")
+def test_custom_model(self, mock_create):
+    from lib.video_backends.grok import GrokVideoBackend
+
+    backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video-2")
+    assert backend.model == "grok-imagine-video-2"
 ```
 
 **`test_missing_api_key_raises`（第 49-53 行）：**

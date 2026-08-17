@@ -207,13 +207,11 @@ async def default_image_backend_i2i(self) -> tuple[str, str]: ...
 `lib/media_generator.py` 调用 image backend 前先校验：
 
 ```python
-needed = (ImageCapability.IMAGE_TO_IMAGE
-          if reference_images else ImageCapability.TEXT_TO_IMAGE)
+needed = ImageCapability.IMAGE_TO_IMAGE if reference_images else ImageCapability.TEXT_TO_IMAGE
 
 if needed not in image_backend.capabilities:
     raise ImageCapabilityError(
-        "image_capability_missing_i2i" if needed == ImageCapability.IMAGE_TO_IMAGE
-        else "image_capability_missing_t2i",
+        "image_capability_missing_i2i" if needed == ImageCapability.IMAGE_TO_IMAGE else "image_capability_missing_t2i",
         provider=image_backend.name,
         model=image_backend.model,
     )

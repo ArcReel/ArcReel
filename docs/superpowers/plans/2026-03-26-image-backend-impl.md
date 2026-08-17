@@ -164,7 +164,7 @@ from lib.video_backends.base import PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_ARK
 
 _DEFAULT_VIDEO_RESOLUTION: dict[str, str] = {
     PROVIDER_GEMINI: "1080p",
-    PROVIDER_ARK: "720p",      # was PROVIDER_SEEDANCE
+    PROVIDER_ARK: "720p",  # was PROVIDER_SEEDANCE
     PROVIDER_GROK: "720p",
 }
 
@@ -172,7 +172,7 @@ _PROVIDER_ID_TO_BACKEND: dict[str, str] = {
     "gemini-aistudio": PROVIDER_GEMINI,
     "gemini-vertex": PROVIDER_GEMINI,
     PROVIDER_GEMINI: PROVIDER_GEMINI,
-    PROVIDER_ARK: PROVIDER_ARK,     # was PROVIDER_SEEDANCE
+    PROVIDER_ARK: PROVIDER_ARK,  # was PROVIDER_SEEDANCE
     PROVIDER_GROK: PROVIDER_GROK,
 }
 ```
@@ -186,7 +186,7 @@ def _normalize_provider_id(raw: str) -> str:
     mapping = {
         "gemini": "gemini-aistudio",
         "vertex": "gemini-vertex",
-        "seedance": "ark",        # 向后兼容
+        "seedance": "ark",  # 向后兼容
     }
     return mapping.get(raw, raw)
 ```
@@ -258,6 +258,7 @@ def upgrade() -> None:
         "UPDATE system_setting SET value = REPLACE(value, 'seedance/', 'ark/') "
         "WHERE key IN ('default_video_backend', 'default_image_backend')"
     )
+
 
 def downgrade() -> None:
     op.execute("UPDATE provider_config SET provider = 'seedance' WHERE provider = 'ark'")
@@ -384,6 +385,7 @@ def image_to_base64_data_uri(image_path: Path) -> str:
 
 class ImageCapability(str, Enum):
     """图片后端支持的能力枚举。"""
+
     TEXT_TO_IMAGE = "text_to_image"
     IMAGE_TO_IMAGE = "image_to_image"
 
@@ -391,6 +393,7 @@ class ImageCapability(str, Enum):
 @dataclass
 class ReferenceImage:
     """参考图片。"""
+
     path: str
     label: str = ""
 
@@ -398,6 +401,7 @@ class ReferenceImage:
 @dataclass
 class ImageGenerationRequest:
     """通用图片生成请求。各 Backend 忽略不支持的字段。"""
+
     prompt: str
     output_path: Path
     reference_images: list[ReferenceImage] = field(default_factory=list)
@@ -410,6 +414,7 @@ class ImageGenerationRequest:
 @dataclass
 class ImageGenerationResult:
     """通用图片生成结果。"""
+
     image_path: Path
     provider: str
     model: str
@@ -458,6 +463,7 @@ class _DummyBackend:
 def test_register_and_create(monkeypatch):
     # 用 monkeypatch 隔离全局 dict
     from lib.image_backends import registry
+
     monkeypatch.setattr(registry, "_BACKEND_FACTORIES", {})
 
     register_backend("dummy", _DummyBackend)
@@ -469,6 +475,7 @@ def test_register_and_create(monkeypatch):
 
 def test_create_unknown_raises(monkeypatch):
     from lib.image_backends import registry
+
     monkeypatch.setattr(registry, "_BACKEND_FACTORIES", {})
 
     with pytest.raises(ValueError, match="Unknown image backend"):
@@ -731,9 +738,7 @@ def _resolve_vertex(credentials_path: str | None = None):
     if not project_id:
         raise ValueError(f"凭证文件中未找到 project_id")
 
-    credentials = service_account.Credentials.from_service_account_file(
-        str(cred_file), scopes=VERTEX_SCOPES
-    )
+    credentials = service_account.Credentials.from_service_account_file(str(cred_file), scopes=VERTEX_SCOPES)
     return credentials, project_id
 
 
@@ -770,9 +775,7 @@ class GeminiImageBackend:
         else:
             _api_key = api_key or os.environ.get("GEMINI_API_KEY")
             if not _api_key:
-                raise ValueError(
-                    "Gemini API Key 未提供。请在「全局设置 → 供应商」页面配置 API Key。"
-                )
+                raise ValueError("Gemini API Key 未提供。请在「全局设置 → 供应商」页面配置 API Key。")
             effective_base_url = base_url
             http_options = {"base_url": effective_base_url} if effective_base_url else None
             self._client = _genai.Client(api_key=_api_key, http_options=http_options)
@@ -810,7 +813,9 @@ class GeminiImageBackend:
         )
 
         response = await self._client.aio.models.generate_content(
-            model=self._image_model, contents=contents, config=config,
+            model=self._image_model,
+            contents=contents,
+            config=config,
         )
 
         # 解析响应并保存图片
@@ -865,6 +870,7 @@ Expected: PASS
 
 ```python
 from lib.image_backends.gemini import GeminiImageBackend
+
 register_backend(PROVIDER_GEMINI, GeminiImageBackend)
 ```
 
@@ -907,6 +913,7 @@ Run: `uv run python -m pytest tests/test_image_backends/test_ark.py -v`
 
 ```python
 from lib.image_backends.ark import ArkImageBackend
+
 register_backend(PROVIDER_ARK, ArkImageBackend)
 ```
 
@@ -946,6 +953,7 @@ git commit -m "feat: implement ArkImageBackend (Seedream) with T2I and I2I"
 
 ```python
 from lib.image_backends.grok import GrokImageBackend
+
 register_backend(PROVIDER_GROK, GrokImageBackend)
 ```
 
@@ -970,22 +978,27 @@ git commit -m "feat: implement GrokImageBackend (Aurora) with T2I and I2I"
 ```python
 from lib.cost_calculator import cost_calculator
 
+
 def test_ark_image_cost_default():
     cost, currency = cost_calculator.calculate_ark_image_cost()
     assert currency == "CNY"
     assert cost == pytest.approx(0.22)  # lite 默认
 
+
 def test_ark_image_cost_by_model():
     cost, _ = cost_calculator.calculate_ark_image_cost(model="doubao-seedream-4-5-251128")
     assert cost == pytest.approx(0.25)
+
 
 def test_ark_image_cost_n_images():
     cost, _ = cost_calculator.calculate_ark_image_cost(n=3)
     assert cost == pytest.approx(0.22 * 3)
 
+
 def test_grok_image_cost_default():
     cost = cost_calculator.calculate_grok_image_cost()
     assert cost == pytest.approx(0.02)
+
 
 def test_grok_image_cost_pro():
     cost = cost_calculator.calculate_grok_image_cost(model="grok-imagine-image-pro")
@@ -1013,10 +1026,12 @@ GROK_IMAGE_COST = {
 }
 DEFAULT_GROK_IMAGE_MODEL = "grok-imagine-image"
 
+
 def calculate_ark_image_cost(self, model: str | None = None, n: int = 1) -> tuple[float, str]:
     model = model or self.DEFAULT_ARK_IMAGE_MODEL
     per_image = self.ARK_IMAGE_COST.get(model, self.ARK_IMAGE_COST[self.DEFAULT_ARK_IMAGE_MODEL])
     return per_image * n, "CNY"
+
 
 def calculate_grok_image_cost(self, model: str | None = None, n: int = 1) -> float:
     model = model or self.DEFAULT_GROK_IMAGE_MODEL
@@ -1114,7 +1129,9 @@ async def _get_or_create_image_backend(
 - [ ] **Step 3: 重写 `get_media_generator()` 注入 image_backend**
 
 ```python
-async def get_media_generator(project_name: str, payload: dict | None = None, *, user_id: str = DEFAULT_USER_ID) -> MediaGenerator:
+async def get_media_generator(
+    project_name: str, payload: dict | None = None, *, user_id: str = DEFAULT_USER_ID
+) -> MediaGenerator:
     from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
 
@@ -1127,12 +1144,17 @@ async def get_media_generator(project_name: str, payload: dict | None = None, *,
         image_provider_id = payload["image_provider"]
         image_model = payload.get("image_model", "") or image_model
     image_backend = await _get_or_create_image_backend(
-        image_provider_id, {}, resolver, default_image_model=image_model,
+        image_provider_id,
+        {},
+        resolver,
+        default_image_model=image_model,
     )
 
     # 解析 video backend（保持现有逻辑）
     video_backend, video_backend_type, video_model = await _resolve_video_backend(
-        project_name, resolver, payload,
+        project_name,
+        resolver,
+        payload,
     )
 
     return MediaGenerator(
@@ -1155,9 +1177,16 @@ async def get_media_generator(project_name: str, payload: dict | None = None, *,
 
 `generate_image_async`:
 ```python
-async def generate_image_async(self, prompt, resource_type, resource_id,
-                                reference_images=None, aspect_ratio="9:16",
-                                image_size="1K", **version_metadata):
+async def generate_image_async(
+    self,
+    prompt,
+    resource_type,
+    resource_id,
+    reference_images=None,
+    aspect_ratio="9:16",
+    image_size="1K",
+    **version_metadata,
+):
     from lib.image_backends.base import ImageGenerationRequest, ReferenceImage
 
     output_path = self._get_output_path(resource_type, resource_id)
@@ -1186,10 +1215,12 @@ async def generate_image_async(self, prompt, resource_type, resource_id,
         if reference_images:
             for ref in reference_images:
                 if isinstance(ref, dict):
-                    ref_images.append(ReferenceImage(
-                        path=str(ref.get("image", "")),
-                        label=str(ref.get("label", "")),
-                    ))
+                    ref_images.append(
+                        ReferenceImage(
+                            path=str(ref.get("image", "")),
+                            label=str(ref.get("label", "")),
+                        )
+                    )
                 elif isinstance(ref, (str, Path)):
                     ref_images.append(ReferenceImage(path=str(ref)))
                 # 其他类型（Path-like）也转为字符串
@@ -1205,12 +1236,16 @@ async def generate_image_async(self, prompt, resource_type, resource_id,
         result = await self._image_backend.generate(request)
 
         await self.usage_tracker.finish_call(
-            call_id=call_id, status="success", output_path=str(output_path),
+            call_id=call_id,
+            status="success",
+            output_path=str(output_path),
         )
     except Exception as e:
         logger.exception("生成失败 (image)")
         await self.usage_tracker.finish_call(
-            call_id=call_id, status="failed", error_message=str(e),
+            call_id=call_id,
+            status="failed",
+            error_message=str(e),
         )
         raise
 

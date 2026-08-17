@@ -238,18 +238,14 @@ class TaskEvent(Base):
     __tablename__ = "task_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    task_id: Mapped[str] = mapped_column(
-        String, ForeignKey("tasks.task_id", ondelete="CASCADE"), nullable=False
-    )
+    task_id: Mapped[str] = mapped_column(String, ForeignKey("tasks.task_id", ondelete="CASCADE"), nullable=False)
     project_name: Mapped[str] = mapped_column(String, nullable=False)
     event_type: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
     data_json: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (
-        Index("idx_task_events_project_id", "project_name", "id"),
-    )
+    __table_args__ = (Index("idx_task_events_project_id", "project_name", "id"),)
 ```
 
 - [ ] **Step 3: 更新 WorkerLease 模型**
@@ -374,6 +370,7 @@ SessionStatus = Literal["idle", "running", "completed", "error", "interrupted"]
 
 class SessionMeta(BaseModel):
     """Session metadata stored in database."""
+
     id: str
     sdk_session_id: Optional[str] = None
     project_name: str
@@ -591,61 +588,57 @@ def _row_to_dict(row: ApiCall) -> dict[str, Any]:
 `finish_call` — 删除 fromisoformat 解析，直接用 datetime 减法：
 
 ```python
-    async def finish_call(
-        self,
-        call_id: int,
-        *,
-        status: str,
-        output_path: Optional[str] = None,
-        error_message: Optional[str] = None,
-        retry_count: int = 0,
-    ) -> None:
-        finished_at = _utc_now()
+async def finish_call(
+    self,
+    call_id: int,
+    *,
+    status: str,
+    output_path: Optional[str] = None,
+    error_message: Optional[str] = None,
+    retry_count: int = 0,
+) -> None:
+    finished_at = _utc_now()
 
-        result = await self.session.execute(
-            select(ApiCall).where(ApiCall.id == call_id)
-        )
-        row = result.scalar_one_or_none()
-        if not row:
-            return
+    result = await self.session.execute(select(ApiCall).where(ApiCall.id == call_id))
+    row = result.scalar_one_or_none()
+    if not row:
+        return
 
-        # Calculate duration — both are now datetime objects
-        try:
-            duration_ms = int((finished_at - row.started_at).total_seconds() * 1000)
-        except (ValueError, TypeError):
-            duration_ms = 0
+    # Calculate duration — both are now datetime objects
+    try:
+        duration_ms = int((finished_at - row.started_at).total_seconds() * 1000)
+    except (ValueError, TypeError):
+        duration_ms = 0
 
-        # Calculate cost (failed = 0)
-        cost_usd = 0.0
-        if status == "success":
-            if row.call_type == "image":
-                cost_usd = cost_calculator.calculate_image_cost(
-                    row.resolution or "1K", model=row.model
-                )
-            elif row.call_type == "video":
-                cost_usd = cost_calculator.calculate_video_cost(
-                    duration_seconds=row.duration_seconds or 8,
-                    resolution=row.resolution or "1080p",
-                    generate_audio=bool(row.generate_audio),
-                    model=row.model,
-                )
-
-        error_truncated = error_message[:500] if error_message else None
-
-        await self.session.execute(
-            update(ApiCall)
-            .where(ApiCall.id == call_id)
-            .values(
-                status=status,
-                finished_at=finished_at,
-                duration_ms=duration_ms,
-                retry_count=retry_count,
-                cost_usd=cost_usd,
-                output_path=output_path,
-                error_message=error_truncated,
+    # Calculate cost (failed = 0)
+    cost_usd = 0.0
+    if status == "success":
+        if row.call_type == "image":
+            cost_usd = cost_calculator.calculate_image_cost(row.resolution or "1K", model=row.model)
+        elif row.call_type == "video":
+            cost_usd = cost_calculator.calculate_video_cost(
+                duration_seconds=row.duration_seconds or 8,
+                resolution=row.resolution or "1080p",
+                generate_audio=bool(row.generate_audio),
+                model=row.model,
             )
+
+    error_truncated = error_message[:500] if error_message else None
+
+    await self.session.execute(
+        update(ApiCall)
+        .where(ApiCall.id == call_id)
+        .values(
+            status=status,
+            finished_at=finished_at,
+            duration_ms=duration_ms,
+            retry_count=retry_count,
+            cost_usd=cost_usd,
+            output_path=output_path,
+            error_message=error_truncated,
         )
-        await self.session.commit()
+    )
+    await self.session.commit()
 ```
 
 - [ ] **Step 3: 更新 `get_stats` 和 `get_calls` 的过滤条件**
@@ -769,23 +762,24 @@ git commit -m "refactor(session_repo): use datetime objects instead of ISO strin
 将 `_verify_api_key` 中第 298-318 行替换为（保留 try/except 防御性处理）：
 
 ```python
-    # 检查过期
-    expires_at = row.get("expires_at")
-    expires_at_monotonic: Optional[float] = None
-    if expires_at:
-        from datetime import datetime, timezone
-        try:
-            exp_dt = expires_at
-            if exp_dt.tzinfo is None:
-                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) >= exp_dt:
-                _set_api_key_cache(key_hash, None)
-                return None
-            # 将过期时刻转换为 monotonic 时间戳，供缓存 TTL 上界计算
-            remaining_secs = (exp_dt - datetime.now(timezone.utc)).total_seconds()
-            expires_at_monotonic = time.monotonic() + remaining_secs
-        except (ValueError, TypeError):
-            logger.warning("API Key expires_at 值格式无法解析，忽略过期检查: %r", expires_at)
+# 检查过期
+expires_at = row.get("expires_at")
+expires_at_monotonic: Optional[float] = None
+if expires_at:
+    from datetime import datetime, timezone
+
+    try:
+        exp_dt = expires_at
+        if exp_dt.tzinfo is None:
+            exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) >= exp_dt:
+            _set_api_key_cache(key_hash, None)
+            return None
+        # 将过期时刻转换为 monotonic 时间戳，供缓存 TTL 上界计算
+        remaining_secs = (exp_dt - datetime.now(timezone.utc)).total_seconds()
+        expires_at_monotonic = time.monotonic() + remaining_secs
+    except (ValueError, TypeError):
+        logger.warning("API Key expires_at 值格式无法解析，忽略过期检查: %r", expires_at)
 ```
 
 - [ ] **Step 2: 运行 auth 测试**
@@ -870,10 +864,8 @@ Alembic autogenerate 不能自动处理数据转换和 PostgreSQL USING 子句�
 
 1. 清理孤立 task_events（在 FK 添加前）：
 ```python
-    # Clean up orphaned task_events before adding FK constraint
-    op.execute(sa.text(
-        "DELETE FROM task_events WHERE task_id NOT IN (SELECT task_id FROM tasks)"
-    ))
+# Clean up orphaned task_events before adding FK constraint
+op.execute(sa.text("DELETE FROM task_events WHERE task_id NOT IN (SELECT task_id FROM tasks)"))
 ```
 
 2. 对每个表的列类型变更，autogenerate 应已生成 `batch_alter_table` 操作（因为 render_as_batch=True）。检查所有 11 列都包含在内。
@@ -899,20 +891,22 @@ Alembic autogenerate 不能自动处理数据转换和 PostgreSQL USING 子句�
 然后在每个列类型变更处添加 PG-specific USING：
 
 ```python
-    if is_pg:
-        # PostgreSQL: use native ALTER with USING for data conversion
-        for table, columns in TIMESTAMP_COLUMNS.items():
-            for col in columns:
-                op.execute(sa.text(
-                    f'ALTER TABLE {table} ALTER COLUMN {col} '
-                    f'TYPE TIMESTAMP WITH TIME ZONE '
+if is_pg:
+    # PostgreSQL: use native ALTER with USING for data conversion
+    for table, columns in TIMESTAMP_COLUMNS.items():
+        for col in columns:
+            op.execute(
+                sa.text(
+                    f"ALTER TABLE {table} ALTER COLUMN {col} "
+                    f"TYPE TIMESTAMP WITH TIME ZONE "
                     f"USING CASE WHEN {col} IS NOT NULL AND {col} != '' "
-                    f'THEN {col}::timestamptz END'
-                ))
-    else:
-        # SQLite: batch mode handles table rebuild
-        # (autogenerated batch_alter_table operations below)
-        ...
+                    f"THEN {col}::timestamptz END"
+                )
+            )
+else:
+    # SQLite: batch mode handles table rebuild
+    # (autogenerated batch_alter_table operations below)
+    ...
 ```
 
 **downgrade() 函数：**
@@ -934,12 +928,14 @@ def downgrade() -> None:
     if is_pg:
         for table, columns in TIMESTAMP_COLUMNS.items():
             for col in columns:
-                op.execute(sa.text(
-                    f"ALTER TABLE {table} ALTER COLUMN {col} "
-                    f"TYPE VARCHAR "
-                    f"USING to_char({col} AT TIME ZONE 'UTC', "
-                    f"'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
-                ))
+                op.execute(
+                    sa.text(
+                        f"ALTER TABLE {table} ALTER COLUMN {col} "
+                        f"TYPE VARCHAR "
+                        f"USING to_char({col} AT TIME ZONE 'UTC', "
+                        f'\'YYYY-MM-DD"T"HH24:MI:SS"Z"\')'
+                    )
+                )
     else:
         # SQLite: batch mode rebuild
         for table, columns in TIMESTAMP_COLUMNS.items():

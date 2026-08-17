@@ -79,73 +79,75 @@ git commit -m "feat: add input_tokens and output_tokens columns to api_calls"
 在 `tests/test_usage_repo.py` 的 `TestMultiProviderUsage` 类末尾新增：
 
 ```python
-    async def test_text_call_gemini_cost(self, db_session):
-        repo = UsageRepository(db_session)
-        call_id = await repo.start_call(
-            project_name="demo",
-            call_type="text",
-            model="gemini-3-flash-preview",
-            prompt="分析小说内容",
-            provider="gemini",
-        )
+async def test_text_call_gemini_cost(self, db_session):
+    repo = UsageRepository(db_session)
+    call_id = await repo.start_call(
+        project_name="demo",
+        call_type="text",
+        model="gemini-3-flash-preview",
+        prompt="分析小说内容",
+        provider="gemini",
+    )
 
-        await repo.finish_call(
-            call_id,
-            status="success",
-            input_tokens=1000,
-            output_tokens=500,
-        )
+    await repo.finish_call(
+        call_id,
+        status="success",
+        input_tokens=1000,
+        output_tokens=500,
+    )
 
-        calls = await repo.get_calls(project_name="demo")
-        item = calls["items"][0]
-        assert item["call_type"] == "text"
-        assert item["input_tokens"] == 1000
-        assert item["output_tokens"] == 500
-        assert item["currency"] == "USD"
-        # cost = (1000 * 0.10 + 500 * 0.40) / 1_000_000 = 0.0003
-        assert item["cost_amount"] == pytest.approx(0.0003)
+    calls = await repo.get_calls(project_name="demo")
+    item = calls["items"][0]
+    assert item["call_type"] == "text"
+    assert item["input_tokens"] == 1000
+    assert item["output_tokens"] == 500
+    assert item["currency"] == "USD"
+    # cost = (1000 * 0.10 + 500 * 0.40) / 1_000_000 = 0.0003
+    assert item["cost_amount"] == pytest.approx(0.0003)
 
-    async def test_text_call_ark_cost(self, db_session):
-        repo = UsageRepository(db_session)
-        call_id = await repo.start_call(
-            project_name="demo",
-            call_type="text",
-            model="doubao-seed-2-0-lite-260215",
-            prompt="分析小说内容",
-            provider="ark",
-        )
 
-        await repo.finish_call(
-            call_id,
-            status="success",
-            input_tokens=2000,
-            output_tokens=1000,
-        )
+async def test_text_call_ark_cost(self, db_session):
+    repo = UsageRepository(db_session)
+    call_id = await repo.start_call(
+        project_name="demo",
+        call_type="text",
+        model="doubao-seed-2-0-lite-260215",
+        prompt="分析小说内容",
+        provider="ark",
+    )
 
-        calls = await repo.get_calls(project_name="demo")
-        item = calls["items"][0]
-        assert item["currency"] == "CNY"
-        # cost = (2000 * 0.30 + 1000 * 0.60) / 1_000_000 = 0.0012
-        assert item["cost_amount"] == pytest.approx(0.0012)
+    await repo.finish_call(
+        call_id,
+        status="success",
+        input_tokens=2000,
+        output_tokens=1000,
+    )
 
-    async def test_text_call_failed_zero_cost(self, db_session):
-        repo = UsageRepository(db_session)
-        call_id = await repo.start_call(
-            project_name="demo",
-            call_type="text",
-            model="gemini-3-flash-preview",
-            provider="gemini",
-        )
+    calls = await repo.get_calls(project_name="demo")
+    item = calls["items"][0]
+    assert item["currency"] == "CNY"
+    # cost = (2000 * 0.30 + 1000 * 0.60) / 1_000_000 = 0.0012
+    assert item["cost_amount"] == pytest.approx(0.0012)
 
-        await repo.finish_call(
-            call_id,
-            status="failed",
-            error_message="API error",
-        )
 
-        calls = await repo.get_calls(project_name="demo")
-        item = calls["items"][0]
-        assert item["cost_amount"] == 0.0
+async def test_text_call_failed_zero_cost(self, db_session):
+    repo = UsageRepository(db_session)
+    call_id = await repo.start_call(
+        project_name="demo",
+        call_type="text",
+        model="gemini-3-flash-preview",
+        provider="gemini",
+    )
+
+    await repo.finish_call(
+        call_id,
+        status="failed",
+        error_message="API error",
+    )
+
+    calls = await repo.get_calls(project_name="demo")
+    item = calls["items"][0]
+    assert item["cost_amount"] == 0.0
 ```
 
 - [ ] **Step 2: 运行测试验证失败**
@@ -191,23 +193,23 @@ Expected: FAIL — `finish_call()` 不接受 `input_tokens` 参数
 **3c.** 在 `finish_call()` 的 `update().values(...)` 中追加 `input_tokens` 和 `output_tokens`：
 
 ```python
-        await self.session.execute(
-            update(ApiCall)
-            .where(ApiCall.id == call_id)
-            .values(
-                status=status,
-                finished_at=finished_at,
-                duration_ms=duration_ms,
-                retry_count=retry_count,
-                cost_amount=cost_amount,
-                currency=currency,
-                usage_tokens=usage_tokens,
-                output_path=output_path,
-                error_message=error_truncated,
-                input_tokens=input_tokens,       # 新增
-                output_tokens=output_tokens,     # 新增
-            )
-        )
+await self.session.execute(
+    update(ApiCall)
+    .where(ApiCall.id == call_id)
+    .values(
+        status=status,
+        finished_at=finished_at,
+        duration_ms=duration_ms,
+        retry_count=retry_count,
+        cost_amount=cost_amount,
+        currency=currency,
+        usage_tokens=usage_tokens,
+        output_path=output_path,
+        error_message=error_truncated,
+        input_tokens=input_tokens,  # 新增
+        output_tokens=output_tokens,  # 新增
+    )
+)
 ```
 
 - [ ] **Step 4: 运行测试验证通过**
@@ -253,7 +255,7 @@ Expected: FAIL — `text_count` key 不存在
 **7a.** 在 main aggregation query 的 `select()` 中，在 `video_count` 行之后增加：
 
 ```python
-            func.count(case((ApiCall.call_type == "text", 1))).label("text_count"),
+(func.count(case((ApiCall.call_type == "text", 1))).label("text_count"),)
 ```
 
 **7b.** 在返回字典中增加：
@@ -353,18 +355,18 @@ Expected: FAIL — `finish_call()` 不接受 `input_tokens` 参数
 **3b.** 在 `repo.finish_call()` 调用中追加：
 
 ```python
-            await repo.finish_call(
-                call_id,
-                status=status,
-                output_path=output_path,
-                error_message=error_message,
-                retry_count=retry_count,
-                usage_tokens=usage_tokens,
-                service_tier=service_tier,
-                generate_audio=generate_audio,
-                input_tokens=input_tokens,       # 新增
-                output_tokens=output_tokens,     # 新增
-            )
+await repo.finish_call(
+    call_id,
+    status=status,
+    output_path=output_path,
+    error_message=error_message,
+    retry_count=retry_count,
+    usage_tokens=usage_tokens,
+    service_tier=service_tier,
+    generate_audio=generate_audio,
+    input_tokens=input_tokens,  # 新增
+    output_tokens=output_tokens,  # 新增
+)
 ```
 
 - [ ] **Step 4: 运行全部 usage_tracker 测试**
@@ -419,13 +421,15 @@ def _make_backend(provider="gemini", model="gemini-3-flash-preview"):
     backend = AsyncMock()
     backend.name = provider
     backend.model = model
-    backend.generate = AsyncMock(return_value=TextGenerationResult(
-        text="生成的文本",
-        provider=provider,
-        model=model,
-        input_tokens=100,
-        output_tokens=50,
-    ))
+    backend.generate = AsyncMock(
+        return_value=TextGenerationResult(
+            text="生成的文本",
+            provider=provider,
+            model=model,
+            input_tokens=100,
+            output_tokens=50,
+        )
+    )
     return backend
 
 
@@ -654,28 +658,22 @@ from lib.text_generator import TextGenerator
 
 将：
 ```python
-        if self.backend is None:
-            raise RuntimeError(
-                "TextBackend 未初始化，请使用 ScriptGenerator.create() 工厂方法"
-            )
+if self.backend is None:
+    raise RuntimeError("TextBackend 未初始化，请使用 ScriptGenerator.create() 工厂方法")
 ```
 替换为：
 ```python
-        if self.generator is None:
-            raise RuntimeError(
-                "TextGenerator 未初始化，请使用 ScriptGenerator.create() 工厂方法"
-            )
+if self.generator is None:
+    raise RuntimeError("TextGenerator 未初始化，请使用 ScriptGenerator.create() 工厂方法")
 ```
 
 **1f.** 更新 `generate()` 中的 API 调用（第 109-112 行）：
 
 将：
 ```python
-        logger.info("正在生成第 %d 集剧本...", episode)
-        result = await self.backend.generate(
-            TextGenerationRequest(prompt=prompt, response_schema=schema)
-        )
-        response_text = result.text
+logger.info("正在生成第 %d 集剧本...", episode)
+result = await self.backend.generate(TextGenerationRequest(prompt=prompt, response_schema=schema))
+response_text = result.text
 ```
 替换为：
 ```python
@@ -759,28 +757,30 @@ from lib.text_generator import TextGenerator
 
 将：
 ```python
-        # 调用 TextBackend 分析风格
-        from lib.text_backends.factory import create_text_backend_for_task
-        from lib.text_backends.base import TextGenerationRequest, TextTaskType, ImageInput
-        from lib.text_backends.prompts import STYLE_ANALYSIS_PROMPT
-        backend = await create_text_backend_for_task(TextTaskType.STYLE_ANALYSIS)
-        result = await backend.generate(
-            TextGenerationRequest(prompt=STYLE_ANALYSIS_PROMPT, images=[ImageInput(path=output_path)])
-        )
-        style_description = result.text
+# 调用 TextBackend 分析风格
+from lib.text_backends.factory import create_text_backend_for_task
+from lib.text_backends.base import TextGenerationRequest, TextTaskType, ImageInput
+from lib.text_backends.prompts import STYLE_ANALYSIS_PROMPT
+
+backend = await create_text_backend_for_task(TextTaskType.STYLE_ANALYSIS)
+result = await backend.generate(
+    TextGenerationRequest(prompt=STYLE_ANALYSIS_PROMPT, images=[ImageInput(path=output_path)])
+)
+style_description = result.text
 ```
 替换为：
 ```python
-        # 调用 TextGenerator 分析风格（自动追踪用量）
-        from lib.text_backends.base import TextGenerationRequest, TextTaskType, ImageInput
-        from lib.text_backends.prompts import STYLE_ANALYSIS_PROMPT
-        from lib.text_generator import TextGenerator
-        generator = await TextGenerator.create(TextTaskType.STYLE_ANALYSIS)
-        result = await generator.generate(
-            TextGenerationRequest(prompt=STYLE_ANALYSIS_PROMPT, images=[ImageInput(path=output_path)]),
-            project_name=project_name,
-        )
-        style_description = result.text
+# 调用 TextGenerator 分析风格（自动追踪用量）
+from lib.text_backends.base import TextGenerationRequest, TextTaskType, ImageInput
+from lib.text_backends.prompts import STYLE_ANALYSIS_PROMPT
+from lib.text_generator import TextGenerator
+
+generator = await TextGenerator.create(TextTaskType.STYLE_ANALYSIS)
+result = await generator.generate(
+    TextGenerationRequest(prompt=STYLE_ANALYSIS_PROMPT, images=[ImageInput(path=output_path)]),
+    project_name=project_name,
+)
+style_description = result.text
 ```
 
 - [ ] **Step 4: 运行现有测试确保无回归**

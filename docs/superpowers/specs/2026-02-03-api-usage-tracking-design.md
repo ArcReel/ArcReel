@@ -148,16 +148,13 @@ class CostCalculator:
         return self.IMAGE_COST.get(resolution.upper(), 0.134)
 
     def calculate_video_cost(
-        self,
-        duration_seconds: int,
-        resolution: str = "1080p",
-        generate_audio: bool = True
+        self, duration_seconds: int, resolution: str = "1080p", generate_audio: bool = True
     ) -> float:
         """计算视频生成费用"""
         resolution = resolution.lower()
         cost_per_second = self.VIDEO_COST.get(
             (resolution, generate_audio),
-            0.40  # 默认 1080p 含音频
+            0.40,  # 默认 1080p 含音频
         )
         return duration_seconds * cost_per_second
 ```
@@ -318,6 +315,7 @@ def with_retry(...):
 ```python
 router = APIRouter()
 
+
 @router.get("/usage/stats")
 async def get_global_stats(
     start_date: Optional[str] = None,
@@ -326,6 +324,7 @@ async def get_global_stats(
     """获取全局统计摘要"""
     # 返回：total_cost, image_count, video_count, failed_count
     ...
+
 
 @router.get("/usage/stats/{project_name}")
 async def get_project_stats(
@@ -336,11 +335,12 @@ async def get_project_stats(
     """获取项目统计摘要"""
     ...
 
+
 @router.get("/usage/calls")
 async def get_calls(
     project_name: Optional[str] = None,
     call_type: Optional[str] = None,  # 'image' | 'video'
-    status: Optional[str] = None,     # 'success' | 'failed'
+    status: Optional[str] = None,  # 'success' | 'failed'
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     page: int = 1,
@@ -349,6 +349,7 @@ async def get_calls(
     """获取调用记录列表（支持筛选和分页）"""
     # 返回：items, total, page, page_size
     ...
+
 
 @router.get("/usage/projects")
 async def get_projects_list():

@@ -130,6 +130,7 @@
 
 ```python
 """Asset ORM 模型结构测试。"""
+
 import pytest
 from sqlalchemy import select
 
@@ -178,6 +179,7 @@ Expected: FAIL（`lib.db.models.asset` 不存在）
 
 ```python
 """Asset ORM: 全局资产库条目。"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -257,7 +259,7 @@ uv run alembic revision --autogenerate -m "create assets table"
 如缺失 UniqueConstraint/索引，手工补齐：
 
 ```python
-sa.UniqueConstraint("type", "name", name="uq_asset_type_name"),
+(sa.UniqueConstraint("type", "name", name="uq_asset_type_name"),)
 ```
 
 末尾 `op.create_index("ix_asset_type", "assets", ["type"])` / `ix_asset_name`。
@@ -290,6 +292,7 @@ git commit -m "feat(db): alembic 迁移新增 assets 表"
 
 ```python
 """AssetRepository 异步 CRUD 测试。"""
+
 import pytest
 import uuid
 
@@ -365,6 +368,7 @@ Expected: FAIL（模块不存在）
 
 ```python
 """AssetRepository: 异步 CRUD。"""
+
 from __future__ import annotations
 
 import uuid
@@ -404,15 +408,11 @@ class AssetRepository:
         return asset
 
     async def get_by_id(self, asset_id: str) -> Asset | None:
-        return (
-            await self._session.execute(select(Asset).where(Asset.id == asset_id))
-        ).scalar_one_or_none()
+        return (await self._session.execute(select(Asset).where(Asset.id == asset_id))).scalar_one_or_none()
 
     async def get_by_type_name(self, type: str, name: str) -> Asset | None:
         return (
-            await self._session.execute(
-                select(Asset).where(Asset.type == type, Asset.name == name)
-            )
+            await self._session.execute(select(Asset).where(Asset.type == type, Asset.name == name))
         ).scalar_one_or_none()
 
     async def list(
@@ -477,6 +477,7 @@ git commit -m "feat(db): AssetRepository 异步 CRUD + 模糊搜索"
 
 ```python
 """迁移 runner：版本检测、幂等、错误隔离、备份清理。"""
+
 import json
 import time
 from pathlib import Path
@@ -566,6 +567,7 @@ def test_cleanup_old_backups(tmp_projects: Path):
     # mtime 控制：old 文件 mtime 设为 8 天前
     eight_days_ago = time.time() - 8 * 86400
     import os
+
     os.utime(old, (eight_days_ago, eight_days_ago))
 
     cleanup_stale_backups(tmp_projects, max_age_days=7)
@@ -586,6 +588,7 @@ Expected: FAIL（模块不存在）
 约定：project.json 顶层 schema_version。缺失视为 v0。当前版本 = 1。
 迁移器是纯函数，幂等，签名 ``def migrate(project_dir: Path) -> None``。
 """
+
 from lib.project_migrations.runner import (
     CURRENT_SCHEMA_VERSION,
     MIGRATORS,
@@ -605,6 +608,7 @@ __all__ = [
 
 ```python
 """Runner: 扫描 projects/ 并按版本顺序跑迁移器。"""
+
 from __future__ import annotations
 
 import json
@@ -737,6 +741,7 @@ git commit -m "feat(migrations): 项目级 schema 迁移 runner + 备份清理"
 
 ```python
 """v0→v1 迁移：clues → scenes/props + 剧本级联 + 文件重命名。"""
+
 import json
 from pathlib import Path
 
@@ -753,21 +758,38 @@ def _make_v0_project(root: Path) -> Path:
     (p / "clues" / "庙宇.png").write_bytes(b"scene-image")
     (p / "scripts").mkdir(parents=True)
 
-    (p / "project.json").write_text(json.dumps({
-        "name": "demo",
-        "characters": {"王小明": {"description": "", "voice_style": ""}},
-        "clues": {
-            "玉佩": {"type": "prop", "importance": "major", "description": "白玉", "clue_sheet": "clues/玉佩.png"},
-            "庙宇": {"type": "location", "importance": "minor", "description": "阴森"},
-        },
-    }, ensure_ascii=False), encoding="utf-8")
+    (p / "project.json").write_text(
+        json.dumps(
+            {
+                "name": "demo",
+                "characters": {"王小明": {"description": "", "voice_style": ""}},
+                "clues": {
+                    "玉佩": {
+                        "type": "prop",
+                        "importance": "major",
+                        "description": "白玉",
+                        "clue_sheet": "clues/玉佩.png",
+                    },
+                    "庙宇": {"type": "location", "importance": "minor", "description": "阴森"},
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
-    (p / "scripts" / "ep1.json").write_text(json.dumps({
-        "content_mode": "drama",
-        "scenes": [
-            {"scene_id": "s1", "characters": ["王小明"], "clues": ["玉佩", "庙宇"]},
-        ],
-    }, ensure_ascii=False), encoding="utf-8")
+    (p / "scripts" / "ep1.json").write_text(
+        json.dumps(
+            {
+                "content_mode": "drama",
+                "scenes": [
+                    {"scene_id": "s1", "characters": ["王小明"], "clues": ["玉佩", "庙宇"]},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
     return p
 
@@ -827,6 +849,7 @@ Expected: FAIL
 
 ```python
 """v0→v1 迁移：拆分 clues → scenes + props；删除 importance；级联剧本 JSON。"""
+
 from __future__ import annotations
 
 import json
@@ -843,6 +866,7 @@ def _atomic_write_json(path: Path, data: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     import os
+
     os.replace(tmp, path)
 
 
@@ -1005,6 +1029,7 @@ git commit -m "feat(migrations): v0→v1 迁移器 (clues 拆 scenes+props, 级�
 
 ```python
 """FastAPI 启动时调用 run_project_migrations。"""
+
 from unittest.mock import patch
 
 import pytest
@@ -1014,8 +1039,10 @@ import pytest
 async def test_startup_invokes_migrations(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_PROJECTS_DIR", str(tmp_path))
 
-    with patch("lib.project_migrations.run_project_migrations") as mock_run, \
-         patch("lib.project_migrations.cleanup_stale_backups") as mock_cleanup:
+    with (
+        patch("lib.project_migrations.run_project_migrations") as mock_run,
+        patch("lib.project_migrations.cleanup_stale_backups") as mock_cleanup,
+    ):
         from server.app import app
 
         async with app.router.lifespan_context(app):
@@ -1041,8 +1068,12 @@ from lib.project_manager import get_projects_root
 projects_root = get_projects_root()
 summary = run_project_migrations(projects_root)
 if summary.migrated:
-    logger.info("Project migrations: migrated=%s skipped=%d failed=%d",
-                summary.migrated, len(summary.skipped), len(summary.failed))
+    logger.info(
+        "Project migrations: migrated=%s skipped=%d failed=%d",
+        summary.migrated,
+        len(summary.skipped),
+        len(summary.failed),
+    )
 cleanup_stale_backups(projects_root, max_age_days=7)
 ```
 
@@ -1070,6 +1101,7 @@ git commit -m "feat(app): 启动时自动跑项目迁移 + 7 天备份清理"
 
 ```python
 """DramaScene / NarrationSegment 字段迁移后的测试。"""
+
 import pytest
 from pydantic import ValidationError
 
@@ -1203,6 +1235,7 @@ def _validate_scenes(self, scenes: dict, errors: list[str]) -> None:
         if "description" not in data:
             errors.append(f"scenes['{name}'] 缺少 description")
 
+
 def _validate_props(self, props: dict, errors: list[str]) -> None:
     for name, data in props.items():
         if not isinstance(data, dict):
@@ -1249,6 +1282,7 @@ git commit -m "refactor(validator): 删 importance；scenes/props 独立校验"
 def test_add_scene_creates_entry(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_PROJECTS_DIR", str(tmp_path))
     from lib.project_manager import ProjectManager
+
     pm = ProjectManager()
     pm.create_project("demo", "Demo")
     assert pm.add_scene("demo", "庙宇", "阴森古朴") is True
@@ -1261,6 +1295,7 @@ def test_add_scene_creates_entry(tmp_path, monkeypatch):
 def test_add_prop_creates_entry(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_PROJECTS_DIR", str(tmp_path))
     from lib.project_manager import ProjectManager
+
     pm = ProjectManager()
     pm.create_project("demo", "Demo")
     assert pm.add_prop("demo", "玉佩", "白玉雕纹") is True
@@ -1271,6 +1306,7 @@ def test_add_prop_creates_entry(tmp_path, monkeypatch):
 def test_get_pending_scenes_lists_without_sheet(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_PROJECTS_DIR", str(tmp_path))
     from lib.project_manager import ProjectManager
+
     pm = ProjectManager()
     pm.create_project("demo", "Demo")
     pm.add_scene("demo", "A", "")
@@ -1314,6 +1350,7 @@ SUBDIRS = (
 ```python
 def add_scene(self, project_name: str, name: str, description: str) -> bool:
     """已存在返回 False。"""
+
     def _mut(data: dict) -> None:
         scenes = data.setdefault("scenes", {})
         if name in scenes:
@@ -1342,6 +1379,7 @@ def update_scene(self, project_name: str, name: str, fields: dict) -> None:
 def delete_scene(self, project_name: str, name: str) -> None:
     def _mut(data: dict) -> None:
         data.get("scenes", {}).pop(name, None)
+
     self.update_project(project_name, _mut)
 
 
@@ -1560,6 +1598,7 @@ git commit -m "refactor(services): status/archive/events/cost/versions 全线去
 
 ```python
 """scenes 路由 CRUD。"""
+
 import pytest
 from httpx import AsyncClient, ASGITransport
 
@@ -1570,6 +1609,7 @@ from server.app import app
 async def test_add_scene(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_PROJECTS_DIR", str(tmp_path))
     from lib.project_manager import get_project_manager, reset_project_manager
+
     reset_project_manager()
     pm = get_project_manager()
     pm.create_project("demo", "Demo")
@@ -1594,6 +1634,7 @@ async def test_add_scene(tmp_path, monkeypatch):
 async def test_update_scene(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_PROJECTS_DIR", str(tmp_path))
     from lib.project_manager import get_project_manager, reset_project_manager
+
     reset_project_manager()
     pm = get_project_manager()
     pm.create_project("demo", "Demo")
@@ -1609,6 +1650,7 @@ async def test_update_scene(tmp_path, monkeypatch):
 async def test_delete_scene(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_PROJECTS_DIR", str(tmp_path))
     from lib.project_manager import get_project_manager, reset_project_manager
+
     reset_project_manager()
     pm = get_project_manager()
     pm.create_project("demo", "Demo")
@@ -1630,6 +1672,7 @@ Expected: FAIL
 
 ```python
 """Scenes CRUD — 取代旧 clues router 的场景部分。"""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
@@ -1687,6 +1730,7 @@ async def delete_scene(project_name: str, name: str):
 
 ```python
 from server.routers import scenes as scenes_router
+
 app.include_router(scenes_router.router)
 ```
 
@@ -1901,6 +1945,7 @@ git commit -m "feat(i18n): assets namespace + 全局资产目录"
 
 ```python
 """assets 路由基础 CRUD。"""
+
 import io
 import pytest
 from httpx import AsyncClient, ASGITransport
@@ -1913,6 +1958,7 @@ async def _clean_assets_table():
     from lib.db.engine import AsyncSessionLocal
     from lib.db.models.asset import Asset
     from sqlalchemy import delete
+
     async with AsyncSessionLocal() as s:
         await s.execute(delete(Asset))
         await s.commit()
@@ -1922,9 +1968,14 @@ async def _clean_assets_table():
 async def test_create_and_list(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_PROJECTS_DIR", str(tmp_path))
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        r = await c.post("/api/v1/assets", data={
-            "type": "character", "name": "王小明", "description": "白衣少年",
-        })
+        r = await c.post(
+            "/api/v1/assets",
+            data={
+                "type": "character",
+                "name": "王小明",
+                "description": "白衣少年",
+            },
+        )
         assert r.status_code == 200
         asset_id = r.json()["asset"]["id"]
         assert asset_id
@@ -1973,6 +2024,7 @@ Expected: FAIL
 
 ```python
 """assets 全局资产库路由。"""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -2044,8 +2096,12 @@ async def create_asset(
             raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=name))
         try:
             a = await repo.create(
-                type=type, name=name, description=description,
-                voice_style=voice_style, image_path=image_path, source_project=None,
+                type=type,
+                name=name,
+                description=description,
+                voice_style=voice_style,
+                image_path=image_path,
+                source_project=None,
             )
             await s.commit()
         except IntegrityError:
@@ -2137,6 +2193,7 @@ def _delete_global_asset_file(rel_path: str) -> None:
 
 ```python
 from server.routers import assets as assets_router
+
 app.include_router(assets_router.router)
 ```
 
@@ -2186,6 +2243,7 @@ async def test_replace_image(tmp_path, monkeypatch):
 async def test_from_project_copies_image(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_PROJECTS_DIR", str(tmp_path))
     from lib.project_manager import get_project_manager, reset_project_manager
+
     reset_project_manager()
     pm = get_project_manager()
     pm.create_project("demo", "Demo")
@@ -2195,11 +2253,14 @@ async def test_from_project_copies_image(tmp_path, monkeypatch):
     pm.update_project("demo", lambda d: d["characters"]["王"].update({"character_sheet": "characters/王.png"}))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        r = await c.post("/api/v1/assets/from-project", json={
-            "project_name": "demo",
-            "resource_type": "character",
-            "resource_id": "王",
-        })
+        r = await c.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+            },
+        )
         assert r.status_code == 200
         ip = r.json()["asset"]["image_path"]
         assert ip and ip.startswith("_global_assets/character/")
@@ -2212,31 +2273,41 @@ async def test_from_project_copies_image(tmp_path, monkeypatch):
 async def test_from_project_conflict_409(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_PROJECTS_DIR", str(tmp_path))
     from lib.project_manager import get_project_manager, reset_project_manager
+
     reset_project_manager()
     pm = get_project_manager()
     pm.create_project("demo", "Demo")
     pm.add_character("demo", "王", "d", "")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        r1 = await c.post("/api/v1/assets/from-project", json={
-            "project_name": "demo",
-            "resource_type": "character",
-            "resource_id": "王",
-        })
+        r1 = await c.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+            },
+        )
         assert r1.status_code == 200
-        r2 = await c.post("/api/v1/assets/from-project", json={
-            "project_name": "demo",
-            "resource_type": "character",
-            "resource_id": "王",
-        })
+        r2 = await c.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+            },
+        )
         assert r2.status_code == 409
         # 允许通过 overwrite=True 覆盖
-        r3 = await c.post("/api/v1/assets/from-project", json={
-            "project_name": "demo",
-            "resource_type": "character",
-            "resource_id": "王",
-            "overwrite": True,
-        })
+        r3 = await c.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+                "overwrite": True,
+            },
+        )
         assert r3.status_code == 200
 ```
 
@@ -2293,7 +2364,12 @@ async def from_project(req: FromProjectRequest, _t: Translator = Depends(get_tra
     if not resource:
         raise HTTPException(
             status_code=404,
-            detail=_t("asset_source_resource_not_found", project=req.project_name, kind=req.resource_type, name=req.resource_id),
+            detail=_t(
+                "asset_source_resource_not_found",
+                project=req.project_name,
+                kind=req.resource_type,
+                name=req.resource_id,
+            ),
         )
 
     name = req.override_name or req.resource_id
@@ -2328,13 +2404,19 @@ async def from_project(req: FromProjectRequest, _t: Translator = Depends(get_tra
                 _delete_global_asset_file(existing.image_path)
             a = await repo.update(
                 existing.id,
-                description=description, voice_style=voice_style,
-                image_path=image_path, source_project=req.project_name,
+                description=description,
+                voice_style=voice_style,
+                image_path=image_path,
+                source_project=req.project_name,
             )
         else:
             a = await repo.create(
-                type=req.resource_type, name=name, description=description,
-                voice_style=voice_style, image_path=image_path, source_project=req.project_name,
+                type=req.resource_type,
+                name=name,
+                description=description,
+                voice_style=voice_style,
+                image_path=image_path,
+                source_project=req.project_name,
             )
         await s.commit()
     return {"asset": _serialize(a)}
@@ -2370,6 +2452,7 @@ git commit -m "feat(api): assets 图片替换 + from-project 入库 + 冲突处�
 async def test_apply_to_project_success_and_skip_rename_overwrite(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_PROJECTS_DIR", str(tmp_path))
     from lib.project_manager import get_project_manager, reset_project_manager
+
     reset_project_manager()
     pm = get_project_manager()
     pm.create_project("target", "Target")
@@ -2380,11 +2463,14 @@ async def test_apply_to_project_success_and_skip_rename_overwrite(tmp_path, monk
             await c.post("/api/v1/assets", data={"type": "scene", "name": n})
         ids = [a["id"] for a in (await c.get("/api/v1/assets?type=scene")).json()["items"]]
 
-        r = await c.post("/api/v1/assets/apply-to-project", json={
-            "asset_ids": ids,
-            "target_project": "target",
-            "conflict_policy": "skip",
-        })
+        r = await c.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": ids,
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
         assert r.status_code == 200
         body = r.json()
         assert len(body["succeeded"]) == 2
@@ -2392,11 +2478,14 @@ async def test_apply_to_project_success_and_skip_rename_overwrite(tmp_path, monk
         assert set(data["scenes"].keys()) == {"A", "B"}
 
         # 第二次相同 ids + skip → 全部 skip
-        r2 = await c.post("/api/v1/assets/apply-to-project", json={
-            "asset_ids": ids,
-            "target_project": "target",
-            "conflict_policy": "skip",
-        })
+        r2 = await c.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": ids,
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
         body2 = r2.json()
         assert len(body2["succeeded"]) == 0
         assert len(body2["skipped"]) == 2
@@ -2475,6 +2564,7 @@ async def apply_to_project(req: ApplyToProjectRequest, _t: Translator = Depends(
                 if _s:
                     payload[_sk] = _s
                 bucket[_n] = payload
+
             pm.update_project(req.target_project, _mut)
 
             succeeded.append({"id": aid, "name": desired_name})
@@ -2511,6 +2601,7 @@ git commit -m "feat(api): assets apply-to-project 批量 + 冲突策略"
 async def test_serve_global_asset_image(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_PROJECTS_DIR", str(tmp_path))
     from lib.project_manager import get_project_manager, reset_project_manager
+
     reset_project_manager()
     pm = get_project_manager()
     target = pm.get_global_assets_root() / "character" / "abc.png"
@@ -2518,6 +2609,7 @@ async def test_serve_global_asset_image(tmp_path, monkeypatch):
 
     from httpx import AsyncClient, ASGITransport
     from server.app import app
+
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/api/v1/global-assets/character/abc.png")
         assert r.status_code == 200
@@ -2529,6 +2621,7 @@ async def test_global_asset_path_traversal_rejected(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_PROJECTS_DIR", str(tmp_path))
     from httpx import AsyncClient, ASGITransport
     from server.app import app
+
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/api/v1/global-assets/character/..%2Fevil.png")
         assert r.status_code in (400, 403, 404)

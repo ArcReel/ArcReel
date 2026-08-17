@@ -48,27 +48,29 @@ uv run pytest tests/test_status_calculator.py::TestStatusCalculator::test_load_e
 定位 `lib/status_calculator.py:97-107`，在 `except FileNotFoundError:` 块后追加新的 except：
 
 ```python
-    def _load_episode_script(self, project_name: str, episode_num: int, script_file: str) -> tuple:
-        """加载单集剧本，返回 (script_status, script|None)，避免重复读取文件。
-        script_status: 'generated' | 'segmented' | 'none'
-        """
+def _load_episode_script(self, project_name: str, episode_num: int, script_file: str) -> tuple:
+    """加载单集剧本，返回 (script_status, script|None)，避免重复读取文件。
+    script_status: 'generated' | 'segmented' | 'none'
+    """
+    try:
+        script = self.pm.load_script(project_name, script_file)
+        return "generated", script
+    except FileNotFoundError:
+        project_dir = self.pm.get_project_path(project_name)
         try:
-            script = self.pm.load_script(project_name, script_file)
-            return 'generated', script
-        except FileNotFoundError:
-            project_dir = self.pm.get_project_path(project_name)
-            try:
-                safe_num = int(episode_num)
-            except (ValueError, TypeError):
-                return 'none', None
-            draft_file = project_dir / f'drafts/episode_{safe_num}/step1_segments.md'
-            return ('segmented' if draft_file.exists() else 'none'), None
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning(
-                "剧本 JSON 损坏，跳过状态计算 project=%s file=%s: %s",
-                project_name, script_file, e,
-            )
-            return 'generated', None
+            safe_num = int(episode_num)
+        except (ValueError, TypeError):
+            return "none", None
+        draft_file = project_dir / f"drafts/episode_{safe_num}/step1_segments.md"
+        return ("segmented" if draft_file.exists() else "none"), None
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning(
+            "剧本 JSON 损坏，跳过状态计算 project=%s file=%s: %s",
+            project_name,
+            script_file,
+            e,
+        )
+        return "generated", None
 ```
 
 > **注意**：确认文件顶部已 `import json`（全局搜索 `import json` 确认）。
@@ -108,6 +110,7 @@ class TestJsonValidationHook:
         """Build a SessionManager with minimal fakes (SDK not required)."""
         from server.agent_runtime.session_manager import SessionManager
         from server.agent_runtime.session_store import SessionMetaStore
+
         return SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path / "data",
@@ -208,7 +211,8 @@ def _build_json_validation_hook(self) -> Callable[..., Any]:
         except json.JSONDecodeError as exc:
             logger.warning(
                 "Agent 写入了无效 JSON file=%s error=%s",
-                file_path, exc,
+                file_path,
+                exc,
             )
             return {
                 "systemMessage": (

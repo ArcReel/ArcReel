@@ -95,7 +95,7 @@ def ensure_anthropic_base_url(url: str | None) -> str | None:
     if not s:
         return None
     s = re.sub(r"/v\d+(?:/messages)?$", "", s)  # 剥末尾 /v1 或 /v1/messages
-    s = re.sub(r"/messages$", "", s)            # 兜底剥单独的 /messages
+    s = re.sub(r"/messages$", "", s)  # 兜底剥单独的 /messages
     return s
 ```
 
@@ -121,10 +121,7 @@ async def discover_models(
         return await _discover_google(base_url, api_key)
     elif discovery_format == "anthropic":
         return await _discover_anthropic(base_url, api_key)
-    raise ValueError(
-        f"不支持的 discovery_format: {discovery_format!r}，"
-        f"支持: 'openai', 'google', 'anthropic'"
-    )
+    raise ValueError(f"不支持的 discovery_format: {discovery_format!r}，支持: 'openai', 'google', 'anthropic'")
 
 
 async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
@@ -144,9 +141,7 @@ async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
     data = resp.json()
     # Anthropic schema: {"data": [{"id": "claude-sonnet-4-5", "display_name": "..."}]}
     models = sorted(data.get("data", []), key=lambda m: m.get("id", ""))
-    return _build_result_list([
-        (m["id"], "anthropic-messages") for m in models if m.get("id")
-    ])
+    return _build_result_list([(m["id"], "anthropic-messages") for m in models if m.get("id")])
 ```
 
 注意：返回的 `endpoint` 字段是占位 `"anthropic-messages"`，**不参与** ENDPOINT_REGISTRY 派发——前端只读 `model_id` 那一列拿候选名单。`_build_result_list` 已有对未知 endpoint 的容错（取 `endpoint_to_media_type` 失败时设为 `unknown`）；为避免触发现有 ENDPOINT_REGISTRY 校验，实现时改为构造与 `_build_result_list` 同形态但跳过 media_type 计算的简化结果列表，仅返回 `model_id` 即可。

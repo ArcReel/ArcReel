@@ -120,6 +120,7 @@ git commit -m "refactor(db): sdk_session_id 升级为业务键，Repository 改�
 ```python
 class SessionMeta(BaseModel):
     """Session metadata stored in database."""
+
     id: str  # 对外暴露，填充 sdk_session_id 值
     project_name: str
     title: str = ""
@@ -127,8 +128,10 @@ class SessionMeta(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+
 class AssistantSnapshotV2(BaseModel):
     """Unified assistant snapshot for history and reconnect."""
+
     session_id: str
     status: SessionStatus
     turns: list[dict[str, Any]]
@@ -432,27 +435,20 @@ async def list_sessions(
     limit: int = 50,
     offset: int = 0,
 ) -> list[SessionMeta]:
-    sessions = await self.meta_store.list(
-        project_name=project_name, status=status, limit=limit, offset=offset
-    )
+    sessions = await self.meta_store.list(project_name=project_name, status=status, limit=limit, offset=offset)
     if not sessions or not project_name:
         return sessions
 
     # Inject SDK summary as title
     try:
         project_cwd = str(self.projects_root / project_name)
-        sdk_sessions = await asyncio.to_thread(
-            sdk_list_sessions, directory=project_cwd, include_worktrees=False
-        )
+        sdk_sessions = await asyncio.to_thread(sdk_list_sessions, directory=project_cwd, include_worktrees=False)
         summary_map = {s.session_id: s.summary for s in sdk_sessions}
     except Exception:
         logger.warning("SDK list_sessions failed, titles will be empty", exc_info=True)
         return sessions
 
-    return [
-        SessionMeta(**{**s.model_dump(), "title": summary_map.get(s.id, s.title)})
-        for s in sessions
-    ]
+    return [SessionMeta(**{**s.model_dump(), "title": summary_map.get(s.id, s.title)}) for s in sessions]
 ```
 
 - [ ] **Step 4: 简化 `_resolve_sdk_session_id` → 移除**
@@ -514,6 +510,7 @@ class SendRequest(BaseModel):
     content: str = ""
     images: list[ImageAttachment] = Field(default_factory=list, max_length=5)
     session_id: Optional[str] = None
+
 
 @router.post("/sessions/send")
 async def send_message(
@@ -619,6 +616,7 @@ def upgrade() -> None:
     with op.batch_alter_table("agent_sessions") as batch_op:
         batch_op.alter_column("sdk_session_id", nullable=False, existing_type=sa.String())
         batch_op.create_unique_constraint("uq_agent_sessions_sdk_session_id", ["sdk_session_id"])
+
 
 def downgrade() -> None:
     with op.batch_alter_table("agent_sessions") as batch_op:

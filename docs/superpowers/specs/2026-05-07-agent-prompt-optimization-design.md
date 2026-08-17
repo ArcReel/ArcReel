@@ -93,6 +93,7 @@ NARRATION_PACING_RULES = """
 - 末段画面服务于卡点留悬（特写人物 / 关键物件 / 极端表情），shot_type 推荐 Close-up 或 Extreme Close-up。
 """
 
+
 def render_pacing_section(content_mode: str) -> str:
     if content_mode == "drama":
         return DRAMA_PACING_RULES
@@ -126,10 +127,11 @@ VIDEO_DYNAMIC_PATCH = """
 
 ```python
 CHARACTER_POSITIVE = "人物五官对称、身体结构正常、手指完整为五指、肢体比例协调、面部特征清晰、服装造型完整无穿帮。"
-SCENE_POSITIVE     = "场景结构完整、空间透视正常、陈设固定、光影统一、无元素错位。"
-PROP_POSITIVE      = "道具结构完整、外观特征清晰、无变形扭曲、焦点明确。"
+SCENE_POSITIVE = "场景结构完整、空间透视正常、陈设固定、光影统一、无元素错位。"
+PROP_POSITIVE = "道具结构完整、外观特征清晰、无变形扭曲、焦点明确。"
 
 NEGATIVE_BASE = "畸形, 多肢体, 多指, 断指, 五官扭曲, 面部崩坏, 乱码文字, 水印, 模糊, 低分辨率, 穿帮元素, 严重色差"
+
 
 def positive_for(asset_type: str) -> str: ...
 def negative_for(asset_type: str) -> str: ...
@@ -141,8 +143,9 @@ def negative_for(asset_type: str) -> str: ...
 
 ```python
 CHARACTER_LAYOUT = "三个等比例全身像水平排列在纯净浅灰背景上：左侧正面、中间四分之三侧面、右侧纯侧面。柔和均匀的摄影棚照明，无强烈阴影。"
-SCENE_LAYOUT     = "主画面占据四分之三区域展示环境整体外观与氛围，右下角小图为关键细节特写。柔和自然光线。"
-PROP_LAYOUT      = "三个视图水平排列在纯净浅灰背景上：正面全视图、45 度侧视图展示立体感、关键细节特写。柔和均匀的摄影棚照明，色彩准确。"
+SCENE_LAYOUT = "主画面占据四分之三区域展示环境整体外观与氛围，右下角小图为关键细节特写。柔和自然光线。"
+PROP_LAYOUT = "三个视图水平排列在纯净浅灰背景上：正面全视图、45 度侧视图展示立体感、关键细节特写。柔和均匀的摄影棚照明，色彩准确。"
+
 
 def layout_for(asset_type: str) -> str: ...
 ```
@@ -156,11 +159,13 @@ from lib.prompt_rules import is_v2_enabled
 from lib.prompt_rules.asset_layout import layout_for
 from lib.prompt_rules.asset_anti_break import positive_for, negative_for
 
+
 def _wrap_prompt(asset_type: str, description: str) -> tuple[str, str | None]:
     if not is_v2_enabled():
         return description, None
     wrapped = f"{description}\n\n{layout_for(asset_type)}\n\n{positive_for(asset_type)}"
     return wrapped, negative_for(asset_type)
+
 
 # in _build_specs:
 prompt, neg = _wrap_prompt(asset_type, assets_dict[name]["description"])

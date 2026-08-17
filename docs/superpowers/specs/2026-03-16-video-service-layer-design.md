@@ -77,7 +77,7 @@ class VideoGenerationRequest:
     prompt: str
     output_path: Path
     aspect_ratio: str = "9:16"
-    duration_seconds: int = 5              # 统一使用 int，各 Backend 负责标准化为自己的合法值
+    duration_seconds: int = 5  # 统一使用 int，各 Backend 负责标准化为自己的合法值
     resolution: str = "1080p"
     start_image: Path | None = None
     generate_audio: bool = True
@@ -86,7 +86,7 @@ class VideoGenerationRequest:
     negative_prompt: str | None = None
 
     # Seedance 特有
-    service_tier: str = "default"          # "default" | "flex"
+    service_tier: str = "default"  # "default" | "flex"
     seed: int | None = None
 ```
 
@@ -98,15 +98,15 @@ class VideoGenerationRequest:
 @dataclass
 class VideoGenerationResult:
     video_path: Path
-    provider: str                          # "gemini" | "ark"
-    model: str                             # 具体模型 ID
+    provider: str  # "gemini" | "ark"
+    model: str  # 具体模型 ID
     duration_seconds: int
 
     # 可选
-    video_uri: str | None = None           # 远程 URI（Veo GCS / Ark CDN）
-    seed: int | None = None                # 实际使用的种子
-    usage_tokens: int | None = None        # Seedance token 用量
-    task_id: str | None = None             # 供应商任务 ID
+    video_uri: str | None = None  # 远程 URI（Veo GCS / Ark CDN）
+    seed: int | None = None  # 实际使用的种子
+    usage_tokens: int | None = None  # Seedance token 用量
+    task_id: str | None = None  # 供应商任务 ID
 ```
 
 ### VideoBackend Protocol
@@ -175,14 +175,17 @@ class VideoBackend(Protocol):
 ```python
 _BACKEND_FACTORIES: dict[str, Callable[..., VideoBackend]] = {}
 
+
 def register_backend(name: str, factory: Callable[..., VideoBackend]):
     _BACKEND_FACTORIES[name] = factory
+
 
 def create_backend(name: str, **kwargs) -> VideoBackend:
     """根据名称和配置创建 Backend 实例。缺少必要 API key 时抛出 ValueError。"""
     if name not in _BACKEND_FACTORIES:
         raise ValueError(f"Unknown video backend: {name}")
     return _BACKEND_FACTORIES[name](**kwargs)
+
 
 def get_available_backends() -> list[str]:
     """返回已注册且 API key 可用的供应商列表。"""

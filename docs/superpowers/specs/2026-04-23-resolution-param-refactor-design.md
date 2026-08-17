@@ -140,8 +140,8 @@ class ImageGenerationRequest:
     prompt: str
     output_path: Path
     reference_images: list[ReferenceImage] = field(default_factory=list)
-    aspect_ratio: str = "9:16"       # 不在本次重构范围
-    image_size: str | None = None    # None = 不传
+    aspect_ratio: str = "9:16"  # 不在本次重构范围
+    image_size: str | None = None  # None = 不传
     project_name: str | None = None
     seed: int | None = None
 ```
@@ -151,7 +151,7 @@ class ImageGenerationRequest:
 @dataclass
 class VideoGenerationRequest:
     # ...
-    resolution: str | None = None    # None = 不传
+    resolution: str | None = None  # None = 不传
 ```
 
 ### 3.2 各后端改造点

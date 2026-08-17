@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from lib.config.service import ConfigService, _DEFAULT_VIDEO_BACKEND, _DEFAULT_IMAGE_BACKEND
 from lib.project_manager import get_project_manager
 
+
 class ConfigResolver:
     """运行时配置解析器。每次调用从 DB 读取，不缓存。"""
 

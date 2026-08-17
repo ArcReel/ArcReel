@@ -34,12 +34,14 @@ from typing import List, Optional, Literal
 
 class Dialogue(BaseModel):
     """对话条目"""
+
     speaker: str = Field(description="说话人名称")
     line: str = Field(description="对话内容")
 
 
 class Composition(BaseModel):
     """构图信息"""
+
     shot_type: str = Field(description="镜头类型，如 Medium Shot, Close-up, Long Shot")
     lighting: str = Field(description="光线描述，包含光源、方向和氛围")
     ambiance: str = Field(description="整体氛围，与情绪基调匹配")
@@ -47,12 +49,14 @@ class Composition(BaseModel):
 
 class ImagePrompt(BaseModel):
     """分镜图生成 Prompt"""
+
     scene: str = Field(description="场景描述：角色位置、表情、动作、环境细节")
     composition: Composition = Field(description="构图信息")
 
 
 class VideoPrompt(BaseModel):
     """视频生成 Prompt"""
+
     action: str = Field(description="动作描述：角色在该片段内的具体动作")
     camera_motion: str = Field(description="镜头运动：Static, Pan Left/Right, Zoom In/Out, Tracking Shot 等")
     ambiance_audio: str = Field(description="环境音效：仅描述场景内的声音，禁止 BGM")
@@ -61,6 +65,7 @@ class VideoPrompt(BaseModel):
 
 class GeneratedAssets(BaseModel):
     """生成资源状态（初始化为空）"""
+
     storyboard_image: Optional[str] = Field(default=None, description="分镜图路径")
     video_clip: Optional[str] = Field(default=None, description="视频片段路径")
     video_uri: Optional[str] = Field(default=None, description="视频 URI")
@@ -69,8 +74,10 @@ class GeneratedAssets(BaseModel):
 
 # ============ 说书模式（Narration） ============
 
+
 class NarrationSegment(BaseModel):
     """说书模式的片段"""
+
     segment_id: str = Field(description="片段 ID，格式 E{集}S{序号}")
     episode: int = Field(description="所属剧集")
     duration_seconds: Literal[4, 6, 8] = Field(description="片段时长（秒）")
@@ -86,6 +93,7 @@ class NarrationSegment(BaseModel):
 
 class NovelInfo(BaseModel):
     """小说来源信息"""
+
     title: str = Field(description="小说标题")
     chapter: str = Field(description="章节名称")
     source_file: str = Field(description="源文件路径")
@@ -93,6 +101,7 @@ class NovelInfo(BaseModel):
 
 class NarrationEpisodeScript(BaseModel):
     """说书模式剧集脚本"""
+
     episode: int = Field(description="剧集编号")
     title: str = Field(description="剧集标题")
     content_mode: Literal["narration"] = Field(default="narration", description="内容模式")
@@ -106,8 +115,10 @@ class NarrationEpisodeScript(BaseModel):
 
 # ============ 剧集动画模式（Drama） ============
 
+
 class DramaScene(BaseModel):
     """剧集动画模式的场景"""
+
     scene_id: str = Field(description="场景 ID，格式 E{集}S{序号}")
     duration_seconds: Literal[4, 6, 8] = Field(default=8, description="场景时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
@@ -122,6 +133,7 @@ class DramaScene(BaseModel):
 
 class DramaEpisodeScript(BaseModel):
     """剧集动画模式剧集脚本"""
+
     episode: int = Field(description="剧集编号")
     title: str = Field(description="剧集标题")
     content_mode: Literal["drama"] = Field(default="drama", description="内容模式")
@@ -194,7 +206,7 @@ def build_narration_prompt(
 ) -> str:
     """
     构建说书模式的 Prompt
-    
+
     Args:
         project_overview: 项目概述（synopsis, genre, theme, world_setting）
         style: 视觉风格标签
@@ -202,13 +214,13 @@ def build_narration_prompt(
         characters: 角色字典（仅用于提取名称列表）
         clues: 线索字典（仅用于提取名称列表）
         segments_md: Step 1 的 Markdown 内容
-        
+
     Returns:
         构建好的 Prompt 字符串
     """
     character_names = list(characters.keys())
     clue_names = list(clues.keys())
-    
+
     prompt = f"""你的任务是为短视频生成分镜剧本。请仔细遵循以下指示：
 
 1. 你将获得故事概述、视觉风格、角色列表、线索列表，以及已拆分的小说片段。
@@ -218,11 +230,11 @@ def build_narration_prompt(
    - video_prompt：动作和音效的视频生成提示词
 
 <overview>
-{project_overview.get('synopsis', '')}
+{project_overview.get("synopsis", "")}
 
-题材类型：{project_overview.get('genre', '')}
-核心主题：{project_overview.get('theme', '')}
-世界观设定：{project_overview.get('world_setting', '')}
+题材类型：{project_overview.get("genre", "")}
+核心主题：{project_overview.get("theme", "")}
+世界观设定：{project_overview.get("world_setting", "")}
 </overview>
 
 <style>
@@ -254,11 +266,11 @@ segments 为片段拆分表，每行是一个片段，包含：
 a. **novel_text**：原样复制小说原文，不做任何修改。
 
 b. **characters_in_segment**：列出本片段中出场的角色名称。
-   - 可选值：[{', '.join(character_names)}]
+   - 可选值：[{", ".join(character_names)}]
    - 仅包含明确提及或明显暗示的角色
 
 c. **clues_in_segment**：列出本片段中涉及的线索名称。
-   - 可选值：[{', '.join(clue_names)}]
+   - 可选值：[{", ".join(clue_names)}]
    - 仅包含明确提及或明显暗示的线索
 
 d. **image_prompt**：生成包含以下字段的对象：
@@ -297,7 +309,7 @@ def build_drama_prompt(
 ) -> str:
     """
     构建剧集动画模式的 Prompt
-    
+
     Args:
         project_overview: 项目概述
         style: 视觉风格标签
@@ -305,13 +317,13 @@ def build_drama_prompt(
         characters: 角色字典
         clues: 线索字典
         scenes_md: Step 1 的 Markdown 内容
-        
+
     Returns:
         构建好的 Prompt 字符串
     """
     character_names = list(characters.keys())
     clue_names = list(clues.keys())
-    
+
     prompt = f"""你的任务是为剧集动画生成分镜剧本。请仔细遵循以下指示：
 
 1. 你将获得故事概述、视觉风格、角色列表、线索列表，以及已拆分的场景列表。
@@ -321,11 +333,11 @@ def build_drama_prompt(
    - video_prompt：动作和音效的视频生成提示词
 
 <overview>
-{project_overview.get('synopsis', '')}
+{project_overview.get("synopsis", "")}
 
-题材类型：{project_overview.get('genre', '')}
-核心主题：{project_overview.get('theme', '')}
-世界观设定：{project_overview.get('world_setting', '')}
+题材类型：{project_overview.get("genre", "")}
+核心主题：{project_overview.get("theme", "")}
+世界观设定：{project_overview.get("world_setting", "")}
 </overview>
 
 <style>
@@ -355,11 +367,11 @@ scenes 为场景拆分表，每行是一个场景，包含：
 3. 为每个场景生成时，遵循以下规则：
 
 a. **characters_in_scene**：列出本场景中出场的角色名称。
-   - 可选值：[{', '.join(character_names)}]
+   - 可选值：[{", ".join(character_names)}]
    - 仅包含明确提及或明显暗示的角色
 
 b. **clues_in_scene**：列出本场景中涉及的线索名称。
-   - 可选值：[{', '.join(clue_names)}]
+   - 可选值：[{", ".join(clue_names)}]
    - 仅包含明确提及或明显暗示的线索
 
 c. **image_prompt**：生成包含以下字段的对象：
@@ -440,26 +452,26 @@ from lib.prompt_builders_script import (
 class ScriptGenerator:
     """
     剧本生成器
-    
+
     读取 Step 1/2 的 Markdown 中间文件，调用 Gemini 生成最终 JSON 剧本
     """
-    
+
     MODEL = "gemini-2.5-flash-preview-05-20"
-    
+
     def __init__(self, project_path: Union[str, Path]):
         """
         初始化生成器
-        
+
         Args:
             project_path: 项目目录路径，如 projects/test0205
         """
         self.project_path = Path(project_path)
         self.client = GeminiClient()
-        
+
         # 加载 project.json
         self.project_json = self._load_project_json()
-        self.content_mode = self.project_json.get('content_mode', 'narration')
-    
+        self.content_mode = self.project_json.get("content_mode", "narration")
+
     def generate(
         self,
         episode: int,
@@ -467,27 +479,27 @@ class ScriptGenerator:
     ) -> Path:
         """
         生成剧集剧本
-        
+
         Args:
             episode: 剧集编号
             output_path: 输出路径，默认为 scripts/episode_{episode}.json
-            
+
         Returns:
             生成的 JSON 文件路径
         """
         # 1. 加载中间文件
         step1_md = self._load_step1(episode)
-        
+
         # 2. 提取角色和线索（从 project.json）
-        characters = self.project_json.get('characters', {})
-        clues = self.project_json.get('clues', {})
-        
+        characters = self.project_json.get("characters", {})
+        clues = self.project_json.get("clues", {})
+
         # 3. 构建 Prompt
-        if self.content_mode == 'narration':
+        if self.content_mode == "narration":
             prompt = build_narration_prompt(
-                project_overview=self.project_json.get('overview', {}),
-                style=self.project_json.get('style', ''),
-                style_description=self.project_json.get('style_description', ''),
+                project_overview=self.project_json.get("overview", {}),
+                style=self.project_json.get("style", ""),
+                style_description=self.project_json.get("style_description", ""),
                 characters=characters,
                 clues=clues,
                 segments_md=step1_md,
@@ -495,15 +507,15 @@ class ScriptGenerator:
             schema = NarrationEpisodeScript.model_json_schema()
         else:
             prompt = build_drama_prompt(
-                project_overview=self.project_json.get('overview', {}),
-                style=self.project_json.get('style', ''),
-                style_description=self.project_json.get('style_description', ''),
+                project_overview=self.project_json.get("overview", {}),
+                style=self.project_json.get("style", ""),
+                style_description=self.project_json.get("style_description", ""),
                 characters=characters,
                 clues=clues,
                 scenes_md=step1_md,
             )
             schema = DramaEpisodeScript.model_json_schema()
-        
+
         # 4. 调用 Gemini API
         print(f"📝 正在生成第 {episode} 集剧本...")
         response_text = self.client.generate_text(
@@ -511,105 +523,105 @@ class ScriptGenerator:
             model=self.MODEL,
             response_schema=schema,
         )
-        
+
         # 5. 解析并验证响应
         script_data = self._parse_response(response_text, episode)
-        
+
         # 6. 补充元数据
         script_data = self._add_metadata(script_data, episode)
-        
+
         # 7. 保存文件
         if output_path is None:
-            output_path = self.project_path / 'scripts' / f'episode_{episode}.json'
-        
+            output_path = self.project_path / "scripts" / f"episode_{episode}.json"
+
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(script_data, f, ensure_ascii=False, indent=2)
-        
+
         print(f"✓ 剧本已保存至 {output_path}")
         return output_path
-    
+
     def build_prompt(self, episode: int) -> str:
         """
         构建 Prompt（用于 dry-run 模式）
-        
+
         Args:
             episode: 剧集编号
-            
+
         Returns:
             构建好的 Prompt 字符串
         """
         step1_md = self._load_step1(episode)
-        characters = self.project_json.get('characters', {})
-        clues = self.project_json.get('clues', {})
-        
-        if self.content_mode == 'narration':
+        characters = self.project_json.get("characters", {})
+        clues = self.project_json.get("clues", {})
+
+        if self.content_mode == "narration":
             return build_narration_prompt(
-                project_overview=self.project_json.get('overview', {}),
-                style=self.project_json.get('style', ''),
-                style_description=self.project_json.get('style_description', ''),
+                project_overview=self.project_json.get("overview", {}),
+                style=self.project_json.get("style", ""),
+                style_description=self.project_json.get("style_description", ""),
                 characters=characters,
                 clues=clues,
                 segments_md=step1_md,
             )
         else:
             return build_drama_prompt(
-                project_overview=self.project_json.get('overview', {}),
-                style=self.project_json.get('style', ''),
-                style_description=self.project_json.get('style_description', ''),
+                project_overview=self.project_json.get("overview", {}),
+                style=self.project_json.get("style", ""),
+                style_description=self.project_json.get("style_description", ""),
                 characters=characters,
                 clues=clues,
                 scenes_md=step1_md,
             )
-    
+
     def _load_project_json(self) -> dict:
         """加载 project.json"""
-        path = self.project_path / 'project.json'
+        path = self.project_path / "project.json"
         if not path.exists():
             raise FileNotFoundError(f"未找到 project.json: {path}")
-        
-        with open(path, 'r', encoding='utf-8') as f:
+
+        with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    
+
     def _load_step1(self, episode: int) -> str:
         """加载 Step 1 的 Markdown 文件"""
-        path = self.project_path / 'drafts' / f'episode_{episode}' / 'step1_segments.md'
+        path = self.project_path / "drafts" / f"episode_{episode}" / "step1_segments.md"
         if not path.exists():
             raise FileNotFoundError(f"未找到 Step 1 文件: {path}")
-        
-        with open(path, 'r', encoding='utf-8') as f:
+
+        with open(path, "r", encoding="utf-8") as f:
             return f.read()
-    
+
     def _parse_response(self, response_text: str, episode: int) -> dict:
         """
         解析并验证 Gemini 响应
-        
+
         Args:
             response_text: API 返回的 JSON 文本
             episode: 剧集编号
-            
+
         Returns:
             验证后的剧本数据字典
         """
         # 清理可能的 markdown 包装
         text = response_text.strip()
-        if text.startswith('```json'):
+        if text.startswith("```json"):
             text = text[7:]
-        if text.startswith('```'):
+        if text.startswith("```"):
             text = text[3:]
-        if text.endswith('```'):
+        if text.endswith("```"):
             text = text[:-3]
         text = text.strip()
-        
+
         # 解析 JSON
         try:
             data = json.loads(text)
         except json.JSONDecodeError as e:
             raise ValueError(f"JSON 解析失败: {e}")
-        
+
         # Pydantic 验证
         try:
-            if self.content_mode == 'narration':
+            if self.content_mode == "narration":
                 validated = NarrationEpisodeScript.model_validate(data)
             else:
                 validated = DramaEpisodeScript.model_validate(data)
@@ -618,51 +630,47 @@ class ScriptGenerator:
             print(f"⚠️ 数据验证警告: {e}")
             # 返回原始数据，允许部分不符合 schema
             return data
-    
+
     def _add_metadata(self, script_data: dict, episode: int) -> dict:
         """
         补充剧本元数据
-        
+
         Args:
             script_data: 剧本数据
             episode: 剧集编号
-            
+
         Returns:
             补充元数据后的剧本数据
         """
         # 确保基本字段存在
-        script_data.setdefault('episode', episode)
-        script_data.setdefault('content_mode', self.content_mode)
-        
+        script_data.setdefault("episode", episode)
+        script_data.setdefault("content_mode", self.content_mode)
+
         # 添加小说信息
-        if 'novel' not in script_data:
-            script_data['novel'] = {
-                'title': self.project_json.get('title', ''),
-                'chapter': f'第{episode}集',
-                'source_file': '',
+        if "novel" not in script_data:
+            script_data["novel"] = {
+                "title": self.project_json.get("title", ""),
+                "chapter": f"第{episode}集",
+                "source_file": "",
             }
-        
+
         # 添加时间戳
         now = datetime.now().isoformat()
-        script_data.setdefault('metadata', {})
-        script_data['metadata']['created_at'] = now
-        script_data['metadata']['updated_at'] = now
-        script_data['metadata']['generator'] = self.MODEL
-        
+        script_data.setdefault("metadata", {})
+        script_data["metadata"]["created_at"] = now
+        script_data["metadata"]["updated_at"] = now
+        script_data["metadata"]["generator"] = self.MODEL
+
         # 计算统计信息
-        if self.content_mode == 'narration':
-            segments = script_data.get('segments', [])
-            script_data['metadata']['total_segments'] = len(segments)
-            script_data['duration_seconds'] = sum(
-                s.get('duration_seconds', 4) for s in segments
-            )
+        if self.content_mode == "narration":
+            segments = script_data.get("segments", [])
+            script_data["metadata"]["total_segments"] = len(segments)
+            script_data["duration_seconds"] = sum(s.get("duration_seconds", 4) for s in segments)
         else:
-            scenes = script_data.get('scenes', [])
-            script_data['metadata']['total_scenes'] = len(scenes)
-            script_data['duration_seconds'] = sum(
-                s.get('duration_seconds', 8) for s in scenes
-            )
-        
+            scenes = script_data.get("scenes", [])
+            script_data["metadata"]["total_scenes"] = len(scenes)
+            script_data["duration_seconds"] = sum(s.get("duration_seconds", 8) for s in scenes)
+
         return script_data
 ```
 
@@ -701,7 +709,7 @@ generate_script.py - 使用 Gemini 生成 JSON 剧本
     python generate_script.py <project_name> --episode <N>
     python generate_script.py <project_name> --episode <N> --output <path>
     python generate_script.py <project_name> --episode <N> --dry-run
-    
+
 示例:
     python generate_script.py test0205 --episode 1
     python generate_script.py 赡养人类 --episode 1 --output scripts/ep1.json
@@ -720,63 +728,45 @@ from lib.script_generator import ScriptGenerator
 
 def main():
     parser = argparse.ArgumentParser(
-        description='使用 Gemini 生成 JSON 剧本',
+        description="使用 Gemini 生成 JSON 剧本",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
     %(prog)s test0205 --episode 1
     %(prog)s 赡养人类 --episode 1 --output scripts/ep1.json
     %(prog)s test0205 --episode 1 --dry-run
-        """
+        """,
     )
-    
-    parser.add_argument(
-        'project',
-        type=str,
-        help='项目名称（projects/ 下的目录名）'
-    )
-    
-    parser.add_argument(
-        '--episode', '-e',
-        type=int,
-        required=True,
-        help='剧集编号'
-    )
-    
-    parser.add_argument(
-        '--output', '-o',
-        type=str,
-        default=None,
-        help='输出文件路径（默认: scripts/episode_N.json）'
-    )
-    
-    parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='仅显示 Prompt，不实际调用 API'
-    )
-    
+
+    parser.add_argument("project", type=str, help="项目名称（projects/ 下的目录名）")
+
+    parser.add_argument("--episode", "-e", type=int, required=True, help="剧集编号")
+
+    parser.add_argument("--output", "-o", type=str, default=None, help="输出文件路径（默认: scripts/episode_N.json）")
+
+    parser.add_argument("--dry-run", action="store_true", help="仅显示 Prompt，不实际调用 API")
+
     args = parser.parse_args()
-    
+
     # 构建项目路径
-    project_path = PROJECT_ROOT / 'projects' / args.project
-    
+    project_path = PROJECT_ROOT / "projects" / args.project
+
     if not project_path.exists():
         print(f"❌ 项目不存在: {project_path}")
         sys.exit(1)
-    
+
     # 检查中间文件是否存在
-    drafts_path = project_path / 'drafts' / f'episode_{args.episode}'
-    step1_path = drafts_path / 'step1_segments.md'
-    
+    drafts_path = project_path / "drafts" / f"episode_{args.episode}"
+    step1_path = drafts_path / "step1_segments.md"
+
     if not step1_path.exists():
         print(f"❌ 未找到 Step 1 文件: {step1_path}")
         print("   请先完成片段拆分（Step 1）")
         sys.exit(1)
-    
+
     try:
         generator = ScriptGenerator(project_path)
-        
+
         if args.dry_run:
             # 仅显示 Prompt
             print("=" * 60)
@@ -786,27 +776,28 @@ def main():
             print(prompt)
             print("=" * 60)
             return
-        
+
         # 实际生成
         output_path = Path(args.output) if args.output else None
         result_path = generator.generate(
             episode=args.episode,
             output_path=output_path,
         )
-        
+
         print(f"\n✅ 剧本生成完成: {result_path}")
-        
+
     except FileNotFoundError as e:
         print(f"❌ 文件错误: {e}")
         sys.exit(1)
     except Exception as e:
         print(f"❌ 生成失败: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
 ```
 

@@ -202,6 +202,7 @@ def test_seedance_2_cost(self):
     assert currency == "CNY"
     assert amount == pytest.approx(46.00)
 
+
 def test_seedance_2_cost_no_audio_same_price(self):
     calculator = CostCalculator()
     amount, _ = calculator.calculate_ark_video_cost(
@@ -211,6 +212,7 @@ def test_seedance_2_cost_no_audio_same_price(self):
         model="doubao-seedance-2-0-260128",
     )
     assert amount == pytest.approx(46.00)
+
 
 def test_seedance_2_fast_cost(self):
     calculator = CostCalculator()

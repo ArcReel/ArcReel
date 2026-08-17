@@ -214,14 +214,10 @@ class JianyingDraftService:
     # 内部方法：数据提取
     # ------------------------------------------------------------------
 
-    def _find_episode_script(
-        self, project_name: str, project: dict, episode: int
-    ) -> tuple[dict, str]:
+    def _find_episode_script(self, project_name: str, project: dict, episode: int) -> tuple[dict, str]:
         """定位指定集的剧本文件，返回 (script_dict, filename)"""
         episodes = project.get("episodes", [])
-        ep_entry = next(
-            (e for e in episodes if e.get("episode") == episode), None
-        )
+        ep_entry = next((e for e in episodes if e.get("episode") == episode), None)
         if ep_entry is None:
             raise FileNotFoundError(f"第 {episode} 集不存在")
 
@@ -230,14 +226,10 @@ class JianyingDraftService:
         script_data = self.pm.load_script(project_name, filename)
         return script_data, filename
 
-    def _collect_video_clips(
-        self, script: dict, project_dir: Path
-    ) -> list[dict[str, Any]]:
+    def _collect_video_clips(self, script: dict, project_dir: Path) -> list[dict[str, Any]]:
         """从剧本中提取已完成视频的片段列表"""
         content_mode = script.get("content_mode", "narration")
-        items = script.get(
-            "segments" if content_mode == "narration" else "scenes", []
-        )
+        items = script.get("segments" if content_mode == "narration" else "scenes", [])
         id_field = "segment_id" if content_mode == "narration" else "scene_id"
 
         clips = []
@@ -438,85 +430,83 @@ Expected: FAIL — `AttributeError: 'JianyingDraftService' object has no attribu
 在 `server/services/jianying_draft_service.py` 的 `JianyingDraftService` 类中追加：
 
 ```python
-    # ------------------------------------------------------------------
-    # 内部方法：草稿生成
-    # ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# 内部方法：草稿生成
+# ------------------------------------------------------------------
 
-    def _generate_draft(
-        self,
-        *,
-        draft_dir: Path,
-        draft_name: str,
-        clips: list[dict],
-        width: int,
-        height: int,
-        content_mode: str,
-    ) -> None:
-        """使用 pyJianYingDraft 在 draft_dir 中生成草稿文件"""
-        folder = draft.DraftFolder(str(draft_dir.parent))
-        script_file = folder.create_draft(draft_name, width=width, height=height)
 
-        # 视频轨
-        script_file.add_track(TrackType.video)
+def _generate_draft(
+    self,
+    *,
+    draft_dir: Path,
+    draft_name: str,
+    clips: list[dict],
+    width: int,
+    height: int,
+    content_mode: str,
+) -> None:
+    """使用 pyJianYingDraft 在 draft_dir 中生成草稿文件"""
+    folder = draft.DraftFolder(str(draft_dir.parent))
+    script_file = folder.create_draft(draft_name, width=width, height=height)
 
-        # 字幕轨（仅 narration 模式）
-        has_subtitle = content_mode == "narration"
-        if has_subtitle:
-            script_file.add_track(TrackType.text, "字幕")
-            text_style = TextStyle(
-                size=8.0,
-                color=(1.0, 1.0, 1.0),
-                align=1,
-                bold=True,
-                auto_wrapping=True,
-            )
+    # 视频轨
+    script_file.add_track(TrackType.video)
 
-        # 逐片段添加
-        offset_us = 0
-        for clip in clips:
-            # 预读实际视频时长
-            material = VideoMaterial(clip["local_path"])
-            actual_duration_us = material.duration
-
-            # 视频片段
-            video_seg = VideoSegment(
-                clip["local_path"],
-                trange(offset_us, actual_duration_us),
-            )
-            script_file.add_segment(video_seg)
-
-            # 字幕片段
-            if has_subtitle and clip.get("novel_text"):
-                text_seg = TextSegment(
-                    text=clip["novel_text"],
-                    timerange=trange(offset_us, actual_duration_us),
-                    style=text_style,
-                )
-                script_file.add_segment(text_seg)
-
-            offset_us += actual_duration_us
-
-        script_file.save()
-
-    def _replace_paths_in_draft(
-        self, *, json_path: Path, tmp_prefix: str, target_prefix: str
-    ) -> None:
-        """JSON 安全地替换 draft_content.json 中的临时路径"""
-        data = json.loads(json_path.read_text(encoding="utf-8"))
-
-        def _walk(obj: Any) -> Any:
-            if isinstance(obj, str) and tmp_prefix in obj:
-                return obj.replace(tmp_prefix, target_prefix)
-            if isinstance(obj, dict):
-                return {k: _walk(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_walk(v) for v in obj]
-            return obj
-
-        data = _walk(data)
-        json_path.write_text(
-            json.dumps(data, ensure_ascii=False), encoding="utf-8"
+    # 字幕轨（仅 narration 模式）
+    has_subtitle = content_mode == "narration"
+    if has_subtitle:
+        script_file.add_track(TrackType.text, "字幕")
+        text_style = TextStyle(
+            size=8.0,
+            color=(1.0, 1.0, 1.0),
+            align=1,
+            bold=True,
+            auto_wrapping=True,
         )
+
+    # 逐片段添加
+    offset_us = 0
+    for clip in clips:
+        # 预读实际视频时长
+        material = VideoMaterial(clip["local_path"])
+        actual_duration_us = material.duration
+
+        # 视频片段
+        video_seg = VideoSegment(
+            clip["local_path"],
+            trange(offset_us, actual_duration_us),
+        )
+        script_file.add_segment(video_seg)
+
+        # 字幕片段
+        if has_subtitle and clip.get("novel_text"):
+            text_seg = TextSegment(
+                text=clip["novel_text"],
+                timerange=trange(offset_us, actual_duration_us),
+                style=text_style,
+            )
+            script_file.add_segment(text_seg)
+
+        offset_us += actual_duration_us
+
+    script_file.save()
+
+
+def _replace_paths_in_draft(self, *, json_path: Path, tmp_prefix: str, target_prefix: str) -> None:
+    """JSON 安全地替换 draft_content.json 中的临时路径"""
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+
+    def _walk(obj: Any) -> Any:
+        if isinstance(obj, str) and tmp_prefix in obj:
+            return obj.replace(tmp_prefix, target_prefix)
+        if isinstance(obj, dict):
+            return {k: _walk(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_walk(v) for v in obj]
+        return obj
+
+    data = _walk(data)
+    json_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 ```
 
 - [ ] **Step 4: 运行全部测试确认通过**
@@ -570,9 +560,7 @@ class TestExportEpisodeDraft:
                 {"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"},
             ],
         }
-        (project_dir / "project.json").write_text(
-            json.dumps(project_data, ensure_ascii=False), encoding="utf-8"
-        )
+        (project_dir / "project.json").write_text(json.dumps(project_data, ensure_ascii=False), encoding="utf-8")
 
         # 创建剧本
         scripts_dir = project_dir / "scripts"
@@ -594,9 +582,7 @@ class TestExportEpisodeDraft:
                 },
             ],
         }
-        (scripts_dir / "episode_1.json").write_text(
-            json.dumps(script_data, ensure_ascii=False), encoding="utf-8"
-        )
+        (scripts_dir / "episode_1.json").write_text(json.dumps(script_data, ensure_ascii=False), encoding="utf-8")
 
         return pm, project_dir
 
@@ -633,9 +619,7 @@ class TestExportEpisodeDraft:
         svc = JianyingDraftService(pm)
         draft_path = "/Users/test/drafts"
 
-        zip_path = svc.export_episode_draft(
-            project_name="demo", episode=1, draft_path=draft_path
-        )
+        zip_path = svc.export_episode_draft(project_name="demo", episode=1, draft_path=draft_path)
 
         with zipfile.ZipFile(zip_path) as zf:
             content_entry = [n for n in zf.namelist() if "draft_content.json" in n][0]
@@ -665,20 +649,35 @@ class TestExportEpisodeDraft:
         project_dir = pm.get_project_path("empty")
         project_dir.mkdir(parents=True)
 
-        (project_dir / "project.json").write_text(json.dumps({
-            "title": "空项目",
-            "content_mode": "narration",
-            "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
-        }, ensure_ascii=False))
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "title": "空项目",
+                    "content_mode": "narration",
+                    "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+                },
+                ensure_ascii=False,
+            )
+        )
 
         scripts_dir = project_dir / "scripts"
         scripts_dir.mkdir()
-        (scripts_dir / "episode_1.json").write_text(json.dumps({
-            "content_mode": "narration",
-            "segments": [
-                {"segment_id": "S1", "duration_seconds": 8, "novel_text": "", "generated_assets": {"status": "pending"}},
-            ],
-        }, ensure_ascii=False))
+        (scripts_dir / "episode_1.json").write_text(
+            json.dumps(
+                {
+                    "content_mode": "narration",
+                    "segments": [
+                        {
+                            "segment_id": "S1",
+                            "duration_seconds": 8,
+                            "novel_text": "",
+                            "generated_assets": {"status": "pending"},
+                        },
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        )
 
         svc = JianyingDraftService(pm)
         with pytest.raises(ValueError, match="请先生成视频"):
@@ -695,85 +694,86 @@ Expected: FAIL — `AttributeError: 'JianyingDraftService' object has no attribu
 在 `server/services/jianying_draft_service.py` 的 `JianyingDraftService` 类中追加：
 
 ```python
-    # ------------------------------------------------------------------
-    # 公开方法
-    # ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# 公开方法
+# ------------------------------------------------------------------
 
-    def export_episode_draft(
-        self,
-        project_name: str,
-        episode: int,
-        draft_path: str,
-    ) -> Path:
-        """
-        导出指定集的剪映草稿 ZIP。
 
-        Returns:
-            ZIP 文件路径（临时文件，调用方负责清理）
+def export_episode_draft(
+    self,
+    project_name: str,
+    episode: int,
+    draft_path: str,
+) -> Path:
+    """
+    导出指定集的剪映草稿 ZIP。
 
-        Raises:
-            FileNotFoundError: 项目或剧本不存在
-            ValueError: 无可导出的视频片段
-        """
-        project = self.pm.load_project(project_name)
-        project_dir = self.pm.get_project_path(project_name)
+    Returns:
+        ZIP 文件路径（临时文件，调用方负责清理）
 
-        # 1. 定位剧本
-        script_data, _ = self._find_episode_script(project_name, project, episode)
+    Raises:
+        FileNotFoundError: 项目或剧本不存在
+        ValueError: 无可导出的视频片段
+    """
+    project = self.pm.load_project(project_name)
+    project_dir = self.pm.get_project_path(project_name)
 
-        # 2. 收集已完成视频
-        content_mode = script_data.get("content_mode", "narration")
-        clips = self._collect_video_clips(script_data, project_dir)
-        if not clips:
-            raise ValueError(f"第 {episode} 集没有已完成的视频片段，请先生成视频")
+    # 1. 定位剧本
+    script_data, _ = self._find_episode_script(project_name, project, episode)
 
-        # 3. 画布尺寸
-        width, height = self._resolve_canvas_size(project)
+    # 2. 收集已完成视频
+    content_mode = script_data.get("content_mode", "narration")
+    clips = self._collect_video_clips(script_data, project_dir)
+    if not clips:
+        raise ValueError(f"第 {episode} 集没有已完成的视频片段，请先生成视频")
 
-        # 4. 创建临时目录 + 复制素材
-        title = project.get("title", project_name)
-        draft_name = f"{title}_第{episode}集"
-        tmp_dir = Path(tempfile.mkdtemp(prefix="arcreel_jy_"))
-        draft_dir = tmp_dir / draft_name
-        assets_dir = draft_dir / "assets"
-        assets_dir.mkdir(parents=True)
+    # 3. 画布尺寸
+    width, height = self._resolve_canvas_size(project)
 
-        local_clips = []
-        for clip in clips:
-            src = clip["abs_path"]
-            dst = assets_dir / src.name
-            try:
-                dst.hardlink_to(src)
-            except OSError:
-                shutil.copy2(src, dst)
-            local_clips.append({**clip, "local_path": str(dst)})
+    # 4. 创建临时目录 + 复制素材
+    title = project.get("title", project_name)
+    draft_name = f"{title}_第{episode}集"
+    tmp_dir = Path(tempfile.mkdtemp(prefix="arcreel_jy_"))
+    draft_dir = tmp_dir / draft_name
+    assets_dir = draft_dir / "assets"
+    assets_dir.mkdir(parents=True)
 
-        # 5. 生成草稿
-        self._generate_draft(
-            draft_dir=draft_dir,
-            draft_name=draft_name,
-            clips=local_clips,
-            width=width,
-            height=height,
-            content_mode=content_mode,
-        )
+    local_clips = []
+    for clip in clips:
+        src = clip["abs_path"]
+        dst = assets_dir / src.name
+        try:
+            dst.hardlink_to(src)
+        except OSError:
+            shutil.copy2(src, dst)
+        local_clips.append({**clip, "local_path": str(dst)})
 
-        # 6. 路径后处理
-        self._replace_paths_in_draft(
-            json_path=draft_dir / "draft_content.json",
-            tmp_prefix=str(assets_dir),
-            target_prefix=f"{draft_path}/{draft_name}/assets",
-        )
+    # 5. 生成草稿
+    self._generate_draft(
+        draft_dir=draft_dir,
+        draft_name=draft_name,
+        clips=local_clips,
+        width=width,
+        height=height,
+        content_mode=content_mode,
+    )
 
-        # 7. 打包 ZIP
-        zip_path = tmp_dir / f"{draft_name}.zip"
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for file in draft_dir.rglob("*"):
-                if file.is_file():
-                    arcname = f"{draft_name}/{file.relative_to(draft_dir)}"
-                    zf.write(file, arcname)
+    # 6. 路径后处理
+    self._replace_paths_in_draft(
+        json_path=draft_dir / "draft_content.json",
+        tmp_prefix=str(assets_dir),
+        target_prefix=f"{draft_path}/{draft_name}/assets",
+    )
 
-        return zip_path
+    # 7. 打包 ZIP
+    zip_path = tmp_dir / f"{draft_name}.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file in draft_dir.rglob("*"):
+            if file.is_file():
+                arcname = f"{draft_name}/{file.relative_to(draft_dir)}"
+                zf.write(file, arcname)
+
+    return zip_path
 ```
 
 - [ ] **Step 4: 运行全部服务测试确认通过**
@@ -835,22 +835,34 @@ def _setup_project(pm: ProjectManager):
     scripts_dir = project_dir / "scripts"
     scripts_dir.mkdir()
 
-    (project_dir / "project.json").write_text(json.dumps({
-        "title": "测试",
-        "content_mode": "narration",
-        "aspect_ratio": {"video": "16:9"},
-        "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
-    }, ensure_ascii=False))
+    (project_dir / "project.json").write_text(
+        json.dumps(
+            {
+                "title": "测试",
+                "content_mode": "narration",
+                "aspect_ratio": {"video": "16:9"},
+                "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            },
+            ensure_ascii=False,
+        )
+    )
 
-    (scripts_dir / "episode_1.json").write_text(json.dumps({
-        "content_mode": "narration",
-        "segments": [{
-            "segment_id": "S1",
-            "duration_seconds": 8,
-            "novel_text": "测试文本",
-            "generated_assets": {"video_clip": "videos/segment_S1.mp4", "status": "completed"},
-        }],
-    }, ensure_ascii=False))
+    (scripts_dir / "episode_1.json").write_text(
+        json.dumps(
+            {
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "S1",
+                        "duration_seconds": 8,
+                        "novel_text": "测试文本",
+                        "generated_assets": {"video_clip": "videos/segment_S1.mp4", "status": "completed"},
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def _client(monkeypatch, pm: ProjectManager) -> TestClient:
@@ -860,6 +872,7 @@ def _client(monkeypatch, pm: ProjectManager) -> TestClient:
     monkeypatch.setattr(proj_mod, "pm", pm)
 
     from server.app import app
+
     return TestClient(app)
 
 
@@ -910,17 +923,34 @@ class TestJianyingDraftExport:
         project_dir = pm.get_project_path("empty")
         project_dir.mkdir(parents=True)
 
-        (project_dir / "project.json").write_text(json.dumps({
-            "title": "空",
-            "content_mode": "narration",
-            "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
-        }, ensure_ascii=False))
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "title": "空",
+                    "content_mode": "narration",
+                    "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
+                },
+                ensure_ascii=False,
+            )
+        )
         scripts_dir = project_dir / "scripts"
         scripts_dir.mkdir()
-        (scripts_dir / "episode_1.json").write_text(json.dumps({
-            "content_mode": "narration",
-            "segments": [{"segment_id": "S1", "duration_seconds": 8, "novel_text": "", "generated_assets": {"status": "pending"}}],
-        }, ensure_ascii=False))
+        (scripts_dir / "episode_1.json").write_text(
+            json.dumps(
+                {
+                    "content_mode": "narration",
+                    "segments": [
+                        {
+                            "segment_id": "S1",
+                            "duration_seconds": 8,
+                            "novel_text": "",
+                            "generated_assets": {"status": "pending"},
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        )
 
         client = _client(monkeypatch, pm)
         token = create_download_token("testuser", "empty")
@@ -1007,8 +1037,10 @@ Expected: FAIL — 404（端点不存在）
 ```python
 # --- 剪映草稿导出 ---
 
+
 def get_jianying_draft_service() -> "JianyingDraftService":
     from server.services.jianying_draft_service import JianyingDraftService
+
     return JianyingDraftService(get_project_manager())
 
 
@@ -1049,9 +1081,7 @@ async def export_jianying_draft(
     # 3. 调用服务
     svc = get_jianying_draft_service()
     try:
-        zip_path = svc.export_episode_draft(
-            project_name=name, episode=episode, draft_path=draft_path
-        )
+        zip_path = svc.export_episode_draft(project_name=name, episode=episode, draft_path=draft_path)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:

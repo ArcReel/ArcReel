@@ -293,9 +293,7 @@ async def session(engine):
 class TestModelsCreateTables:
     async def test_all_tables_exist(self, engine):
         async with engine.connect() as conn:
-            table_names = await conn.run_sync(
-                lambda sync_conn: inspect(sync_conn).get_table_names()
-            )
+            table_names = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
         assert "tasks" in table_names
         assert "task_events" in table_names
         assert "worker_lease" in table_names
@@ -317,6 +315,7 @@ class TestModelsCreateTables:
         await session.commit()
 
         from sqlalchemy import select
+
         result = await session.execute(select(Task).where(Task.task_id == "abc123"))
         loaded = result.scalar_one()
         assert loaded.project_name == "demo"
@@ -334,6 +333,7 @@ class TestModelsCreateTables:
         await session.commit()
 
         from sqlalchemy import select
+
         result = await session.execute(select(AgentSession).where(AgentSession.id == "sess123"))
         loaded = result.scalar_one()
         assert loaded.project_name == "demo"
@@ -402,9 +402,7 @@ class TaskEvent(Base):
     data_json: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
 
-    __table_args__ = (
-        Index("idx_task_events_project_id", "project_name", "id"),
-    )
+    __table_args__ = (Index("idx_task_events_project_id", "project_name", "id"),)
 
 
 class WorkerLease(Base):
@@ -696,9 +694,7 @@ class SessionRepository:
         return _row_to_dict(row)
 
     async def get(self, session_id: str) -> Optional[dict[str, Any]]:
-        result = await self.session.execute(
-            select(AgentSession).where(AgentSession.id == session_id)
-        )
+        result = await self.session.execute(select(AgentSession).where(AgentSession.id == session_id))
         row = result.scalar_one_or_none()
         return _row_to_dict(row) if row else None
 
@@ -724,9 +720,7 @@ class SessionRepository:
     async def update_status(self, session_id: str, status: str) -> bool:
         now = _utc_now_iso()
         result = await self.session.execute(
-            update(AgentSession)
-            .where(AgentSession.id == session_id)
-            .values(status=status, updated_at=now)
+            update(AgentSession).where(AgentSession.id == session_id).values(status=status, updated_at=now)
         )
         await self.session.commit()
         return result.rowcount > 0
@@ -744,27 +738,22 @@ class SessionRepository:
     async def update_title(self, session_id: str, title: str) -> bool:
         now = _utc_now_iso()
         result = await self.session.execute(
-            update(AgentSession)
-            .where(AgentSession.id == session_id)
-            .values(title=title.strip(), updated_at=now)
+            update(AgentSession).where(AgentSession.id == session_id).values(title=title.strip(), updated_at=now)
         )
         await self.session.commit()
         return result.rowcount > 0
 
     async def delete(self, session_id: str) -> bool:
         from sqlalchemy import delete as sa_delete
-        result = await self.session.execute(
-            sa_delete(AgentSession).where(AgentSession.id == session_id)
-        )
+
+        result = await self.session.execute(sa_delete(AgentSession).where(AgentSession.id == session_id))
         await self.session.commit()
         return result.rowcount > 0
 
     async def interrupt_running(self) -> int:
         now = _utc_now_iso()
         result = await self.session.execute(
-            update(AgentSession)
-            .where(AgentSession.status == "running")
-            .values(status="interrupted", updated_at=now)
+            update(AgentSession).where(AgentSession.status == "running").values(status="interrupted", updated_at=now)
         )
         await self.session.commit()
         return result.rowcount
@@ -970,14 +959,22 @@ class TestTaskRepository:
         repo = TaskRepository(db_session)
 
         first = await repo.enqueue(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S01", payload={"prompt": "test"}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={"prompt": "test"},
+            script_file="ep1.json",
         )
         assert not first["deduped"]
 
         deduped = await repo.enqueue(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S01", payload={"prompt": "test2"}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={"prompt": "test2"},
+            script_file="ep1.json",
         )
         assert deduped["deduped"]
         assert deduped["task_id"] == first["task_id"]
@@ -993,8 +990,12 @@ class TestTaskRepository:
         repo = TaskRepository(db_session)
 
         task = await repo.enqueue(
-            project_name="demo", task_type="video", media_type="video",
-            resource_id="E1S01", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
         )
         await repo.claim_next("video")
         await repo.mark_failed(task["task_id"], "mock error")
@@ -1008,12 +1009,20 @@ class TestTaskRepository:
         repo = TaskRepository(db_session)
 
         first = await repo.enqueue(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S01", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
         )
         second = await repo.enqueue(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S02", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S02",
+            payload={},
+            script_file="ep1.json",
             dependency_task_id=first["task_id"],
         )
 
@@ -1028,8 +1037,12 @@ class TestTaskRepository:
         repo = TaskRepository(db_session)
 
         task = await repo.enqueue(
-            project_name="demo", task_type="video", media_type="video",
-            resource_id="E1S01", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
         )
         await repo.claim_next("video")
         count = await repo.requeue_running()
@@ -1051,10 +1064,22 @@ class TestTaskRepository:
     async def test_list_tasks_with_filters(self, db_session):
         repo = TaskRepository(db_session)
 
-        await repo.enqueue(project_name="demo", task_type="storyboard", media_type="image",
-                           resource_id="E1S01", payload={}, script_file="ep1.json")
-        await repo.enqueue(project_name="other", task_type="video", media_type="video",
-                           resource_id="E1S02", payload={}, script_file="ep2.json")
+        await repo.enqueue(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
+        )
+        await repo.enqueue(
+            project_name="other",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S02",
+            payload={},
+            script_file="ep2.json",
+        )
 
         result = await repo.list_tasks(project_name="demo")
         assert result["total"] == 1
@@ -1065,8 +1090,14 @@ class TestTaskRepository:
     async def test_get_stats(self, db_session):
         repo = TaskRepository(db_session)
 
-        await repo.enqueue(project_name="demo", task_type="storyboard", media_type="image",
-                           resource_id="E1S01", payload={}, script_file="ep1.json")
+        await repo.enqueue(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
+        )
         stats = await repo.get_stats()
         assert stats["queued"] == 1
         assert stats["total"] == 1
@@ -1317,6 +1348,7 @@ Skill scripts are synchronous Python. The client functions should wrap async que
 ```python
 import asyncio
 
+
 def _run_async(coro):
     """Run an async coroutine from sync code."""
     try:
@@ -1325,6 +1357,7 @@ def _run_async(coro):
         return asyncio.run(coro)
     # If already in event loop (unlikely for skills), use nest_asyncio or thread
     import concurrent.futures
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(asyncio.run, coro).result()
 ```
@@ -1355,6 +1388,7 @@ git commit -m "refactor(db): update generation_queue_client sync wrapper for asy
 
 ```python
 from lib.db import init_db, close_db
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -42,11 +42,7 @@
 
 ```python
 class MediaGenerator:
-    def __init__(
-        self,
-        project_path: Path,
-        rate_limiter: Optional[RateLimiter] = None
-    ):
+    def __init__(self, project_path: Path, rate_limiter: Optional[RateLimiter] = None):
         self.project_path = Path(project_path)
         self.gemini = GeminiClient(rate_limiter=rate_limiter)
         self.versions = VersionManager(project_path)
@@ -80,11 +76,11 @@ def generate_image(
     self,
     prompt: str,
     resource_type: str,  # 'storyboards' | 'characters' | 'scenes' | 'props'
-    resource_id: str,    # E1S01 | 姜月茴 | 玉佩
+    resource_id: str,  # E1S01 | 姜月茴 | 玉佩
     # 以下参数透传给 GeminiClient
     reference_images: Optional[List] = None,
     aspect_ratio: str = "9:16",
-    **version_metadata  # 额外元数据：aspect_ratio, duration_seconds 等
+    **version_metadata,  # 额外元数据：aspect_ratio, duration_seconds 等
 ) -> Tuple[Path, int]:
     """
     Returns:
@@ -116,11 +112,7 @@ def generate_image(
 ```python
 # 现在
 client = GeminiClient()
-client.generate_image(
-    prompt=prompt,
-    aspect_ratio="16:9",
-    output_path=output_path
-)
+client.generate_image(prompt=prompt, aspect_ratio="16:9", output_path=output_path)
 ```
 
 ### 迁移后
@@ -131,10 +123,7 @@ from lib.media_generator import MediaGenerator
 
 generator = MediaGenerator(project_dir)
 output_path, version = generator.generate_image(
-    prompt=prompt,
-    resource_type="characters",
-    resource_id=character_name,
-    aspect_ratio="16:9"
+    prompt=prompt, resource_type="characters", resource_id=character_name, aspect_ratio="16:9"
 )
 ```
 

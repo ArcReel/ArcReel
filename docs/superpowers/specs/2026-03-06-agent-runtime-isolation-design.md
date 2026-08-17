@@ -90,14 +90,29 @@ ClaudeAgentOptions(
 ```python
 # 之前
 DEFAULT_ALLOWED_TOOLS = [
-    "Skill", "Read", "Write", "Edit", "MultiEdit",
-    "Bash", "Grep", "Glob", "LS", "AskUserQuestion",
+    "Skill",
+    "Read",
+    "Write",
+    "Edit",
+    "MultiEdit",
+    "Bash",
+    "Grep",
+    "Glob",
+    "LS",
+    "AskUserQuestion",
 ]
 
 # 之后
 DEFAULT_ALLOWED_TOOLS = [
-    "Skill", "Task", "Read", "Write", "Edit",
-    "Bash", "Grep", "Glob", "AskUserQuestion",
+    "Skill",
+    "Task",
+    "Read",
+    "Write",
+    "Edit",
+    "Bash",
+    "Grep",
+    "Glob",
+    "AskUserQuestion",
 ]
 ```
 

@@ -168,6 +168,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from claude_agent_sdk import get_session_messages
+
     SDK_AVAILABLE = True
 except ImportError:
     get_session_messages = None  # type: ignore[assignment]
@@ -432,6 +433,7 @@ def test_result_turn_is_eliminated(self):
     turns = group_messages_into_turns(raw_messages)
     assert [turn["type"] for turn in turns] == ["user", "assistant"]
 
+
 def test_result_between_rounds_flushes_correctly(self):
     """Result between two user messages flushes correctly."""
     raw_messages = [
@@ -532,6 +534,7 @@ def test_task_progress_attached_to_assistant_turn(self):
     assert assistant_content[2]["type"] == "task_progress"
     assert assistant_content[2]["status"] == "task_notification"
     assert assistant_content[2]["task_status"] == "completed"
+
 
 def test_task_progress_without_assistant_creates_system_turn(self):
     """Task progress without a preceding assistant turn creates a system turn."""
@@ -690,6 +693,7 @@ def _fingerprint_tail(messages: list[dict[str, Any]]) -> set[str]:
             fps.add(fp)
     return fps
 
+
 @staticmethod
 def _fingerprint(message: dict[str, Any]) -> Optional[str]:
     """Build a truncated content fingerprint for dedup."""
@@ -713,6 +717,7 @@ def _fingerprint(message: dict[str, Any]) -> Optional[str]:
     if msg_type == "result":
         return f"fp:result:{message.get('subtype', '')}:{message.get('is_error', False)}"
     return None
+
 
 @staticmethod
 def _echo_in_transcript(

@@ -286,9 +286,7 @@ def test_provider_secret_keys_is_subset_of_all_provider_keys():
         if k == "ANTHROPIC_API_KEY":
             assert k in ANTHROPIC_ENV_KEYS
         else:
-            assert k in OTHER_PROVIDER_ENV_KEYS, (
-                f"密钥 {k} 必须出现在 OTHER_PROVIDER_ENV_KEYS 中"
-            )
+            assert k in OTHER_PROVIDER_ENV_KEYS, f"密钥 {k} 必须出现在 OTHER_PROVIDER_ENV_KEYS 中"
 
 
 def test_secret_keys_are_disjoint_from_auth_whitelist():
@@ -368,9 +366,7 @@ PROVIDER_SECRET_KEYS: frozenset[str] = frozenset(
 
 # —— `_load_project_env` 白名单：load_dotenv 后只保留这些前缀/精确名 ——
 AUTH_ALLOWED_PREFIXES: tuple[str, ...] = ("AUTH_", "ASSISTANT_", "ARCREEL_")
-AUTH_ALLOWED_KEYS: frozenset[str] = frozenset(
-    {"DATABASE_URL", "LOG_LEVEL", "AI_ANIME_PROJECTS"}
-)
+AUTH_ALLOWED_KEYS: frozenset[str] = frozenset({"DATABASE_URL", "LOG_LEVEL", "AI_ANIME_PROJECTS"})
 
 
 def is_provider_env_key(name: str) -> bool:
@@ -444,9 +440,7 @@ def test_clean_environ_passes(monkeypatch: pytest.MonkeyPatch) -> None:
         "GOOGLE_APPLICATION_CREDENTIALS",
     ],
 )
-def test_any_single_secret_triggers_raise(
-    monkeypatch: pytest.MonkeyPatch, leaked_key: str
-) -> None:
+def test_any_single_secret_triggers_raise(monkeypatch: pytest.MonkeyPatch, leaked_key: str) -> None:
     _clear_secret_envs(monkeypatch)
     monkeypatch.setenv(leaked_key, "leaked-value")
     with pytest.raises(RuntimeError, match="SECURITY"):
@@ -581,10 +575,7 @@ def check_sandbox_available() -> None:
                 "  Arch:          sudo pacman -S bubblewrap"
             )
         return
-    raise RuntimeError(
-        f"SANDBOX_UNAVAILABLE on {system}\n"
-        "Agent sandbox supports macOS / Linux only."
-    )
+    raise RuntimeError(f"SANDBOX_UNAVAILABLE on {system}\nAgent sandbox supports macOS / Linux only.")
 ```
 
 - [ ] **Step 4: 跑测试，期望通过**
@@ -858,9 +849,7 @@ async def test_no_active_credential_returns_empty_strings(monkeypatch: pytest.Mo
         "lib.db.repositories.agent_credential_repo.AgentCredentialRepository",
         lambda _s: repo_mock,
     )
-    monkeypatch.setattr(
-        "lib.config.service.SystemSettingRepository", lambda _s: setting_repo
-    )
+    monkeypatch.setattr("lib.config.service.SystemSettingRepository", lambda _s: setting_repo)
 
     result = await build_anthropic_env_dict(session)
     assert result["ANTHROPIC_API_KEY"] == ""
@@ -875,7 +864,19 @@ async def test_function_does_not_touch_environ(monkeypatch: pytest.MonkeyPatch) 
 
     session = AsyncMock()
     repo_mock = AsyncMock()
-    cred = type("Cred", (), dict(api_key="sk-test", base_url="x", model="y", haiku_model=None, sonnet_model=None, opus_model=None, subagent_model=None))()
+    cred = type(
+        "Cred",
+        (),
+        dict(
+            api_key="sk-test",
+            base_url="x",
+            model="y",
+            haiku_model=None,
+            sonnet_model=None,
+            opus_model=None,
+            subagent_model=None,
+        ),
+    )()
     repo_mock.get_active = AsyncMock(return_value=cred)
     monkeypatch.setattr(
         "lib.db.repositories.agent_credential_repo.AgentCredentialRepository",
@@ -920,18 +921,13 @@ async def build_anthropic_env_dict(session: AsyncSession) -> dict[str, str]:
             or settings.get("anthropic_default_haiku_model", "").strip(),
             "ANTHROPIC_DEFAULT_SONNET_MODEL": cred.sonnet_model
             or settings.get("anthropic_default_sonnet_model", "").strip(),
-            "ANTHROPIC_DEFAULT_OPUS_MODEL": cred.opus_model
-            or settings.get("anthropic_default_opus_model", "").strip(),
-            "CLAUDE_CODE_SUBAGENT_MODEL": cred.subagent_model
-            or settings.get("claude_code_subagent_model", "").strip(),
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": cred.opus_model or settings.get("anthropic_default_opus_model", "").strip(),
+            "CLAUDE_CODE_SUBAGENT_MODEL": cred.subagent_model or settings.get("claude_code_subagent_model", "").strip(),
         }
 
     # 无 active credential — 回退 system_settings（双轨期兼容）
     settings = await SystemSettingRepository(session).get_all()
-    return {
-        env_key: settings.get(db_key, "").strip()
-        for db_key, env_key in _ANTHROPIC_ENV_MAP.items()
-    }
+    return {env_key: settings.get(db_key, "").strip() for db_key, env_key in _ANTHROPIC_ENV_MAP.items()}
 ```
 
 注意 `_ANTHROPIC_ENV_MAP`（dict 行 18-26）保留，因为 fallback 路径还要用。
@@ -993,7 +989,15 @@ def test_load_project_env_drops_provider_keys(tmp_path: Path, monkeypatch: pytes
         "VIDU_API_KEY=dropped\n"
         "RANDOM_VAR=also-dropped\n"
     )
-    for k in ("AUTH_PASSWORD", "DATABASE_URL", "ANTHROPIC_API_KEY", "ARK_API_KEY", "GEMINI_API_KEY", "VIDU_API_KEY", "RANDOM_VAR"):
+    for k in (
+        "AUTH_PASSWORD",
+        "DATABASE_URL",
+        "ANTHROPIC_API_KEY",
+        "ARK_API_KEY",
+        "GEMINI_API_KEY",
+        "VIDU_API_KEY",
+        "RANDOM_VAR",
+    ):
         monkeypatch.delenv(k, raising=False)
 
     AssistantService._load_project_env(tmp_path)
@@ -1066,6 +1070,7 @@ Expected: 第一个测试 FAIL（provider keys 还在 environ）
 ```python
 # 保守版替代：只删已知 provider keys
 from lib.config.env_keys import ANTHROPIC_ENV_KEYS, OTHER_PROVIDER_ENV_KEYS
+
 for key in ANTHROPIC_ENV_KEYS + OTHER_PROVIDER_ENV_KEYS:
     os.environ.pop(key, None)
 ```
@@ -1163,24 +1168,26 @@ Expected: 228 / 376 / 378 / 384 共 4 行
 
 把：
 ```python
-    def _restore_or_unset(self, env_key: str) -> None:
-        baseline_value = self._baseline_env.get(env_key)
-        if baseline_value is None:
-            os.environ.pop(env_key, None)
-        else:
-            os.environ[env_key] = baseline_value
+def _restore_or_unset(self, env_key: str) -> None:
+    baseline_value = self._baseline_env.get(env_key)
+    if baseline_value is None:
+        os.environ.pop(env_key, None)
+    else:
+        os.environ[env_key] = baseline_value
 
-    def _set_env(self, env_key: str, value: str) -> None:
-        os.environ[env_key] = str(value)
+
+def _set_env(self, env_key: str, value: str) -> None:
+    os.environ[env_key] = str(value)
 ```
 
 改为：
 ```python
-    def _restore_or_unset(self, env_key: str) -> None:
-        """spec §5.3：不再写 os.environ；保留 noop 兼容旧调用。"""
+def _restore_or_unset(self, env_key: str) -> None:
+    """spec §5.3：不再写 os.environ；保留 noop 兼容旧调用。"""
 
-    def _set_env(self, env_key: str, value: str) -> None:
-        """spec §5.3：不再写 os.environ；保留 noop 兼容旧调用。"""
+
+def _set_env(self, env_key: str, value: str) -> None:
+    """spec §5.3：不再写 os.environ；保留 noop 兼容旧调用。"""
 ```
 
 - [ ] **Step 4: 跑相关测试**
@@ -1936,9 +1943,7 @@ def test_read_cwd_internal_passes(sm: SessionManager, tmp_path: Path) -> None:
 
 def test_read_other_project_denied(sm: SessionManager) -> None:
     cwd = sm.project_root / "projects" / "selfproj"
-    allowed, reason = sm._is_path_allowed(
-        str(sm.project_root / "projects" / "other" / "x.json"), "Read", cwd
-    )
+    allowed, reason = sm._is_path_allowed(str(sm.project_root / "projects" / "other" / "x.json"), "Read", cwd)
     assert not allowed
     assert "跨项目" in reason or "项目" in reason
 
@@ -1952,9 +1957,7 @@ def test_read_lib_passes(sm: SessionManager) -> None:
 
 def test_write_cwd_external_denied(sm: SessionManager) -> None:
     cwd = sm.project_root / "projects" / "selfproj"
-    allowed, reason = sm._is_path_allowed(
-        str(sm.project_root / "lib" / "foo.json"), "Write", cwd
-    )
+    allowed, reason = sm._is_path_allowed(str(sm.project_root / "lib" / "foo.json"), "Write", cwd)
     assert not allowed
     assert "项目目录之外" in reason or "cwd" in reason or "项目" in reason
 
@@ -1991,10 +1994,17 @@ Expected: 多个 FAIL
 
 改为：
 ```python
-    _WRITE_TOOLS = {"Write", "Edit"}
-    _CODE_EXTENSIONS_FORBIDDEN = {
-        ".py", ".js", ".ts", ".tsx", ".sh", ".yaml", ".yml", ".toml",
-    }
+_WRITE_TOOLS = {"Write", "Edit"}
+_CODE_EXTENSIONS_FORBIDDEN = {
+    ".py",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".sh",
+    ".yaml",
+    ".yml",
+    ".toml",
+}
 ```
 
 - [ ] **Step 4: 重写 `_is_path_allowed`**
@@ -2002,70 +2012,65 @@ Expected: 多个 FAIL
 把行 1625-1689 整段替换为：
 
 ```python
-    def _is_path_allowed(
-        self,
-        file_path: str,
-        tool_name: str,
-        project_cwd: Path,
-    ) -> tuple[bool, str | None]:
-        """检查 file_path 是否允许给定工具访问。
+def _is_path_allowed(
+    self,
+    file_path: str,
+    tool_name: str,
+    project_cwd: Path,
+) -> tuple[bool, str | None]:
+    """检查 file_path 是否允许给定工具访问。
 
-        spec §5.1 / Level B 简化方案 — 三条普适规则：
-        1. Read/Glob/Grep：projects/<other>/ 跨项目拒；cwd 外其他路径放行
-        2. Write/Edit：cwd 外一律拒
-        3. Write/Edit：cwd 内代码扩展名拒（agent 不写代码）
+    spec §5.1 / Level B 简化方案 — 三条普适规则：
+    1. Read/Glob/Grep：projects/<other>/ 跨项目拒；cwd 外其他路径放行
+    2. Write/Edit：cwd 外一律拒
+    3. Write/Edit：cwd 内代码扩展名拒（agent 不写代码）
 
-        SDK tool-results / /tmp/claude-*/tasks 例外保留（SDK 内部产物）。
-        """
-        try:
-            p = Path(file_path)
-            resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
-        except (ValueError, OSError):
-            return False, "访问被拒绝：无效的文件路径"
+    SDK tool-results / /tmp/claude-*/tasks 例外保留（SDK 内部产物）。
+    """
+    try:
+        p = Path(file_path)
+        resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
+    except (ValueError, OSError):
+        return False, "访问被拒绝：无效的文件路径"
 
-        is_write = tool_name in self._WRITE_TOOLS
-        is_inside_cwd = resolved.is_relative_to(project_cwd)
-        projects_root = self.project_root / "projects"
+    is_write = tool_name in self._WRITE_TOOLS
+    is_inside_cwd = resolved.is_relative_to(project_cwd)
+    projects_root = self.project_root / "projects"
 
-        # 规则 1: Read 类工具的跨项目隔离
-        if not is_write:
-            # cwd 内通过
-            if is_inside_cwd:
-                return True, None
-            # cwd 外但在其他项目目录 → 拒
-            if resolved.is_relative_to(projects_root):
-                return False, (
-                    f"访问被拒绝：不允许跨项目读取 ({resolved} "
-                    f"不在当前项目 {project_cwd} 内)"
-                )
-            # SDK tool-results 例外
-            encoded = self._encode_sdk_project_path(project_cwd)
-            sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
-            if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
-                return True, None
-            # SDK 后台任务输出例外
-            _SDK_TMP_PREFIXES = ("/tmp/claude-", "/private/tmp/claude-")
-            if str(resolved).startswith(_SDK_TMP_PREFIXES) and "tasks" in resolved.parts:
-                return True, None
-            # 其他 cwd 外路径放行（lib/docs/agent_runtime_profile 等参考资料）
+    # 规则 1: Read 类工具的跨项目隔离
+    if not is_write:
+        # cwd 内通过
+        if is_inside_cwd:
             return True, None
-
-        # 规则 2: 写工具 cwd 外拒
-        if not is_inside_cwd:
-            return False, (
-                f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})"
-            )
-
-        # 规则 3: cwd 内写代码扩展名拒
-        ext = resolved.suffix.lower()
-        if ext in self._CODE_EXTENSIONS_FORBIDDEN:
-            return False, (
-                f"不允许在项目内创建/编辑 {ext} 类型的代码文件。"
-                "Write/Edit 应用于数据文件 (.json/.md/.txt 等)；"
-                "代码逻辑请通过现有 skill 脚本完成。"
-            )
-
+        # cwd 外但在其他项目目录 → 拒
+        if resolved.is_relative_to(projects_root):
+            return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
+        # SDK tool-results 例外
+        encoded = self._encode_sdk_project_path(project_cwd)
+        sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
+        if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
+            return True, None
+        # SDK 后台任务输出例外
+        _SDK_TMP_PREFIXES = ("/tmp/claude-", "/private/tmp/claude-")
+        if str(resolved).startswith(_SDK_TMP_PREFIXES) and "tasks" in resolved.parts:
+            return True, None
+        # 其他 cwd 外路径放行（lib/docs/agent_runtime_profile 等参考资料）
         return True, None
+
+    # 规则 2: 写工具 cwd 外拒
+    if not is_inside_cwd:
+        return False, (f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})")
+
+    # 规则 3: cwd 内写代码扩展名拒
+    ext = resolved.suffix.lower()
+    if ext in self._CODE_EXTENSIONS_FORBIDDEN:
+        return False, (
+            f"不允许在项目内创建/编辑 {ext} 类型的代码文件。"
+            "Write/Edit 应用于数据文件 (.json/.md/.txt 等)；"
+            "代码逻辑请通过现有 skill 脚本完成。"
+        )
+
+    return True, None
 ```
 
 - [ ] **Step 5: 跑测试期望通过**

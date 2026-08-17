@@ -238,6 +238,7 @@ def test_cache_control_immutable_with_version_param(self, tmp_path, monkeypatch)
         assert "immutable" in resp.headers.get("cache-control", "")
         assert "max-age=31536000" in resp.headers.get("cache-control", "")
 
+
 def test_cache_control_immutable_for_version_files(self, tmp_path, monkeypatch):
     """versions/ 路径下的文件应返回 immutable 缓存头"""
     client, pm = _client(monkeypatch, tmp_path)
@@ -249,6 +250,7 @@ def test_cache_control_immutable_for_version_files(self, tmp_path, monkeypatch):
         resp = client.get("/api/v1/files/demo/versions/storyboards/E1S01_v1.png")
         assert resp.status_code == 200
         assert "immutable" in resp.headers.get("cache-control", "")
+
 
 def test_no_cache_control_without_version(self, tmp_path, monkeypatch):
     """无 ?v= 参数且非 versions 路径时不应有 immutable 头"""
@@ -277,6 +279,7 @@ from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Reques
 from fastapi.responses import FileResponse, PlainTextResponse
 
 # ...
+
 
 @router.get("/files/{project_name}/{path:path}")
 async def serve_project_file(project_name: str, path: str, request: Request):
@@ -333,8 +336,7 @@ def test_emit_success_batch_includes_fingerprints(self, monkeypatch, tmp_path):
     """生成成功事件应携带 asset_fingerprints"""
     captured = []
     monkeypatch.setattr(
-        generation_tasks, "emit_project_change_batch",
-        lambda project_name, changes, source: captured.append(changes)
+        generation_tasks, "emit_project_change_batch", lambda project_name, changes, source: captured.append(changes)
     )
 
     # 创建项目目录和媒体文件
@@ -381,9 +383,7 @@ def _emit_generation_success_batch(
     episode = _resolve_script_episode(project_name, script_file)
 
     # 计算受影响文件的 fingerprint
-    asset_fingerprints = _compute_affected_fingerprints(
-        project_name, task_type, resource_id
-    )
+    asset_fingerprints = _compute_affected_fingerprints(project_name, task_type, resource_id)
 
     if task_type == "storyboard":
         changes = [
@@ -451,9 +451,7 @@ def _emit_generation_success_batch(
         )
 
 
-def _compute_affected_fingerprints(
-    project_name: str, task_type: str, resource_id: str
-) -> Dict[str, int]:
+def _compute_affected_fingerprints(project_name: str, task_type: str, resource_id: str) -> Dict[str, int]:
     """计算受影响文件的 mtime 指纹"""
     try:
         project_path = get_project_manager().get_project_path(project_name)
@@ -463,29 +461,39 @@ def _compute_affected_fingerprints(
     paths: list[tuple[str, Path]] = []
 
     if task_type == "storyboard":
-        paths.append((
-            f"storyboards/scene_{resource_id}.png",
-            project_path / "storyboards" / f"scene_{resource_id}.png",
-        ))
+        paths.append(
+            (
+                f"storyboards/scene_{resource_id}.png",
+                project_path / "storyboards" / f"scene_{resource_id}.png",
+            )
+        )
     elif task_type == "video":
-        paths.append((
-            f"videos/scene_{resource_id}.mp4",
-            project_path / "videos" / f"scene_{resource_id}.mp4",
-        ))
-        paths.append((
-            f"thumbnails/scene_{resource_id}.jpg",
-            project_path / "thumbnails" / f"scene_{resource_id}.jpg",
-        ))
+        paths.append(
+            (
+                f"videos/scene_{resource_id}.mp4",
+                project_path / "videos" / f"scene_{resource_id}.mp4",
+            )
+        )
+        paths.append(
+            (
+                f"thumbnails/scene_{resource_id}.jpg",
+                project_path / "thumbnails" / f"scene_{resource_id}.jpg",
+            )
+        )
     elif task_type == "character":
-        paths.append((
-            f"characters/{resource_id}.png",
-            project_path / "characters" / f"{resource_id}.png",
-        ))
+        paths.append(
+            (
+                f"characters/{resource_id}.png",
+                project_path / "characters" / f"{resource_id}.png",
+            )
+        )
     elif task_type == "clue":
-        paths.append((
-            f"clues/{resource_id}.png",
-            project_path / "clues" / f"{resource_id}.png",
-        ))
+        paths.append(
+            (
+                f"clues/{resource_id}.png",
+                project_path / "clues" / f"{resource_id}.png",
+            )
+        )
 
     result: Dict[str, int] = {}
     for rel, abs_path in paths:
@@ -544,9 +552,7 @@ def test_restore_returns_asset_fingerprints(self, monkeypatch, tmp_path):
     client = TestClient(app)
 
     with client:
-        resp = client.post(
-            "/api/v1/projects/demo/versions/storyboards/E1S01/restore/1"
-        )
+        resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
         assert resp.status_code == 200
         data = resp.json()
         assert "asset_fingerprints" in data
@@ -620,8 +626,17 @@ class TestExtractVideoThumbnail:
         # 用 ffmpeg 生成一个最小测试视频
         video_path = tmp_path / "test.mp4"
         proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-f", "lavfi", "-i", "color=c=red:s=64x64:d=1",
-            "-c:v", "libx264", "-t", "1", "-y", str(video_path),
+            "ffmpeg",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=64x64:d=1",
+            "-c:v",
+            "libx264",
+            "-t",
+            "1",
+            "-y",
+            str(video_path),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -637,8 +652,17 @@ class TestExtractVideoThumbnail:
     async def test_creates_parent_directory(self, tmp_path):
         video_path = tmp_path / "test.mp4"
         proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-f", "lavfi", "-i", "color=c=blue:s=64x64:d=1",
-            "-c:v", "libx264", "-t", "1", "-y", str(video_path),
+            "ffmpeg",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=64x64:d=1",
+            "-c:v",
+            "libx264",
+            "-t",
+            "1",
+            "-y",
+            str(video_path),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -650,9 +674,7 @@ class TestExtractVideoThumbnail:
         assert thumbnail_path.exists()
 
     async def test_returns_none_for_missing_video(self, tmp_path):
-        result = await extract_video_thumbnail(
-            tmp_path / "missing.mp4", tmp_path / "thumb.jpg"
-        )
+        result = await extract_video_thumbnail(tmp_path / "missing.mp4", tmp_path / "thumb.jpg")
         assert result is None
 
     async def test_returns_none_when_ffmpeg_fails(self, tmp_path):
@@ -703,10 +725,14 @@ async def extract_video_thumbnail(
     try:
         proc = await asyncio.create_subprocess_exec(
             "ffmpeg",
-            "-i", str(video_path),
-            "-vframes", "1",
-            "-q:v", "2",
-            "-y", str(thumbnail_path),
+            "-i",
+            str(video_path),
+            "-vframes",
+            "1",
+            "-q:v",
+            "2",
+            "-y",
+            str(thumbnail_path),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -792,15 +818,15 @@ async def test_execute_video_task_generates_thumbnail(self, monkeypatch, tmp_pat
 修改 `lib/project_manager.py:528-543`，在 `create_generated_assets` 中添加 `video_thumbnail`：
 
 ```python
-    @staticmethod
-    def create_generated_assets(content_mode: str = "narration") -> Dict:
-        return {
-            "storyboard_image": None,
-            "video_clip": None,
-            "video_thumbnail": None,   # 新增
-            "video_uri": None,
-            "status": "pending",
-        }
+@staticmethod
+def create_generated_assets(content_mode: str = "narration") -> Dict:
+    return {
+        "storyboard_image": None,
+        "video_clip": None,
+        "video_thumbnail": None,  # 新增
+        "video_uri": None,
+        "status": "pending",
+    }
 ```
 
 **Step 3: Run tests**

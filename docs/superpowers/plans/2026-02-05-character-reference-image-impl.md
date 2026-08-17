@@ -168,11 +168,7 @@ git commit -m "feat(characters): add reference_image field to update API"
 
 ```python
 @router.post("/projects/{project_name}/generate/character/{char_name}")
-async def generate_character(
-    project_name: str,
-    char_name: str,
-    req: GenerateCharacterRequest
-):
+async def generate_character(project_name: str, char_name: str, req: GenerateCharacterRequest):
     """
     生成角色设计图（首次生成或重新生成）
 
@@ -212,7 +208,7 @@ async def generate_character(
             resource_id=char_name,
             reference_images=reference_images,  # 传入参考图
             aspect_ratio=aspect_ratio,
-            image_size="2K"
+            image_size="2K",
         )
 
         # 更新 project.json 中的 character_sheet
@@ -223,7 +219,7 @@ async def generate_character(
             "success": True,
             "version": new_version,
             "file_path": f"characters/{char_name}.png",
-            "created_at": generator.versions.get_versions("characters", char_name)["versions"][-1]["created_at"]
+            "created_at": generator.versions.get_versions("characters", char_name)["versions"][-1]["created_at"],
         }
 
     except FileNotFoundError as e:
@@ -275,15 +271,15 @@ def generate_character(
     project = pm.load_project(project_name)
 
     description = ""
-    style = project.get('style', '')
+    style = project.get("style", "")
     reference_images = None
 
-    if 'characters' in project and character_name in project['characters']:
-        char_info = project['characters'][character_name]
-        description = char_info.get('description', '')
-        
+    if "characters" in project and character_name in project["characters"]:
+        char_info = project["characters"][character_name]
+        description = char_info.get("description", "")
+
         # 自动读取参考图
-        ref_path = char_info.get('reference_image')
+        ref_path = char_info.get("reference_image")
         if ref_path:
             ref_full_path = project_dir / ref_path
             if ref_full_path.exists():
@@ -307,7 +303,7 @@ def generate_character(
         resource_type="characters",
         resource_id=character_name,
         reference_images=reference_images,
-        aspect_ratio="3:4"
+        aspect_ratio="3:4",
     )
 
     print(f"✅ 角色设计图已保存: {output_path} (版本 v{version})")
@@ -324,9 +320,9 @@ def generate_character(
 
 ```python
 def main():
-    parser = argparse.ArgumentParser(description='生成角色设计图')
-    parser.add_argument('project', help='项目名称')
-    parser.add_argument('character', help='角色名称')
+    parser = argparse.ArgumentParser(description="生成角色设计图")
+    parser.add_argument("project", help="项目名称")
+    parser.add_argument("character", help="角色名称")
     # 移除 --ref 参数
 
     args = parser.parse_args()

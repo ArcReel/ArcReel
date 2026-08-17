@@ -32,10 +32,10 @@
 ```python
 class ProjectStatus:
     current_phase: Literal["setup", "worldbuilding", "scripting", "production", "completed"]
-    phase_progress: float   # 0.0–1.0，当前阶段完成率
-    characters: CategoryProgress   # { total: int, completed: int }
-    scenes: CategoryProgress       # { total: int, completed: int }
-    props: CategoryProgress        # { total: int, completed: int }
+    phase_progress: float  # 0.0–1.0，当前阶段完成率
+    characters: CategoryProgress  # { total: int, completed: int }
+    scenes: CategoryProgress  # { total: int, completed: int }
+    props: CategoryProgress  # { total: int, completed: int }
     episodes_summary: EpisodesSummary
     # {
     #     total: int,
@@ -54,8 +54,8 @@ class EpisodeMeta:
     # segmented = drafts/episode_N/step1_segments.md 存在
     # generated = scripts/episode_N.json 存在
 
-    storyboards: CategoryProgress   # { total: int, completed: int }
-    videos: CategoryProgress        # { total: int, completed: int }
+    storyboards: CategoryProgress  # { total: int, completed: int }
+    videos: CategoryProgress  # { total: int, completed: int }
     status: Literal["draft", "scripted", "in_production", "completed"]
     scenes_count: int
     duration_seconds: int
@@ -91,9 +91,9 @@ class EpisodeMeta:
 
 # 之后返回
 {
-    "script_status": "none" | "segmented" | "generated",   # 新增
-    "storyboards": { "total": int, "completed": int },      # 结构变更
-    "videos": { "total": int, "completed": int },           # 结构变更
+    "script_status": "none" | "segmented" | "generated",  # 新增
+    "storyboards": {"total": int, "completed": int},  # 结构变更
+    "videos": {"total": int, "completed": int},  # 结构变更
     "status": "draft" | "scripted" | "in_production" | "completed",
     "scenes_count": int,
     "duration_seconds": int,
@@ -141,9 +141,14 @@ def enrich_project(project_name, project):
         if ep.get("script_file"):
             stats = self.calculate_episode_stats(project_name, ep)
         else:
-            stats = { "script_status": "none", "storyboards": {"total":0,"completed":0},
-                      "videos": {"total":0,"completed":0}, "status": "draft",
-                      "scenes_count": 0, "duration_seconds": 0 }
+            stats = {
+                "script_status": "none",
+                "storyboards": {"total": 0, "completed": 0},
+                "videos": {"total": 0, "completed": 0},
+                "status": "draft",
+                "scenes_count": 0,
+                "duration_seconds": 0,
+            }
         ep.update(stats)
         episodes_stats.append(stats)
 
@@ -165,7 +170,7 @@ def enrich_project(project_name, project):
             "scripted": sum(1 for s in episodes_stats if s["script_status"] == "generated"),
             "in_production": sum(1 for s in episodes_stats if s["status"] == "in_production"),
             "completed": sum(1 for s in episodes_stats if s["status"] == "completed"),
-        }
+        },
     }
 ```
 

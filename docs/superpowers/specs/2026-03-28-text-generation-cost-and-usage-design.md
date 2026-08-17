@@ -66,9 +66,7 @@ class TextGenerator:
         self.usage_tracker = usage_tracker
 
     @classmethod
-    async def create(
-        cls, task_type: TextTaskType, project_name: str | None = None
-    ) -> "TextGenerator":
+    async def create(cls, task_type: TextTaskType, project_name: str | None = None) -> "TextGenerator":
         backend = await create_text_backend_for_task(task_type, project_name)
         usage_tracker = UsageTracker()
         return cls(backend, usage_tracker)

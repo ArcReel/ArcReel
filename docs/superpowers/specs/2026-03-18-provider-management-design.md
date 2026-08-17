@@ -128,14 +128,14 @@ class ConfigService:
 ```python
 @dataclass
 class ProviderStatus:
-    name: str                              # "gemini-aistudio"
-    display_name: str                      # "Gemini AI Studio"
+    name: str  # "gemini-aistudio"
+    display_name: str  # "Gemini AI Studio"
     status: Literal["ready", "unconfigured", "error"]
-    media_types: list[str]                 # ["video", "image"]
-    capabilities: list[str]                # ["text_to_video", ...]
-    required_keys: list[str]               # ["api_key"]
-    configured_keys: list[str]             # 已配置的 key 列表
-    missing_keys: list[str]                # 缺失的必需 key
+    media_types: list[str]  # ["video", "image"]
+    capabilities: list[str]  # ["text_to_video", ...]
+    required_keys: list[str]  # ["api_key"]
+    configured_keys: list[str]  # 已配置的 key 列表
+    missing_keys: list[str]  # 缺失的必需 key
 ```
 
 ## 2. JSON → DB 迁移

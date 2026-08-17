@@ -62,9 +62,9 @@ class TextCapability(str, Enum):
 
 ```python
 class TextTaskType(str, Enum):
-    SCRIPT = "script"           # 剧本生成
-    OVERVIEW = "overview"       # 概述/摘要生成
-    STYLE_ANALYSIS = "style"    # 风格图分析
+    SCRIPT = "script"  # 剧本生成
+    OVERVIEW = "overview"  # 概述/摘要生成
+    STYLE_ANALYSIS = "style"  # 风格图分析
 ```
 
 ### ImageInput 数据类
@@ -72,8 +72,8 @@ class TextTaskType(str, Enum):
 ```python
 @dataclass
 class ImageInput:
-    path: Path | None = None    # 本地图片路径
-    url: str | None = None      # 远程图片 URL
+    path: Path | None = None  # 本地图片路径
+    url: str | None = None  # 远程图片 URL
 ```
 
 ### TextGenerationRequest 数据类
@@ -82,9 +82,9 @@ class ImageInput:
 @dataclass
 class TextGenerationRequest:
     prompt: str
-    response_schema: dict | None = None       # JSON Schema，用于结构化输出
-    images: list[ImageInput] | None = None    # 图片输入，用于 vision
-    system_prompt: str | None = None          # 系统 prompt
+    response_schema: dict | None = None  # JSON Schema，用于结构化输出
+    images: list[ImageInput] | None = None  # 图片输入，用于 vision
+    system_prompt: str | None = None  # 系统 prompt
 ```
 
 ### TextGenerationResult 数据类
@@ -201,9 +201,10 @@ def get_registered_backends() -> list[str]
 @dataclass(frozen=True)
 class ModelInfo:
     display_name: str
-    media_type: str                # "text" | "image" | "video"
-    capabilities: list[str]        # 对应 media_type 的能力枚举值
-    default: bool = False          # 是否为该 media_type 的默认模型
+    media_type: str  # "text" | "image" | "video"
+    capabilities: list[str]  # 对应 media_type 的能力枚举值
+    default: bool = False  # 是否为该 media_type 的默认模型
+
 
 @dataclass(frozen=True)
 class ProviderMeta:
@@ -238,6 +239,7 @@ class ProviderMeta:
 ```python
 _DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3-flash-preview"
 
+
 async def get_default_text_backend(self) -> tuple[str, str]:
     raw = await self._setting_repo.get("default_text_backend", _DEFAULT_TEXT_BACKEND)
     return self._parse_backend(raw, _DEFAULT_TEXT_BACKEND)
@@ -249,7 +251,9 @@ async def get_default_text_backend(self) -> tuple[str, str]:
 
 ```python
 async def text_backend_for_task(
-    self, task_type: TextTaskType, project_name: str | None = None,
+    self,
+    task_type: TextTaskType,
+    project_name: str | None = None,
 ) -> tuple[str, str]:
     """按优先级解析文本 backend。
 
@@ -289,6 +293,7 @@ PROVIDER_ID_TO_BACKEND = {
     "ark": "ark",
     "grok": "grok",
 }
+
 
 async def create_text_backend_for_task(
     task_type: TextTaskType,
@@ -391,9 +396,13 @@ GROK_TEXT_COST = {
     "grok-4-1-fast-reasoning": {"input": 2.00, "output": 10.00},
 }
 
+
 def calculate_text_cost(
-    self, input_tokens: int, output_tokens: int,
-    provider: str, model: str,
+    self,
+    input_tokens: int,
+    output_tokens: int,
+    provider: str,
+    model: str,
 ) -> tuple[float, str]:
     """返回 (amount, currency)"""
 ```

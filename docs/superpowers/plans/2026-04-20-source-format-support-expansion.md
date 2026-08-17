@@ -209,9 +209,7 @@ class SourceDecodeError(SourceLoaderError):
     def __init__(self, filename: str, tried_encodings: list[str | None]):
         self.filename = filename
         self.tried_encodings = [e for e in tried_encodings if e]
-        super().__init__(
-            f"Failed to decode {filename} (tried: {', '.join(self.tried_encodings) or 'n/a'})"
-        )
+        super().__init__(f"Failed to decode {filename} (tried: {', '.join(self.tried_encodings) or 'n/a'})")
 
 
 class CorruptFileError(SourceLoaderError):
@@ -226,9 +224,7 @@ class FileSizeExceededError(SourceLoaderError):
         self.filename = filename
         self.size_bytes = size_bytes
         self.limit_bytes = limit_bytes
-        super().__init__(
-            f"{filename} ({size_bytes} bytes) exceeds limit ({limit_bytes} bytes)"
-        )
+        super().__init__(f"{filename} ({size_bytes} bytes) exceeds limit ({limit_bytes} bytes)")
 
 
 class ConflictError(SourceLoaderError):
@@ -1114,9 +1110,7 @@ def test_load_size_limit_raises(tmp_path: Path):
     src = tmp_path / "big.txt"
     src.write_bytes(b"a" * 100)
     with pytest.raises(FileSizeExceededError):
-        SourceLoader.load(
-            src, project_source, original_filename="big.txt", max_bytes=50
-        )
+        SourceLoader.load(src, project_source, original_filename="big.txt", max_bytes=50)
 
 
 def test_detect_conflict_finds_existing_normalized(tmp_path: Path):
@@ -1155,9 +1149,7 @@ def test_load_on_conflict_fail_raises(tmp_path: Path):
     src = tmp_path / "novel.txt"
     src.write_bytes("新内容".encode("utf-8"))
     with pytest.raises(ConflictError) as exc_info:
-        SourceLoader.load(
-            src, project_source, original_filename="novel.txt", on_conflict="fail"
-        )
+        SourceLoader.load(src, project_source, original_filename="novel.txt", on_conflict="fail")
     assert exc_info.value.suggested_name == "novel_1"
 
 
@@ -1168,9 +1160,7 @@ def test_load_on_conflict_replace_overwrites(tmp_path: Path):
 
     src = tmp_path / "novel.txt"
     src.write_bytes("新内容".encode("utf-8"))
-    result = SourceLoader.load(
-        src, project_source, original_filename="novel.txt", on_conflict="replace"
-    )
+    result = SourceLoader.load(src, project_source, original_filename="novel.txt", on_conflict="replace")
     assert result.normalized_path.read_text(encoding="utf-8") == "新内容"
 
 
@@ -1181,9 +1171,7 @@ def test_load_on_conflict_rename_uses_suggested(tmp_path: Path):
 
     src = tmp_path / "novel.txt"
     src.write_bytes("新内容".encode("utf-8"))
-    result = SourceLoader.load(
-        src, project_source, original_filename="novel.txt", on_conflict="rename"
-    )
+    result = SourceLoader.load(src, project_source, original_filename="novel.txt", on_conflict="rename")
     assert result.normalized_path == project_source / "novel_1.txt"
     assert result.original_filename == "novel_1.txt"
 
@@ -1242,9 +1230,7 @@ class SourceLoader:
     DEFAULT_MAX_BYTES = 50 * 1024 * 1024
 
     @classmethod
-    def detect_conflict(
-        cls, original_filename: str, dst_dir: Path
-    ) -> tuple[bool, str]:
+    def detect_conflict(cls, original_filename: str, dst_dir: Path) -> tuple[bool, str]:
         """返回 (has_conflict, suggested_stem).
 
         冲突条件：
@@ -1263,9 +1249,7 @@ class SourceLoader:
         while True:
             candidate_stem = f"{stem}_{idx}"
             candidate_norm = dst_dir / f"{candidate_stem}.txt"
-            candidate_raw = (
-                dst_dir / "raw" / f"{candidate_stem}{Path(original_filename).suffix}"
-            )
+            candidate_raw = dst_dir / "raw" / f"{candidate_stem}{Path(original_filename).suffix}"
             if not candidate_norm.exists() and not candidate_raw.exists():
                 return True, candidate_stem
             idx += 1
@@ -1288,9 +1272,7 @@ class SourceLoader:
 
         size = src.stat().st_size
         if size > max_bytes:
-            raise FileSizeExceededError(
-                filename=original_filename, size_bytes=size, limit_bytes=max_bytes
-            )
+            raise FileSizeExceededError(filename=original_filename, size_bytes=size, limit_bytes=max_bytes)
 
         # 冲突协商
         has_conflict, suggested_stem = cls.detect_conflict(original_filename, dst_dir)
@@ -1298,9 +1280,7 @@ class SourceLoader:
         effective_filename = original_filename
         if has_conflict:
             if on_conflict == "fail":
-                raise ConflictError(
-                    existing=f"{target_stem}.txt", suggested_name=suggested_stem
-                )
+                raise ConflictError(existing=f"{target_stem}.txt", suggested_name=suggested_stem)
             if on_conflict == "rename":
                 target_stem = suggested_stem
                 effective_filename = f"{suggested_stem}{ext}"
@@ -1699,9 +1679,7 @@ def test_upload_source_conflict_returns_409_with_suggestion(client_with_project)
 def test_upload_source_on_conflict_replace(client_with_project):
     client, project_name = client_with_project
     _upload_source(client, project_name, "novel.txt", "旧内容".encode("utf-8"))
-    resp = _upload_source(
-        client, project_name, "novel.txt", "新内容".encode("utf-8"), on_conflict="replace"
-    )
+    resp = _upload_source(client, project_name, "novel.txt", "新内容".encode("utf-8"), on_conflict="replace")
     assert resp.status_code == 200
     # 通过 GET 拉文本验证已替换
     get_resp = client.get(f"/api/v1/projects/{project_name}/source/novel.txt")
@@ -1712,9 +1690,7 @@ def test_upload_source_on_conflict_replace(client_with_project):
 def test_upload_source_on_conflict_rename(client_with_project):
     client, project_name = client_with_project
     _upload_source(client, project_name, "novel.txt", "首次".encode("utf-8"))
-    resp = _upload_source(
-        client, project_name, "novel.txt", "新版".encode("utf-8"), on_conflict="rename"
-    )
+    resp = _upload_source(client, project_name, "novel.txt", "新版".encode("utf-8"), on_conflict="rename")
     assert resp.status_code == 200
     body = resp.json()
     assert body["filename"] == "novel_1.txt"
@@ -1726,6 +1702,7 @@ def test_delete_source_cascades_raw(client_with_project, tmp_path):
     _upload_source(client, project_name, "to_delete.txt", raw)
     # 上传后应当存在 raw 备份
     from lib import PROJECT_ROOT
+
     raw_path = PROJECT_ROOT / "projects" / project_name / "source" / "raw" / "to_delete.txt"
     assert raw_path.exists()
 
@@ -1862,9 +1839,7 @@ async def _handle_source_upload(
     original_filename = file.filename
 
     def _sync() -> NormalizeResult:
-        with tempfile.NamedTemporaryFile(
-            suffix=Path(original_filename).suffix, delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=Path(original_filename).suffix, delete=False) as tmp:
             tmp.write(content)
             tmp_path = Path(tmp.name)
         try:
@@ -1906,9 +1881,7 @@ async def _handle_source_upload(
     except CorruptFileError as exc:
         raise HTTPException(
             status_code=422,
-            detail=_t(
-                "source_corrupt_file", filename=exc.filename, reason=exc.reason
-            ),
+            detail=_t("source_corrupt_file", filename=exc.filename, reason=exc.reason),
         )
     except ConflictError as exc:
         raise HTTPException(
@@ -2207,9 +2180,7 @@ async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, 
             )
             try:
                 marker_dir.mkdir(exist_ok=True)
-                (marker_dir / "migration_errors.log").write_text(
-                    f"FATAL: {exc}\n", encoding="utf-8"
-                )
+                (marker_dir / "migration_errors.log").write_text(f"FATAL: {exc}\n", encoding="utf-8")
                 marker.touch()
             except Exception:  # noqa: BLE001
                 pass
@@ -2227,21 +2198,17 @@ async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, 
 在 `server/app.py` lifespan startup 段，`await asyncio.to_thread(cleanup_stale_backups, projects_root, 7)` 之后加：
 
 ```python
-    # 源文件编码迁移（幂等；失败不阻塞启动）
-    source_migration_summary = await _migrate_source_encoding_on_startup(projects_root)
-    migrated_total = sum(
-        len(s.get("migrated") or []) for s in source_migration_summary.values()
+# 源文件编码迁移（幂等；失败不阻塞启动）
+source_migration_summary = await _migrate_source_encoding_on_startup(projects_root)
+migrated_total = sum(len(s.get("migrated") or []) for s in source_migration_summary.values())
+failed_total = sum(len(s.get("failed") or []) for s in source_migration_summary.values())
+if migrated_total or failed_total:
+    logger.info(
+        "源文件编码迁移完成：migrated=%d failed=%d projects=%d",
+        migrated_total,
+        failed_total,
+        len(source_migration_summary),
     )
-    failed_total = sum(
-        len(s.get("failed") or []) for s in source_migration_summary.values()
-    )
-    if migrated_total or failed_total:
-        logger.info(
-            "源文件编码迁移完成：migrated=%d failed=%d projects=%d",
-            migrated_total,
-            failed_total,
-            len(source_migration_summary),
-        )
 ```
 
 - [ ] **Step 5: 运行测试**

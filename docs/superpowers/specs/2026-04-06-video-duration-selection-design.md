@@ -89,7 +89,7 @@ class CreateProjectRequest(BaseModel):
     title: str | None = None
     style: str | None = ""
     content_mode: str | None = "narration"
-    aspect_ratio: str = "9:16"             # 新增，独立于 content_mode
+    aspect_ratio: str = "9:16"  # 新增，独立于 content_mode
 ```
 
 `project_manager.create_project_metadata()` 新增 `aspect_ratio` 参数，写入 `project.json` 顶层：
@@ -112,7 +112,7 @@ class CreateProjectRequest(BaseModel):
 
 ```python
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
-    if resource_type == "characters":      # 角色四视图横版
+    if resource_type == "characters":  # 角色四视图横版
         return "16:9"
     if resource_type in ("scenes", "props"):
         return "16:9"

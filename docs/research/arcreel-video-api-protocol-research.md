@@ -516,8 +516,10 @@ ArcReel 当前**自定义供应商接入流程已经存在且不需要重新设�
    ```python
    _BACKEND_FACTORIES: dict[str, Callable[..., VideoBackend]] = {}
 
+
    def register_backend(name: str, factory: Callable[..., VideoBackend]) -> None:
        _BACKEND_FACTORIES[name] = factory
+
 
    def create_backend(name: str, **kwargs) -> VideoBackend:
        if name not in _BACKEND_FACTORIES:
