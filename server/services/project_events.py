@@ -809,7 +809,7 @@ class ProjectEventService:
 
         ``chars_field`` 非 ``None`` 时角色读逐条字段、场景/道具读顶层 ``scenes`` / ``props``；为
         ``None``（video_units 无逐条实体字段的显式缺位，见 ``SKELETONS``）时三者均从条目
-        ``references`` 按引用类型派生（与 ``status_calculator`` 同规则，使 video_unit 的
+        ``references`` 按引用类型派生（与项目摘要的资产聚合同规则，使 video_unit 的
         场景/道具/产品引用编辑也能进入差分）。
         """
         if chars_field is not None:

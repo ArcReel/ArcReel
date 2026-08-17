@@ -292,8 +292,6 @@ class NarrationEpisodeScript(BaseModel):
     title: str = Field(description="剧集标题")
     # content_mode 由 _add_metadata setdefault 注入项目级真值;Literal 单值让 LLM 写无意义
     content_mode: SkipJsonSchema[Literal["narration"]] = Field(default="narration", description="内容模式")
-    # 顶层 duration_seconds 由 ScriptGenerator._add_metadata 求各段之和重算，LLM 填的值会被覆盖；隐藏避免冗余。
-    duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
     # novel 由 _add_metadata 注入 {项目 title, f"第N集"};compose-video 用 chapter 作输出文件名,LLM 自由发挥反而不可预测
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     # hook / next_episode_teaser 由 _add_metadata 从分集账本注入（账本是钩子设计的
@@ -521,8 +519,6 @@ class DramaEpisodeScript(BaseModel):
     title: str = Field(description="剧集标题")
     # 见 NarrationEpisodeScript.content_mode 说明
     content_mode: SkipJsonSchema[Literal["drama"]] = Field(default="drama", description="内容模式")
-    # 见 NarrationEpisodeScript.duration_seconds 说明。
-    duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
     # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     # 见 NarrationEpisodeScript 同名字段说明。
@@ -717,8 +713,6 @@ class AdEpisodeScript(BaseModel):
     title: str = Field(description="短片标题")
     # 见 NarrationEpisodeScript.content_mode 说明
     content_mode: SkipJsonSchema[Literal["ad"]] = Field(default="ad", description="内容模式")
-    # 见 NarrationEpisodeScript.duration_seconds 说明。
-    duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
     # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     shots: list[AdShot] = Field(description="镜头列表")
@@ -768,8 +762,7 @@ def ad_script_total_duration(shots: object) -> int:
 #: 缺 duration_seconds 时按骨架种类取的兜底时长（秒）——剧本条目时长的单一真相源。
 #: segments/scenes 沿用历史默认；shots（ad）与 video_units（参考直出）无单镜头默认时长
 #: 偏好（按 target/预算逐条规划），缺失按 0 计，避免杜撰值污染与目标总时长的对照。
-#: 三个消费方（StatusCalculator 读时计算、ProjectManager 写盘重算、ScriptGenerator
-#: 落盘估算）共用此表，四种骨架全登记；第五种骨架加入即在 ``item_duration`` 查表 KeyError。
+#: 四种骨架全登记；第五种骨架加入即在 ``item_duration`` 查表 KeyError。
 _ITEM_FALLBACK_DURATIONS: dict[str, int] = {"segments": 4, "scenes": 8, "shots": 0, "video_units": 0}
 
 
@@ -882,8 +875,6 @@ class ReferenceVideoScript(BaseModel):
     content_mode: SkipJsonSchema[Literal["narration", "drama", "ad"]] = Field(
         default="narration", description="内容类型（narration/drama/ad）"
     )
-    # 见 NarrationEpisodeScript.duration_seconds 说明。
-    duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
     # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     # 见 NarrationEpisodeScript 同名字段说明。

@@ -13,7 +13,7 @@ status: accepted
 
 ## 决定
 
-- **`ad` 为 content_mode 第三值**：复用全部按 content_mode 分派的机制（profile 变体 `CLAUDE.ad.md`、SCRIPT_SHAPES、创建后不可变约束、StatusCalculator 分派）。
+- **`ad` 为 content_mode 第三值**：复用全部按 content_mode 分派的机制（profile 变体 `CLAUDE.ad.md`、SCRIPT_SHAPES、创建后不可变约束、项目摘要的每集统计分派）。
 - **骨架按生成路线派生**：storyboard 路径使用平铺 `shots[]`（`shot_id`，E1S{n}），每镜头携带 `section` 与一等口播文案 `voiceover_text`；reference_video 路径使用自包含 `video_units[]`，每个 unit 自身承载正文、编排时长、引用与产物归属。运行时不读取或写回旧 `reference_units`。
 - **ad 仅开放 storyboard 与 reference_video**：grid 不开放——宫格单格分辨率与产品高保真目标冲突，其画风一致性价值在 ad 由产品/风格参考承载。
 - **恒单集承载**：ad 项目 episodes 恒为 `[{episode: 1, …}]`，剧本即 `scripts/episode_1.json`；按集机械（状态/归档/版本/费用/导出）零结构改动，前端对 ad 隐藏集语义。未来「一产品多变体」以每集=一个变体扩展。

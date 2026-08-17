@@ -76,7 +76,7 @@ from lib.project_change_hints import emit_project_change_hint
 from lib.project_schema import parse_project_schema_version
 from lib.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
-from lib.script_models import get_generated_assets, script_duration_total
+from lib.script_models import get_generated_assets
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 from lib.validation_messages import ValidationResult
 
@@ -652,8 +652,6 @@ class ProjectManager:
             "metadata": {
                 "created_at": datetime.now(UTC).isoformat(),
                 "updated_at": datetime.now(UTC).isoformat(),
-                "total_scenes": 0,
-                "estimated_duration_seconds": 0,
                 "status": "draft",
             },
         }
@@ -878,34 +876,6 @@ class ProjectManager:
         metadata.setdefault("created_at", now)
         metadata.setdefault("status", "draft")
         metadata["updated_at"] = now
-
-        # 选当前剧本的分镜数组：与结构校验 `_select_model` / 编辑核心 `resolve_items` 共用同一
-        # 判别（含 reference 模式的 video_units——否则它会落入 segments 兜底分支、total_scenes 错算为 0）。
-        # `resolve_items` 对 segments/scenes/video_units 存在但非 list（含 null 这类历史脏数据）会
-        # fail-loud：`validate=True` 路径已被 `_guard_no_worse` 提前拦下（不会到这里）；只有
-        # `validate=False` 资产回写热路径才会撞上脏数据键，此时**保留旧 metadata 不重算**——
-        # 旧的 total_scenes / estimated_duration_seconds 即便陈旧，也好过把 reference 模式
-        # 改写成 0-scene narration shell（fallback hard-pin kind='segments' 那种）。资产回写本就
-        # 「整体豁免结构校验」，连带豁免 metadata 重算与「不更坏」语义一致：脏数据不更坏。
-        try:
-            items, _id_field, kind = resolve_items(script)
-        except ScriptEditError as e:
-            logger.warning(
-                "剧本 %s 数据损坏（%s），跳过 metadata 重算以保留旧值",
-                output_path.name,
-                e,
-            )
-        else:
-            # 损坏脚本可能混入非 dict 元素（如 ["foo", {...}]）——它们在读取路径
-            # （get_pending_scenes 等）与写入路径（batch_update 索引 / update_scene_asset 循环）
-            # 都被当作不存在过滤掉，metadata 重算一并排除：否则 total_scenes 会多计、
-            # estimated_duration_seconds 会被垃圾元素按 default 时长撑大，与各路径不一致。
-            scene_items = [item for item in items if isinstance(item, dict)]
-            metadata["total_scenes"] = len(scene_items)
-            # 总时长走 script_duration_total 单一真相源：脏值（None/bool/负数/字符串）按骨架
-            # 兜底时长归一、不抛（见 lib/script_models.py）。与 StatusCalculator 读时计算、
-            # ScriptGenerator 落盘估算共用同一兜底表与守卫，避免三处口径漂移。
-            metadata["estimated_duration_seconds"] = script_duration_total(kind, scene_items)
 
         # 原子写（含路径遍历防护，output_path 已在守卫前解析），避免并发 PATCH 导致 JSON 损坏
         atomic_write_json(output_path, script)
@@ -1199,7 +1169,7 @@ class ProjectManager:
         if episode_entry is None:
             episode_entry = {"episode": episode_num}
             episodes.append(episode_entry)
-        # 同步核心元数据（不包含统计字段，统计字段由 StatusCalculator 读时计算）
+        # 同步核心元数据（不包含统计字段，统计字段由项目摘要读时计算）
         episode_entry["title"] = episode_title
         episode_entry["script_file"] = script_file
         episodes.sort(key=lambda x: x["episode"])
@@ -2372,7 +2342,7 @@ class ProjectManager:
                     ep["title"] = title
                     ep["script_file"] = script_file
                     return
-            # 添加新剧集（不包含统计字段，由 StatusCalculator 读时计算）
+            # 添加新剧集（不包含统计字段，由项目摘要读时计算）
             project["episodes"].append({"episode": episode, "title": title, "script_file": script_file})
             project["episodes"].sort(key=lambda x: x["episode"])
 
@@ -2383,7 +2353,7 @@ class ProjectManager:
         [已废弃] 同步项目状态
 
         此方法已废弃。status、progress、scenes_count 等统计字段
-        现在由 StatusCalculator 读时计算，不再存储在 JSON 文件中。
+        现在由项目摘要读时计算，不再存储在 JSON 文件中。
 
         保留此方法仅为向后兼容，实际不执行任何写入操作。
 
@@ -2391,12 +2361,12 @@ class ProjectManager:
             project_name: 项目名称
 
         Returns:
-            项目元数据（不含统计字段，统计字段由 StatusCalculator 注入）
+            项目元数据（不含统计字段，统计字段由项目摘要注入）
         """
         import warnings
 
         warnings.warn(
-            "sync_project_status() 已废弃。status 等统计字段现由 StatusCalculator 读时计算。",
+            "sync_project_status() 已废弃。status 等统计字段现由项目摘要读时计算。",
             DeprecationWarning,
             stacklevel=2,
         )

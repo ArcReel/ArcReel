@@ -265,8 +265,7 @@ class TestProjectManagerMore:
         assert path.name == "episode_1.json"
 
         loaded = pm.load_script("demo", "episode_1.json")
-        assert loaded["metadata"]["total_scenes"] == 1
-        assert loaded["metadata"]["estimated_duration_seconds"] == 4
+        assert loaded["segments"][0]["segment_id"] == "E1S01"
         assert pm.list_scripts("demo") == ["episode_1.json"]
 
         synced = pm.sync_episode_from_script("demo", "episode_1.json")

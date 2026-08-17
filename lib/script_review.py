@@ -7,7 +7,7 @@ router / service（结构化中间态审阅 / 编辑 / 确认）。状态派生�
 重拆分、晋升、迁移回写）全部汇入，锁、乐观并发比对与 step2 隔离草稿清理只存在一处。
 
 真值只存「确认指纹」于 project.json ``episodes[i].step1_review``；pending / confirmed 由读时
-比对 live step1 内容指纹派生（沿 StatusCalculator「能算不存」哲学）。因此重跑 normalize、agent
+比对 live step1 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、agent
 改写 step1、web 手改 step1 都会让指纹漂移、自动重新待审，无需 hook 各异的 step1 写入路径
 （narration step1 由 subagent Write 落盘、无 Python chokepoint）。
 

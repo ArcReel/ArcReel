@@ -160,7 +160,8 @@ async def test_script_generator_overrides_llm_duration_with_step1_confirmed_valu
 
     data = _json.loads(out.read_text(encoding="utf-8"))
     assert data["video_units"][0]["duration_seconds"] == 4  # step1 确认值
-    assert data["duration_seconds"] == 4
+    # 集总时长不落盘：它是逐 unit 求和的派生值，由项目摘要读时计算
+    assert "duration_seconds" not in data
 
 
 @pytest.mark.asyncio
