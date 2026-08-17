@@ -28,6 +28,11 @@ from lib.artifact_manifest import (
 from lib.data_validator import DataValidator
 from lib.episode_paths import episode_script_filename
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager
+from lib.project_migration_failure import (
+    MIGRATION_FAILURE_CODE,
+    RETRY_MIGRATION_ACTION,
+    ProjectMigrationError,
+)
 from lib.reference_video import rederive_unit_references
 from lib.script_editor import ScriptEditError, patch_field, resolve_items
 from lib.script_review import content_fingerprint_of_data
@@ -405,6 +410,11 @@ class ScriptBatchEditor:
                         resource_ids=frozenset(final_ids),
                         removed_resource_ids=frozenset(affected_ids) - final_ids,
                     )
+                except ProjectMigrationError:
+                    # 项目未升级到当前数据版本，交给外层按迁移口径回执；它同时是
+                    # ArtifactManifestError 与 ValueError，不先接住就会被下面这条泛化成
+                    # 「清单不可用、请重试」。
+                    raise
                 except (ArtifactManifestError, OSError, UnicodeError, ValueError) as exc:
                     raise _AbortEdit(
                         self._failure(
@@ -428,6 +438,17 @@ class ScriptBatchEditor:
                 code="revision_conflict",
                 reason="script_binding_changed",
                 next_action="refresh_script",
+            )
+        except ProjectMigrationError as exc:
+            # 未升级到当前数据版本的项目在提交清单时被阻断。这条要带着迁移的原因与动作回去：
+            # 泛化成 commit_failed/retry 会让调用方原样重试，而重试永远不会让项目完成迁移。
+            return self._failure(
+                script=resolved_script,
+                episode=episode_number,
+                revision=before_revision,
+                code=MIGRATION_FAILURE_CODE,
+                reason=exc.violation,
+                next_action=RETRY_MIGRATION_ACTION,
             )
         except Exception:
             logger.exception("script batch edit commit failed")

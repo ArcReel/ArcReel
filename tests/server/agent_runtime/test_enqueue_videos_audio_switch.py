@@ -241,7 +241,9 @@ class _EpisodePM:
         if with_storyboard:
             assets["storyboard_image"] = "storyboards/scene_E1S01.png"
         if with_video:
-            assets["video_clip"] = "videos/scene_E1S01.mp4"
+            from lib.resource_paths import resource_relative_path
+
+            assets["video_clip"] = resource_relative_path("videos", "E1S01")
         if assets:
             item["generated_assets"] = assets
         self.script_payload: dict[str, Any] = {"content_mode": "narration", "episode": 1, "segments": [item]}

@@ -73,7 +73,6 @@ class CurrentReferenceAssets:
                 continue
             if staged_content_digests is None:
                 selected = snapshot_usable_artifact_input_claim(
-                    project_path=self._project_path,
                     resolver=self._resolver,
                     key=claim.key,
                     artifact_path=claim.artifact_path,

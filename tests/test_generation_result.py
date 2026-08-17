@@ -150,11 +150,9 @@ def test_normalize_requested_ids_is_the_single_gate_for_selection_intent() -> No
         normalize_requested_ids("A", field="names")
 
 
-def test_missing_only_reselects_a_recorded_path_the_manifest_no_longer_claims(tmp_path: Path) -> None:
+def test_missing_only_reselects_a_recorded_path_the_manifest_no_longer_claims() -> None:
     """登记路径指向的文件被删/被移后，比对报 MISSING，该单元判为缺失而不是被永久复用。"""
 
-    (tmp_path / "videos").mkdir()
-    (tmp_path / "videos" / "kept.mp4").write_bytes(b"x")
     resolver = _Resolver({"GONE": ArtifactStatus.MISSING, "KEPT": ArtifactStatus.CURRENT})
 
     selection = select_generation_targets(

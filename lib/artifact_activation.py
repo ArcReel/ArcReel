@@ -235,7 +235,7 @@ class _Planner:
         """Resolve one post-commit target through the same canonical planner."""
 
         if not project_schema_is_current(self.project):
-            raise RuntimeError("Artifact Manifest is not activated for this project schema")
+            raise ProjectMigrationError("Artifact Manifest is not activated for this project schema")
         self._plan_key(key)
         return self.entries.get(key)
 
@@ -243,7 +243,7 @@ class _Planner:
         """Resolve one canonical basis without requiring its formal output yet."""
 
         if not project_schema_is_current(self.project):
-            raise RuntimeError("Artifact Manifest is not activated for this project schema")
+            raise ProjectMigrationError("Artifact Manifest is not activated for this project schema")
         self._plan_key(key)
         return self.bases.get(key)
 
@@ -1761,7 +1761,7 @@ class ArtifactCurrencyResolver:
         self._project_dir = Path(project_dir)
         root_planner = _Planner(project_dir)
         if not project_schema_is_current(root_planner.project):
-            raise RuntimeError("Artifact Manifest is not activated for this project schema")
+            raise ProjectMigrationError("Artifact Manifest is not activated for this project schema")
         # Validate the sidecar once even when a workflow phase has no artifacts
         # to compare.  A corrupt active manifest is a blocker, never an empty
         # target state or permission to fall back to filesystem existence.
@@ -1925,7 +1925,6 @@ def resolve_usable_episode_script_input(
     if _decode_script_content_snapshot(content_bytes, artifact_path) != script:
         raise ValueError(f"formal artifact input changed while it was selected: {artifact_path}")
     claim = snapshot_usable_artifact_input_claim(
-        project_path=project_path,
         resolver=active_artifact_currency_resolver(project_path, project),
         key=ArtifactKey.episode_script(episode),
         artifact_path=artifact_path,
@@ -2009,7 +2008,6 @@ def resolve_usable_artifact_input_claim(
 
 def snapshot_usable_artifact_input_claim(
     *,
-    project_path: Path,
     resolver: ArtifactCurrencyResolver,
     key: ArtifactKey,
     artifact_path: str,
@@ -2305,7 +2303,7 @@ def artifact_key_for_resource(
             return ArtifactKey.asset_sheet(asset_type, resource_id)
     planner = _Planner(project_dir)
     if not project_schema_is_current(planner.project):
-        raise RuntimeError("Artifact Manifest is not activated for this project schema")
+        raise ProjectMigrationError("Artifact Manifest is not activated for this project schema")
     if resource_type == "grids":
         grid = next((candidate for candidate in planner._load_grid_records() if candidate.id == resource_id), None)
         if grid is None:

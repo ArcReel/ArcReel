@@ -40,10 +40,11 @@ def _write_project_json(project_path: Path, payload: dict) -> None:
     )
 
 
-def _register_step1_artifact(project_path: Path, episode: int = 1) -> None:
-    """把已落盘的 step1 按生产补录路径登记进产物清单。
+def _activate_project_artifacts(project_path: Path, episode: int = 1) -> None:
+    """补齐该集的溯源输入后，对项目做一次全量产物激活。
 
     产物清单是读取已生成产物的唯一口径：落盘本身不代表已登记，未登记的 step1 不能进入付费调用。
+    ``episode`` 只决定补写哪一集的 ``source/episode_{episode}.txt``；登记范围是整个项目。
     """
     source = project_path / "source" / f"episode_{episode}.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
@@ -302,7 +303,7 @@ class TestScriptGenerator:
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
         )
         _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", "[]")
-        _register_step1_artifact(project_path)
+        _activate_project_artifacts(project_path)
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="顶层应为对象"):
             generator._load_drama_step1_content(1)
@@ -1639,14 +1640,14 @@ def _write_step1_json(project_path: Path, episode: int, segments: list[dict], *,
     path = project_path / "drafts" / f"episode_{episode}" / "step1_segments.json"
     _write(path, json.dumps({"episode": episode, "segments": segments}, ensure_ascii=False))
     if register:
-        _register_step1_artifact(project_path, episode)
+        _activate_project_artifacts(project_path, episode)
 
 
 def _write_drama_step1_json(project_path: Path, episode: int, content: dict, *, register: bool = True) -> None:
     """写 drama step1 结构化中间文件 step1_normalized_script.json，并登记进产物清单。"""
     _write_json(project_path / "drafts" / f"episode_{episode}" / "step1_normalized_script.json", content)
     if register:
-        _register_step1_artifact(project_path, episode)
+        _activate_project_artifacts(project_path, episode)
 
 
 def _narration_visual_response(segment_ids: list[str], *, title: str = "第一集") -> dict:
@@ -1740,7 +1741,7 @@ class TestLoadNarrationStep1:
         path = self._step1_path(sg, episode)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        _register_step1_artifact(sg.project_path, episode)
+        _activate_project_artifacts(sg.project_path, episode)
 
     @pytest.mark.unit
     def test_loads_structured_segments_verbatim(self, tmp_path):
@@ -1856,7 +1857,7 @@ class TestLoadReferenceStep1:
         path = self._step1_path(sg, episode)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        _register_step1_artifact(sg.project_path, episode)
+        _activate_project_artifacts(sg.project_path, episode)
 
     @staticmethod
     def _unit(unit_id: str, *, duration: int = 6) -> dict:

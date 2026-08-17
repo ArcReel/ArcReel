@@ -52,10 +52,11 @@ def _fake_step2_generator(*texts: str) -> MagicMock:
 STEP2_UNIT_TEXT = "镜头1：中景，平视。@[主角] 推开 @[酒馆] 的门，侧身跨过门槛。"
 
 
-def _register_step1(project_dir: Path, episode: int = 1) -> None:
-    """把已落盘的 step1 按生产补录路径登记进产物清单。
+def _activate_project_artifacts(project_dir: Path, episode: int = 1) -> None:
+    """补齐该集的溯源输入后，对项目做一次全量产物激活。
 
     产物清单是读取已生成产物的唯一口径：落盘本身不代表已登记，未登记的 step1 进不了付费调用。
+    ``episode`` 只决定补写哪一集的 ``source/episode_{episode}.txt``；登记范围是整个项目。
     """
     source = project_dir / "source" / f"episode_{episode}.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
@@ -68,7 +69,7 @@ def _write_step1(project_dir: Path, payload: str, episode: int = 1) -> None:
     path = project_dir / "drafts" / f"episode_{episode}" / "step1_reference_units.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(payload, encoding="utf-8")
-    _register_step1(project_dir, episode)
+    _activate_project_artifacts(project_dir, episode)
 
 
 @pytest.fixture

@@ -3225,7 +3225,7 @@ class ProjectManager:
         return self._get_asset("scene", project_name, name)
 
     def get_pending_project_scenes(self, project_name: str) -> list[dict]:
-        """无 scene_sheet 或文件不存在的场景。"""
+        """产物清单未登记可用 scene_sheet 的场景；项目未迁移时阻断。"""
         return self._get_pending_assets("scene", project_name)
 
     def get_scene_path(self, project_name: str, filename: str) -> Path:
@@ -3243,7 +3243,7 @@ class ProjectManager:
         return self._get_asset("prop", project_name, name)
 
     def get_pending_project_props(self, project_name: str) -> list[dict]:
-        """无 prop_sheet 或文件不存在的道具。"""
+        """产物清单未登记可用 prop_sheet 的道具；项目未迁移时阻断。"""
         return self._get_pending_assets("prop", project_name)
 
     def get_prop_path(self, project_name: str, filename: str) -> Path:
@@ -3251,7 +3251,7 @@ class ProjectManager:
         return self._get_asset_path("prop", project_name, filename)
 
     def get_pending_characters(self, project_name: str) -> list[dict]:
-        """获取待生成设计图的角色列表（无 character_sheet 或文件不存在）"""
+        """产物清单未登记可用 character_sheet 的角色；项目未迁移时阻断。"""
         return self._get_pending_assets("character", project_name)
 
     # ==================== 产品管理（product） ====================
@@ -3265,7 +3265,7 @@ class ProjectManager:
         return self._get_asset("product", project_name, name)
 
     def get_pending_project_products(self, project_name: str) -> list[dict]:
-        """无 product_sheet 或文件不存在的产品。"""
+        """产物清单未登记可用 product_sheet 的产品；项目未迁移时阻断。"""
         return self._get_pending_assets("product", project_name)
 
     def get_product_path(self, project_name: str, filename: str) -> Path:

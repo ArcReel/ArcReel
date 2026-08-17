@@ -134,7 +134,6 @@ async def test_end_to_end_generate_unit_to_executor(
     assert resp.status_code == 201, resp.text
     uid = resp.json()["unit"]["unit_id"]
 
-    print("MANIFEST", (proj_dir / ".arcreel_artifacts.json").read_text(encoding="utf-8"))
     # 2) Patch GenerationQueue.enqueue_task 直接返回 task dict（跳过 DB）
     captured_payload: dict = {}
 

@@ -594,7 +594,6 @@ def test_unplanned_source_with_legacy_episode_without_source_range_requires_full
     draft_dir.mkdir(parents=True)
     _write_episode_source(project_path, 1)
     atomic_write_json(draft_dir / "step1_segments.json", {"episode": 1, "segments": []})
-    _write_episode_source(project_path)
     generated_assets = _complete_episode_media(project_path)
     _write_registered_script(
         project_path,
@@ -681,7 +680,6 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     draft_dir.mkdir(parents=True)
     _write_episode_source(project_path, 1)
     atomic_write_json(draft_dir / "step1_segments.json", {"episode": 1, "segments": []})
-    _write_episode_source(project_path)
     generated_assets = _complete_episode_media(project_path)
     _write_registered_script(
         project_path,
@@ -761,7 +759,6 @@ def test_completed_first_episode_does_not_hide_later_planning_reset(tmp_path: Pa
     draft_dir.mkdir(parents=True)
     _write_episode_source(project_path, 1)
     atomic_write_json(draft_dir / "step1_segments.json", {"episode": 1, "segments": []})
-    _write_episode_source(project_path)
     generated_assets = _complete_episode_media(project_path)
     _write_registered_script(
         project_path,

@@ -216,7 +216,9 @@ class _FakePM:
         try:
             activate_artifact_target_state(self._project_dir, bump_schema=False)
         except Exception:
-            pass
+            # 用例故意构造的畸形项目/剧本激活不了；此处吞掉异常让清单留空，
+            # 被测工具随后按「产物不可用」逐条拒收，这正是这些用例要断言的路径。
+            ...
         self._register_claims(filename)
 
     def _canonical_script_filename(self) -> str | None:

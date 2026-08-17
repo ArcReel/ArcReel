@@ -110,7 +110,7 @@ def resolve_current_image_rel(
     resource_id: str,
     script: dict[str, Any] | None = None,
 ) -> str | None:
-    """解析资源当前图的项目相对路径（不校验文件存在，交由调用方 ``safe_exists`` 判定）。
+    """解析资源当前图的项目相对路径（只解析登记指针，可用性由 Artifact Manifest 判定）。
 
     - 资产（character / scene / prop / product）：读 project.json 对应 bucket 的 sheet
       字段；资产不存在抛 ``KeyError``，sheet 未设置返回 ``None``。

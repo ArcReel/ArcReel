@@ -79,9 +79,9 @@ def _write_minimal_project(project_path: Path) -> None:
 
 
 class _FakePM:
-    def __init__(self, project_root=None):
+    def __init__(self, project_root):
         self.updated = []
-        self.project_root = Path(project_root) if project_root is not None else Path(tempfile.mkdtemp())
+        self.project_root = Path(project_root)
 
     def get_project_path(self, project_name):
         project_path = self.project_root / project_name
@@ -337,8 +337,8 @@ def _typed_audio_project(tmp_path: Path) -> tuple[object, Path, VersionManager]:
     return pm, project_path, manager
 
 
-def _client(monkeypatch):
-    fake_pm = _FakePM()
+def _client(monkeypatch, tmp_path):
+    fake_pm = _FakePM(tmp_path)
     monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
@@ -720,8 +720,8 @@ class TestVersionsRouter:
         assert assets["storyboard_image"] == "storyboards/old.png"
         assert assets["video_clip"] == "videos/concurrent.mp4"
 
-    def test_get_versions_and_restore(self, monkeypatch):
-        client, fake_pm = _client(monkeypatch)
+    def test_get_versions_and_restore(self, monkeypatch, tmp_path):
+        client, fake_pm = _client(monkeypatch, tmp_path)
         with client:
             get_resp = client.get("/api/v1/projects/demo/versions/characters/Alice")
             assert get_resp.status_code == 200
@@ -732,8 +732,8 @@ class TestVersionsRouter:
             assert restore_resp.json()["current_version"] == 1
             assert any(item[0] == "character" for item in fake_pm.updated)
 
-    def test_manual_video_is_presentable_without_claiming_it_is_restorable(self, monkeypatch):
-        client, _ = _client(monkeypatch)
+    def test_manual_video_is_presentable_without_claiming_it_is_restorable(self, monkeypatch, tmp_path):
+        client, _ = _client(monkeypatch, tmp_path)
 
         class _ManualVideoVM(_FakeVM):
             def get_versions(self, resource_type, resource_id):
@@ -757,8 +757,8 @@ class TestVersionsRouter:
         assert record["restorable"] is False
         assert record["presentation_available"] is True
 
-    def test_get_and_restore_scenes(self, monkeypatch):
-        client, fake_pm = _client(monkeypatch)
+    def test_get_and_restore_scenes(self, monkeypatch, tmp_path):
+        client, fake_pm = _client(monkeypatch, tmp_path)
         with client:
             get_resp = client.get("/api/v1/projects/demo/versions/scenes/庙宇")
             assert get_resp.status_code == 200
@@ -768,8 +768,8 @@ class TestVersionsRouter:
             assert restore_resp.json()["file_path"] == "scenes/庙宇.png"
             assert any(item[0] == "scene" for item in fake_pm.updated)
 
-    def test_get_and_restore_props(self, monkeypatch):
-        client, fake_pm = _client(monkeypatch)
+    def test_get_and_restore_props(self, monkeypatch, tmp_path):
+        client, fake_pm = _client(monkeypatch, tmp_path)
         with client:
             get_resp = client.get("/api/v1/projects/demo/versions/props/玉佩")
             assert get_resp.status_code == 200
@@ -779,8 +779,8 @@ class TestVersionsRouter:
             assert restore_resp.json()["file_path"] == "props/玉佩.png"
             assert any(item[0] == "prop" for item in fake_pm.updated)
 
-    def test_get_and_restore_products(self, monkeypatch):
-        client, fake_pm = _client(monkeypatch)
+    def test_get_and_restore_products(self, monkeypatch, tmp_path):
+        client, fake_pm = _client(monkeypatch, tmp_path)
         with client:
             get_resp = client.get("/api/v1/projects/demo/versions/products/保温杯")
             assert get_resp.status_code == 200
@@ -902,8 +902,8 @@ class TestVersionsRouter:
         assert response.status_code == 409
         assert (project_path / "audio" / "segment_E1S01.wav").read_bytes() == before
 
-    def test_restore_error_mapping(self, monkeypatch):
-        client, _ = _client(monkeypatch)
+    def test_restore_error_mapping(self, monkeypatch, tmp_path):
+        client, _ = _client(monkeypatch, tmp_path)
         with client:
             bad_type = client.get("/api/v1/projects/demo/versions/bad/Alice")
             assert bad_type.status_code == 400
@@ -1098,9 +1098,9 @@ class TestVersionsRouter:
         assert saved is not None
         assert saved.split_at == "2026-01-01T00:00:00+00:00"
 
-    def test_non_grid_restore_unaffected_by_grid_gate(self, monkeypatch):
+    def test_non_grid_restore_unaffected_by_grid_gate(self, monkeypatch, tmp_path):
         """闸门只作用于 grids：其它资源类型的还原不因项目宫格配置被拦。"""
-        client, fake_pm = _client(monkeypatch)
+        client, fake_pm = _client(monkeypatch, tmp_path)
         with client:
             resp = client.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
         assert resp.status_code == 200
@@ -1592,7 +1592,7 @@ class TestVersionsRouter:
 
     def test_restore_returns_asset_fingerprints(self, monkeypatch, tmp_path):
         """版本还原应返回受影响文件的 fingerprint"""
-        fake_pm = _FakePM()
+        fake_pm = _FakePM(tmp_path)
         fake_pm.get_project_path = lambda name: tmp_path
 
         (tmp_path / "storyboards").mkdir()
@@ -1613,8 +1613,8 @@ class TestVersionsRouter:
             assert "storyboards/scene_E1S01.png" in data["asset_fingerprints"]
             assert isinstance(data["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
-    def test_get_versions_unexpected_error_maps_to_500(self, monkeypatch):
-        fake_pm = _FakePM()
+    def test_get_versions_unexpected_error_maps_to_500(self, monkeypatch, tmp_path):
+        fake_pm = _FakePM(tmp_path)
         monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
             versions,
@@ -1632,8 +1632,8 @@ class TestVersionsRouter:
             # 内部异常细节不得泄露给客户端，仅落服务端日志
             assert "boom" not in resp.text
 
-    def test_restore_version_unexpected_error_maps_to_500(self, monkeypatch):
-        fake_pm = _FakePM()
+    def test_restore_version_unexpected_error_maps_to_500(self, monkeypatch, tmp_path):
+        fake_pm = _FakePM(tmp_path)
         monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
             versions,

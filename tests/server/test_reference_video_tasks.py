@@ -2263,11 +2263,7 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
 
     # 新增一个道具 sheet，让 unit 拥有 3 张 refs（1 character + 1 scene + 1 prop）。
     (proj_dir / "props").mkdir()
-    (proj_dir / "props" / "瓶子.png").write_bytes(
-        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
-        b"\x08\x02\x00\x00\x00&\x93\t)\x00\x00\x00\x13IDATx\x9cc<\x91b\xc4\x00"
-        b"\x03Lp\x16^\x0e\x00E\xf6\x01f\xac\xf5\x15\xfa\x00\x00\x00\x00IEND\xaeB`\x82"
-    )
+    (proj_dir / "props" / "瓶子.png").write_bytes(_TINY_PNG)
     project_path = proj_dir / "project.json"
     project = json.loads(project_path.read_text(encoding="utf-8"))
     project["props"] = {"瓶子": {"description": "x", "prop_sheet": "props/瓶子.png"}}

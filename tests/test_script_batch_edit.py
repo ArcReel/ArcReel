@@ -280,8 +280,8 @@ def test_unmigrated_project_batch_edit_refuses_instead_of_activating(
     )
 
     assert result.success is False
-    assert result.problems[0].code == "commit_failed"
-    assert result.problems[0].reason == "durable_commit_failed"
+    assert result.problems[0].code == "project_migration_failed"
+    assert result.problems[0].next_action == "retry_project_migration"
     assert not (project_dir / ".arcreel_artifacts.json").exists()
     assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before
 

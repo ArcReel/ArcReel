@@ -1087,13 +1087,10 @@ def generate_video_episode_tool(ctx: ToolContext):
             skeleton_kind = resolve_script_kind(script)
             items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids=None)
             project = ctx.pm.load_project(ctx.project_name)
-            episode = (
-                resolve_artifact_episode(
-                    project=project,
-                    script=script,
-                    script_filename=script_filename,
-                )
-                or 1
+            episode = resolve_artifact_episode(
+                project=project,
+                script=script,
+                script_filename=script_filename,
             )
             content_mode = resolve_content_mode(script, project)
             if not items and not screen_refused:
@@ -1286,13 +1283,10 @@ def generate_video_scene_tool(ctx: ToolContext):
                 )
                 return generation_result_response(builder.build(), log)
             project = ctx.pm.load_project(ctx.project_name)
-            episode = (
-                resolve_artifact_episode(
-                    project=project,
-                    script=script,
-                    script_filename=script_filename,
-                )
-                or 1
+            episode = resolve_artifact_episode(
+                project=project,
+                script=script,
+                script_filename=script_filename,
             )
             currency = active_artifact_currency_resolver(project_dir, project)
             states = video_target_states([item], id_field, episode=episode, resolver=currency)
@@ -1403,13 +1397,10 @@ def generate_video_all_tool(ctx: ToolContext):
             content_mode = resolve_content_mode(script, project)
             currency = active_artifact_currency_resolver(project_dir, project)
             versions = VersionManager(project_dir)
-            episode = (
-                resolve_artifact_episode(
-                    project=project,
-                    script=script,
-                    script_filename=script_filename,
-                )
-                or 1
+            episode = resolve_artifact_episode(
+                project=project,
+                script=script,
+                script_filename=script_filename,
             )
             states = video_target_states(items, id_field, episode=episode, resolver=currency)
             selection = select_generation_targets(
@@ -1560,13 +1551,10 @@ def generate_video_selected_tool(ctx: ToolContext):
             items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids=set(scene_ids))
             project = ctx.pm.load_project(ctx.project_name)
             content_mode = resolve_content_mode(script, project)
-            episode = (
-                resolve_artifact_episode(
-                    project=project,
-                    script=script,
-                    script_filename=script_filename,
-                )
-                or 1
+            episode = resolve_artifact_episode(
+                project=project,
+                script=script,
+                script_filename=script_filename,
             )
 
             items_by_id: dict[str, dict[str, Any]] = {}
