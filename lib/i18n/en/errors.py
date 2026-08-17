@@ -108,7 +108,7 @@ MESSAGES = {
     "tts_not_configured": "Configure a text-to-speech provider before using TTS delivery",
     "tts_missing": "Generate narration audio for this unit before using TTS delivery",
     "tts_generating": "Narration audio is still generating; wait for it to finish before using TTS delivery",
-    "tts_stale": "The narration audio is stale; regenerate it before using TTS delivery",
+    "tts_stale": "The narration audio is older than the current content; regenerate it before using TTS delivery",
     "tts_state_unavailable": "The narration audio state is unavailable; repair it before using TTS delivery",
     "tts_duration_unavailable": "The narration audio duration cannot be measured; repair or regenerate it",
     "video_duration_unavailable": "The generated video duration cannot be measured against the {tts_duration:.1f}s narration; regenerate the video",

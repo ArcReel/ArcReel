@@ -47,7 +47,7 @@ class TestWarningRendering:
         zh = _localize_task(task, _translator("zh"))["result"]["warnings"]
         en = _localize_task(task, _translator("en"))["result"]["warnings"]
 
-        assert zh == ["剧本编排 7s 不在 sora 的时长档位内，已按 8s 生成，成片长于剧本编排"]
+        assert zh == ["脚本编排 7s 不在 sora 的时长档位内，已按 8s 生成，成片长于脚本编排"]
         assert en != zh
         assert "sora" in en[0]
 

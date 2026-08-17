@@ -108,7 +108,7 @@ MESSAGES = {
     "tts_not_configured": "Hãy cấu hình nhà cung cấp chuyển văn bản thành giọng nói trước khi dùng TTS",
     "tts_missing": "Hãy tạo âm thanh thuyết minh cho đơn vị này trước khi dùng TTS",
     "tts_generating": "Âm thanh thuyết minh vẫn đang được tạo; hãy chờ hoàn tất trước khi dùng TTS",
-    "tts_stale": "Âm thanh thuyết minh đã lỗi thời; hãy tạo lại trước khi dùng TTS",
+    "tts_stale": "Âm thanh thuyết minh cũ hơn nội dung hiện tại; hãy tạo lại trước khi dùng TTS",
     "tts_state_unavailable": "Không thể đọc trạng thái âm thanh thuyết minh; hãy sửa trước khi dùng TTS",
     "tts_duration_unavailable": "Không thể đo thời lượng âm thanh thuyết minh; hãy sửa hoặc tạo lại",
     "video_duration_unavailable": "Không thể đo video đã tạo so với phần thuyết minh {tts_duration:.1f}s; hãy tạo lại video",

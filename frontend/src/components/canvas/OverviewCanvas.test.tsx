@@ -422,7 +422,7 @@ describe("OverviewCanvas", () => {
 
     render(<OverviewCanvas projectName="real-project" projectData={makeProjectData()} />);
 
-    expect(screen.getByText("历史支出（未归属当前剧本）")).toBeInTheDocument();
+    expect(screen.getByText("历史支出（未归属当前脚本）")).toBeInTheDocument();
     expect(screen.getAllByText("$1.25").length).toBeGreaterThanOrEqual(2);
   });
 

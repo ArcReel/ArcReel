@@ -3,7 +3,7 @@ import type enOnboarding from '@/i18n/en/onboarding';
 export default {
   // 引导步骤
   'welcome_title': '欢迎使用 [[brand]]',
-  'welcome_body': '[[brand]] 将小说或剧本制作成短视频：智能体负责分析原文、编写分集剧本、生成分镜和视频，过程中的每一步都可以人工调整。本引导介绍主要界面和基本流程。',
+  'welcome_body': '[[brand]] 将小说或剧本制作成短视频：智能体负责分析原文、编写分集脚本、生成分镜和视频，过程中的每一步都可以人工调整。本引导介绍主要界面和基本流程。',
   'lobby_create_title': '新建项目',
   'lobby_create_body': '在这里新建项目，设置项目的基本信息、使用的模型和画面风格。',
   'lobby_settings_title': '设置',
@@ -11,7 +11,7 @@ export default {
   'settings_providers_title': '配置供应商',
   'settings_providers_body': '图像和视频由这里配置的供应商生成。至少配置一个供应商：填入 API Key，通过「测试连接」确认可用。',
   'settings_agent_title': '配置智能体',
-  'settings_agent_body': '智能体负责分析原文、编写剧本和执行制作，在这里配置它使用的模型服务。',
+  'settings_agent_body': '智能体负责分析原文、编写脚本和执行制作，在这里配置它使用的模型服务。',
   'lobby_demo_title': '演示项目',
   'lobby_demo_body': '点击卡片打开演示工作台，查看项目的制作界面。',
   'workbench_overview_title': '项目概览',
@@ -45,7 +45,7 @@ export default {
   'demo_banner_title': '演示项目 · 只读',
   'demo_banner_body': '你正在查看一个示例项目。编辑、生成、上传和导出功能在演示中不可用。',
   'demo_action_unavailable': '演示中不可用',
-  'demo_episode_placeholder': '演示内容只到第 {{episode}} 集：这一集只有标题，没有剧本和分镜。',
+  'demo_episode_placeholder': '演示内容只到第 {{episode}} 集：这一集只有标题，没有脚本和分镜。',
 
   // 演示工作台智能体面板的静态对话：智能体汇报分析结果 → 用户发起制作 → 智能体汇报推进，
   // 演的是首次制作的完整时序（智能体的每条消息都是对上一步动作的回应，不主动发起对话）

@@ -48,8 +48,8 @@ export default {
   'artifact_empty': 'Bước này chưa có gì để tạo.',
   'artifact_usable_one': 'Dùng được {{count}}',
   'artifact_usable_other': 'Dùng được {{count}}',
-  'artifact_stale_of_usable_one': 'trong đó {{count}} cũ hơn kịch bản',
-  'artifact_stale_of_usable_other': 'trong đó {{count}} cũ hơn kịch bản',
+  'artifact_stale_of_usable_one': 'trong đó {{count}} cũ hơn nội dung hiện tại',
+  'artifact_stale_of_usable_other': 'trong đó {{count}} cũ hơn nội dung hiện tại',
   'artifact_missing_count_one': 'còn thiếu {{count}}',
   'artifact_missing_count_other': 'còn thiếu {{count}}',
 

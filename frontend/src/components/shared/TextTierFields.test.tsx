@@ -34,7 +34,7 @@ describe("TextTierFields", () => {
     expect(screen.getByRole("combobox", { name: "复杂任务" })).toBeInTheDocument();
     // 简单档 caption 注明需图像输入，复杂档 caption 列出覆盖调用点
     expect(screen.getByText(/图像输入/)).toBeInTheDocument();
-    expect(screen.getByText(/剧本生成/)).toBeInTheDocument();
+    expect(screen.getByText(/脚本生成/)).toBeInTheDocument();
   });
 
   it("shows the resolved fallback value inside each empty tier (project-priority chain)", async () => {

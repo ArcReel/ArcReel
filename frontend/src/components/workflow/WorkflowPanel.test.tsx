@@ -67,7 +67,7 @@ describe("WorkflowPanel 状态语言", () => {
     );
     const row = screen.getByTestId("workflow-step-storyboard");
     expect(within(row).getByText(/可用 3 件/)).toBeInTheDocument();
-    expect(within(row).getByText(/其中 1 件比剧本旧/)).toBeInTheDocument();
+    expect(within(row).getByText(/其中 1 件比当前内容旧/)).toBeInTheDocument();
     expect(within(row).getByText(/还差 1 件/)).toBeInTheDocument();
   });
 
