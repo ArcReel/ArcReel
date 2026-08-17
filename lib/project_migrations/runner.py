@@ -21,6 +21,7 @@ from lib.project_migration_failure import (
 )
 from lib.project_migrations.staged_swap import (
     cleanup_completed_swap_dirs,
+    ensure_disk_headroom,
     reclaim_interrupted_swaps,
 )
 from lib.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
@@ -39,6 +40,9 @@ CURRENT_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
 _MIGRATORS_WITH_OWNED_BACKUP = frozenset({7})
+
+# 只读预检：在 runner 写下任何备份之前跑，拒绝时项目目录一个字节都没被动过。
+_MIGRATOR_PREFLIGHTS: dict[int, Callable[[Path], None]] = {5: ensure_disk_headroom}
 
 
 def _versioned_backup_name(base_name: str, from_version: int, ts: int) -> str:
@@ -149,6 +153,9 @@ def migrate_project_dir(project_dir: Path) -> bool:
         # Activation migrations must finish their complete read-only preflight
         # before creating any backup.  Their commit boundary owns the backup so
         # the runner cannot leave writes behind when preflight rejects a project.
+        preflight = _MIGRATOR_PREFLIGHTS.get(version)
+        if preflight:
+            preflight(project_dir)
         if version not in _MIGRATORS_WITH_OWNED_BACKUP:
             _backup_project_json(project_dir, version)
         if version == 0:
@@ -215,10 +222,8 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
     if not projects_root.exists():
         return summary
 
-    # 先认领上一次运行在目录交换窗口内被硬杀留下的原项目树，被改回的项目在本轮继续迁移。
-    reclaimed = reclaim_interrupted_swaps(projects_root)
-    if reclaimed:
-        logger.warning("已认领迁移交换窗口中断遗留的项目目录：%s", reclaimed)
+    # 认领在遍历之前：被改回的项目在本轮就继续迁移，不必等下次启动。
+    reclaim_interrupted_swaps(projects_root)
 
     for child in sorted(projects_root.iterdir()):
         if not child.is_dir():

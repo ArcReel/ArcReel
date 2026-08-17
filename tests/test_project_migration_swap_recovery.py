@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import time
-import uuid
 from pathlib import Path
 
 import pytest
@@ -13,15 +12,17 @@ import pytest
 from lib.project_migrations.runner import (
     CURRENT_SCHEMA_VERSION,
     cleanup_stale_backups,
+    migrate_project_dir,
     run_project_migrations,
 )
 from lib.project_migrations.staged_swap import (
     MigrationDiskSpaceError,
+    new_rollback_dir,
+    new_staging_dir,
     reclaim_interrupted_swaps,
     rollback_project_name,
     staging_project_name,
 )
-from lib.project_migrations.v5_to_v6_asset_namespace import migrate_v5_to_v6
 
 pytestmark = pytest.mark.unit
 
@@ -57,8 +58,14 @@ def _v5_project(root: Path, name: str) -> Path:
 
 
 def _swap_dir(root: Path, project_name: str, *, rollback: bool) -> Path:
-    infix = "v6-rollback-" if rollback else "v6-"
-    return root / f".{project_name}.{infix}{uuid.uuid4().hex}"
+    """按生产代码的命名端造一个尚未创建的中间目录路径。
+
+    名字必须出自命名端：一旦它与解析端脱钩，认领与清理会静默失效而测试照样绿。"""
+    if rollback:
+        return new_rollback_dir(root / project_name)
+    staging = new_staging_dir(root / project_name)
+    staging.rmdir()  # 命名端连带建目录，交回给各用例自己按需创建
+    return staging
 
 
 def _age(path: Path, seconds: float) -> None:
@@ -133,8 +140,27 @@ def test_swap_dir_names_round_trip_project_names_containing_dots() -> None:
     assert rollback_project_name(".my.show.v6-" + "b" * 32) is None
 
 
+def test_runtime_staging_dir_name_is_parsable_by_cleanup(tmp_projects: Path) -> None:
+    """命名端建出的 staging 目录必须能被清理端反解，否则崩溃遗留的整树副本永远回收不掉。"""
+    _write_project(tmp_projects, "demo", {"schema_version": CURRENT_SCHEMA_VERSION, "name": "demo"})
+    staging = new_staging_dir(tmp_projects / "demo")
+    rollback = new_rollback_dir(tmp_projects / "demo")
+
+    staging_suffix = staging.name.rpartition(".v6-")[2]
+    assert staging_project_name(staging.name) == "demo"
+    # 两类中间目录的后缀同构，反解端才有单一口径可依。
+    assert len(staging_suffix) == len(rollback.name.rpartition("rollback-")[2])
+
+    _age(staging, _EIGHT_DAYS)
+    cleanup_stale_backups(tmp_projects, max_age_days=7)
+
+    assert not staging.exists()
+
+
 def test_migration_fails_readably_when_disk_headroom_is_insufficient(tmp_projects: Path, monkeypatch) -> None:
+    """预检不过时项目目录一个字节都不该被写：连迁移前的版本化备份也不落盘。"""
     project_dir = _v5_project(tmp_projects, "demo")
+    before = sorted(entry.name for entry in project_dir.iterdir())
     original = (project_dir / "project.json").read_bytes()
 
     class _Usage:
@@ -145,12 +171,13 @@ def test_migration_fails_readably_when_disk_headroom_is_insufficient(tmp_project
     monkeypatch.setattr("lib.project_migrations.staged_swap.shutil.disk_usage", lambda _path: _Usage())
 
     with pytest.raises(MigrationDiskSpaceError) as excinfo:
-        migrate_v5_to_v6(project_dir)
+        migrate_project_dir(project_dir)
 
     message = str(excinfo.value)
     assert "demo" in message
     assert "磁盘空间不足" in message
     assert (project_dir / "project.json").read_bytes() == original
+    assert sorted(entry.name for entry in project_dir.iterdir()) == before
     assert not list(tmp_projects.glob(".demo.v6-*"))
 
 

@@ -18,15 +18,19 @@ logger = logging.getLogger(__name__)
 
 _ROLLBACK_INFIX = ".v6-rollback-"
 _STAGING_INFIX = ".v6-"
+# 两类目录名的后缀都取自 uuid4().hex，反解端据此判定一个隐藏目录是否属于本约定。
+_SUFFIX_CHARS = "0123456789abcdef"
 
 # staging 树是原项目目录的整树副本，交换窗口内父目录上同时存在原树与副本。
 # 预留 10% 余量（下限 32 MiB）覆盖 copytree 期间的元数据开销与并发写入。
-_HEADROOM_RATIO = 10
+_HEADROOM_PERCENT = 10
 _MIN_HEADROOM_BYTES = 32 * 1024 * 1024
 
 
-class MigrationDiskSpaceError(RuntimeError):
-    """迁移前磁盘容量预检不通过。原项目目录未被触碰。"""
+class MigrationDiskSpaceError(OSError):
+    """迁移前磁盘容量预检不通过。项目目录未被改写。
+
+    继承 ``OSError`` 与迁移期间真实的 ENOSPC 归为一类，导入路径既有的迁移失败处理无需分叉。"""
 
 
 def new_rollback_dir(project_dir: Path) -> Path:
@@ -34,9 +38,14 @@ def new_rollback_dir(project_dir: Path) -> Path:
     return project_dir.parent / f".{project_dir.name}{_ROLLBACK_INFIX}{uuid.uuid4().hex}"
 
 
-def staging_dir_prefix(project_name: str) -> str:
-    """``tempfile.mkdtemp`` 用的 staging 目录前缀。"""
-    return f".{project_name}{_STAGING_INFIX}"
+def new_staging_dir(project_dir: Path) -> Path:
+    """创建并返回本次交换的 staging 目录。
+
+    名字与 rollback 目录同构（十六进制后缀），清理端才能按同一条约定反解出项目名。
+    ``mkdir`` 的独占语义顶替 ``tempfile.mkdtemp``：uuid 后缀已保证唯一，重名即异常。"""
+    staging = project_dir.parent / f".{project_dir.name}{_STAGING_INFIX}{uuid.uuid4().hex}"
+    staging.mkdir(mode=0o700)
+    return staging
 
 
 def _project_name_from_swap_dir(dir_name: str, infix: str) -> str | None:
@@ -44,7 +53,7 @@ def _project_name_from_swap_dir(dir_name: str, infix: str) -> str | None:
     if not dir_name.startswith("."):
         return None
     head, separator, suffix = dir_name.rpartition(infix)
-    if not separator or not suffix or not all(char in "0123456789abcdef" for char in suffix):
+    if not separator or not suffix or not all(char in _SUFFIX_CHARS for char in suffix):
         return None
     name = head[1:]
     if not name or name in {".", ".."} or "/" in name or "\\" in name or os.sep in name:
@@ -64,7 +73,8 @@ def staging_project_name(dir_name: str) -> str | None:
     return _project_name_from_swap_dir(dir_name, _STAGING_INFIX)
 
 
-def _swap_dirs(projects_root: Path) -> list[Path]:
+def _candidate_dirs(projects_root: Path) -> list[Path]:
+    """projects_root 下可参与命名反解的子目录：真目录、排除符号链接。"""
     try:
         children = sorted(projects_root.iterdir())
     except OSError:
@@ -80,7 +90,7 @@ def reclaim_interrupted_swaps(projects_root: Path) -> list[str]:
     if not projects_root.is_dir():
         return []
     candidates: list[tuple[float, Path, str]] = []
-    for child in _swap_dirs(projects_root):
+    for child in _candidate_dirs(projects_root):
         name = rollback_project_name(child.name)
         if name is None:
             continue
@@ -113,7 +123,7 @@ def cleanup_completed_swap_dirs(projects_root: Path, cutoff: float) -> None:
     策略，也保证正在运行的迁移的 staging 树不会被误删。"""
     if not projects_root.is_dir():
         return
-    for child in _swap_dirs(projects_root):
+    for child in _candidate_dirs(projects_root):
         name = rollback_project_name(child.name) or staging_project_name(child.name)
         if name is None:
             continue
@@ -150,14 +160,14 @@ def _tree_size(root: Path) -> int:
 
 
 def ensure_disk_headroom(project_dir: Path) -> None:
-    """交换前预检：父目录可用空间须容得下整树副本，不足则失败且不动原目录。"""
+    """迁移前预检：父目录可用空间须容得下整树副本，不足则失败且一个字节都不写。"""
     try:
         free = shutil.disk_usage(project_dir.parent).free
     except OSError:
         logger.warning("无法读取 %s 的磁盘可用空间，跳过迁移前容量预检", project_dir.parent, exc_info=True)
         return
     size = _tree_size(project_dir)
-    required = size + max(size // _HEADROOM_RATIO, _MIN_HEADROOM_BYTES)
+    required = size + max(size * _HEADROOM_PERCENT // 100, _MIN_HEADROOM_BYTES)
     if free >= required:
         return
     megabyte = 1024 * 1024
@@ -165,7 +175,7 @@ def ensure_disk_headroom(project_dir: Path) -> None:
         f"磁盘空间不足，无法迁移项目 {project_dir.name}："
         f"迁移需在 {project_dir.parent} 复制整个项目目录，"
         f"至少需要 {required // megabyte} MiB，当前可用 {free // megabyte} MiB。"
-        "请清理磁盘后重启，项目目录未被改动。"
+        "请清理磁盘后重试，项目目录未被改动。"
     )
 
 
@@ -174,8 +184,8 @@ __all__ = [
     "cleanup_completed_swap_dirs",
     "ensure_disk_headroom",
     "new_rollback_dir",
+    "new_staging_dir",
     "reclaim_interrupted_swaps",
     "rollback_project_name",
-    "staging_dir_prefix",
     "staging_project_name",
 ]
