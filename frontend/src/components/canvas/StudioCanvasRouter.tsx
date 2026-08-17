@@ -744,8 +744,9 @@ export function StudioCanvasRouter() {
           const durationOptions =
             narrowDurations({ rawDurations, durationConstraints }, durationCtx) ?? undefined;
           // reference_video 的参考图约束是按 unit 而非按集生效（同集内不带 references 的
-          // unit 不受此约束，见 lib.reference_video.precheck_unit 的 bool(unit.references)
-          // 判据）：多备一份不叠加参考图收窄的档位，供画布按每个 unit 自己的引用状态选用。
+          // unit 不受此约束，见 lib.reference_video.request_projection 的
+          // ReferenceUnitRequestProjector 按可用参考图定 r2v / i2v 的判据）：多备一份不叠加
+          // 参考图收窄的档位，供画布按每个 unit 自己的引用状态选用。
           const durationOptionsNoReference =
             narrowDurations({ rawDurations, durationConstraints }, { videoResolution }) ??
             undefined;

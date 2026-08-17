@@ -77,15 +77,8 @@ export default {
   'task_status_failed': 'failed',
   'task_status_cancelled': 'cancelled',
   'task_status_interrupted': 'interrupted',
-  'task_state_not_queued': 'never queued',
-  'task_state_succeeded': 'finished',
-  'task_state_failed': 'failed',
-  'task_state_cancelled': 'cancelled',
-  'task_state_interrupted': 'interrupted',
   'checkpoint_submitted': 'Already submitted to {{provider}} — retrying may be charged again.',
   'checkpoint_provider_unknown': 'the provider',
-
-  // ---- Per-item generation results ----
 
   // ---- Batch admission ----
   'admission_blocked_intro': 'This batch created no tasks. Nothing was charged. Fix the items below and request it again.',

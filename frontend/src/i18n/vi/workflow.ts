@@ -79,15 +79,8 @@ export default {
   'task_status_failed': 'đã thất bại',
   'task_status_cancelled': 'đã hủy',
   'task_status_interrupted': 'đã gián đoạn',
-  'task_state_not_queued': 'chưa từng xếp hàng',
-  'task_state_succeeded': 'đã xong',
-  'task_state_failed': 'đã thất bại',
-  'task_state_cancelled': 'đã hủy',
-  'task_state_interrupted': 'đã gián đoạn',
   'checkpoint_submitted': 'Đã gửi tới {{provider}} — thử lại có thể bị tính phí lần nữa.',
   'checkpoint_provider_unknown': 'nhà cung cấp',
-
-  // ---- Kết quả từng mục ----
 
   // ---- Xét duyệt hàng loạt ----
   'admission_blocked_intro': 'Lô này không tạo tác vụ nào và không phát sinh chi phí. Sửa các mục bên dưới rồi gửi lại.',

@@ -79,15 +79,8 @@ export default {
   'task_status_failed': '已失败',
   'task_status_cancelled': '已取消',
   'task_status_interrupted': '已中断',
-  'task_state_not_queued': '未入队',
-  'task_state_succeeded': '已完成',
-  'task_state_failed': '已失败',
-  'task_state_cancelled': '已取消',
-  'task_state_interrupted': '已中断',
   'checkpoint_submitted': '已提交给 {{provider}}，重试可能再次计费。',
   'checkpoint_provider_unknown': '供应商',
-
-  // ---- 逐项生成结果 ----
 
   // ---- 批量准入 ----
   'admission_blocked_intro': '这一批一个任务也没有创建，没有产生费用。修好下面这些再发一次即可。',
