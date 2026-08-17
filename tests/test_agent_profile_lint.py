@@ -329,6 +329,30 @@ def test_frontmatter_accepts_utf8_bom(tmp_path: Path) -> None:
     assert metadata.description == "Demo skill"
 
 
+def test_direct_step1_edit_rule_spares_write_deny_notices(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "deny-note.md").write_text(
+        "---\nname: deny-note\ndescription: Deny notice agent\n---\n"
+        "正式 `step1_normalized_script.json` 不可用 Write/Edit 直改。\n\n"
+        "结构有问题时走「取回草稿 → 改草稿 → 晋升」：不要用 Edit 直改正式文件（会被拒）。\n\n"
+        "```text\n"
+        'mcp__arcreel__open_step1_for_edit({"episode": 1})\n'
+        "```\n\n"
+        "内容被取回到 `drafts/episode_1/step1_normalized_script.invalid.json`。\n",
+        encoding="utf-8",
+    )
+    (profile / ".claude" / "agents" / "direct-edit.md").write_text(
+        "---\nname: direct-edit\ndescription: Direct edit agent\n---\n"
+        "用 Edit 工具修改 `drafts/episode_1/step1_normalized_script.json` 后继续。\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert not any(error.startswith(".claude/agents/deny-note.md") for error in errors)
+    assert ".claude/agents/direct-edit.md: deprecated direct Edit/Write of formal step1" in errors
+
+
 def test_shipped_profile_passes_current_lint() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     assert lint_profile(repo_root / "agent_runtime_profile") == []
@@ -340,3 +364,4 @@ def test_shipped_profile_has_no_deprecated_string_routing() -> None:
     errors = lint_profile(repo_root / "agent_runtime_profile", enforce_target_rules=True)
 
     assert not any("deprecated profile string" in error for error in errors)
+    assert not any("deprecated direct Edit/Write" in error for error in errors)

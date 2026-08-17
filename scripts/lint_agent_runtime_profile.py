@@ -13,6 +13,9 @@
   （``_ROUTING_MARKER_RE``）。三者皆无的纯提及不判违规。
 
 因此「旧稿 X 不算有效输入」不报，而「读取 X 作为输入」与代码块里的 ``cmd --flag`` 仍报。
+
+「Edit/Write 直改正式 step1」（``_DIRECT_STEP1_EDIT_RE``）同样按子句判定并让废弃语境标记豁免，
+否则写禁本身的告诫语句会把自己判成违规。
 """
 
 from __future__ import annotations
@@ -263,6 +266,14 @@ def _routes_to_deprecated_string(text: str, needle: str) -> bool:
     return False
 
 
+def _edits_formal_step1_directly(text: str) -> bool:
+    """判断文本是否指示用 Edit/Write 直改正式 step1，而非反向告诫不要这么做。"""
+    return any(
+        _DIRECT_STEP1_EDIT_RE.search(clause) and not _DEPRECATION_CONTEXT_RE.search(clause)
+        for clause, _ in _iter_clauses(text)
+    )
+
+
 def _validate_target_deprecations(profile_dir: Path, errors: list[str]) -> None:
     for path in sorted(profile_dir.rglob("*.md")):
         try:
@@ -275,7 +286,7 @@ def _validate_target_deprecations(profile_dir: Path, errors: list[str]) -> None:
                 errors.append(f"{path.relative_to(profile_dir)}: deprecated profile string {needle!r}")
         if _PYTHON_RESUME_RE.search(text):
             errors.append(f"{path.relative_to(profile_dir)}: deprecated Python --resume invocation")
-        if _DIRECT_STEP1_EDIT_RE.search(text):
+        if _edits_formal_step1_directly(text):
             errors.append(f"{path.relative_to(profile_dir)}: deprecated direct Edit/Write of formal step1")
 
 
