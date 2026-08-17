@@ -8,9 +8,15 @@ from pathlib import Path
 from typing import Any
 
 from lib.generation_queue_client import get_active_tasks_for_resources
-from lib.generation_result import GenerationProblem, GenerationSelectionMode, provider_checkpoint_from_task
+from lib.generation_result import (
+    GenerationProblem,
+    GenerationSelectionMode,
+    migration_problem,
+    provider_checkpoint_from_task,
+)
 from lib.narration_delivery import USE_TTS
 from lib.project_manager import ProjectManager, get_project_manager
+from lib.project_migration_failure import MIGRATION_FAILURE_CODE, load_migration_failure
 from lib.reference_video.request_projection import ReferenceRequestOptions
 from lib.script_batch_edit import script_revision
 from lib.script_skeleton import SKELETONS, ensure_route_skeleton
@@ -63,6 +69,18 @@ class WorkflowPlanner:
             project_name,
             request.episode,
         )
+        blocked = next((b for b in status.blockers if b.code == MIGRATION_FAILURE_CODE), None)
+        if blocked is not None:
+            # The migration verdict is the whole plan: nothing downstream can be
+            # planned off inputs the migration itself refused.
+            return build_workflow_plan(
+                status,
+                narration_delivery=request.narration_delivery,
+                structure_problems=[await self._migration_problem(project_name)],
+                script_revision=None,
+                task_observations=[],
+                admission=None,
+            )
         facts = await self._script_facts(project_name, status)
         structure_problems = self._structure_problems(facts)
         tasks = await self._active_tasks(project_name, status, facts, request)
@@ -83,6 +101,13 @@ class WorkflowPlanner:
             task_observations=tasks,
             admission=admission,
         )
+
+    async def _migration_problem(self, project_name: str) -> GenerationProblem:
+        project_path = self._pm.get_project_path(project_name)
+        failure = await asyncio.to_thread(load_migration_failure, project_path)
+        if failure is None:  # pragma: no cover - the status was just built from it
+            raise RuntimeError(f"migration verdict vanished while planning {project_name!r}")
+        return migration_problem(failure)
 
     async def _script_facts(self, project_name: str, status: WorkflowStatus) -> _ScriptFacts | None:
         target = status.target

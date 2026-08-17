@@ -1463,6 +1463,7 @@ export default {
   'list_source_files_failed': 'Tải danh sách tệp gốc thất bại: {{message}}',
   'lobby_brand_subtitle': 'Studio',
   'lobby_card_actions': 'Hành động dự án',
+  'lobby_card_needs_repair': 'CẦN SỬA',
   'lobby_card_stat_cast': 'CAST',
   'lobby_card_stat_episode': 'EP',
   'lobby_card_stat_prop': 'PROP',
@@ -1621,6 +1622,13 @@ export default {
   'tool_name_split_segment': 'Tách phân cảnh',
   'tool_name_patch_project': 'Sửa tài sản dự án',
   'tool_name_rename_asset': 'Đổi tên tài sản',
+  'tool_name_retry_project_migration': 'Thử lại nâng cấp dữ liệu',
+
+  // Biểu ngữ nâng cấp dữ liệu thất bại (đầu StudioLayout)
+  'migration_repair_title': 'Dự án này cần được sửa',
+  'migration_repair_body': 'Nâng cấp dữ liệu chưa hoàn tất nên chức năng tạo nội dung tạm thời bị tắt. Kịch bản và hình ảnh đã có vẫn xem được bình thường. Nhấn "Thử lại nâng cấp" để đưa yêu cầu sửa vào cuộc trò chuyện với trợ lý, rồi tự bạn gửi đi.',
+  'migration_repair_action': 'Thử lại nâng cấp',
+  'migration_repair_prefill': 'Nâng cấp dữ liệu của dự án này đã thất bại. Hãy giải thích từng mục trong chi tiết lỗi — tập nào, tệp nào, vi phạm điều gì — rồi dùng các công cụ chỉnh sửa có kiểm soát để sửa và gọi retry_project_migration.',
   // Skill display names (single source of truth: user-invocable SKILL.md
   // dưới agent_runtime_profile/.claude/skills/; tests/test_frontend_skill_i18n.py kiểm tra đồng bộ)
   'skill_name_video_workflow': 'Quy trình sáng tạo video',

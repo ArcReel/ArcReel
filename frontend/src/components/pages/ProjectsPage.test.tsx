@@ -60,6 +60,8 @@ describe("ProjectsPage", () => {
           status: {
             current_phase: "production",
             phase_progress: 0.5,
+            needs_repair: false,
+            repair_reason: null,
             characters: { total: 2, completed: 2 },
             scenes: { total: 1, completed: 1 },
             props: { total: 1, completed: 0 },
@@ -92,6 +94,8 @@ describe("ProjectsPage", () => {
           status: {
             current_phase: "production",
             phase_progress: 0.1,
+            needs_repair: false,
+            repair_reason: null,
             characters: { total: 1, completed: 0 },
             scenes: { total: 0, completed: 0 },
             props: { total: 0, completed: 0 },
@@ -120,6 +124,8 @@ describe("ProjectsPage", () => {
           status: {
             current_phase: "production",
             phase_progress: 0,
+            needs_repair: false,
+            repair_reason: null,
             characters: { total: 0, completed: 0 },
             scenes: { total: 0, completed: 0 },
             props: { total: 0, completed: 0 },
@@ -162,6 +168,8 @@ describe("ProjectsPage", () => {
             status: {
               current_phase: "completed",
               phase_progress: 1,
+              needs_repair: false,
+              repair_reason: null,
               characters: { total: 1, completed: 1 },
               scenes: { total: 1, completed: 1 },
               props: { total: 0, completed: 0 },
@@ -267,6 +275,8 @@ describe("ProjectsPage", () => {
             status: {
               current_phase: "completed",
               phase_progress: 1,
+              needs_repair: false,
+              repair_reason: null,
               characters: { total: 1, completed: 1 },
               scenes: { total: 1, completed: 1 },
               props: { total: 0, completed: 0 },

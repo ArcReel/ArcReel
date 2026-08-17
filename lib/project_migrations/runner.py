@@ -13,6 +13,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from lib.path_safety import try_safe_join
+from lib.project_migration_failure import (
+    MigrationFailureRecord,
+    clear_migration_failure,
+    record_migration_failure,
+)
 from lib.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_v1_to_v2
 from lib.project_migrations.v2_to_v3_episode_ledger import migrate_v2_to_v3
@@ -151,13 +156,45 @@ def migrate_project_dir(project_dir: Path) -> bool:
     return True
 
 
+def _append_error_log(project_dir: Path, tb: str) -> None:
+    """Keep the full traceback out of the user-facing verdict but on disk for support."""
+
+    error_log = project_dir.parent / "_migration_errors.log"
+    try:
+        error_log.parent.mkdir(parents=True, exist_ok=True)
+        with error_log.open("a", encoding="utf-8") as handle:
+            handle.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {project_dir.name}\n{tb}\n")
+    except OSError as exc:
+        logger.warning("无法写入迁移错误日志：%s（%s）", error_log, exc)
+
+
+def migrate_project_with_verdict(project_dir: Path) -> MigrationFailureRecord | None:
+    """Run the chain for one project and persist the verdict beside its data.
+
+    Returns ``None`` once the project sits at the current schema — the previous
+    verdict, if any, is cleared — or the recorded failure. Idempotent: a project
+    that is already current is a no-op success, so retrying costs nothing.
+    """
+
+    try:
+        migrate_project_dir(project_dir)
+    except Exception as exc:  # noqa: BLE001 - one project's failure is isolated, not fatal
+        logger.error("迁移失败 %s: %s", project_dir.name, exc)
+        # The persisted verdict is what the production status, the production plan
+        # and every generation entry read to refuse work on this project.
+        _append_error_log(project_dir, traceback.format_exc())
+        return record_migration_failure(project_dir, exc, schema_version=_load_schema_version(project_dir))
+    # A retry that finally lands clears the verdict, so the project stops being
+    # reported as blocked without any further user action.
+    clear_migration_failure(project_dir)
+    return None
+
+
 def run_project_migrations(projects_root: Path) -> MigrationSummary:
     """扫 projects_root 下每个项目目录，升级到 CURRENT_SCHEMA_VERSION。"""
     summary = MigrationSummary()
     if not projects_root.exists():
         return summary
-
-    error_log = projects_root / "_migration_errors.log"
 
     for child in sorted(projects_root.iterdir()):
         if not child.is_dir():
@@ -171,18 +208,15 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
             continue  # 非项目目录
         if version >= CURRENT_SCHEMA_VERSION:
             summary.skipped.append(child.name)
+            # A project that reached the current schema by any route is not blocked;
+            # a verdict left over from an earlier attempt would strand it forever.
+            clear_migration_failure(child)
             continue
 
-        try:
-            migrate_project_dir(child)
+        if migrate_project_with_verdict(child) is None:
             summary.migrated.append(child.name)
-        except Exception as e:
+        else:
             summary.failed.append(child.name)
-            tb = traceback.format_exc()
-            logger.error("迁移失败 %s: %s", child.name, e)
-            error_log.parent.mkdir(parents=True, exist_ok=True)
-            with error_log.open("a", encoding="utf-8") as f:
-                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {child.name}\n{tb}\n")
 
     return summary
 

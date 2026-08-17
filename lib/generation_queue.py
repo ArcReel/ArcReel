@@ -17,6 +17,7 @@ from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskRepository
 from lib.generation_admission import generation_admission_lock
+from lib.project_migration_guard import assert_project_migration_ok
 from lib.task_terminal_events import emit_task_terminal_events
 
 if TYPE_CHECKING:
@@ -344,6 +345,11 @@ class GenerationQueue:
         user_id: str = DEFAULT_USER_ID,
         provider_id: str | None = None,
     ) -> dict[str, Any]:
+        # Every Web, Agent and batch generation entry reaches the queue through this
+        # method, so a project whose migration failed is refused here once instead of
+        # at each caller. Nothing is created and nothing is billed.
+        await asyncio.to_thread(assert_project_migration_ok, project_name)
+
         if task_type == "reference_video":
             payload = reference_video_enqueue_payload(payload, script_file=script_file)
 

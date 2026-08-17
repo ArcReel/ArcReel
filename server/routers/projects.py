@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 if TYPE_CHECKING:
     from server.services.jianying_draft_service import JianyingDraftService
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi import Path as FastAPIPath
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
@@ -47,6 +47,7 @@ from lib.style_templates import is_known_template, resolve_template_prompt
 from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow_state import WorkflowRequestError, WorkflowStateService, WorkflowStatus
 from server.auth import CurrentUser, create_download_token, verify_download_token
+from server.dependencies import require_project_migration_ok
 from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import (
     execute_current_script_edit,
@@ -1020,7 +1021,11 @@ async def get_script(name: str, script_file: str, _t: Translator):
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
-@router.post("/projects/{name}/script-edits", response_model=None)
+@router.post(
+    "/projects/{name}/script-edits",
+    response_model=None,
+    dependencies=[Depends(require_project_migration_ok)],
+)
 async def edit_script_batch(name: str, command: ScriptBatchEditCommand, _t: Translator) -> JSONResponse:
     """Execute the same revisioned script-edit command exposed to the in-process Agent."""
 
@@ -1540,7 +1545,7 @@ async def set_project_source(
 # ==================== 项目概述管理 ====================
 
 
-@router.post("/projects/{name}/generate-overview")
+@router.post("/projects/{name}/generate-overview", dependencies=[Depends(require_project_migration_ok)])
 async def generate_overview(name: str, _t: Translator):
     """使用 AI 生成项目概述"""
     try:

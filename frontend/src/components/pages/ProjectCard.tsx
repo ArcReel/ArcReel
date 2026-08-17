@@ -327,6 +327,19 @@ export function ProjectCard(props: ProjectCardProps) {
 
         <div className="mb-3 flex items-center gap-2">
           <PhasePill phase={phase} label={phaseLabel} />
+          {status?.needs_repair ? (
+            <span
+              className="inline-flex items-center rounded-full border px-2 py-[2px] font-mono text-[10px] font-semibold uppercase tracking-[0.06em]"
+              style={{
+                color: "var(--color-warm)",
+                borderColor: "var(--color-warm-ring)",
+                background: "var(--color-warm-soft)",
+              }}
+              title={status.repair_reason ?? undefined}
+            >
+              {t("lobby_card_needs_repair")}
+            </span>
+          ) : null}
         </div>
 
         <EpisodeStrip summary={episodes} />

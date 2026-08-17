@@ -38,6 +38,7 @@ from lib.artifact_manifest import (
     ArtifactStatus,
     normalize_artifact_path,
 )
+from lib.project_migration_failure import MigrationFailureRecord
 from lib.task_failure import parse_failure
 
 if TYPE_CHECKING:  # 仅用于类型标注，避免这个纯契约模块在运行时拖进队列客户端。
@@ -81,6 +82,9 @@ class GenerationProblemCode(StrEnum):
     detects.
     """
 
+    PROJECT_MIGRATION_FAILED = "project_migration_failed"
+    """The project's schema migration (artifact backfill included) did not finish.
+    Nothing on this project can be generated until it is repaired and retried."""
     UNIT_NOT_FOUND = "generation_unit_not_found"
     UNIT_INPUT_UNUSABLE = "generation_unit_input_unusable"
     UNIT_REQUEST_INVALID = "generation_unit_request_invalid"
@@ -116,6 +120,8 @@ class GenerationAction(StrEnum):
     CONFIRM_REQUEST_DURATION = "confirm_request_duration"
     CONFIGURE_PROVIDER = "configure_provider"
     REPAIR_ARTIFACT_STATE = "repair_artifact_state"
+    RETRY_PROJECT_MIGRATION = "retry_project_migration"
+    """Fix the reported inputs, then rerun the project's migration chain."""
     NONE = "none"
 
 
@@ -212,6 +218,27 @@ class GenerationProblem(BaseModel):
     detail: str
     action: GenerationAction
     params: dict[str, Any] = Field(default_factory=dict)
+
+
+def migration_problem(record: MigrationFailureRecord) -> GenerationProblem:
+    """The single blocking problem every consumer reports for a broken project.
+
+    ``detail`` is the migration failure message exactly as raised, so the user
+    reads the same sentence in the project banner, in the production plan and in
+    any refused generation call. ``params`` carries the structured locations the
+    agent needs to navigate straight to the offending episode or file.
+    """
+
+    return GenerationProblem(
+        code=GenerationProblemCode.PROJECT_MIGRATION_FAILED,
+        detail=record.reason,
+        action=GenerationAction.RETRY_PROJECT_MIGRATION,
+        params={
+            "schema_version": record.schema_version,
+            "failed_at": record.failed_at,
+            "details": [detail.model_dump(mode="json") for detail in record.details],
+        },
+    )
 
 
 class ProviderCheckpoint(BaseModel):
@@ -945,6 +972,7 @@ __all__ = [
     "artifact_is_reusable",
     "artifact_state_problem",
     "enqueue_problem",
+    "migration_problem",
     "normalize_requested_ids",
     "observe_artifact_status",
     "problem_from_task_failure",

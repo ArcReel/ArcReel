@@ -87,6 +87,10 @@ export type Phase = (typeof PHASE_ORDER)[number];
 export interface ProjectStatus {
   current_phase: Phase;
   phase_progress: number;
+  /** Schema migration (artifact backfill included) failed; generation is closed until repaired */
+  needs_repair: boolean;
+  /** The migration failure message exactly as raised, or null when not blocked */
+  repair_reason: string | null;
   characters: ProgressCategory;
   scenes: ProgressCategory;
   props: ProgressCategory;
