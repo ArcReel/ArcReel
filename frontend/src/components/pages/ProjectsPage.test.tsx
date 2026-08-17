@@ -81,6 +81,81 @@ describe("ProjectsPage", () => {
     expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
+  it("marks a project that needs repair and shows the reason on the card", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [
+        {
+          name: "broken",
+          title: "Broken Project",
+          style: "Anime",
+          style_template_id: "anim_kyoto",
+          thumbnail: null,
+          status: {
+            current_phase: "production",
+            phase_progress: 0.5,
+            needs_repair: true,
+            repair_reason: "episode script scripts/episode_1.json item 2 has no identity",
+            characters: { total: 1, completed: 1 },
+            scenes: { total: 1, completed: 1 },
+            props: { total: 0, completed: 0 },
+            episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
+          },
+        },
+      ],
+    });
+
+    renderPage();
+
+    // 唯一项目会成为「正在编辑」卡；标记与原因在两张卡上都必须出现
+    expect((await screen.findAllByText("需要修复")).length).toBeGreaterThan(0);
+    // 原因是可见文本而非 tooltip：触摸设备打不开 title，屏幕阅读器也读不到
+    expect(
+      screen.getAllByText("episode script scripts/episode_1.json item 2 has no identity").length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("puts the repair state and reason into the library card's accessible name", async () => {
+    const brokenStatus = {
+      current_phase: "production" as const,
+      phase_progress: 0.5,
+      needs_repair: true,
+      repair_reason: "episode script scripts/episode_1.json item 2 has no identity",
+      characters: { total: 1, completed: 1 },
+      scenes: { total: 1, completed: 1 },
+      props: { total: 0, completed: 0 },
+      episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
+    };
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [
+        {
+          name: "healthy",
+          title: "Healthy Project",
+          style: "Anime",
+          style_template_id: "anim_kyoto",
+          thumbnail: null,
+          status: { ...brokenStatus, needs_repair: false, repair_reason: null, phase_progress: 0.9 },
+        },
+        {
+          name: "broken",
+          title: "Broken Project",
+          style: "Anime",
+          style_template_id: "anim_kyoto",
+          thumbnail: null,
+          status: brokenStatus,
+        },
+      ],
+    });
+
+    renderPage();
+
+    // 常规卡整张是一个 link，内部文本被 aria-label 覆盖——修复状态与原因必须写进这个名字
+    expect(
+      await screen.findByRole("link", {
+        name: /Broken Project.*需要修复.*episode script scripts\/episode_1\.json item 2 has no identity/s,
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("shows 自定义风格 label when project has style_image but no template_id", async () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({
       projects: [

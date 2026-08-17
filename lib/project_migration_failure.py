@@ -98,7 +98,11 @@ def record_migration_failure(
     *,
     schema_version: int,
 ) -> MigrationFailureRecord:
-    """Persist the verdict for a failed attempt, replacing any earlier one."""
+    """Persist the verdict for a failed attempt, replacing any earlier one.
+
+    Raises when the record cannot be written: the returned record would otherwise
+    claim the project is blocked while no guard can see it on disk.
+    """
 
     record = MigrationFailureRecord(
         schema_version=schema_version,
@@ -111,13 +115,18 @@ def record_migration_failure(
 
 
 def clear_migration_failure(project_dir: Path) -> None:
-    """Drop the verdict once the chain completes — the project is no longer blocked."""
+    """Drop the verdict once the chain completes — the project is no longer blocked.
+
+    Raises when the file survives: the verdict on disk is what every guard reads,
+    so swallowing the error would report "unblocked" while the project stays shut.
+    """
 
     path = migration_failure_path(project_dir)
     try:
         path.unlink(missing_ok=True)
     except OSError as exc:
-        logger.warning("无法清除迁移失败记录：%s（%s）", path, exc)
+        logger.error("无法清除迁移失败记录，该项目仍被阻断：%s（%s）", path, exc)
+        raise
 
 
 def load_migration_failure(project_dir: Path) -> MigrationFailureRecord | None:
@@ -165,6 +174,7 @@ def _write_atomically(path: Path, record: MigrationFailureRecord) -> None:
         # generation stays open on data the migration already refused.
         logger.error("无法写入迁移失败记录，该项目不会被阻断：%s（%s）", path, exc)
         Path(tmp_name).unlink(missing_ok=True)
+        raise
 
 
 __all__ = [

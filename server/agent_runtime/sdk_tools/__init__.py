@@ -148,7 +148,7 @@ def _refuse_while_migration_failed(sdk_tool: Any, ctx: ToolContext) -> Any:
     inner = sdk_tool.handler
 
     async def _guarded(args: Any) -> dict[str, Any]:
-        failure = await asyncio.to_thread(project_migration_failure, ctx.project_name)
+        failure = await asyncio.to_thread(project_migration_failure, ctx.project_name, ctx.pm)
         if failure is not None:
             return migration_refusal_response(
                 failure,

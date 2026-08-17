@@ -219,6 +219,81 @@ async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_
     assert "retry_project_migration" not in sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
 
 
+async def test_mcp_guard_reads_the_session_projects_root_not_the_global_one(tmp_path: Path, monkeypatch) -> None:
+    """守卫的裁决必须取自 ctx.pm：会话可能绑定另一个 projects_root，同名项目不是同一个项目。"""
+
+    import lib.project_migration_guard as guard
+    from server.agent_runtime import sdk_tools
+
+    session_root = tmp_path / "session"
+    session_root.mkdir()
+    session_dir, *_ = _project(session_root)
+    assert migrate_project_with_verdict(session_dir) is None
+
+    global_root = tmp_path / "global"
+    global_root.mkdir()
+    global_dir, *_ = _project(global_root)
+    _break_episode_script(global_dir)
+    assert migrate_project_with_verdict(global_dir) is not None
+
+    monkeypatch.setattr(guard, "get_project_manager", lambda: ProjectManager(str(global_root)))
+    ctx = sdk_tools.ToolContext(project_name="demo", projects_root=session_root, pm=ProjectManager(str(session_root)))
+    ran = False
+
+    @tool("generate_storyboards", "stub", {"type": "object", "properties": {}})
+    async def _inner(_args: dict[str, object]) -> dict[str, object]:
+        nonlocal ran
+        ran = True
+        return {"content": []}
+
+    guarded = sdk_tools._refuse_while_migration_failed(_inner, ctx)  # pyright: ignore[reportPrivateUsage]
+    result = await guarded.handler({})
+
+    assert ran is True
+    assert result.get("is_error") is not True
+
+
+def test_retry_keeps_the_project_blocked_when_the_chain_cannot_place_it(tmp_path: Path) -> None:
+    """迁移器一次也没跑起来（project.json 不可读）时不得报成功——裁决必须留着。"""
+
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    project_dir, *_ = _project(projects_root)
+    _break_episode_script(project_dir)
+    assert migrate_project_with_verdict(project_dir) is not None
+
+    # 「修复」把 project.json 弄没了：链条无处落脚，schema 仍未达标。
+    (project_dir / "project.json").unlink()
+    residual = migrate_project_with_verdict(project_dir)
+
+    assert residual is not None
+    assert str(CURRENT_PROJECT_SCHEMA_VERSION) in residual.reason
+    assert load_migration_failure(project_dir) is not None
+
+
+def test_a_verdict_that_cannot_be_persisted_fails_loud(tmp_path: Path, monkeypatch) -> None:
+    """裁决写不进磁盘时，任何守卫都读不到它——报成功等于放开一个该被阻断的项目。"""
+
+    import lib.project_migration_failure as failure_module
+
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    project_dir, *_ = _project(projects_root)
+    _break_episode_script(project_dir)
+
+    def _refuse(*_args: object, **_kwargs: object) -> None:
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(failure_module.os, "replace", _refuse)
+
+    with pytest.raises(OSError):
+        migrate_project_with_verdict(project_dir)
+
+    # 启动期一个项目写不下裁决，不拖垮同一轮里其它项目。
+    summary = run_project_migrations(projects_root)
+    assert "demo" in summary.failed
+
+
 def _guarded_app() -> FastAPI:
     """一个只挂守卫的最小 app：断言的是依赖本身在真实 FastAPI 栈里的行为。"""
 

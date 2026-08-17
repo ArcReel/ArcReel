@@ -15,6 +15,7 @@ from pathlib import Path
 from lib.path_safety import try_safe_join
 from lib.project_migration_failure import (
     MigrationFailureRecord,
+    ProjectMigrationError,
     clear_migration_failure,
     record_migration_failure,
 )
@@ -184,6 +185,20 @@ def migrate_project_with_verdict(project_dir: Path) -> MigrationFailureRecord | 
         # and every generation entry read to refuse work on this project.
         _append_error_log(project_dir, traceback.format_exc())
         return record_migration_failure(project_dir, exc, schema_version=_load_schema_version(project_dir))
+    version = _load_schema_version(project_dir)
+    if version != CURRENT_SCHEMA_VERSION:
+        # ``migrate_project_dir`` returns without raising for a directory it cannot
+        # place on the chain at all — no readable ``project.json``, or a version the
+        # chain does not cover. Reaching the current schema is the only evidence the
+        # project is repaired, so anything else keeps it blocked.
+        return record_migration_failure(
+            project_dir,
+            ProjectMigrationError(
+                f"schema version {version} did not reach v{CURRENT_SCHEMA_VERSION}",
+                file="project.json",
+            ),
+            schema_version=version,
+        )
     # A retry that finally lands clears the verdict, so the project stops being
     # reported as blocked without any further user action.
     clear_migration_failure(project_dir)
@@ -206,16 +221,22 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
         version = _load_schema_version(child)
         if version < 0:
             continue  # 非项目目录
-        if version >= CURRENT_SCHEMA_VERSION:
-            summary.skipped.append(child.name)
-            # A project that reached the current schema by any route is not blocked;
-            # a verdict left over from an earlier attempt would strand it forever.
-            clear_migration_failure(child)
-            continue
+        # Persisting the verdict is itself disk work: one project whose directory
+        # cannot be written must not abort the pass for every project after it.
+        try:
+            if version >= CURRENT_SCHEMA_VERSION:
+                # A project that reached the current schema by any route is not blocked;
+                # a verdict left over from an earlier attempt would strand it forever.
+                clear_migration_failure(child)
+                summary.skipped.append(child.name)
+                continue
 
-        if migrate_project_with_verdict(child) is None:
-            summary.migrated.append(child.name)
-        else:
+            if migrate_project_with_verdict(child) is None:
+                summary.migrated.append(child.name)
+            else:
+                summary.failed.append(child.name)
+        except OSError as exc:
+            logger.error("迁移裁决无法落盘 %s：%s", child.name, exc)
             summary.failed.append(child.name)
 
     return summary

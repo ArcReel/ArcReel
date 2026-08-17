@@ -10,7 +10,7 @@ from a state the system cannot vouch for.
 from __future__ import annotations
 
 from lib.api_errors import ConflictError
-from lib.project_manager import get_project_manager
+from lib.project_manager import ProjectManager, get_project_manager
 from lib.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     MigrationFailureRecord,
@@ -18,10 +18,15 @@ from lib.project_migration_failure import (
 )
 
 
-def project_migration_failure(project_name: str) -> MigrationFailureRecord | None:
-    """Return the blocking verdict for a project, or ``None`` when it is healthy."""
+def project_migration_failure(project_name: str, pm: ProjectManager | None = None) -> MigrationFailureRecord | None:
+    """Return the blocking verdict for a project, or ``None`` when it is healthy.
 
-    pm = get_project_manager()
+    Callers bound to their own projects root (an agent session's ``ToolContext``,
+    tests) pass their ``pm``: resolving through the global manager instead would
+    read a different project directory under the same name.
+    """
+
+    pm = pm if pm is not None else get_project_manager()
     try:
         project_dir = pm.get_project_path(project_name)
     except (FileNotFoundError, ValueError):

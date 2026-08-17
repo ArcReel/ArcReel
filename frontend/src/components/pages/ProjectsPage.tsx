@@ -33,8 +33,11 @@ import {
   ProjectCard,
   Poster,
   PhasePill,
+  NeedsRepairPill,
+  RepairReasonLine,
   asProjectStatus,
   gradientProgressStyles,
+  repairReasonOf,
   usePhaseLabels,
 } from "./ProjectCard";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
@@ -124,6 +127,7 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
   const characters = status?.characters ?? { completed: 0, total: 0 };
   const scenes = status?.scenes ?? { completed: 0, total: 0 };
   const propsStat = status?.props ?? { completed: 0, total: 0 };
+  const repairReason = repairReasonOf(status);
 
   const { trackStyle, barStyle } = gradientProgressStyles(
     phase === "completed" ? "good" : "accent",
@@ -183,8 +187,11 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
 
         <div aria-hidden className="relative my-4 h-px bg-hairline-soft" />
 
+        <RepairReasonLine reason={repairReason} />
+
         <div className="relative mb-3 flex items-center gap-3.5">
           <PhasePill phase={phase} label={phaseLabel} />
+          {status?.needs_repair ? <NeedsRepairPill /> : null}
           <div className="flex flex-1 items-center gap-2.5">
             <ProgressBar
               value={progressPct}
