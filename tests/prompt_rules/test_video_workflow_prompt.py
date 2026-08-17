@@ -69,6 +69,7 @@ CONTROLLED_ACTIONS = tuple(
 )
 
 TTS_PROBLEM_CODES = tuple(code for code in _TASK_FAILURE_ACTIONS if code.startswith("tts_"))
+assert TTS_PROBLEM_CODES, "_TASK_FAILURE_ACTIONS 里已没有 tts_ 前缀问题码，请更新本测试的派生条件"
 
 
 def _skill(filename: str) -> str:
