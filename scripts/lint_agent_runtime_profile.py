@@ -68,7 +68,8 @@ _ROUTING_MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 _DIRECT_STEP1_EDIT_RE = re.compile(
-    r"(?:Edit|Write).{0,100}(?:step1_normalized_script|narration.{0,30}step1|drama.{0,30}step1)",
+    r"(?:Edit|Write).{0,100}(?:step1_normalized_script|step1_reference_units"
+    r"|narration.{0,30}step1|drama.{0,30}step1|reference.video.{0,30}step1)",
     re.IGNORECASE | re.DOTALL,
 )
 _PYTHON_RESUME_RE = re.compile(r"python[^\n`]*\s--resume(?:\s|$)")

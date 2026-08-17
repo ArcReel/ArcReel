@@ -353,6 +353,19 @@ def test_direct_step1_edit_rule_spares_write_deny_notices(tmp_path: Path) -> Non
     assert ".claude/agents/direct-edit.md: deprecated direct Edit/Write of formal step1" in errors
 
 
+def test_direct_step1_edit_rule_catches_reference_video_formal_step1(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / ".claude" / "agents" / "direct-edit-reference.md").write_text(
+        "---\nname: direct-edit-reference\ndescription: Direct edit agent\n---\n"
+        "用 Edit 工具修改 `drafts/episode_1/step1_reference_units.json` 后继续。\n",
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+
+    assert ".claude/agents/direct-edit-reference.md: deprecated direct Edit/Write of formal step1" in errors
+
+
 def test_shipped_profile_passes_current_lint() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     assert lint_profile(repo_root / "agent_runtime_profile") == []
