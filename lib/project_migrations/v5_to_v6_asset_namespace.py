@@ -6,7 +6,6 @@ import copy
 import logging
 import os
 import shutil
-import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -23,6 +22,7 @@ from lib.asset_types import (
 )
 from lib.episode_paths import REFERENCE_VIDEO_STEP1_LEGACY_FILENAME, STEP1_LEGACY_FILENAMES
 from lib.json_io import atomic_write_json, load_json
+from lib.project_migrations.staged_swap import new_rollback_dir, new_staging_dir
 from lib.reference_video.shot_parser import match_dialogue_line, rewrite_mentions, strip_shot_header
 
 logger = logging.getLogger(__name__)
@@ -581,7 +581,10 @@ def _migrate_staged_tree(project_dir: Path) -> None:
 
 
 def migrate_v5_to_v6(project_dir: Path) -> None:
-    """Make the multi-file v6 migration atomic by transforming a sibling staging tree then swapping it in."""
+    """Make the multi-file v6 migration atomic by transforming a sibling staging tree then swapping it in.
+
+    交换窗口内进程被硬杀的善后见 ``lib.project_migrations.staged_swap``。
+    """
     project_dir = Path(project_dir)
     project_file = project_dir / "project.json"
     if not project_file.is_file():
@@ -590,8 +593,8 @@ def migrate_v5_to_v6(project_dir: Path) -> None:
     if int(data.get("schema_version") or 0) >= 6:
         return
 
-    staging = Path(tempfile.mkdtemp(prefix=f".{project_dir.name}.v6-", dir=project_dir.parent))
-    rollback = project_dir.parent / f".{project_dir.name}.v6-rollback-{uuid.uuid4().hex}"
+    staging = new_staging_dir(project_dir)
+    rollback = new_rollback_dir(project_dir)
     try:
         shutil.copytree(project_dir, staging, symlinks=True, dirs_exist_ok=True)
         _migrate_staged_tree(staging)
@@ -603,8 +606,9 @@ def migrate_v5_to_v6(project_dir: Path) -> None:
             raise
         shutil.rmtree(rollback, ignore_errors=True)
     finally:
-        if staging.exists():
-            shutil.rmtree(staging)
+        # ignore_errors：staging 清理失败（占用/权限）不得中断本块，否则下面的原树恢复检查
+        # 会被跳过，项目目录处于缺失状态直到下次启动扫描才被 reclaim_interrupted_swaps 认领。
+        shutil.rmtree(staging, ignore_errors=True)
         if rollback.exists() and not project_dir.exists():
             os.replace(rollback, project_dir)
 

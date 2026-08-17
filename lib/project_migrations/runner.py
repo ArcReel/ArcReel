@@ -19,6 +19,11 @@ from lib.project_migration_failure import (
     clear_migration_failure,
     record_migration_failure,
 )
+from lib.project_migrations.staged_swap import (
+    cleanup_completed_swap_dirs,
+    ensure_disk_headroom,
+    reclaim_interrupted_swaps,
+)
 from lib.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_v1_to_v2
 from lib.project_migrations.v2_to_v3_episode_ledger import migrate_v2_to_v3
@@ -35,6 +40,9 @@ CURRENT_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
 _MIGRATORS_WITH_OWNED_BACKUP = frozenset({7})
+
+# 只读预检：在 runner 写下任何备份之前跑，拒绝时项目目录一个字节都没被动过。
+_MIGRATOR_PREFLIGHTS: dict[int, Callable[[Path], None]] = {5: ensure_disk_headroom}
 
 
 def _versioned_backup_name(base_name: str, from_version: int, ts: int) -> str:
@@ -145,6 +153,9 @@ def migrate_project_dir(project_dir: Path) -> bool:
         # Activation migrations must finish their complete read-only preflight
         # before creating any backup.  Their commit boundary owns the backup so
         # the runner cannot leave writes behind when preflight rejects a project.
+        preflight = _MIGRATOR_PREFLIGHTS.get(version)
+        if preflight:
+            preflight(project_dir)
         if version not in _MIGRATORS_WITH_OWNED_BACKUP:
             _backup_project_json(project_dir, version)
         if version == 0:
@@ -211,6 +222,9 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
     if not projects_root.exists():
         return summary
 
+    # 认领在遍历之前：被改回的项目在本轮就继续迁移，不必等下次启动。
+    reclaim_interrupted_swaps(projects_root)
+
     for child in sorted(projects_root.iterdir()):
         if not child.is_dir():
             continue
@@ -243,10 +257,11 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
 
 
 def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
-    """删除超过 max_age_days、且可归属到迁移输入的版本化备份。"""
+    """删除超过 max_age_days、且可归属到迁移输入的版本化备份与目录交换中间目录。"""
     if not projects_root.exists():
         return
     cutoff = time.time() - max_age_days * 86400
+    cleanup_completed_swap_dirs(projects_root, cutoff)
     for project_dir in projects_root.iterdir():
         if not project_dir.is_dir():
             continue

@@ -267,6 +267,12 @@ Before committing a migration, ArcReel creates adjacent backups with a `.bak.v7-
 
 Project migration is safe to retry. If a previous startup was interrupted while creating backups or committing changes, the next startup validates the project again and ensures that at least one backup exactly matches the pre-migration content before continuing. These automatically generated project-level backups exist only for migration recovery; they do not replace deployment-level backups of the database and the entire `projects/` directory.
 
+One class of migration first copies the whole project next to its directory, rewrites the copy, and then swaps the directories. What that means for disk space and recovery:
+
+- Free space is checked before the migration starts. If it cannot hold the copy, that project fails with a "disk space is insufficient" error and its directory is left untouched; free up space and restart to continue.
+- If the process is killed during the swap (power loss, `kill -9`, an OOM-killed container), the project directory can be missing for a moment and a hidden directory starting with `.<project-name>.v6-` is left alongside it. The next startup reclaims it and brings the project back, so do not delete these directories by hand, and do not rush to recreate a project that disappeared from the list.
+- Once the project is back in place, those hidden directories are cleaned up automatically under the same retention window as the backups above.
+
 If a project migration fails, preserve the files and inspect the startup logs. Do not manually change the schema version or delete backup files. Repair the damaged project references or permissions, then restart the service.
 
 ### 5.5 Pin a Version {#pin-version}
