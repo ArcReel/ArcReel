@@ -74,7 +74,7 @@ video-workflow skill 被加载后，SHALL 调用 `mcp__arcreel__get_workflow_pla
 
 #### Scenario: 计划交回资产设计图生成动作
 - **WHEN** `next_action.type == "generate_asset_sheets"`
-- **THEN** 编排 skill 按 `requested_ids` 交派生成，完成后按 succeeded / failed / blocked 逐 ID 转述，不把整批塌成一句成败
+- **THEN** 编排 skill 按 `requested_ids` 交派生成，完成后按 `succeeded` / `failed` / `blocked` 逐 ID 转述，不把整批塌成一句成败
 
 #### Scenario: 计划交回分镜或视频生成动作
 - **WHEN** `next_action.type` 是分镜图、宫格或视频生成动作
