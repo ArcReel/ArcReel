@@ -105,6 +105,75 @@ _NARRATION_DELIVERY_SCHEMA_PROPERTY = {
     ),
 }
 
+_SCRIPT_SCHEMA_PROPERTY = {
+    "type": "string",
+    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
+}
+
+# 四个视频工具共用的请求尾部参数，按声明顺序展开进各自的 properties。
+_REQUEST_SCHEMA_PROPERTIES = {
+    "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
+    "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
+    "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
+}
+
+
+def _video_tool_schema(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
+    """工具入参 schema 的统一外壳。"""
+
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+    }
+
+
+_EPISODE_TOOL_SCHEMA = _video_tool_schema(
+    {
+        "script": _SCRIPT_SCHEMA_PROPERTY,
+        "resume": {"type": "boolean", "description": "是否从上次中断处继续"},
+        **_REQUEST_SCHEMA_PROPERTIES,
+    },
+    ["script", "narration_delivery"],
+)
+
+_SCENE_TOOL_SCHEMA = _video_tool_schema(
+    {
+        "script": _SCRIPT_SCHEMA_PROPERTY,
+        "scene_id": {
+            "type": "string",
+            "description": "场景或片段 ID；reference_video 项目传 video_unit 的 unit_id（如 E1U2）",
+        },
+        **_REQUEST_SCHEMA_PROPERTIES,
+    },
+    ["script", "scene_id", "narration_delivery"],
+)
+
+_ALL_TOOL_SCHEMA = _video_tool_schema(
+    {
+        "script": _SCRIPT_SCHEMA_PROPERTY,
+        **_REQUEST_SCHEMA_PROPERTIES,
+    },
+    ["script", "narration_delivery"],
+)
+
+_SELECTED_TOOL_SCHEMA = _video_tool_schema(
+    {
+        "script": _SCRIPT_SCHEMA_PROPERTY,
+        "scene_ids": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": '场景或片段 ID 列表；reference_video 项目传 video_unit 的 unit_id 列表（如 ["E1U2"]）',
+        },
+        "resume": {
+            "type": "boolean",
+            "description": "是否从上次中断处继续；reference_video 项目的点名重新生成会忽略此参数",
+        },
+        **_REQUEST_SCHEMA_PROPERTIES,
+    },
+    ["script", "scene_ids", "narration_delivery"],
+)
+
 
 _EPISODE_OPERATION = "generate_video_episode"
 _SCENE_OPERATION = "generate_video_scene"
@@ -850,6 +919,77 @@ async def _generate_reference_units(
     return ReferenceGenerationComplete(paths=final, projections=projections)
 
 
+def _reference_episode(project: dict[str, Any], script: dict[str, Any], script_filename: str) -> int:
+    """参考路线的集号：绑定身份优先，取不到时回落到剧本 / 文件名推断。"""
+
+    episode = resolve_artifact_episode(
+        project=project,
+        script=script,
+        script_filename=script_filename,
+    )
+    if episode is None:
+        episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+    return episode
+
+
+async def _run_reference_batch(
+    *,
+    ctx: ToolContext,
+    project: dict[str, Any],
+    script: dict[str, Any],
+    script_filename: str,
+    episode: int,
+    units: list[Any],
+    resume: bool,
+    checkpoint_path: Path | None,
+    selection: GenerationSelectionMode,
+    extra_tickets: list[UnitAdmissionTicket],
+    reuse_existing: Callable[[ArtifactCurrencyResolver, dict[str, Any]], bool],
+    request_options: ReferenceRequestOptions,
+    confirmed_request_durations: Mapping[str, int],
+    log: list[str],
+    operation: str,
+) -> dict[str, Any]:
+    """参考路线的共享收尾：目标状态 → 批量生成 → 准入拒绝或结果响应。
+
+    ``reuse_existing`` 收 currency 解析器与 unit，让整集路线的复用判定与点名路线的
+    「一律不复用」共用同一条缝。
+    """
+
+    currency = active_artifact_currency_resolver(ctx.project_path, project)
+    states = video_target_states(units, "unit_id", episode=episode, resolver=currency)
+    builder = GenerationResultBuilder(operation, selection)
+    result = await _generate_reference_units(
+        ctx=ctx,
+        units=units,
+        episode=episode,
+        resume=resume,
+        builder=builder,
+        states=states,
+        resolver=currency,
+        checkpoint_path=checkpoint_path,
+        build_specs=lambda u, skip: _build_reference_specs(units=u, script_filename=script_filename, skip_ids=skip),
+        project=project,
+        script=script,
+        script_filename=script_filename,
+        request_options=request_options,
+        confirmed_request_durations=confirmed_request_durations,
+        operation=operation,
+        selection=selection,
+        extra_tickets=extra_tickets,
+        reuse_existing=lambda unit: reuse_existing(currency, unit),
+    )
+    if isinstance(result, BatchAdmissionRefused):
+        return _batch_admission_response(result, log, builder, states)
+    batch = builder.build()
+    return generation_result_response(
+        batch,
+        log,
+        request_projections=result.projections,
+        **_sole_speech_admission(batch),
+    )
+
+
 async def _run_reference_episode(
     *,
     ctx: ToolContext,
@@ -868,13 +1008,7 @@ async def _run_reference_episode(
     the shared tail (resolve episode → generate units → header + log).
     """
     project = ctx.pm.load_project(ctx.project_name)
-    episode = resolve_artifact_episode(
-        project=project,
-        script=script,
-        script_filename=script_filename,
-    )
-    if episode is None:
-        episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+    episode = _reference_episode(project, script, script_filename)
     units = script.get("video_units")
     if "video_units" in script and not isinstance(units, list):
         # 路线闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
@@ -883,29 +1017,19 @@ async def _run_reference_episode(
     if not units:
         raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
     units, malformed = screen_script_entries(units, requested_ids=None)
-    currency = active_artifact_currency_resolver(ctx.project_path, project)
     versions = VersionManager(ctx.project_path)
-    states = video_target_states(units, "unit_id", episode=episode, resolver=currency)
-    builder = GenerationResultBuilder(operation, GenerationSelectionMode.MISSING_ONLY)
-    result = await _generate_reference_units(
+    return await _run_reference_batch(
         ctx=ctx,
-        units=units,
-        episode=episode,
-        resume=resume,
-        builder=builder,
-        states=states,
-        resolver=currency,
-        checkpoint_path=_episode_checkpoint_path(ctx.project_path, episode),
-        build_specs=lambda u, skip: _build_reference_specs(units=u, script_filename=script_filename, skip_ids=skip),
         project=project,
         script=script,
         script_filename=script_filename,
-        request_options=request_options,
-        confirmed_request_durations=confirmed_request_durations,
-        operation=operation,
+        episode=episode,
+        units=units,
+        resume=resume,
+        checkpoint_path=_episode_checkpoint_path(ctx.project_path, episode),
         selection=GenerationSelectionMode.MISSING_ONLY,
         extra_tickets=malformed,
-        reuse_existing=lambda unit: _batch_video_is_reusable(
+        reuse_existing=lambda currency, unit: _batch_video_is_reusable(
             currency=currency,
             versions=versions,
             episode=episode,
@@ -913,15 +1037,10 @@ async def _run_reference_episode(
             resource_id=str(unit.get("unit_id") or ""),
             artifact_path=get_generated_assets(unit).get("video_clip"),
         ),
-    )
-    if isinstance(result, BatchAdmissionRefused):
-        return _batch_admission_response(result, log, builder, states)
-    batch = builder.build()
-    return generation_result_response(
-        batch,
-        log,
-        request_projections=result.projections,
-        **_sole_speech_admission(batch),
+        request_options=request_options,
+        confirmed_request_durations=confirmed_request_durations,
+        log=log,
+        operation=operation,
     )
 
 
@@ -972,21 +1091,12 @@ async def _run_reference_units(
     """对点名的参考生视频 unit 强制重新生成成片。"""
     project = ctx.pm.load_project(ctx.project_name)
     script = ctx.pm.load_script(ctx.project_name, script_filename)
-    episode = resolve_artifact_episode(
-        project=project,
-        script=script,
-        script_filename=script_filename,
-    )
-    if episode is None:
-        episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+    episode = _reference_episode(project, script, script_filename)
 
     selected, unmatched, duplicated = _select_reference_units(script, unit_ids)
     if selected:
         log.append(f"重新生成 {len(selected)} 个 unit（已有成片一律覆盖）：{', '.join(u['unit_id'] for u in selected)}")
 
-    currency = active_artifact_currency_resolver(ctx.project_path, project)
-    states = video_target_states(selected, "unit_id", episode=episode, resolver=currency)
-    builder = GenerationResultBuilder(operation, GenerationSelectionMode.EXPLICIT)
     unmatched_tickets = [
         refused_ticket(
             unit_id,
@@ -1006,36 +1116,280 @@ async def _run_reference_units(
         for unit_id in duplicated
     ]
 
-    result = await _generate_reference_units(
+    return await _run_reference_batch(
         ctx=ctx,
-        units=selected,
-        episode=episode,
-        resume=False,
-        builder=builder,
-        states=states,
-        resolver=currency,
-        checkpoint_path=None,
-        build_specs=lambda u, skip: _build_reference_specs(units=u, script_filename=script_filename, skip_ids=skip),
         project=project,
         script=script,
         script_filename=script_filename,
-        request_options=request_options,
-        confirmed_request_durations=confirmed_request_durations,
-        operation=operation,
+        episode=episode,
+        units=selected,
+        resume=False,
+        checkpoint_path=None,
         selection=GenerationSelectionMode.EXPLICIT,
         extra_tickets=unmatched_tickets,
         # 点名即强制：磁盘上的同名成片一律不复用。
-        reuse_existing=lambda _u: False,
+        reuse_existing=lambda _currency, _unit: False,
+        request_options=request_options,
+        confirmed_request_durations=confirmed_request_durations,
+        log=log,
+        operation=operation,
     )
-    if isinstance(result, BatchAdmissionRefused):
-        return _batch_admission_response(result, log, builder, states)
-    batch = builder.build()
-    return generation_result_response(
-        batch,
-        log,
-        request_projections=result.projections,
-        **_sole_speech_admission(batch),
+
+
+@dataclass(frozen=True)
+class _VideoRequestContext:
+    """四个视频工具共有的请求前导：入参投影、剧本与生成路线判定。"""
+
+    script_filename: str
+    request_options: ReferenceRequestOptions
+    confirmed_request_durations: dict[str, int]
+    project_dir: Path
+    script: dict[str, Any]
+    reference_route: str | None
+
+
+def _video_request_context(
+    ctx: ToolContext,
+    args: dict[str, Any],
+    script_filename: str,
+) -> _VideoRequestContext:
+    """把入参折成本次请求的投影选项、载入剧本，并定下走哪条生成路线。
+
+    剧本文件名由调用方先行校验后传入：``scene_ids`` 之类的入参校验要排在文件名之后、
+    投影选项之前，入参报错的先后次序才与各入口一致。
+    """
+
+    request_options = _reference_request_options(args)
+    confirmed_request_durations = _confirmed_request_durations(args)
+    project_dir = ctx.project_path
+    script = ctx.pm.load_script(ctx.project_name, script_filename)
+    return _VideoRequestContext(
+        script_filename=script_filename,
+        request_options=request_options,
+        confirmed_request_durations=confirmed_request_durations,
+        project_dir=project_dir,
+        script=script,
+        reference_route=_resolve_reference_route(ctx, script),
     )
+
+
+@dataclass(frozen=True)
+class _StoryboardScreening:
+    """分镜路线的目标条目、ID 字段、骨架种类与筛查记名。"""
+
+    items: list[dict[str, Any]]
+    id_field: str
+    skeleton_kind: str
+    refused: list[UnitAdmissionTicket]
+
+
+def _screen_script_targets(
+    script: dict[str, Any],
+    *,
+    requested_ids: Collection[str] | None,
+) -> _StoryboardScreening:
+    """取分镜条目并筛掉成不了目标的脏条目。
+
+    骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
+    反推的种类误判成解析失败。
+    """
+
+    items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
+    skeleton_kind = resolve_script_kind(script)
+    items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids=requested_ids)
+    return _StoryboardScreening(
+        items=items,
+        id_field=id_field,
+        skeleton_kind=skeleton_kind,
+        refused=screen_refused,
+    )
+
+
+@dataclass(frozen=True)
+class _StoryboardContext:
+    """分镜路线的项目侧上下文：项目、集号与内容模式。"""
+
+    project: dict[str, Any]
+    episode: int
+    content_mode: str
+
+
+def _storyboard_context(ctx: ToolContext, request: _VideoRequestContext) -> _StoryboardContext:
+    project = ctx.pm.load_project(ctx.project_name)
+    episode = resolve_artifact_episode(
+        project=project,
+        script=request.script,
+        script_filename=request.script_filename,
+    )
+    return _StoryboardContext(
+        project=project,
+        episode=episode,
+        content_mode=resolve_content_mode(request.script, project),
+    )
+
+
+def _checkpoint_progress(ckpt_path: Path, resume: bool) -> tuple[list[str], str]:
+    """取批次进度：非续传从空表与当前时刻起步。"""
+
+    completed: list[str] = []
+    started_at = datetime.now(UTC).isoformat()
+    if resume:
+        ckpt = _load_checkpoint_at(ckpt_path)
+        if ckpt:
+            completed = ckpt.get("completed_scenes", [])
+            started_at = ckpt.get("started_at", started_at)
+    return completed, started_at
+
+
+def _scan_checkpointed_items(
+    *,
+    items: list[dict[str, Any]],
+    id_field: str,
+    ckpt_path: Path,
+    resume: bool,
+    project_dir: Path,
+    episode: int,
+    resolver: ArtifactCurrencyResolver,
+) -> tuple[list[Path | None], list[str], list[str], str]:
+    """读批次进度并按当前产物核对，返回 ``(ordered_paths, already_done, completed, started_at)``。"""
+
+    completed, started_at = _checkpoint_progress(ckpt_path, resume)
+    videos_dir = project_dir / "videos"
+    videos_dir.mkdir(parents=True, exist_ok=True)
+    ordered_paths, already_done, completed = _scan_completed_items(
+        items,
+        id_field,
+        completed,
+        videos_dir,
+        episode=episode,
+        resolver=resolver,
+    )
+    return ordered_paths, already_done, completed, started_at
+
+
+@dataclass(frozen=True)
+class _CheckpointSubmission:
+    """带批次进度的提交参数：进度文件、顺序映射与写回动作。"""
+
+    project_dir: Path
+    ckpt_path: Path
+    order_map: dict[str, int]
+    ordered_paths: list[Path | None]
+    completed: list[str]
+    save_fn: Callable[[], None]
+
+
+@dataclass(frozen=True)
+class _StoryboardBatch:
+    """分镜路线一次请求的批次上下文：目标口径、准入身份与结果构造器。
+
+    四个视频工具的目标集合与提交方式各不相同，但构造 TaskSpec、整批准入与逐目标记录
+    结论这三步共用同一份口径——集中在这里，改一处判定不会只改到其中一个入口。
+    """
+
+    ctx: ToolContext
+    request: _VideoRequestContext
+    sb: _StoryboardContext
+    screening: _StoryboardScreening
+    resolver: ArtifactCurrencyResolver
+    operation: str
+    selection: GenerationSelectionMode
+    builder: GenerationResultBuilder
+    states: dict[str, GenerationTargetState]
+    log: list[str]
+
+    def result(self) -> dict[str, Any]:
+        """把已记录的逐目标结论折成响应。"""
+
+        return generation_result_response(self.builder.build(), self.log)
+
+    async def build_specs(
+        self,
+        *,
+        items: list[dict[str, Any]],
+        skip_ids: list[str] | None,
+    ) -> tuple[list[TaskSpec], dict[str, int], list[UnitAdmissionTicket]]:
+        """按本次请求的目标条目构造分镜路线的 TaskSpec。"""
+
+        voice_characters = await resolve_voice_context(self.sb.project, self.sb.content_mode)
+        return build_storyboard_video_specs(
+            items=items,
+            id_field=self.screening.id_field,
+            content_mode=self.sb.content_mode,
+            skeleton_kind=self.screening.skeleton_kind,
+            script_filename=self.request.script_filename,
+            project_dir=self.request.project_dir,
+            project=self.sb.project,
+            episode=self.sb.episode,
+            resolver=self.resolver,
+            skip_ids=skip_ids,
+            voice_characters=voice_characters,
+        )
+
+    def _record(self, successes: list[BatchTaskResult], failures: list[BatchTaskResult]) -> None:
+        record_batch_outcomes(
+            self.builder,
+            successes=successes,
+            failures=failures,
+            states=self.states,
+            resolver=self.resolver,
+            fallback_path=_scene_fallback_relpath,
+        )
+
+    async def admit_and_submit(
+        self,
+        *,
+        items: list[dict[str, Any]],
+        specs: list[TaskSpec],
+        extra_tickets: list[UnitAdmissionTicket],
+        checkpoint: _CheckpointSubmission | None,
+    ) -> dict[str, Any]:
+        """整批准入后提交；准入未通过则零任务入队地转述拒绝。
+
+        ``checkpoint`` 为 None 表示本批不落批次进度，直接入队等待。
+        """
+
+        admission = await _admit_storyboard_specs(
+            ctx=self.ctx,
+            project=self.sb.project,
+            script=self.request.script,
+            script_filename=self.request.script_filename,
+            items=items,
+            id_field=self.screening.id_field,
+            specs=specs,
+            request_options=self.request.request_options,
+            confirmed_request_durations=self.request.confirmed_request_durations,
+            operation=self.operation,
+            selection=self.selection,
+            extra_tickets=extra_tickets,
+        )
+        if not admission.admitted:
+            return _batch_admission_response(BatchAdmissionRefused(admission), self.log, self.builder, self.states)
+
+        if checkpoint is None:
+            successes, failures = await batch_enqueue_and_wait(
+                project_name=self.ctx.project_name, specs=specs, stop_on_failure=True
+            )
+            self._record(successes, failures)
+            return self.result()
+
+        if specs:
+            successes, failures = await _submit_with_checkpoint(
+                project_name=self.ctx.project_name,
+                project_dir=checkpoint.project_dir,
+                specs=specs,
+                order_map=checkpoint.order_map,
+                ordered_paths=checkpoint.ordered_paths,
+                completed=checkpoint.completed,
+                fallback_relpath=_scene_fallback_relpath,
+                save_fn=checkpoint.save_fn,
+            )
+            self._record(successes, failures)
+
+        # checkpoint 只在整批无失败时清除，否则 resume=true 仍能接上断点。
+        if not self.builder.has_failures:
+            _clear_checkpoint_at(checkpoint.ckpt_path)
+        return self.result()
 
 
 def generate_video_episode_tool(ctx: ToolContext):
@@ -1043,76 +1397,42 @@ def generate_video_episode_tool(ctx: ToolContext):
         "generate_video_episode",
         "为剧本对应的整集生成所有场景视频。resume=true 时从 checkpoint 续传。"
         "reference_video 模式会自动按 video_units 处理。",
-        {
-            "type": "object",
-            "properties": {
-                "script": {
-                    "type": "string",
-                    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
-                },
-                "resume": {"type": "boolean", "description": "是否从上次中断处继续"},
-                "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
-                "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
-                "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
-            },
-            "required": ["script", "narration_delivery"],
-        },
+        _EPISODE_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])
             resume = bool(args.get("resume"))
-            request_options = _reference_request_options(args)
-            confirmed_request_durations = _confirmed_request_durations(args)
+            request = _video_request_context(ctx, args, script_filename)
+            project_dir = request.project_dir
 
-            project_dir = ctx.project_path
-            script = ctx.pm.load_script(ctx.project_name, script_filename)
-
-            route = _resolve_reference_route(ctx, script)
-            if route is not None:
+            if request.reference_route is not None:
                 return await _run_reference_episode(
                     ctx=ctx,
-                    script=script,
+                    script=request.script,
                     script_filename=script_filename,
                     resume=resume,
-                    request_options=request_options,
-                    confirmed_request_durations=confirmed_request_durations,
+                    request_options=request.request_options,
+                    confirmed_request_durations=request.confirmed_request_durations,
                     log=log,
                     operation=_EPISODE_OPERATION,
                 )
-            items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            # 骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
-            # 反推的种类误判成解析失败。
-            skeleton_kind = resolve_script_kind(script)
-            items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids=None)
-            project = ctx.pm.load_project(ctx.project_name)
-            episode = resolve_artifact_episode(
-                project=project,
-                script=script,
-                script_filename=script_filename,
-            )
-            content_mode = resolve_content_mode(script, project)
+            screening = _screen_script_targets(request.script, requested_ids=None)
+            items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
+            sb = _storyboard_context(ctx, request)
+            episode = sb.episode
             if not items and not screen_refused:
                 raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
 
             ckpt_path = _episode_checkpoint_path(project_dir, episode)
-            completed: list[str] = []
-            started_at = datetime.now(UTC).isoformat()
-            if resume:
-                ckpt = _load_checkpoint_at(ckpt_path)
-                if ckpt:
-                    completed = ckpt.get("completed_scenes", [])
-                    started_at = ckpt.get("started_at", started_at)
-
-            videos_dir = project_dir / "videos"
-            videos_dir.mkdir(parents=True, exist_ok=True)
-            currency = active_artifact_currency_resolver(project_dir, project)
-            ordered_paths, already_done, completed = _scan_completed_items(
-                items,
-                id_field,
-                completed,
-                videos_dir,
+            currency = active_artifact_currency_resolver(project_dir, sb.project)
+            ordered_paths, already_done, completed, started_at = _scan_checkpointed_items(
+                items=items,
+                id_field=id_field,
+                ckpt_path=ckpt_path,
+                resume=resume,
+                project_dir=project_dir,
                 episode=episode,
                 resolver=currency,
             )
@@ -1128,6 +1448,18 @@ def generate_video_episode_tool(ctx: ToolContext):
                 *_currency_reusable_ids(states, already_done),
             ]
             builder = GenerationResultBuilder(_EPISODE_OPERATION, GenerationSelectionMode.MISSING_ONLY)
+            batch = _StoryboardBatch(
+                ctx=ctx,
+                request=request,
+                sb=sb,
+                screening=screening,
+                resolver=currency,
+                operation=_EPISODE_OPERATION,
+                selection=GenerationSelectionMode.MISSING_ONLY,
+                builder=builder,
+                states=states,
+                log=log,
+            )
             for done_id in already_done:
                 state = _state_for(states, str(done_id))
                 builder.skip(state)
@@ -1147,66 +1479,28 @@ def generate_video_episode_tool(ctx: ToolContext):
             refused = artifact_state_tickets(blocked_states)
             refused.extend(screen_refused)
 
-            voice_characters = await resolve_voice_context(project, content_mode)
-            specs, order_map, spec_refused = build_storyboard_video_specs(
+            specs, order_map, spec_refused = await batch.build_specs(
                 items=items,
-                id_field=id_field,
-                content_mode=content_mode,
-                skeleton_kind=skeleton_kind,
-                script_filename=script_filename,
-                project_dir=project_dir,
-                project=project,
-                episode=episode,
-                resolver=currency,
                 skip_ids=[*already_done, *blocked_ids],
-                voice_characters=voice_characters,
             )
             refused.extend(spec_refused)
 
             if not specs and not refused and not builder.recorded_ids and not any(ordered_paths):
                 raise RuntimeError("没有可生成的视频片段")
 
-            admission = await _admit_storyboard_specs(
-                ctx=ctx,
-                project=project,
-                script=script,
-                script_filename=script_filename,
+            return await batch.admit_and_submit(
                 items=items,
-                id_field=id_field,
                 specs=specs,
-                request_options=request_options,
-                confirmed_request_durations=confirmed_request_durations,
-                operation=_EPISODE_OPERATION,
-                selection=GenerationSelectionMode.MISSING_ONLY,
                 extra_tickets=refused,
-            )
-            if not admission.admitted:
-                return _batch_admission_response(BatchAdmissionRefused(admission), log, builder, states)
-
-            if specs:
-                successes, failures = await _submit_with_checkpoint(
-                    project_name=ctx.project_name,
+                checkpoint=_CheckpointSubmission(
                     project_dir=project_dir,
-                    specs=specs,
+                    ckpt_path=ckpt_path,
                     order_map=order_map,
                     ordered_paths=ordered_paths,
                     completed=completed,
-                    fallback_relpath=_scene_fallback_relpath,
                     save_fn=lambda: _save_checkpoint_at(ckpt_path, completed, started_at, episode=episode),
-                )
-                record_batch_outcomes(
-                    builder,
-                    successes=successes,
-                    failures=failures,
-                    states=states,
-                    resolver=currency,
-                    fallback_path=_scene_fallback_relpath,
-                )
-
-            # checkpoint 只在整批无失败时清除，否则 resume=true 仍能接上断点。
-            if not builder.has_failures:
-                _clear_checkpoint_at(ckpt_path)
-            return generation_result_response(builder.build(), log)
+                ),
+            )
         except SpeechAdmissionError as exc:
             return _speech_admission_error(_EPISODE_OPERATION, exc, log)
         except Exception as exc:  # noqa: BLE001
@@ -1219,53 +1513,29 @@ def generate_video_scene_tool(ctx: ToolContext):
     @tool(
         "generate_video_scene",
         "生成单个场景/片段的视频。reference_video 项目传 unit_id 即对该 unit 重新生成（覆盖已有成片）。",
-        {
-            "type": "object",
-            "properties": {
-                "script": {
-                    "type": "string",
-                    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
-                },
-                "scene_id": {
-                    "type": "string",
-                    "description": "场景或片段 ID；reference_video 项目传 video_unit 的 unit_id（如 E1U2）",
-                },
-                "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
-                "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
-                "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
-            },
-            "required": ["script", "scene_id", "narration_delivery"],
-        },
+        _SCENE_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])
             scene_id = args["scene_id"]
-            request_options = _reference_request_options(args)
-            confirmed_request_durations = _confirmed_request_durations(args)
+            request = _video_request_context(ctx, args, script_filename)
 
-            project_dir = ctx.project_path
-            script = ctx.pm.load_script(ctx.project_name, script_filename)
-
-            route = _resolve_reference_route(ctx, script)
-            if route is not None:
+            if request.reference_route is not None:
                 return await _run_reference_units(
                     ctx=ctx,
                     script_filename=script_filename,
                     unit_ids=[scene_id],
-                    request_options=request_options,
-                    confirmed_request_durations=confirmed_request_durations,
+                    request_options=request.request_options,
+                    confirmed_request_durations=request.confirmed_request_durations,
                     log=log,
                     operation=_SCENE_OPERATION,
                 )
 
             builder = GenerationResultBuilder(_SCENE_OPERATION, GenerationSelectionMode.EXPLICIT)
-            items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            # 骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
-            # 反推的种类误判成解析失败。
-            skeleton_kind = resolve_script_kind(script)
-            items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids={scene_id})
+            screening = _screen_script_targets(request.script, requested_ids={scene_id})
+            items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
             item = next((s for s in items if s.get(id_field) == scene_id or s.get("scene_id") == scene_id), None)
             if not item:
                 # 筛查已经按这个名字拒过（剧本里它指向多个条目）时报筛查的结论：同一个 ID
@@ -1282,65 +1552,35 @@ def generate_video_scene_tool(ctx: ToolContext):
                     ),
                 )
                 return generation_result_response(builder.build(), log)
-            project = ctx.pm.load_project(ctx.project_name)
-            episode = resolve_artifact_episode(
-                project=project,
-                script=script,
-                script_filename=script_filename,
+            sb = _storyboard_context(ctx, request)
+            currency = active_artifact_currency_resolver(request.project_dir, sb.project)
+            states = video_target_states([item], id_field, episode=sb.episode, resolver=currency)
+            batch = _StoryboardBatch(
+                ctx=ctx,
+                request=request,
+                sb=sb,
+                screening=screening,
+                resolver=currency,
+                operation=_SCENE_OPERATION,
+                selection=GenerationSelectionMode.EXPLICIT,
+                builder=builder,
+                states=states,
+                log=log,
             )
-            currency = active_artifact_currency_resolver(project_dir, project)
-            states = video_target_states([item], id_field, episode=episode, resolver=currency)
 
             # 发声准入与输入可用性都由 _build_video_specs 判定，点名单条与整批走同一条缝：
             # 两处各判一次，口径就会随其中一处的改动分叉。
-            content_mode = resolve_content_mode(script, project)
-            voice_characters = await resolve_voice_context(project, content_mode)
-            specs, _order_map, refused = build_storyboard_video_specs(
-                items=[item],
-                id_field=id_field,
-                content_mode=content_mode,
-                skeleton_kind=skeleton_kind,
-                script_filename=script_filename,
-                project_dir=project_dir,
-                project=project,
-                episode=episode,
-                resolver=currency,
-                skip_ids=None,
-                voice_characters=voice_characters,
-            )
+            specs, _order_map, refused = await batch.build_specs(items=[item], skip_ids=None)
             refused.extend(screen_refused)
             if not specs and not refused:
-                return generation_result_response(builder.build(), log)
+                return batch.result()
 
-            admission = await _admit_storyboard_specs(
-                ctx=ctx,
-                project=project,
-                script=script,
-                script_filename=script_filename,
+            return await batch.admit_and_submit(
                 items=[item],
-                id_field=id_field,
                 specs=specs,
-                request_options=request_options,
-                confirmed_request_durations=confirmed_request_durations,
-                operation=_SCENE_OPERATION,
-                selection=GenerationSelectionMode.EXPLICIT,
                 extra_tickets=refused,
+                checkpoint=None,
             )
-            if not admission.admitted:
-                return _batch_admission_response(BatchAdmissionRefused(admission), log, builder, states)
-
-            successes, failures = await batch_enqueue_and_wait(
-                project_name=ctx.project_name, specs=specs, stop_on_failure=True
-            )
-            record_batch_outcomes(
-                builder,
-                successes=successes,
-                failures=failures,
-                states=states,
-                resolver=currency,
-                fallback_path=_scene_fallback_relpath,
-            )
-            return generation_result_response(builder.build(), log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error(_SCENE_OPERATION, exc, log)
         except Exception as exc:  # noqa: BLE001
@@ -1353,56 +1593,32 @@ def generate_video_all_tool(ctx: ToolContext):
     @tool(
         "generate_video_all",
         "为剧本批量生成所有缺视频的场景/片段（独立模式，不拼接）。reference_video 模式等同 episode 模式。",
-        {
-            "type": "object",
-            "properties": {
-                "script": {
-                    "type": "string",
-                    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
-                },
-                "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
-                "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
-                "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
-            },
-            "required": ["script", "narration_delivery"],
-        },
+        _ALL_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])
-            request_options = _reference_request_options(args)
-            confirmed_request_durations = _confirmed_request_durations(args)
-            project_dir = ctx.project_path
-            script = ctx.pm.load_script(ctx.project_name, script_filename)
+            request = _video_request_context(ctx, args, script_filename)
+            project_dir = request.project_dir
 
-            route = _resolve_reference_route(ctx, script)
-            if route is not None:
+            if request.reference_route is not None:
                 return await _run_reference_episode(
                     ctx=ctx,
-                    script=script,
+                    script=request.script,
                     script_filename=script_filename,
                     resume=False,
-                    request_options=request_options,
-                    confirmed_request_durations=confirmed_request_durations,
+                    request_options=request.request_options,
+                    confirmed_request_durations=request.confirmed_request_durations,
                     log=log,
                     operation=_ALL_OPERATION,
                 )
-            items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            # 骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
-            # 反推的种类误判成解析失败。
-            skeleton_kind = resolve_script_kind(script)
-            items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids=None)
-            project = ctx.pm.load_project(ctx.project_name)
-            content_mode = resolve_content_mode(script, project)
-            currency = active_artifact_currency_resolver(project_dir, project)
+            screening = _screen_script_targets(request.script, requested_ids=None)
+            items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
+            sb = _storyboard_context(ctx, request)
+            currency = active_artifact_currency_resolver(project_dir, sb.project)
             versions = VersionManager(project_dir)
-            episode = resolve_artifact_episode(
-                project=project,
-                script=script,
-                script_filename=script_filename,
-            )
-            states = video_target_states(items, id_field, episode=episode, resolver=currency)
+            states = video_target_states(items, id_field, episode=sb.episode, resolver=currency)
             selection = select_generation_targets(
                 candidates=[state.candidate for state in states.values()],
                 requested_ids=None,
@@ -1419,64 +1635,40 @@ def generate_video_all_tool(ctx: ToolContext):
             # 同一个 unit 记两次会让结果构造器 fail loud。
             unavailable_tickets = artifact_state_tickets(selection.unavailable)
             builder = GenerationResultBuilder.from_selection(_ALL_OPERATION, replace(selection, unavailable=()))
+            batch = _StoryboardBatch(
+                ctx=ctx,
+                request=request,
+                sb=sb,
+                screening=screening,
+                resolver=currency,
+                operation=_ALL_OPERATION,
+                selection=GenerationSelectionMode.MISSING_ONLY,
+                builder=builder,
+                states=states,
+                log=log,
+            )
             if not selection.targets and not unavailable_tickets and not screen_refused:
-                return generation_result_response(builder.build(), log)
+                return batch.result()
 
             # 与 ``_video_target_states`` 用同一套 ID 回退规则：条目若缺 ``id_field``
             # 但带 ``scene_id``/``segment_id``，selection 已按回退 ID 记为 target，
             # 这里若只认 ``id_field`` 会把它筛没——进了 requested 却永远不入队。
             target_id_set = set(selection.target_ids)
             pending = [item for item in items if str(storyboard_item_id(item, id_field) or "") in target_id_set]
-            voice_characters = await resolve_voice_context(project, content_mode)
-            specs, _order_map, refused = build_storyboard_video_specs(
-                items=pending,
-                id_field=id_field,
-                content_mode=content_mode,
-                skeleton_kind=skeleton_kind,
-                script_filename=script_filename,
-                project_dir=project_dir,
-                project=project,
-                episode=episode,
-                resolver=currency,
-                skip_ids=None,
-                voice_characters=voice_characters,
-            )
+            specs, _order_map, refused = await batch.build_specs(items=pending, skip_ids=None)
             # 产物状态不可读的场景被选目标环节排除在 targets 之外，但它属于这次请求：
             # 不带进准入，同批健康的场景会照常入队并计费，剩下这一个被无声略过。
             refused.extend(unavailable_tickets)
             refused.extend(screen_refused)
             if not specs and not refused:
-                return generation_result_response(builder.build(), log)
+                return batch.result()
 
-            admission = await _admit_storyboard_specs(
-                ctx=ctx,
-                project=project,
-                script=script,
-                script_filename=script_filename,
+            return await batch.admit_and_submit(
                 items=pending,
-                id_field=id_field,
                 specs=specs,
-                request_options=request_options,
-                confirmed_request_durations=confirmed_request_durations,
-                operation=_ALL_OPERATION,
-                selection=GenerationSelectionMode.MISSING_ONLY,
                 extra_tickets=refused,
+                checkpoint=None,
             )
-            if not admission.admitted:
-                return _batch_admission_response(BatchAdmissionRefused(admission), log, builder, states)
-
-            successes, failures = await batch_enqueue_and_wait(
-                project_name=ctx.project_name, specs=specs, stop_on_failure=True
-            )
-            record_batch_outcomes(
-                builder,
-                successes=successes,
-                failures=failures,
-                states=states,
-                resolver=currency,
-                fallback_path=_scene_fallback_relpath,
-            )
-            return generation_result_response(builder.build(), log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error(_ALL_OPERATION, exc, log)
         except Exception as exc:  # noqa: BLE001
@@ -1491,28 +1683,7 @@ def generate_video_selected_tool(ctx: ToolContext):
         "生成指定多个场景的视频。storyboard 项目用按 scene_ids 哈希的独立 checkpoint，支持 resume 续传。"
         "reference_video 项目传 unit_id 列表即对这些 unit 重新生成（覆盖已有成片），"
         "不落批次进度 checkpoint、忽略此处 resume 参数；已入队任务的 provider 提交恢复由队列独立处理。",
-        {
-            "type": "object",
-            "properties": {
-                "script": {
-                    "type": "string",
-                    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
-                },
-                "scene_ids": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": '场景或片段 ID 列表；reference_video 项目传 video_unit 的 unit_id 列表（如 ["E1U2"]）',
-                },
-                "resume": {
-                    "type": "boolean",
-                    "description": "是否从上次中断处继续；reference_video 项目的点名重新生成会忽略此参数",
-                },
-                "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
-                "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
-                "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
-            },
-            "required": ["script", "scene_ids", "narration_delivery"],
-        },
+        _SELECTED_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         log: list[str] = []
@@ -1522,14 +1693,10 @@ def generate_video_selected_tool(ctx: ToolContext):
             # checkpoint hash 再单独排序（见下方 ``canonical_scene_ids``）。
             scene_ids: list[str] = normalize_requested_ids(args["scene_ids"], field="scene_ids") or []
             resume = bool(args.get("resume"))
-            request_options = _reference_request_options(args)
-            confirmed_request_durations = _confirmed_request_durations(args)
+            request = _video_request_context(ctx, args, script_filename)
+            project_dir = request.project_dir
 
-            project_dir = ctx.project_path
-            script = ctx.pm.load_script(ctx.project_name, script_filename)
-
-            route = _resolve_reference_route(ctx, script)
-            if route is not None:
+            if request.reference_route is not None:
                 if resume:
                     # 点名重新生成一律覆盖已有成片，没有可续传的中断态；照单收下再无视会让
                     # 调用方以为断点还在。
@@ -1538,24 +1705,16 @@ def generate_video_selected_tool(ctx: ToolContext):
                     ctx=ctx,
                     script_filename=script_filename,
                     unit_ids=scene_ids,
-                    request_options=request_options,
-                    confirmed_request_durations=confirmed_request_durations,
+                    request_options=request.request_options,
+                    confirmed_request_durations=request.confirmed_request_durations,
                     log=log,
                     operation=_SELECTED_OPERATION,
                 )
 
-            items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            # 骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
-            # 反推的种类误判成解析失败。
-            skeleton_kind = resolve_script_kind(script)
-            items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids=set(scene_ids))
-            project = ctx.pm.load_project(ctx.project_name)
-            content_mode = resolve_content_mode(script, project)
-            episode = resolve_artifact_episode(
-                project=project,
-                script=script,
-                script_filename=script_filename,
-            )
+            screening = _screen_script_targets(request.script, requested_ids=set(scene_ids))
+            items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
+            sb = _storyboard_context(ctx, request)
+            episode = sb.episode
 
             items_by_id: dict[str, dict[str, Any]] = {}
             for item in items:
@@ -1602,87 +1761,49 @@ def generate_video_selected_tool(ctx: ToolContext):
             canonical_scene_ids = sorted(seen_canonical)
             scenes_hash = hashlib.md5(",".join(canonical_scene_ids).encode("utf-8")).hexdigest()[:8]
             ckpt_path = _selected_checkpoint_path(project_dir, scenes_hash)
-            completed: list[str] = []
-            started_at = datetime.now(UTC).isoformat()
-            if resume:
-                ckpt = _load_checkpoint_at(ckpt_path)
-                if ckpt:
-                    completed = ckpt.get("completed_scenes", [])
-                    started_at = ckpt.get("started_at", started_at)
-
-            videos_dir = project_dir / "videos"
-            videos_dir.mkdir(parents=True, exist_ok=True)
-            currency = active_artifact_currency_resolver(project_dir, project)
-            ordered_paths, already_done, completed = _scan_completed_items(
-                selected,
-                id_field,
-                completed,
-                videos_dir,
+            currency = active_artifact_currency_resolver(project_dir, sb.project)
+            ordered_paths, already_done, completed, started_at = _scan_checkpointed_items(
+                items=selected,
+                id_field=id_field,
+                ckpt_path=ckpt_path,
+                resume=resume,
+                project_dir=project_dir,
                 episode=episode,
                 resolver=currency,
             )
             states = video_target_states(selected, id_field, episode=episode, resolver=currency)
             for done_id in already_done:
                 builder.skip(_state_for(states, str(done_id)))
-
-            voice_characters = await resolve_voice_context(project, content_mode)
-            specs, order_map, spec_refused = build_storyboard_video_specs(
-                items=selected,
-                id_field=id_field,
-                content_mode=content_mode,
-                skeleton_kind=skeleton_kind,
-                script_filename=script_filename,
-                project_dir=project_dir,
-                project=project,
-                episode=episode,
+            batch = _StoryboardBatch(
+                ctx=ctx,
+                request=request,
+                sb=sb,
+                screening=screening,
                 resolver=currency,
-                skip_ids=already_done,
-                voice_characters=voice_characters,
+                operation=_SELECTED_OPERATION,
+                selection=GenerationSelectionMode.EXPLICIT,
+                builder=builder,
+                states=states,
+                log=log,
             )
+
+            specs, order_map, spec_refused = await batch.build_specs(items=selected, skip_ids=already_done)
             refused.extend(spec_refused)
             refused.extend(screen_refused)
 
-            admission = await _admit_storyboard_specs(
-                ctx=ctx,
-                project=project,
-                script=script,
-                script_filename=script_filename,
+            return await batch.admit_and_submit(
                 items=selected,
-                id_field=id_field,
                 specs=specs,
-                request_options=request_options,
-                confirmed_request_durations=confirmed_request_durations,
-                operation=_SELECTED_OPERATION,
-                selection=GenerationSelectionMode.EXPLICIT,
                 extra_tickets=refused,
-            )
-            if not admission.admitted:
-                return _batch_admission_response(BatchAdmissionRefused(admission), log, builder, states)
-
-            if specs:
-                successes, failures = await _submit_with_checkpoint(
-                    project_name=ctx.project_name,
+                checkpoint=_CheckpointSubmission(
                     project_dir=project_dir,
-                    specs=specs,
+                    ckpt_path=ckpt_path,
                     order_map=order_map,
                     ordered_paths=ordered_paths,
                     completed=completed,
-                    fallback_relpath=_scene_fallback_relpath,
                     save_fn=lambda: _save_checkpoint_at(ckpt_path, completed, started_at, scene_ids=scene_ids),
-                )
-                record_batch_outcomes(
-                    builder,
-                    successes=successes,
-                    failures=failures,
-                    states=states,
-                    resolver=currency,
-                    fallback_path=_scene_fallback_relpath,
-                )
-
-            # checkpoint 只在整批无失败时清除，否则 resume=true 仍能接上断点。
-            if not builder.has_failures:
-                _clear_checkpoint_at(ckpt_path)
-            return generation_result_response(builder.build(), log)
+                ),
+            )
         except SpeechAdmissionError as exc:
             return _speech_admission_error(_SELECTED_OPERATION, exc, log)
         except Exception as exc:  # noqa: BLE001
