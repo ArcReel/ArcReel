@@ -477,11 +477,16 @@ describe("WorkflowPanel 刷新纪律", () => {
     useTasksStore.getState().setTasks([]);
   });
 
+  /** 推进指定毫秒数的定时器。 */
+  async function advanceDebounce(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
   /** 推过防抖窗口，把待发布的指纹变化结算掉。 */
   async function settleDebounce() {
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
-    });
+    await advanceDebounce(400);
   }
 
   it("别的项目的任务状态跳变不惊动本项目的计划", async () => {
@@ -518,7 +523,9 @@ describe("WorkflowPanel 刷新纪律", () => {
     }
     expect(spy).toHaveBeenCalledTimes(1);
 
-    await settleDebounce();
+    await advanceDebounce(249);
+    expect(spy).toHaveBeenCalledTimes(1);
+    await advanceDebounce(1);
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
   });
