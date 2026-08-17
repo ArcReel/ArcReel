@@ -574,6 +574,12 @@ function HeroStrip({ totals, t }: HeroStripProps) {
       tone: { color: "var(--color-text)" },
     },
     {
+      key: "prep",
+      label: t("dashboard:phase_preparation"),
+      value: totals.preparation,
+      tone: { color: "var(--color-text-3)" },
+    },
+    {
       key: "script",
       label: t("dashboard:phase_script"),
       value: totals.script,
@@ -909,7 +915,8 @@ export function ProjectsPage() {
   }, [projects]);
 
   const totals = useMemo(() => {
-    // 四格与筛选胶囊读同一套阶段词汇：Hero 报的每一个数都能在下面的胶囊上点开。
+    // Hero 计数与筛选胶囊读同一套阶段词汇：Hero 报的每一个数都能在下面的胶囊上点开。
+    // 四个阶段格覆盖全部阶段，因此只有状态无法解析的项目会落在 total 里而不进任何一格。
     let preparation = 0;
     let script = 0;
     let production = 0;
