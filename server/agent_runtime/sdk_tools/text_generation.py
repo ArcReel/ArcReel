@@ -46,7 +46,7 @@ from lib.reference_video.draft_validation import (
     validate_source_text_anchor,
     validate_unit_text,
 )
-from lib.reference_video.quarantine import (
+from lib.draft_quarantine import (
     PROMOTE_TOOL_NAME,
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,

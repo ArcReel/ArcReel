@@ -20,7 +20,7 @@ from lib.reference_video.draft_validation import (
     render_violation_report,
     violation_items,
 )
-from lib.reference_video.quarantine import (
+from lib.draft_quarantine import (
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
     clear_quarantine,

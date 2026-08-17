@@ -228,7 +228,7 @@ class TestReferenceVideoRouter:
         """隔离草稿在场时 GET 附带 ``quarantine`` 字段：违约按产出时那套校验器读时重算，
         不信任草稿里上一轮的快照（这里把快照消息故意写成 "stale" 来验证）。"""
         from lib.reference_video.draft_validation import DraftViolation
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from server.agent_runtime.sdk_tools import text_generation as mod
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
@@ -269,7 +269,7 @@ class TestReferenceVideoRouter:
         """草稿 units 被改成非数组：违约报 schema_invalid，``content`` 原样回传（不做收编），
         呈现层据此退回原始文本视图而非当作 units 列表遍历。"""
         from lib.reference_video.draft_validation import DraftViolation
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from server.agent_runtime.sdk_tools import text_generation as mod
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
@@ -299,7 +299,7 @@ class TestReferenceVideoRouter:
         """``meta.source`` 缺失 → 无从重算：报「无法重算」本身，而不是退回草稿里那份上一轮
         快照——报告一律对现值负责。"""
         from lib.reference_video.draft_validation import DraftViolation
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         write_quarantine(
@@ -372,7 +372,7 @@ class TestReferenceVideoRouter:
         """存在性检查通过之后、``read_quarantine`` 真正读取之前，晋升工具把隔离文件清掉了
         （正式内容已写入、隔离态合法结束）：这不是信封损坏，这次读跨越了「清除」那一刻，应
         按「无隔离草稿」处理，不能误报成损坏——那会让刚晋升完成的集看起来还卡在隔离态。"""
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from server.services import script_review as mod
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
@@ -478,7 +478,7 @@ class TestReferenceVideoRouter:
         """隔离草稿信封本身合法，但 ``meta.source`` 被改成非字符串（如数字）：重算链路要把它当作
         「无法重算」降级，而不是让 ``safe_join`` 内部的 ``TypeError`` 冒穿成未处理的 500——那样
         用户在最需要看到面板给出修复指引的时刻，看到的反而是一个空白错误页。"""
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         project_path = pm.get_project_path("demo")
@@ -502,7 +502,7 @@ class TestReferenceVideoRouter:
         """``meta.source`` 类型正确（字符串）但指向一个目录：``Path.exists()`` 对目录同样为
         True，直接 ``read_text()`` 会抛 ``IsADirectoryError``——同样要降级成 quarantine_unreadable，
         不能让这个既不是 ValueError 也不是类型错误的 OSError 子类冒穿成 500。"""
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         project_path = pm.get_project_path("demo")
@@ -528,7 +528,7 @@ class TestReferenceVideoRouter:
         面板 ``adopt()`` 会把它当成「无隔离草稿」而放行确认，即使这份隔离草稿在保存前后一直
         都在（这里用「保存时隔离草稿已存在」模拟，等价于「保存在途时才产出」的时序）。"""
         from lib.reference_video.draft_validation import DraftViolation
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         project_path = pm.get_project_path("demo")

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from lib.episode_paths import REFERENCE_VIDEO_STEP1_FILENAME
-from lib.reference_video.quarantine import PROMOTE_TOOL_NAME, STEP1_EDIT_TOOL_NAME
+from lib.draft_quarantine import PROMOTE_TOOL_NAME, STEP1_EDIT_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 

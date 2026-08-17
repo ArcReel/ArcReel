@@ -40,7 +40,7 @@ from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.project_schema import project_schema_is_current
 from lib.reference_video.duration_migration import migrate_unit_durations
-from lib.reference_video.quarantine import (
+from lib.draft_quarantine import (
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
     clear_quarantine,

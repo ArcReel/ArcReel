@@ -9,7 +9,7 @@ from sqlalchemy.exc import OperationalError
 
 from lib import script_review
 from lib.reference_video.draft_validation import DraftViolation
-from lib.reference_video.quarantine import (
+from lib.draft_quarantine import (
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
     quarantine_path,

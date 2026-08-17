@@ -24,7 +24,7 @@ from lib.episode_ledger import discover_episode_files, register_orphan_episode_e
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
 from lib.reference_video import rederive_unit_references
-from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, read_quarantine, violation_entries
+from lib.draft_quarantine import QUARANTINE_KIND_STEP1, read_quarantine, violation_entries
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft, ReferenceStep1Draft
 from lib.speech_composition import SpeechAdmission, admit_script_unit
 from server.agent_runtime.sdk_tools._context import reference_unit_duration_tiers, resolve_video_caps
